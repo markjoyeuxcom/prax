@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: taskboard-config
+  labels:
+    app.kubernetes.io/name: taskboard
+data:
+  HOST: "0.0.0.0"
+  PORT: "3000"
+  PUBLIC_DIR: "/app/public"
