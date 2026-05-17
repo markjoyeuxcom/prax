@@ -1,9 +1,11 @@
 import { state, setState } from './state.js';
-import { fetchTasks } from './taskApi.js';
+import { archiveTask, createTask, fetchTasks, updateTask } from './taskApi.js';
+import { filterTasks } from './taskFilters.js';
 import { buildMetrics, normalizeTask } from './taskModel.js';
 import { renderShellHtml } from './renderShell.js';
 import { renderListHtml } from './renderList.js';
 import { renderTaskDetailHtml } from './renderTaskDetail.js';
+import { renderTaskFormHtml } from './renderTaskForm.js';
 
 const app = document.getElementById('app');
 
@@ -27,19 +29,26 @@ function renderError(message) {
 }
 
 function selectedTask() {
-  if (!state.tasks.length) return null;
-  return state.tasks.find((task) => task.id === state.selectedTaskId) || state.tasks[0];
+  const visibleTasks = filterTasks(state.tasks, state.searchQuery);
+  if (!visibleTasks.length) return null;
+  return visibleTasks.find((task) => task.id === state.selectedTaskId) || visibleTasks[0];
+}
+
+function editingTask() {
+  if (!state.editingTaskId) return null;
+  return state.tasks.find((task) => task.id === state.editingTaskId) || null;
 }
 
 function renderWorkspace() {
   const workspace = document.getElementById('workspace');
   if (!workspace) return;
 
+  const visibleTasks = filterTasks(state.tasks, state.searchQuery);
   const task = selectedTask();
   const selectedTaskId = task?.id || null;
 
   workspace.innerHTML = [
-    renderListHtml(state.tasks, selectedTaskId),
+    renderListHtml(visibleTasks, selectedTaskId),
     renderTaskDetailHtml(task),
   ].join('');
 
@@ -49,32 +58,172 @@ function renderWorkspace() {
       renderWorkspace();
     });
   });
+
+  const editButton = workspace.querySelector('[data-action="edit-task"]');
+  editButton?.addEventListener('click', () => {
+    const taskToEdit = selectedTask();
+    if (!taskToEdit) return;
+    setState({
+      isTaskFormOpen: true,
+      editingTaskId: taskToEdit.id,
+      formError: '',
+    });
+    renderApp();
+  });
+
+  const archiveButton = workspace.querySelector('[data-action="archive-task"]');
+  archiveButton?.addEventListener('click', async () => {
+    const taskToArchive = selectedTask();
+    if (!taskToArchive) return;
+    const confirmed = window.confirm(`Archive "${taskToArchive.title}"?`);
+    if (!confirmed) return;
+
+    try {
+      await archiveTask(taskToArchive.id);
+      await loadTasks({ selectedTaskId: null });
+    } catch {
+      window.alert('TaskBoard could not archive the selected task.');
+    }
+  });
 }
 
-function renderShell() {
+function renderApp() {
   const metrics = buildMetrics(state.tasks, today());
   app.innerHTML = renderShellHtml({
     activeContext: state.activeContext,
     activeView: state.activeView,
     apiStatus: state.apiStatus,
+    searchQuery: state.searchQuery,
     metrics,
   });
   renderWorkspace();
+  if (state.isTaskFormOpen) {
+    app.insertAdjacentHTML('beforeend', renderTaskFormHtml({
+      task: editingTask(),
+      activeContext: state.activeContext,
+      error: state.formError,
+      isSaving: state.isSaving,
+    }));
+  }
+  bindShellEvents();
+  bindTaskFormEvents();
+}
+
+function bindShellEvents() {
+  app.querySelector('[data-action="new-task"]')?.addEventListener('click', () => {
+    setState({
+      isTaskFormOpen: true,
+      editingTaskId: null,
+      formError: '',
+    });
+    renderApp();
+  });
+
+  app.querySelector('[data-search-input]')?.addEventListener('input', (event) => {
+    setState({ searchQuery: event.target.value });
+    renderWorkspace();
+  });
+
+  app.querySelectorAll('[data-context]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const nextContext = button.dataset.context;
+      if (!nextContext || nextContext === state.activeContext) return;
+      setState({
+        activeContext: nextContext,
+        selectedTaskId: null,
+        isTaskFormOpen: false,
+        editingTaskId: null,
+        formError: '',
+      });
+      try {
+        await loadTasks({ selectedTaskId: null });
+      } catch (error) {
+        setState({ apiStatus: 'error' });
+        renderError(error.message);
+      }
+    });
+  });
+}
+
+function bindTaskFormEvents() {
+  const form = app.querySelector('[data-task-form]');
+  if (!form) return;
+
+  app.querySelectorAll('[data-action="close-task-form"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      setState({
+        isTaskFormOpen: false,
+        editingTaskId: null,
+        formError: '',
+        isSaving: false,
+      });
+      renderApp();
+    });
+  });
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const data = new FormData(form);
+    const title = String(data.get('title') || '').trim();
+    if (!title) {
+      setState({ formError: 'Title is required.' });
+      renderApp();
+      return;
+    }
+
+    const payload = {
+      title,
+      description: String(data.get('description') || '').trim(),
+      priority: String(data.get('priority') || 'medium'),
+      status: String(data.get('status') || 'planned'),
+      context: String(data.get('context') || state.activeContext),
+      dueDate: String(data.get('dueDate') || '') || null,
+    };
+
+    setState({ isSaving: true, formError: '' });
+    renderApp();
+
+    try {
+      const savedTask = state.editingTaskId
+        ? await updateTask(state.editingTaskId, payload)
+        : await createTask({ ...payload, sortOrder: state.tasks.length });
+
+      setState({
+        activeContext: savedTask.context || payload.context,
+        selectedTaskId: savedTask.id,
+        isTaskFormOpen: false,
+        editingTaskId: null,
+        isSaving: false,
+        formError: '',
+      });
+      await loadTasks({ selectedTaskId: savedTask.id });
+    } catch {
+      setState({
+        isSaving: false,
+        formError: state.editingTaskId ? 'TaskBoard could not update this task.' : 'TaskBoard could not create this task.',
+      });
+      renderApp();
+    }
+  });
+}
+
+async function loadTasks({ selectedTaskId = state.selectedTaskId } = {}) {
+  setState({ apiStatus: 'loading' });
+  renderLoading();
+  const tasks = await fetchTasks({ context: state.activeContext });
+  const normalizedTasks = tasks.map(normalizeTask);
+  const selectedTaskExists = normalizedTasks.some((task) => task.id === selectedTaskId);
+  setState({
+    tasks: normalizedTasks,
+    apiStatus: 'connected',
+    selectedTaskId: selectedTaskExists ? selectedTaskId : normalizedTasks[0]?.id || null,
+  });
+  renderApp();
 }
 
 async function init() {
-  setState({ apiStatus: 'loading' });
-  renderLoading();
   try {
-    const tasks = await fetchTasks({ context: state.activeContext });
-    const normalizedTasks = tasks.map(normalizeTask);
-    const selectedTaskExists = normalizedTasks.some((task) => task.id === state.selectedTaskId);
-    setState({
-      tasks: normalizedTasks,
-      apiStatus: 'connected',
-      selectedTaskId: selectedTaskExists ? state.selectedTaskId : normalizedTasks[0]?.id || null,
-    });
-    renderShell();
+    await loadTasks();
   } catch (error) {
     setState({ apiStatus: 'error' });
     renderError(error.message);

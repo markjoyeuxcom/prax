@@ -5,6 +5,10 @@ export const state = {
   activeContext: 'homelab',
   searchQuery: '',
   apiStatus: 'unknown',
+  isTaskFormOpen: false,
+  editingTaskId: null,
+  formError: '',
+  isSaving: false,
 };
 
 export function setState(patch) {
