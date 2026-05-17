@@ -17,3 +17,21 @@ export async function createTask(task) {
   if (!response.ok) throw new Error('Failed to create task');
   return response.json();
 }
+
+export async function updateTask(id, patch) {
+  const response = await fetch(`/api/tasks/${id}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  if (!response.ok) throw new Error('Failed to update task');
+  return response.json();
+}
+
+export async function archiveTask(id) {
+  const response = await fetch(`/api/tasks/${id}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) throw new Error('Failed to archive task');
+  return response.json();
+}
