@@ -43,6 +43,15 @@ function metricValue(metrics, key) {
   return Number.isFinite(value) ? value : 0;
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function viewFor(activeView) {
   return viewButtons.find((view) => view.id === activeView) || viewButtons[0];
 }
@@ -52,7 +61,7 @@ function renderViewButtons(activeView) {
   return viewButtons.map((view) => {
     const isActive = activeViewConfig.id === view.id;
     return `
-          <button class="nav-button${isActive ? ' is-active' : ''}" type="button" aria-pressed="${isActive}">
+          <button class="nav-button${isActive ? ' is-active' : ''}" type="button" aria-pressed="${isActive}" data-view="${view.id}">
             <span>${view.label}</span>
           </button>`;
   }).join('');
@@ -62,7 +71,7 @@ function renderContextButtons(activeContext) {
   return contextButtons.map((context) => {
     const isActive = activeContext === context.id;
     return `
-          <button class="nav-button${isActive ? ' is-active' : ''}" type="button" aria-pressed="${isActive}">
+          <button class="nav-button${isActive ? ' is-active' : ''}" type="button" aria-pressed="${isActive}" data-context="${context.id}">
             <span>${context.label}</span>
           </button>`;
   }).join('');
@@ -86,6 +95,7 @@ export function renderShellHtml({
   activeContext = 'homelab',
   activeView = 'list',
   apiStatus = 'connected',
+  searchQuery = '',
   metrics = {},
 } = {}) {
   const activeViewConfig = viewFor(activeView);
@@ -132,12 +142,12 @@ export function renderShellHtml({
         <header class="topbar">
           <label class="search-field">
             <span class="sr-only">Search tasks</span>
-            <input type="search" placeholder="Search tasks" autocomplete="off">
+            <input type="search" placeholder="Search tasks" autocomplete="off" value="${escapeHtml(searchQuery)}" data-search-input>
           </label>
           <div class="topbar-actions">
-            <button class="secondary-action" type="button">Export</button>
-            <button class="secondary-action" type="button">Import</button>
-            <button class="primary-action" type="button">New Task</button>
+            <button class="secondary-action" type="button" data-action="export">Export</button>
+            <button class="secondary-action" type="button" data-action="import">Import</button>
+            <button class="primary-action" type="button" data-action="new-task">New Task</button>
           </div>
         </header>
 

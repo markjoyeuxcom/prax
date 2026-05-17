@@ -49,3 +49,16 @@ test('renderShellHtml defaults missing metric values and reflects API status', (
   assert.match(html, />2</);
   assert.match(html, />0</);
 });
+
+test('renderShellHtml includes workflow hooks for search, context, and actions', () => {
+  const html = renderShellHtml({
+    activeContext: 'work',
+    searchQuery: 'backup',
+  });
+
+  assert.match(html, /data-context="work"/);
+  assert.match(html, /data-action="new-task"/);
+  assert.match(html, /data-action="import"/);
+  assert.match(html, /data-action="export"/);
+  assert.match(html, /value="backup"/);
+});

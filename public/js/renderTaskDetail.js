@@ -61,6 +61,10 @@ export function renderTaskDetailHtml(task) {
         <span class="detail-kicker">Selected Task</span>
         <h2 id="selected-task-title">${escapeHtml(title)}</h2>
         <p>${escapeHtml(description)}</p>
+        <div class="detail-actions">
+          <button class="secondary-action" type="button" data-action="edit-task">Edit</button>
+          <button class="danger-action" type="button" data-action="archive-task">Archive</button>
+        </div>
       </header>
 
       <dl class="detail-meta" aria-label="Task metadata">${renderMetaItem('Priority', priority)}${renderMetaItem('Status', status)}${renderMetaItem('Due', dueDate)}

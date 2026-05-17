@@ -65,4 +65,6 @@ test('renderTaskDetailHtml renders selected task metadata and future sections', 
   assert.match(html, /Checklist/);
   assert.match(html, /Notes/);
   assert.match(html, /Activity/);
+  assert.match(html, /data-action="edit-task"/);
+  assert.match(html, /data-action="archive-task"/);
 });
