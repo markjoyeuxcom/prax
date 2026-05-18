@@ -6,9 +6,11 @@ export const state = {
   searchQuery: '',
   apiStatus: 'unknown',
   isTaskFormOpen: false,
+  isAdminPanelOpen: false,
   editingTaskId: null,
   formError: '',
   isSaving: false,
+  adminImportMode: 'skip',
 };
 
 export function setState(patch) {

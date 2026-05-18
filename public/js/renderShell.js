@@ -145,8 +145,7 @@ export function renderShellHtml({
             <input type="search" placeholder="Search tasks" autocomplete="off" value="${escapeHtml(searchQuery)}" data-search-input>
           </label>
           <div class="topbar-actions">
-            <button class="secondary-action" type="button" data-action="export">Export</button>
-            <button class="secondary-action" type="button" data-action="import">Import</button>
+            <button class="secondary-action" type="button" data-action="open-admin">Admin</button>
             <button class="primary-action" type="button" data-action="new-task">New Task</button>
           </div>
         </header>

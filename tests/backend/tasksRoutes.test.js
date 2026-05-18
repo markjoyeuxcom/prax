@@ -150,6 +150,40 @@ test('GET /api/tasks/export returns a versioned context export', async () => {
   await app.close();
 });
 
+test('GET /api/tasks/export returns an all-context backup', async () => {
+  const repository = createFakeRepository();
+  await repository.importTasks([
+    {
+      title: 'Personal restore drill',
+      description: '',
+      priority: 'low',
+      status: 'completed',
+      context: 'personal',
+      dueDate: null,
+      sortOrder: 0,
+      archivedAt: '2026-05-11T12:00:00.000Z',
+    },
+  ]);
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: repository,
+  });
+
+  const response = await app.inject({
+    method: 'GET',
+    url: '/api/tasks/export?context=all',
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().format, 'taskboard.tasks');
+  assert.equal(response.json().version, 1);
+  assert.equal(response.json().context, 'all');
+  assert.deepEqual(response.json().tasks.map(task => task.context).sort(), ['homelab', 'personal']);
+  assert.equal(response.json().tasks.find(task => task.context === 'personal').archivedAt, '2026-05-11T12:00:00.000Z');
+
+  await app.close();
+});
+
 test('POST /api/tasks creates a task', async () => {
   const app = await buildApp({
     skipDb: true,

@@ -14,7 +14,6 @@ import { moveTaskOnBoard } from './boardWorkflow.js';
 import {
   exportFilename,
   normalizeImportMode,
-  openTaskImportFilePicker,
   tasksFromImportPayload,
 } from './importExport.js';
 import { filterTasks } from './taskFilters.js';
@@ -25,6 +24,7 @@ import { renderListHtml } from './renderList.js';
 import { renderBoardHtml } from './renderBoard.js';
 import { renderTaskDetailHtml } from './renderTaskDetail.js';
 import { renderTaskFormHtml } from './renderTaskForm.js';
+import { renderAdminPanelHtml } from './renderAdminPanel.js';
 
 const app = document.getElementById('app');
 
@@ -282,8 +282,16 @@ function renderApp() {
       isSaving: state.isSaving,
     }));
   }
+  if (state.isAdminPanelOpen) {
+    app.insertAdjacentHTML('beforeend', renderAdminPanelHtml({
+      activeContext: state.activeContext,
+      taskCount: state.tasks.length,
+      importMode: state.adminImportMode,
+    }));
+  }
   bindShellEvents();
   bindTaskFormEvents();
+  bindAdminPanelEvents();
 }
 
 function bindShellEvents() {
@@ -296,47 +304,13 @@ function bindShellEvents() {
     renderApp();
   });
 
-  app.querySelector('[data-action="export"]')?.addEventListener('click', async () => {
-    try {
-      const exported = await exportTasks({ context: state.activeContext });
-      downloadJsonFile(exportFilename(state.activeContext), exported);
-    } catch {
-      window.alert('TaskBoard could not export this context.');
-    }
-  });
-
-  app.querySelector('[data-action="import"]')?.addEventListener('click', () => {
-    openTaskImportFilePicker({
-      documentRef: document,
-      handleFile: async (file) => {
-        const requestedMode = window.prompt('Import mode: skip, append, or replace', 'skip');
-        if (requestedMode === null) return;
-
-        let mode;
-        try {
-          mode = normalizeImportMode(requestedMode);
-        } catch {
-          window.alert('Import mode must be append, skip, or replace.');
-          return;
-        }
-
-        if (mode === 'replace') {
-          const confirmed = window.prompt(`Replace all ${state.activeContext} tasks? Type REPLACE to continue.`);
-          if (confirmed !== 'REPLACE') return;
-        }
-
-        try {
-          const payload = JSON.parse(await file.text());
-          const tasks = tasksFromImportPayload(payload);
-          const result = await importTasks({ context: state.activeContext, mode, tasks });
-          const skipped = result.skipped ? ` Skipped ${result.skipped}.` : '';
-          window.alert(`Imported ${result.imported} ${result.imported === 1 ? 'task' : 'tasks'}.${skipped}`);
-          await loadTasks({ selectedTaskId: null });
-        } catch {
-          window.alert('TaskBoard could not import that file.');
-        }
-      },
+  app.querySelector('[data-action="open-admin"]')?.addEventListener('click', () => {
+    setState({
+      isAdminPanelOpen: true,
+      isTaskFormOpen: false,
+      editingTaskId: null,
     });
+    renderApp();
   });
 
   app.querySelector('[data-search-input]')?.addEventListener('input', (event) => {
@@ -352,6 +326,7 @@ function bindShellEvents() {
         activeContext: nextContext,
         selectedTaskId: null,
         isTaskFormOpen: false,
+        isAdminPanelOpen: false,
         editingTaskId: null,
         formError: '',
       });
@@ -373,6 +348,7 @@ function bindShellEvents() {
         activeView: nextView,
         selectedTaskId: null,
         isTaskFormOpen: false,
+        isAdminPanelOpen: false,
         editingTaskId: null,
         formError: '',
       });
@@ -387,6 +363,95 @@ function bindShellEvents() {
         renderApp();
       }
     });
+  });
+}
+
+async function exportAdminTasks(context) {
+  try {
+    const exported = await exportTasks({ context });
+    downloadJsonFile(exportFilename(context), exported);
+  } catch {
+    window.alert(context === 'all'
+      ? 'TaskBoard could not export all contexts.'
+      : 'TaskBoard could not export this context.');
+  }
+}
+
+function selectedAdminImportMode(panel) {
+  const checked = panel.querySelector('[name="admin-import-mode"]:checked');
+  try {
+    return normalizeImportMode(checked?.value || state.adminImportMode);
+  } catch {
+    return 'skip';
+  }
+}
+
+async function importAdminFile(file, panel) {
+  const mode = selectedAdminImportMode(panel);
+  const replaceConfirmation = panel.querySelector('[data-admin-replace-confirm]')?.value || '';
+  if (mode === 'replace' && replaceConfirmation !== 'REPLACE') {
+    window.alert('Type REPLACE before importing in replace mode.');
+    return;
+  }
+
+  try {
+    const payload = JSON.parse(await file.text());
+    const tasks = tasksFromImportPayload(payload);
+    const result = await importTasks({ context: state.activeContext, mode, tasks });
+    const skipped = result.skipped ? ` Skipped ${result.skipped}.` : '';
+    window.alert(`Imported ${result.imported} ${result.imported === 1 ? 'task' : 'tasks'}.${skipped}`);
+    setState({ isAdminPanelOpen: false });
+    await loadTasks({ selectedTaskId: null });
+  } catch {
+    window.alert('TaskBoard could not import that file.');
+  }
+}
+
+function bindAdminPanelEvents() {
+  const panel = app.querySelector('[data-admin-panel]');
+  if (!panel) return;
+
+  panel.querySelector('[data-action="close-admin"]')?.addEventListener('click', () => {
+    setState({ isAdminPanelOpen: false });
+    renderApp();
+  });
+
+  panel.querySelector('[data-action="export-context"]')?.addEventListener('click', () => {
+    exportAdminTasks(state.activeContext);
+  });
+
+  panel.querySelector('[data-action="export-all"]')?.addEventListener('click', () => {
+    exportAdminTasks('all');
+  });
+
+  panel.querySelectorAll('[data-admin-import-mode]').forEach((control) => {
+    control.addEventListener('change', () => {
+      setState({ adminImportMode: control.value });
+    });
+  });
+
+  panel.querySelector('[data-admin-import-file]')?.addEventListener('change', async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    await importAdminFile(file, panel);
+    event.target.value = '';
+  });
+
+  panel.querySelector('[data-action="open-archive"]')?.addEventListener('click', async () => {
+    setState({
+      activeView: 'archive',
+      isAdminPanelOpen: false,
+      isTaskFormOpen: false,
+      selectedTaskId: null,
+      editingTaskId: null,
+      formError: '',
+    });
+    try {
+      await loadTasks({ selectedTaskId: null });
+    } catch (error) {
+      setState({ apiStatus: 'error' });
+      renderError(error.message);
+    }
   });
 }
 

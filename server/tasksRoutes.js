@@ -233,20 +233,21 @@ export async function registerTasksRoutes(app, options = {}) {
   const repository = options.tasksRepository || app.tasksRepository || createTasksRepository(app.db);
 
   app.get('/api/tasks/export', async (request, reply) => {
-    if (!CONTEXTS.has(request.query.context)) {
+    const exportContext = request.query.context;
+    if (exportContext !== 'all' && !CONTEXTS.has(exportContext)) {
       reply.code(400);
       return { message: 'context is invalid' };
     }
 
-    const tasks = await repository.listTasks({
-      context: request.query.context,
-      archived: 'all',
-    });
+    const filters = exportContext === 'all'
+      ? { archived: 'all' }
+      : { context: exportContext, archived: 'all' };
+    const tasks = await repository.listTasks(filters);
     return {
       format: 'taskboard.tasks',
       version: 1,
       exportedAt: new Date().toISOString(),
-      context: request.query.context,
+      context: exportContext,
       tasks,
     };
   });

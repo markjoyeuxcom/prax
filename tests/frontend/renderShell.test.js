@@ -58,7 +58,8 @@ test('renderShellHtml includes workflow hooks for search, context, and actions',
 
   assert.match(html, /data-context="work"/);
   assert.match(html, /data-action="new-task"/);
-  assert.match(html, /data-action="import"/);
-  assert.match(html, /data-action="export"/);
+  assert.match(html, /data-action="open-admin"/);
+  assert.doesNotMatch(html, /data-action="import"/);
+  assert.doesNotMatch(html, /data-action="export"/);
   assert.match(html, /value="backup"/);
 });

@@ -88,6 +88,19 @@ test('exportTasks fetches a context export envelope', async () => {
   assert.equal(calls[0][0], '/api/tasks/export?context=homelab');
 });
 
+test('exportTasks fetches an all-context backup envelope', async () => {
+  const calls = [];
+  globalThis.fetch = async (...args) => {
+    calls.push(args);
+    return jsonResponse({ format: 'taskboard.tasks', context: 'all', tasks: [] });
+  };
+
+  const exported = await exportTasks({ context: 'all' });
+
+  assert.deepEqual(exported, { format: 'taskboard.tasks', context: 'all', tasks: [] });
+  assert.equal(calls[0][0], '/api/tasks/export?context=all');
+});
+
 test('importTasks posts tasks for the selected context', async () => {
   const calls = [];
   globalThis.fetch = async (...args) => {
