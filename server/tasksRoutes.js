@@ -128,6 +128,31 @@ function cleanTaskPatchPayload(payload) {
   }, {});
 }
 
+function validateTaskReorderPayload(payload) {
+  if (!payload || !Array.isArray(payload.tasks) || payload.tasks.length === 0) {
+    return 'tasks must include at least one task update';
+  }
+
+  for (const task of payload.tasks) {
+    if (!task || typeof task !== 'object' || Array.isArray(task)) {
+      return 'tasks must include valid task updates';
+    }
+    if (!isValidUuid(task.id)) return 'task id is invalid';
+    if (!STATUSES.has(task.status)) return 'status is invalid';
+    if (!isValidSortOrder(task.sortOrder)) return 'sortOrder is invalid';
+  }
+
+  return null;
+}
+
+function cleanTaskReorderPayload(payload) {
+  return payload.tasks.map(task => ({
+    id: task.id,
+    status: task.status,
+    sortOrder: task.sortOrder,
+  }));
+}
+
 export async function registerTasksRoutes(app, options = {}) {
   const repository = options.tasksRepository || app.tasksRepository || createTasksRepository(app.db);
 
@@ -143,6 +168,16 @@ export async function registerTasksRoutes(app, options = {}) {
     }
     reply.code(201);
     return repository.createTask(cleanTaskPayload(request.body));
+  });
+
+  app.patch('/api/tasks/reorder', async (request, reply) => {
+    const validationError = validateTaskReorderPayload(request.body);
+    if (validationError) {
+      reply.code(400);
+      return { message: validationError };
+    }
+
+    return repository.reorderTasks(cleanTaskReorderPayload(request.body));
   });
 
   app.patch('/api/tasks/:id', async (request, reply) => {

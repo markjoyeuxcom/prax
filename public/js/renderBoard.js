@@ -27,7 +27,7 @@ function renderCard(task, selectedTaskId) {
   const dueDate = task.dueDate || '-';
 
   return `
-        <button class="board-card${isSelected ? ' is-selected' : ''}" type="button" data-task-id="${escapeHtml(task.id)}"${isSelected ? ' aria-current="true"' : ''}>
+        <button class="board-card${isSelected ? ' is-selected' : ''}" type="button" data-board-card="true" data-task-id="${escapeHtml(task.id)}" draggable="true"${isSelected ? ' aria-current="true"' : ''}>
           <strong>${escapeHtml(task.title || 'Untitled task')}</strong>
           <span>${escapeHtml(task.description || 'No description')}</span>
           <small>${priorityLabel(task.priority)} · ${escapeHtml(dueDate)}</small>
@@ -35,7 +35,9 @@ function renderCard(task, selectedTaskId) {
 }
 
 function renderCards(tasks, column, selectedTaskId) {
-  const columnTasks = tasks.filter(task => (task.status || task.column || 'planned') === column.id);
+  const columnTasks = tasks
+    .filter(task => (task.status || task.column || 'planned') === column.id)
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
   if (!columnTasks.length) {
     return '<div class="board-empty">No tasks</div>';
   }
@@ -49,12 +51,12 @@ export function renderBoardHtml(tasks = [], selectedTaskId = null) {
   return `
     <section class="board-panel" aria-label="Task board">
       ${COLUMNS.map(column => `
-        <section class="board-column" aria-label="${column.label}">
+        <section class="board-column" aria-label="${column.label}" data-board-column="${column.id}">
           <header>
             <h2>${column.label}</h2>
             <span>${safeTasks.filter(task => (task.status || task.column || 'planned') === column.id).length}</span>
           </header>
-          <div class="board-cards">${renderCards(safeTasks, column, selectedTaskId)}
+          <div class="board-cards" data-board-column="${column.id}">${renderCards(safeTasks, column, selectedTaskId)}
           </div>
         </section>`).join('')}
     </section>`;

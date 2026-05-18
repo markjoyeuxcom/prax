@@ -584,6 +584,13 @@ button.task-row:hover {
   gap: 10px;
   min-height: 220px;
   padding: 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+
+.board-cards.is-drop-target {
+  border-color: rgba(79, 156, 255, 0.54);
+  background: rgba(79, 156, 255, 0.07);
 }
 
 .board-card {
@@ -595,11 +602,20 @@ button.task-row:hover {
   border-radius: 8px;
   background: #0e1722;
   color: var(--text);
+  cursor: grab;
   text-align: left;
+}
+
+.board-card:active {
+  cursor: grabbing;
 }
 
 .board-card:hover {
   background: rgba(79, 156, 255, 0.07);
+}
+
+.board-card.is-dragging {
+  opacity: 0.56;
 }
 
 .board-card.is-selected {

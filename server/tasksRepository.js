@@ -54,6 +54,31 @@ export function buildUpdateTask(id, fields) {
   };
 }
 
+export function buildReorderTasks(updates) {
+  if (!Array.isArray(updates) || updates.length === 0) {
+    throw new Error('No task reorder updates provided');
+  }
+
+  const rows = updates.map((_, index) => {
+    const offset = index * 3;
+    return `($${offset + 1}::uuid, $${offset + 2}::text, $${offset + 3}::integer)`;
+  });
+
+  return {
+    text: `
+      with updates(id, status, sort_order) as (
+        values ${rows.join(', ')}
+      )
+      update tasks
+      set status = updates.status, sort_order = updates.sort_order, updated_at = now()
+      from updates
+      where tasks.id = updates.id and archived_at is null
+      returning tasks.*
+    `,
+    values: updates.flatMap(update => [update.id, update.status, update.sortOrder]),
+  };
+}
+
 export function createTasksRepository(db) {
   return {
     async listTasks(filters = {}) {
@@ -96,6 +121,12 @@ export function createTasksRepository(db) {
       const query = buildUpdateTask(id, fields);
       const result = await db.query(query.text, query.values);
       return result.rows[0] ? normalizeTaskRow(result.rows[0]) : null;
+    },
+
+    async reorderTasks(updates) {
+      const query = buildReorderTasks(updates);
+      const result = await db.query(query.text, query.values);
+      return result.rows.map(normalizeTaskRow);
     },
 
     async archiveTask(id) {

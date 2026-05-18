@@ -4,6 +4,7 @@ import {
   createTasksRepository,
   normalizeTaskRow,
   buildCreateTask,
+  buildReorderTasks,
   buildUpdateTask,
 } from '../../server/tasksRepository.js';
 
@@ -57,6 +58,32 @@ test('buildUpdateTask rejects empty updates', () => {
   assert.throws(
     () => buildUpdateTask('11111111-1111-4111-8111-111111111111', {}),
     /No task fields provided/
+  );
+});
+
+test('buildReorderTasks returns a parameterized batch update query', () => {
+  const query = buildReorderTasks([
+    { id: '11111111-1111-4111-8111-111111111111', status: 'planned', sortOrder: 0 },
+    { id: '22222222-2222-4222-8222-222222222222', status: 'in-progress', sortOrder: 1 },
+  ]);
+
+  assert.match(query.text, /with updates/);
+  assert.match(query.text, /update tasks/);
+  assert.match(query.text, /archived_at is null/);
+  assert.deepEqual(query.values, [
+    '11111111-1111-4111-8111-111111111111',
+    'planned',
+    0,
+    '22222222-2222-4222-8222-222222222222',
+    'in-progress',
+    1,
+  ]);
+});
+
+test('buildReorderTasks rejects empty updates', () => {
+  assert.throws(
+    () => buildReorderTasks([]),
+    /No task reorder updates provided/,
   );
 });
 

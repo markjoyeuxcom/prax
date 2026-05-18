@@ -5,6 +5,7 @@ import { buildApp } from '../../server/index.js';
 const TASK_ID = '11111111-1111-4111-8111-111111111111';
 const CREATED_TASK_ID = '22222222-2222-4222-8222-222222222222';
 const MISSING_TASK_ID = '33333333-3333-4333-8333-333333333333';
+const SECOND_TASK_ID = '44444444-4444-4444-8444-444444444444';
 
 function createFakeRepository() {
   const tasks = [
@@ -48,6 +49,14 @@ function createFakeRepository() {
       if (!task) return null;
       task.archivedAt = 'now';
       return task;
+    },
+    async reorderTasks(updates) {
+      return updates.map((update) => {
+        const task = tasks.find(item => item.id === update.id);
+        if (!task) return null;
+        Object.assign(task, update);
+        return task;
+      }).filter(Boolean);
     },
   };
 }
@@ -408,6 +417,110 @@ test('PATCH /api/tasks/:id returns 404 for unknown task', async () => {
 
   assert.equal(response.statusCode, 404);
   assert.equal(response.json().message, 'task not found');
+
+  await app.close();
+});
+
+test('PATCH /api/tasks/reorder updates status and sort order in batch', async () => {
+  const repository = createFakeRepository();
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: repository,
+  });
+
+  const response = await app.inject({
+    method: 'PATCH',
+    url: '/api/tasks/reorder',
+    payload: {
+      tasks: [
+        { id: TASK_ID, status: 'in-progress', sortOrder: 0 },
+        { id: SECOND_TASK_ID, status: 'planned', sortOrder: 1 },
+      ],
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json()[0].id, TASK_ID);
+  assert.equal(response.json()[0].status, 'in-progress');
+  assert.equal(response.json()[0].sortOrder, 0);
+
+  await app.close();
+});
+
+test('PATCH /api/tasks/reorder rejects invalid payload shape', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'PATCH',
+    url: '/api/tasks/reorder',
+    payload: { tasks: [] },
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().message, /tasks/);
+
+  await app.close();
+});
+
+test('PATCH /api/tasks/reorder rejects invalid task ids', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'PATCH',
+    url: '/api/tasks/reorder',
+    payload: {
+      tasks: [{ id: 'not-a-uuid', status: 'planned', sortOrder: 0 }],
+    },
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().message, /task id/);
+
+  await app.close();
+});
+
+test('PATCH /api/tasks/reorder rejects invalid status values', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'PATCH',
+    url: '/api/tasks/reorder',
+    payload: {
+      tasks: [{ id: TASK_ID, status: 'blocked', sortOrder: 0 }],
+    },
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().message, /status/);
+
+  await app.close();
+});
+
+test('PATCH /api/tasks/reorder rejects invalid sort orders', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'PATCH',
+    url: '/api/tasks/reorder',
+    payload: {
+      tasks: [{ id: TASK_ID, status: 'planned', sortOrder: 1.5 }],
+    },
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().message, /sortOrder/);
 
   await app.close();
 });

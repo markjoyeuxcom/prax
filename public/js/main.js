@@ -1,5 +1,6 @@
 import { state, setState } from './state.js';
-import { archiveTask, createTask, fetchTasks, updateTask } from './taskApi.js';
+import { archiveTask, createTask, fetchTasks, reorderTasks, updateTask } from './taskApi.js';
+import { moveTaskOnBoard } from './boardWorkflow.js';
 import { filterTasks } from './taskFilters.js';
 import { buildMetrics, normalizeTask } from './taskModel.js';
 import { isArchiveView, tasksForView } from './taskViews.js';
@@ -62,6 +63,8 @@ function renderWorkspace() {
     });
   });
 
+  bindBoardEvents(workspace);
+
   const editButton = workspace.querySelector('[data-action="edit-task"]');
   editButton?.addEventListener('click', () => {
     const taskToEdit = selectedTask();
@@ -88,6 +91,81 @@ function renderWorkspace() {
       window.alert('TaskBoard could not archive the selected task.');
     }
   });
+}
+
+function bindBoardEvents(workspace) {
+  if (state.activeView !== 'board') return;
+
+  workspace.querySelectorAll('[data-board-card]').forEach((card) => {
+    card.addEventListener('dragstart', (event) => {
+      if (event.dataTransfer) {
+        event.dataTransfer.setData('text/task-id', card.dataset.taskId);
+        event.dataTransfer.setData('text/plain', card.dataset.taskId);
+        event.dataTransfer.setDragImage?.(card, 16, 16);
+        event.dataTransfer.effectAllowed = 'move';
+      }
+      card.classList.add('is-dragging');
+    });
+
+    card.addEventListener('dragend', () => {
+      card.classList.remove('is-dragging');
+      workspace.querySelectorAll('.is-drop-target').forEach((target) => {
+        target.classList.remove('is-drop-target');
+      });
+    });
+  });
+
+  workspace.querySelectorAll('.board-cards[data-board-column]').forEach((column) => {
+    column.addEventListener('dragover', (event) => {
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+      column.classList.add('is-drop-target');
+    });
+
+    column.addEventListener('dragleave', (event) => {
+      if (!column.contains(event.relatedTarget)) {
+        column.classList.remove('is-drop-target');
+      }
+    });
+
+    column.addEventListener('drop', async (event) => {
+      event.preventDefault();
+      column.classList.remove('is-drop-target');
+      const taskId = event.dataTransfer?.getData('text/task-id') || event.dataTransfer?.getData('text/plain');
+      const targetCard = event.target.closest('[data-board-card]');
+      await handleBoardDrop({
+        taskId,
+        targetStatus: column.dataset.boardColumn,
+        beforeTaskId: targetCard?.dataset.taskId === taskId ? null : targetCard?.dataset.taskId,
+      });
+    });
+  });
+}
+
+async function handleBoardDrop({ taskId, targetStatus, beforeTaskId }) {
+  if (!taskId || !targetStatus) return;
+
+  const boardTasks = tasksForView(state.tasks, 'board');
+  const result = moveTaskOnBoard(boardTasks, { taskId, targetStatus, beforeTaskId });
+  if (!result.updates.length) return;
+
+  const movedTaskIds = new Set(result.tasks.map(task => task.id));
+  setState({
+    tasks: [
+      ...result.tasks,
+      ...state.tasks.filter(task => !movedTaskIds.has(task.id)),
+    ],
+    selectedTaskId: taskId,
+  });
+  renderWorkspace();
+
+  try {
+    await reorderTasks(result.updates);
+    await loadTasks({ selectedTaskId: taskId });
+  } catch {
+    window.alert('TaskBoard could not save the board move.');
+    await loadTasks({ selectedTaskId: taskId });
+  }
 }
 
 function visibleTasksForCurrentView() {

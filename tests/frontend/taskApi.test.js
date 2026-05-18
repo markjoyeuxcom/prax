@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { archiveTask, updateTask } from '../../public/js/taskApi.js';
+import { archiveTask, reorderTasks, updateTask } from '../../public/js/taskApi.js';
 
 function jsonResponse(body, ok = true) {
   return {
@@ -37,6 +37,26 @@ test('archiveTask sends a DELETE request', async () => {
   assert.deepEqual(task, { id: 'task-1' });
   assert.equal(calls[0][0], '/api/tasks/task-1');
   assert.equal(calls[0][1].method, 'DELETE');
+});
+
+test('reorderTasks sends a PATCH request with ordered task updates', async () => {
+  const calls = [];
+  globalThis.fetch = async (...args) => {
+    calls.push(args);
+    return jsonResponse([{ id: 'task-1', status: 'in-progress', sortOrder: 0 }]);
+  };
+
+  const tasks = await reorderTasks([
+    { id: 'task-1', status: 'in-progress', sortOrder: 0 },
+  ]);
+
+  assert.deepEqual(tasks, [{ id: 'task-1', status: 'in-progress', sortOrder: 0 }]);
+  assert.equal(calls[0][0], '/api/tasks/reorder');
+  assert.equal(calls[0][1].method, 'PATCH');
+  assert.deepEqual(calls[0][1].headers, { 'content-type': 'application/json' });
+  assert.equal(calls[0][1].body, JSON.stringify({
+    tasks: [{ id: 'task-1', status: 'in-progress', sortOrder: 0 }],
+  }));
 });
 
 test('updateTask throws when the API rejects the request', async () => {

@@ -40,3 +40,20 @@ test('renderBoardHtml escapes task fields and marks selected card', () => {
   assert.match(html, /Fix &lt;cluster&gt;/);
   assert.match(html, /Check &quot;quoted&quot; value/);
 });
+
+test('renderBoardHtml includes drag and drop hooks', () => {
+  const html = renderBoardHtml([
+    {
+      id: 'task-1',
+      title: 'Patch ingress',
+      description: 'Review release notes',
+      priority: 'medium',
+      status: 'in-progress',
+      dueDate: null,
+    },
+  ]);
+
+  assert.match(html, /data-board-column="in-progress"/);
+  assert.match(html, /data-board-card="true"/);
+  assert.match(html, /draggable="true"/);
+});

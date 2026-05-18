@@ -28,6 +28,16 @@ export async function updateTask(id, patch) {
   return response.json();
 }
 
+export async function reorderTasks(tasks) {
+  const response = await fetch('/api/tasks/reorder', {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ tasks }),
+  });
+  if (!response.ok) throw new Error('Failed to reorder tasks');
+  return response.json();
+}
+
 export async function archiveTask(id) {
   const response = await fetch(`/api/tasks/${id}`, {
     method: 'DELETE',
