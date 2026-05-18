@@ -959,6 +959,45 @@ button.task-row:hover {
   color: #cfe5ff;
 }
 
+.document-info-form {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+.document-info-form label {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.document-info-form label span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.document-info-form input,
+.document-info-form select {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #0e1722;
+  color: var(--text);
+  padding: 10px 11px;
+}
+
+.document-info-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+}
+
 .document-workspace {
   display: grid;
   gap: 0;

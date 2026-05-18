@@ -199,6 +199,43 @@ function renderPreviewPane(body) {
     </section>`;
 }
 
+function renderDocumentInfoForm(document, options = {}) {
+  const values = {
+    title: document?.title || '',
+    documentType: document?.documentType || 'note',
+    tags: Array.isArray(document?.tags) ? document.tags.join(', ') : '',
+    sourceFilename: document?.sourceFilename || '',
+  };
+
+  return `
+    <form class="document-info-form" data-document-info-form>
+      ${options.error ? `<div class="form-error" role="alert">${escapeHtml(options.error)}</div>` : ''}
+      <label>
+        <span>Title</span>
+        <input name="title" type="text" value="${escapeHtml(values.title)}" autocomplete="off" required>
+      </label>
+      <div class="form-grid">
+        <label>
+          <span>Type</span>
+          <select name="documentType">${renderOptions(DOCUMENT_TYPES, values.documentType)}
+          </select>
+        </label>
+        <label>
+          <span>Source File</span>
+          <input name="sourceFilename" type="text" value="${escapeHtml(values.sourceFilename)}">
+        </label>
+      </div>
+      <label>
+        <span>Tags</span>
+        <input name="tags" type="text" value="${escapeHtml(values.tags)}" placeholder="postgres, backup">
+      </label>
+      <footer class="document-info-actions">
+        <button class="secondary-action" type="button" data-action="cancel-document-info">Cancel</button>
+        <button class="primary-action" type="submit"${options.isSaving ? ' disabled' : ''}>${options.isSaving ? 'Saving...' : 'Save info'}</button>
+      </footer>
+    </form>`;
+}
+
 function renderDocumentDetail(document, options = {}) {
   if (!document) {
     return `
@@ -214,6 +251,7 @@ function renderDocumentDetail(document, options = {}) {
   const isArchived = Boolean(document.archivedAt);
   const body = options.draftBody ?? document.body ?? '';
   const isDirty = Boolean(options.isDirty);
+  const isInfoEditing = Boolean(options.isInfoEditing);
   const editorVisible = editorMode === 'edit' || editorMode === 'split';
   const previewVisible = editorMode === 'preview' || editorMode === 'split';
 
@@ -228,14 +266,16 @@ function renderDocumentDetail(document, options = {}) {
           ${renderModeButton('edit', editorMode, 'Edit')}
           ${renderModeButton('preview', editorMode, 'Preview')}
           ${renderModeButton('split', editorMode, 'Split')}
+          ${isArchived ? '' : '<button class="secondary-action" type="button" data-action="edit-document-info">Edit info</button>'}
           ${isArchived ? `
           <button class="secondary-action" type="button" data-action="restore-document">Restore</button>
           <button class="danger-action" type="button" data-action="delete-archived-document">Delete</button>` : `
           <button class="danger-action" type="button" data-action="archive-document">Archive</button>`}
         </div>
       </header>
+      ${isInfoEditing ? renderDocumentInfoForm(document, { error: options.infoError, isSaving: options.isSaving }) : `
       <div class="document-workspace document-workspace--${escapeHtml(editorMode)}">${editorVisible ? renderEditorPane(body, isDirty) : ''}${previewVisible ? renderPreviewPane(body) : ''}
-      </div>
+      </div>`}
     </aside>`;
 }
 
@@ -257,6 +297,9 @@ export function renderLibraryHtml({
   areTagsExpanded = false,
   savedViews = [],
   activeSavedViewId = null,
+  isInfoEditing = false,
+  infoError = '',
+  isSaving = false,
 } = {}) {
   const safeDocuments = Array.isArray(documents) ? documents : [];
   const document = selectedDocument(safeDocuments, selectedDocumentId);
@@ -278,7 +321,7 @@ export function renderLibraryHtml({
         <div class="document-list">${renderDocumentList(safeDocuments, document?.id)}
         </div>
       </aside>
-      <div class="library-document-stage">${renderDocumentDetail(document, { editorMode: activeMode, draftBody, isDirty })}
+      <div class="library-document-stage">${renderDocumentDetail(document, { editorMode: activeMode, draftBody, isDirty, isInfoEditing, infoError, isSaving })}
       </div>
     </section>`;
 }

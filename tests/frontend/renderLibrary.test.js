@@ -74,11 +74,36 @@ test('renderLibraryHtml renders document list and preview detail', () => {
   assert.match(html, /Runbook/);
   assert.match(html, /postgres/);
   assert.match(html, /data-action="archive-document"/);
+  assert.match(html, /data-action="edit-document-info"/);
   assert.match(html, /data-library-mode="edit"/);
   assert.match(html, /data-library-mode="preview"/);
   assert.match(html, /data-library-mode="split"/);
   assert.doesNotMatch(html, /data-action="edit-document"/);
   assert.match(html, /<h1>Restore CloudNativePG<\/h1>/);
+});
+
+test('renderLibraryHtml renders inline document metadata editor', () => {
+  const html = renderLibraryHtml({
+    documents,
+    selectedDocumentId: 'doc-1',
+    isInfoEditing: true,
+    infoError: 'Title is required.',
+    isSaving: true,
+  });
+
+  assert.match(html, /data-document-info-form/);
+  assert.match(html, /Title is required\./);
+  assert.match(html, /name="title"/);
+  assert.match(html, /value="Restore CloudNativePG"/);
+  assert.match(html, /name="documentType"/);
+  assert.match(html, /value="runbook" selected/);
+  assert.match(html, /name="tags"/);
+  assert.match(html, /value="postgres, backup"/);
+  assert.match(html, /name="sourceFilename"/);
+  assert.match(html, /value="restore.md"/);
+  assert.match(html, /data-action="cancel-document-info"/);
+  assert.match(html, /Saving\.\.\./);
+  assert.doesNotMatch(html, /data-document-editor/);
 });
 
 test('renderLibraryHtml renders show-more control for collapsed long tag lists', () => {

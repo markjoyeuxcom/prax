@@ -234,6 +234,9 @@ function renderLibraryWorkspace(workspace) {
     areTagsExpanded: state.areLibraryTagsExpanded,
     savedViews: state.librarySavedViews,
     activeSavedViewId: activeSavedLibraryViewId(),
+    isInfoEditing: state.isDocumentInfoEditorOpen,
+    infoError: state.documentInfoError,
+    isSaving: state.isSaving,
   });
 
   function resetDocumentDraft() {
@@ -242,6 +245,8 @@ function renderLibraryWorkspace(workspace) {
       documentDraftId: null,
       documentDraftBody: '',
       isDocumentDirty: false,
+      isDocumentInfoEditorOpen: false,
+      documentInfoError: '',
     };
   }
 
@@ -398,6 +403,8 @@ function renderLibraryWorkspace(workspace) {
         documentDraftId: nextDocument?.id || null,
         documentDraftBody: nextDocument?.body || '',
         isDocumentDirty: false,
+        isDocumentInfoEditorOpen: false,
+        documentInfoError: '',
       });
       renderWorkspace();
     });
@@ -446,6 +453,69 @@ function renderLibraryWorkspace(workspace) {
   workspace.querySelector('[data-action="edit-document"]')?.addEventListener('click', () => {
     setState({ documentEditorMode: 'edit' });
     renderWorkspace();
+  });
+
+  workspace.querySelector('[data-action="edit-document-info"]')?.addEventListener('click', () => {
+    setState({
+      isDocumentInfoEditorOpen: true,
+      documentInfoError: '',
+      isSaving: false,
+    });
+    renderWorkspace();
+  });
+
+  workspace.querySelector('[data-action="cancel-document-info"]')?.addEventListener('click', () => {
+    setState({
+      isDocumentInfoEditorOpen: false,
+      documentInfoError: '',
+      isSaving: false,
+    });
+    renderWorkspace();
+  });
+
+  workspace.querySelector('[data-document-info-form]')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const documentToSave = selectedDocument();
+    if (!documentToSave) return;
+
+    const data = new FormData(event.currentTarget);
+    const title = String(data.get('title') || '').trim();
+    if (!title) {
+      setState({ documentInfoError: 'Title is required.' });
+      renderWorkspace();
+      return;
+    }
+
+    const payload = {
+      title,
+      documentType: String(data.get('documentType') || 'note'),
+      tags: tagsFromFormValue(data.get('tags')),
+      sourceFilename: String(data.get('sourceFilename') || '').trim() || null,
+    };
+
+    setState({ isSaving: true, documentInfoError: '' });
+    renderWorkspace();
+
+    try {
+      const savedDocument = await updateDocument(documentToSave.id, payload);
+      setState({
+        documents: state.documents.map(document => document.id === savedDocument.id ? savedDocument : document),
+        selectedDocumentId: savedDocument.id,
+        documentDraftId: savedDocument.id,
+        documentDraftBody: savedDocument.body || '',
+        isDocumentDirty: false,
+        isDocumentInfoEditorOpen: false,
+        documentInfoError: '',
+        isSaving: false,
+      });
+      renderWorkspace();
+    } catch {
+      setState({
+        documentInfoError: 'TaskBoard could not save document info.',
+        isSaving: false,
+      });
+      renderWorkspace();
+    }
   });
 
   workspace.querySelector('[data-action="archive-document"]')?.addEventListener('click', async () => {
@@ -692,9 +762,11 @@ function bindShellEvents() {
         isTaskFormOpen: false,
         isAdminPanelOpen: false,
         isDocumentFormOpen: false,
+        isDocumentInfoEditorOpen: false,
         editingTaskId: null,
         editingDocumentId: null,
         formError: '',
+        documentInfoError: '',
       });
       try {
         if (state.activeView === 'library') {
@@ -728,9 +800,11 @@ function bindShellEvents() {
         isTaskFormOpen: false,
         isAdminPanelOpen: false,
         isDocumentFormOpen: false,
+        isDocumentInfoEditorOpen: false,
         editingTaskId: null,
         editingDocumentId: null,
         formError: '',
+        documentInfoError: '',
       });
       if (nextView === 'library') {
         try {
