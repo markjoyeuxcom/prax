@@ -1,5 +1,5 @@
 import { state, setState } from './state.js';
-import { archiveTask, createTask, fetchTasks, reorderTasks, updateTask } from './taskApi.js';
+import { archiveTask, createTask, fetchTasks, reorderTasks, restoreTask, updateTask } from './taskApi.js';
 import { moveTaskOnBoard } from './boardWorkflow.js';
 import { filterTasks } from './taskFilters.js';
 import { buildMetrics, normalizeTask } from './taskModel.js';
@@ -53,7 +53,7 @@ function renderWorkspace() {
 
   workspace.innerHTML = [
     renderWorkspacePrimary(visibleTasks, selectedTaskId),
-    renderTaskDetailHtml(task, { readOnly }),
+    renderTaskDetailHtml(task, { readOnly, restoreAction: readOnly }),
   ].join('');
 
   workspace.querySelectorAll('[data-task-id]').forEach((row) => {
@@ -89,6 +89,22 @@ function renderWorkspace() {
       await loadTasks({ selectedTaskId: null });
     } catch {
       window.alert('TaskBoard could not archive the selected task.');
+    }
+  });
+
+  const restoreButton = workspace.querySelector('[data-action="restore-task"]');
+  restoreButton?.addEventListener('click', async () => {
+    const taskToRestore = selectedTask();
+    if (!taskToRestore) return;
+    const confirmed = window.confirm(`Restore "${taskToRestore.title}"?`);
+    if (!confirmed) return;
+
+    try {
+      await restoreTask(taskToRestore.id);
+      await loadTasks({ selectedTaskId: null });
+    } catch {
+      window.alert('TaskBoard could not restore the selected task.');
+      await loadTasks({ selectedTaskId: null });
     }
   });
 }

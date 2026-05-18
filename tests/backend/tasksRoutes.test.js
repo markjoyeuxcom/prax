@@ -50,6 +50,12 @@ function createFakeRepository() {
       task.archivedAt = 'now';
       return task;
     },
+    async restoreTask(id) {
+      const task = tasks.find(item => item.id === id && item.archivedAt);
+      if (!task) return null;
+      task.archivedAt = null;
+      return task;
+    },
     async reorderTasks(updates) {
       return updates.map((update) => {
         const task = tasks.find(item => item.id === update.id);
@@ -538,6 +544,69 @@ test('DELETE /api/tasks/:id archives existing task', async () => {
 
   assert.equal(response.statusCode, 200);
   assert.equal(response.json().archivedAt, 'now');
+
+  await app.close();
+});
+
+test('PATCH /api/tasks/:id/restore restores an archived task', async () => {
+  const repository = createFakeRepository();
+  await repository.archiveTask(TASK_ID);
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: repository,
+  });
+
+  const response = await app.inject({
+    method: 'PATCH',
+    url: `/api/tasks/${TASK_ID}/restore`,
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().id, TASK_ID);
+  assert.equal(response.json().archivedAt, null);
+
+  await app.close();
+});
+
+test('PATCH /api/tasks/:id/restore rejects malformed task id before repository lookup', async () => {
+  let restoreCalls = 0;
+  const repository = {
+    ...createFakeRepository(),
+    async restoreTask() {
+      restoreCalls += 1;
+      return null;
+    },
+  };
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: repository,
+  });
+
+  const response = await app.inject({
+    method: 'PATCH',
+    url: '/api/tasks/not-a-uuid/restore',
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().message, /task id/);
+  assert.equal(restoreCalls, 0);
+
+  await app.close();
+});
+
+test('PATCH /api/tasks/:id/restore returns 404 for unknown or active task', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'PATCH',
+    url: `/api/tasks/${MISSING_TASK_ID}/restore`,
+  });
+
+  assert.equal(response.statusCode, 404);
+  assert.equal(response.json().message, 'task not found');
 
   await app.close();
 });

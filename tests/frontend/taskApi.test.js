@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { archiveTask, reorderTasks, updateTask } from '../../public/js/taskApi.js';
+import { archiveTask, reorderTasks, restoreTask, updateTask } from '../../public/js/taskApi.js';
 
 function jsonResponse(body, ok = true) {
   return {
@@ -39,6 +39,20 @@ test('archiveTask sends a DELETE request', async () => {
   assert.equal(calls[0][1].method, 'DELETE');
 });
 
+test('restoreTask sends a PATCH request to the restore endpoint', async () => {
+  const calls = [];
+  globalThis.fetch = async (...args) => {
+    calls.push(args);
+    return jsonResponse({ id: 'task-1', archivedAt: null });
+  };
+
+  const task = await restoreTask('task-1');
+
+  assert.deepEqual(task, { id: 'task-1', archivedAt: null });
+  assert.equal(calls[0][0], '/api/tasks/task-1/restore');
+  assert.equal(calls[0][1].method, 'PATCH');
+});
+
 test('reorderTasks sends a PATCH request with ordered task updates', async () => {
   const calls = [];
   globalThis.fetch = async (...args) => {
@@ -65,5 +79,14 @@ test('updateTask throws when the API rejects the request', async () => {
   await assert.rejects(
     () => updateTask('task-1', { title: 'Updated task' }),
     /Failed to update task/,
+  );
+});
+
+test('restoreTask throws when the API rejects the request', async () => {
+  globalThis.fetch = async () => jsonResponse({ message: 'bad' }, false);
+
+  await assert.rejects(
+    () => restoreTask('task-1'),
+    /Failed to restore task/,
   );
 });

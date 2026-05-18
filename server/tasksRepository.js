@@ -79,6 +79,18 @@ export function buildReorderTasks(updates) {
   };
 }
 
+export function buildRestoreTask(id) {
+  return {
+    text: `
+      update tasks
+      set archived_at = null, updated_at = now()
+      where id = $1 and archived_at is not null
+      returning *
+    `,
+    values: [id],
+  };
+}
+
 export function createTasksRepository(db) {
   return {
     async listTasks(filters = {}) {
@@ -136,6 +148,12 @@ export function createTasksRepository(db) {
         where id = $1 and archived_at is null
         returning *
       `, [id]);
+      return result.rows[0] ? normalizeTaskRow(result.rows[0]) : null;
+    },
+
+    async restoreTask(id) {
+      const query = buildRestoreTask(id);
+      const result = await db.query(query.text, query.values);
       return result.rows[0] ? normalizeTaskRow(result.rows[0]) : null;
     },
   };

@@ -5,6 +5,7 @@ import {
   normalizeTaskRow,
   buildCreateTask,
   buildReorderTasks,
+  buildRestoreTask,
   buildUpdateTask,
 } from '../../server/tasksRepository.js';
 
@@ -85,6 +86,17 @@ test('buildReorderTasks rejects empty updates', () => {
     () => buildReorderTasks([]),
     /No task reorder updates provided/,
   );
+});
+
+test('buildRestoreTask returns a parameterized restore query', () => {
+  const query = buildRestoreTask('11111111-1111-4111-8111-111111111111');
+
+  assert.match(query.text, /update tasks/);
+  assert.match(query.text, /archived_at = null/);
+  assert.match(query.text, /updated_at = now\(\)/);
+  assert.match(query.text, /where id = \$1 and archived_at is not null/);
+  assert.match(query.text, /returning \*/);
+  assert.deepEqual(query.values, ['11111111-1111-4111-8111-111111111111']);
 });
 
 test('listTasks filters active tasks by default', async () => {

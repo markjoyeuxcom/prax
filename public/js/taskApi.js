@@ -45,3 +45,11 @@ export async function archiveTask(id) {
   if (!response.ok) throw new Error('Failed to archive task');
   return response.json();
 }
+
+export async function restoreTask(id) {
+  const response = await fetch(`/api/tasks/${id}/restore`, {
+    method: 'PATCH',
+  });
+  if (!response.ok) throw new Error('Failed to restore task');
+  return response.json();
+}

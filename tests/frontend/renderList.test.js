@@ -95,3 +95,18 @@ test('renderTaskDetailHtml hides actions when read-only', () => {
   assert.doesNotMatch(html, /data-action="edit-task"/);
   assert.doesNotMatch(html, /data-action="archive-task"/);
 });
+
+test('renderTaskDetailHtml shows restore action for archived tasks', () => {
+  const html = renderTaskDetailHtml({
+    title: 'Archived task',
+    description: '',
+    priority: 'low',
+    status: 'completed',
+    dueDate: null,
+  }, { readOnly: true, restoreAction: true });
+
+  assert.match(html, /data-action="restore-task"/);
+  assert.match(html, />Restore</);
+  assert.doesNotMatch(html, /data-action="edit-task"/);
+  assert.doesNotMatch(html, /data-action="archive-task"/);
+});
