@@ -536,6 +536,102 @@ button.task-row:hover {
   color: var(--text);
 }
 
+.board-panel {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(190px, 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+
+.board-column {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.board-column header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 13px;
+  border-bottom: 1px solid var(--border);
+}
+
+.board-column h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.88rem;
+  letter-spacing: 0;
+}
+
+.board-column header span {
+  display: inline-grid;
+  min-width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.board-cards {
+  display: grid;
+  gap: 10px;
+  min-height: 220px;
+  padding: 10px;
+}
+
+.board-card {
+  display: grid;
+  gap: 7px;
+  width: 100%;
+  padding: 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #0e1722;
+  color: var(--text);
+  text-align: left;
+}
+
+.board-card:hover {
+  background: rgba(79, 156, 255, 0.07);
+}
+
+.board-card.is-selected {
+  border-color: rgba(114, 214, 162, 0.52);
+  box-shadow: inset 3px 0 0 var(--accent-strong);
+}
+
+.board-card strong,
+.board-card span,
+.board-card small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.board-card strong {
+  font-size: 0.88rem;
+}
+
+.board-card span,
+.board-card small {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.board-empty {
+  padding: 18px 8px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
 .detail-panel {
   position: sticky;
   top: 16px;
@@ -799,6 +895,10 @@ button.task-row:hover {
   .task-status,
   .task-due {
     display: none;
+  }
+
+  .board-panel {
+    grid-template-columns: 1fr;
   }
 
   .form-grid {

@@ -2,8 +2,10 @@ import { state, setState } from './state.js';
 import { archiveTask, createTask, fetchTasks, updateTask } from './taskApi.js';
 import { filterTasks } from './taskFilters.js';
 import { buildMetrics, normalizeTask } from './taskModel.js';
+import { isArchiveView, tasksForView } from './taskViews.js';
 import { renderShellHtml } from './renderShell.js';
 import { renderListHtml } from './renderList.js';
+import { renderBoardHtml } from './renderBoard.js';
 import { renderTaskDetailHtml } from './renderTaskDetail.js';
 import { renderTaskFormHtml } from './renderTaskForm.js';
 
@@ -29,7 +31,7 @@ function renderError(message) {
 }
 
 function selectedTask() {
-  const visibleTasks = filterTasks(state.tasks, state.searchQuery);
+  const visibleTasks = visibleTasksForCurrentView();
   if (!visibleTasks.length) return null;
   return visibleTasks.find((task) => task.id === state.selectedTaskId) || visibleTasks[0];
 }
@@ -43,13 +45,14 @@ function renderWorkspace() {
   const workspace = document.getElementById('workspace');
   if (!workspace) return;
 
-  const visibleTasks = filterTasks(state.tasks, state.searchQuery);
+  const visibleTasks = visibleTasksForCurrentView();
   const task = selectedTask();
   const selectedTaskId = task?.id || null;
+  const readOnly = isArchiveView(state.activeView);
 
   workspace.innerHTML = [
-    renderListHtml(visibleTasks, selectedTaskId),
-    renderTaskDetailHtml(task),
+    renderWorkspacePrimary(visibleTasks, selectedTaskId),
+    renderTaskDetailHtml(task, { readOnly }),
   ].join('');
 
   workspace.querySelectorAll('[data-task-id]').forEach((row) => {
@@ -85,6 +88,43 @@ function renderWorkspace() {
       window.alert('TaskBoard could not archive the selected task.');
     }
   });
+}
+
+function visibleTasksForCurrentView() {
+  return filterTasks(tasksForView(state.tasks, state.activeView), state.searchQuery);
+}
+
+function listOptionsForView(activeView) {
+  if (activeView === 'backlog') {
+    return {
+      title: 'Backlog',
+      countLabel: 'planned tasks',
+      emptyTitle: 'No backlog tasks',
+      emptyDescription: 'Planned work without a due date will appear here.',
+    };
+  }
+  if (activeView === 'archive') {
+    return {
+      title: 'Archived Tasks',
+      countLabel: 'archived tasks',
+      emptyTitle: 'No archived tasks',
+      emptyDescription: 'Archived work for this context will appear here.',
+    };
+  }
+  return {
+    title: 'Task Queue',
+    countLabel: 'active tasks',
+    emptyTitle: 'No tasks in this queue',
+    emptyDescription: 'New operational work will appear here when it is added.',
+  };
+}
+
+function renderWorkspacePrimary(visibleTasks, selectedTaskId) {
+  if (state.activeView === 'board') {
+    return renderBoardHtml(visibleTasks, selectedTaskId);
+  }
+
+  return renderListHtml(visibleTasks, selectedTaskId, listOptionsForView(state.activeView));
 }
 
 function renderApp() {
@@ -140,6 +180,31 @@ function bindShellEvents() {
       } catch (error) {
         setState({ apiStatus: 'error' });
         renderError(error.message);
+      }
+    });
+  });
+
+  app.querySelectorAll('[data-view]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const nextView = button.dataset.view;
+      if (!nextView || nextView === state.activeView) return;
+      const archiveModeChanged = isArchiveView(nextView) !== isArchiveView(state.activeView);
+      setState({
+        activeView: nextView,
+        selectedTaskId: null,
+        isTaskFormOpen: false,
+        editingTaskId: null,
+        formError: '',
+      });
+      if (archiveModeChanged) {
+        try {
+          await loadTasks({ selectedTaskId: null });
+        } catch (error) {
+          setState({ apiStatus: 'error' });
+          renderError(error.message);
+        }
+      } else {
+        renderApp();
       }
     });
   });
@@ -210,7 +275,10 @@ function bindTaskFormEvents() {
 async function loadTasks({ selectedTaskId = state.selectedTaskId } = {}) {
   setState({ apiStatus: 'loading' });
   renderLoading();
-  const tasks = await fetchTasks({ context: state.activeContext });
+  const tasks = await fetchTasks({
+    context: state.activeContext,
+    archived: isArchiveView(state.activeView) ? true : undefined,
+  });
   const normalizedTasks = tasks.map(normalizeTask);
   const selectedTaskExists = normalizedTasks.some((task) => task.id === selectedTaskId);
   setState({
