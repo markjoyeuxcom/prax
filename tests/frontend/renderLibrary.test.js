@@ -39,9 +39,20 @@ test('renderLibraryHtml renders document list and preview detail', () => {
     activeTags: ['backup'],
     tagQuery: 'post',
     areTagsExpanded: false,
+    savedViews: [
+      { id: 'cloudflare-cloudflare', label: 'Cloudflare', tags: ['cloudflare'] },
+      { id: 'postgres-backup-postgres', label: 'Postgres Backup', tags: ['backup', 'postgres'] },
+    ],
+    activeSavedViewId: 'postgres-backup-postgres',
   });
 
   assert.match(html, /Knowledge Library/);
+  assert.match(html, /Smart views/);
+  assert.match(html, /data-library-saved-view-id="postgres-backup-postgres"/);
+  assert.match(html, /aria-pressed="true">[\s\S]*Postgres Backup/);
+  assert.match(html, /data-action="delete-library-saved-view"/);
+  assert.match(html, /data-library-saved-view-name/);
+  assert.match(html, /data-action="save-library-view"/);
   assert.match(html, /class="library-workspace"/);
   assert.match(html, /class="library-browser"/);
   assert.match(html, /class="library-document-stage"/);

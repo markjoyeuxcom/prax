@@ -36,8 +36,14 @@ import { renderAdminPanelHtml } from './renderAdminPanel.js';
 import { renderDocumentFormHtml, renderLibraryHtml } from './renderLibrary.js';
 import { titleFromMarkdown } from './markdownPreview.js';
 import { filterDocumentsByTags, tagsForDocuments } from './libraryFilters.js';
+import {
+  areSameTags,
+  createSavedLibraryView,
+  savedLibraryViewsFromJson,
+} from './librarySavedViews.js';
 
 const app = document.getElementById('app');
+const SAVED_LIBRARY_VIEWS_KEY = 'taskboard.librarySavedViews.v1';
 
 function today() {
   const now = new Date();
@@ -109,6 +115,19 @@ function editingDocument() {
 function draftBodyForDocument(document) {
   if (!document) return '';
   return state.documentDraftId === document.id ? state.documentDraftBody : document.body || '';
+}
+
+function persistSavedLibraryViews() {
+  try {
+    window.localStorage?.setItem(SAVED_LIBRARY_VIEWS_KEY, JSON.stringify(state.librarySavedViews));
+  } catch {
+    // Local persistence is a convenience; the Library still works without it.
+  }
+}
+
+function activeSavedLibraryViewId() {
+  const matchingView = state.librarySavedViews.find(view => areSameTags(view.tags, state.activeLibraryTags));
+  return matchingView?.id || null;
 }
 
 function renderWorkspace() {
@@ -212,6 +231,8 @@ function renderLibraryWorkspace(workspace) {
     activeTags: state.activeLibraryTags,
     tagQuery: state.libraryTagQuery,
     areTagsExpanded: state.areLibraryTagsExpanded,
+    savedViews: state.librarySavedViews,
+    activeSavedViewId: activeSavedLibraryViewId(),
   });
 
   function resetDocumentDraft() {
@@ -240,6 +261,58 @@ function renderLibraryWorkspace(workspace) {
         libraryTagQuery: '',
         ...resetDocumentDraft(),
       });
+      renderWorkspace();
+      return;
+    }
+
+    const savedViewButton = event.target.closest('[data-library-saved-view-id]');
+    if (
+      savedViewButton
+      && libraryWorkspace.contains(savedViewButton)
+      && savedViewButton.dataset.action !== 'delete-library-saved-view'
+      && savedViewButton.getAttribute('data-action') !== 'delete-library-saved-view'
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      const view = state.librarySavedViews.find(item => item.id === savedViewButton.dataset.librarySavedViewId);
+      if (!view) return;
+      setState({
+        activeLibraryTags: view.tags,
+        libraryTagQuery: '',
+        areLibraryTagsExpanded: false,
+        ...resetDocumentDraft(),
+      });
+      renderWorkspace();
+      return;
+    }
+
+    const deleteSavedViewButton = event.target.closest('[data-action="delete-library-saved-view"]');
+    if (deleteSavedViewButton && libraryWorkspace.contains(deleteSavedViewButton)) {
+      event.preventDefault();
+      event.stopPropagation();
+      setState({
+        librarySavedViews: state.librarySavedViews.filter(view => view.id !== deleteSavedViewButton.dataset.librarySavedViewId),
+      });
+      persistSavedLibraryViews();
+      renderWorkspace();
+      return;
+    }
+
+    const saveViewButton = event.target.closest('[data-action="save-library-view"]');
+    if (saveViewButton && libraryWorkspace.contains(saveViewButton)) {
+      event.preventDefault();
+      event.stopPropagation();
+      const input = workspace.querySelector('[data-library-saved-view-name]');
+      const fallbackName = state.activeLibraryTags.join(' + ');
+      const view = createSavedLibraryView(input?.value || fallbackName, state.activeLibraryTags);
+      if (!view) return;
+      setState({
+        librarySavedViews: [
+          ...state.librarySavedViews.filter(item => item.id !== view.id),
+          view,
+        ],
+      });
+      persistSavedLibraryViews();
       renderWorkspace();
       return;
     }
@@ -934,6 +1007,9 @@ async function loadDocuments({ selectedDocumentId = state.selectedDocumentId } =
 
 async function init() {
   try {
+    setState({
+      librarySavedViews: savedLibraryViewsFromJson(window.localStorage?.getItem(SAVED_LIBRARY_VIEWS_KEY)),
+    });
     await loadTasks();
   } catch (error) {
     setState({ apiStatus: 'error' });

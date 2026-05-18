@@ -80,6 +80,38 @@ function renderTagFilters({
     </section>`;
 }
 
+function renderSmartViews({
+  savedViews = [],
+  activeSavedViewId = null,
+  activeTags = [],
+} = {}) {
+  const canSaveView = normalizedTags(activeTags).length > 0;
+
+  return `
+    <section class="library-smart-views" aria-label="Library smart views">
+      <div class="library-smart-views__header">
+        <span>Smart views</span>
+      </div>
+      <div class="saved-view-list">${savedViews.length ? savedViews.map((view) => {
+        const isActive = view.id === activeSavedViewId;
+        return `
+        <article class="saved-view${isActive ? ' is-active' : ''}">
+          <button class="saved-view__select" type="button" data-library-saved-view-id="${escapeHtml(view.id)}" aria-pressed="${isActive}">
+            <strong>${escapeHtml(view.label)}</strong>
+            <span>${normalizedTags(view.tags).join(' + ')}</span>
+          </button>
+          <button class="saved-view__delete" type="button" data-action="delete-library-saved-view" data-library-saved-view-id="${escapeHtml(view.id)}" aria-label="Delete ${escapeHtml(view.label)}">x</button>
+        </article>`;
+      }).join('') : '<p class="library-smart-views__empty">Save a tag set to create a smart view.</p>'}
+      </div>
+      <div class="saved-view-form">
+        <label class="sr-only" for="library-saved-view-name">Saved view name</label>
+        <input id="library-saved-view-name" type="text" placeholder="Name current tags optional" autocomplete="off" data-library-saved-view-name${canSaveView ? '' : ' disabled'}>
+        <button class="secondary-action" type="button" data-action="save-library-view"${canSaveView ? '' : ' disabled'}>Save view</button>
+      </div>
+    </section>`;
+}
+
 function selectedDocument(documents, selectedDocumentId) {
   return documents.find(document => document.id === selectedDocumentId) || documents[0] || null;
 }
@@ -184,6 +216,8 @@ export function renderLibraryHtml({
   activeTags = [],
   tagQuery = '',
   areTagsExpanded = false,
+  savedViews = [],
+  activeSavedViewId = null,
 } = {}) {
   const safeDocuments = Array.isArray(documents) ? documents : [];
   const document = selectedDocument(safeDocuments, selectedDocumentId);
@@ -199,6 +233,7 @@ export function renderLibraryHtml({
           </div>
           <span class="sync-pill">Markdown</span>
         </header>
+        ${renderSmartViews({ savedViews, activeSavedViewId, activeTags })}
         ${renderTagFilters({ availableTags, activeTags, tagQuery, areTagsExpanded })}
         <div class="document-list">${renderDocumentList(safeDocuments, document?.id)}
         </div>

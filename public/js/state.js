@@ -23,6 +23,7 @@ export const state = {
   activeLibraryTags: [],
   libraryTagQuery: '',
   areLibraryTagsExpanded: false,
+  librarySavedViews: [],
 };
 
 export function setState(patch) {
