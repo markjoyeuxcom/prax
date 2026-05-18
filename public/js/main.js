@@ -36,6 +36,7 @@ import { renderAdminPanelHtml } from './renderAdminPanel.js';
 import { renderDocumentFormHtml, renderLibraryHtml } from './renderLibrary.js';
 import { titleFromMarkdown } from './markdownPreview.js';
 import { applyMarkdownFormat } from './markdownEditor.js';
+import { canPreserveEditorAfterDraftSave, documentDraftSavedPatch } from './documentDraftSave.js';
 import { filterDocumentsByTags, tagsForDocuments } from './libraryFilters.js';
 import {
   areSameTags,
@@ -297,16 +298,20 @@ function renderLibraryWorkspace(workspace) {
 
     try {
       const savedDocument = await updateDocument(documentToSave.id, { body: state.documentDraftBody });
-      setState({
-        documents: state.documents.map(document => document.id === savedDocument.id ? savedDocument : document),
-        selectedDocumentId: savedDocument.id,
-        documentDraftId: savedDocument.id,
-        documentDraftBody: savedDocument.body || '',
-        isDocumentDirty: false,
-        documentSaveStatus: 'Saved',
+      const patch = documentDraftSavedPatch({ documents: state.documents, savedDocument });
+      const shouldPreserveEditor = canPreserveEditorAfterDraftSave({
+        editorExists: Boolean(workspace.querySelector('[data-document-editor]')),
+        savedDocumentId: savedDocument.id,
+        selectedDocumentId: state.selectedDocumentId || documentToSave.id,
+        documentDraftId: state.documentDraftId,
       });
+      setState(patch);
       isSavingDocumentDraft = false;
-      renderWorkspace();
+      if (shouldPreserveEditor) {
+        updateDocumentSaveControls(workspace, 'Saved');
+      } else {
+        renderWorkspace();
+      }
     } catch {
       isSavingDocumentDraft = false;
       setState({ documentSaveStatus: 'Save failed' });
