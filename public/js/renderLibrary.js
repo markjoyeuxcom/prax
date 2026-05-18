@@ -100,6 +100,7 @@ function renderSmartViews({
             <strong>${escapeHtml(view.label)}</strong>
             <span>${normalizedTags(view.tags).join(' + ')}</span>
           </button>
+          <button class="saved-view__rename" type="button" data-action="rename-library-saved-view" data-library-saved-view-id="${escapeHtml(view.id)}" aria-label="Rename ${escapeHtml(view.label)}">Rename</button>
           <button class="saved-view__delete" type="button" data-action="delete-library-saved-view" data-library-saved-view-id="${escapeHtml(view.id)}" aria-label="Delete ${escapeHtml(view.label)}">x</button>
         </article>`;
       }).join('') : '<p class="library-smart-views__empty">Save a tag set to create a smart view.</p>'}
@@ -109,6 +110,44 @@ function renderSmartViews({
         <input id="library-saved-view-name" type="text" placeholder="Name current tags optional" autocomplete="off" data-library-saved-view-name${canSaveView ? '' : ' disabled'}>
         <button class="secondary-action" type="button" data-action="save-library-view"${canSaveView ? '' : ' disabled'}>Save view</button>
       </div>
+    </section>`;
+}
+
+function documentCountLabel(count) {
+  return `${count} ${count === 1 ? 'document' : 'documents'} shown`;
+}
+
+function renderActiveFilters({
+  activeTags = [],
+  activeSavedViewId = null,
+  savedViews = [],
+  documentCount = 0,
+} = {}) {
+  const tags = normalizedTags(activeTags);
+  const savedView = savedViews.find(view => view.id === activeSavedViewId);
+
+  if (!tags.length) {
+    return `
+      <section class="library-active-filters" aria-label="Active library filters">
+        <div>
+          <span>Active filters</span>
+          <strong>All documents</strong>
+        </div>
+        <small>${documentCountLabel(documentCount)}</small>
+      </section>`;
+  }
+
+  return `
+    <section class="library-active-filters" aria-label="Active library filters">
+      <div>
+        <span>Active filters</span>
+        <strong>${escapeHtml(savedView?.label || tags.join(' + '))}</strong>
+      </div>
+      <div class="active-filter-chips">
+        ${tags.map(tag => `<button class="active-filter-chip" type="button" data-library-active-filter="${escapeHtml(tag)}" aria-label="Remove ${escapeHtml(tag)} filter">${escapeHtml(tag)} <span>x</span></button>`).join('')}
+      </div>
+      <button class="text-action" type="button" data-action="clear-library-tags">Clear</button>
+      <small>${documentCountLabel(documentCount)}</small>
     </section>`;
 }
 
@@ -235,6 +274,7 @@ export function renderLibraryHtml({
         </header>
         ${renderSmartViews({ savedViews, activeSavedViewId, activeTags })}
         ${renderTagFilters({ availableTags, activeTags, tagQuery, areTagsExpanded })}
+        ${renderActiveFilters({ activeTags, activeSavedViewId, savedViews, documentCount: safeDocuments.length })}
         <div class="document-list">${renderDocumentList(safeDocuments, document?.id)}
         </div>
       </aside>

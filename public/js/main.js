@@ -39,6 +39,7 @@ import { filterDocumentsByTags, tagsForDocuments } from './libraryFilters.js';
 import {
   areSameTags,
   createSavedLibraryView,
+  renameSavedLibraryView,
   savedLibraryViewsFromJson,
 } from './librarySavedViews.js';
 
@@ -270,7 +271,9 @@ function renderLibraryWorkspace(workspace) {
       savedViewButton
       && libraryWorkspace.contains(savedViewButton)
       && savedViewButton.dataset.action !== 'delete-library-saved-view'
+      && savedViewButton.dataset.action !== 'rename-library-saved-view'
       && savedViewButton.getAttribute('data-action') !== 'delete-library-saved-view'
+      && savedViewButton.getAttribute('data-action') !== 'rename-library-saved-view'
     ) {
       event.preventDefault();
       event.stopPropagation();
@@ -282,6 +285,42 @@ function renderLibraryWorkspace(workspace) {
         areLibraryTagsExpanded: false,
         ...resetDocumentDraft(),
       });
+      renderWorkspace();
+      return;
+    }
+
+    const activeFilterButton = event.target.closest('[data-library-active-filter]');
+    if (activeFilterButton && libraryWorkspace.contains(activeFilterButton)) {
+      event.preventDefault();
+      event.stopPropagation();
+      const tag = String(activeFilterButton.dataset.libraryActiveFilter || '').trim().toLowerCase();
+      if (!tag) return;
+      setState({
+        activeLibraryTags: state.activeLibraryTags.filter(activeTag => activeTag !== tag),
+        libraryTagQuery: '',
+        ...resetDocumentDraft(),
+      });
+      renderWorkspace();
+      return;
+    }
+
+    const renameSavedViewButton = event.target.closest('[data-action="rename-library-saved-view"]');
+    if (renameSavedViewButton && libraryWorkspace.contains(renameSavedViewButton)) {
+      event.preventDefault();
+      event.stopPropagation();
+      const view = state.librarySavedViews.find(item => item.id === renameSavedViewButton.dataset.librarySavedViewId);
+      if (!view) return;
+      const nextLabel = window.prompt('Rename saved view', view.label);
+      if (nextLabel === null) return;
+      const renamedView = renameSavedLibraryView(view, nextLabel);
+      if (!renamedView) return;
+      setState({
+        librarySavedViews: [
+          ...state.librarySavedViews.filter(item => item.id !== view.id && item.id !== renamedView.id),
+          renamedView,
+        ],
+      });
+      persistSavedLibraryViews();
       renderWorkspace();
       return;
     }

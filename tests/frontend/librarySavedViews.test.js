@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   areSameTags,
   createSavedLibraryView,
+  renameSavedLibraryView,
   sanitizeSavedLibraryViews,
   savedLibraryViewsFromJson,
 } from '../../public/js/librarySavedViews.js';
@@ -38,4 +39,14 @@ test('savedLibraryViewsFromJson returns empty array for invalid JSON', () => {
 test('areSameTags compares tag sets regardless of order or case', () => {
   assert.equal(areSameTags(['Cloudflare', 'Tunnel'], ['tunnel', 'cloudflare']), true);
   assert.equal(areSameTags(['cloudflare'], ['cloudflare', 'tunnel']), false);
+});
+
+test('renameSavedLibraryView keeps tags and rebuilds identity from the new label', () => {
+  assert.deepEqual(
+    renameSavedLibraryView(
+      { id: 'postgres-backup-postgres', label: 'Postgres Backup', tags: ['backup', 'postgres'] },
+      ' Database Recovery ',
+    ),
+    { id: 'database-recovery-backup-postgres', label: 'Database Recovery', tags: ['backup', 'postgres'] },
+  );
 });

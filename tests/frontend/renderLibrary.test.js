@@ -51,8 +51,14 @@ test('renderLibraryHtml renders document list and preview detail', () => {
   assert.match(html, /data-library-saved-view-id="postgres-backup-postgres"/);
   assert.match(html, /aria-pressed="true">[\s\S]*Postgres Backup/);
   assert.match(html, /data-action="delete-library-saved-view"/);
+  assert.match(html, /data-action="rename-library-saved-view"/);
   assert.match(html, /data-library-saved-view-name/);
   assert.match(html, /data-action="save-library-view"/);
+  assert.match(html, /class="library-active-filters"/);
+  assert.match(html, /Active filters/);
+  assert.match(html, /Postgres Backup/);
+  assert.match(html, /data-library-active-filter="backup"/);
+  assert.match(html, /2 documents shown/);
   assert.match(html, /class="library-workspace"/);
   assert.match(html, /class="library-browser"/);
   assert.match(html, /class="library-document-stage"/);

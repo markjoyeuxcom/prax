@@ -554,7 +554,7 @@ button.task-row:hover {
 
 .library-browser {
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
   overflow: hidden;
 }
 
@@ -596,12 +596,13 @@ button.task-row:hover {
 
 .saved-view {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 28px;
+  grid-template-columns: minmax(0, 1fr) auto 28px;
   gap: 6px;
   align-items: stretch;
 }
 
 .saved-view__select,
+.saved-view__rename,
 .saved-view__delete {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -642,6 +643,12 @@ button.task-row:hover {
   display: inline-grid;
   width: 28px;
   place-items: center;
+  font-weight: 800;
+}
+
+.saved-view__rename {
+  padding: 0 8px;
+  font-size: 0.72rem;
   font-weight: 800;
 }
 
@@ -767,6 +774,76 @@ button.task-row:hover {
   color: var(--accent);
   font-size: 0.76rem;
   font-weight: 750;
+}
+
+.library-active-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(21, 35, 49, 0.46);
+}
+
+.library-active-filters > div:first-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.library-active-filters span,
+.library-active-filters small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.library-active-filters strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.active-filter-chips {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.active-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid rgba(114, 214, 162, 0.42);
+  border-radius: 999px;
+  background: rgba(114, 214, 162, 0.1);
+  color: #c8f6d9;
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.active-filter-chip span {
+  opacity: 0.72;
+}
+
+.text-action {
+  justify-self: start;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.76rem;
+  font-weight: 800;
 }
 
 .library-document-stage {

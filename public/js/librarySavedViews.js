@@ -28,6 +28,11 @@ export function createSavedLibraryView(label, tags = []) {
   };
 }
 
+export function renameSavedLibraryView(view, label) {
+  if (!view) return null;
+  return createSavedLibraryView(label, view.tags);
+}
+
 export function sanitizeSavedLibraryViews(value) {
   if (!Array.isArray(value)) return [];
 
