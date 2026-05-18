@@ -2,6 +2,7 @@ import { state, setState } from './state.js';
 import {
   archiveTask,
   createTask,
+  deleteArchivedTask,
   exportTasks,
   fetchTasks,
   importTasks,
@@ -80,7 +81,7 @@ function renderWorkspace() {
 
   workspace.innerHTML = [
     renderWorkspacePrimary(visibleTasks, selectedTaskId),
-    renderTaskDetailHtml(task, { readOnly, restoreAction: readOnly }),
+    renderTaskDetailHtml(task, { readOnly, restoreAction: readOnly, deleteAction: readOnly }),
   ].join('');
 
   workspace.querySelectorAll('[data-task-id]').forEach((row) => {
@@ -132,6 +133,21 @@ function renderWorkspace() {
     } catch {
       window.alert('TaskBoard could not restore the selected task.');
       await loadTasks({ selectedTaskId: null });
+    }
+  });
+
+  const deleteArchivedButton = workspace.querySelector('[data-action="delete-archived-task"]');
+  deleteArchivedButton?.addEventListener('click', async () => {
+    const taskToDelete = selectedTask();
+    if (!taskToDelete) return;
+    const confirmed = window.confirm(`Permanently delete "${taskToDelete.title}"? This cannot be undone.`);
+    if (!confirmed) return;
+
+    try {
+      await deleteArchivedTask(taskToDelete.id);
+      await loadTasks({ selectedTaskId: null });
+    } catch {
+      window.alert('TaskBoard could not delete the archived task.');
     }
   });
 }

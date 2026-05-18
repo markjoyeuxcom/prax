@@ -82,6 +82,11 @@ function createFakeRepository() {
       task.archivedAt = null;
       return task;
     },
+    async deleteArchivedTask(id) {
+      const index = tasks.findIndex(item => item.id === id && item.archivedAt);
+      if (index < 0) return null;
+      return tasks.splice(index, 1)[0];
+    },
     async reorderTasks(updates) {
       return updates.map((update) => {
         const task = tasks.find(item => item.id === update.id);
@@ -921,6 +926,70 @@ test('PATCH /api/tasks/:id/restore returns 404 for unknown or active task', asyn
 
   assert.equal(response.statusCode, 404);
   assert.equal(response.json().message, 'task not found');
+
+  await app.close();
+});
+
+test('DELETE /api/tasks/:id/permanent deletes an archived task', async () => {
+  const repository = createFakeRepository();
+  await repository.archiveTask(TASK_ID);
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: repository,
+  });
+
+  const response = await app.inject({
+    method: 'DELETE',
+    url: `/api/tasks/${TASK_ID}/permanent`,
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().id, TASK_ID);
+  assert.equal(response.json().archivedAt, 'now');
+  assert.deepEqual(await repository.listTasks({ archived: 'all' }), []);
+
+  await app.close();
+});
+
+test('DELETE /api/tasks/:id/permanent rejects active tasks', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'DELETE',
+    url: `/api/tasks/${TASK_ID}/permanent`,
+  });
+
+  assert.equal(response.statusCode, 404);
+  assert.equal(response.json().message, 'task not found');
+
+  await app.close();
+});
+
+test('DELETE /api/tasks/:id/permanent rejects malformed task id before repository lookup', async () => {
+  let deleteCalls = 0;
+  const repository = {
+    ...createFakeRepository(),
+    async deleteArchivedTask() {
+      deleteCalls += 1;
+      return null;
+    },
+  };
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: repository,
+  });
+
+  const response = await app.inject({
+    method: 'DELETE',
+    url: '/api/tasks/not-a-uuid/permanent',
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().message, /task id/);
+  assert.equal(deleteCalls, 0);
 
   await app.close();
 });

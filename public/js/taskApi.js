@@ -73,3 +73,11 @@ export async function restoreTask(id) {
   if (!response.ok) throw new Error('Failed to restore task');
   return response.json();
 }
+
+export async function deleteArchivedTask(id) {
+  const response = await fetch(`/api/tasks/${id}/permanent`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) throw new Error('Failed to delete archived task');
+  return response.json();
+}

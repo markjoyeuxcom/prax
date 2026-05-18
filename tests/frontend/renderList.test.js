@@ -103,10 +103,12 @@ test('renderTaskDetailHtml shows restore action for archived tasks', () => {
     priority: 'low',
     status: 'completed',
     dueDate: null,
-  }, { readOnly: true, restoreAction: true });
+  }, { readOnly: true, restoreAction: true, deleteAction: true });
 
   assert.match(html, /data-action="restore-task"/);
+  assert.match(html, /data-action="delete-archived-task"/);
   assert.match(html, />Restore</);
+  assert.match(html, />Delete</);
   assert.doesNotMatch(html, /data-action="edit-task"/);
   assert.doesNotMatch(html, /data-action="archive-task"/);
 });

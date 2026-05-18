@@ -4,6 +4,7 @@ import {
   archiveTask,
   exportTasks,
   importTasks,
+  deleteArchivedTask,
   reorderTasks,
   restoreTask,
   updateTask,
@@ -58,6 +59,20 @@ test('restoreTask sends a PATCH request to the restore endpoint', async () => {
   assert.deepEqual(task, { id: 'task-1', archivedAt: null });
   assert.equal(calls[0][0], '/api/tasks/task-1/restore');
   assert.equal(calls[0][1].method, 'PATCH');
+});
+
+test('deleteArchivedTask sends a DELETE request to the permanent endpoint', async () => {
+  const calls = [];
+  globalThis.fetch = async (...args) => {
+    calls.push(args);
+    return jsonResponse({ id: 'task-1', archivedAt: 'now' });
+  };
+
+  const task = await deleteArchivedTask('task-1');
+
+  assert.deepEqual(task, { id: 'task-1', archivedAt: 'now' });
+  assert.equal(calls[0][0], '/api/tasks/task-1/permanent');
+  assert.equal(calls[0][1].method, 'DELETE');
 });
 
 test('exportTasks fetches a context export envelope', async () => {

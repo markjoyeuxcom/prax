@@ -136,6 +136,17 @@ export function buildRestoreTask(id) {
   };
 }
 
+export function buildDeleteArchivedTask(id) {
+  return {
+    text: `
+      delete from tasks
+      where id = $1 and archived_at is not null
+      returning *
+    `,
+    values: [id],
+  };
+}
+
 export function createTasksRepository(db) {
   return {
     async listTasks(filters = {}) {
@@ -210,6 +221,12 @@ export function createTasksRepository(db) {
 
     async restoreTask(id) {
       const query = buildRestoreTask(id);
+      const result = await db.query(query.text, query.values);
+      return result.rows[0] ? normalizeTaskRow(result.rows[0]) : null;
+    },
+
+    async deleteArchivedTask(id) {
+      const query = buildDeleteArchivedTask(id);
       const result = await db.query(query.text, query.values);
       return result.rows[0] ? normalizeTaskRow(result.rows[0]) : null;
     },

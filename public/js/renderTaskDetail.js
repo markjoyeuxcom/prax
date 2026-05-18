@@ -56,6 +56,7 @@ export function renderTaskDetailHtml(task, options = {}) {
   const dueDate = task.dueDate || '-';
   const readOnly = Boolean(options.readOnly);
   const restoreAction = Boolean(options.restoreAction);
+  const deleteAction = Boolean(options.deleteAction);
 
   return `
     <aside class="detail-panel" aria-labelledby="selected-task-title">
@@ -66,6 +67,7 @@ export function renderTaskDetailHtml(task, options = {}) {
         ${restoreAction ? `
         <div class="detail-actions">
           <button class="secondary-action" type="button" data-action="restore-task">Restore</button>
+          ${deleteAction ? '<button class="danger-action" type="button" data-action="delete-archived-task">Delete</button>' : ''}
         </div>` : readOnly ? '' : `
         <div class="detail-actions">
           <button class="secondary-action" type="button" data-action="edit-task">Edit</button>

@@ -325,6 +325,20 @@ export async function registerTasksRoutes(app, options = {}) {
     return task;
   });
 
+  app.delete('/api/tasks/:id/permanent', async (request, reply) => {
+    if (!isValidUuid(request.params.id)) {
+      reply.code(400);
+      return { message: 'task id is invalid' };
+    }
+
+    const task = await repository.deleteArchivedTask(request.params.id);
+    if (!task) {
+      reply.code(404);
+      return { message: 'task not found' };
+    }
+    return task;
+  });
+
   app.patch('/api/tasks/:id', async (request, reply) => {
     if (!isValidUuid(request.params.id)) {
       reply.code(400);

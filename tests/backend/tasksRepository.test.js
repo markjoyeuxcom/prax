@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createTasksRepository,
+  buildDeleteArchivedTask,
   buildImportTasks,
   buildReplaceContextTasks,
   normalizeTaskRow,
@@ -96,6 +97,15 @@ test('buildRestoreTask returns a parameterized restore query', () => {
   assert.match(query.text, /update tasks/);
   assert.match(query.text, /archived_at = null/);
   assert.match(query.text, /updated_at = now\(\)/);
+  assert.match(query.text, /where id = \$1 and archived_at is not null/);
+  assert.match(query.text, /returning \*/);
+  assert.deepEqual(query.values, ['11111111-1111-4111-8111-111111111111']);
+});
+
+test('buildDeleteArchivedTask permanently deletes only archived tasks', () => {
+  const query = buildDeleteArchivedTask('11111111-1111-4111-8111-111111111111');
+
+  assert.match(query.text, /delete from tasks/);
   assert.match(query.text, /where id = \$1 and archived_at is not null/);
   assert.match(query.text, /returning \*/);
   assert.deepEqual(query.values, ['11111111-1111-4111-8111-111111111111']);
