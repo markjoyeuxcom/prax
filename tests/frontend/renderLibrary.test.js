@@ -142,6 +142,7 @@ test('renderLibraryHtml renders edit mode with editor and save controls', () => 
   assert.match(html, /data-markdown-action="bold"/);
   assert.match(html, /data-markdown-action="bullet-list"/);
   assert.match(html, /data-markdown-action="checklist"/);
+  assert.match(html, /data-markdown-action="code-block"/);
   assert.match(html, /data-action="toggle-document-focus"/);
   assert.match(html, /aria-label="Focus writing mode"/);
   assert.doesNotMatch(html, /markdown-preview/);

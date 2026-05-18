@@ -33,3 +33,19 @@ test('applyMarkdownFormat inserts a Markdown link around selected text', () => {
     selectionEnd: 22,
   });
 });
+
+test('applyMarkdownFormat wraps selected text in a fenced code block', () => {
+  assert.deepEqual(applyMarkdownFormat('kubectl get pods', 0, 16, 'code-block'), {
+    value: '```\nkubectl get pods\n```',
+    selectionStart: 4,
+    selectionEnd: 20,
+  });
+});
+
+test('applyMarkdownFormat inserts an empty fenced code block at the cursor', () => {
+  assert.deepEqual(applyMarkdownFormat('', 0, 0, 'code-block'), {
+    value: '```\ncode block\n```',
+    selectionStart: 4,
+    selectionEnd: 14,
+  });
+});

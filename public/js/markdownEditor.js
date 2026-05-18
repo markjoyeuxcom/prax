@@ -81,6 +81,18 @@ function link(value, selectionStart, selectionEnd) {
   };
 }
 
+function codeBlock(value, selectionStart, selectionEnd) {
+  const selected = selectedText(value, selectionStart, selectionEnd) || 'code block';
+  const prefix = '```\n';
+  const suffix = '\n```';
+  const nextValue = `${value.slice(0, selectionStart)}${prefix}${selected}${suffix}${value.slice(selectionEnd)}`;
+  return {
+    value: nextValue,
+    selectionStart: selectionStart + prefix.length,
+    selectionEnd: selectionStart + prefix.length + selected.length,
+  };
+}
+
 export function applyMarkdownFormat(value, selectionStart, selectionEnd, action) {
   const safeValue = String(value ?? '');
   const start = Math.max(0, Number(selectionStart) || 0);
@@ -93,6 +105,8 @@ export function applyMarkdownFormat(value, selectionStart, selectionEnd, action)
       return wrapSelection(safeValue, start, end, '*', 'italic text');
     case 'code':
       return wrapSelection(safeValue, start, end, '`', 'code');
+    case 'code-block':
+      return codeBlock(safeValue, start, end);
     case 'heading':
       return heading(safeValue, start, end);
     case 'bullet-list':

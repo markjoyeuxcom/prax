@@ -21,6 +21,7 @@ const MARKDOWN_TOOLS = [
   { action: 'checklist', label: 'Check', title: 'Checklist' },
   { action: 'quote', label: 'Quote', title: 'Quote' },
   { action: 'code', label: 'Code', title: 'Inline code' },
+  { action: 'code-block', label: 'Block', title: 'Code block' },
   { action: 'link', label: 'Link', title: 'Link' },
 ];
 
