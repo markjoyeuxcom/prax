@@ -16,7 +16,10 @@ export const state = {
   documentFormError: '',
   isSaving: false,
   adminImportMode: 'skip',
-  documentPreviewMode: 'preview',
+  documentEditorMode: 'preview',
+  documentDraftBody: '',
+  documentDraftId: null,
+  isDocumentDirty: false,
 };
 
 export function setState(patch) {

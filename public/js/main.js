@@ -104,6 +104,11 @@ function editingDocument() {
   return state.documents.find(document => document.id === state.editingDocumentId) || null;
 }
 
+function draftBodyForDocument(document) {
+  if (!document) return '';
+  return state.documentDraftId === document.id ? state.documentDraftBody : document.body || '';
+}
+
 function renderWorkspace() {
   const workspace = document.getElementById('workspace');
   if (!workspace) return;
@@ -197,30 +202,67 @@ function renderLibraryWorkspace(workspace) {
   workspace.innerHTML = renderLibraryHtml({
     documents: visibleDocuments,
     selectedDocumentId: document?.id || null,
-    previewMode: state.documentPreviewMode,
+    editorMode: state.documentEditorMode,
+    draftBody: draftBodyForDocument(document),
+    isDirty: state.isDocumentDirty && state.documentDraftId === document?.id,
   });
 
   workspace.querySelectorAll('[data-library-document-id]').forEach((row) => {
     row.addEventListener('click', () => {
-      setState({ selectedDocumentId: row.dataset.libraryDocumentId });
+      const nextDocument = state.documents.find(item => item.id === row.dataset.libraryDocumentId);
+      setState({
+        selectedDocumentId: row.dataset.libraryDocumentId,
+        documentDraftId: nextDocument?.id || null,
+        documentDraftBody: nextDocument?.body || '',
+        isDocumentDirty: false,
+      });
       renderWorkspace();
     });
   });
 
-  workspace.querySelector('[data-action="toggle-document-raw"]')?.addEventListener('click', () => {
-    setState({ documentPreviewMode: state.documentPreviewMode === 'raw' ? 'preview' : 'raw' });
-    renderWorkspace();
+  workspace.querySelectorAll('[data-library-mode]').forEach((button) => {
+    button.addEventListener('click', () => {
+      setState({ documentEditorMode: button.dataset.libraryMode || 'preview' });
+      renderWorkspace();
+    });
   });
 
-  workspace.querySelector('[data-action="edit-document"]')?.addEventListener('click', () => {
+  workspace.querySelector('[data-document-editor]')?.addEventListener('input', (event) => {
     const documentToEdit = selectedDocument();
     if (!documentToEdit) return;
     setState({
-      isDocumentFormOpen: true,
-      editingDocumentId: documentToEdit.id,
-      documentFormError: '',
+      documentDraftId: documentToEdit.id,
+      documentDraftBody: event.target.value,
+      isDocumentDirty: event.target.value !== (documentToEdit.body || ''),
     });
-    renderApp();
+    const status = workspace.querySelector('.document-pane-header span');
+    const saveButton = workspace.querySelector('[data-action="save-document-draft"]');
+    if (status) status.textContent = state.isDocumentDirty ? 'Unsaved changes' : 'Saved';
+    if (saveButton) saveButton.disabled = !state.isDocumentDirty;
+  });
+
+  workspace.querySelector('[data-action="save-document-draft"]')?.addEventListener('click', async () => {
+    const documentToSave = selectedDocument();
+    if (!documentToSave || !state.isDocumentDirty) return;
+
+    try {
+      const savedDocument = await updateDocument(documentToSave.id, { body: state.documentDraftBody });
+      setState({
+        documents: state.documents.map(document => document.id === savedDocument.id ? savedDocument : document),
+        selectedDocumentId: savedDocument.id,
+        documentDraftId: savedDocument.id,
+        documentDraftBody: savedDocument.body || '',
+        isDocumentDirty: false,
+      });
+      renderWorkspace();
+    } catch {
+      window.alert('TaskBoard could not save this document.');
+    }
+  });
+
+  workspace.querySelector('[data-action="edit-document"]')?.addEventListener('click', () => {
+    setState({ documentEditorMode: 'edit' });
+    renderWorkspace();
   });
 
   workspace.querySelector('[data-action="archive-document"]')?.addEventListener('click', async () => {
@@ -458,6 +500,9 @@ function bindShellEvents() {
         activeContext: nextContext,
         selectedTaskId: null,
         selectedDocumentId: null,
+        documentDraftId: null,
+        documentDraftBody: '',
+        isDocumentDirty: false,
         isTaskFormOpen: false,
         isAdminPanelOpen: false,
         isDocumentFormOpen: false,
@@ -488,6 +533,9 @@ function bindShellEvents() {
         activeView: nextView,
         selectedTaskId: null,
         selectedDocumentId: null,
+        documentDraftId: null,
+        documentDraftBody: '',
+        isDocumentDirty: false,
         isTaskFormOpen: false,
         isAdminPanelOpen: false,
         isDocumentFormOpen: false,
@@ -800,6 +848,9 @@ async function loadDocuments({ selectedDocumentId = state.selectedDocumentId } =
     documents,
     apiStatus: 'connected',
     selectedDocumentId: selectedDocumentExists ? selectedDocumentId : documents[0]?.id || null,
+    documentDraftId: selectedDocumentExists ? selectedDocumentId : documents[0]?.id || null,
+    documentDraftBody: (selectedDocumentExists ? documents.find(document => document.id === selectedDocumentId) : documents[0])?.body || '',
+    isDocumentDirty: false,
   });
   renderApp();
 }

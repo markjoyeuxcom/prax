@@ -59,7 +59,29 @@ function renderDocumentList(documents, activeDocumentId) {
   }).join('');
 }
 
-function renderDocumentDetail(document, previewMode) {
+function renderModeButton(mode, activeMode, label) {
+  return `<button class="secondary-action${mode === activeMode ? ' is-active' : ''}" type="button" data-library-mode="${mode}" aria-pressed="${mode === activeMode}">${label}</button>`;
+}
+
+function renderEditorPane(body, isDirty) {
+  return `
+    <section class="document-editor-pane" aria-label="Markdown editor">
+      <header class="document-pane-header">
+        <span>${isDirty ? 'Unsaved changes' : 'Saved'}</span>
+        <button class="primary-action" type="button" data-action="save-document-draft"${isDirty ? '' : ' disabled'}>Save</button>
+      </header>
+      <textarea class="document-editor" data-document-editor spellcheck="false">${escapeHtml(body)}</textarea>
+    </section>`;
+}
+
+function renderPreviewPane(body) {
+  return `
+    <section class="document-preview-pane" aria-label="Markdown preview">
+      <div class="markdown-preview">${renderMarkdownHtml(body)}</div>
+    </section>`;
+}
+
+function renderDocumentDetail(document, options = {}) {
   if (!document) {
     return `
       <aside class="detail-panel detail-panel--empty" aria-label="Document detail">
@@ -70,11 +92,12 @@ function renderDocumentDetail(document, previewMode) {
       </aside>`;
   }
 
+  const editorMode = options.editorMode || 'preview';
   const isArchived = Boolean(document.archivedAt);
-  const body = document.body || '';
-  const content = previewMode === 'raw'
-    ? `<pre class="document-raw">${escapeHtml(body)}</pre>`
-    : `<div class="markdown-preview">${renderMarkdownHtml(body)}</div>`;
+  const body = options.draftBody ?? document.body ?? '';
+  const isDirty = Boolean(options.isDirty);
+  const editorVisible = editorMode === 'edit' || editorMode === 'split';
+  const previewVisible = editorMode === 'preview' || editorMode === 'split';
 
   return `
     <aside class="detail-panel library-detail" aria-labelledby="selected-document-title">
@@ -84,7 +107,9 @@ function renderDocumentDetail(document, previewMode) {
         <p>${escapeHtml(document.sourceFilename || 'Created in TaskBoard')}</p>
         <div class="document-tags">${renderTags(document.tags)}</div>
         <div class="detail-actions">
-          <button class="secondary-action" type="button" data-action="toggle-document-raw">${previewMode === 'raw' ? 'Preview' : 'Raw'}</button>
+          ${renderModeButton('edit', editorMode, 'Edit')}
+          ${renderModeButton('preview', editorMode, 'Preview')}
+          ${renderModeButton('split', editorMode, 'Split')}
           ${isArchived ? `
           <button class="secondary-action" type="button" data-action="restore-document">Restore</button>
           <button class="danger-action" type="button" data-action="delete-archived-document">Delete</button>` : `
@@ -92,7 +117,8 @@ function renderDocumentDetail(document, previewMode) {
           <button class="danger-action" type="button" data-action="archive-document">Archive</button>`}
         </div>
       </header>
-      <div class="document-preview">${content}</div>
+      <div class="document-workspace document-workspace--${escapeHtml(editorMode)}">${editorVisible ? renderEditorPane(body, isDirty) : ''}${previewVisible ? renderPreviewPane(body) : ''}
+      </div>
     </aside>`;
 }
 
@@ -104,10 +130,14 @@ function renderOptions(options, selectedValue) {
 export function renderLibraryHtml({
   documents = [],
   selectedDocumentId = null,
-  previewMode = 'preview',
+  previewMode = null,
+  editorMode = null,
+  draftBody = null,
+  isDirty = false,
 } = {}) {
   const safeDocuments = Array.isArray(documents) ? documents : [];
   const document = selectedDocument(safeDocuments, selectedDocumentId);
+  const activeMode = editorMode || (previewMode === 'raw' ? 'edit' : previewMode) || 'preview';
 
   return [
     `<section class="task-panel library-panel" aria-labelledby="library-title">
@@ -121,7 +151,7 @@ export function renderLibraryHtml({
       <div class="document-list">${renderDocumentList(safeDocuments, document?.id)}
       </div>
     </section>`,
-    renderDocumentDetail(document, previewMode),
+    renderDocumentDetail(document, { editorMode: activeMode, draftBody, isDirty }),
   ].join('');
 }
 

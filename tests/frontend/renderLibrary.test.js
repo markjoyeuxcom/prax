@@ -31,7 +31,7 @@ test('renderLibraryHtml renders document list and preview detail', () => {
   const html = renderLibraryHtml({
     documents,
     selectedDocumentId: 'doc-1',
-    previewMode: 'preview',
+    editorMode: 'preview',
   });
 
   assert.match(html, /Knowledge Library/);
@@ -42,22 +42,42 @@ test('renderLibraryHtml renders document list and preview detail', () => {
   assert.match(html, /postgres/);
   assert.match(html, /data-action="edit-document"/);
   assert.match(html, /data-action="archive-document"/);
-  assert.match(html, /data-action="toggle-document-raw"/);
+  assert.match(html, /data-library-mode="edit"/);
+  assert.match(html, /data-library-mode="preview"/);
+  assert.match(html, /data-library-mode="split"/);
   assert.match(html, /<h1>Restore CloudNativePG<\/h1>/);
 });
 
-test('renderLibraryHtml renders raw source mode and escapes Markdown', () => {
+test('renderLibraryHtml renders edit mode with editor and save controls', () => {
+  const html = renderLibraryHtml({
+    documents,
+    selectedDocumentId: 'doc-1',
+    editorMode: 'edit',
+    draftBody: '# Draft body',
+    isDirty: true,
+  });
+
+  assert.match(html, /document-editor/);
+  assert.match(html, /data-document-editor/);
+  assert.match(html, /# Draft body/);
+  assert.match(html, /data-action="save-document-draft"/);
+  assert.match(html, /Unsaved changes/);
+  assert.doesNotMatch(html, /markdown-preview/);
+});
+
+test('renderLibraryHtml renders split mode with editor and escaped preview', () => {
   const html = renderLibraryHtml({
     documents: [{
       ...documents[0],
       body: '# <script>alert("x")</script>',
     }],
     selectedDocumentId: 'doc-1',
-    previewMode: 'raw',
+    editorMode: 'split',
   });
 
-  assert.match(html, /document-raw/);
-  assert.match(html, /# &lt;script&gt;alert\(&quot;x&quot;\)&lt;\/script&gt;/);
+  assert.match(html, /document-editor/);
+  assert.match(html, /markdown-preview/);
+  assert.match(html, /&lt;script&gt;alert\(&quot;x&quot;\)&lt;\/script&gt;/);
   assert.doesNotMatch(html, /<script>/);
 });
 
