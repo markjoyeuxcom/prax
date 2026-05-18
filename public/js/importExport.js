@@ -21,6 +21,18 @@ export function duplicateKeyForTask(task) {
   ].join('\u001f');
 }
 
+export function openTaskImportFilePicker({ documentRef = document, handleFile }) {
+  const input = documentRef.createElement('input');
+  input.type = 'file';
+  input.accept = 'application/json,.json';
+  input.addEventListener('change', () => {
+    const file = input.files?.[0];
+    if (file) handleFile(file);
+  });
+  input.click();
+  return input;
+}
+
 export function exportFilename(context, date = new Date()) {
   const safeContext = String(context || 'tasks')
     .toLowerCase()

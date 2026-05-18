@@ -4,6 +4,7 @@ import {
   duplicateKeyForTask,
   exportFilename,
   normalizeImportMode,
+  openTaskImportFilePicker,
   tasksFromImportPayload,
 } from '../../public/js/importExport.js';
 
@@ -60,4 +61,41 @@ test('duplicateKeyForTask normalizes title context status and due date', () => {
     }),
     'back up cnpg\u001fhomelab\u001fplanned\u001f2026-05-18',
   );
+});
+
+test('openTaskImportFilePicker opens the picker before handling the selected file', () => {
+  const events = [];
+  let changeHandler;
+  const selectedFile = { name: 'tasks.json' };
+  const input = {
+    files: [],
+    addEventListener(eventName, handler) {
+      if (eventName === 'change') changeHandler = handler;
+    },
+    click() {
+      events.push('click');
+    },
+  };
+  const documentRef = {
+    createElement(tagName) {
+      assert.equal(tagName, 'input');
+      return input;
+    },
+  };
+
+  openTaskImportFilePicker({
+    documentRef,
+    handleFile(file) {
+      events.push(`handle:${file.name}`);
+    },
+  });
+
+  assert.deepEqual(events, ['click']);
+
+  input.files = [selectedFile];
+  changeHandler();
+
+  assert.deepEqual(events, ['click', 'handle:tasks.json']);
+  assert.equal(input.type, 'file');
+  assert.equal(input.accept, 'application/json,.json');
 });
