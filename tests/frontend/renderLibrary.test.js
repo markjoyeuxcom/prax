@@ -129,14 +129,34 @@ test('renderLibraryHtml renders edit mode with editor and save controls', () => 
     editorMode: 'edit',
     draftBody: '# Draft body',
     isDirty: true,
+    saveStatus: 'Autosaving...',
   });
 
   assert.match(html, /document-editor/);
   assert.match(html, /data-document-editor/);
   assert.match(html, /# Draft body/);
   assert.match(html, /data-action="save-document-draft"/);
-  assert.match(html, /Unsaved changes/);
+  assert.match(html, /Autosaving\.\.\./);
+  assert.match(html, /data-markdown-action="bold"/);
+  assert.match(html, /data-markdown-action="bullet-list"/);
+  assert.match(html, /data-markdown-action="checklist"/);
+  assert.match(html, /data-action="toggle-document-focus"/);
+  assert.match(html, /aria-label="Focus writing mode"/);
   assert.doesNotMatch(html, /markdown-preview/);
+});
+
+test('renderLibraryHtml can render focused writing mode', () => {
+  const html = renderLibraryHtml({
+    documents,
+    selectedDocumentId: 'doc-1',
+    editorMode: 'edit',
+    isFocusMode: true,
+  });
+
+  assert.match(html, /library-workspace is-focus-mode/);
+  assert.match(html, /library-detail is-focus-mode/);
+  assert.match(html, /document-workspace document-workspace--edit document-workspace--focused/);
+  assert.match(html, /aria-pressed="true">Focus/);
 });
 
 test('renderLibraryHtml renders split mode with editor and escaped preview', () => {

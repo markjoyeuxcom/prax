@@ -12,6 +12,18 @@ const CONTEXTS = [
   { value: 'homelab', label: 'Homelab' },
 ];
 
+const MARKDOWN_TOOLS = [
+  { action: 'heading', label: 'H2', title: 'Heading' },
+  { action: 'bold', label: 'B', title: 'Bold' },
+  { action: 'italic', label: 'I', title: 'Italic' },
+  { action: 'bullet-list', label: 'List', title: 'Bullet list' },
+  { action: 'numbered-list', label: '1.', title: 'Numbered list' },
+  { action: 'checklist', label: 'Check', title: 'Checklist' },
+  { action: 'quote', label: 'Quote', title: 'Quote' },
+  { action: 'code', label: 'Code', title: 'Inline code' },
+  { action: 'link', label: 'Link', title: 'Link' },
+];
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -181,13 +193,26 @@ function renderModeButton(mode, activeMode, label) {
   return `<button class="secondary-action${mode === activeMode ? ' is-active' : ''}" type="button" data-library-mode="${mode}" aria-pressed="${mode === activeMode}">${label}</button>`;
 }
 
-function renderEditorPane(body, isDirty) {
+function renderMarkdownToolbar() {
+  return `
+        <div class="markdown-toolbar" aria-label="Markdown formatting tools">
+          ${MARKDOWN_TOOLS.map(tool => `<button class="markdown-tool-button" type="button" data-markdown-action="${escapeHtml(tool.action)}" title="${escapeHtml(tool.title)}" aria-label="${escapeHtml(tool.title)}">${escapeHtml(tool.label)}</button>`).join('')}
+        </div>`;
+}
+
+function renderEditorPane(body, options = {}) {
+  const status = options.saveStatus || (options.isDirty ? 'Unsaved changes' : 'Saved');
+
   return `
     <section class="document-editor-pane" aria-label="Markdown editor">
       <header class="document-pane-header">
-        <span>${isDirty ? 'Unsaved changes' : 'Saved'}</span>
-        <button class="primary-action" type="button" data-action="save-document-draft"${isDirty ? '' : ' disabled'}>Save</button>
+        <span data-document-save-status>${escapeHtml(status)}</span>
+        <div class="document-pane-actions">
+          <button class="secondary-action" type="button" data-action="toggle-document-focus" aria-label="Focus writing mode" aria-pressed="${Boolean(options.isFocusMode)}">Focus</button>
+          <button class="primary-action" type="button" data-action="save-document-draft"${options.isDirty ? '' : ' disabled'}>Save</button>
+        </div>
       </header>
+      ${renderMarkdownToolbar()}
       <textarea class="document-editor" data-document-editor spellcheck="false">${escapeHtml(body)}</textarea>
     </section>`;
 }
@@ -252,11 +277,12 @@ function renderDocumentDetail(document, options = {}) {
   const body = options.draftBody ?? document.body ?? '';
   const isDirty = Boolean(options.isDirty);
   const isInfoEditing = Boolean(options.isInfoEditing);
+  const isFocusMode = Boolean(options.isFocusMode);
   const editorVisible = editorMode === 'edit' || editorMode === 'split';
   const previewVisible = editorMode === 'preview' || editorMode === 'split';
 
   return `
-    <aside class="detail-panel library-detail" aria-labelledby="selected-document-title">
+    <aside class="detail-panel library-detail${isFocusMode ? ' is-focus-mode' : ''}" aria-labelledby="selected-document-title">
       <header class="detail-header">
         <span class="detail-kicker">${escapeHtml(labelFromValue(document.documentType || 'note'))}</span>
         <h2 id="selected-document-title">${escapeHtml(document.title || 'Untitled document')}</h2>
@@ -274,7 +300,7 @@ function renderDocumentDetail(document, options = {}) {
         </div>
       </header>
       ${isInfoEditing ? renderDocumentInfoForm(document, { error: options.infoError, isSaving: options.isSaving }) : `
-      <div class="document-workspace document-workspace--${escapeHtml(editorMode)}">${editorVisible ? renderEditorPane(body, isDirty) : ''}${previewVisible ? renderPreviewPane(body) : ''}
+      <div class="document-workspace document-workspace--${escapeHtml(editorMode)}${isFocusMode ? ' document-workspace--focused' : ''}">${editorVisible ? renderEditorPane(body, { isDirty, saveStatus: options.saveStatus, isFocusMode }) : ''}${previewVisible ? renderPreviewPane(body) : ''}
       </div>`}
     </aside>`;
 }
@@ -300,13 +326,15 @@ export function renderLibraryHtml({
   isInfoEditing = false,
   infoError = '',
   isSaving = false,
+  saveStatus = '',
+  isFocusMode = false,
 } = {}) {
   const safeDocuments = Array.isArray(documents) ? documents : [];
   const document = selectedDocument(safeDocuments, selectedDocumentId);
   const activeMode = editorMode || (previewMode === 'raw' ? 'edit' : previewMode) || 'preview';
 
   return `
-    <section class="library-workspace" aria-label="Knowledge Library workspace">
+    <section class="library-workspace${isFocusMode ? ' is-focus-mode' : ''}" aria-label="Knowledge Library workspace">
       <aside class="library-browser" aria-labelledby="library-title">
         <header class="panel-header">
           <div>
@@ -321,7 +349,7 @@ export function renderLibraryHtml({
         <div class="document-list">${renderDocumentList(safeDocuments, document?.id)}
         </div>
       </aside>
-      <div class="library-document-stage">${renderDocumentDetail(document, { editorMode: activeMode, draftBody, isDirty, isInfoEditing, infoError, isSaving })}
+      <div class="library-document-stage">${renderDocumentDetail(document, { editorMode: activeMode, draftBody, isDirty, isInfoEditing, infoError, isSaving, saveStatus, isFocusMode })}
       </div>
     </section>`;
 }

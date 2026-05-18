@@ -544,6 +544,14 @@ button.task-row:hover {
   min-height: 0;
 }
 
+.library-workspace.is-focus-mode {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.library-workspace.is-focus-mode .library-browser {
+  display: none;
+}
+
 .library-browser,
 .library-detail {
   min-width: 0;
@@ -929,6 +937,11 @@ button.task-row:hover {
   overflow: hidden;
 }
 
+.library-detail.is-focus-mode {
+  max-width: 1120px;
+  margin: 0 auto;
+}
+
 .library-detail .detail-header {
   display: grid;
   gap: 8px;
@@ -1018,7 +1031,7 @@ button.task-row:hover {
 
 .document-editor-pane {
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto 1fr;
   border-right: 1px solid var(--border);
 }
 
@@ -1039,6 +1052,45 @@ button.task-row:hover {
   font-weight: 750;
 }
 
+.document-pane-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.document-pane-actions .secondary-action,
+.document-pane-actions .primary-action {
+  min-height: 30px;
+  padding: 5px 9px;
+  font-size: 0.76rem;
+}
+
+.markdown-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(10, 17, 25, 0.34);
+}
+
+.markdown-tool-button {
+  min-width: 32px;
+  min-height: 30px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #101c28;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 850;
+}
+
+.markdown-tool-button:hover {
+  border-color: #31506e;
+  color: var(--text);
+}
+
 .document-editor {
   width: 100%;
   height: 100%;
@@ -1051,6 +1103,13 @@ button.task-row:hover {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   font-size: 0.88rem;
   line-height: 1.55;
+}
+
+.document-workspace--focused .document-editor {
+  max-width: 920px;
+  margin: 0 auto;
+  font-size: 0.94rem;
+  line-height: 1.65;
 }
 
 .document-editor:focus {

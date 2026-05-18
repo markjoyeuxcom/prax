@@ -35,6 +35,7 @@ import { renderTaskFormHtml } from './renderTaskForm.js';
 import { renderAdminPanelHtml } from './renderAdminPanel.js';
 import { renderDocumentFormHtml, renderLibraryHtml } from './renderLibrary.js';
 import { titleFromMarkdown } from './markdownPreview.js';
+import { applyMarkdownFormat } from './markdownEditor.js';
 import { filterDocumentsByTags, tagsForDocuments } from './libraryFilters.js';
 import {
   areSameTags,
@@ -45,6 +46,9 @@ import {
 
 const app = document.getElementById('app');
 const SAVED_LIBRARY_VIEWS_KEY = 'taskboard.librarySavedViews.v1';
+const DOCUMENT_AUTOSAVE_DELAY_MS = 1200;
+let documentAutosaveTimer = null;
+let isSavingDocumentDraft = false;
 
 function today() {
   const now = new Date();
@@ -129,6 +133,32 @@ function persistSavedLibraryViews() {
 function activeSavedLibraryViewId() {
   const matchingView = state.librarySavedViews.find(view => areSameTags(view.tags, state.activeLibraryTags));
   return matchingView?.id || null;
+}
+
+function clearDocumentAutosave() {
+  if (!documentAutosaveTimer) return;
+  window.clearTimeout(documentAutosaveTimer);
+  documentAutosaveTimer = null;
+}
+
+function updateDocumentSaveControls(workspace, status) {
+  const statusNode = workspace.querySelector('[data-document-save-status]');
+  const saveButton = workspace.querySelector('[data-action="save-document-draft"]');
+  if (statusNode) statusNode.textContent = status;
+  if (saveButton) saveButton.disabled = !state.isDocumentDirty || isSavingDocumentDraft;
+}
+
+function applyMarkdownToolbarAction(textarea, action) {
+  const result = applyMarkdownFormat(
+    textarea.value,
+    textarea.selectionStart,
+    textarea.selectionEnd,
+    action,
+  );
+  textarea.value = result.value;
+  textarea.focus();
+  textarea.setSelectionRange(result.selectionStart, result.selectionEnd);
+  textarea.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 function renderWorkspace() {
@@ -237,17 +267,62 @@ function renderLibraryWorkspace(workspace) {
     isInfoEditing: state.isDocumentInfoEditorOpen,
     infoError: state.documentInfoError,
     isSaving: state.isSaving,
+    saveStatus: state.documentSaveStatus,
+    isFocusMode: state.isDocumentFocusMode,
   });
 
   function resetDocumentDraft() {
+    clearDocumentAutosave();
     return {
       selectedDocumentId: null,
       documentDraftId: null,
       documentDraftBody: '',
       isDocumentDirty: false,
+      documentSaveStatus: 'Saved',
+      isDocumentFocusMode: false,
       isDocumentInfoEditorOpen: false,
       documentInfoError: '',
     };
+  }
+
+  async function saveDocumentDraftFromWorkspace() {
+    const documentToSave = selectedDocument();
+    if (!documentToSave || !state.isDocumentDirty || isSavingDocumentDraft) return;
+
+    clearDocumentAutosave();
+    isSavingDocumentDraft = true;
+    const savingStatus = state.documentSaveStatus === 'Autosaving...' ? 'Autosaving...' : 'Saving...';
+    setState({ documentSaveStatus: savingStatus });
+    updateDocumentSaveControls(workspace, savingStatus);
+
+    try {
+      const savedDocument = await updateDocument(documentToSave.id, { body: state.documentDraftBody });
+      setState({
+        documents: state.documents.map(document => document.id === savedDocument.id ? savedDocument : document),
+        selectedDocumentId: savedDocument.id,
+        documentDraftId: savedDocument.id,
+        documentDraftBody: savedDocument.body || '',
+        isDocumentDirty: false,
+        documentSaveStatus: 'Saved',
+      });
+      isSavingDocumentDraft = false;
+      renderWorkspace();
+    } catch {
+      isSavingDocumentDraft = false;
+      setState({ documentSaveStatus: 'Save failed' });
+      updateDocumentSaveControls(workspace, 'Save failed');
+      window.alert('TaskBoard could not save this document.');
+    }
+  }
+
+  function scheduleDocumentAutosave() {
+    clearDocumentAutosave();
+    documentAutosaveTimer = window.setTimeout(() => {
+      if (!state.isDocumentDirty) return;
+      setState({ documentSaveStatus: 'Autosaving...' });
+      updateDocumentSaveControls(workspace, 'Autosaving...');
+      saveDocumentDraftFromWorkspace();
+    }, DOCUMENT_AUTOSAVE_DELAY_MS);
   }
 
   const libraryWorkspace = workspace.querySelector('.library-workspace');
@@ -398,11 +473,14 @@ function renderLibraryWorkspace(workspace) {
   workspace.querySelectorAll('[data-library-document-id]').forEach((row) => {
     row.addEventListener('click', () => {
       const nextDocument = state.documents.find(item => item.id === row.dataset.libraryDocumentId);
+      clearDocumentAutosave();
       setState({
         selectedDocumentId: row.dataset.libraryDocumentId,
         documentDraftId: nextDocument?.id || null,
         documentDraftBody: nextDocument?.body || '',
         isDocumentDirty: false,
+        documentSaveStatus: 'Saved',
+        isDocumentFocusMode: false,
         isDocumentInfoEditorOpen: false,
         documentInfoError: '',
       });
@@ -424,30 +502,38 @@ function renderLibraryWorkspace(workspace) {
       documentDraftId: documentToEdit.id,
       documentDraftBody: event.target.value,
       isDocumentDirty: event.target.value !== (documentToEdit.body || ''),
+      documentSaveStatus: event.target.value !== (documentToEdit.body || '') ? 'Unsaved changes' : 'Saved',
     });
-    const status = workspace.querySelector('.document-pane-header span');
-    const saveButton = workspace.querySelector('[data-action="save-document-draft"]');
-    if (status) status.textContent = state.isDocumentDirty ? 'Unsaved changes' : 'Saved';
-    if (saveButton) saveButton.disabled = !state.isDocumentDirty;
+    updateDocumentSaveControls(workspace, state.documentSaveStatus);
+    if (state.isDocumentDirty) {
+      scheduleDocumentAutosave();
+    } else {
+      clearDocumentAutosave();
+    }
   });
 
-  workspace.querySelector('[data-action="save-document-draft"]')?.addEventListener('click', async () => {
-    const documentToSave = selectedDocument();
-    if (!documentToSave || !state.isDocumentDirty) return;
-
-    try {
-      const savedDocument = await updateDocument(documentToSave.id, { body: state.documentDraftBody });
-      setState({
-        documents: state.documents.map(document => document.id === savedDocument.id ? savedDocument : document),
-        selectedDocumentId: savedDocument.id,
-        documentDraftId: savedDocument.id,
-        documentDraftBody: savedDocument.body || '',
-        isDocumentDirty: false,
-      });
-      renderWorkspace();
-    } catch {
-      window.alert('TaskBoard could not save this document.');
+  workspace.querySelector('[data-document-editor]')?.addEventListener('keydown', (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+      event.preventDefault();
+      saveDocumentDraftFromWorkspace();
     }
+  });
+
+  workspace.querySelectorAll('[data-markdown-action]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const textarea = workspace.querySelector('[data-document-editor]');
+      if (!textarea) return;
+      applyMarkdownToolbarAction(textarea, button.dataset.markdownAction);
+    });
+  });
+
+  workspace.querySelector('[data-action="save-document-draft"]')?.addEventListener('click', () => {
+    saveDocumentDraftFromWorkspace();
+  });
+
+  workspace.querySelector('[data-action="toggle-document-focus"]')?.addEventListener('click', () => {
+    setState({ isDocumentFocusMode: !state.isDocumentFocusMode });
+    renderWorkspace();
   });
 
   workspace.querySelector('[data-action="edit-document"]')?.addEventListener('click', () => {
@@ -749,6 +835,7 @@ function bindShellEvents() {
     button.addEventListener('click', async () => {
       const nextContext = button.dataset.context;
       if (!nextContext || nextContext === state.activeContext) return;
+      clearDocumentAutosave();
       setState({
         activeContext: nextContext,
         selectedTaskId: null,
@@ -759,6 +846,8 @@ function bindShellEvents() {
         documentDraftId: null,
         documentDraftBody: '',
         isDocumentDirty: false,
+        documentSaveStatus: 'Saved',
+        isDocumentFocusMode: false,
         isTaskFormOpen: false,
         isAdminPanelOpen: false,
         isDocumentFormOpen: false,
@@ -785,6 +874,7 @@ function bindShellEvents() {
     button.addEventListener('click', async () => {
       const nextView = button.dataset.view;
       if (!nextView || nextView === state.activeView) return;
+      clearDocumentAutosave();
       const archiveModeChanged = isArchiveView(nextView) !== isArchiveView(state.activeView);
       const libraryModeChanged = nextView === 'library' || state.activeView === 'library';
       setState({
@@ -797,6 +887,8 @@ function bindShellEvents() {
         documentDraftId: null,
         documentDraftBody: '',
         isDocumentDirty: false,
+        documentSaveStatus: 'Saved',
+        isDocumentFocusMode: false,
         isTaskFormOpen: false,
         isAdminPanelOpen: false,
         isDocumentFormOpen: false,

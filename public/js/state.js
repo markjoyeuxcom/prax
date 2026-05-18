@@ -22,6 +22,8 @@ export const state = {
   documentDraftBody: '',
   documentDraftId: null,
   isDocumentDirty: false,
+  documentSaveStatus: 'Saved',
+  isDocumentFocusMode: false,
   activeLibraryTags: [],
   libraryTagQuery: '',
   areLibraryTagsExpanded: false,
