@@ -10,6 +10,14 @@ import {
   restoreTask,
   updateTask,
 } from './taskApi.js';
+import {
+  archiveDocument,
+  createDocument,
+  deleteArchivedDocument,
+  fetchDocuments,
+  restoreDocument,
+  updateDocument,
+} from './libraryApi.js';
 import { moveTaskOnBoard } from './boardWorkflow.js';
 import {
   exportFilename,
@@ -25,6 +33,8 @@ import { renderBoardHtml } from './renderBoard.js';
 import { renderTaskDetailHtml } from './renderTaskDetail.js';
 import { renderTaskFormHtml } from './renderTaskForm.js';
 import { renderAdminPanelHtml } from './renderAdminPanel.js';
+import { renderDocumentFormHtml, renderLibraryHtml } from './renderLibrary.js';
+import { titleFromMarkdown } from './markdownPreview.js';
 
 const app = document.getElementById('app');
 
@@ -70,9 +80,38 @@ function editingTask() {
   return state.tasks.find((task) => task.id === state.editingTaskId) || null;
 }
 
+function visibleDocumentsForCurrentView() {
+  const query = state.searchQuery.trim().toLowerCase();
+  const documents = state.documents.filter(document => document.context === state.activeContext);
+  if (!query) return documents;
+  return documents.filter((document) => [
+    document.title,
+    document.body,
+    document.documentType,
+    document.sourceFilename,
+    ...(document.tags || []),
+  ].some(value => String(value || '').toLowerCase().includes(query)));
+}
+
+function selectedDocument() {
+  const visibleDocuments = visibleDocumentsForCurrentView();
+  if (!visibleDocuments.length) return null;
+  return visibleDocuments.find(document => document.id === state.selectedDocumentId) || visibleDocuments[0];
+}
+
+function editingDocument() {
+  if (!state.editingDocumentId) return null;
+  return state.documents.find(document => document.id === state.editingDocumentId) || null;
+}
+
 function renderWorkspace() {
   const workspace = document.getElementById('workspace');
   if (!workspace) return;
+
+  if (state.activeView === 'library') {
+    renderLibraryWorkspace(workspace);
+    return;
+  }
 
   const visibleTasks = visibleTasksForCurrentView();
   const task = selectedTask();
@@ -148,6 +187,81 @@ function renderWorkspace() {
       await loadTasks({ selectedTaskId: null });
     } catch {
       window.alert('TaskBoard could not delete the archived task.');
+    }
+  });
+}
+
+function renderLibraryWorkspace(workspace) {
+  const visibleDocuments = visibleDocumentsForCurrentView();
+  const document = selectedDocument();
+  workspace.innerHTML = renderLibraryHtml({
+    documents: visibleDocuments,
+    selectedDocumentId: document?.id || null,
+    previewMode: state.documentPreviewMode,
+  });
+
+  workspace.querySelectorAll('[data-library-document-id]').forEach((row) => {
+    row.addEventListener('click', () => {
+      setState({ selectedDocumentId: row.dataset.libraryDocumentId });
+      renderWorkspace();
+    });
+  });
+
+  workspace.querySelector('[data-action="toggle-document-raw"]')?.addEventListener('click', () => {
+    setState({ documentPreviewMode: state.documentPreviewMode === 'raw' ? 'preview' : 'raw' });
+    renderWorkspace();
+  });
+
+  workspace.querySelector('[data-action="edit-document"]')?.addEventListener('click', () => {
+    const documentToEdit = selectedDocument();
+    if (!documentToEdit) return;
+    setState({
+      isDocumentFormOpen: true,
+      editingDocumentId: documentToEdit.id,
+      documentFormError: '',
+    });
+    renderApp();
+  });
+
+  workspace.querySelector('[data-action="archive-document"]')?.addEventListener('click', async () => {
+    const documentToArchive = selectedDocument();
+    if (!documentToArchive) return;
+    const confirmed = window.confirm(`Archive "${documentToArchive.title}"?`);
+    if (!confirmed) return;
+
+    try {
+      await archiveDocument(documentToArchive.id);
+      await loadDocuments({ selectedDocumentId: null });
+    } catch {
+      window.alert('TaskBoard could not archive the selected document.');
+    }
+  });
+
+  workspace.querySelector('[data-action="restore-document"]')?.addEventListener('click', async () => {
+    const documentToRestore = selectedDocument();
+    if (!documentToRestore) return;
+    const confirmed = window.confirm(`Restore "${documentToRestore.title}"?`);
+    if (!confirmed) return;
+
+    try {
+      await restoreDocument(documentToRestore.id);
+      await loadDocuments({ selectedDocumentId: documentToRestore.id });
+    } catch {
+      window.alert('TaskBoard could not restore the selected document.');
+    }
+  });
+
+  workspace.querySelector('[data-action="delete-archived-document"]')?.addEventListener('click', async () => {
+    const documentToDelete = selectedDocument();
+    if (!documentToDelete) return;
+    const confirmed = window.confirm(`Permanently delete "${documentToDelete.title}"? This cannot be undone.`);
+    if (!confirmed) return;
+
+    try {
+      await deleteArchivedDocument(documentToDelete.id);
+      await loadDocuments({ selectedDocumentId: null });
+    } catch {
+      window.alert('TaskBoard could not delete the archived document.');
     }
   });
 }
@@ -282,6 +396,14 @@ function renderApp() {
       isSaving: state.isSaving,
     }));
   }
+  if (state.isDocumentFormOpen) {
+    app.insertAdjacentHTML('beforeend', renderDocumentFormHtml({
+      document: editingDocument(),
+      activeContext: state.activeContext,
+      error: state.documentFormError,
+      isSaving: state.isSaving,
+    }));
+  }
   if (state.isAdminPanelOpen) {
     app.insertAdjacentHTML('beforeend', renderAdminPanelHtml({
       activeContext: state.activeContext,
@@ -291,6 +413,7 @@ function renderApp() {
   }
   bindShellEvents();
   bindTaskFormEvents();
+  bindDocumentFormEvents();
   bindAdminPanelEvents();
 }
 
@@ -300,6 +423,15 @@ function bindShellEvents() {
       isTaskFormOpen: true,
       editingTaskId: null,
       formError: '',
+    });
+    renderApp();
+  });
+
+  app.querySelector('[data-action="new-document"]')?.addEventListener('click', () => {
+    setState({
+      isDocumentFormOpen: true,
+      editingDocumentId: null,
+      documentFormError: '',
     });
     renderApp();
   });
@@ -325,13 +457,20 @@ function bindShellEvents() {
       setState({
         activeContext: nextContext,
         selectedTaskId: null,
+        selectedDocumentId: null,
         isTaskFormOpen: false,
         isAdminPanelOpen: false,
+        isDocumentFormOpen: false,
         editingTaskId: null,
+        editingDocumentId: null,
         formError: '',
       });
       try {
-        await loadTasks({ selectedTaskId: null });
+        if (state.activeView === 'library') {
+          await loadDocuments({ selectedDocumentId: null });
+        } else {
+          await loadTasks({ selectedTaskId: null });
+        }
       } catch (error) {
         setState({ apiStatus: 'error' });
         renderError(error.message);
@@ -344,15 +483,26 @@ function bindShellEvents() {
       const nextView = button.dataset.view;
       if (!nextView || nextView === state.activeView) return;
       const archiveModeChanged = isArchiveView(nextView) !== isArchiveView(state.activeView);
+      const libraryModeChanged = nextView === 'library' || state.activeView === 'library';
       setState({
         activeView: nextView,
         selectedTaskId: null,
+        selectedDocumentId: null,
         isTaskFormOpen: false,
         isAdminPanelOpen: false,
+        isDocumentFormOpen: false,
         editingTaskId: null,
+        editingDocumentId: null,
         formError: '',
       });
-      if (archiveModeChanged) {
+      if (nextView === 'library') {
+        try {
+          await loadDocuments({ selectedDocumentId: null });
+        } catch (error) {
+          setState({ apiStatus: 'error' });
+          renderError(error.message);
+        }
+      } else if (archiveModeChanged || libraryModeChanged) {
         try {
           await loadTasks({ selectedTaskId: null });
         } catch (error) {
@@ -363,6 +513,75 @@ function bindShellEvents() {
         renderApp();
       }
     });
+  });
+}
+
+function tagsFromFormValue(value) {
+  return String(value || '')
+    .split(',')
+    .map(tag => tag.trim())
+    .filter(Boolean);
+}
+
+function bindDocumentFormEvents() {
+  const form = app.querySelector('[data-document-form]');
+  if (!form) return;
+
+  app.querySelectorAll('[data-action="close-document-form"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      setState({
+        isDocumentFormOpen: false,
+        editingDocumentId: null,
+        documentFormError: '',
+        isSaving: false,
+      });
+      renderApp();
+    });
+  });
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const data = new FormData(form);
+    const title = String(data.get('title') || '').trim();
+    if (!title) {
+      setState({ documentFormError: 'Title is required.' });
+      renderApp();
+      return;
+    }
+
+    const payload = {
+      title,
+      body: String(data.get('body') || ''),
+      documentType: String(data.get('documentType') || 'note'),
+      context: String(data.get('context') || state.activeContext),
+      tags: tagsFromFormValue(data.get('tags')),
+      sourceFilename: String(data.get('sourceFilename') || '').trim() || null,
+    };
+
+    setState({ isSaving: true, documentFormError: '' });
+    renderApp();
+
+    try {
+      const savedDocument = state.editingDocumentId
+        ? await updateDocument(state.editingDocumentId, payload)
+        : await createDocument(payload);
+
+      setState({
+        activeContext: savedDocument.context || payload.context,
+        selectedDocumentId: savedDocument.id,
+        isDocumentFormOpen: false,
+        editingDocumentId: null,
+        isSaving: false,
+        documentFormError: '',
+      });
+      await loadDocuments({ selectedDocumentId: savedDocument.id });
+    } catch {
+      setState({
+        isSaving: false,
+        documentFormError: state.editingDocumentId ? 'TaskBoard could not update this document.' : 'TaskBoard could not create this document.',
+      });
+      renderApp();
+    }
   });
 }
 
@@ -407,6 +626,34 @@ async function importAdminFile(file, panel) {
   }
 }
 
+function selectedAdminMarkdownType(panel) {
+  const checked = panel.querySelector('[name="admin-markdown-type"]:checked');
+  return checked?.value === 'runbook' ? 'runbook' : 'note';
+}
+
+async function importAdminMarkdownFile(file, panel) {
+  try {
+    const body = await file.text();
+    const document = await createDocument({
+      title: titleFromMarkdown(body, file.name),
+      body,
+      documentType: selectedAdminMarkdownType(panel),
+      context: state.activeContext,
+      tags: [],
+      sourceFilename: file.name || null,
+    });
+    window.alert(`Imported "${document.title}" into the Library.`);
+    setState({ isAdminPanelOpen: false });
+    if (state.activeView === 'library') {
+      await loadDocuments({ selectedDocumentId: document.id });
+    } else {
+      renderApp();
+    }
+  } catch {
+    window.alert('TaskBoard could not import that Markdown file.');
+  }
+}
+
 function bindAdminPanelEvents() {
   const panel = app.querySelector('[data-admin-panel]');
   if (!panel) return;
@@ -434,6 +681,13 @@ function bindAdminPanelEvents() {
     const file = event.target.files?.[0];
     if (!file) return;
     await importAdminFile(file, panel);
+    event.target.value = '';
+  });
+
+  panel.querySelector('[data-admin-markdown-file]')?.addEventListener('change', async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    await importAdminMarkdownFile(file, panel);
     event.target.value = '';
   });
 
@@ -530,6 +784,22 @@ async function loadTasks({ selectedTaskId = state.selectedTaskId } = {}) {
     tasks: normalizedTasks,
     apiStatus: 'connected',
     selectedTaskId: selectedTaskExists ? selectedTaskId : normalizedTasks[0]?.id || null,
+  });
+  renderApp();
+}
+
+async function loadDocuments({ selectedDocumentId = state.selectedDocumentId } = {}) {
+  setState({ apiStatus: 'loading' });
+  renderLoading();
+  const documents = await fetchDocuments({
+    context: state.activeContext,
+    archived: 'all',
+  });
+  const selectedDocumentExists = documents.some(document => document.id === selectedDocumentId);
+  setState({
+    documents,
+    apiStatus: 'connected',
+    selectedDocumentId: selectedDocumentExists ? selectedDocumentId : documents[0]?.id || null,
   });
   renderApp();
 }

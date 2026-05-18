@@ -17,6 +17,7 @@ test('renderShellHtml includes navigation, context filters, status, and metrics'
   assert.match(html, /Today/);
   assert.match(html, /Board/);
   assert.match(html, /Homelab/);
+  assert.match(html, /Library/);
   assert.match(html, /Postgres/);
   assert.match(html, /Due today/);
   assert.match(html, /Completed this week/);
@@ -34,6 +35,19 @@ test('renderShellHtml derives heading from active view', () => {
 
   assert.match(html, /<h1 id="view-title">Board<\/h1>/);
   assert.match(html, /Track active work by status/);
+});
+
+test('renderShellHtml derives Library heading and document action', () => {
+  const html = renderShellHtml({
+    activeView: 'library',
+    activeContext: 'homelab',
+    metrics: {},
+  });
+
+  assert.match(html, /<h1 id="view-title">Library<\/h1>/);
+  assert.match(html, /Markdown runbooks and notes/);
+  assert.match(html, /data-action="new-document"/);
+  assert.match(html, />New Document</);
 });
 
 test('renderShellHtml defaults missing metric values and reflects API status', () => {

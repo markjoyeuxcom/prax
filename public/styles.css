@@ -523,6 +523,125 @@ button.task-row:hover {
   font-weight: 700;
 }
 
+.library-panel {
+  overflow: hidden;
+}
+
+.document-list {
+  display: grid;
+}
+
+.document-row {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  min-height: 72px;
+  padding: 13px 16px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.document-row:hover {
+  background: rgba(79, 156, 255, 0.07);
+}
+
+.document-row.is-selected {
+  background: rgba(114, 214, 162, 0.1);
+  box-shadow: inset 3px 0 0 var(--accent-strong);
+}
+
+.document-row strong,
+.document-row small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.document-row strong {
+  color: var(--text);
+  font-size: 0.92rem;
+}
+
+.document-row small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.document-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.document-tag {
+  width: max-content;
+  max-width: 100%;
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(79, 156, 255, 0.08);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.document-preview {
+  padding: 16px;
+}
+
+.markdown-preview {
+  display: grid;
+  gap: 12px;
+  color: var(--text);
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.markdown-preview h1,
+.markdown-preview h2,
+.markdown-preview h3,
+.markdown-preview p,
+.markdown-preview ul {
+  margin: 0;
+}
+
+.markdown-preview h1 {
+  font-size: 1.22rem;
+}
+
+.markdown-preview h2 {
+  font-size: 1.08rem;
+}
+
+.markdown-preview h3 {
+  font-size: 0.98rem;
+}
+
+.markdown-preview ul {
+  padding-left: 20px;
+}
+
+.markdown-preview pre,
+.document-raw {
+  overflow: auto;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #0e1722;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
 .task-empty {
   display: grid;
   gap: 6px;

@@ -23,6 +23,12 @@ const viewButtons = [
     heading: 'Archive',
     description: 'Inspect completed or archived work without cluttering the active queue.',
   },
+  {
+    id: 'library',
+    label: 'Library',
+    heading: 'Library',
+    description: 'Markdown runbooks and notes for personal, work, and homelab operations.',
+  },
 ];
 
 const contextButtons = [
@@ -58,6 +64,9 @@ function viewFor(activeView) {
 
 function renderViewButtons(activeView) {
   const activeViewConfig = viewFor(activeView);
+  const primaryAction = activeViewConfig.id === 'library'
+    ? { action: 'new-document', label: 'New Document' }
+    : { action: 'new-task', label: 'New Task' };
   return viewButtons.map((view) => {
     const isActive = activeViewConfig.id === view.id;
     return `
@@ -99,6 +108,9 @@ export function renderShellHtml({
   metrics = {},
 } = {}) {
   const activeViewConfig = viewFor(activeView);
+  const primaryAction = activeViewConfig.id === 'library'
+    ? { action: 'new-document', label: 'New Document' }
+    : { action: 'new-task', label: 'New Task' };
 
   return `
     <div class="app-shell">
@@ -146,7 +158,7 @@ export function renderShellHtml({
           </label>
           <div class="topbar-actions">
             <button class="secondary-action" type="button" data-action="open-admin">Admin</button>
-            <button class="primary-action" type="button" data-action="new-task">New Task</button>
+            <button class="primary-action" type="button" data-action="${primaryAction.action}">${primaryAction.label}</button>
           </div>
         </header>
 

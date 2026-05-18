@@ -20,6 +20,10 @@ test('renderAdminPanelHtml renders backup import and archive sections', () => {
   assert.match(html, /data-admin-import-mode="replace"/);
   assert.match(html, /data-admin-replace-confirm/);
   assert.match(html, /data-admin-import-file/);
+  assert.match(html, /Import Markdown/);
+  assert.match(html, /data-admin-markdown-type="runbook"/);
+  assert.match(html, /data-admin-markdown-type="note"/);
+  assert.match(html, /data-admin-markdown-file/);
   assert.match(html, /data-action="open-archive"/);
   assert.match(html, /Homelab/);
   assert.match(html, /3 loaded tasks/);

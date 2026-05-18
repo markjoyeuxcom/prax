@@ -80,6 +80,25 @@ export function renderAdminPanelHtml({
               <span>Import JSON</span>
               <input type="file" accept="application/json,.json" data-admin-import-file>
             </label>
+            <div>
+              <h3>Import Markdown</h3>
+              <p>Import one Markdown file into the selected ${safeContext} Library.</p>
+            </div>
+            <fieldset class="admin-mode-group">
+              <legend>Document type</legend>
+              <label>
+                <input type="radio" name="admin-markdown-type" value="runbook" data-admin-markdown-type="runbook">
+                <span>Runbook</span>
+              </label>
+              <label>
+                <input type="radio" name="admin-markdown-type" value="note" data-admin-markdown-type="note" checked>
+                <span>Note</span>
+              </label>
+            </fieldset>
+            <label class="admin-input-row">
+              <span>Import Markdown</span>
+              <input type="file" accept="text/markdown,.md" data-admin-markdown-file>
+            </label>
           </section>
 
           <section class="admin-section" aria-labelledby="archive-maintenance-title">

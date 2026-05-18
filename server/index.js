@@ -3,6 +3,7 @@ import fastifyStatic from '@fastify/static';
 import { loadConfig } from './config.js';
 import { createDb } from './db.js';
 import { registerTasksRoutes } from './tasksRoutes.js';
+import { registerLibraryRoutes } from './libraryRoutes.js';
 
 export async function buildApp(options = {}) {
   const config = options.config || loadConfig();
@@ -24,7 +25,9 @@ export async function buildApp(options = {}) {
   });
 
   app.decorate('tasksRepository', options.tasksRepository || null);
+  app.decorate('libraryRepository', options.libraryRepository || null);
   await registerTasksRoutes(app, options);
+  await registerLibraryRoutes(app, options);
 
   await app.register(fastifyStatic, {
     root: config.publicDir,

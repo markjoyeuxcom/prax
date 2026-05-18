@@ -32,6 +32,21 @@ create table if not exists task_activity (
   created_at timestamptz not null default now()
 );
 
+create table if not exists markdown_documents (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  body text not null default '',
+  document_type text not null check (document_type in ('runbook', 'note')),
+  context text not null check (context in ('personal', 'work', 'homelab')),
+  tags text[] not null default '{}',
+  source_filename text,
+  archived_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create index if not exists idx_tasks_context_status on tasks (context, status);
 create index if not exists idx_tasks_archived_at on tasks (archived_at);
 create index if not exists idx_tasks_due_date on tasks (due_date);
+create index if not exists idx_markdown_documents_context_type on markdown_documents (context, document_type);
+create index if not exists idx_markdown_documents_archived_at on markdown_documents (archived_at);
