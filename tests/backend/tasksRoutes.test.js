@@ -6,6 +6,10 @@ const TASK_ID = '11111111-1111-4111-8111-111111111111';
 const CREATED_TASK_ID = '22222222-2222-4222-8222-222222222222';
 const MISSING_TASK_ID = '33333333-3333-4333-8333-333333333333';
 const SECOND_TASK_ID = '44444444-4444-4444-8444-444444444444';
+const IMPORTED_TASK_IDS = [
+  '55555555-5555-4555-8555-555555555555',
+  '66666666-6666-4666-8666-666666666666',
+];
 
 function createFakeRepository() {
   const tasks = [
@@ -36,6 +40,16 @@ function createFakeRepository() {
         archivedAt: null,
       };
       tasks.push(created);
+      return created;
+    },
+    async importTasks(importedTasks) {
+      const created = importedTasks.map((task, index) => ({
+        id: IMPORTED_TASK_IDS[index] || CREATED_TASK_ID,
+        ...task,
+        createdAt: 'now',
+        updatedAt: 'now',
+      }));
+      tasks.push(...created);
       return created;
     },
     async updateTask(id, fields) {
@@ -98,6 +112,27 @@ test('GET /api/tasks returns tasks from repository', async () => {
   await app.close();
 });
 
+test('GET /api/tasks/export returns a versioned context export', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'GET',
+    url: '/api/tasks/export?context=homelab',
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().format, 'taskboard.tasks');
+  assert.equal(response.json().version, 1);
+  assert.equal(response.json().context, 'homelab');
+  assert.match(response.json().exportedAt, /^\d{4}-\d{2}-\d{2}T/);
+  assert.equal(response.json().tasks.length, 1);
+
+  await app.close();
+});
+
 test('POST /api/tasks creates a task', async () => {
   const app = await buildApp({
     skipDb: true,
@@ -121,6 +156,136 @@ test('POST /api/tasks creates a task', async () => {
   assert.equal(response.statusCode, 201);
   assert.equal(response.json().title, 'Back up CloudNativePG');
   assert.equal(response.json().id, CREATED_TASK_ID);
+
+  await app.close();
+});
+
+test('POST /api/tasks/import imports sanitized tasks into the requested context', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/tasks/import',
+    payload: {
+      context: 'homelab',
+      tasks: [
+        {
+          title: '  Imported task  ',
+          description: '  From backup  ',
+          priority: 'medium',
+          status: 'planned',
+          context: 'work',
+          dueDate: '2026-05-18',
+          sortOrder: 2,
+          archivedAt: null,
+        },
+      ],
+    },
+  });
+
+  assert.equal(response.statusCode, 201);
+  assert.equal(response.json().imported, 1);
+  assert.equal(response.json().tasks[0].title, 'Imported task');
+  assert.equal(response.json().tasks[0].description, 'From backup');
+  assert.equal(response.json().tasks[0].context, 'homelab');
+
+  await app.close();
+});
+
+test('POST /api/tasks/import accepts exported envelope payloads', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/tasks/import',
+    payload: {
+      context: 'homelab',
+      format: 'taskboard.tasks',
+      version: 1,
+      tasks: [
+        {
+          title: 'Envelope task',
+          priority: 'low',
+          status: 'completed',
+          dueDate: null,
+          sortOrder: 4,
+          archivedAt: '2026-05-11T12:00:00.000Z',
+        },
+      ],
+    },
+  });
+
+  assert.equal(response.statusCode, 201);
+  assert.equal(response.json().tasks[0].archivedAt, '2026-05-11T12:00:00.000Z');
+
+  await app.close();
+});
+
+test('POST /api/tasks/import rejects invalid context', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/tasks/import',
+    payload: {
+      context: 'cluster',
+      tasks: [{ title: 'Imported task' }],
+    },
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().message, /context/);
+
+  await app.close();
+});
+
+test('POST /api/tasks/import rejects empty tasks', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/tasks/import',
+    payload: {
+      context: 'homelab',
+      tasks: [],
+    },
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().message, /tasks/);
+
+  await app.close();
+});
+
+test('POST /api/tasks/import rejects invalid task payloads', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/tasks/import',
+    payload: {
+      context: 'homelab',
+      tasks: [{ title: '', priority: 'urgent' }],
+    },
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().message, /title/);
 
   await app.close();
 });

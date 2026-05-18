@@ -1,6 +1,16 @@
 import { state, setState } from './state.js';
-import { archiveTask, createTask, fetchTasks, reorderTasks, restoreTask, updateTask } from './taskApi.js';
+import {
+  archiveTask,
+  createTask,
+  exportTasks,
+  fetchTasks,
+  importTasks,
+  reorderTasks,
+  restoreTask,
+  updateTask,
+} from './taskApi.js';
 import { moveTaskOnBoard } from './boardWorkflow.js';
+import { exportFilename, tasksFromImportPayload } from './importExport.js';
 import { filterTasks } from './taskFilters.js';
 import { buildMetrics, normalizeTask } from './taskModel.js';
 import { isArchiveView, tasksForView } from './taskViews.js';
@@ -29,6 +39,18 @@ function renderError(message) {
   error.className = 'loading';
   error.textContent = `TaskBoard could not load: ${message}`;
   app.replaceChildren(error);
+}
+
+function downloadJsonFile(filename, payload) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
 
 function selectedTask() {
@@ -251,6 +273,36 @@ function bindShellEvents() {
       formError: '',
     });
     renderApp();
+  });
+
+  app.querySelector('[data-action="export"]')?.addEventListener('click', async () => {
+    try {
+      const exported = await exportTasks({ context: state.activeContext });
+      downloadJsonFile(exportFilename(state.activeContext), exported);
+    } catch {
+      window.alert('TaskBoard could not export this context.');
+    }
+  });
+
+  app.querySelector('[data-action="import"]')?.addEventListener('click', () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json,.json';
+    input.addEventListener('change', async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+
+      try {
+        const payload = JSON.parse(await file.text());
+        const tasks = tasksFromImportPayload(payload);
+        const result = await importTasks({ context: state.activeContext, tasks });
+        window.alert(`Imported ${result.imported} ${result.imported === 1 ? 'task' : 'tasks'}.`);
+        await loadTasks({ selectedTaskId: null });
+      } catch {
+        window.alert('TaskBoard could not import that file.');
+      }
+    });
+    input.click();
   });
 
   app.querySelector('[data-search-input]')?.addEventListener('input', (event) => {

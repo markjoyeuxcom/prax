@@ -1,4 +1,5 @@
 const ALLOWED_CREATE_FIELDS = ['title', 'description', 'priority', 'status', 'context', 'dueDate', 'sortOrder'];
+const IMPORT_FIELDS = ['title', 'description', 'priority', 'status', 'context', 'dueDate', 'sortOrder', 'archivedAt'];
 const UPDATE_COLUMN_MAP = {
   title: 'title',
   description: 'description',
@@ -33,6 +34,26 @@ export function buildCreateTask(task) {
       returning *
     `,
     values: ALLOWED_CREATE_FIELDS.map(field => task[field] ?? null),
+  };
+}
+
+export function buildImportTasks(tasks) {
+  if (!Array.isArray(tasks) || tasks.length === 0) {
+    throw new Error('No task import records provided');
+  }
+
+  const rows = tasks.map((_, rowIndex) => {
+    const offset = rowIndex * IMPORT_FIELDS.length;
+    return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8})`;
+  });
+
+  return {
+    text: `
+      insert into tasks (title, description, priority, status, context, due_date, sort_order, archived_at)
+      values ${rows.join(', ')}
+      returning *
+    `,
+    values: tasks.flatMap(task => IMPORT_FIELDS.map(field => task[field] ?? null)),
   };
 }
 
@@ -127,6 +148,12 @@ export function createTasksRepository(db) {
     async createTask(task) {
       const result = await db.query(buildCreateTask(task).text, buildCreateTask(task).values);
       return normalizeTaskRow(result.rows[0]);
+    },
+
+    async importTasks(tasks) {
+      const query = buildImportTasks(tasks);
+      const result = await db.query(query.text, query.values);
+      return result.rows.map(normalizeTaskRow);
     },
 
     async updateTask(id, fields) {

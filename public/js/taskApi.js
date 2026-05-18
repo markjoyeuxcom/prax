@@ -8,6 +8,16 @@ export async function fetchTasks(filters = {}) {
   return response.json();
 }
 
+export async function exportTasks(filters = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value) params.set(key, value);
+  });
+  const response = await fetch(`/api/tasks/export?${params.toString()}`);
+  if (!response.ok) throw new Error('Failed to export tasks');
+  return response.json();
+}
+
 export async function createTask(task) {
   const response = await fetch('/api/tasks', {
     method: 'POST',
@@ -15,6 +25,16 @@ export async function createTask(task) {
     body: JSON.stringify(task),
   });
   if (!response.ok) throw new Error('Failed to create task');
+  return response.json();
+}
+
+export async function importTasks({ context, tasks }) {
+  const response = await fetch('/api/tasks/import', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ context, tasks }),
+  });
+  if (!response.ok) throw new Error('Failed to import tasks');
   return response.json();
 }
 

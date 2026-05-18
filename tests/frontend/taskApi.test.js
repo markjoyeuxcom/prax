@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { archiveTask, reorderTasks, restoreTask, updateTask } from '../../public/js/taskApi.js';
+import {
+  archiveTask,
+  exportTasks,
+  importTasks,
+  reorderTasks,
+  restoreTask,
+  updateTask,
+} from '../../public/js/taskApi.js';
 
 function jsonResponse(body, ok = true) {
   return {
@@ -53,6 +60,41 @@ test('restoreTask sends a PATCH request to the restore endpoint', async () => {
   assert.equal(calls[0][1].method, 'PATCH');
 });
 
+test('exportTasks fetches a context export envelope', async () => {
+  const calls = [];
+  globalThis.fetch = async (...args) => {
+    calls.push(args);
+    return jsonResponse({ format: 'taskboard.tasks', tasks: [] });
+  };
+
+  const exported = await exportTasks({ context: 'homelab' });
+
+  assert.deepEqual(exported, { format: 'taskboard.tasks', tasks: [] });
+  assert.equal(calls[0][0], '/api/tasks/export?context=homelab');
+});
+
+test('importTasks posts tasks for the selected context', async () => {
+  const calls = [];
+  globalThis.fetch = async (...args) => {
+    calls.push(args);
+    return jsonResponse({ imported: 1, tasks: [{ id: 'task-1' }] });
+  };
+
+  const result = await importTasks({
+    context: 'homelab',
+    tasks: [{ title: 'Imported task' }],
+  });
+
+  assert.deepEqual(result, { imported: 1, tasks: [{ id: 'task-1' }] });
+  assert.equal(calls[0][0], '/api/tasks/import');
+  assert.equal(calls[0][1].method, 'POST');
+  assert.deepEqual(calls[0][1].headers, { 'content-type': 'application/json' });
+  assert.equal(calls[0][1].body, JSON.stringify({
+    context: 'homelab',
+    tasks: [{ title: 'Imported task' }],
+  }));
+});
+
 test('reorderTasks sends a PATCH request with ordered task updates', async () => {
   const calls = [];
   globalThis.fetch = async (...args) => {
@@ -88,5 +130,14 @@ test('restoreTask throws when the API rejects the request', async () => {
   await assert.rejects(
     () => restoreTask('task-1'),
     /Failed to restore task/,
+  );
+});
+
+test('importTasks throws when the API rejects the request', async () => {
+  globalThis.fetch = async () => jsonResponse({ message: 'bad' }, false);
+
+  await assert.rejects(
+    () => importTasks({ context: 'homelab', tasks: [] }),
+    /Failed to import tasks/,
   );
 });

@@ -6,6 +6,7 @@ const CONTEXTS = new Set(['personal', 'work', 'homelab']);
 const PATCH_FIELDS = ['title', 'description', 'priority', 'status', 'context', 'dueDate', 'sortOrder'];
 const MIN_SORT_ORDER = -2147483648;
 const MAX_SORT_ORDER = 2147483647;
+const MAX_IMPORT_TASKS = 500;
 
 function isValidDateString(value) {
   if (value === null || value === undefined || value === '') return true;
@@ -30,6 +31,12 @@ function isValidSortOrder(value) {
   );
 }
 
+function isValidTimestampString(value) {
+  if (value === null || value === undefined || value === '') return true;
+  if (typeof value !== 'string') return false;
+  return !Number.isNaN(new Date(value).getTime());
+}
+
 function validateTaskPayload(payload) {
   if (!payload || typeof payload.title !== 'string' || payload.title.trim() === '') {
     return 'title is required';
@@ -42,6 +49,46 @@ function validateTaskPayload(payload) {
     return 'sortOrder is invalid';
   }
   return null;
+}
+
+function importTasksFromPayload(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (payload && Array.isArray(payload.tasks)) return payload.tasks;
+  return null;
+}
+
+function validateTaskImportPayload(payload) {
+  if (!payload || typeof payload !== 'object') return 'tasks must include at least one task';
+  if (!CONTEXTS.has(payload.context)) return 'context is invalid';
+
+  const tasks = importTasksFromPayload(payload);
+  if (!tasks || tasks.length === 0) return 'tasks must include at least one task';
+  if (tasks.length > MAX_IMPORT_TASKS) return `tasks cannot exceed ${MAX_IMPORT_TASKS} records`;
+
+  for (const task of tasks) {
+    if (!task || typeof task !== 'object' || Array.isArray(task)) return 'tasks must include valid task records';
+    if (typeof task.title !== 'string' || task.title.trim() === '') return 'title is required';
+    if (task.priority !== undefined && !PRIORITIES.has(task.priority)) return 'priority is invalid';
+    if (task.status !== undefined && !STATUSES.has(task.status)) return 'status is invalid';
+    if (task.dueDate !== undefined && !isValidDateString(task.dueDate)) return 'dueDate is invalid';
+    if (!isValidSortOrder(task.sortOrder)) return 'sortOrder is invalid';
+    if (!isValidTimestampString(task.archivedAt)) return 'archivedAt is invalid';
+  }
+
+  return null;
+}
+
+function cleanTaskImportPayload(payload) {
+  return importTasksFromPayload(payload).map((task, index) => ({
+    title: task.title.trim(),
+    description: typeof task.description === 'string' ? task.description.trim() : '',
+    priority: task.priority || 'medium',
+    status: task.status || 'planned',
+    context: payload.context,
+    dueDate: task.dueDate || null,
+    sortOrder: Number.isInteger(task.sortOrder) ? task.sortOrder : index,
+    archivedAt: task.archivedAt || null,
+  }));
 }
 
 function cleanTaskPayload(payload) {
@@ -156,8 +203,42 @@ function cleanTaskReorderPayload(payload) {
 export async function registerTasksRoutes(app, options = {}) {
   const repository = options.tasksRepository || app.tasksRepository || createTasksRepository(app.db);
 
+  app.get('/api/tasks/export', async (request, reply) => {
+    if (!CONTEXTS.has(request.query.context)) {
+      reply.code(400);
+      return { message: 'context is invalid' };
+    }
+
+    const tasks = await repository.listTasks({
+      context: request.query.context,
+      archived: 'all',
+    });
+    return {
+      format: 'taskboard.tasks',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      context: request.query.context,
+      tasks,
+    };
+  });
+
   app.get('/api/tasks', async request => {
     return repository.listTasks(request.query);
+  });
+
+  app.post('/api/tasks/import', async (request, reply) => {
+    const validationError = validateTaskImportPayload(request.body);
+    if (validationError) {
+      reply.code(400);
+      return { message: validationError };
+    }
+
+    const tasks = await repository.importTasks(cleanTaskImportPayload(request.body));
+    reply.code(201);
+    return {
+      imported: tasks.length,
+      tasks,
+    };
   });
 
   app.post('/api/tasks', async (request, reply) => {

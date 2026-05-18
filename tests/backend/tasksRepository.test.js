@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createTasksRepository,
+  buildImportTasks,
   normalizeTaskRow,
   buildCreateTask,
   buildReorderTasks,
@@ -97,6 +98,60 @@ test('buildRestoreTask returns a parameterized restore query', () => {
   assert.match(query.text, /where id = \$1 and archived_at is not null/);
   assert.match(query.text, /returning \*/);
   assert.deepEqual(query.values, ['11111111-1111-4111-8111-111111111111']);
+});
+
+test('buildImportTasks returns a parameterized batch insert query', () => {
+  const query = buildImportTasks([
+    {
+      title: 'Imported task',
+      description: 'From backup',
+      priority: 'medium',
+      status: 'planned',
+      context: 'homelab',
+      dueDate: '2026-05-18',
+      sortOrder: 2,
+      archivedAt: null,
+    },
+    {
+      title: 'Archived task',
+      description: '',
+      priority: 'low',
+      status: 'completed',
+      context: 'homelab',
+      dueDate: null,
+      sortOrder: 3,
+      archivedAt: '2026-05-11T12:00:00.000Z',
+    },
+  ]);
+
+  assert.match(query.text, /insert into tasks/);
+  assert.match(query.text, /archived_at/);
+  assert.match(query.text, /returning \*/);
+  assert.deepEqual(query.values, [
+    'Imported task',
+    'From backup',
+    'medium',
+    'planned',
+    'homelab',
+    '2026-05-18',
+    2,
+    null,
+    'Archived task',
+    '',
+    'low',
+    'completed',
+    'homelab',
+    null,
+    3,
+    '2026-05-11T12:00:00.000Z',
+  ]);
+});
+
+test('buildImportTasks rejects empty imports', () => {
+  assert.throws(
+    () => buildImportTasks([]),
+    /No task import records provided/,
+  );
 });
 
 test('listTasks filters active tasks by default', async () => {
