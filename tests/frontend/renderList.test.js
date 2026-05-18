@@ -47,6 +47,20 @@ test('renderListHtml renders an empty queue state', () => {
   assert.match(html, /No tasks in this queue/);
 });
 
+test('renderListHtml supports view-specific titles and empty states', () => {
+  const html = renderListHtml([], null, {
+    title: 'Archived Tasks',
+    countLabel: 'archived tasks',
+    emptyTitle: 'No archived tasks',
+    emptyDescription: 'Archived work will appear here.',
+  });
+
+  assert.match(html, /Archived Tasks/);
+  assert.match(html, /0 archived tasks/);
+  assert.match(html, /No archived tasks/);
+  assert.match(html, /Archived work will appear here\./);
+});
+
 test('renderTaskDetailHtml renders selected task metadata and future sections', () => {
   const html = renderTaskDetailHtml({
     title: 'Rotate <secrets>',
@@ -67,4 +81,17 @@ test('renderTaskDetailHtml renders selected task metadata and future sections', 
   assert.match(html, /Activity/);
   assert.match(html, /data-action="edit-task"/);
   assert.match(html, /data-action="archive-task"/);
+});
+
+test('renderTaskDetailHtml hides actions when read-only', () => {
+  const html = renderTaskDetailHtml({
+    title: 'Archived task',
+    description: '',
+    priority: 'low',
+    status: 'completed',
+    dueDate: null,
+  }, { readOnly: true });
+
+  assert.doesNotMatch(html, /data-action="edit-task"/);
+  assert.doesNotMatch(html, /data-action="archive-task"/);
 });

@@ -38,7 +38,7 @@ function renderDetailBlock(title, text) {
       </section>`;
 }
 
-export function renderTaskDetailHtml(task) {
+export function renderTaskDetailHtml(task, options = {}) {
   if (!task) {
     return `
     <aside class="detail-panel detail-panel--empty" aria-label="Task detail">
@@ -54,6 +54,7 @@ export function renderTaskDetailHtml(task) {
   const priority = priorityLabel(task.priority);
   const status = labelFromValue(task.status || 'planned') || 'Planned';
   const dueDate = task.dueDate || '-';
+  const readOnly = Boolean(options.readOnly);
 
   return `
     <aside class="detail-panel" aria-labelledby="selected-task-title">
@@ -61,10 +62,11 @@ export function renderTaskDetailHtml(task) {
         <span class="detail-kicker">Selected Task</span>
         <h2 id="selected-task-title">${escapeHtml(title)}</h2>
         <p>${escapeHtml(description)}</p>
+        ${readOnly ? '' : `
         <div class="detail-actions">
           <button class="secondary-action" type="button" data-action="edit-task">Edit</button>
           <button class="danger-action" type="button" data-action="archive-task">Archive</button>
-        </div>
+        </div>`}
       </header>
 
       <dl class="detail-meta" aria-label="Task metadata">${renderMetaItem('Priority', priority)}${renderMetaItem('Status', status)}${renderMetaItem('Due', dueDate)}

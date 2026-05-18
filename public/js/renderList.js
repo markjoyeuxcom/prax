@@ -28,12 +28,12 @@ function priorityClass(priority) {
   return 'medium';
 }
 
-function renderRows(tasks, selectedTaskId) {
+function renderRows(tasks, selectedTaskId, emptyTitle, emptyDescription) {
   if (!tasks.length) {
     return `
         <div class="task-empty" role="status">
-          <strong>No tasks in this queue</strong>
-          <span>New operational work will appear here when it is added.</span>
+          <strong>${escapeHtml(emptyTitle)}</strong>
+          <span>${escapeHtml(emptyDescription)}</span>
         </div>`;
   }
 
@@ -62,19 +62,24 @@ function renderRows(tasks, selectedTaskId) {
   }).join('');
 }
 
-export function renderListHtml(tasks = [], selectedTaskId = null) {
+export function renderListHtml(tasks = [], selectedTaskId = null, options = {}) {
   const safeTasks = Array.isArray(tasks) ? tasks : [];
+  const title = options.title || 'Task Queue';
+  const countLabel = options.countLabel || 'active tasks';
+  const emptyTitle = options.emptyTitle || 'No tasks in this queue';
+  const emptyDescription = options.emptyDescription || 'New operational work will appear here when it is added.';
+  const activeSwitch = options.activeSwitch || 'List';
 
   return `
     <section class="task-panel" aria-labelledby="task-queue-title">
       <header class="panel-header">
         <div>
-          <h2 id="task-queue-title">Task Queue</h2>
-          <p>${safeTasks.length} active ${safeTasks.length === 1 ? 'task' : 'tasks'}</p>
+          <h2 id="task-queue-title">${escapeHtml(title)}</h2>
+          <p>${safeTasks.length} ${escapeHtml(countLabel)}</p>
         </div>
         <div class="view-switch" aria-label="Workspace view">
-          <span class="is-active">List</span>
-          <span>Board</span>
+          <span class="${activeSwitch === 'List' ? 'is-active' : ''}">List</span>
+          <span class="${activeSwitch === 'Board' ? 'is-active' : ''}">Board</span>
         </div>
       </header>
 
@@ -84,7 +89,7 @@ export function renderListHtml(tasks = [], selectedTaskId = null) {
           <span>Priority</span>
           <span>Status</span>
           <span>Due</span>
-        </div>${renderRows(safeTasks, selectedTaskId)}
+        </div>${renderRows(safeTasks, selectedTaskId, emptyTitle, emptyDescription)}
       </div>
     </section>`;
 }
