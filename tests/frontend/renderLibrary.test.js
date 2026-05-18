@@ -35,16 +35,19 @@ test('renderLibraryHtml renders document list and preview detail', () => {
   });
 
   assert.match(html, /Knowledge Library/);
+  assert.match(html, /class="library-workspace"/);
+  assert.match(html, /class="library-browser"/);
+  assert.match(html, /class="library-document-stage"/);
   assert.match(html, /2 documents/);
   assert.match(html, /data-library-document-id="doc-1"/);
   assert.match(html, /Restore CloudNativePG/);
   assert.match(html, /Runbook/);
   assert.match(html, /postgres/);
-  assert.match(html, /data-action="edit-document"/);
   assert.match(html, /data-action="archive-document"/);
   assert.match(html, /data-library-mode="edit"/);
   assert.match(html, /data-library-mode="preview"/);
   assert.match(html, /data-library-mode="split"/);
+  assert.doesNotMatch(html, /data-action="edit-document"/);
   assert.match(html, /<h1>Restore CloudNativePG<\/h1>/);
 });
 

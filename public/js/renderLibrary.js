@@ -113,7 +113,6 @@ function renderDocumentDetail(document, options = {}) {
           ${isArchived ? `
           <button class="secondary-action" type="button" data-action="restore-document">Restore</button>
           <button class="danger-action" type="button" data-action="delete-archived-document">Delete</button>` : `
-          <button class="secondary-action" type="button" data-action="edit-document">Edit</button>
           <button class="danger-action" type="button" data-action="archive-document">Archive</button>`}
         </div>
       </header>
@@ -139,20 +138,22 @@ export function renderLibraryHtml({
   const document = selectedDocument(safeDocuments, selectedDocumentId);
   const activeMode = editorMode || (previewMode === 'raw' ? 'edit' : previewMode) || 'preview';
 
-  return [
-    `<section class="task-panel library-panel" aria-labelledby="library-title">
-      <header class="panel-header">
-        <div>
-          <h2 id="library-title">Knowledge Library</h2>
-          <p>${safeDocuments.length} documents</p>
+  return `
+    <section class="library-workspace" aria-label="Knowledge Library workspace">
+      <aside class="library-browser" aria-labelledby="library-title">
+        <header class="panel-header">
+          <div>
+            <h2 id="library-title">Knowledge Library</h2>
+            <p>${safeDocuments.length} documents</p>
+          </div>
+          <span class="sync-pill">Markdown</span>
+        </header>
+        <div class="document-list">${renderDocumentList(safeDocuments, document?.id)}
         </div>
-        <span class="sync-pill">Markdown</span>
-      </header>
-      <div class="document-list">${renderDocumentList(safeDocuments, document?.id)}
+      </aside>
+      <div class="library-document-stage">${renderDocumentDetail(document, { editorMode: activeMode, draftBody, isDirty })}
       </div>
-    </section>`,
-    renderDocumentDetail(document, { editorMode: activeMode, draftBody, isDirty }),
-  ].join('');
+    </section>`;
 }
 
 export function renderDocumentFormHtml({

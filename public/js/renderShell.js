@@ -108,9 +108,13 @@ export function renderShellHtml({
   metrics = {},
 } = {}) {
   const activeViewConfig = viewFor(activeView);
+  const isLibraryView = activeViewConfig.id === 'library';
   const primaryAction = activeViewConfig.id === 'library'
     ? { action: 'new-document', label: 'New Document' }
     : { action: 'new-task', label: 'New Task' };
+  const metricsHtml = isLibraryView ? '' : `
+        <section class="metrics-row" aria-label="Task metrics">${renderMetricCards(metrics)}
+        </section>`;
 
   return `
     <div class="app-shell">
@@ -150,7 +154,7 @@ export function renderShellHtml({
         </section>
       </aside>
 
-      <main class="console-main">
+      <main class="console-main${isLibraryView ? ' console-main--library' : ''}">
         <header class="topbar">
           <label class="search-field">
             <span class="sr-only">Search tasks</span>
@@ -169,11 +173,8 @@ export function renderShellHtml({
           </div>
           <span class="sync-pill">Synced</span>
         </section>
-
-        <section class="metrics-row" aria-label="Task metrics">${renderMetricCards(metrics)}
-        </section>
-
-        <div id="workspace" class="workspace"></div>
+        ${metricsHtml}
+        <div id="workspace" class="workspace${isLibraryView ? ' workspace--library' : ''}"></div>
       </main>
     </div>`;
 }

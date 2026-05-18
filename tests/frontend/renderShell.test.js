@@ -44,10 +44,13 @@ test('renderShellHtml derives Library heading and document action', () => {
     metrics: {},
   });
 
+  assert.match(html, /console-main console-main--library/);
   assert.match(html, /<h1 id="view-title">Library<\/h1>/);
   assert.match(html, /Markdown runbooks and notes/);
   assert.match(html, /data-action="new-document"/);
   assert.match(html, />New Document</);
+  assert.doesNotMatch(html, /aria-label="Task metrics"/);
+  assert.doesNotMatch(html, /Due today/);
 });
 
 test('renderShellHtml defaults missing metric values and reflects API status', () => {
