@@ -134,6 +134,8 @@ test('renderLibraryHtml renders edit mode with editor and save controls', () => 
 
   assert.match(html, /document-editor/);
   assert.match(html, /data-document-editor/);
+  assert.match(html, /data-code-editor/);
+  assert.match(html, /document-editor--fallback/);
   assert.match(html, /# Draft body/);
   assert.match(html, /data-action="save-document-draft"/);
   assert.match(html, /Autosaving\.\.\./);

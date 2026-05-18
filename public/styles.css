@@ -258,6 +258,12 @@ a {
   color: #f1fff7;
 }
 
+.secondary-action:disabled,
+.primary-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .danger-action {
   min-height: 36px;
   padding: 8px 12px;
@@ -1105,9 +1111,90 @@ button.task-row:hover {
   line-height: 1.55;
 }
 
+.document-editor-shell {
+  display: grid;
+  min-height: 0;
+  overflow: hidden;
+  background: #0e1722;
+}
+
+.document-editor-shell > * {
+  grid-area: 1 / 1;
+}
+
+.document-editor--fallback[hidden],
+.code-editor[hidden] {
+  display: none;
+}
+
+.code-editor {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #0e1722;
+  color: var(--text);
+}
+
+.code-editor .cm-editor {
+  height: 100%;
+  background: #0e1722;
+  color: var(--text);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.code-editor .cm-scroller {
+  padding: 4px 0 12px;
+}
+
+.code-editor .cm-content {
+  min-height: 100%;
+  padding: 16px;
+  caret-color: var(--accent-strong);
+}
+
+.code-editor .cm-line {
+  padding: 0 2px;
+}
+
+.code-editor .cm-gutters {
+  border-right: 1px solid var(--border);
+  background: #0b141f;
+  color: var(--muted);
+}
+
+.code-editor .cm-activeLine {
+  background: rgba(79, 156, 255, 0.08);
+}
+
+.code-editor .cm-activeLineGutter {
+  background: rgba(79, 156, 255, 0.08);
+  color: var(--text);
+}
+
+.code-editor .cm-selectionBackground,
+.code-editor .cm-content ::selection {
+  background: rgba(79, 156, 255, 0.28) !important;
+}
+
+.code-editor .cm-focused {
+  outline: 0;
+}
+
 .document-workspace--focused .document-editor {
   max-width: 920px;
   margin: 0 auto;
+  font-size: 0.94rem;
+  line-height: 1.65;
+}
+
+.document-workspace--focused .code-editor {
+  max-width: 920px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.document-workspace--focused .code-editor .cm-editor {
   font-size: 0.94rem;
   line-height: 1.65;
 }

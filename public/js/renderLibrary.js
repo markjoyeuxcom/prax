@@ -213,7 +213,10 @@ function renderEditorPane(body, options = {}) {
         </div>
       </header>
       ${renderMarkdownToolbar()}
-      <textarea class="document-editor" data-document-editor spellcheck="false">${escapeHtml(body)}</textarea>
+      <div class="document-editor-shell">
+        <textarea class="document-editor document-editor--fallback" data-document-editor spellcheck="false">${escapeHtml(body)}</textarea>
+        <div class="code-editor" data-code-editor hidden></div>
+      </div>
     </section>`;
 }
 

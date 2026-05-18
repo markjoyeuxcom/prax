@@ -37,6 +37,7 @@ import { renderDocumentFormHtml, renderLibraryHtml } from './renderLibrary.js';
 import { titleFromMarkdown } from './markdownPreview.js';
 import { applyMarkdownFormat } from './markdownEditor.js';
 import { canPreserveEditorAfterDraftSave, documentDraftSavedPatch } from './documentDraftSave.js';
+import { mountCodeMirrorEditor } from '../vendor/codemirror-editor.js';
 import { filterDocumentsByTags, tagsForDocuments } from './libraryFilters.js';
 import {
   areSameTags,
@@ -286,6 +287,8 @@ function renderLibraryWorkspace(workspace) {
     };
   }
 
+  let documentEditorController = null;
+
   async function saveDocumentDraftFromWorkspace() {
     const documentToSave = selectedDocument();
     if (!documentToSave || !state.isDocumentDirty || isSavingDocumentDraft) return;
@@ -300,7 +303,7 @@ function renderLibraryWorkspace(workspace) {
       const savedDocument = await updateDocument(documentToSave.id, { body: state.documentDraftBody });
       const patch = documentDraftSavedPatch({ documents: state.documents, savedDocument });
       const shouldPreserveEditor = canPreserveEditorAfterDraftSave({
-        editorExists: Boolean(workspace.querySelector('[data-document-editor]')),
+        editorExists: Boolean(documentEditorController || workspace.querySelector('[data-document-editor]')),
         savedDocumentId: savedDocument.id,
         selectedDocumentId: state.selectedDocumentId || documentToSave.id,
         documentDraftId: state.documentDraftId,
@@ -320,6 +323,26 @@ function renderLibraryWorkspace(workspace) {
     }
   }
 
+  function handleDocumentDraftBodyChange(value) {
+    const documentToEdit = selectedDocument();
+    if (!documentToEdit) return;
+
+    const nextBody = String(value ?? '');
+    const isDirty = nextBody !== (documentToEdit.body || '');
+    setState({
+      documentDraftId: documentToEdit.id,
+      documentDraftBody: nextBody,
+      isDocumentDirty: isDirty,
+      documentSaveStatus: isDirty ? 'Unsaved changes' : 'Saved',
+    });
+    updateDocumentSaveControls(workspace, state.documentSaveStatus);
+    if (state.isDocumentDirty) {
+      scheduleDocumentAutosave();
+    } else {
+      clearDocumentAutosave();
+    }
+  }
+
   function scheduleDocumentAutosave() {
     clearDocumentAutosave();
     documentAutosaveTimer = window.setTimeout(() => {
@@ -328,6 +351,25 @@ function renderLibraryWorkspace(workspace) {
       updateDocumentSaveControls(workspace, 'Autosaving...');
       saveDocumentDraftFromWorkspace();
     }, DOCUMENT_AUTOSAVE_DELAY_MS);
+  }
+
+  const fallbackEditor = workspace.querySelector('[data-document-editor]');
+  const codeEditorHost = workspace.querySelector('[data-code-editor]');
+  if (fallbackEditor && codeEditorHost) {
+    documentEditorController = mountCodeMirrorEditor({
+      host: codeEditorHost,
+      value: fallbackEditor.value,
+      onChange(value) {
+        fallbackEditor.value = value;
+        handleDocumentDraftBodyChange(value);
+      },
+      onSave: saveDocumentDraftFromWorkspace,
+    });
+
+    if (documentEditorController) {
+      fallbackEditor.hidden = true;
+      codeEditorHost.hidden = false;
+    }
   }
 
   const libraryWorkspace = workspace.querySelector('.library-workspace');
@@ -501,20 +543,7 @@ function renderLibraryWorkspace(workspace) {
   });
 
   workspace.querySelector('[data-document-editor]')?.addEventListener('input', (event) => {
-    const documentToEdit = selectedDocument();
-    if (!documentToEdit) return;
-    setState({
-      documentDraftId: documentToEdit.id,
-      documentDraftBody: event.target.value,
-      isDocumentDirty: event.target.value !== (documentToEdit.body || ''),
-      documentSaveStatus: event.target.value !== (documentToEdit.body || '') ? 'Unsaved changes' : 'Saved',
-    });
-    updateDocumentSaveControls(workspace, state.documentSaveStatus);
-    if (state.isDocumentDirty) {
-      scheduleDocumentAutosave();
-    } else {
-      clearDocumentAutosave();
-    }
+    handleDocumentDraftBodyChange(event.target.value);
   });
 
   workspace.querySelector('[data-document-editor]')?.addEventListener('keydown', (event) => {
@@ -526,6 +555,11 @@ function renderLibraryWorkspace(workspace) {
 
   workspace.querySelectorAll('[data-markdown-action]').forEach((button) => {
     button.addEventListener('click', () => {
+      if (documentEditorController) {
+        documentEditorController.applyFormat(button.dataset.markdownAction);
+        return;
+      }
+
       const textarea = workspace.querySelector('[data-document-editor]');
       if (!textarea) return;
       applyMarkdownToolbarAction(textarea, button.dataset.markdownAction);
