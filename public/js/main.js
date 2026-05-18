@@ -37,6 +37,7 @@ import { renderDocumentFormHtml, renderLibraryHtml } from './renderLibrary.js';
 import { titleFromMarkdown } from './markdownPreview.js';
 import { applyMarkdownFormat } from './markdownEditor.js';
 import { canPreserveEditorAfterDraftSave, documentDraftSavedPatch } from './documentDraftSave.js';
+import { updateDocumentLivePreview } from './documentLivePreview.js';
 import { mountCodeMirrorEditor } from '../vendor/codemirror-editor.js';
 import { filterDocumentsByTags, tagsForDocuments } from './libraryFilters.js';
 import {
@@ -335,6 +336,7 @@ function renderLibraryWorkspace(workspace) {
       isDocumentDirty: isDirty,
       documentSaveStatus: isDirty ? 'Unsaved changes' : 'Saved',
     });
+    updateDocumentLivePreview(workspace, nextBody);
     updateDocumentSaveControls(workspace, state.documentSaveStatus);
     if (state.isDocumentDirty) {
       scheduleDocumentAutosave();
