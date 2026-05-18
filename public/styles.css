@@ -554,7 +554,7 @@ button.task-row:hover {
 
 .library-browser {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   overflow: hidden;
 }
 
@@ -716,6 +716,8 @@ button.task-row:hover {
 .tag-filter-list {
   display: flex;
   flex-wrap: wrap;
+  align-items: flex-start;
+  align-content: flex-start;
   gap: 6px;
 }
 
@@ -723,6 +725,7 @@ button.task-row:hover {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  flex: 0 0 auto;
   width: max-content;
   max-width: 100%;
   min-height: 28px;
