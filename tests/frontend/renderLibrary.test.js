@@ -32,6 +32,11 @@ test('renderLibraryHtml renders document list and preview detail', () => {
     documents,
     selectedDocumentId: 'doc-1',
     editorMode: 'preview',
+    availableTags: [
+      { tag: 'backup', count: 1 },
+      { tag: 'postgres', count: 1 },
+    ],
+    activeTags: ['backup'],
   });
 
   assert.match(html, /Knowledge Library/);
@@ -39,6 +44,10 @@ test('renderLibraryHtml renders document list and preview detail', () => {
   assert.match(html, /class="library-browser"/);
   assert.match(html, /class="library-document-stage"/);
   assert.match(html, /2 documents/);
+  assert.match(html, /data-action="clear-library-tags"/);
+  assert.match(html, /data-library-tag="backup"/);
+  assert.match(html, /aria-pressed="true">backup <span>1<\/span>/);
+  assert.match(html, /data-library-tag="postgres"/);
   assert.match(html, /data-library-document-id="doc-1"/);
   assert.match(html, /Restore CloudNativePG/);
   assert.match(html, /Runbook/);

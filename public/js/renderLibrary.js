@@ -33,6 +33,39 @@ function renderTags(tags = []) {
   return tags.map(tag => `<span class="document-tag">${escapeHtml(tag)}</span>`).join('');
 }
 
+function normalizedTags(tags = []) {
+  return tags.map(tag => String(tag || '').trim().toLowerCase()).filter(Boolean);
+}
+
+function renderTagFilters(availableTags = [], activeTags = []) {
+  const activeTagSet = new Set(normalizedTags(activeTags));
+  const allActive = activeTagSet.size === 0;
+
+  if (!availableTags.length) {
+    return `
+      <section class="library-tag-filter" aria-label="Library tag filters">
+        <div class="library-tag-filter__header">
+          <span>Tags</span>
+        </div>
+        <p class="library-tag-filter__empty">No tags yet</p>
+      </section>`;
+  }
+
+  return `
+    <section class="library-tag-filter" aria-label="Library tag filters">
+      <div class="library-tag-filter__header">
+        <span>Tags</span>
+        <button class="tag-filter-chip${allActive ? ' is-active' : ''}" type="button" data-action="clear-library-tags" aria-pressed="${allActive}">All</button>
+      </div>
+      <div class="tag-filter-list">${availableTags.map(({ tag, count }) => {
+        const normalized = String(tag || '').trim().toLowerCase();
+        const isActive = activeTagSet.has(normalized);
+        return `<button class="tag-filter-chip${isActive ? ' is-active' : ''}" type="button" data-library-tag="${escapeHtml(normalized)}" aria-pressed="${isActive}">${escapeHtml(normalized)} <span>${Number(count) || 0}</span></button>`;
+      }).join('')}
+      </div>
+    </section>`;
+}
+
 function selectedDocument(documents, selectedDocumentId) {
   return documents.find(document => document.id === selectedDocumentId) || documents[0] || null;
 }
@@ -133,6 +166,8 @@ export function renderLibraryHtml({
   editorMode = null,
   draftBody = null,
   isDirty = false,
+  availableTags = [],
+  activeTags = [],
 } = {}) {
   const safeDocuments = Array.isArray(documents) ? documents : [];
   const document = selectedDocument(safeDocuments, selectedDocumentId);
@@ -148,6 +183,7 @@ export function renderLibraryHtml({
           </div>
           <span class="sync-pill">Markdown</span>
         </header>
+        ${renderTagFilters(availableTags, activeTags)}
         <div class="document-list">${renderDocumentList(safeDocuments, document?.id)}
         </div>
       </aside>

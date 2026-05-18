@@ -20,6 +20,7 @@ export const state = {
   documentDraftBody: '',
   documentDraftId: null,
   isDocumentDirty: false,
+  activeLibraryTags: [],
 };
 
 export function setState(patch) {

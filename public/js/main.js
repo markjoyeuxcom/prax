@@ -35,6 +35,7 @@ import { renderTaskFormHtml } from './renderTaskForm.js';
 import { renderAdminPanelHtml } from './renderAdminPanel.js';
 import { renderDocumentFormHtml, renderLibraryHtml } from './renderLibrary.js';
 import { titleFromMarkdown } from './markdownPreview.js';
+import { filterDocumentsByTags, tagsForDocuments } from './libraryFilters.js';
 
 const app = document.getElementById('app');
 
@@ -82,9 +83,10 @@ function editingTask() {
 
 function visibleDocumentsForCurrentView() {
   const query = state.searchQuery.trim().toLowerCase();
-  const documents = state.documents.filter(document => document.context === state.activeContext);
-  if (!query) return documents;
-  return documents.filter((document) => [
+  const contextDocuments = state.documents.filter(document => document.context === state.activeContext);
+  const taggedDocuments = filterDocumentsByTags(contextDocuments, state.activeLibraryTags);
+  if (!query) return taggedDocuments;
+  return taggedDocuments.filter((document) => [
     document.title,
     document.body,
     document.documentType,
@@ -197,6 +199,7 @@ function renderWorkspace() {
 }
 
 function renderLibraryWorkspace(workspace) {
+  const contextDocuments = state.documents.filter(document => document.context === state.activeContext);
   const visibleDocuments = visibleDocumentsForCurrentView();
   const document = selectedDocument();
   workspace.innerHTML = renderLibraryHtml({
@@ -205,6 +208,49 @@ function renderLibraryWorkspace(workspace) {
     editorMode: state.documentEditorMode,
     draftBody: draftBodyForDocument(document),
     isDirty: state.isDocumentDirty && state.documentDraftId === document?.id,
+    availableTags: tagsForDocuments(contextDocuments),
+    activeTags: state.activeLibraryTags,
+  });
+
+  function resetDocumentDraft() {
+    return {
+      selectedDocumentId: null,
+      documentDraftId: null,
+      documentDraftBody: '',
+      isDocumentDirty: false,
+    };
+  }
+
+  const libraryWorkspace = workspace.querySelector('.library-workspace');
+  libraryWorkspace?.addEventListener('click', (event) => {
+    const tagButton = event.target.closest('[data-library-tag]');
+    if (tagButton && libraryWorkspace.contains(tagButton)) {
+      event.preventDefault();
+      event.stopPropagation();
+      const tag = String(tagButton.dataset.libraryTag || '').trim().toLowerCase();
+      if (!tag) return;
+      const currentTags = Array.isArray(state.activeLibraryTags) ? state.activeLibraryTags : [];
+      const activeTags = currentTags.includes(tag)
+        ? currentTags.filter(activeTag => activeTag !== tag)
+        : [...currentTags, tag];
+      setState({
+        activeLibraryTags: activeTags,
+        ...resetDocumentDraft(),
+      });
+      renderWorkspace();
+      return;
+    }
+
+    const clearTagsButton = event.target.closest('[data-action="clear-library-tags"]');
+    if (clearTagsButton && libraryWorkspace.contains(clearTagsButton)) {
+      event.preventDefault();
+      event.stopPropagation();
+      setState({
+        activeLibraryTags: [],
+        ...resetDocumentDraft(),
+      });
+      renderWorkspace();
+    }
   });
 
   workspace.querySelectorAll('[data-library-document-id]').forEach((row) => {
@@ -500,6 +546,7 @@ function bindShellEvents() {
         activeContext: nextContext,
         selectedTaskId: null,
         selectedDocumentId: null,
+        activeLibraryTags: [],
         documentDraftId: null,
         documentDraftBody: '',
         isDocumentDirty: false,
@@ -533,6 +580,7 @@ function bindShellEvents() {
         activeView: nextView,
         selectedTaskId: null,
         selectedDocumentId: null,
+        activeLibraryTags: [],
         documentDraftId: null,
         documentDraftBody: '',
         isDocumentDirty: false,

@@ -554,7 +554,7 @@ button.task-row:hover {
 
 .library-browser {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   overflow: hidden;
 }
 
@@ -564,6 +564,70 @@ button.task-row:hover {
 
 .library-browser .sync-pill {
   font-size: 0.72rem;
+}
+
+.library-tag-filter {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(10, 17, 25, 0.28);
+}
+
+.library-tag-filter__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.library-tag-filter__empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.tag-filter-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tag-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: max-content;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #0e1722;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 750;
+}
+
+.tag-filter-chip:hover {
+  border-color: #31506e;
+  color: var(--text);
+}
+
+.tag-filter-chip.is-active {
+  border-color: rgba(114, 214, 162, 0.48);
+  background: rgba(114, 214, 162, 0.12);
+  color: #bff3d3;
+}
+
+.tag-filter-chip span {
+  color: inherit;
+  opacity: 0.72;
 }
 
 .library-document-stage {
