@@ -944,8 +944,9 @@ button.task-row:hover {
 }
 
 .library-detail.is-focus-mode {
-  max-width: 1120px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
+  margin: 0;
 }
 
 .library-detail .detail-header {
@@ -1026,6 +1027,10 @@ button.task-row:hover {
 
 .document-workspace--split {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.document-workspace--focused.document-workspace--split {
+  grid-template-columns: minmax(520px, 1fr) minmax(520px, 1fr);
 }
 
 .document-editor-pane,
@@ -1115,7 +1120,7 @@ button.task-row:hover {
   display: grid;
   min-height: 0;
   overflow: hidden;
-  background: #0e1722;
+  background: #101a27;
 }
 
 .document-editor-shell > * {
@@ -1131,14 +1136,14 @@ button.task-row:hover {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: #0e1722;
+  background: #101a27;
   color: var(--text);
 }
 
 .code-editor .cm-editor {
   height: 100%;
-  background: #0e1722;
-  color: var(--text);
+  background: #101a27;
+  color: #e7f0fb;
   font-size: 0.88rem;
   line-height: 1.55;
 }
@@ -1150,7 +1155,7 @@ button.task-row:hover {
 .code-editor .cm-content {
   min-height: 100%;
   padding: 16px;
-  caret-color: var(--accent-strong);
+  caret-color: #f8f2c6;
 }
 
 .code-editor .cm-line {
@@ -1159,22 +1164,28 @@ button.task-row:hover {
 
 .code-editor .cm-gutters {
   border-right: 1px solid var(--border);
-  background: #0b141f;
-  color: var(--muted);
+  background: #0c1521;
+  color: #92a9c4;
 }
 
 .code-editor .cm-activeLine {
-  background: rgba(79, 156, 255, 0.08);
+  background: rgba(91, 183, 255, 0.1);
 }
 
 .code-editor .cm-activeLineGutter {
-  background: rgba(79, 156, 255, 0.08);
+  background: rgba(91, 183, 255, 0.1);
   color: var(--text);
+}
+
+.code-editor .cm-cursor,
+.code-editor .cm-dropCursor {
+  border-left-color: #f8f2c6 !important;
+  border-left-width: 2px !important;
 }
 
 .code-editor .cm-selectionBackground,
 .code-editor .cm-content ::selection {
-  background: rgba(79, 156, 255, 0.28) !important;
+  background: rgba(91, 183, 255, 0.38) !important;
 }
 
 .code-editor .cm-focused {
@@ -1189,9 +1200,9 @@ button.task-row:hover {
 }
 
 .document-workspace--focused .code-editor {
-  max-width: 920px;
+  max-width: none;
   width: 100%;
-  margin: 0 auto;
+  margin: 0;
 }
 
 .document-workspace--focused .code-editor .cm-editor {
