@@ -10,7 +10,7 @@ import {
   updateTask,
 } from './taskApi.js';
 import { moveTaskOnBoard } from './boardWorkflow.js';
-import { exportFilename, tasksFromImportPayload } from './importExport.js';
+import { exportFilename, normalizeImportMode, tasksFromImportPayload } from './importExport.js';
 import { filterTasks } from './taskFilters.js';
 import { buildMetrics, normalizeTask } from './taskModel.js';
 import { isArchiveView, tasksForView } from './taskViews.js';
@@ -285,6 +285,22 @@ function bindShellEvents() {
   });
 
   app.querySelector('[data-action="import"]')?.addEventListener('click', () => {
+    const requestedMode = window.prompt('Import mode: skip, append, or replace', 'skip');
+    if (requestedMode === null) return;
+
+    let mode;
+    try {
+      mode = normalizeImportMode(requestedMode);
+    } catch {
+      window.alert('Import mode must be append, skip, or replace.');
+      return;
+    }
+
+    if (mode === 'replace') {
+      const confirmed = window.prompt(`Replace all ${state.activeContext} tasks? Type REPLACE to continue.`);
+      if (confirmed !== 'REPLACE') return;
+    }
+
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'application/json,.json';
@@ -295,8 +311,9 @@ function bindShellEvents() {
       try {
         const payload = JSON.parse(await file.text());
         const tasks = tasksFromImportPayload(payload);
-        const result = await importTasks({ context: state.activeContext, tasks });
-        window.alert(`Imported ${result.imported} ${result.imported === 1 ? 'task' : 'tasks'}.`);
+        const result = await importTasks({ context: state.activeContext, mode, tasks });
+        const skipped = result.skipped ? ` Skipped ${result.skipped}.` : '';
+        window.alert(`Imported ${result.imported} ${result.imported === 1 ? 'task' : 'tasks'}.${skipped}`);
         await loadTasks({ selectedTaskId: null });
       } catch {
         window.alert('TaskBoard could not import that file.');

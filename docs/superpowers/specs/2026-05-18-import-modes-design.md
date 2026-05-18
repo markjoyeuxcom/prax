@@ -18,7 +18,7 @@ Duplicate detection uses normalized `title`, `context`, `status`, and `dueDate`.
 
 ## User Experience
 
-The Import button asks for an import mode before opening the file picker. Empty input cancels. Invalid input shows an alert. Replace mode requires typing `REPLACE` before the file picker opens.
+The Import button asks for an import mode before opening the file picker. Cancel stops the import. Blank input defaults to `skip`. Invalid input shows an alert. Replace mode requires typing `REPLACE` before the file picker opens.
 
 On success, TaskBoard reports imported and skipped counts and reloads the current view.
 

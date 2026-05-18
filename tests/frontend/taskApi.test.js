@@ -91,6 +91,27 @@ test('importTasks posts tasks for the selected context', async () => {
   assert.deepEqual(calls[0][1].headers, { 'content-type': 'application/json' });
   assert.equal(calls[0][1].body, JSON.stringify({
     context: 'homelab',
+    mode: 'skip',
+    tasks: [{ title: 'Imported task' }],
+  }));
+});
+
+test('importTasks posts explicit import modes', async () => {
+  const calls = [];
+  globalThis.fetch = async (...args) => {
+    calls.push(args);
+    return jsonResponse({ mode: 'replace', imported: 1, skipped: 0, tasks: [{ id: 'task-1' }] });
+  };
+
+  await importTasks({
+    context: 'homelab',
+    mode: 'replace',
+    tasks: [{ title: 'Imported task' }],
+  });
+
+  assert.equal(calls[0][1].body, JSON.stringify({
+    context: 'homelab',
+    mode: 'replace',
     tasks: [{ title: 'Imported task' }],
   }));
 });

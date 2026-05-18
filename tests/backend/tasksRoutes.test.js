@@ -28,8 +28,14 @@ function createFakeRepository() {
     },
   ];
   return {
-    async listTasks() {
-      return tasks;
+    async listTasks(filters = {}) {
+      return tasks.filter((task) => {
+        if (filters.context && task.context !== filters.context) return false;
+        if (filters.status && task.status !== filters.status) return false;
+        if (filters.archived === true || filters.archived === 'true') return Boolean(task.archivedAt);
+        if (filters.archived !== 'all') return !task.archivedAt;
+        return true;
+      });
     },
     async createTask(task) {
       const created = {
@@ -51,6 +57,12 @@ function createFakeRepository() {
       }));
       tasks.push(...created);
       return created;
+    },
+    async replaceContextTasks(context, importedTasks) {
+      for (let index = tasks.length - 1; index >= 0; index -= 1) {
+        if (tasks[index].context === context) tasks.splice(index, 1);
+      }
+      return this.importTasks(importedTasks);
     },
     async updateTask(id, fields) {
       const task = tasks.find(item => item.id === id);
@@ -187,10 +199,147 @@ test('POST /api/tasks/import imports sanitized tasks into the requested context'
   });
 
   assert.equal(response.statusCode, 201);
+  assert.equal(response.json().mode, 'skip');
   assert.equal(response.json().imported, 1);
+  assert.equal(response.json().skipped, 0);
   assert.equal(response.json().tasks[0].title, 'Imported task');
   assert.equal(response.json().tasks[0].description, 'From backup');
   assert.equal(response.json().tasks[0].context, 'homelab');
+
+  await app.close();
+});
+
+test('POST /api/tasks/import skips duplicates by default', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/tasks/import',
+    payload: {
+      context: 'homelab',
+      tasks: [
+        {
+          title: ' back up cloudnativepg ',
+          priority: 'medium',
+          status: 'planned',
+          dueDate: '2026-05-12',
+          sortOrder: 2,
+        },
+      ],
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().mode, 'skip');
+  assert.equal(response.json().imported, 0);
+  assert.equal(response.json().skipped, 1);
+  assert.deepEqual(response.json().tasks, []);
+
+  await app.close();
+});
+
+test('POST /api/tasks/import appends duplicates when requested', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/tasks/import',
+    payload: {
+      context: 'homelab',
+      mode: 'append',
+      tasks: [
+        {
+          title: 'Back up CloudNativePG',
+          priority: 'medium',
+          status: 'planned',
+          dueDate: '2026-05-12',
+          sortOrder: 2,
+        },
+      ],
+    },
+  });
+
+  assert.equal(response.statusCode, 201);
+  assert.equal(response.json().mode, 'append');
+  assert.equal(response.json().imported, 1);
+  assert.equal(response.json().skipped, 0);
+
+  await app.close();
+});
+
+test('POST /api/tasks/import replaces the selected context when requested', async () => {
+  const repository = createFakeRepository();
+  await repository.importTasks([
+    {
+      title: 'Personal stays',
+      description: '',
+      priority: 'low',
+      status: 'planned',
+      context: 'personal',
+      dueDate: null,
+      sortOrder: 0,
+      archivedAt: null,
+    },
+  ]);
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: repository,
+  });
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/tasks/import',
+    payload: {
+      context: 'homelab',
+      mode: 'replace',
+      tasks: [
+        {
+          title: 'Replacement task',
+          priority: 'high',
+          status: 'planned',
+          dueDate: null,
+          sortOrder: 0,
+        },
+      ],
+    },
+  });
+
+  assert.equal(response.statusCode, 201);
+  assert.equal(response.json().mode, 'replace');
+  assert.equal(response.json().imported, 1);
+  assert.equal(response.json().skipped, 0);
+  assert.equal(response.json().tasks[0].title, 'Replacement task');
+
+  const activeTasks = await repository.listTasks({ archived: 'all' });
+  assert.deepEqual(activeTasks.map(task => task.title).sort(), ['Personal stays', 'Replacement task']);
+
+  await app.close();
+});
+
+test('POST /api/tasks/import rejects invalid import modes', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/tasks/import',
+    payload: {
+      context: 'homelab',
+      mode: 'merge',
+      tasks: [{ title: 'Imported task' }],
+    },
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().message, /mode/);
 
   await app.close();
 });

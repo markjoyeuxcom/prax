@@ -57,6 +57,30 @@ export function buildImportTasks(tasks) {
   };
 }
 
+export function buildReplaceContextTasks(context, tasks) {
+  if (!Array.isArray(tasks) || tasks.length === 0) {
+    throw new Error('No task import records provided');
+  }
+
+  const rows = tasks.map((_, rowIndex) => {
+    const offset = 2 + (rowIndex * IMPORT_FIELDS.length);
+    return `($${offset}, $${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7})`;
+  });
+
+  return {
+    text: `
+      with deleted as (
+        delete from tasks
+        where context = $1
+      )
+      insert into tasks (title, description, priority, status, context, due_date, sort_order, archived_at)
+      values ${rows.join(', ')}
+      returning *
+    `,
+    values: [context, ...tasks.flatMap(task => IMPORT_FIELDS.map(field => task[field] ?? null))],
+  };
+}
+
 export function buildUpdateTask(id, fields) {
   const entries = Object.entries(fields).filter(([key]) => UPDATE_COLUMN_MAP[key]);
   if (entries.length === 0) {
@@ -152,6 +176,12 @@ export function createTasksRepository(db) {
 
     async importTasks(tasks) {
       const query = buildImportTasks(tasks);
+      const result = await db.query(query.text, query.values);
+      return result.rows.map(normalizeTaskRow);
+    },
+
+    async replaceContextTasks(context, tasks) {
+      const query = buildReplaceContextTasks(context, tasks);
       const result = await db.query(query.text, query.values);
       return result.rows.map(normalizeTaskRow);
     },

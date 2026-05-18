@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   createTasksRepository,
   buildImportTasks,
+  buildReplaceContextTasks,
   normalizeTaskRow,
   buildCreateTask,
   buildReorderTasks,
@@ -152,6 +153,37 @@ test('buildImportTasks rejects empty imports', () => {
     () => buildImportTasks([]),
     /No task import records provided/,
   );
+});
+
+test('buildReplaceContextTasks deletes one context and inserts imported tasks', () => {
+  const query = buildReplaceContextTasks('homelab', [
+    {
+      title: 'Imported task',
+      description: '',
+      priority: 'medium',
+      status: 'planned',
+      context: 'homelab',
+      dueDate: null,
+      sortOrder: 0,
+      archivedAt: null,
+    },
+  ]);
+
+  assert.match(query.text, /delete from tasks/);
+  assert.match(query.text, /where context = \$1/);
+  assert.match(query.text, /insert into tasks/);
+  assert.match(query.text, /returning \*/);
+  assert.deepEqual(query.values, [
+    'homelab',
+    'Imported task',
+    '',
+    'medium',
+    'planned',
+    'homelab',
+    null,
+    0,
+    null,
+  ]);
 });
 
 test('listTasks filters active tasks by default', async () => {

@@ -28,11 +28,11 @@ export async function createTask(task) {
   return response.json();
 }
 
-export async function importTasks({ context, tasks }) {
+export async function importTasks({ context, mode = 'skip', tasks }) {
   const response = await fetch('/api/tasks/import', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ context, tasks }),
+    body: JSON.stringify({ context, mode, tasks }),
   });
   if (!response.ok) throw new Error('Failed to import tasks');
   return response.json();

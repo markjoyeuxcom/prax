@@ -4,6 +4,7 @@ const PRIORITIES = new Set(['high', 'medium', 'low']);
 const STATUSES = new Set(['high-priority', 'in-progress', 'planned', 'completed', 'notes']);
 const CONTEXTS = new Set(['personal', 'work', 'homelab']);
 const PATCH_FIELDS = ['title', 'description', 'priority', 'status', 'context', 'dueDate', 'sortOrder'];
+const IMPORT_MODES = new Set(['append', 'skip', 'replace']);
 const MIN_SORT_ORDER = -2147483648;
 const MAX_SORT_ORDER = 2147483647;
 const MAX_IMPORT_TASKS = 500;
@@ -60,6 +61,7 @@ function importTasksFromPayload(payload) {
 function validateTaskImportPayload(payload) {
   if (!payload || typeof payload !== 'object') return 'tasks must include at least one task';
   if (!CONTEXTS.has(payload.context)) return 'context is invalid';
+  if (payload.mode !== undefined && !IMPORT_MODES.has(payload.mode)) return 'mode is invalid';
 
   const tasks = importTasksFromPayload(payload);
   if (!tasks || tasks.length === 0) return 'tasks must include at least one task';
@@ -78,6 +80,10 @@ function validateTaskImportPayload(payload) {
   return null;
 }
 
+function cleanImportMode(payload) {
+  return payload.mode || 'skip';
+}
+
 function cleanTaskImportPayload(payload) {
   return importTasksFromPayload(payload).map((task, index) => ({
     title: task.title.trim(),
@@ -89,6 +95,29 @@ function cleanTaskImportPayload(payload) {
     sortOrder: Number.isInteger(task.sortOrder) ? task.sortOrder : index,
     archivedAt: task.archivedAt || null,
   }));
+}
+
+function duplicateKeyForTask(task) {
+  return [
+    String(task.title || '').trim().toLowerCase(),
+    String(task.context || '').trim().toLowerCase(),
+    String(task.status || 'planned').trim().toLowerCase(),
+    String(task.dueDate || '').trim(),
+  ].join('\u001f');
+}
+
+function filterDuplicateTasks(importedTasks, existingTasks) {
+  const existingKeys = new Set(existingTasks.map(duplicateKeyForTask));
+  return importedTasks.reduce((result, task) => {
+    const key = duplicateKeyForTask(task);
+    if (existingKeys.has(key)) {
+      result.skipped += 1;
+      return result;
+    }
+    existingKeys.add(key);
+    result.tasks.push(task);
+    return result;
+  }, { tasks: [], skipped: 0 });
 }
 
 function cleanTaskPayload(payload) {
@@ -233,10 +262,31 @@ export async function registerTasksRoutes(app, options = {}) {
       return { message: validationError };
     }
 
-    const tasks = await repository.importTasks(cleanTaskImportPayload(request.body));
-    reply.code(201);
+    const mode = cleanImportMode(request.body);
+    const importCandidates = cleanTaskImportPayload(request.body);
+    let skipped = 0;
+    let tasksToImport = importCandidates;
+
+    if (mode === 'skip') {
+      const existingTasks = await repository.listTasks({
+        context: request.body.context,
+        archived: 'all',
+      });
+      const filtered = filterDuplicateTasks(importCandidates, existingTasks);
+      tasksToImport = filtered.tasks;
+      skipped = filtered.skipped;
+    }
+
+    const tasks = mode === 'replace'
+      ? await repository.replaceContextTasks(request.body.context, importCandidates)
+      : tasksToImport.length
+        ? await repository.importTasks(tasksToImport)
+        : [];
+    reply.code(tasks.length ? 201 : 200);
     return {
+      mode,
       imported: tasks.length,
+      skipped,
       tasks,
     };
   });
