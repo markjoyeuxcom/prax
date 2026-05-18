@@ -1,4 +1,5 @@
 import { renderMarkdownHtml } from './markdownPreview.js';
+import { visibleTagsForFilter } from './libraryFilters.js';
 
 const DOCUMENT_TYPES = [
   { value: 'runbook', label: 'Runbook' },
@@ -37,9 +38,17 @@ function normalizedTags(tags = []) {
   return tags.map(tag => String(tag || '').trim().toLowerCase()).filter(Boolean);
 }
 
-function renderTagFilters(availableTags = [], activeTags = []) {
+function renderTagFilters({
+  availableTags = [],
+  activeTags = [],
+  tagQuery = '',
+  areTagsExpanded = false,
+} = {}) {
   const activeTagSet = new Set(normalizedTags(activeTags));
   const allActive = activeTagSet.size === 0;
+  const { visibleTags, hiddenCount } = visibleTagsForFilter(availableTags, activeTags, tagQuery, {
+    isExpanded: areTagsExpanded,
+  });
 
   if (!availableTags.length) {
     return `
@@ -57,12 +66,17 @@ function renderTagFilters(availableTags = [], activeTags = []) {
         <span>Tags</span>
         <button class="tag-filter-chip${allActive ? ' is-active' : ''}" type="button" data-action="clear-library-tags" aria-pressed="${allActive}">All</button>
       </div>
-      <div class="tag-filter-list">${availableTags.map(({ tag, count }) => {
+      <label class="tag-search-field">
+        <span class="sr-only">Search tags</span>
+        <input type="search" placeholder="Search tags" autocomplete="off" value="${escapeHtml(tagQuery)}" data-library-tag-search>
+      </label>
+      <div class="tag-filter-list">${visibleTags.map(({ tag, count, isPinned }) => {
         const normalized = String(tag || '').trim().toLowerCase();
         const isActive = activeTagSet.has(normalized);
-        return `<button class="tag-filter-chip${isActive ? ' is-active' : ''}" type="button" data-library-tag="${escapeHtml(normalized)}" aria-pressed="${isActive}">${escapeHtml(normalized)} <span>${Number(count) || 0}</span></button>`;
+        return `<button class="tag-filter-chip${isActive ? ' is-active' : ''}${isPinned ? ' is-pinned' : ''}" type="button" data-library-tag="${escapeHtml(normalized)}" aria-pressed="${isActive}">${escapeHtml(normalized)} <span>${Number(count) || 0}</span></button>`;
       }).join('')}
       </div>
+      ${hiddenCount ? `<button class="tag-filter-toggle" type="button" data-action="toggle-library-tags">Show ${hiddenCount} more</button>` : ''}
     </section>`;
 }
 
@@ -168,6 +182,8 @@ export function renderLibraryHtml({
   isDirty = false,
   availableTags = [],
   activeTags = [],
+  tagQuery = '',
+  areTagsExpanded = false,
 } = {}) {
   const safeDocuments = Array.isArray(documents) ? documents : [];
   const document = selectedDocument(safeDocuments, selectedDocumentId);
@@ -183,7 +199,7 @@ export function renderLibraryHtml({
           </div>
           <span class="sync-pill">Markdown</span>
         </header>
-        ${renderTagFilters(availableTags, activeTags)}
+        ${renderTagFilters({ availableTags, activeTags, tagQuery, areTagsExpanded })}
         <div class="document-list">${renderDocumentList(safeDocuments, document?.id)}
         </div>
       </aside>

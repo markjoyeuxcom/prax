@@ -21,6 +21,8 @@ export const state = {
   documentDraftId: null,
   isDocumentDirty: false,
   activeLibraryTags: [],
+  libraryTagQuery: '',
+  areLibraryTagsExpanded: false,
 };
 
 export function setState(patch) {

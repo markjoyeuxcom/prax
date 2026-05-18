@@ -37,6 +37,8 @@ test('renderLibraryHtml renders document list and preview detail', () => {
       { tag: 'postgres', count: 1 },
     ],
     activeTags: ['backup'],
+    tagQuery: 'post',
+    areTagsExpanded: false,
   });
 
   assert.match(html, /Knowledge Library/);
@@ -45,6 +47,8 @@ test('renderLibraryHtml renders document list and preview detail', () => {
   assert.match(html, /class="library-document-stage"/);
   assert.match(html, /2 documents/);
   assert.match(html, /data-action="clear-library-tags"/);
+  assert.match(html, /data-library-tag-search/);
+  assert.match(html, /value="post"/);
   assert.match(html, /data-library-tag="backup"/);
   assert.match(html, /aria-pressed="true">backup <span>1<\/span>/);
   assert.match(html, /data-library-tag="postgres"/);
@@ -58,6 +62,22 @@ test('renderLibraryHtml renders document list and preview detail', () => {
   assert.match(html, /data-library-mode="split"/);
   assert.doesNotMatch(html, /data-action="edit-document"/);
   assert.match(html, /<h1>Restore CloudNativePG<\/h1>/);
+});
+
+test('renderLibraryHtml renders show-more control for collapsed long tag lists', () => {
+  const html = renderLibraryHtml({
+    documents,
+    availableTags: Array.from({ length: 14 }, (_, index) => ({
+      tag: `tag-${String(index + 1).padStart(2, '0')}`,
+      count: 1,
+    })),
+    activeTags: [],
+    areTagsExpanded: false,
+  });
+
+  assert.match(html, /data-action="toggle-library-tags"/);
+  assert.match(html, /Show 2 more/);
+  assert.doesNotMatch(html, /data-library-tag="tag-14"/);
 });
 
 test('renderLibraryHtml renders edit mode with editor and save controls', () => {

@@ -210,6 +210,8 @@ function renderLibraryWorkspace(workspace) {
     isDirty: state.isDocumentDirty && state.documentDraftId === document?.id,
     availableTags: tagsForDocuments(contextDocuments),
     activeTags: state.activeLibraryTags,
+    tagQuery: state.libraryTagQuery,
+    areTagsExpanded: state.areLibraryTagsExpanded,
   });
 
   function resetDocumentDraft() {
@@ -235,6 +237,7 @@ function renderLibraryWorkspace(workspace) {
         : [...currentTags, tag];
       setState({
         activeLibraryTags: activeTags,
+        libraryTagQuery: '',
         ...resetDocumentDraft(),
       });
       renderWorkspace();
@@ -247,10 +250,32 @@ function renderLibraryWorkspace(workspace) {
       event.stopPropagation();
       setState({
         activeLibraryTags: [],
+        libraryTagQuery: '',
+        areLibraryTagsExpanded: false,
         ...resetDocumentDraft(),
       });
       renderWorkspace();
+      return;
     }
+
+    const toggleTagsButton = event.target.closest('[data-action="toggle-library-tags"]');
+    if (toggleTagsButton && libraryWorkspace.contains(toggleTagsButton)) {
+      event.preventDefault();
+      event.stopPropagation();
+      setState({ areLibraryTagsExpanded: !state.areLibraryTagsExpanded });
+      renderWorkspace();
+    }
+  });
+
+  workspace.querySelector('[data-library-tag-search]')?.addEventListener('input', (event) => {
+    setState({
+      libraryTagQuery: event.target.value,
+      areLibraryTagsExpanded: false,
+    });
+    renderWorkspace();
+    const nextInput = workspace.querySelector('[data-library-tag-search]');
+    nextInput?.focus();
+    nextInput?.setSelectionRange?.(nextInput.value.length, nextInput.value.length);
   });
 
   workspace.querySelectorAll('[data-library-document-id]').forEach((row) => {
@@ -547,6 +572,8 @@ function bindShellEvents() {
         selectedTaskId: null,
         selectedDocumentId: null,
         activeLibraryTags: [],
+        libraryTagQuery: '',
+        areLibraryTagsExpanded: false,
         documentDraftId: null,
         documentDraftBody: '',
         isDocumentDirty: false,
@@ -581,6 +608,8 @@ function bindShellEvents() {
         selectedTaskId: null,
         selectedDocumentId: null,
         activeLibraryTags: [],
+        libraryTagQuery: '',
+        areLibraryTagsExpanded: false,
         documentDraftId: null,
         documentDraftBody: '',
         isDocumentDirty: false,
