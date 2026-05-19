@@ -217,7 +217,7 @@ git commit -m "ci: publish release images"
 
 Expected: Commit succeeds.
 
-- [ ] **Step 3: Push main**
+- [x] **Step 3: Push main**
 
 Run:
 
@@ -227,7 +227,7 @@ git push
 
 Expected: `main` pushes to `origin/main`.
 
-- [ ] **Step 4: Run the release workflow for existing tag**
+- [x] **Step 4: Run the release workflow for existing tag**
 
 Run:
 
@@ -237,7 +237,7 @@ gh workflow run release.yml --repo markjoyeuxcom/moomora-console --ref main -f v
 
 Expected: GitHub accepts the manual workflow dispatch.
 
-- [ ] **Step 5: Watch the release workflow**
+- [x] **Step 5: Watch the release workflow**
 
 Run:
 
@@ -248,7 +248,7 @@ gh run list --repo markjoyeuxcom/moomora-console --workflow Release --limit 1 --
 
 Expected: The first command prints the latest release workflow run id. The second command watches that run and exits 0 when the release workflow completes successfully.
 
-- [ ] **Step 6: Verify package image is usable**
+- [x] **Step 6: Verify package image is usable**
 
 Run:
 
@@ -258,3 +258,5 @@ docker compose -f compose.yaml -f compose.image.yaml config
 ```
 
 Expected: Docker can pull the image, and Compose points the app service at the published image.
+
+Note: The `v0.1.0` image has been verified with authenticated GHCR access and runs through the Compose image override. The GHCR package visibility is still private and must be changed once in the GitHub package settings before anonymous public pulls work.
