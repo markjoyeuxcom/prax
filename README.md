@@ -82,7 +82,7 @@ http://127.0.0.1:3100/
 The compose stack starts:
 
 - `app`: Moomora Console on host port `3100`
-- `postgres`: PostgreSQL on host port `54320`
+- `postgres`: PostgreSQL 18 on host port `54320`
 - `postgres-data`: named volume for database persistence
 
 The first database startup applies `server/schema.sql` automatically through Postgres init scripts. To reset local data:
@@ -90,6 +90,8 @@ The first database startup applies `server/schema.sql` automatically through Pos
 ```bash
 docker compose down -v
 ```
+
+PostgreSQL 18 uses the official image's version-aware data directory layout. If you previously ran this project with the older PostgreSQL 17 Compose volume, reset local development data with `docker compose down -v` before starting the PostgreSQL 18 stack, or migrate the database with a dump/restore flow.
 
 ## Run The Published Image
 
