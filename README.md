@@ -2,7 +2,7 @@
 
 Moomora Console is a local-first homelab operations console for tasks, runbooks, and Markdown workflows. It is built for a personal Kubernetes cluster, with a quiet operations UI, PostgreSQL persistence, and a growing document library that can become useful context for future AI and MCP integrations.
 
-The app is greenfield and intentionally private while the core workflows, deployment model, and automation ideas settle.
+The project is early, but usable locally today through the in-memory demo server or a PostgreSQL-backed server.
 
 ## What It Does
 
@@ -13,6 +13,14 @@ The app is greenfield and intentionally private while the core workflows, deploy
 - Offers an Admin panel for backup, export, and import workflows with append, skip duplicates, and replace-context modes.
 - Targets a homelab Kubernetes deployment backed by CloudNativePG/PostgreSQL.
 
+## Screenshots
+
+![Today task queue](docs/images/moomora-today.jpg)
+
+![Markdown library](docs/images/moomora-library.jpg)
+
+![Split Markdown editor](docs/images/moomora-editor-split.jpg)
+
 ## Stack
 
 - Node.js
@@ -22,12 +30,25 @@ The app is greenfield and intentionally private while the core workflows, deploy
 - CodeMirror for Markdown editing
 - Kubernetes manifests under `deploy/k8s`
 
-## Run Locally
+## Requirements
+
+- Node.js 20 or newer
+- npm
+- PostgreSQL only if you want persistent local data
+
+## Local Install
+
+Clone the repo:
+
+```bash
+git clone git@github.com:markjoyeuxcom/moomora-console.git
+cd moomora-console
+```
 
 Install dependencies:
 
 ```bash
-npm install
+npm ci
 ```
 
 Run the demo server with in-memory seed data:
@@ -46,6 +67,12 @@ Demo mode is for local UI testing. Data resets when the process restarts.
 
 ## Run With PostgreSQL
 
+Set `DATABASE_URL` in your shell:
+
+```bash
+export DATABASE_URL="postgresql://user:password@host:5432/database"
+```
+
 Apply the schema to a PostgreSQL database:
 
 ```bash
@@ -55,13 +82,13 @@ psql "$DATABASE_URL" -f server/schema.sql
 Start the production-style server:
 
 ```bash
-DATABASE_URL="postgresql://user:password@host:5432/database" npm start
+npm start
 ```
 
 By default the app listens on `0.0.0.0:3000`. Override with:
 
 ```bash
-HOST=127.0.0.1 PORT=3100 npm start
+HOST=127.0.0.1 PORT=3100 DATABASE_URL="postgresql://user:password@host:5432/database" npm start
 ```
 
 ## Scripts
