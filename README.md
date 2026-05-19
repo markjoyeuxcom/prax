@@ -65,6 +65,32 @@ http://127.0.0.1:3100/
 
 Demo mode is for local UI testing. Data resets when the process restarts.
 
+## Local Persistent Install
+
+Use Docker Compose when you want the app and PostgreSQL together with a persistent local database:
+
+```bash
+docker compose up --build
+```
+
+Open:
+
+```text
+http://127.0.0.1:3100/
+```
+
+The compose stack starts:
+
+- `app`: Moomora Console on host port `3100`
+- `postgres`: PostgreSQL on host port `54320`
+- `postgres-data`: named volume for database persistence
+
+The first database startup applies `server/schema.sql` automatically through Postgres init scripts. To reset local data:
+
+```bash
+docker compose down -v
+```
+
 ## Run With PostgreSQL
 
 Set `DATABASE_URL` in your shell:
