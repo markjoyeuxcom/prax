@@ -11,16 +11,16 @@ This release packaging work covers:
 - a GitHub Actions workflow for building and publishing container images
 - semver tag handling for `v*.*.*` releases
 - a manual workflow dispatch path for publishing an existing tag such as `v0.1.0`
+- multi-architecture images for `linux/amd64` and `linux/arm64`
 - README updates for running the published image
 - an optional Compose override for running GHCR images instead of building from source
 
 This work does not cover:
 
 - rewriting or moving the existing `v0.1.0` tag
-- Kubernetes deployment hardening
 - application authentication
 - database backup automation
-- multi-architecture image builds unless the workflow can support them cleanly without extra project complexity
+- Kubernetes deployment hardening beyond publishing a multi-architecture container image
 
 ## Release Workflow
 
@@ -60,6 +60,8 @@ The image should include OCI labels for:
 - version
 
 Use `docker/metadata-action` for tags and labels, and `docker/build-push-action` for the build/push step.
+
+Publish `linux/amd64` and `linux/arm64` images so the release works on standard Kubernetes nodes and Apple Silicon local testing.
 
 ## Existing Tag Handling
 
@@ -110,4 +112,3 @@ Remote verification:
 - manually run the release workflow for `v0.1.0`
 - confirm the package appears under GitHub Packages
 - confirm the image can be pulled or used by Docker Compose
-

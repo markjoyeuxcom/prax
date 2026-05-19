@@ -4,9 +4,9 @@
 
 **Goal:** Publish Moomora Console Docker images to GitHub Container Registry from semver tags and provide a documented image-based local run path.
 
-**Architecture:** Add a release workflow that resolves a semver version from either a pushed tag or manual dispatch input, checks out that ref, builds `deploy/Dockerfile`, and pushes GHCR image tags. Keep source-build Compose as the development default, and add a small Compose override for users who want to run the published image.
+**Architecture:** Add a release workflow that resolves a semver version from either a pushed tag or manual dispatch input, checks out that ref, builds `deploy/Dockerfile`, and pushes multi-architecture GHCR image tags. Keep source-build Compose as the development default, and add a small Compose override for users who want to run the published image.
 
-**Tech Stack:** GitHub Actions, Docker Buildx, GitHub Container Registry, Docker Compose, Node.js 24.
+**Tech Stack:** GitHub Actions, Docker Buildx, QEMU, GitHub Container Registry, Docker Compose, Node.js 24.
 
 ---
 
@@ -77,6 +77,9 @@ jobs:
         with:
           ref: ${{ steps.release.outputs.version }}
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -107,6 +110,7 @@ jobs:
         with:
           context: .
           file: deploy/Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
