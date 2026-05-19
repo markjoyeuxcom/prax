@@ -91,6 +91,22 @@ The first database startup applies `server/schema.sql` automatically through Pos
 docker compose down -v
 ```
 
+## Run The Published Image
+
+For release-style local testing, use the GitHub Container Registry image instead of building from source:
+
+```bash
+docker compose -f compose.yaml -f compose.image.yaml up
+```
+
+The image override uses:
+
+```text
+ghcr.io/markjoyeuxcom/moomora-console:v0.1.0
+```
+
+Use source-build Compose for development, and use the published image path when you want to test the same artifact Kubernetes will run.
+
 ## Run With PostgreSQL
 
 Set `DATABASE_URL` in your shell:
