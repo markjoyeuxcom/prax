@@ -23,3 +23,12 @@ test('CodeMirror editor exposes a high contrast caret and selection', () => {
   assert.match(styles, /\.code-editor\s+\.cm-cursor,\s*[\s\S]*\.code-editor\s+\.cm-dropCursor\s*\{[\s\S]*border-left-color:\s*#f8f2c6\s*!important;/);
   assert.match(styles, /\.code-editor\s+\.cm-selectionBackground,\s*[\s\S]*\.code-editor\s+\.cm-content\s+::selection\s*\{[\s\S]*rgba\(91,\s*183,\s*255,\s*0\.38\)/);
 });
+
+test('Preference palettes and font scales are defined', () => {
+  assert.match(styles, /:root\[data-palette="graphite"\]/);
+  assert.match(styles, /:root\[data-palette="daylight"\]/);
+  assert.match(styles, /:root\[data-font-scale="compact"\]/);
+  assert.match(styles, /:root\[data-font-scale="large"\]/);
+  assert.match(styles, /\.settings-modal/);
+  assert.match(styles, /\.settings-palette__swatches--daylight/);
+});
