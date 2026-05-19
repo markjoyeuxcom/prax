@@ -30,12 +30,12 @@ let activeTab    = 'personal';  // active tab filter
 
 // ── LocalStorage helpers ────────────────────────────────────────
 function saveTasks() {
-    localStorage.setItem('taskboard_tasks', JSON.stringify(tasks));
+    localStorage.setItem('moomora_tasks', JSON.stringify(tasks));
 }
 
 function loadTasks() {
     try {
-        tasks = JSON.parse(localStorage.getItem('taskboard_tasks')) || [];
+        tasks = JSON.parse(localStorage.getItem('moomora_tasks')) || [];
     } catch {
         tasks = [];
     }
@@ -380,10 +380,10 @@ function exportSummary() {
 
 // Auto-show the summary once per day on first load (only if tasks exist)
 function checkDailySummary() {
-    const lastShown = localStorage.getItem('taskboard_last_summary');
+    const lastShown = localStorage.getItem('moomora_last_summary');
     const tabHasTasks = COLUMNS.some(col => getByColumn(col.id).length > 0);
     if (lastShown !== today() && tabHasTasks) {
-        localStorage.setItem('taskboard_last_summary', today());
+        localStorage.setItem('moomora_last_summary', today());
         setTimeout(openSummary, 600); // short delay so board renders first
     }
 }

@@ -79,12 +79,12 @@ test('exportTasks fetches a context export envelope', async () => {
   const calls = [];
   globalThis.fetch = async (...args) => {
     calls.push(args);
-    return jsonResponse({ format: 'taskboard.tasks', tasks: [] });
+    return jsonResponse({ format: 'moomora.tasks', tasks: [] });
   };
 
   const exported = await exportTasks({ context: 'homelab' });
 
-  assert.deepEqual(exported, { format: 'taskboard.tasks', tasks: [] });
+  assert.deepEqual(exported, { format: 'moomora.tasks', tasks: [] });
   assert.equal(calls[0][0], '/api/tasks/export?context=homelab');
 });
 
@@ -92,12 +92,12 @@ test('exportTasks fetches an all-context backup envelope', async () => {
   const calls = [];
   globalThis.fetch = async (...args) => {
     calls.push(args);
-    return jsonResponse({ format: 'taskboard.tasks', context: 'all', tasks: [] });
+    return jsonResponse({ format: 'moomora.tasks', context: 'all', tasks: [] });
   };
 
   const exported = await exportTasks({ context: 'all' });
 
-  assert.deepEqual(exported, { format: 'taskboard.tasks', context: 'all', tasks: [] });
+  assert.deepEqual(exported, { format: 'moomora.tasks', context: 'all', tasks: [] });
   assert.equal(calls[0][0], '/api/tasks/export?context=all');
 });
 

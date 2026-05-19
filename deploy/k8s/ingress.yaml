@@ -1,20 +1,20 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: taskboard
+  name: moomora-console
   labels:
-    app.kubernetes.io/name: taskboard
+    app.kubernetes.io/name: moomora-console
   annotations:
     nginx.ingress.kubernetes.io/proxy-body-size: "2m"
 spec:
   rules:
-    - host: taskboard.example.internal
+    - host: console.example.internal
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: taskboard
+                name: moomora-console
                 port:
                   name: http

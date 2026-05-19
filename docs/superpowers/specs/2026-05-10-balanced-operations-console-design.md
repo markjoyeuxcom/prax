@@ -5,7 +5,7 @@
 
 ## Overview
 
-Redesign TaskBoard as a homelab-oriented operations console. The app should feel like a practical tool for running personal, work, and homelab tasks from a Kubernetes cluster, backed by Postgres through CloudNativePG.
+Redesign Moomora Console as a homelab-oriented operations console. The app should feel like a practical tool for running personal, work, and homelab tasks from a Kubernetes cluster, backed by Postgres through CloudNativePG.
 
 The selected direction is **Balanced**: a dense but calm dashboard with left navigation, operational status, task metrics, a primary list/table task queue, and a right-side detail panel. Kanban remains available as a secondary view, but the default experience becomes a professional “Today” operations view.
 

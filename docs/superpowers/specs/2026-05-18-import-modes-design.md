@@ -20,7 +20,7 @@ Duplicate detection uses normalized `title`, `context`, `status`, and `dueDate`.
 
 The Import button asks for an import mode before opening the file picker. Cancel stops the import. Blank input defaults to `skip`. Invalid input shows an alert. Replace mode requires typing `REPLACE` before the file picker opens.
 
-On success, TaskBoard reports imported and skipped counts and reloads the current view.
+On success, Moomora Console reports imported and skipped counts and reloads the current view.
 
 ## API
 

@@ -5,6 +5,7 @@ const STATUSES = new Set(['high-priority', 'in-progress', 'planned', 'completed'
 const CONTEXTS = new Set(['personal', 'work', 'homelab']);
 const PATCH_FIELDS = ['title', 'description', 'priority', 'status', 'context', 'dueDate', 'sortOrder'];
 const IMPORT_MODES = new Set(['append', 'skip', 'replace']);
+const TASK_EXPORT_FORMAT = 'moomora.tasks';
 const MIN_SORT_ORDER = -2147483648;
 const MAX_SORT_ORDER = 2147483647;
 const MAX_IMPORT_TASKS = 500;
@@ -62,6 +63,7 @@ function validateTaskImportPayload(payload) {
   if (!payload || typeof payload !== 'object') return 'tasks must include at least one task';
   if (!CONTEXTS.has(payload.context)) return 'context is invalid';
   if (payload.mode !== undefined && !IMPORT_MODES.has(payload.mode)) return 'mode is invalid';
+  if (payload.format !== undefined && payload.format !== TASK_EXPORT_FORMAT) return 'format is invalid';
 
   const tasks = importTasksFromPayload(payload);
   if (!tasks || tasks.length === 0) return 'tasks must include at least one task';
@@ -244,7 +246,7 @@ export async function registerTasksRoutes(app, options = {}) {
       : { context: exportContext, archived: 'all' };
     const tasks = await repository.listTasks(filters);
     return {
-      format: 'taskboard.tasks',
+      format: TASK_EXPORT_FORMAT,
       version: 1,
       exportedAt: new Date().toISOString(),
       context: exportContext,

@@ -48,7 +48,7 @@ import {
 } from './librarySavedViews.js';
 
 const app = document.getElementById('app');
-const SAVED_LIBRARY_VIEWS_KEY = 'taskboard.librarySavedViews.v1';
+const SAVED_LIBRARY_VIEWS_KEY = 'moomora.librarySavedViews.v1';
 const DOCUMENT_AUTOSAVE_DELAY_MS = 1200;
 let documentAutosaveTimer = null;
 let isSavingDocumentDraft = false;

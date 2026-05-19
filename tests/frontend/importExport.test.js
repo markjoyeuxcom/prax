@@ -10,7 +10,7 @@ import {
 
 test('tasksFromImportPayload extracts tasks from an export envelope', () => {
   const tasks = tasksFromImportPayload({
-    format: 'taskboard.tasks',
+    format: 'moomora.tasks',
     version: 1,
     tasks: [{ title: 'Restore drill' }],
   });
@@ -22,6 +22,17 @@ test('tasksFromImportPayload accepts a raw task array', () => {
   const tasks = tasksFromImportPayload([{ title: 'Patch ingress' }]);
 
   assert.deepEqual(tasks, [{ title: 'Patch ingress' }]);
+});
+
+test('tasksFromImportPayload rejects legacy TaskBoard envelopes', () => {
+  assert.throws(
+    () => tasksFromImportPayload({
+      format: 'taskboard.tasks',
+      version: 1,
+      tasks: [{ title: 'Old backup' }],
+    }),
+    /Moomora Console import file format is not supported/,
+  );
 });
 
 test('tasksFromImportPayload rejects unsupported payloads', () => {

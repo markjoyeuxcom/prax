@@ -1,5 +1,10 @@
+const TASK_EXPORT_FORMAT = 'moomora.tasks';
+
 export function tasksFromImportPayload(payload) {
   if (Array.isArray(payload)) return payload;
+  if (payload?.format !== undefined && payload.format !== TASK_EXPORT_FORMAT) {
+    throw new Error('Moomora Console import file format is not supported');
+  }
   if (payload && Array.isArray(payload.tasks)) return payload.tasks;
   throw new Error('Moomora Console import file must contain a tasks array');
 }

@@ -12,7 +12,7 @@ This slice adds a restore action for archived tasks. It does not add bulk restor
 
 When the user opens Archive and selects a task, the detail panel shows a `Restore` action. Edit and Archive remain hidden in read-only Archive mode. Restoring asks for confirmation, calls the API, removes the task from Archive, and reloads the current Archive list. The restored task returns to the active queue with its existing context, status, due date, priority, and sort order.
 
-If restore fails, TaskBoard shows a simple alert and reloads the Archive list so the UI does not drift from backend state.
+If restore fails, Moomora Console shows a simple alert and reloads the Archive list so the UI does not drift from backend state.
 
 ## API
 

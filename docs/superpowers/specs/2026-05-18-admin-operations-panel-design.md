@@ -14,7 +14,7 @@ The topbar keeps `New Task` visible and replaces `Import` and `Export` with a si
 
 The Admin panel has three sections:
 
-- Backup: export the selected context or export all contexts as one TaskBoard backup file.
+- Backup: export the selected context or export all contexts as one Moomora Console backup file.
 - Restore / Import: pick an import mode with radio controls, optionally type `REPLACE`, then choose a JSON file.
 - Archive Maintenance: show the archive entry point and remind the user that permanent delete is handled per archived task.
 
@@ -22,7 +22,7 @@ Import mode selection uses visible controls instead of prompt text. Replace mode
 
 ## API
 
-`GET /api/tasks/export?context=all` returns a TaskBoard export envelope containing every task across contexts, including archived tasks.
+`GET /api/tasks/export?context=all` returns a Moomora Console export envelope containing every task across contexts, including archived tasks.
 
 Context-specific exports keep their existing response shape and safety checks.
 

@@ -1,20 +1,20 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: taskboard
+  name: moomora-console
   labels:
-    app.kubernetes.io/name: taskboard
+    app.kubernetes.io/name: moomora-console
 spec:
   replicas: 1
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app.kubernetes.io/name: taskboard
+      app.kubernetes.io/name: moomora-console
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: taskboard
+        app.kubernetes.io/name: moomora-console
     spec:
       securityContext:
         runAsNonRoot: true
@@ -22,8 +22,8 @@ spec:
         runAsGroup: 1000
         fsGroup: 1000
       containers:
-        - name: taskboard
-          image: taskboard:latest
+        - name: moomora-console
+          image: moomora-console:latest
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
@@ -33,12 +33,12 @@ spec:
                 - ALL
           envFrom:
             - configMapRef:
-                name: taskboard-config
+                name: moomora-console-config
           env:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: taskboard-db-app
+                  name: moomora-console-db-app
                   key: uri
           ports:
             - containerPort: 3000

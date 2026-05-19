@@ -1,9 +1,9 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: taskboard-config
+  name: moomora-console-config
   labels:
-    app.kubernetes.io/name: taskboard
+    app.kubernetes.io/name: moomora-console
 data:
   HOST: "0.0.0.0"
   PORT: "3000"

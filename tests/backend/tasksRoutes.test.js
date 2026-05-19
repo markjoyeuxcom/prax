@@ -141,7 +141,7 @@ test('GET /api/tasks/export returns a versioned context export', async () => {
   });
 
   assert.equal(response.statusCode, 200);
-  assert.equal(response.json().format, 'taskboard.tasks');
+  assert.equal(response.json().format, 'moomora.tasks');
   assert.equal(response.json().version, 1);
   assert.equal(response.json().context, 'homelab');
   assert.match(response.json().exportedAt, /^\d{4}-\d{2}-\d{2}T/);
@@ -175,7 +175,7 @@ test('GET /api/tasks/export returns an all-context backup', async () => {
   });
 
   assert.equal(response.statusCode, 200);
-  assert.equal(response.json().format, 'taskboard.tasks');
+  assert.equal(response.json().format, 'moomora.tasks');
   assert.equal(response.json().version, 1);
   assert.equal(response.json().context, 'all');
   assert.deepEqual(response.json().tasks.map(task => task.context).sort(), ['homelab', 'personal']);
@@ -394,7 +394,7 @@ test('POST /api/tasks/import accepts exported envelope payloads', async () => {
     url: '/api/tasks/import',
     payload: {
       context: 'homelab',
-      format: 'taskboard.tasks',
+      format: 'moomora.tasks',
       version: 1,
       tasks: [
         {
@@ -411,6 +411,34 @@ test('POST /api/tasks/import accepts exported envelope payloads', async () => {
 
   assert.equal(response.statusCode, 201);
   assert.equal(response.json().tasks[0].archivedAt, '2026-05-11T12:00:00.000Z');
+
+  await app.close();
+});
+
+test('POST /api/tasks/import rejects legacy TaskBoard envelope payloads', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/tasks/import',
+    payload: {
+      context: 'homelab',
+      format: 'taskboard.tasks',
+      tasks: [
+        {
+          title: 'Legacy backup task',
+          priority: 'medium',
+          status: 'planned',
+        },
+      ],
+    },
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json().message, 'format is invalid');
 
   await app.close();
 });

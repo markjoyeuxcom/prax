@@ -12,7 +12,7 @@ This slice covers native drag/drop for board cards, status changes when cards mo
 
 The Board view remains the existing five-column operations board: High Priority, In Progress, Planned, Completed, and Notes. Cards become draggable, columns show a clear drop target state, and dropping a card either appends it to a column or places it before the card it was dropped on. The selected task follows the moved card so the detail panel stays useful after a move.
 
-If persistence fails, TaskBoard alerts the user and reloads tasks from the API to avoid leaving the UI in a misleading state.
+If persistence fails, Moomora Console alerts the user and reloads tasks from the API to avoid leaving the UI in a misleading state.
 
 ## API
 
