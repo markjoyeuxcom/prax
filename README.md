@@ -161,6 +161,10 @@ Near-term direction:
 - harden Kubernetes deployment, backup, and restore operations
 - add authentication at the ingress layer for homelab use
 
+## License
+
+MIT. See [LICENSE](LICENSE).
+
 ## Repository
 
 GitHub:
