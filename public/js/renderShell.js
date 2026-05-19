@@ -118,10 +118,10 @@ export function renderShellHtml({
 
   return `
     <div class="app-shell">
-      <aside class="sidebar" aria-label="TaskBoard navigation">
+      <aside class="sidebar" aria-label="Moomora Console navigation">
         <div class="brand">
-          <span class="brand-mark" aria-hidden="true">T</span>
-          <span class="brand-name">TaskBoard</span>
+          <span class="brand-mark" aria-hidden="true">M</span>
+          <span class="brand-name">Moomora Console</span>
         </div>
 
         <nav class="side-nav" aria-label="Views">

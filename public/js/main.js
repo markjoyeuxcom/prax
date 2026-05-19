@@ -62,13 +62,13 @@ function today() {
 }
 
 function renderLoading() {
-  app.innerHTML = '<main class="loading">Loading TaskBoard...</main>';
+  app.innerHTML = '<main class="loading">Loading Moomora Console...</main>';
 }
 
 function renderError(message) {
   const error = document.createElement('main');
   error.className = 'loading';
-  error.textContent = `TaskBoard could not load: ${message}`;
+  error.textContent = `Moomora Console could not load: ${message}`;
   app.replaceChildren(error);
 }
 
@@ -215,7 +215,7 @@ function renderWorkspace() {
       await archiveTask(taskToArchive.id);
       await loadTasks({ selectedTaskId: null });
     } catch {
-      window.alert('TaskBoard could not archive the selected task.');
+      window.alert('Moomora Console could not archive the selected task.');
     }
   });
 
@@ -230,7 +230,7 @@ function renderWorkspace() {
       await restoreTask(taskToRestore.id);
       await loadTasks({ selectedTaskId: null });
     } catch {
-      window.alert('TaskBoard could not restore the selected task.');
+      window.alert('Moomora Console could not restore the selected task.');
       await loadTasks({ selectedTaskId: null });
     }
   });
@@ -246,7 +246,7 @@ function renderWorkspace() {
       await deleteArchivedTask(taskToDelete.id);
       await loadTasks({ selectedTaskId: null });
     } catch {
-      window.alert('TaskBoard could not delete the archived task.');
+      window.alert('Moomora Console could not delete the archived task.');
     }
   });
 }
@@ -320,7 +320,7 @@ function renderLibraryWorkspace(workspace) {
       isSavingDocumentDraft = false;
       setState({ documentSaveStatus: 'Save failed' });
       updateDocumentSaveControls(workspace, 'Save failed');
-      window.alert('TaskBoard could not save this document.');
+      window.alert('Moomora Console could not save this document.');
     }
   }
 
@@ -638,7 +638,7 @@ function renderLibraryWorkspace(workspace) {
       renderWorkspace();
     } catch {
       setState({
-        documentInfoError: 'TaskBoard could not save document info.',
+        documentInfoError: 'Moomora Console could not save document info.',
         isSaving: false,
       });
       renderWorkspace();
@@ -655,7 +655,7 @@ function renderLibraryWorkspace(workspace) {
       await archiveDocument(documentToArchive.id);
       await loadDocuments({ selectedDocumentId: null });
     } catch {
-      window.alert('TaskBoard could not archive the selected document.');
+      window.alert('Moomora Console could not archive the selected document.');
     }
   });
 
@@ -669,7 +669,7 @@ function renderLibraryWorkspace(workspace) {
       await restoreDocument(documentToRestore.id);
       await loadDocuments({ selectedDocumentId: documentToRestore.id });
     } catch {
-      window.alert('TaskBoard could not restore the selected document.');
+      window.alert('Moomora Console could not restore the selected document.');
     }
   });
 
@@ -683,7 +683,7 @@ function renderLibraryWorkspace(workspace) {
       await deleteArchivedDocument(documentToDelete.id);
       await loadDocuments({ selectedDocumentId: null });
     } catch {
-      window.alert('TaskBoard could not delete the archived document.');
+      window.alert('Moomora Console could not delete the archived document.');
     }
   });
 }
@@ -758,7 +758,7 @@ async function handleBoardDrop({ taskId, targetStatus, beforeTaskId }) {
     await reorderTasks(result.updates);
     await loadTasks({ selectedTaskId: taskId });
   } catch {
-    window.alert('TaskBoard could not save the board move.');
+    window.alert('Moomora Console could not save the board move.');
     await loadTasks({ selectedTaskId: taskId });
   }
 }
@@ -1022,7 +1022,7 @@ function bindDocumentFormEvents() {
     } catch {
       setState({
         isSaving: false,
-        documentFormError: state.editingDocumentId ? 'TaskBoard could not update this document.' : 'TaskBoard could not create this document.',
+        documentFormError: state.editingDocumentId ? 'Moomora Console could not update this document.' : 'Moomora Console could not create this document.',
       });
       renderApp();
     }
@@ -1035,8 +1035,8 @@ async function exportAdminTasks(context) {
     downloadJsonFile(exportFilename(context), exported);
   } catch {
     window.alert(context === 'all'
-      ? 'TaskBoard could not export all contexts.'
-      : 'TaskBoard could not export this context.');
+      ? 'Moomora Console could not export all contexts.'
+      : 'Moomora Console could not export this context.');
   }
 }
 
@@ -1066,7 +1066,7 @@ async function importAdminFile(file, panel) {
     setState({ isAdminPanelOpen: false });
     await loadTasks({ selectedTaskId: null });
   } catch {
-    window.alert('TaskBoard could not import that file.');
+    window.alert('Moomora Console could not import that file.');
   }
 }
 
@@ -1094,7 +1094,7 @@ async function importAdminMarkdownFile(file, panel) {
       renderApp();
     }
   } catch {
-    window.alert('TaskBoard could not import that Markdown file.');
+    window.alert('Moomora Console could not import that Markdown file.');
   }
 }
 
@@ -1208,7 +1208,7 @@ function bindTaskFormEvents() {
     } catch {
       setState({
         isSaving: false,
-        formError: state.editingTaskId ? 'TaskBoard could not update this task.' : 'TaskBoard could not create this task.',
+        formError: state.editingTaskId ? 'Moomora Console could not update this task.' : 'Moomora Console could not create this task.',
       });
       renderApp();
     }

@@ -10,6 +10,7 @@ test('renderAdminPanelHtml renders backup import and archive sections', () => {
   });
 
   assert.match(html, /Admin Operations/);
+  assert.match(html, /Moomora Console context/);
   assert.match(html, /Backup/);
   assert.match(html, /Restore \/ Import/);
   assert.match(html, /Archive Maintenance/);

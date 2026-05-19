@@ -196,6 +196,22 @@ test('renderLibraryHtml renders empty state', () => {
   assert.match(html, /Create or import Markdown/);
 });
 
+test('renderLibraryHtml uses Moomora Console as the fallback document source label', () => {
+  const html = renderLibraryHtml({
+    documents: [{
+      id: 'doc-moomora',
+      title: 'Scratch note',
+      body: '# Scratch',
+      documentType: 'note',
+      context: 'homelab',
+      tags: [],
+    }],
+    selectedDocumentId: 'doc-moomora',
+  });
+
+  assert.match(html, /Created in Moomora Console/);
+});
+
 test('renderDocumentFormHtml renders create and edit fields', () => {
   const html = renderDocumentFormHtml({
     activeContext: 'homelab',

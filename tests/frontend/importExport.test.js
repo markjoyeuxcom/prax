@@ -27,14 +27,14 @@ test('tasksFromImportPayload accepts a raw task array', () => {
 test('tasksFromImportPayload rejects unsupported payloads', () => {
   assert.throws(
     () => tasksFromImportPayload({ items: [] }),
-    /TaskBoard import file must contain a tasks array/,
+    /Moomora Console import file must contain a tasks array/,
   );
 });
 
 test('exportFilename builds a stable context filename', () => {
   const filename = exportFilename('home/lab', new Date('2026-05-18T18:30:00.000Z'));
 
-  assert.equal(filename, 'taskboard-home-lab-2026-05-18.json');
+  assert.equal(filename, 'moomora-console-home-lab-2026-05-18.json');
 });
 
 test('normalizeImportMode accepts known modes and defaults blank values to skip', () => {

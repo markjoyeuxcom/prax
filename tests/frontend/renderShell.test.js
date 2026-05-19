@@ -15,6 +15,8 @@ test('renderShellHtml includes navigation, context filters, status, and metrics'
   });
 
   assert.match(html, /Today/);
+  assert.match(html, /Moomora Console/);
+  assert.match(html, /aria-label="Moomora Console navigation"/);
   assert.match(html, /Board/);
   assert.match(html, /Homelab/);
   assert.match(html, /Library/);

@@ -35,7 +35,7 @@ export function renderAdminPanelHtml({
           <div>
             <span class="detail-kicker">Operations</span>
             <h2 id="admin-title">Admin Operations</h2>
-            <p>Backup and restore controls for the selected TaskBoard context.</p>
+            <p>Backup and restore controls for the selected Moomora Console context.</p>
           </div>
           <button class="icon-action" type="button" aria-label="Close Admin" data-action="close-admin">&times;</button>
         </header>

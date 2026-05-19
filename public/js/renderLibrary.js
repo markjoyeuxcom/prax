@@ -183,7 +183,7 @@ function renderDocumentList(documents, activeDocumentId) {
       <button class="document-row${isSelected ? ' is-selected' : ''}" type="button" data-library-document-id="${escapeHtml(document.id)}"${isSelected ? ' aria-current="true"' : ''}>
         <span>
           <strong>${escapeHtml(document.title || 'Untitled document')}</strong>
-          <small>${escapeHtml(labelFromValue(document.documentType || 'note'))} &middot; ${escapeHtml(document.sourceFilename || 'Created in TaskBoard')}</small>
+          <small>${escapeHtml(labelFromValue(document.documentType || 'note'))} &middot; ${escapeHtml(document.sourceFilename || 'Created in Moomora Console')}</small>
         </span>
         <span class="document-tags">${renderTags(document.tags)}</span>
       </button>`;
@@ -290,7 +290,7 @@ function renderDocumentDetail(document, options = {}) {
       <header class="detail-header">
         <span class="detail-kicker">${escapeHtml(labelFromValue(document.documentType || 'note'))}</span>
         <h2 id="selected-document-title">${escapeHtml(document.title || 'Untitled document')}</h2>
-        <p>${escapeHtml(document.sourceFilename || 'Created in TaskBoard')}</p>
+        <p>${escapeHtml(document.sourceFilename || 'Created in Moomora Console')}</p>
         <div class="document-tags">${renderTags(document.tags)}</div>
         <div class="detail-actions">
           ${renderModeButton('edit', editorMode, 'Edit')}
