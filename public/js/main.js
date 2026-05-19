@@ -33,6 +33,7 @@ import { renderBoardHtml } from './renderBoard.js';
 import { renderTaskDetailHtml } from './renderTaskDetail.js';
 import { renderTaskFormHtml } from './renderTaskForm.js';
 import { renderAdminPanelHtml } from './renderAdminPanel.js';
+import { renderSettingsPanelHtml } from './renderSettingsPanel.js';
 import { renderDocumentFormHtml, renderLibraryHtml } from './renderLibrary.js';
 import { titleFromMarkdown } from './markdownPreview.js';
 import { applyMarkdownFormat } from './markdownEditor.js';
@@ -40,6 +41,7 @@ import { canPreserveEditorAfterDraftSave, documentDraftSavedPatch } from './docu
 import { updateDocumentLivePreview } from './documentLivePreview.js';
 import { mountCodeMirrorEditor } from '../vendor/codemirror-editor.js';
 import { filterDocumentsByTags, tagsForDocuments } from './libraryFilters.js';
+import { applyPreferences, loadPreferences, resetPreferences, savePreferences } from './preferences.js';
 import {
   areSameTags,
   createSavedLibraryView,
@@ -833,10 +835,17 @@ function renderApp() {
       importMode: state.adminImportMode,
     }));
   }
+  if (state.isSettingsPanelOpen) {
+    app.insertAdjacentHTML('beforeend', renderSettingsPanelHtml({
+      activeSection: state.settingsSection,
+      preferences: state.preferences,
+    }));
+  }
   bindShellEvents();
   bindTaskFormEvents();
   bindDocumentFormEvents();
   bindAdminPanelEvents();
+  bindSettingsPanelEvents();
 }
 
 function bindShellEvents() {
@@ -861,8 +870,23 @@ function bindShellEvents() {
   app.querySelector('[data-action="open-admin"]')?.addEventListener('click', () => {
     setState({
       isAdminPanelOpen: true,
+      isSettingsPanelOpen: false,
       isTaskFormOpen: false,
+      isDocumentFormOpen: false,
       editingTaskId: null,
+      editingDocumentId: null,
+    });
+    renderApp();
+  });
+
+  app.querySelector('[data-action="open-settings"]')?.addEventListener('click', () => {
+    setState({
+      isSettingsPanelOpen: true,
+      isAdminPanelOpen: false,
+      isTaskFormOpen: false,
+      isDocumentFormOpen: false,
+      editingTaskId: null,
+      editingDocumentId: null,
     });
     renderApp();
   });
@@ -1153,6 +1177,56 @@ function bindAdminPanelEvents() {
   });
 }
 
+function updatePreferences(nextPreferences) {
+  const preferences = savePreferences(nextPreferences);
+  applyPreferences(preferences);
+  setState({ preferences });
+}
+
+function bindSettingsPanelEvents() {
+  const panel = app.querySelector('[data-settings-panel]');
+  if (!panel) return;
+
+  panel.querySelector('[data-action="close-settings"]')?.addEventListener('click', () => {
+    setState({ isSettingsPanelOpen: false });
+    renderApp();
+  });
+
+  panel.querySelectorAll('[data-settings-section]').forEach((button) => {
+    button.addEventListener('click', () => {
+      setState({ settingsSection: button.dataset.settingsSection || 'appearance' });
+      renderApp();
+    });
+  });
+
+  panel.querySelectorAll('[data-settings-font-scale]').forEach((button) => {
+    button.addEventListener('click', () => {
+      updatePreferences({
+        ...state.preferences,
+        fontScale: button.dataset.settingsFontScale,
+      });
+      renderApp();
+    });
+  });
+
+  panel.querySelectorAll('[data-settings-palette]').forEach((button) => {
+    button.addEventListener('click', () => {
+      updatePreferences({
+        ...state.preferences,
+        palette: button.dataset.settingsPalette,
+      });
+      renderApp();
+    });
+  });
+
+  panel.querySelector('[data-action="reset-preferences"]')?.addEventListener('click', () => {
+    const preferences = resetPreferences();
+    applyPreferences(preferences);
+    setState({ preferences, settingsSection: 'appearance' });
+    renderApp();
+  });
+}
+
 function bindTaskFormEvents() {
   const form = app.querySelector('[data-task-form]');
   if (!form) return;
@@ -1253,7 +1327,9 @@ async function loadDocuments({ selectedDocumentId = state.selectedDocumentId } =
 
 async function init() {
   try {
+    const preferences = applyPreferences(loadPreferences());
     setState({
+      preferences,
       librarySavedViews: savedLibraryViewsFromJson(window.localStorage?.getItem(SAVED_LIBRARY_VIEWS_KEY)),
     });
     await loadTasks();

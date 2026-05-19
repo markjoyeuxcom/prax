@@ -1,3 +1,5 @@
+import { DEFAULT_PREFERENCES } from './preferences.js';
+
 export const state = {
   tasks: [],
   documents: [],
@@ -9,6 +11,8 @@ export const state = {
   apiStatus: 'unknown',
   isTaskFormOpen: false,
   isAdminPanelOpen: false,
+  isSettingsPanelOpen: false,
+  settingsSection: 'appearance',
   isDocumentFormOpen: false,
   isDocumentInfoEditorOpen: false,
   editingTaskId: null,
@@ -28,6 +32,7 @@ export const state = {
   libraryTagQuery: '',
   areLibraryTagsExpanded: false,
   librarySavedViews: [],
+  preferences: { ...DEFAULT_PREFERENCES },
 };
 
 export function setState(patch) {
