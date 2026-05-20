@@ -106,8 +106,11 @@ export function createLibraryRepository(db) {
         clauses.push(`document_type = $${values.length}`);
       }
       if (filters.q) {
-        values.push(`%${filters.q}%`);
-        clauses.push(`(title ilike $${values.length} or body ilike $${values.length})`);
+        const terms = String(filters.q).toLowerCase().match(/[a-z0-9]+/g) || [];
+        if (terms.length) {
+          values.push(terms.map(term => `${term}:*`).join(' & '));
+          clauses.push(`to_tsvector('english', coalesce(title, '') || ' ' || coalesce(body, '')) @@ to_tsquery('english', $${values.length})`);
+        }
       }
       if (filters.archived === true || filters.archived === 'true') {
         clauses.push('archived_at is not null');

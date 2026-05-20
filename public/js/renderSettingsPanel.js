@@ -108,13 +108,20 @@ export function renderSettingsPanelHtml({
   return `
     <div class="modal-backdrop" data-settings-panel>
       <section class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-        <header class="settings-modal__header">
-          <div>
-            <span class="detail-kicker">Preferences</span>
-            <h2 id="settings-title">Settings</h2>
-            <p>Stored locally in this browser. No cookies, no server sync.</p>
+        <header class="modal-header">
+          <div class="modal-header--desktop">
+            <div class="modal-header__heading">
+              <span class="detail-kicker">Preferences</span>
+              <h2 id="settings-title">Settings</h2>
+              <p>Stored locally in this browser. No cookies, no server sync.</p>
+            </div>
+            <button class="modal-header__close bracket-button bracket-button--quiet" type="button" data-action="close-settings" aria-label="Close Settings">[x] close</button>
           </div>
-          <button class="icon-action" type="button" aria-label="Close Settings" data-action="close-settings">&times;</button>
+          <div class="modal-header--mobile">
+            <button class="modal-header__cancel bracket-button bracket-button--quiet" type="button" data-action="close-settings">cancel</button>
+            <h2 class="modal-header__title">settings</h2>
+            <span></span>
+          </div>
         </header>
         <div class="settings-layout">
           <nav class="settings-nav" aria-label="Settings sections">

@@ -6,7 +6,7 @@ test('renderTaskFormHtml renders create defaults for active context', () => {
   const html = renderTaskFormHtml({ activeContext: 'work' });
 
   assert.match(html, /data-modal="task-form"/);
-  assert.match(html, /New Task/);
+  assert.match(html, /new task/);
   assert.match(html, /name="priority"[\s\S]*value="medium" selected/);
   assert.match(html, /name="status"[\s\S]*value="planned" selected/);
   assert.match(html, /name="context"[\s\S]*value="work" selected/);
@@ -25,7 +25,7 @@ test('renderTaskFormHtml renders edit values and selected options', () => {
     activeContext: 'work',
   });
 
-  assert.match(html, /Edit Task/);
+  assert.match(html, /edit task/);
   assert.match(html, /value="Patch NAS"/);
   assert.match(html, /Replace disk/);
   assert.match(html, /value="high" selected/);
@@ -55,6 +55,24 @@ test('renderTaskFormHtml escapes task values and shows errors', () => {
 test('renderTaskFormHtml disables save button while saving', () => {
   const html = renderTaskFormHtml({ isSaving: true });
 
-  assert.match(html, /Saving\.\.\./);
+  assert.match(html, /\[s\] saving\.\.\./);
   assert.match(html, /disabled/);
+});
+
+test('form renders bracketed save button and quiet cancel', () => {
+  const html = renderTaskFormHtml({ task: null, activeContext: 'homelab', error: '', isSaving: false });
+  assert.match(html, /data-action="close-task-form"[^>]*>cancel/);
+  assert.match(html, /type="submit"[^>]*>\[s\] save/);
+});
+
+test('form save button disabled while saving', () => {
+  const html = renderTaskFormHtml({ task: null, activeContext: 'homelab', error: '', isSaving: true });
+  assert.match(html, /type="submit"[^>]* disabled[^>]*>\[s\] saving\.\.\./);
+});
+
+test('task form renders both desktop and mobile modal headers', () => {
+  const html = renderTaskFormHtml({ task: null, activeContext: 'homelab', error: '', isSaving: false });
+  assert.match(html, /class="modal-header--desktop"/);
+  assert.match(html, /class="modal-header--mobile"/);
+  assert.match(html, /<button[^>]*type="submit"[^>]*form="task-form"[^>]*>\[s\] save/);
 });

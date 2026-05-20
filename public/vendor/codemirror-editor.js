@@ -25435,6 +25435,27 @@ function applyMarkdownFormat(value, selectionStart, selectionEnd, action) {
 }
 
 // scripts/codemirror-editor-source.js
+var operatorTheme = EditorView.theme({
+  "&": { backgroundColor: "var(--bg)", color: "var(--text-body)" },
+  ".cm-scroller": { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace' },
+  ".cm-content": { caretColor: "var(--caret)", padding: "14px" },
+  ".cm-gutters": { backgroundColor: "var(--bg-deep)", color: "var(--text-dimmer)", border: "none", borderRight: "1px solid var(--border)" },
+  ".cm-activeLineGutter": { backgroundColor: "color-mix(in srgb, var(--accent) 6%, transparent)", color: "var(--accent)" },
+  ".cm-activeLine": { backgroundColor: "color-mix(in srgb, var(--accent) 4%, transparent)" },
+  ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--caret)", borderLeftWidth: "2px" },
+  ".cm-selectionBackground, .cm-content ::selection": { backgroundColor: "color-mix(in srgb, var(--accent) 22%, transparent) !important" },
+  "&.cm-focused": { outline: "none" }
+}, { dark: true });
+var operatorHighlight = HighlightStyle.define([
+  { tag: tags.heading, color: "var(--accent)", fontWeight: "700" },
+  { tag: tags.strong, color: "var(--accent-amber)", fontWeight: "700" },
+  { tag: tags.emphasis, color: "var(--text-body)", fontStyle: "italic" },
+  { tag: tags.link, color: "var(--accent-cyan)", textDecoration: "underline" },
+  { tag: tags.monospace, color: "var(--accent-amber)", backgroundColor: "var(--bg-deep)" },
+  { tag: tags.quote, color: "var(--accent-cyan)" },
+  { tag: tags.keyword, color: "var(--accent)" },
+  { tag: tags.comment, color: "var(--text-dimmer)", fontStyle: "italic" }
+]);
 function saveKeymap(onSave) {
   return keymap.of([
     {
@@ -25464,21 +25485,14 @@ function mountCodeMirrorEditor({
         indentOnInput(),
         bracketMatching(),
         markdown(),
-        syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+        syntaxHighlighting(operatorHighlight, { fallback: true }),
         highlightActiveLine(),
         EditorView.lineWrapping,
         EditorView.updateListener.of((update) => {
           if (!update.docChanged) return;
           onChange?.(update.state.doc.toString());
         }),
-        EditorView.theme({
-          "&": {
-            height: "100%"
-          },
-          ".cm-scroller": {
-            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace'
-          }
-        }),
+        operatorTheme,
         keymap.of([...defaultKeymap, ...historyKeymap]),
         ...onSave ? [saveKeymap(onSave)] : []
       ]

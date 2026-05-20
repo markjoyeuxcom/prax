@@ -3,7 +3,35 @@ import assert from 'node:assert/strict';
 import { renderListHtml } from '../../public/js/renderList.js';
 import { renderTaskDetailHtml } from '../../public/js/renderTaskDetail.js';
 
-test('renderListHtml renders task queue rows', () => {
+test('list renders a task card with priority stripe and bracket badge', () => {
+  const tasks = [{
+    id: 'aaa', title: 'Back up CNPG',
+    description: 'Verify backup schedule',
+    priority: 'high', status: 'planned', context: 'homelab',
+    dueDate: '2026-05-19', sortOrder: 0,
+  }];
+  const html = renderListHtml(tasks, 'aaa', {
+    title: 'Today', countLabel: 'active tasks',
+    emptyTitle: '', emptyDescription: '',
+  });
+  assert.match(html, /class="task-card[^"]*task-card--hi[^"]*"/);
+  assert.match(html, /class="task-card[^"]*is-selected"/);
+  assert.match(html, /class="bracket-badge bracket-badge--hi">\[ HIGH \]/);
+  assert.match(html, /Back up CNPG/);
+  assert.match(html, /due <strong>2026-05-19<\/strong>/);
+});
+
+test('list renders empty state in bracketed form', () => {
+  const html = renderListHtml([], null, {
+    title: 'Today', countLabel: 'active',
+    emptyTitle: 'No tasks',
+    emptyDescription: 'Add work to see it here.',
+  });
+  assert.match(html, /class="task-list--empty"/);
+  assert.match(html, /\[ no tasks \]/i);
+});
+
+test('renderListHtml renders task title and count label', () => {
   const html = renderListHtml([
     {
       id: 'task-1',
@@ -13,15 +41,15 @@ test('renderListHtml renders task queue rows', () => {
       status: 'planned',
       dueDate: '2026-05-10',
     },
-  ]);
+  ], null, { title: 'Task Queue', countLabel: 'active tasks' });
 
   assert.match(html, /Task Queue/);
   assert.match(html, /Back up CNPG/);
-  assert.match(html, /High/);
+  assert.match(html, /1 active tasks/);
   assert.match(html, /2026-05-10/);
 });
 
-test('renderListHtml marks selected rows and escapes task content', () => {
+test('renderListHtml marks selected cards and escapes task content', () => {
   const html = renderListHtml([
     {
       id: 'task-"1"',
@@ -36,15 +64,9 @@ test('renderListHtml marks selected rows and escapes task content', () => {
   assert.match(html, /aria-current="true"/);
   assert.match(html, /data-task-id="task-&quot;1&quot;"/);
   assert.match(html, /&lt;script&gt;alert\(&quot;x&quot;\)&lt;\/script&gt;/);
-  assert.match(html, /No description/);
-  assert.match(html, /In Progress/);
-  assert.match(html, />-</);
-});
-
-test('renderListHtml renders an empty queue state', () => {
-  const html = renderListHtml([]);
-
-  assert.match(html, /No tasks in this queue/);
+  assert.match(html, /is-selected/);
+  assert.match(html, /in progress/);
+  assert.match(html, /no due/);
 });
 
 test('renderListHtml supports view-specific titles and empty states', () => {
@@ -57,8 +79,17 @@ test('renderListHtml supports view-specific titles and empty states', () => {
 
   assert.match(html, /Archived Tasks/);
   assert.match(html, /0 archived tasks/);
-  assert.match(html, /No archived tasks/);
+  assert.match(html, /\[ no archived tasks \]/i);
   assert.match(html, /Archived work will appear here\./);
+});
+
+test('renderListHtml renders low priority badge correctly', () => {
+  const html = renderListHtml([
+    { id: 't1', title: 'Low task', priority: 'low', status: 'planned', dueDate: null },
+  ]);
+  assert.match(html, /task-card--lo/);
+  assert.match(html, /bracket-badge--lo/);
+  assert.match(html, /\[ LOW \]/);
 });
 
 test('renderTaskDetailHtml renders selected task metadata and future sections', () => {
@@ -73,7 +104,7 @@ test('renderTaskDetailHtml renders selected task metadata and future sections', 
   assert.match(html, /Rotate &lt;secrets&gt;/);
   assert.match(html, /Update &quot;cluster&quot; credentials/);
   assert.match(html, /Priority/);
-  assert.match(html, /High/);
+  assert.match(html, /bracket-badge--hi.*\[ HIGH \]|class="bracket-badge bracket-badge--hi">\[ HIGH \]/);
   assert.match(html, /&lt;planned&gt;/);
   assert.match(html, /2026-05-10 &amp; verify/);
   assert.match(html, /Checklist/);
@@ -107,8 +138,8 @@ test('renderTaskDetailHtml shows restore action for archived tasks', () => {
 
   assert.match(html, /data-action="restore-task"/);
   assert.match(html, /data-action="delete-archived-task"/);
-  assert.match(html, />Restore</);
-  assert.match(html, />Delete</);
+  assert.match(html, /data-action="restore-task"[^>]*>\[r\] restore/);
+  assert.match(html, /data-action="delete-archived-task"[^>]*>\[!\] delete/);
   assert.doesNotMatch(html, /data-action="edit-task"/);
   assert.doesNotMatch(html, /data-action="archive-task"/);
 });

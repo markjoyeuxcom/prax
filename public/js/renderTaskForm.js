@@ -51,15 +51,22 @@ export function renderTaskFormHtml({
   return `
     <div class="modal-backdrop" data-modal="task-form">
       <section class="task-form-modal" role="dialog" aria-modal="true" aria-labelledby="task-form-title">
-        <header class="task-form-header">
-          <div>
-            <h2 id="task-form-title">${isEditing ? 'Edit Task' : 'New Task'}</h2>
-            <p>${isEditing ? 'Update the selected operational task.' : 'Add work to the active queue.'}</p>
+        <header class="modal-header">
+          <div class="modal-header--desktop">
+            <div class="modal-header__heading">
+              <h2 id="task-form-title">${isEditing ? 'edit task' : 'new task'}</h2>
+              <p>${isEditing ? 'Update the selected operational task.' : 'Add work to the active queue.'}</p>
+            </div>
+            <button class="modal-header__close bracket-button bracket-button--quiet" type="button" data-action="close-task-form" aria-label="Close task form">[x] close</button>
           </div>
-          <button class="icon-action" type="button" data-action="close-task-form" aria-label="Close task form">x</button>
+          <div class="modal-header--mobile">
+            <button class="modal-header__cancel bracket-button bracket-button--quiet" type="button" data-action="close-task-form">cancel</button>
+            <h2 class="modal-header__title">${isEditing ? 'edit task' : 'new task'}</h2>
+            <button class="modal-header__save bracket-button bracket-button--primary" type="submit" form="task-form" data-action="submit-from-header"${isSaving ? ' disabled' : ''}>${isSaving ? '[s] saving...' : '[s] save'}</button>
+          </div>
         </header>
 
-        <form class="task-form" data-task-form>
+        <form class="task-form" id="task-form" data-task-form>
           ${error ? `<div class="form-error" role="alert">${escapeHtml(error)}</div>` : ''}
           <label>
             <span>Title</span>
@@ -91,8 +98,8 @@ export function renderTaskFormHtml({
             </label>
           </div>
           <footer class="task-form-actions">
-            <button class="secondary-action" type="button" data-action="close-task-form">Cancel</button>
-            <button class="primary-action" type="submit"${isSaving ? ' disabled' : ''}>${isSaving ? 'Saving...' : 'Save Task'}</button>
+            <button class="bracket-button bracket-button--quiet" type="button" data-action="close-task-form">cancel</button>
+            <button class="bracket-button bracket-button--primary" type="submit"${isSaving ? ' disabled' : ''}>${isSaving ? '[s] saving...' : '[s] save'}</button>
           </footer>
         </form>
       </section>

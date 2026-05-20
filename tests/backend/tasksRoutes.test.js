@@ -6,6 +6,8 @@ const TASK_ID = '11111111-1111-4111-8111-111111111111';
 const CREATED_TASK_ID = '22222222-2222-4222-8222-222222222222';
 const MISSING_TASK_ID = '33333333-3333-4333-8333-333333333333';
 const SECOND_TASK_ID = '44444444-4444-4444-8444-444444444444';
+const DOCUMENT_ID = '55555555-5555-4555-8555-555555555555';
+const MISSING_DOCUMENT_ID = '66666666-6666-4666-8666-666666666666';
 const IMPORTED_TASK_IDS = [
   '55555555-5555-4555-8555-555555555555',
   '66666666-6666-4666-8666-666666666666',
@@ -27,6 +29,15 @@ function createFakeRepository() {
       archivedAt: null,
     },
   ];
+  const documents = [
+    {
+      id: DOCUMENT_ID,
+      title: 'CloudNativePG Restore',
+      documentType: 'runbook',
+      context: 'homelab',
+    },
+  ];
+  const links = [];
   return {
     async listTasks(filters = {}) {
       return tasks.filter((task) => {
@@ -94,6 +105,28 @@ function createFakeRepository() {
         Object.assign(task, update);
         return task;
       }).filter(Boolean);
+    },
+    async listTaskDocuments(taskId) {
+      return links
+        .filter(link => link.taskId === taskId)
+        .map(link => documents.find(doc => doc.id === link.documentId))
+        .filter(Boolean)
+        .sort((a, b) => a.title.localeCompare(b.title));
+    },
+    async linkTaskDocument(taskId, documentId) {
+      const existing = links.find(link => link.taskId === taskId && link.documentId === documentId);
+      if (existing) return { linked: true, alreadyLinked: true };
+      const taskExists = tasks.some(t => t.id === taskId);
+      const docExists = documents.some(d => d.id === documentId);
+      if (!taskExists || !docExists) return { linked: false };
+      links.push({ taskId, documentId });
+      return { linked: true };
+    },
+    async unlinkTaskDocument(taskId, documentId) {
+      const index = links.findIndex(link => link.taskId === taskId && link.documentId === documentId);
+      if (index < 0) return false;
+      links.splice(index, 1);
+      return true;
     },
   };
 }
@@ -1095,6 +1128,208 @@ test('DELETE /api/tasks/:id returns 404 for unknown task', async () => {
 
   assert.equal(response.statusCode, 404);
   assert.equal(response.json().message, 'task not found');
+
+  await app.close();
+});
+
+test('GET /api/tasks/:id/documents returns linked document list', async () => {
+  const repository = createFakeRepository();
+  await repository.linkTaskDocument(TASK_ID, DOCUMENT_ID);
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: repository,
+  });
+
+  const response = await app.inject({
+    method: 'GET',
+    url: `/api/tasks/${TASK_ID}/documents`,
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().length, 1);
+  assert.equal(response.json()[0].id, DOCUMENT_ID);
+  assert.equal(response.json()[0].title, 'CloudNativePG Restore');
+
+  await app.close();
+});
+
+test('GET /api/tasks/:id/documents rejects malformed task id', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'GET',
+    url: '/api/tasks/not-a-uuid/documents',
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().message, /task id/);
+
+  await app.close();
+});
+
+test('POST /api/tasks/:id/documents links a document and returns 201 with updated list', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'POST',
+    url: `/api/tasks/${TASK_ID}/documents`,
+    payload: { documentId: DOCUMENT_ID },
+  });
+
+  assert.equal(response.statusCode, 201);
+  assert.equal(response.json().length, 1);
+  assert.equal(response.json()[0].id, DOCUMENT_ID);
+
+  await app.close();
+});
+
+test('POST /api/tasks/:id/documents returns 200 when link already exists (idempotent)', async () => {
+  const repository = createFakeRepository();
+  await repository.linkTaskDocument(TASK_ID, DOCUMENT_ID);
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: repository,
+  });
+
+  const response = await app.inject({
+    method: 'POST',
+    url: `/api/tasks/${TASK_ID}/documents`,
+    payload: { documentId: DOCUMENT_ID },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().length, 1);
+  assert.equal(response.json()[0].id, DOCUMENT_ID);
+
+  await app.close();
+});
+
+test('POST /api/tasks/:id/documents rejects malformed task id', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/tasks/not-a-uuid/documents',
+    payload: { documentId: DOCUMENT_ID },
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().message, /task id/);
+
+  await app.close();
+});
+
+test('POST /api/tasks/:id/documents rejects malformed documentId', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'POST',
+    url: `/api/tasks/${TASK_ID}/documents`,
+    payload: { documentId: 'not-a-uuid' },
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json().message, 'documentId is invalid');
+
+  await app.close();
+});
+
+test('POST /api/tasks/:id/documents returns 404 when task or document missing', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'POST',
+    url: `/api/tasks/${TASK_ID}/documents`,
+    payload: { documentId: MISSING_DOCUMENT_ID },
+  });
+
+  assert.equal(response.statusCode, 404);
+  assert.equal(response.json().message, 'task or document not found');
+
+  await app.close();
+});
+
+test('DELETE /api/tasks/:id/documents/:documentId removes link and returns updated list', async () => {
+  const repository = createFakeRepository();
+  await repository.linkTaskDocument(TASK_ID, DOCUMENT_ID);
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: repository,
+  });
+
+  const response = await app.inject({
+    method: 'DELETE',
+    url: `/api/tasks/${TASK_ID}/documents/${DOCUMENT_ID}`,
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json(), []);
+
+  await app.close();
+});
+
+test('DELETE /api/tasks/:id/documents/:documentId returns 404 for missing link', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'DELETE',
+    url: `/api/tasks/${TASK_ID}/documents/${DOCUMENT_ID}`,
+  });
+
+  assert.equal(response.statusCode, 404);
+  assert.equal(response.json().message, 'link not found');
+
+  await app.close();
+});
+
+test('DELETE /api/tasks/:id/documents/:documentId rejects malformed task id', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'DELETE',
+    url: `/api/tasks/not-a-uuid/documents/${DOCUMENT_ID}`,
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().message, /task id/);
+
+  await app.close();
+});
+
+test('DELETE /api/tasks/:id/documents/:documentId rejects malformed documentId', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'DELETE',
+    url: `/api/tasks/${TASK_ID}/documents/not-a-uuid`,
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json().message, 'documentId is invalid');
 
   await app.close();
 });

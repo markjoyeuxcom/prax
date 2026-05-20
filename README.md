@@ -6,20 +6,23 @@ The project is early, but usable locally today through the in-memory demo server
 
 ## What It Does
 
-- Tracks personal, work, and homelab tasks across Today, Board, Backlog, and Archive views.
-- Supports task workflow actions including create, edit, archive, restore, permanent delete, and board reordering.
-- Provides a Markdown Library for runbooks, notes, imported `.md` files, tags, saved tag views, and document metadata.
+- Tracks personal, work, and homelab tasks across Today, Board, Backlog, and Archive views, with create, edit, archive, restore, permanent delete, and drag/drop board reordering.
+- Links tasks to library runbooks and notes, so operational work points at the documents that support it.
+- Provides a Markdown Library with runbooks, notes, `.md` import, tags, saved tag views, type/sort/group controls, and full-text search.
 - Includes an Obsidian-style editor workspace with edit, preview, split, focus mode, live preview updates, CodeMirror editing, and Markdown helper buttons.
-- Offers an Admin panel for backup, export, and import workflows with append, skip duplicates, and replace-context modes.
+- Adapts across desktop, tablet, and mobile, with browser-local appearance preferences (Console, Graphite, and Daylight palettes plus a font-scale control) and keyboard shortcuts.
+- Offers an Admin panel for backup and JSON task import/export with append, skip duplicates, and replace-context modes.
 - Targets a homelab Kubernetes deployment backed by CloudNativePG/PostgreSQL.
 
 ## Screenshots
 
-![Today task queue](docs/images/moomora-today.jpg)
+![Today task queue with a linked runbook](docs/images/moomora-today.jpg)
 
 ![Markdown library](docs/images/moomora-library.jpg)
 
 ![Split Markdown editor](docs/images/moomora-editor-split.jpg)
+
+![Appearance preferences](docs/images/moomora-settings.jpg)
 
 ## Stack
 

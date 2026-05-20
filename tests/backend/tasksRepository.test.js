@@ -10,6 +10,10 @@ import {
   buildReorderTasks,
   buildRestoreTask,
   buildUpdateTask,
+  buildListTaskDocuments,
+  buildLinkTaskDocument,
+  buildUnlinkTaskDocument,
+  buildLinkExists,
 } from '../../server/tasksRepository.js';
 
 test('normalizeTaskRow maps database fields to API task fields', () => {
@@ -257,4 +261,123 @@ test('listTasks parameterizes context status and search filters', async () => {
   assert.match(calls[0].text, /status = \$2/);
   assert.match(calls[0].text, /title ilike \$3 or description ilike \$3/);
   assert.deepEqual(calls[0].values, ['homelab', 'planned', '%backup%']);
+});
+
+test('buildListTaskDocuments returns join query with task_id param', () => {
+  const taskId = '11111111-1111-4111-8111-111111111111';
+  const query = buildListTaskDocuments(taskId);
+
+  assert.match(query.text, /select d\.id, d\.title, d\.document_type, d\.context/);
+  assert.match(query.text, /from task_documents td/);
+  assert.match(query.text, /join markdown_documents d on d\.id = td\.document_id/);
+  assert.match(query.text, /where td\.task_id = \$1 and d\.archived_at is null/);
+  assert.match(query.text, /order by d\.title/);
+  assert.deepEqual(query.values, [taskId]);
+});
+
+test('buildLinkTaskDocument returns guarded insert with on conflict do nothing', () => {
+  const taskId = '11111111-1111-4111-8111-111111111111';
+  const documentId = '22222222-2222-4222-8222-222222222222';
+  const query = buildLinkTaskDocument(taskId, documentId);
+
+  assert.match(query.text, /insert into task_documents/);
+  assert.match(query.text, /select \$1, \$2/);
+  assert.match(query.text, /where exists.*tasks.*archived_at is null/s);
+  assert.match(query.text, /where exists.*markdown_documents.*archived_at is null/s);
+  assert.match(query.text, /on conflict \(task_id, document_id\) do nothing/);
+  assert.match(query.text, /returning task_id, document_id/);
+  assert.deepEqual(query.values, [taskId, documentId]);
+});
+
+test('buildUnlinkTaskDocument returns delete with both ids', () => {
+  const taskId = '11111111-1111-4111-8111-111111111111';
+  const documentId = '22222222-2222-4222-8222-222222222222';
+  const query = buildUnlinkTaskDocument(taskId, documentId);
+
+  assert.match(query.text, /delete from task_documents/);
+  assert.match(query.text, /where task_id = \$1 and document_id = \$2/);
+  assert.match(query.text, /returning task_id, document_id/);
+  assert.deepEqual(query.values, [taskId, documentId]);
+});
+
+test('buildLinkExists returns select with both ids joining non-archived tasks and docs', () => {
+  const taskId = '11111111-1111-4111-8111-111111111111';
+  const documentId = '22222222-2222-4222-8222-222222222222';
+  const query = buildLinkExists(taskId, documentId);
+
+  assert.match(query.text, /select 1/);
+  assert.match(query.text, /from task_documents td/);
+  assert.match(query.text, /join tasks t on t\.id = td\.task_id and t\.archived_at is null/);
+  assert.match(query.text, /join markdown_documents d on d\.id = td\.document_id and d\.archived_at is null/);
+  assert.match(query.text, /where td\.task_id = \$1 and td\.document_id = \$2/);
+  assert.deepEqual(query.values, [taskId, documentId]);
+});
+
+test('linkTaskDocument returns {linked:true} when db inserts a row', async () => {
+  const taskId = '11111111-1111-4111-8111-111111111111';
+  const documentId = '22222222-2222-4222-8222-222222222222';
+  const repository = createTasksRepository({
+    async query() {
+      return { rows: [{ task_id: taskId, document_id: documentId }] };
+    },
+  });
+
+  const result = await repository.linkTaskDocument(taskId, documentId);
+  assert.deepEqual(result, { linked: true });
+});
+
+test('linkTaskDocument returns {linked:true,alreadyLinked:true} when insert is no-op but link exists', async () => {
+  const taskId = '11111111-1111-4111-8111-111111111111';
+  const documentId = '22222222-2222-4222-8222-222222222222';
+  let callCount = 0;
+  const repository = createTasksRepository({
+    async query() {
+      callCount += 1;
+      if (callCount === 1) return { rows: [] }; // insert returned nothing (conflict)
+      return { rows: [{ 1: 1 }] }; // exists check finds it
+    },
+  });
+
+  const result = await repository.linkTaskDocument(taskId, documentId);
+  assert.deepEqual(result, { linked: true, alreadyLinked: true });
+});
+
+test('linkTaskDocument returns {linked:false} when task or doc is missing/archived', async () => {
+  const taskId = '11111111-1111-4111-8111-111111111111';
+  const documentId = '22222222-2222-4222-8222-222222222222';
+  const repository = createTasksRepository({
+    async query() {
+      return { rows: [] }; // both insert and exists return nothing
+    },
+  });
+
+  const result = await repository.linkTaskDocument(taskId, documentId);
+  assert.deepEqual(result, { linked: false });
+});
+
+test('unlinkTaskDocument returns true when a row is deleted', async () => {
+  const taskId = '11111111-1111-4111-8111-111111111111';
+  const documentId = '22222222-2222-4222-8222-222222222222';
+  const repository = createTasksRepository({
+    async query() {
+      return { rows: [{ task_id: taskId, document_id: documentId }] };
+    },
+  });
+
+  const result = await repository.unlinkTaskDocument(taskId, documentId);
+  assert.equal(result, true);
+});
+
+test('unlinkTaskDocument returns false when link does not exist', async () => {
+  const repository = createTasksRepository({
+    async query() {
+      return { rows: [] };
+    },
+  });
+
+  const result = await repository.unlinkTaskDocument(
+    '11111111-1111-4111-8111-111111111111',
+    '22222222-2222-4222-8222-222222222222',
+  );
+  assert.equal(result, false);
 });

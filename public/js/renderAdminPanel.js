@@ -15,9 +15,16 @@ function labelFromValue(value) {
     .join(' ');
 }
 
-function checkedMode(importMode, mode) {
-  return importMode === mode ? ' checked' : '';
+function radioLine(mode, label, importMode) {
+  const isActive = mode === importMode;
+  return `
+    <label class="admin-mode-line${isActive ? ' is-active' : ''}">
+      <input type="radio" name="admin-import-mode" value="${mode}" data-admin-import-mode="${mode}" class="admin-mode-line__input"${isActive ? ' checked' : ''}>
+      <span class="radio-glyph${isActive ? ' is-active' : ''}">${isActive ? '(•)' : '( )'}</span>
+      <span class="admin-mode-line__label">${label}</span>
+    </label>`;
 }
+
 
 export function renderAdminPanelHtml({
   activeContext = 'homelab',
@@ -31,13 +38,20 @@ export function renderAdminPanelHtml({
   return `
     <div class="modal-backdrop" data-admin-panel>
       <section class="admin-modal" role="dialog" aria-modal="true" aria-labelledby="admin-title">
-        <header class="admin-modal__header">
-          <div>
-            <span class="detail-kicker">Operations</span>
-            <h2 id="admin-title">Admin Operations</h2>
-            <p>Backup and restore controls for the selected Moomora Console context.</p>
+        <header class="modal-header">
+          <div class="modal-header--desktop">
+            <div class="modal-header__heading">
+              <span class="detail-kicker">Operations</span>
+              <h2 id="admin-title">Admin Operations</h2>
+              <p>Backup and restore controls for the selected Moomora Console context.</p>
+            </div>
+            <button class="modal-header__close bracket-button bracket-button--quiet" type="button" data-action="close-admin" aria-label="Close Admin">[x] close</button>
           </div>
-          <button class="icon-action" type="button" aria-label="Close Admin" data-action="close-admin">&times;</button>
+          <div class="modal-header--mobile">
+            <button class="modal-header__cancel bracket-button bracket-button--quiet" type="button" data-action="close-admin">cancel</button>
+            <h2 class="modal-header__title">admin</h2>
+            <span></span>
+          </div>
         </header>
 
         <div class="admin-sections">
@@ -47,8 +61,8 @@ export function renderAdminPanelHtml({
               <p>${safeContext} &middot; ${safeTaskCount} loaded tasks &middot; Generated at download time</p>
             </div>
             <div class="admin-actions">
-              <button class="secondary-action" type="button" data-action="export-context">Export ${safeContext}</button>
-              <button class="secondary-action" type="button" data-action="export-all">Export All Contexts</button>
+              <button class="bracket-button" type="button" data-action="export-context">[x] export ${safeContext}</button>
+              <button class="bracket-button" type="button" data-action="export-all">[X] export all</button>
             </div>
           </section>
 
@@ -59,18 +73,9 @@ export function renderAdminPanelHtml({
             </div>
             <fieldset class="admin-mode-group">
               <legend>Import mode</legend>
-              <label>
-                <input type="radio" name="admin-import-mode" value="skip" data-admin-import-mode="skip"${checkedMode(importMode, 'skip')}>
-                <span>Skip duplicates</span>
-              </label>
-              <label>
-                <input type="radio" name="admin-import-mode" value="append" data-admin-import-mode="append"${checkedMode(importMode, 'append')}>
-                <span>Append</span>
-              </label>
-              <label>
-                <input type="radio" name="admin-import-mode" value="replace" data-admin-import-mode="replace"${checkedMode(importMode, 'replace')}>
-                <span>Replace context</span>
-              </label>
+              ${radioLine('skip', 'Skip duplicates', importMode)}
+              ${radioLine('append', 'Append', importMode)}
+              ${radioLine('replace', 'Replace context', importMode)}
             </fieldset>
             <label class="admin-input-row">
               <span>Replace confirmation</span>
@@ -80,25 +85,6 @@ export function renderAdminPanelHtml({
               <span>Import JSON</span>
               <input type="file" accept="application/json,.json" data-admin-import-file>
             </label>
-            <div>
-              <h3>Import Markdown</h3>
-              <p>Import one Markdown file into the selected ${safeContext} Library.</p>
-            </div>
-            <fieldset class="admin-mode-group">
-              <legend>Document type</legend>
-              <label>
-                <input type="radio" name="admin-markdown-type" value="runbook" data-admin-markdown-type="runbook">
-                <span>Runbook</span>
-              </label>
-              <label>
-                <input type="radio" name="admin-markdown-type" value="note" data-admin-markdown-type="note" checked>
-                <span>Note</span>
-              </label>
-            </fieldset>
-            <label class="admin-input-row">
-              <span>Import Markdown</span>
-              <input type="file" accept="text/markdown,.md" data-admin-markdown-file>
-            </label>
           </section>
 
           <section class="admin-section" aria-labelledby="archive-maintenance-title">
@@ -107,7 +93,7 @@ export function renderAdminPanelHtml({
               <p>Review archived tasks and permanently delete individual records from Archive.</p>
             </div>
             <div class="admin-actions">
-              <button class="secondary-action" type="button" data-action="open-archive">Open Archive</button>
+              <button class="bracket-button" type="button" data-action="open-archive">[a] open archive</button>
             </div>
           </section>
         </div>

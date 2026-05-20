@@ -3,10 +3,13 @@ import assert from 'node:assert/strict';
 import {
   archiveTask,
   exportTasks,
+  fetchTaskDocuments,
   importTasks,
   deleteArchivedTask,
+  linkTaskDocument,
   reorderTasks,
   restoreTask,
+  unlinkTaskDocument,
   updateTask,
 } from '../../public/js/taskApi.js';
 
@@ -188,5 +191,76 @@ test('importTasks throws when the API rejects the request', async () => {
   await assert.rejects(
     () => importTasks({ context: 'homelab', tasks: [] }),
     /Failed to import tasks/,
+  );
+});
+
+test('fetchTaskDocuments GETs the linked documents for a task', async () => {
+  const calls = [];
+  globalThis.fetch = async (...args) => {
+    calls.push(args);
+    return jsonResponse([{ id: 'doc-1', title: 'Runbook', documentType: 'runbook', context: 'homelab' }]);
+  };
+
+  const docs = await fetchTaskDocuments('task-1');
+
+  assert.deepEqual(docs, [{ id: 'doc-1', title: 'Runbook', documentType: 'runbook', context: 'homelab' }]);
+  assert.equal(calls[0][0], '/api/tasks/task-1/documents');
+  assert.equal(calls[0][1], undefined);
+});
+
+test('fetchTaskDocuments throws when the API rejects the request', async () => {
+  globalThis.fetch = async () => jsonResponse({ message: 'bad' }, false);
+
+  await assert.rejects(
+    () => fetchTaskDocuments('task-1'),
+    /Failed to load linked documents/,
+  );
+});
+
+test('linkTaskDocument POSTs a documentId to link it to a task', async () => {
+  const calls = [];
+  globalThis.fetch = async (...args) => {
+    calls.push(args);
+    return jsonResponse([{ id: 'doc-1', title: 'Runbook', documentType: 'runbook', context: 'homelab' }]);
+  };
+
+  const docs = await linkTaskDocument('task-1', 'doc-1');
+
+  assert.deepEqual(docs, [{ id: 'doc-1', title: 'Runbook', documentType: 'runbook', context: 'homelab' }]);
+  assert.equal(calls[0][0], '/api/tasks/task-1/documents');
+  assert.equal(calls[0][1].method, 'POST');
+  assert.deepEqual(calls[0][1].headers, { 'content-type': 'application/json' });
+  assert.equal(calls[0][1].body, JSON.stringify({ documentId: 'doc-1' }));
+});
+
+test('linkTaskDocument throws when the API rejects the request', async () => {
+  globalThis.fetch = async () => jsonResponse({ message: 'bad' }, false);
+
+  await assert.rejects(
+    () => linkTaskDocument('task-1', 'doc-1'),
+    /Failed to link document/,
+  );
+});
+
+test('unlinkTaskDocument DELETEs the link between a task and a document', async () => {
+  const calls = [];
+  globalThis.fetch = async (...args) => {
+    calls.push(args);
+    return jsonResponse([]);
+  };
+
+  const docs = await unlinkTaskDocument('task-1', 'doc-1');
+
+  assert.deepEqual(docs, []);
+  assert.equal(calls[0][0], '/api/tasks/task-1/documents/doc-1');
+  assert.equal(calls[0][1].method, 'DELETE');
+});
+
+test('unlinkTaskDocument throws when the API rejects the request', async () => {
+  globalThis.fetch = async () => jsonResponse({ message: 'bad' }, false);
+
+  await assert.rejects(
+    () => unlinkTaskDocument('task-1', 'doc-1'),
+    /Failed to unlink document/,
   );
 });

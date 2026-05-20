@@ -50,3 +50,15 @@ create index if not exists idx_tasks_archived_at on tasks (archived_at);
 create index if not exists idx_tasks_due_date on tasks (due_date);
 create index if not exists idx_markdown_documents_context_type on markdown_documents (context, document_type);
 create index if not exists idx_markdown_documents_archived_at on markdown_documents (archived_at);
+create index if not exists idx_markdown_documents_fts
+  on markdown_documents
+  using gin (to_tsvector('english', coalesce(title, '') || ' ' || coalesce(body, '')));
+
+create table if not exists task_documents (
+  task_id uuid not null references tasks(id) on delete cascade,
+  document_id uuid not null references markdown_documents(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (task_id, document_id)
+);
+
+create index if not exists idx_task_documents_document on task_documents (document_id);

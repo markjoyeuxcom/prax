@@ -81,3 +81,25 @@ export async function deleteArchivedTask(id) {
   if (!response.ok) throw new Error('Failed to delete archived task');
   return response.json();
 }
+
+export async function fetchTaskDocuments(taskId) {
+  const response = await fetch(`/api/tasks/${taskId}/documents`);
+  if (!response.ok) throw new Error('Failed to load linked documents');
+  return response.json();
+}
+
+export async function linkTaskDocument(taskId, documentId) {
+  const response = await fetch(`/api/tasks/${taskId}/documents`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ documentId }),
+  });
+  if (!response.ok) throw new Error('Failed to link document');
+  return response.json();
+}
+
+export async function unlinkTaskDocument(taskId, documentId) {
+  const response = await fetch(`/api/tasks/${taskId}/documents/${documentId}`, { method: 'DELETE' });
+  if (!response.ok) throw new Error('Failed to unlink document');
+  return response.json();
+}

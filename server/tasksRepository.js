@@ -147,6 +147,55 @@ export function buildDeleteArchivedTask(id) {
   };
 }
 
+export function buildListTaskDocuments(taskId) {
+  return {
+    text: `
+      select d.id, d.title, d.document_type, d.context
+      from task_documents td
+      join markdown_documents d on d.id = td.document_id
+      where td.task_id = $1 and d.archived_at is null
+      order by d.title
+    `,
+    values: [taskId],
+  };
+}
+
+export function buildLinkTaskDocument(taskId, documentId) {
+  return {
+    text: `
+      insert into task_documents (task_id, document_id)
+      select $1, $2
+      where exists (select 1 from tasks where id = $1 and archived_at is null)
+        and exists (select 1 from markdown_documents where id = $2 and archived_at is null)
+      on conflict (task_id, document_id) do nothing
+      returning task_id, document_id
+    `,
+    values: [taskId, documentId],
+  };
+}
+
+export function buildUnlinkTaskDocument(taskId, documentId) {
+  return {
+    text: `
+      delete from task_documents where task_id = $1 and document_id = $2 returning task_id, document_id
+    `,
+    values: [taskId, documentId],
+  };
+}
+
+export function buildLinkExists(taskId, documentId) {
+  return {
+    text: `
+      select 1
+      from task_documents td
+      join tasks t on t.id = td.task_id and t.archived_at is null
+      join markdown_documents d on d.id = td.document_id and d.archived_at is null
+      where td.task_id = $1 and td.document_id = $2
+    `,
+    values: [taskId, documentId],
+  };
+}
+
 export function createTasksRepository(db) {
   return {
     async listTasks(filters = {}) {
@@ -229,6 +278,37 @@ export function createTasksRepository(db) {
       const query = buildDeleteArchivedTask(id);
       const result = await db.query(query.text, query.values);
       return result.rows[0] ? normalizeTaskRow(result.rows[0]) : null;
+    },
+
+    async listTaskDocuments(taskId) {
+      const query = buildListTaskDocuments(taskId);
+      const result = await db.query(query.text, query.values);
+      return result.rows.map(row => ({
+        id: row.id,
+        title: row.title,
+        documentType: row.document_type,
+        context: row.context,
+      }));
+    },
+
+    async linkTaskDocument(taskId, documentId) {
+      const query = buildLinkTaskDocument(taskId, documentId);
+      const result = await db.query(query.text, query.values);
+      if (result.rows.length > 0) {
+        return { linked: true };
+      }
+      const existsQuery = buildLinkExists(taskId, documentId);
+      const existsResult = await db.query(existsQuery.text, existsQuery.values);
+      if (existsResult.rows.length > 0) {
+        return { linked: true, alreadyLinked: true };
+      }
+      return { linked: false };
+    },
+
+    async unlinkTaskDocument(taskId, documentId) {
+      const query = buildUnlinkTaskDocument(taskId, documentId);
+      const result = await db.query(query.text, query.values);
+      return result.rows.length > 0;
     },
   };
 }

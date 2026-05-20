@@ -314,6 +314,52 @@ export async function registerTasksRoutes(app, options = {}) {
     return repository.reorderTasks(cleanTaskReorderPayload(request.body));
   });
 
+  app.get('/api/tasks/:id/documents', async (request, reply) => {
+    if (!isValidUuid(request.params.id)) {
+      reply.code(400);
+      return { message: 'task id is invalid' };
+    }
+    return repository.listTaskDocuments(request.params.id);
+  });
+
+  app.post('/api/tasks/:id/documents', async (request, reply) => {
+    const id = request.params.id;
+    if (!isValidUuid(id)) {
+      reply.code(400);
+      return { message: 'task id is invalid' };
+    }
+    const { documentId } = request.body || {};
+    if (!isValidUuid(documentId)) {
+      reply.code(400);
+      return { message: 'documentId is invalid' };
+    }
+    const result = await repository.linkTaskDocument(id, documentId);
+    if (!result.linked) {
+      reply.code(404);
+      return { message: 'task or document not found' };
+    }
+    reply.code(result.alreadyLinked ? 200 : 201);
+    return repository.listTaskDocuments(id);
+  });
+
+  app.delete('/api/tasks/:id/documents/:documentId', async (request, reply) => {
+    const { id, documentId } = request.params;
+    if (!isValidUuid(id)) {
+      reply.code(400);
+      return { message: 'task id is invalid' };
+    }
+    if (!isValidUuid(documentId)) {
+      reply.code(400);
+      return { message: 'documentId is invalid' };
+    }
+    const removed = await repository.unlinkTaskDocument(id, documentId);
+    if (!removed) {
+      reply.code(404);
+      return { message: 'link not found' };
+    }
+    return repository.listTaskDocuments(id);
+  });
+
   app.patch('/api/tasks/:id/restore', async (request, reply) => {
     if (!isValidUuid(request.params.id)) {
       reply.code(400);

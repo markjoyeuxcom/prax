@@ -39,3 +39,10 @@ test('renderSettingsPanelHtml renders active section state', () => {
 
   assert.match(html, /data-settings-section="about"[^>]*aria-pressed="true"/);
 });
+
+test('settings panel renders both desktop and mobile modal headers', () => {
+  const html = renderSettingsPanelHtml({ preferences: { fontScale: 'comfortable', palette: 'console' } });
+  assert.match(html, /class="modal-header--desktop"/);
+  assert.match(html, /class="modal-header--mobile"/);
+  assert.match(html, /data-action="close-settings"/);
+});

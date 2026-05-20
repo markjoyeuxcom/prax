@@ -41,7 +41,8 @@ function matchesArchived(item, archived) {
   return !item.archivedAt;
 }
 
-function createMemoryTasksRepository() {
+function createMemoryTasksRepository(documentsRef) {
+  const links = [];
   const tasks = [
     createTask({
       title: 'Back up CNPG',
@@ -125,44 +126,74 @@ function createMemoryTasksRepository() {
         return task;
       }).filter(Boolean);
     },
+
+    async listTaskDocuments(taskId) {
+      return links
+        .filter(link => link.taskId === taskId)
+        .map(link => documentsRef.find(doc => doc.id === link.documentId && !doc.archivedAt))
+        .filter(Boolean)
+        .map(doc => ({ id: doc.id, title: doc.title, documentType: doc.documentType, context: doc.context }))
+        .sort((a, b) => a.title.localeCompare(b.title));
+    },
+
+    async linkTaskDocument(taskId, documentId) {
+      const existing = links.find(link => link.taskId === taskId && link.documentId === documentId);
+      if (existing) {
+        return { linked: true, alreadyLinked: true };
+      }
+      const taskExists = tasks.some(t => t.id === taskId && !t.archivedAt);
+      const docExists = documentsRef.some(d => d.id === documentId && !d.archivedAt);
+      if (!taskExists || !docExists) {
+        return { linked: false };
+      }
+      links.push({ taskId, documentId });
+      return { linked: true };
+    },
+
+    async unlinkTaskDocument(taskId, documentId) {
+      const index = links.findIndex(link => link.taskId === taskId && link.documentId === documentId);
+      if (index < 0) return false;
+      links.splice(index, 1);
+      return true;
+    },
   };
 }
 
-function createMemoryLibraryRepository() {
-  const documents = [
-    createDocument({
-      title: 'Cloudflare Tunnel Implementation Plan',
-      documentType: 'note',
-      tags: ['ingress', 'cloudflare'],
-      sourceFilename: '2026-05-18-cloudflare-tunnel.md',
-      body: [
-        '# Cloudflare Tunnel Implementation Plan',
-        '',
-        '> For agentic workers: REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development for implementation work.',
-        '',
-        '**Goal:** Stand up a Cloudflare Tunnel from `acme-homelab` to the Cloudflare edge without opening inbound ports.',
-        '',
-        '## Phase 0 - Manual prerequisites',
-        '',
-        '- [ ] Log into Cloudflare',
-        '- [ ] Open Zero Trust',
-        '- [ ] Record the team URL',
-        '',
-        '```yaml',
-        'service:',
-        '  name: moomora-console',
-        '```',
-      ].join('\n'),
-    }),
-    createDocument({
-      title: 'CloudNativePG Restore',
-      documentType: 'runbook',
-      tags: ['postgres', 'backup'],
-      sourceFilename: 'cloudnativepg-restore.md',
-      body: '# CloudNativePG Restore\n\nSteps for testing restore flow.',
-    }),
-  ];
+const sharedDocuments = [
+  createDocument({
+    title: 'Cloudflare Tunnel Implementation Plan',
+    documentType: 'note',
+    tags: ['ingress', 'cloudflare'],
+    sourceFilename: '2026-05-18-cloudflare-tunnel.md',
+    body: [
+      '# Cloudflare Tunnel Implementation Plan',
+      '',
+      '> For agentic workers: REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development for implementation work.',
+      '',
+      '**Goal:** Stand up a Cloudflare Tunnel from `acme-homelab` to the Cloudflare edge without opening inbound ports.',
+      '',
+      '## Phase 0 - Manual prerequisites',
+      '',
+      '- [ ] Log into Cloudflare',
+      '- [ ] Open Zero Trust',
+      '- [ ] Record the team URL',
+      '',
+      '```yaml',
+      'service:',
+      '  name: moomora-console',
+      '```',
+    ].join('\n'),
+  }),
+  createDocument({
+    title: 'CloudNativePG Restore',
+    documentType: 'runbook',
+    tags: ['postgres', 'backup'],
+    sourceFilename: 'cloudnativepg-restore.md',
+    body: '# CloudNativePG Restore\n\nSteps for testing restore flow.',
+  }),
+];
 
+function createMemoryLibraryRepository(documents) {
   return {
     async listDocuments(filters = {}) {
       return documents.filter((document) => {
@@ -218,8 +249,8 @@ const app = await buildApp({
   config,
   logger: true,
   skipDb: true,
-  tasksRepository: createMemoryTasksRepository(),
-  libraryRepository: createMemoryLibraryRepository(),
+  tasksRepository: createMemoryTasksRepository(sharedDocuments),
+  libraryRepository: createMemoryLibraryRepository(sharedDocuments),
 });
 
 await app.listen({ host: config.host, port: config.port });

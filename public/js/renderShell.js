@@ -62,6 +62,79 @@ function viewFor(activeView) {
   return viewButtons.find((view) => view.id === activeView) || viewButtons[0];
 }
 
+function modeTagFor(activeView) {
+  const tags = {
+    list: 'TODAY',
+    board: 'BOARD',
+    backlog: 'BACKLOG',
+    archive: 'ARCHIVE',
+    library: 'LIBRARY',
+  };
+  return tags[activeView] || activeView.toUpperCase();
+}
+
+function syncLabelFor(apiStatus) {
+  if (apiStatus === 'error') return '<span class="sync-dots sync-dots--off">●○○</span> offline';
+  if (apiStatus === 'loading') return '<span class="sync-dots sync-dots--pending">●●○</span> syncing';
+  return '<span class="sync-dots sync-dots--ok">●●●</span> ok';
+}
+
+function renderHamburgerDrawer({ activeContext, isDrawerOpen, apiStatus }) {
+  return `
+       <aside class="hamburger-drawer${isDrawerOpen ? ' is-open' : ''}" aria-label="Secondary navigation"${isDrawerOpen ? '' : ' aria-hidden="true" inert'}>
+         <header class="hamburger-drawer__header">
+           <span class="hamburger-drawer__title">// MENU</span>
+           <button class="hamburger-drawer__close" type="button" data-action="toggle-drawer" aria-label="Close menu">×</button>
+         </header>
+         <div class="hamburger-drawer__group">
+           <p class="hamburger-drawer__label">// VIEWS</p>
+           <button class="hamburger-drawer__item" type="button" data-view="backlog">backlog</button>
+         </div>
+         <div class="hamburger-drawer__group">
+           <p class="hamburger-drawer__label">// CONTEXTS</p>
+           ${['personal', 'work', 'homelab'].map(c => `<button class="hamburger-drawer__item${c === activeContext ? ' is-active' : ''}" type="button" data-context="${c}">${escapeHtml(c)}</button>`).join('')}
+         </div>
+         <div class="hamburger-drawer__group">
+           <p class="hamburger-drawer__label">// ADMIN</p>
+           <button class="hamburger-drawer__item" type="button" data-action="open-admin">[a] open admin</button>
+           <button class="hamburger-drawer__item" type="button" data-action="open-settings">[~] settings</button>
+         </div>
+         <div class="hamburger-drawer__group">
+           <p class="hamburger-drawer__label">// CLUSTER</p>
+           <dl class="hamburger-drawer__status">
+             <div><dt>api</dt><dd>${apiStatus === 'connected' ? 'ok' : apiStatus === 'loading' ? 'syncing' : 'offline'}</dd></div>
+             <div><dt>db</dt><dd>ok</dd></div>
+             <div><dt>backup</dt><dd>ready</dd></div>
+           </dl>
+         </div>
+       </aside>`;
+}
+
+function renderBottomNav(activeView) {
+  const newAction = activeView === 'library' ? 'new-document' : 'new-task';
+  const slots = [
+    { key: 'list',    glyph: 'T', label: 'today',   view: 'list',    action: null },
+    { key: 'board',   glyph: 'B', label: 'board',   view: 'board',   action: null },
+    { key: 'new',     glyph: '+', label: '',        view: null,      action: newAction },
+    { key: 'library', glyph: 'L', label: 'library', view: 'library', action: null },
+    { key: 'archive', glyph: 'A', label: 'arch',    view: 'archive', action: null },
+  ];
+  return `
+        <nav class="bottom-nav" aria-label="Primary">
+          ${slots.map(slot => {
+            const isActive = slot.view && slot.view === activeView;
+            const attrs = slot.action ? `data-action="${slot.action}"` : `data-view="${slot.view}"`;
+            const slotClasses = ['bottom-nav__slot'];
+            if (isActive) slotClasses.push('is-active');
+            if (slot.key === 'new') slotClasses.push('bottom-nav__slot--add');
+            return `<button data-bottom-nav="${slot.key}" class="${slotClasses.join(' ')}" type="button" ${attrs}>
+              <span class="bottom-nav__glyph">${slot.glyph}</span>
+              <span class="bottom-nav__label">${slot.label}</span>
+            </button>`;
+          }).join('')}
+        </nav>`;
+}
+
 function renderViewButtons(activeView) {
   const activeViewConfig = viewFor(activeView);
   const primaryAction = activeViewConfig.id === 'library'
@@ -106,6 +179,7 @@ export function renderShellHtml({
   apiStatus = 'connected',
   searchQuery = '',
   metrics = {},
+  isDrawerOpen = false,
 } = {}) {
   const activeViewConfig = viewFor(activeView);
   const isLibraryView = activeViewConfig.id === 'library';
@@ -118,6 +192,7 @@ export function renderShellHtml({
 
   return `
     <div class="app-shell">
+      ${renderHamburgerDrawer({ activeContext, isDrawerOpen, apiStatus })}
       <aside class="sidebar" aria-label="Moomora Console navigation">
         <div class="brand">
           <span class="brand-mark" aria-hidden="true">M</span>
@@ -156,14 +231,16 @@ export function renderShellHtml({
 
       <main class="console-main${isLibraryView ? ' console-main--library' : ''}">
         <header class="topbar">
+          <button class="hamburger-trigger" type="button" data-action="toggle-drawer" aria-label="Menu">≡</button>
           <label class="search-field">
-            <span class="sr-only">Search tasks</span>
-            <input type="search" placeholder="Search tasks" autocomplete="off" value="${escapeHtml(searchQuery)}" data-search-input>
+            <span class="sr-only">${isLibraryView ? 'Search documents' : 'Search tasks'}</span>
+            <input type="search" placeholder="${isLibraryView ? 'Search documents' : 'Search tasks'}" autocomplete="off" value="${escapeHtml(searchQuery)}" data-search-input>
           </label>
           <div class="topbar-actions">
-            <button class="secondary-action" type="button" data-action="open-settings">Settings</button>
-            <button class="secondary-action" type="button" data-action="open-admin">Admin</button>
-            <button class="primary-action" type="button" data-action="${primaryAction.action}">${primaryAction.label}</button>
+            <button type="button" data-action="open-settings" class="bracket-button">[~] settings</button>
+            <button type="button" data-action="open-admin" class="bracket-button">[a] admin</button>
+            ${isLibraryView ? '<button type="button" data-action="import-document" class="bracket-button">[↑] import</button>' : ''}
+            <button type="button" data-action="${primaryAction.action}" class="bracket-button bracket-button--primary">[+] ${primaryAction.label === 'New Document' ? 'new doc' : 'new'}</button>
           </div>
         </header>
 
@@ -176,6 +253,12 @@ export function renderShellHtml({
         </section>
         ${metricsHtml}
         <div id="workspace" class="workspace${isLibraryView ? ' workspace--library' : ''}"></div>
+        <footer class="status-footer" aria-label="Console status">
+          <span class="status-footer__breadcrumb">moomora <span class="status-footer__slash">/</span> ${escapeHtml(activeViewConfig.label)} <span class="status-footer__slash">/</span> <strong>${escapeHtml(activeContext)}</strong></span>
+          <span class="status-footer__sync">${syncLabelFor(apiStatus)}</span>
+          <span class="status-footer__mode">&lt;${escapeHtml(modeTagFor(activeView))}&gt;</span>
+        </footer>
       </main>
+      ${renderBottomNav(activeView)}
     </div>`;
 }

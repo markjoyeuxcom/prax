@@ -4,10 +4,13 @@ import {
   createTask,
   deleteArchivedTask,
   exportTasks,
+  fetchTaskDocuments,
   fetchTasks,
   importTasks,
+  linkTaskDocument,
   reorderTasks,
   restoreTask,
+  unlinkTaskDocument,
   updateTask,
 } from './taskApi.js';
 import {
@@ -35,22 +38,27 @@ import { renderTaskFormHtml } from './renderTaskForm.js';
 import { renderAdminPanelHtml } from './renderAdminPanel.js';
 import { renderSettingsPanelHtml } from './renderSettingsPanel.js';
 import { renderDocumentFormHtml, renderLibraryHtml } from './renderLibrary.js';
+import { renderLinkPickerHtml } from './renderLinkPicker.js';
 import { titleFromMarkdown } from './markdownPreview.js';
 import { applyMarkdownFormat } from './markdownEditor.js';
 import { canPreserveEditorAfterDraftSave, documentDraftSavedPatch } from './documentDraftSave.js';
 import { updateDocumentLivePreview } from './documentLivePreview.js';
 import { mountCodeMirrorEditor } from '../vendor/codemirror-editor.js';
-import { filterDocumentsByTags, tagsForDocuments } from './libraryFilters.js';
+import { filterDocumentsByTags, filterDocumentsByType, sortDocuments, tagsForDocuments } from './libraryFilters.js';
 import { applyPreferences, loadPreferences, resetPreferences, savePreferences } from './preferences.js';
+import { isMobile } from './breakpoints.js';
 import {
   areSameTags,
   createSavedLibraryView,
   renameSavedLibraryView,
   savedLibraryViewsFromJson,
 } from './librarySavedViews.js';
+import { installKeyboardShortcuts } from './keyboardShortcuts.js';
 
 const app = document.getElementById('app');
 const SAVED_LIBRARY_VIEWS_KEY = 'moomora.librarySavedViews.v1';
+const LIBRARY_BROWSER_WIDTH_KEY = 'moomora.libraryBrowserWidth.v1';
+const LIBRARY_CONTROLS_KEY = 'moomora.libraryControls.v1';
 const DOCUMENT_AUTOSAVE_DELAY_MS = 1200;
 let documentAutosaveTimer = null;
 let isSavingDocumentDraft = false;
@@ -101,14 +109,17 @@ function visibleDocumentsForCurrentView() {
   const query = state.searchQuery.trim().toLowerCase();
   const contextDocuments = state.documents.filter(document => document.context === state.activeContext);
   const taggedDocuments = filterDocumentsByTags(contextDocuments, state.activeLibraryTags);
-  if (!query) return taggedDocuments;
-  return taggedDocuments.filter((document) => [
-    document.title,
-    document.body,
-    document.documentType,
-    document.sourceFilename,
-    ...(document.tags || []),
-  ].some(value => String(value || '').toLowerCase().includes(query)));
+  const typeFilteredDocuments = filterDocumentsByType(taggedDocuments, state.libraryTypeFilter);
+  const searchedDocuments = query
+    ? typeFilteredDocuments.filter((document) => [
+        document.title,
+        document.body,
+        document.documentType,
+        document.sourceFilename,
+        ...(document.tags || []),
+      ].some(value => String(value || '').toLowerCase().includes(query)))
+    : typeFilteredDocuments;
+  return sortDocuments(searchedDocuments, state.librarySortBy);
 }
 
 function selectedDocument() {
@@ -132,6 +143,32 @@ function persistSavedLibraryViews() {
     window.localStorage?.setItem(SAVED_LIBRARY_VIEWS_KEY, JSON.stringify(state.librarySavedViews));
   } catch {
     // Local persistence is a convenience; the Library still works without it.
+  }
+}
+
+function persistLibraryControls() {
+  try {
+    window.localStorage?.setItem(LIBRARY_CONTROLS_KEY, JSON.stringify({
+      typeFilter: state.libraryTypeFilter,
+      sortBy: state.librarySortBy,
+      groupByType: state.libraryGroupByType,
+    }));
+  } catch {
+    // Local persistence is a convenience; controls still work without it.
+  }
+}
+
+function loadLibraryControls() {
+  try {
+    const parsed = JSON.parse(window.localStorage?.getItem(LIBRARY_CONTROLS_KEY) || 'null');
+    if (!parsed || typeof parsed !== 'object') return {};
+    const patch = {};
+    if (['all', 'runbook', 'note'].includes(parsed.typeFilter)) patch.libraryTypeFilter = parsed.typeFilter;
+    if (['updated', 'created', 'title', 'type'].includes(parsed.sortBy)) patch.librarySortBy = parsed.sortBy;
+    if (typeof parsed.groupByType === 'boolean') patch.libraryGroupByType = parsed.groupByType;
+    return patch;
+  } catch {
+    return {};
   }
 }
 
@@ -166,6 +203,17 @@ function applyMarkdownToolbarAction(textarea, action) {
   textarea.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
+async function loadTaskDocuments(taskId) {
+  if (!taskId) { setState({ taskDocuments: [] }); return; }
+  const requestedTaskId = taskId;
+  try {
+    const docs = await fetchTaskDocuments(taskId);
+    if (state.selectedTaskId === requestedTaskId) setState({ taskDocuments: docs });
+  } catch {
+    if (state.selectedTaskId === requestedTaskId) setState({ taskDocuments: [] });
+  }
+}
+
 function renderWorkspace() {
   const workspace = document.getElementById('workspace');
   if (!workspace) return;
@@ -182,12 +230,25 @@ function renderWorkspace() {
 
   workspace.innerHTML = [
     renderWorkspacePrimary(visibleTasks, selectedTaskId),
-    renderTaskDetailHtml(task, { readOnly, restoreAction: readOnly, deleteAction: readOnly }),
+    renderTaskDetailHtml(task, { readOnly, restoreAction: readOnly, deleteAction: readOnly, mobileDetailOpen: state.mobileDetailOpen, linkedDocuments: state.taskDocuments }),
   ].join('');
 
+  workspace.classList.toggle('is-mobile-detail-open', Boolean(state.mobileDetailOpen));
+
   workspace.querySelectorAll('[data-task-id]').forEach((row) => {
-    row.addEventListener('click', () => {
-      setState({ selectedTaskId: row.dataset.taskId });
+    row.addEventListener('click', async () => {
+      setState({
+        selectedTaskId: row.dataset.taskId,
+        mobileDetailOpen: isMobile() ? true : state.mobileDetailOpen,
+      });
+      await loadTaskDocuments(row.dataset.taskId);
+      renderWorkspace();
+    });
+  });
+
+  workspace.querySelectorAll('[data-action="close-mobile-detail"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      setState({ mobileDetailOpen: false });
       renderWorkspace();
     });
   });
@@ -251,6 +312,117 @@ function renderWorkspace() {
       window.alert('Moomora Console could not delete the archived task.');
     }
   });
+
+  workspace.querySelector('[data-action="open-link-picker"]')?.addEventListener('click', async () => {
+    try {
+      const docs = await fetchDocuments({ archived: false });
+      setState({ linkPickerDocuments: docs, linkPickerQuery: '', isLinkPickerOpen: true });
+      renderApp();
+    } catch {
+      window.alert('Moomora Console could not load documents to link.');
+    }
+  });
+
+  workspace.querySelectorAll('[data-action="open-linked-doc"]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const docId = btn.dataset.documentId;
+      const docContext = btn.dataset.documentContext || state.activeContext;
+      setState({ activeView: 'library', activeContext: docContext, selectedDocumentId: docId, mobileDetailOpen: false });
+      try {
+        await loadDocuments({ selectedDocumentId: docId });
+      } catch (error) {
+        setState({ apiStatus: 'error' });
+        renderError(error.message);
+      }
+    });
+  });
+
+  workspace.querySelectorAll('[data-action="unlink-document"]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const taskId = state.selectedTaskId;
+      if (!taskId) return;
+      try {
+        const updated = await unlinkTaskDocument(taskId, btn.dataset.documentId);
+        setState({ taskDocuments: updated });
+        renderWorkspace();
+      } catch {
+        window.alert('Moomora Console could not unlink the document.');
+      }
+    });
+  });
+}
+
+function setupLibraryResizer(workspace, libraryWorkspaceElement) {
+  const resizer = workspace.querySelector('[data-library-resizer]');
+  const browser = workspace.querySelector('.library-browser');
+  if (!resizer || !browser) return;
+
+  const MIN_WIDTH = 220;
+  const MAX_WIDTH = 560;
+
+  const applyWidth = (width) => {
+    const clamped = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, width));
+    libraryWorkspaceElement.style.setProperty('--library-browser-width', `${clamped}px`);
+    return clamped;
+  };
+
+  let savedWidth = null;
+  try {
+    savedWidth = window.localStorage?.getItem(LIBRARY_BROWSER_WIDTH_KEY);
+  } catch {
+    savedWidth = null;
+  }
+  if (savedWidth) applyWidth(parseInt(savedWidth, 10) || MIN_WIDTH);
+
+  const startDrag = (event) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = browser.getBoundingClientRect().width;
+    resizer.classList.add('is-dragging');
+    resizer.setPointerCapture?.(event.pointerId);
+
+    const onMove = (moveEvent) => {
+      applyWidth(startWidth + (moveEvent.clientX - startX));
+    };
+    const onEnd = () => {
+      resizer.classList.remove('is-dragging');
+      resizer.releasePointerCapture?.(event.pointerId);
+      resizer.removeEventListener('pointermove', onMove);
+      resizer.removeEventListener('pointerup', onEnd);
+      resizer.removeEventListener('pointercancel', onEnd);
+      try {
+        const current = libraryWorkspaceElement.style.getPropertyValue('--library-browser-width');
+        if (current) window.localStorage?.setItem(LIBRARY_BROWSER_WIDTH_KEY, current.trim());
+      } catch {
+        // persistence is a convenience; resize still works without it
+      }
+    };
+
+    resizer.addEventListener('pointermove', onMove);
+    resizer.addEventListener('pointerup', onEnd);
+    resizer.addEventListener('pointercancel', onEnd);
+  };
+
+  resizer.addEventListener('pointerdown', startDrag);
+
+  resizer.addEventListener('keydown', (event) => {
+    const step = event.shiftKey ? 32 : 16;
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      applyWidth(browser.getBoundingClientRect().width - step);
+    } else if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      applyWidth(browser.getBoundingClientRect().width + step);
+    } else {
+      return;
+    }
+    try {
+      const current = libraryWorkspaceElement.style.getPropertyValue('--library-browser-width');
+      if (current) window.localStorage?.setItem(LIBRARY_BROWSER_WIDTH_KEY, current.trim());
+    } catch {
+      // ignore
+    }
+  });
 }
 
 function renderLibraryWorkspace(workspace) {
@@ -274,6 +446,47 @@ function renderLibraryWorkspace(workspace) {
     isSaving: state.isSaving,
     saveStatus: state.documentSaveStatus,
     isFocusMode: state.isDocumentFocusMode,
+    isLibraryTagsDrawerOpen: state.isLibraryTagsDrawerOpen,
+    isLibraryDocOpen: state.isLibraryDocOpen,
+    typeFilter: state.libraryTypeFilter,
+    sortBy: state.librarySortBy,
+    groupByType: state.libraryGroupByType,
+  });
+
+  const libraryWorkspaceElement = workspace.querySelector('.library-workspace');
+  if (libraryWorkspaceElement) {
+    libraryWorkspaceElement.classList.toggle('is-library-doc-open', Boolean(state.isLibraryDocOpen));
+    setupLibraryResizer(workspace, libraryWorkspaceElement);
+  }
+
+  workspace.querySelector('[data-action="toggle-library-tags-drawer"]')?.addEventListener('click', () => {
+    setState({ isLibraryTagsDrawerOpen: !state.isLibraryTagsDrawerOpen });
+    renderWorkspace();
+  });
+
+  workspace.querySelector('[data-action="close-library-doc"]')?.addEventListener('click', () => {
+    setState({ isLibraryDocOpen: false });
+    renderWorkspace();
+  });
+
+  workspace.querySelectorAll('[data-library-type]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      setState({ libraryTypeFilter: btn.dataset.libraryType });
+      persistLibraryControls();
+      renderWorkspace();
+    });
+  });
+
+  workspace.querySelector('[data-library-sort]')?.addEventListener('change', (event) => {
+    setState({ librarySortBy: event.target.value });
+    persistLibraryControls();
+    renderWorkspace();
+  });
+
+  workspace.querySelector('[data-action="toggle-library-group"]')?.addEventListener('click', () => {
+    setState({ libraryGroupByType: !state.libraryGroupByType });
+    persistLibraryControls();
+    renderWorkspace();
   });
 
   function resetDocumentDraft() {
@@ -534,6 +747,7 @@ function renderLibraryWorkspace(workspace) {
         isDocumentFocusMode: false,
         isDocumentInfoEditorOpen: false,
         documentInfoError: '',
+        isLibraryDocOpen: isMobile() ? true : state.isLibraryDocOpen,
       });
       renderWorkspace();
     });
@@ -690,6 +904,16 @@ function renderLibraryWorkspace(workspace) {
   });
 }
 
+function openTouchMoveMenu(taskId, _anchorElement) {
+  const STATUSES = ['high-priority', 'in-progress', 'planned', 'completed', 'notes'];
+  const choice = window.prompt(`move to which column?\n${STATUSES.map((s, i) => `${i + 1}. ${s}`).join('\n')}`);
+  if (!choice) return;
+  const idx = Number(choice) - 1;
+  if (!Number.isInteger(idx) || idx < 0 || idx >= STATUSES.length) return;
+  const targetStatus = STATUSES[idx];
+  handleBoardDrop({ taskId, targetStatus, beforeTaskId: null });
+}
+
 function bindBoardEvents(workspace) {
   if (state.activeView !== 'board') return;
 
@@ -710,6 +934,35 @@ function bindBoardEvents(workspace) {
         target.classList.remove('is-drop-target');
       });
     });
+  });
+
+  const LONG_PRESS_MS = 480;
+
+  workspace.querySelectorAll('[data-board-card]').forEach((card) => {
+    let pressTimer = null;
+    let pressed = false;
+
+    const cancelPress = () => {
+      pressed = false;
+      if (pressTimer) {
+        window.clearTimeout(pressTimer);
+        pressTimer = null;
+      }
+    };
+
+    card.addEventListener('pointerdown', (event) => {
+      if (event.pointerType !== 'touch') return;
+      pressed = true;
+      pressTimer = window.setTimeout(() => {
+        if (!pressed) return;
+        cancelPress();
+        openTouchMoveMenu(card.dataset.taskId, card);
+      }, LONG_PRESS_MS);
+    });
+
+    card.addEventListener('pointerup', cancelPress);
+    card.addEventListener('pointercancel', cancelPress);
+    card.addEventListener('pointerleave', cancelPress);
   });
 
   workspace.querySelectorAll('.board-cards[data-board-column]').forEach((column) => {
@@ -735,6 +988,18 @@ function bindBoardEvents(workspace) {
         targetStatus: column.dataset.boardColumn,
         beforeTaskId: targetCard?.dataset.taskId === taskId ? null : targetCard?.dataset.taskId,
       });
+    });
+  });
+
+  workspace.querySelectorAll('[data-action="toggle-board-section"]').forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      event.preventDefault();
+      const section = btn.dataset.section;
+      if (!section) return;
+      setState({
+        boardOpenSections: { ...state.boardOpenSections, [section]: state.boardOpenSections[section] === false },
+      });
+      renderWorkspace();
     });
   });
 }
@@ -796,7 +1061,7 @@ function listOptionsForView(activeView) {
 
 function renderWorkspacePrimary(visibleTasks, selectedTaskId) {
   if (state.activeView === 'board') {
-    return renderBoardHtml(visibleTasks, selectedTaskId);
+    return renderBoardHtml(visibleTasks, selectedTaskId, { boardOpenSections: state.boardOpenSections });
   }
 
   return renderListHtml(visibleTasks, selectedTaskId, listOptionsForView(state.activeView));
@@ -810,6 +1075,7 @@ function renderApp() {
     apiStatus: state.apiStatus,
     searchQuery: state.searchQuery,
     metrics,
+    isDrawerOpen: state.isDrawerOpen,
   });
   renderWorkspace();
   if (state.isTaskFormOpen) {
@@ -841,54 +1107,92 @@ function renderApp() {
       preferences: state.preferences,
     }));
   }
+  if (state.isLinkPickerOpen) {
+    app.insertAdjacentHTML('beforeend', renderLinkPickerHtml({
+      documents: state.linkPickerDocuments,
+      linkedIds: state.taskDocuments.map(d => d.id),
+      query: state.linkPickerQuery,
+    }));
+  }
   bindShellEvents();
   bindTaskFormEvents();
   bindDocumentFormEvents();
   bindAdminPanelEvents();
   bindSettingsPanelEvents();
+  bindLinkPickerEvents();
 }
 
 function bindShellEvents() {
-  app.querySelector('[data-action="new-task"]')?.addEventListener('click', () => {
-    setState({
-      isTaskFormOpen: true,
-      editingTaskId: null,
-      formError: '',
+  app.querySelectorAll('[data-action="new-task"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      setState({
+        isTaskFormOpen: true,
+        editingTaskId: null,
+        formError: '',
+        isDrawerOpen: false,
+      });
+      renderApp();
     });
-    renderApp();
   });
 
-  app.querySelector('[data-action="new-document"]')?.addEventListener('click', () => {
-    setState({
-      isDocumentFormOpen: true,
-      editingDocumentId: null,
-      documentFormError: '',
+  app.querySelectorAll('[data-action="new-document"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      setState({
+        isDocumentFormOpen: true,
+        editingDocumentId: null,
+        documentFormError: '',
+        isDrawerOpen: false,
+      });
+      renderApp();
     });
-    renderApp();
   });
 
-  app.querySelector('[data-action="open-admin"]')?.addEventListener('click', () => {
-    setState({
-      isAdminPanelOpen: true,
-      isSettingsPanelOpen: false,
-      isTaskFormOpen: false,
-      isDocumentFormOpen: false,
-      editingTaskId: null,
-      editingDocumentId: null,
+  app.querySelectorAll('[data-action="open-admin"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      setState({
+        isAdminPanelOpen: true,
+        isSettingsPanelOpen: false,
+        isTaskFormOpen: false,
+        isDocumentFormOpen: false,
+        isDrawerOpen: false,
+        editingTaskId: null,
+        editingDocumentId: null,
+      });
+      renderApp();
     });
-    renderApp();
   });
 
-  app.querySelector('[data-action="open-settings"]')?.addEventListener('click', () => {
-    setState({
-      isSettingsPanelOpen: true,
-      isAdminPanelOpen: false,
-      isTaskFormOpen: false,
-      isDocumentFormOpen: false,
-      editingTaskId: null,
-      editingDocumentId: null,
+  app.querySelectorAll('[data-action="open-settings"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      setState({
+        isSettingsPanelOpen: true,
+        isAdminPanelOpen: false,
+        isTaskFormOpen: false,
+        isDocumentFormOpen: false,
+        isDrawerOpen: false,
+        editingTaskId: null,
+        editingDocumentId: null,
+      });
+      renderApp();
     });
-    renderApp();
+  });
+
+  app.querySelectorAll('[data-action="toggle-drawer"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      setState({ isDrawerOpen: !state.isDrawerOpen });
+      renderApp();
+    });
+  });
+
+  app.querySelector('[data-action="import-document"]')?.addEventListener('click', () => {
+    const input = globalThis.document.createElement('input');
+    input.type = 'file';
+    input.accept = 'text/markdown,.md,.markdown';
+    input.addEventListener('change', () => {
+      const file = input.files?.[0];
+      if (file) importLibraryMarkdownFile(file);
+    });
+    input.click();
   });
 
   app.querySelector('[data-search-input]')?.addEventListener('input', (event) => {
@@ -921,6 +1225,10 @@ function bindShellEvents() {
         editingDocumentId: null,
         formError: '',
         documentInfoError: '',
+        isDrawerOpen: false,
+        mobileDetailOpen: false,
+        isLibraryDocOpen: false,
+        isLinkPickerOpen: false,
       });
       try {
         if (state.activeView === 'library') {
@@ -962,6 +1270,10 @@ function bindShellEvents() {
         editingDocumentId: null,
         formError: '',
         documentInfoError: '',
+        isDrawerOpen: false,
+        mobileDetailOpen: false,
+        isLibraryDocOpen: false,
+        isLinkPickerOpen: false,
       });
       if (nextView === 'library') {
         try {
@@ -1094,29 +1406,19 @@ async function importAdminFile(file, panel) {
   }
 }
 
-function selectedAdminMarkdownType(panel) {
-  const checked = panel.querySelector('[name="admin-markdown-type"]:checked');
-  return checked?.value === 'runbook' ? 'runbook' : 'note';
-}
-
-async function importAdminMarkdownFile(file, panel) {
+async function importLibraryMarkdownFile(file) {
   try {
     const body = await file.text();
-    const document = await createDocument({
+    const doc = await createDocument({
       title: titleFromMarkdown(body, file.name),
       body,
-      documentType: selectedAdminMarkdownType(panel),
+      documentType: 'note',
       context: state.activeContext,
       tags: [],
       sourceFilename: file.name || null,
     });
-    window.alert(`Imported "${document.title}" into the Library.`);
-    setState({ isAdminPanelOpen: false });
-    if (state.activeView === 'library') {
-      await loadDocuments({ selectedDocumentId: document.id });
-    } else {
-      renderApp();
-    }
+    window.alert(`Imported "${doc.title}" into the Library.`);
+    await loadDocuments({ selectedDocumentId: doc.id });
   } catch {
     window.alert('Moomora Console could not import that Markdown file.');
   }
@@ -1149,13 +1451,6 @@ function bindAdminPanelEvents() {
     const file = event.target.files?.[0];
     if (!file) return;
     await importAdminFile(file, panel);
-    event.target.value = '';
-  });
-
-  panel.querySelector('[data-admin-markdown-file]')?.addEventListener('change', async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    await importAdminMarkdownFile(file, panel);
     event.target.value = '';
   });
 
@@ -1224,6 +1519,54 @@ function bindSettingsPanelEvents() {
     applyPreferences(preferences);
     setState({ preferences, settingsSection: 'appearance' });
     renderApp();
+  });
+}
+
+function bindLinkPickerEvents() {
+  const backdrop = app.querySelector('[data-link-picker]');
+  if (!backdrop) return;
+
+  backdrop.querySelectorAll('[data-action="close-link-picker"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      setState({ isLinkPickerOpen: false });
+      renderApp();
+    });
+  });
+
+  backdrop.addEventListener('click', (event) => {
+    if (event.target === backdrop) {
+      setState({ isLinkPickerOpen: false });
+      renderApp();
+    }
+  });
+
+  const searchInput = backdrop.querySelector('[data-link-picker-search]');
+  searchInput?.addEventListener('input', (event) => {
+    setState({ linkPickerQuery: event.target.value });
+    renderApp();
+    const nextInput = app.querySelector('[data-link-picker-search]');
+    if (nextInput) {
+      nextInput.focus();
+      nextInput.setSelectionRange?.(nextInput.value.length, nextInput.value.length);
+    }
+  });
+
+  backdrop.querySelectorAll('[data-link-picker-doc]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const taskId = state.selectedTaskId;
+      if (!taskId) return;
+      const docId = btn.dataset.linkPickerDoc;
+      const isLinked = state.taskDocuments.some(d => d.id === docId);
+      try {
+        const updated = isLinked
+          ? await unlinkTaskDocument(taskId, docId)
+          : await linkTaskDocument(taskId, docId);
+        setState({ taskDocuments: updated });
+        renderApp();
+      } catch {
+        window.alert('Moomora Console could not update the document link.');
+      }
+    });
   });
 }
 
@@ -1298,11 +1641,13 @@ async function loadTasks({ selectedTaskId = state.selectedTaskId } = {}) {
   });
   const normalizedTasks = tasks.map(normalizeTask);
   const selectedTaskExists = normalizedTasks.some((task) => task.id === selectedTaskId);
+  const resolvedTaskId = selectedTaskExists ? selectedTaskId : normalizedTasks[0]?.id || null;
   setState({
     tasks: normalizedTasks,
     apiStatus: 'connected',
-    selectedTaskId: selectedTaskExists ? selectedTaskId : normalizedTasks[0]?.id || null,
+    selectedTaskId: resolvedTaskId,
   });
+  await loadTaskDocuments(resolvedTaskId);
   renderApp();
 }
 
@@ -1331,12 +1676,51 @@ async function init() {
     setState({
       preferences,
       librarySavedViews: savedLibraryViewsFromJson(window.localStorage?.getItem(SAVED_LIBRARY_VIEWS_KEY)),
+      ...loadLibraryControls(),
     });
     await loadTasks();
   } catch (error) {
     setState({ apiStatus: 'error' });
     renderError(error.message);
   }
+
+  installKeyboardShortcuts({
+    getState: () => state,
+    handlers: {
+      focusSearch() {
+        const input = app.querySelector('[data-search-input]');
+        if (input) { input.focus(); input.select?.(); }
+      },
+      newItem() {
+        app.querySelector('.topbar [data-action="new-task"], .topbar [data-action="new-document"]')?.click();
+      },
+      switchView(view) {
+        const el = app.querySelector(`.side-nav [data-view="${view}"]`) || app.querySelector(`[data-view="${view}"]`);
+        el?.click();
+      },
+      editSelected() {
+        if (state.activeView === 'library') {
+          app.querySelector('[data-library-mode="edit"]')?.click();
+        } else {
+          app.querySelector('[data-action="edit-task"]')?.click();
+        }
+      },
+      archiveSelected() {
+        if (state.activeView === 'library') {
+          app.querySelector('[data-action="archive-document"]')?.click();
+        } else {
+          app.querySelector('[data-action="archive-task"]')?.click();
+        }
+      },
+      escape() {
+        const closer = app.querySelector('[data-action="close-task-form"], [data-action="close-document-form"], [data-action="close-admin"], [data-action="close-settings"], [data-action="close-link-picker"]');
+        if (closer) { closer.click(); return; }
+        if (state.isDrawerOpen) { app.querySelector('[data-action="toggle-drawer"]')?.click(); return; }
+        if (state.mobileDetailOpen) { app.querySelector('[data-action="close-mobile-detail"]')?.click(); return; }
+        if (state.isLibraryDocOpen) { app.querySelector('[data-action="close-library-doc"]')?.click(); return; }
+      },
+    },
+  });
 }
 
 init();

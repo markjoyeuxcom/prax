@@ -1,63 +1,63 @@
-const COLUMNS = [
-  { id: 'high-priority', label: 'High Priority' },
-  { id: 'in-progress', label: 'In Progress' },
-  { id: 'planned', label: 'Planned' },
-  { id: 'completed', label: 'Completed' },
-  { id: 'notes', label: 'Notes' },
-];
-
 function escapeHtml(value) {
   return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-function priorityLabel(priority) {
-  const normalized = String(priority || 'medium').toLowerCase();
-  if (normalized === 'high') return 'High';
-  if (normalized === 'low') return 'Low';
-  return 'Medium';
+const COLUMNS = [
+  { id: 'high-priority', label: 'HIGH PRIORITY' },
+  { id: 'in-progress',   label: 'IN PROGRESS' },
+  { id: 'planned',       label: 'PLANNED' },
+  { id: 'completed',     label: 'COMPLETED' },
+  { id: 'notes',         label: 'NOTES' },
+];
+
+function priorityClass(priority) {
+  const p = String(priority || 'medium').toLowerCase();
+  if (p === 'high') return 'hi';
+  if (p === 'low') return 'lo';
+  return 'md';
 }
 
 function renderCard(task, selectedTaskId) {
-  const isSelected = task.id === selectedTaskId;
-  const dueDate = task.dueDate || '-';
-
+  const pClass = priorityClass(task.priority);
+  const isSel = task.id === selectedTaskId;
   return `
-        <button class="board-card${isSelected ? ' is-selected' : ''}" type="button" data-board-card="true" data-task-id="${escapeHtml(task.id)}" draggable="true"${isSelected ? ' aria-current="true"' : ''}>
-          <strong>${escapeHtml(task.title || 'Untitled task')}</strong>
-          <span>${escapeHtml(task.description || 'No description')}</span>
-          <small>${priorityLabel(task.priority)} · ${escapeHtml(dueDate)}</small>
+        <button class="board-card board-card--${pClass}${isSel ? ' is-selected' : ''}" type="button" data-board-card="true" data-task-id="${escapeHtml(task.id)}" draggable="true"${isSel ? ' aria-current="true"' : ''}>
+          <strong class="board-card__title">${escapeHtml(task.title || 'Untitled task')}</strong>
+          <span class="board-card__meta">${escapeHtml(String(task.priority || 'medium'))} · ${escapeHtml(task.dueDate || '—')}</span>
         </button>`;
 }
 
-function renderCards(tasks, column, selectedTaskId) {
+function renderColumnCards(tasks, columnId, selectedTaskId) {
   const columnTasks = tasks
-    .filter(task => (task.status || task.column || 'planned') === column.id)
+    .filter(t => (t.status || t.column || 'planned') === columnId)
     .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-  if (!columnTasks.length) {
-    return '<div class="board-empty">No tasks</div>';
-  }
-
-  return columnTasks.map(task => renderCard(task, selectedTaskId)).join('');
+  if (!columnTasks.length) return '<div class="board-empty">[ no cards ]</div>';
+  return columnTasks.map(t => renderCard(t, selectedTaskId)).join('');
 }
 
-export function renderBoardHtml(tasks = [], selectedTaskId = null) {
-  const safeTasks = Array.isArray(tasks) ? tasks : [];
-
+export function renderBoardHtml(tasks = [], selectedTaskId = null, options = {}) {
+  const safe = Array.isArray(tasks) ? tasks : [];
+  const openSections = options.boardOpenSections || {};
   return `
     <section class="board-panel" aria-label="Task board">
-      ${COLUMNS.map(column => `
-        <section class="board-column" aria-label="${column.label}" data-board-column="${column.id}">
-          <header>
-            <h2>${column.label}</h2>
-            <span>${safeTasks.filter(task => (task.status || task.column || 'planned') === column.id).length}</span>
+      ${COLUMNS.map(col => {
+        const isOpen = openSections[col.id] !== false;
+        const cards = renderColumnCards(safe, col.id, selectedTaskId);
+        const count = safe.filter(t => (t.status || t.column || 'planned') === col.id).length;
+        return `
+        <section class="board-column board-column--${isOpen ? 'open' : 'closed'}" aria-label="${col.label}" data-board-column="${col.id}">
+          <header class="board-column__header">
+            <button class="board-column__toggle" type="button" data-action="toggle-board-section" data-section="${col.id}" aria-label="Toggle ${col.label}" aria-expanded="${isOpen}" aria-controls="board-cards-${col.id}">
+              <span class="board-column__glyph">${isOpen ? '▾' : '▸'}</span>
+              <span class="board-column__title">[ ${col.label} ]</span>
+              <span class="board-column__count">${count}</span>
+            </button>
           </header>
-          <div class="board-cards" data-board-column="${column.id}">${renderCards(safeTasks, column, selectedTaskId)}
+          <div class="board-cards" id="board-cards-${col.id}" data-board-column="${col.id}"${isOpen ? '' : ' hidden'}>${cards}
           </div>
-        </section>`).join('')}
+        </section>`;
+      }).join('')}
     </section>`;
 }

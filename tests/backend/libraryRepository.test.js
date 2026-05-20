@@ -6,6 +6,7 @@ import {
   buildDeleteArchivedDocument,
   buildRestoreDocument,
   buildUpdateDocument,
+  createLibraryRepository,
   normalizeDocumentRow,
 } from '../../server/libraryRepository.js';
 
@@ -96,4 +97,39 @@ test('archive restore and permanent delete are archived-state scoped', () => {
   assert.deepEqual(archive.values, [DOCUMENT_ID]);
   assert.deepEqual(restore.values, [DOCUMENT_ID]);
   assert.deepEqual(remove.values, [DOCUMENT_ID]);
+});
+
+test('listDocuments uses full-text search with prefix terms when q is present', async () => {
+  let captured;
+  const db = { query: async (text, values) => { captured = { text, values }; return { rows: [] }; } };
+  const repo = createLibraryRepository(db);
+  await repo.listDocuments({ q: 'cloud tunnel' });
+  assert.match(captured.text, /to_tsvector\('english', coalesce\(title, ''\) \|\| ' ' \|\| coalesce\(body, ''\)\) @@ to_tsquery\('english', \$1\)/);
+  assert.deepEqual(captured.values, ['cloud:* & tunnel:*']);
+});
+
+test('listDocuments sanitizes q to alphanumeric prefix terms (injection-safe)', async () => {
+  let captured;
+  const db = { query: async (text, values) => { captured = { text, values }; return { rows: [] }; } };
+  const repo = createLibraryRepository(db);
+  await repo.listDocuments({ q: 'post; drop table--' });
+  assert.deepEqual(captured.values, ['post:* & drop:* & table:*']);
+});
+
+test('listDocuments adds no FTS clause when q has no alphanumeric terms', async () => {
+  let captured;
+  const db = { query: async (text, values) => { captured = { text, values }; return { rows: [] }; } };
+  const repo = createLibraryRepository(db);
+  await repo.listDocuments({ q: '!!!' });
+  assert.doesNotMatch(captured.text, /to_tsquery/);
+});
+
+test('listDocuments combines context and full-text search', async () => {
+  let captured;
+  const db = { query: async (text, values) => { captured = { text, values }; return { rows: [] }; } };
+  const repo = createLibraryRepository(db);
+  await repo.listDocuments({ context: 'homelab', q: 'restore' });
+  assert.match(captured.text, /context = \$1/);
+  assert.match(captured.text, /to_tsquery\('english', \$2\)/);
+  assert.deepEqual(captured.values, ['homelab', 'restore:*']);
 });

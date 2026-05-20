@@ -30,6 +30,32 @@ export function filterDocumentsByTags(documents = [], activeTags = []) {
   });
 }
 
+export function filterDocumentsByType(documents = [], type = 'all') {
+  if (type !== 'runbook' && type !== 'note') return documents;
+  return documents.filter(doc => (doc.documentType || 'note') === type);
+}
+
+export function sortDocuments(documents = [], sortBy = 'updated') {
+  const copy = [...documents];
+  const byStr = (a, b) => String(a || '').localeCompare(String(b || ''));
+  if (sortBy === 'title') return copy.sort((a, b) => byStr(a.title, b.title));
+  if (sortBy === 'created') return copy.sort((a, b) => byStr(b.createdAt, a.createdAt));
+  if (sortBy === 'type') return copy.sort((a, b) => byStr(a.documentType, b.documentType) || byStr(a.title, b.title));
+  return copy.sort((a, b) => byStr(b.updatedAt, a.updatedAt)); // 'updated' default, newest first
+}
+
+export function groupDocumentsByType(documents = []) {
+  const groups = [
+    { type: 'runbook', label: 'Runbooks', docs: [] },
+    { type: 'note', label: 'Notes', docs: [] },
+  ];
+  documents.forEach(doc => {
+    const t = (doc.documentType || 'note') === 'runbook' ? 'runbook' : 'note';
+    groups.find(g => g.type === t).docs.push(doc);
+  });
+  return groups.filter(g => g.docs.length);
+}
+
 export function visibleTagsForFilter(
   availableTags = [],
   activeTags = [],

@@ -1,5 +1,5 @@
 import { renderMarkdownHtml } from './markdownPreview.js';
-import { visibleTagsForFilter } from './libraryFilters.js';
+import { groupDocumentsByType, visibleTagsForFilter } from './libraryFilters.js';
 
 const DOCUMENT_TYPES = [
   { value: 'runbook', label: 'Runbook' },
@@ -168,15 +168,7 @@ function selectedDocument(documents, selectedDocumentId) {
   return documents.find(document => document.id === selectedDocumentId) || documents[0] || null;
 }
 
-function renderDocumentList(documents, activeDocumentId) {
-  if (!documents.length) {
-    return `
-      <div class="task-empty" role="status">
-        <strong>No Markdown documents</strong>
-        <span>Create or import Markdown to build your runbook and notes library.</span>
-      </div>`;
-  }
-
+function renderDocumentRows(documents, activeDocumentId) {
   return documents.map((document) => {
     const isSelected = document.id === activeDocumentId;
     return `
@@ -190,8 +182,29 @@ function renderDocumentList(documents, activeDocumentId) {
   }).join('');
 }
 
-function renderModeButton(mode, activeMode, label) {
-  return `<button class="secondary-action${mode === activeMode ? ' is-active' : ''}" type="button" data-library-mode="${mode}" aria-pressed="${mode === activeMode}">${label}</button>`;
+function renderDocumentList(documents, activeDocumentId, { groupByType = false } = {}) {
+  if (!documents.length) {
+    return `
+      <div class="task-empty" role="status">
+        <strong>No Markdown documents</strong>
+        <span>Create or import Markdown to build your runbook and notes library.</span>
+      </div>`;
+  }
+
+  if (groupByType) {
+    const groups = groupDocumentsByType(documents);
+    return groups.map(({ label, docs }) => `
+      <div class="document-group-header">${escapeHtml(label)} <span>${docs.length}</span></div>${renderDocumentRows(docs, activeDocumentId)}`).join('');
+  }
+
+  return renderDocumentRows(documents, activeDocumentId);
+}
+
+function renderModes(editorMode, modes = ['edit', 'preview', 'split']) {
+  return `
+        <div class="modes" role="tablist" aria-label="Editor mode">
+          ${modes.map(mode => `<button class="${mode === editorMode ? 'on' : ''}" role="tab" type="button" data-library-mode="${mode}" aria-selected="${mode === editorMode}">${mode}</button>`).join('')}
+        </div>`;
 }
 
 function renderMarkdownToolbar() {
@@ -209,8 +222,8 @@ function renderEditorPane(body, options = {}) {
       <header class="document-pane-header">
         <span data-document-save-status>${escapeHtml(status)}</span>
         <div class="document-pane-actions">
-          <button class="secondary-action" type="button" data-action="toggle-document-focus" aria-label="Focus writing mode" aria-pressed="${Boolean(options.isFocusMode)}">Focus</button>
-          <button class="primary-action" type="button" data-action="save-document-draft"${options.isDirty ? '' : ' disabled'}>Save</button>
+          <button class="bracket-button" type="button" data-action="toggle-document-focus" aria-label="Focus writing mode" aria-pressed="${Boolean(options.isFocusMode)}">[f] focus</button>
+          <button class="bracket-button bracket-button--primary" type="button" data-action="save-document-draft"${options.isDirty ? '' : ' disabled'}>[s] save</button>
         </div>
       </header>
       ${renderMarkdownToolbar()}
@@ -259,8 +272,8 @@ function renderDocumentInfoForm(document, options = {}) {
         <input name="tags" type="text" value="${escapeHtml(values.tags)}" placeholder="postgres, backup">
       </label>
       <footer class="document-info-actions">
-        <button class="secondary-action" type="button" data-action="cancel-document-info">Cancel</button>
-        <button class="primary-action" type="submit"${options.isSaving ? ' disabled' : ''}>${options.isSaving ? 'Saving...' : 'Save info'}</button>
+        <button class="bracket-button bracket-button--quiet" type="button" data-action="cancel-document-info">cancel</button>
+        <button class="bracket-button bracket-button--primary" type="submit"${options.isSaving ? ' disabled' : ''}>${options.isSaving ? '[s] saving...' : '[s] save'}</button>
       </footer>
     </form>`;
 }
@@ -288,19 +301,18 @@ function renderDocumentDetail(document, options = {}) {
   return `
     <aside class="detail-panel library-detail${isFocusMode ? ' is-focus-mode' : ''}" aria-labelledby="selected-document-title">
       <header class="detail-header">
+        ${options.isLibraryDocOpen ? `<button class="detail-back bracket-button bracket-button--quiet" type="button" data-action="close-library-doc" aria-label="Back">← back</button>` : ''}
         <span class="detail-kicker">${escapeHtml(labelFromValue(document.documentType || 'note'))}</span>
         <h2 id="selected-document-title">${escapeHtml(document.title || 'Untitled document')}</h2>
         <p>${escapeHtml(document.sourceFilename || 'Created in Moomora Console')}</p>
         <div class="document-tags">${renderTags(document.tags)}</div>
         <div class="detail-actions">
-          ${renderModeButton('edit', editorMode, 'Edit')}
-          ${renderModeButton('preview', editorMode, 'Preview')}
-          ${renderModeButton('split', editorMode, 'Split')}
-          ${isArchived ? '' : '<button class="secondary-action" type="button" data-action="edit-document-info">Edit info</button>'}
+          ${renderModes(editorMode)}
+          ${isArchived ? '' : '<button class="bracket-button" type="button" data-action="edit-document-info">[i] info</button>'}
           ${isArchived ? `
-          <button class="secondary-action" type="button" data-action="restore-document">Restore</button>
-          <button class="danger-action" type="button" data-action="delete-archived-document">Delete</button>` : `
-          <button class="danger-action" type="button" data-action="archive-document">Archive</button>`}
+          <button class="bracket-button" type="button" data-action="restore-document">[r] restore</button>
+          <button class="bracket-button bracket-button--danger" type="button" data-action="delete-archived-document">[!] delete</button>` : `
+          <button class="bracket-button bracket-button--danger" type="button" data-action="archive-document">[d] archive</button>`}
         </div>
       </header>
       ${isInfoEditing ? renderDocumentInfoForm(document, { error: options.infoError, isSaving: options.isSaving }) : `
@@ -332,6 +344,11 @@ export function renderLibraryHtml({
   isSaving = false,
   saveStatus = '',
   isFocusMode = false,
+  isLibraryTagsDrawerOpen = false,
+  isLibraryDocOpen = false,
+  typeFilter = 'all',
+  sortBy = 'updated',
+  groupByType = false,
 } = {}) {
   const safeDocuments = Array.isArray(documents) ? documents : [];
   const document = selectedDocument(safeDocuments, selectedDocumentId);
@@ -346,14 +363,34 @@ export function renderLibraryHtml({
             <p>${safeDocuments.length} documents</p>
           </div>
           <span class="sync-pill">Markdown</span>
+          <button class="bracket-button bracket-button--quiet library-tags-toggle" type="button" data-action="toggle-library-tags-drawer" aria-expanded="${isLibraryTagsDrawerOpen}">tags ↕</button>
         </header>
-        ${renderSmartViews({ savedViews, activeSavedViewId, activeTags })}
-        ${renderTagFilters({ availableTags, activeTags, tagQuery, areTagsExpanded })}
-        ${renderActiveFilters({ activeTags, activeSavedViewId, savedViews, documentCount: safeDocuments.length })}
-        <div class="document-list">${renderDocumentList(safeDocuments, document?.id)}
+        <div class="library-tag-filter__drawer${isLibraryTagsDrawerOpen ? ' is-open' : ''}">
+          ${renderSmartViews({ savedViews, activeSavedViewId, activeTags })}
+          ${renderTagFilters({ availableTags, activeTags, tagQuery, areTagsExpanded })}
+          ${renderActiveFilters({ activeTags, activeSavedViewId, savedViews, documentCount: safeDocuments.length })}
+        </div>
+        <div class="library-controls">
+          <div class="modes library-type-filter" role="tablist" aria-label="Document type">
+            <button class="${typeFilter === 'all' ? 'on' : ''}" type="button" role="tab" data-library-type="all" aria-selected="${typeFilter === 'all'}">all</button>
+            <button class="${typeFilter === 'runbook' ? 'on' : ''}" type="button" role="tab" data-library-type="runbook" aria-selected="${typeFilter === 'runbook'}">runbook</button>
+            <button class="${typeFilter === 'note' ? 'on' : ''}" type="button" role="tab" data-library-type="note" aria-selected="${typeFilter === 'note'}">note</button>
+          </div>
+          <label class="library-sort-label">sort
+            <select class="library-sort" data-library-sort>
+              <option value="updated"${sortBy === 'updated' ? ' selected' : ''}>updated</option>
+              <option value="created"${sortBy === 'created' ? ' selected' : ''}>created</option>
+              <option value="title"${sortBy === 'title' ? ' selected' : ''}>title</option>
+              <option value="type"${sortBy === 'type' ? ' selected' : ''}>type</option>
+            </select>
+          </label>
+          <button class="bracket-button bracket-button--quiet library-group-toggle" type="button" data-action="toggle-library-group" aria-pressed="${groupByType}">group: ${groupByType ? 'type' : 'off'}</button>
+        </div>
+        <div class="document-list">${renderDocumentList(safeDocuments, document?.id, { groupByType })}
         </div>
       </aside>
-      <div class="library-document-stage">${renderDocumentDetail(document, { editorMode: activeMode, draftBody, isDirty, isInfoEditing, infoError, isSaving, saveStatus, isFocusMode })}
+      <div class="library-resizer" data-library-resizer role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize library browser"></div>
+      <div class="library-document-stage">${renderDocumentDetail(document, { editorMode: activeMode, draftBody, isDirty, isInfoEditing, infoError, isSaving, saveStatus, isFocusMode, isLibraryDocOpen })}
       </div>
     </section>`;
 }
@@ -377,15 +414,22 @@ export function renderDocumentFormHtml({
   return `
     <div class="modal-backdrop" data-modal="document-form">
       <section class="task-form-modal" role="dialog" aria-modal="true" aria-labelledby="document-form-title">
-        <header class="task-form-header">
-          <div>
-            <h2 id="document-form-title">${isEditing ? 'Edit Document' : 'New Document'}</h2>
-            <p>${isEditing ? 'Update this Markdown runbook or note.' : 'Create a Markdown runbook or note.'}</p>
+        <header class="modal-header">
+          <div class="modal-header--desktop">
+            <div class="modal-header__heading">
+              <h2 id="document-form-title">${isEditing ? 'edit document' : 'new document'}</h2>
+              <p>${isEditing ? 'Update this Markdown runbook or note.' : 'Create a Markdown runbook or note.'}</p>
+            </div>
+            <button class="modal-header__close bracket-button bracket-button--quiet" type="button" data-action="close-document-form" aria-label="Close document form">[x] close</button>
           </div>
-          <button class="icon-action" type="button" data-action="close-document-form" aria-label="Close document form">x</button>
+          <div class="modal-header--mobile">
+            <button class="modal-header__cancel bracket-button bracket-button--quiet" type="button" data-action="close-document-form">cancel</button>
+            <h2 class="modal-header__title">${isEditing ? 'edit document' : 'new document'}</h2>
+            <button class="modal-header__save bracket-button bracket-button--primary" type="submit" form="document-form" data-action="submit-from-header"${isSaving ? ' disabled' : ''}>${isSaving ? '[s] saving...' : '[s] save'}</button>
+          </div>
         </header>
 
-        <form class="task-form" data-document-form>
+        <form class="task-form" id="document-form" data-document-form>
           ${error ? `<div class="form-error" role="alert">${escapeHtml(error)}</div>` : ''}
           <label>
             <span>Title</span>
@@ -416,8 +460,8 @@ export function renderDocumentFormHtml({
             </label>
           </div>
           <footer class="task-form-actions">
-            <button class="secondary-action" type="button" data-action="close-document-form">Cancel</button>
-            <button class="primary-action" type="submit"${isSaving ? ' disabled' : ''}>${isSaving ? 'Saving...' : 'Save Document'}</button>
+            <button class="bracket-button bracket-button--quiet" type="button" data-action="close-document-form">cancel</button>
+            <button class="bracket-button bracket-button--primary" type="submit"${isSaving ? ' disabled' : ''}>${isSaving ? '[s] saving...' : '[s] save'}</button>
           </footer>
         </form>
       </section>
