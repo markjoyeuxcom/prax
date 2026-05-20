@@ -154,6 +154,10 @@ npm run build:codemirror
 - `npm run check` syntax-checks key server and browser entry points.
 - `npm run build:codemirror` rebuilds the bundled CodeMirror editor asset.
 
+An optional local MCP server lives in `mcp/` — it exposes the Moomora API to Claude Code so
+you can query and edit tasks and documents interactively on a Claude subscription. See
+[mcp/README.md](mcp/README.md).
+
 ## Import And Export
 
 Task backups use the current Moomora format:
