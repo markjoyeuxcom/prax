@@ -6,23 +6,26 @@ The project is early, but usable locally today through the in-memory demo server
 
 ## What It Does
 
-- Tracks personal, work, and homelab tasks across Today, Board, Backlog, and Archive views, with create, edit, archive, restore, permanent delete, and drag/drop board reordering.
+- Organises work into user-creatable **Projects** (active / on-hold / completed / archived) that group both tasks and documents, with an "All projects" cross-project view, a project manager, and a separate archive dialog.
+- Tracks tasks across Tasks, Board, Backlog, and Archive views, with create, edit, archive, restore, permanent delete, and drag/drop board reordering.
+- Surfaces at-a-glance board signals: a priority dot, overdue / due-soon date flags, and a project chip on each card in the All-projects view.
 - Links tasks to library runbooks and notes, so operational work points at the documents that support it.
 - Provides a Markdown Library with runbooks, notes, `.md` import, tags, saved tag views, type/sort/group controls, and full-text search.
 - Includes an Obsidian-style editor workspace with edit, preview, split, focus mode, live preview updates, CodeMirror editing, and Markdown helper buttons.
-- Adapts across desktop, tablet, and mobile, with browser-local appearance preferences (Console, Graphite, and Daylight palettes plus a font-scale control) and keyboard shortcuts.
-- Offers an Admin panel for backup and JSON task import/export with append, skip duplicates, and replace-context modes.
+- Adapts across desktop, tablet, and mobile, with browser-local appearance preferences (Console, Graphite, Daylight, and Midnight palettes plus a font-scale control) and keyboard shortcuts.
+- Offers an Admin panel for backup and JSON task import/export with append, skip duplicates, and replace-project modes.
+- Exposes the API to Claude Code through an optional local MCP server for interactive, subscription-backed task and document workflows.
 - Targets a homelab Kubernetes deployment backed by CloudNativePG/PostgreSQL.
 
 ## Screenshots
 
-![Today task queue with a linked runbook](docs/images/moomora-today.jpg)
+![Tasks queue across all projects](docs/images/moomora-tasks.png)
 
-![Markdown library](docs/images/moomora-library.jpg)
+![Board with priority dots, due-date flags, and project chips](docs/images/moomora-board.png)
 
-![Split Markdown editor](docs/images/moomora-editor-split.jpg)
+![Markdown library with tags and saved views](docs/images/moomora-library.png)
 
-![Appearance preferences](docs/images/moomora-settings.jpg)
+![Appearance preferences with the four colour palettes](docs/images/moomora-settings.png)
 
 ## Stack
 
@@ -166,16 +169,16 @@ Task backups use the current Moomora format:
 {
   "format": "moomora.tasks",
   "version": 1,
-  "context": "homelab",
+  "project": "homelab",
   "tasks": []
 }
 ```
 
 Import modes:
 
-- `skip`: default mode, skips duplicate tasks by title, context, status, and due date.
+- `skip`: default mode, skips duplicate tasks by title, project, status, and due date.
 - `append`: imports everything as new tasks.
-- `replace`: clears the selected context and imports the file after confirmation.
+- `replace`: clears the selected project and imports the file after confirmation.
 
 Legacy TaskBoard export envelopes are not supported. This project is treated as a greenfield Moomora Console app.
 
