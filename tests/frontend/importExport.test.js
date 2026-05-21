@@ -62,11 +62,11 @@ test('normalizeImportMode rejects unknown modes', () => {
   );
 });
 
-test('duplicateKeyForTask normalizes title context status and due date', () => {
+test('duplicateKeyForTask normalizes title project status and due date', () => {
   assert.equal(
     duplicateKeyForTask({
       title: '  Back up CNPG ',
-      context: 'Homelab',
+      projectId: 'Homelab',
       status: 'Planned',
       dueDate: '2026-05-18',
     }),

@@ -19,6 +19,7 @@ test('renderSettingsPanelHtml renders appearance controls and local storage note
   assert.match(html, /data-settings-palette="console"/);
   assert.match(html, /data-settings-palette="graphite"/);
   assert.match(html, /data-settings-palette="daylight"/);
+  assert.match(html, /data-settings-palette="midnight"/);
   assert.match(html, /data-action="reset-preferences"/);
 });
 
@@ -29,6 +30,15 @@ test('renderSettingsPanelHtml marks selected font scale and palette', () => {
 
   assert.match(html, /data-settings-font-scale="large"[^>]*aria-pressed="true"/);
   assert.match(html, /data-settings-palette="daylight"[^>]*aria-pressed="true"/);
+});
+
+test('renderSettingsPanelHtml marks midnight palette selected with its description', () => {
+  const html = renderSettingsPanelHtml({
+    preferences: { fontScale: 'comfortable', palette: 'midnight' },
+  });
+
+  assert.match(html, /data-settings-palette="midnight"[^>]*aria-pressed="true"/);
+  assert.match(html, /GitHub-dark with a blue accent/);
 });
 
 test('renderSettingsPanelHtml renders active section state', () => {

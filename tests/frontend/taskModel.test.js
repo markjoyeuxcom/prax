@@ -9,14 +9,14 @@ test('normalizeTask maps backend fields into UI task shape', () => {
     description: '',
     priority: 'high',
     status: 'planned',
-    context: 'homelab',
+    projectId: 'homelab-id',
     dueDate: '2026-05-10',
     sortOrder: 3,
   });
 
   assert.equal(task.id, 'task-1');
   assert.equal(task.column, 'planned');
-  assert.equal(task.tab, 'homelab');
+  assert.equal(task.projectId, 'homelab-id');
   assert.equal(task.order, 3);
 });
 

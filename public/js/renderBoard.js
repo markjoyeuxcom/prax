@@ -19,32 +19,75 @@ function priorityClass(priority) {
   return 'md';
 }
 
-function renderCard(task, selectedTaskId) {
+function localToday() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+// Classify a due date relative to today so the card can flag overdue/soon work.
+// Returns { cls, full, label, flag } — `label` is the compact MM-DD shown on the
+// card (narrow columns), `full` is the ISO date kept as a tooltip. cls is one of
+// none|over|soon|ok.
+function shortDate(dueDate) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(dueDate) ? dueDate.slice(5) : dueDate;
+}
+
+function dueState(dueDate, today) {
+  if (!dueDate) return { cls: 'none', full: '', label: '—', flag: '' };
+  const short = shortDate(dueDate);
+  const due = new Date(`${dueDate}T00:00:00`);
+  const ref = new Date(`${today}T00:00:00`);
+  const days = Math.round((due.getTime() - ref.getTime()) / 86400000);
+  if (!Number.isFinite(days)) return { cls: 'ok', full: dueDate, label: short, flag: '' };
+  if (days < 0) return { cls: 'over', full: dueDate, label: short, flag: ' ⚠' };
+  if (days <= 2) return { cls: 'soon', full: dueDate, label: short, flag: '' };
+  return { cls: 'ok', full: dueDate, label: short, flag: '' };
+}
+
+function renderCard(task, selectedTaskId, ctx) {
   const pClass = priorityClass(task.priority);
   const isSel = task.id === selectedTaskId;
+  const due = dueState(task.dueDate, ctx.today);
+  const projectName = ctx.showProjectChips ? ctx.projectName(task.projectId) : '';
+  const chip = projectName
+    ? `<span class="board-card__chip">${escapeHtml(projectName)}</span>`
+    : '';
   return `
         <button class="board-card board-card--${pClass}${isSel ? ' is-selected' : ''}" type="button" data-board-card="true" data-task-id="${escapeHtml(task.id)}" draggable="true"${isSel ? ' aria-current="true"' : ''}>
-          <strong class="board-card__title">${escapeHtml(task.title || 'Untitled task')}</strong>
-          <span class="board-card__meta">${escapeHtml(String(task.priority || 'medium'))} · ${escapeHtml(task.dueDate || '—')}</span>
+          <span class="board-card__row">
+            <span class="board-card__id"><span class="board-card__dot board-card__dot--${pClass}" aria-hidden="true"></span><strong class="board-card__title">${escapeHtml(task.title || 'Untitled task')}</strong></span>
+            <span class="board-card__due board-card__due--${due.cls}"${due.full ? ` title="${escapeHtml(due.full)}"` : ''}>${escapeHtml(due.label)}${due.flag}</span>
+          </span>${chip}
         </button>`;
 }
 
-function renderColumnCards(tasks, columnId, selectedTaskId) {
+function renderColumnCards(tasks, columnId, selectedTaskId, ctx) {
   const columnTasks = tasks
     .filter(t => (t.status || t.column || 'planned') === columnId)
     .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
   if (!columnTasks.length) return '<div class="board-empty">[ no cards ]</div>';
-  return columnTasks.map(t => renderCard(t, selectedTaskId)).join('');
+  return columnTasks.map(t => renderCard(t, selectedTaskId, ctx)).join('');
 }
 
 export function renderBoardHtml(tasks = [], selectedTaskId = null, options = {}) {
   const safe = Array.isArray(tasks) ? tasks : [];
   const openSections = options.boardOpenSections || {};
+  const projectsById = new Map(
+    (Array.isArray(options.projects) ? options.projects : []).map(p => [p.id, p.name]),
+  );
+  const ctx = {
+    today: options.today || localToday(),
+    showProjectChips: Boolean(options.showProjectChips),
+    projectName: (id) => projectsById.get(id) || '',
+  };
   return `
     <section class="board-panel" aria-label="Task board">
       ${COLUMNS.map(col => {
         const isOpen = openSections[col.id] !== false;
-        const cards = renderColumnCards(safe, col.id, selectedTaskId);
+        const cards = renderColumnCards(safe, col.id, selectedTaskId, ctx);
         const count = safe.filter(t => (t.status || t.column || 'planned') === col.id).length;
         return `
         <section class="board-column board-column--${isOpen ? 'open' : 'closed'}" aria-label="${col.label}" data-board-column="${col.id}">

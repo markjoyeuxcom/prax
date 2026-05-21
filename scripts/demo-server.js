@@ -1,9 +1,120 @@
 import { randomUUID } from 'node:crypto';
 import { loadConfig } from '../server/config.js';
 import { buildApp } from '../server/index.js';
+import { deriveSlug } from '../server/slug.js';
 
 const now = new Date().toISOString();
 
+// ---------------------------------------------------------------------------
+// Fixed project IDs — reused in task/document seed data
+// ---------------------------------------------------------------------------
+const PROJECT_ID_PERSONAL = '11111111-1111-4111-8111-111111111111';
+const PROJECT_ID_WORK     = '22222222-2222-4222-8222-222222222222';
+const PROJECT_ID_HOMELAB  = '33333333-3333-4333-8333-333333333333';
+
+const sharedProjects = [
+  {
+    id: PROJECT_ID_PERSONAL,
+    name: 'Personal',
+    slug: 'personal',
+    status: 'active',
+    sortOrder: 0,
+    createdAt: now,
+    updatedAt: now,
+  },
+  {
+    id: PROJECT_ID_WORK,
+    name: 'Work',
+    slug: 'work',
+    status: 'active',
+    sortOrder: 1,
+    createdAt: now,
+    updatedAt: now,
+  },
+  {
+    id: PROJECT_ID_HOMELAB,
+    name: 'Homelab',
+    slug: 'homelab',
+    status: 'active',
+    sortOrder: 2,
+    createdAt: now,
+    updatedAt: now,
+  },
+];
+
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function createMemoryProjectsRepository(projects) {
+  return {
+    async listProjects(status) {
+      let result = [...projects];
+      if (status && status !== 'all') {
+        result = result.filter(p => p.status === status);
+      }
+      return result.sort((a, b) => {
+        if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+        return a.name.localeCompare(b.name);
+      });
+    },
+
+    async createProject({ name, status = 'active' }) {
+      const takenSlugs = projects.map(p => p.slug);
+      const slug = deriveSlug(name, takenSlugs);
+      const project = {
+        id: randomUUID(),
+        name,
+        slug,
+        status,
+        sortOrder: projects.reduce((max, p) => Math.max(max, p.sortOrder), -1) + 1,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      projects.push(project);
+      return project;
+    },
+
+    async updateProject(id, fields) {
+      const project = projects.find(p => p.id === id);
+      if (!project) return null;
+      if (fields.name !== undefined) project.name = fields.name;
+      if (fields.status !== undefined) project.status = fields.status;
+      if (fields.sortOrder !== undefined) project.sortOrder = fields.sortOrder;
+      project.updatedAt = new Date().toISOString();
+      return project;
+    },
+
+    async archiveProject(id) {
+      const project = projects.find(p => p.id === id);
+      if (!project) return null;
+      project.status = 'archived';
+      project.updatedAt = new Date().toISOString();
+      return project;
+    },
+
+    async countProjectDependents(id) {
+      return sharedProjectDependentCounter(id);
+    },
+
+    async deleteProject(id) {
+      const index = projects.findIndex(p => p.id === id);
+      if (index < 0) return null;
+      return projects.splice(index, 1)[0];
+    },
+
+    async resolveProject(idOrSlug) {
+      if (isUuid(idOrSlug)) {
+        return projects.find(p => p.id === idOrSlug) || null;
+      }
+      return projects.find(p => p.slug === idOrSlug) || null;
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Task helpers
+// ---------------------------------------------------------------------------
 function createTask(seed) {
   return {
     id: randomUUID(),
@@ -11,7 +122,7 @@ function createTask(seed) {
     description: seed.description || '',
     priority: seed.priority || 'medium',
     status: seed.status || 'planned',
-    context: seed.context || 'homelab',
+    projectId: seed.projectId || PROJECT_ID_HOMELAB,
     dueDate: seed.dueDate || null,
     sortOrder: seed.sortOrder || 0,
     createdAt: seed.createdAt || now,
@@ -26,7 +137,7 @@ function createDocument(seed) {
     title: seed.title,
     body: seed.body || '',
     documentType: seed.documentType || 'note',
-    context: seed.context || 'homelab',
+    projectId: seed.projectId || PROJECT_ID_HOMELAB,
     tags: seed.tags || [],
     sourceFilename: seed.sourceFilename || null,
     createdAt: seed.createdAt || now,
@@ -41,35 +152,41 @@ function matchesArchived(item, archived) {
   return !item.archivedAt;
 }
 
+// Module-level so the project dependent counter can see tasks as well as docs.
+const sharedTasks = [
+  createTask({
+    title: 'Back up CNPG',
+    description: 'Verify backup schedule',
+    priority: 'high',
+    status: 'planned',
+    projectId: PROJECT_ID_HOMELAB,
+    dueDate: '2026-05-18',
+  }),
+  createTask({
+    title: 'Patch ingress',
+    description: 'Review controller release notes',
+    priority: 'medium',
+    status: 'in-progress',
+    projectId: PROJECT_ID_HOMELAB,
+  }),
+  createTask({
+    title: 'Inventory UPS batteries',
+    description: 'Backlog maintenance item',
+    priority: 'low',
+    status: 'planned',
+    projectId: PROJECT_ID_HOMELAB,
+    sortOrder: 1,
+  }),
+];
+
 function createMemoryTasksRepository(documentsRef) {
   const links = [];
-  const tasks = [
-    createTask({
-      title: 'Back up CNPG',
-      description: 'Verify backup schedule',
-      priority: 'high',
-      status: 'planned',
-      dueDate: '2026-05-18',
-    }),
-    createTask({
-      title: 'Patch ingress',
-      description: 'Review controller release notes',
-      priority: 'medium',
-      status: 'in-progress',
-    }),
-    createTask({
-      title: 'Inventory UPS batteries',
-      description: 'Backlog maintenance item',
-      priority: 'low',
-      status: 'planned',
-      sortOrder: 1,
-    }),
-  ];
+  const tasks = sharedTasks;
 
   return {
     async listTasks(filters = {}) {
       return tasks.filter((task) => {
-        if (filters.context && task.context !== filters.context) return false;
+        if (filters.projectId && task.projectId !== filters.projectId) return false;
         if (filters.status && task.status !== filters.status) return false;
         if (!matchesArchived(task, filters.archived)) return false;
         if (filters.q) {
@@ -89,11 +206,13 @@ function createMemoryTasksRepository(documentsRef) {
       tasks.push(...created);
       return created;
     },
-    async replaceContextTasks(context, importedTasks) {
+    async replaceProjectTasks(projectId, importedTasks) {
       for (let index = tasks.length - 1; index >= 0; index -= 1) {
-        if (tasks[index].context === context) tasks.splice(index, 1);
+        if (tasks[index].projectId === projectId) tasks.splice(index, 1);
       }
-      return this.importTasks(importedTasks);
+      // A replace import targets one project, so force every imported row into
+      // it — otherwise rows missing projectId would default to Homelab.
+      return this.importTasks(importedTasks.map((task) => ({ ...task, projectId })));
     },
     async updateTask(id, fields) {
       const task = tasks.find(item => item.id === id && !item.archivedAt);
@@ -132,7 +251,7 @@ function createMemoryTasksRepository(documentsRef) {
         .filter(link => link.taskId === taskId)
         .map(link => documentsRef.find(doc => doc.id === link.documentId && !doc.archivedAt))
         .filter(Boolean)
-        .map(doc => ({ id: doc.id, title: doc.title, documentType: doc.documentType, context: doc.context }))
+        .map(doc => ({ id: doc.id, title: doc.title, documentType: doc.documentType, projectId: doc.projectId }))
         .sort((a, b) => a.title.localeCompare(b.title));
     },
 
@@ -163,6 +282,7 @@ const sharedDocuments = [
   createDocument({
     title: 'Cloudflare Tunnel Implementation Plan',
     documentType: 'note',
+    projectId: PROJECT_ID_HOMELAB,
     tags: ['ingress', 'cloudflare'],
     sourceFilename: '2026-05-18-cloudflare-tunnel.md',
     body: [
@@ -187,17 +307,30 @@ const sharedDocuments = [
   createDocument({
     title: 'CloudNativePG Restore',
     documentType: 'runbook',
+    projectId: PROJECT_ID_HOMELAB,
     tags: ['postgres', 'backup'],
     sourceFilename: 'cloudnativepg-restore.md',
     body: '# CloudNativePG Restore\n\nSteps for testing restore flow.',
   }),
 ];
 
+// ---------------------------------------------------------------------------
+// Dependent counter — wired up after sharedDocuments is defined so that
+// countProjectDependents can inspect tasks and docs by projectId.
+// We close over sharedDocuments here; tasks are internal to the tasks repo
+// so we only count documents from the demo perspective (good enough for demo).
+// ---------------------------------------------------------------------------
+function sharedProjectDependentCounter(projectId) {
+  const taskCount = sharedTasks.filter(t => t.projectId === projectId && !t.archivedAt).length;
+  const docCount = sharedDocuments.filter(d => d.projectId === projectId && !d.archivedAt).length;
+  return taskCount + docCount;
+}
+
 function createMemoryLibraryRepository(documents) {
   return {
     async listDocuments(filters = {}) {
       return documents.filter((document) => {
-        if (filters.context && document.context !== filters.context) return false;
+        if (filters.projectId && document.projectId !== filters.projectId) return false;
         if (filters.documentType && document.documentType !== filters.documentType) return false;
         if (!matchesArchived(document, filters.archived)) return false;
         if (filters.q) {
@@ -251,6 +384,7 @@ const app = await buildApp({
   skipDb: true,
   tasksRepository: createMemoryTasksRepository(sharedDocuments),
   libraryRepository: createMemoryLibraryRepository(sharedDocuments),
+  projectsRepository: createMemoryProjectsRepository(sharedProjects),
 });
 
 await app.listen({ host: config.host, port: config.port });

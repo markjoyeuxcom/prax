@@ -1,9 +1,11 @@
 import { createTasksRepository } from './tasksRepository.js';
+import { createProjectsRepository } from './projectsRepository.js';
 
 const PRIORITIES = new Set(['high', 'medium', 'low']);
 const STATUSES = new Set(['high-priority', 'in-progress', 'planned', 'completed', 'notes']);
-const CONTEXTS = new Set(['personal', 'work', 'homelab']);
-const PATCH_FIELDS = ['title', 'description', 'priority', 'status', 'context', 'dueDate', 'sortOrder'];
+// 'project' (slug-or-id) is the client-facing field; 'projectId' is resolved
+// server-side and injected into the patch by the handler — never accepted raw.
+const PATCH_FIELDS = ['title', 'description', 'priority', 'status', 'project', 'dueDate', 'sortOrder'];
 const IMPORT_MODES = new Set(['append', 'skip', 'replace']);
 const TASK_EXPORT_FORMAT = 'moomora.tasks';
 const MIN_SORT_ORDER = -2147483648;
@@ -45,7 +47,7 @@ function validateTaskPayload(payload) {
   }
   if (!PRIORITIES.has(payload.priority)) return 'priority is invalid';
   if (!STATUSES.has(payload.status)) return 'status is invalid';
-  if (!CONTEXTS.has(payload.context)) return 'context is invalid';
+  if (typeof payload.project !== 'string' || payload.project.trim() === '') return 'project is required';
   if (!isValidDateString(payload.dueDate)) return 'dueDate is invalid';
   if (!isValidSortOrder(payload.sortOrder)) {
     return 'sortOrder is invalid';
@@ -61,7 +63,7 @@ function importTasksFromPayload(payload) {
 
 function validateTaskImportPayload(payload) {
   if (!payload || typeof payload !== 'object') return 'tasks must include at least one task';
-  if (!CONTEXTS.has(payload.context)) return 'context is invalid';
+  if (typeof payload.project !== 'string' || payload.project.trim() === '') return 'project is required';
   if (payload.mode !== undefined && !IMPORT_MODES.has(payload.mode)) return 'mode is invalid';
   if (payload.format !== undefined && payload.format !== TASK_EXPORT_FORMAT) return 'format is invalid';
 
@@ -92,7 +94,7 @@ function cleanTaskImportPayload(payload) {
     description: typeof task.description === 'string' ? task.description.trim() : '',
     priority: task.priority || 'medium',
     status: task.status || 'planned',
-    context: payload.context,
+    projectId: payload.projectId,
     dueDate: task.dueDate || null,
     sortOrder: Number.isInteger(task.sortOrder) ? task.sortOrder : index,
     archivedAt: task.archivedAt || null,
@@ -102,7 +104,7 @@ function cleanTaskImportPayload(payload) {
 function duplicateKeyForTask(task) {
   return [
     String(task.title || '').trim().toLowerCase(),
-    String(task.context || '').trim().toLowerCase(),
+    String(task.projectId || '').trim().toLowerCase(),
     String(task.status || 'planned').trim().toLowerCase(),
     String(task.dueDate || '').trim(),
   ].join('\u001f');
@@ -128,7 +130,7 @@ function cleanTaskPayload(payload) {
     description: typeof payload.description === 'string' ? payload.description.trim() : '',
     priority: payload.priority,
     status: payload.status,
-    context: payload.context,
+    projectId: payload.projectId,
     dueDate: payload.dueDate || null,
     sortOrder: Number.isFinite(payload.sortOrder) ? payload.sortOrder : 0,
   };
@@ -169,10 +171,10 @@ function validateTaskPatchPayload(payload) {
     return 'status is invalid';
   }
   if (
-    Object.prototype.hasOwnProperty.call(payload, 'context') &&
-    !CONTEXTS.has(payload.context)
+    Object.prototype.hasOwnProperty.call(payload, 'project') &&
+    (typeof payload.project !== 'string' || payload.project.trim() === '')
   ) {
-    return 'context is invalid';
+    return 'project is invalid';
   }
   if (
     Object.prototype.hasOwnProperty.call(payload, 'dueDate') &&
@@ -192,6 +194,7 @@ function validateTaskPatchPayload(payload) {
 
 function cleanTaskPatchPayload(payload) {
   return PATCH_FIELDS.reduce((fields, field) => {
+    if (field === 'project') return fields; // slug only — projectId is resolved separately
     if (!Object.prototype.hasOwnProperty.call(payload, field)) return fields;
     if (field === 'title' || field === 'description') {
       fields[field] = payload[field].trim();
@@ -233,29 +236,46 @@ function cleanTaskReorderPayload(payload) {
 
 export async function registerTasksRoutes(app, options = {}) {
   const repository = options.tasksRepository || app.tasksRepository || createTasksRepository(app.db);
+  const projectsRepository = options.projectsRepository || app.projectsRepository || createProjectsRepository(app.db);
+
+  async function resolveProjectId(value) {
+    if (value === undefined || value === null || value === '') return undefined;
+    const project = await projectsRepository.resolveProject(String(value));
+    return project ? project.id : null; // null signals "given but not found"
+  }
 
   app.get('/api/tasks/export', async (request, reply) => {
-    const exportContext = request.query.context;
-    if (exportContext !== 'all' && !CONTEXTS.has(exportContext)) {
-      reply.code(400);
-      return { message: 'context is invalid' };
+    const exportProject = request.query.project;
+
+    let projectId;
+    if (exportProject && exportProject !== 'all') {
+      projectId = await resolveProjectId(exportProject);
+      if (projectId === null) {
+        reply.code(400);
+        return { message: 'project is invalid' };
+      }
     }
 
-    const filters = exportContext === 'all'
-      ? { archived: 'all' }
-      : { context: exportContext, archived: 'all' };
+    const filters = projectId
+      ? { projectId, archived: 'all' }
+      : { archived: 'all' };
     const tasks = await repository.listTasks(filters);
     return {
       format: TASK_EXPORT_FORMAT,
       version: 1,
       exportedAt: new Date().toISOString(),
-      context: exportContext,
+      project: exportProject || 'all',
       tasks,
     };
   });
 
-  app.get('/api/tasks', async request => {
-    return repository.listTasks(request.query);
+  app.get('/api/tasks', async (request, reply) => {
+    let projectId;
+    if (request.query.project && request.query.project !== 'all') {
+      projectId = await resolveProjectId(request.query.project);
+      if (projectId === null) { reply.code(400); return { message: 'project is invalid' }; }
+    }
+    return repository.listTasks({ ...request.query, projectId });
   });
 
   app.post('/api/tasks/import', async (request, reply) => {
@@ -265,14 +285,23 @@ export async function registerTasksRoutes(app, options = {}) {
       return { message: validationError };
     }
 
-    const mode = cleanImportMode(request.body);
-    const importCandidates = cleanTaskImportPayload(request.body);
+    const resolvedProjectId = await resolveProjectId(request.body.project);
+    if (resolvedProjectId === null) {
+      reply.code(400);
+      return { message: 'project is invalid' };
+    }
+
+    // Attach resolved projectId to payload for cleanTaskImportPayload
+    const enrichedBody = { ...request.body, projectId: resolvedProjectId };
+
+    const mode = cleanImportMode(enrichedBody);
+    const importCandidates = cleanTaskImportPayload(enrichedBody);
     let skipped = 0;
     let tasksToImport = importCandidates;
 
     if (mode === 'skip') {
       const existingTasks = await repository.listTasks({
-        context: request.body.context,
+        projectId: resolvedProjectId,
         archived: 'all',
       });
       const filtered = filterDuplicateTasks(importCandidates, existingTasks);
@@ -281,7 +310,7 @@ export async function registerTasksRoutes(app, options = {}) {
     }
 
     const tasks = mode === 'replace'
-      ? await repository.replaceContextTasks(request.body.context, importCandidates)
+      ? await repository.replaceProjectTasks(resolvedProjectId, importCandidates)
       : tasksToImport.length
         ? await repository.importTasks(tasksToImport)
         : [];
@@ -300,6 +329,9 @@ export async function registerTasksRoutes(app, options = {}) {
       reply.code(400);
       return { message: validationError };
     }
+    const resolvedId = await resolveProjectId(request.body.project);
+    if (resolvedId === null) { reply.code(400); return { message: 'project is invalid' }; }
+    request.body.projectId = resolvedId;
     reply.code(201);
     return repository.createTask(cleanTaskPayload(request.body));
   });
@@ -400,7 +432,14 @@ export async function registerTasksRoutes(app, options = {}) {
       return { message: validationError };
     }
 
-    const task = await repository.updateTask(request.params.id, cleanTaskPatchPayload(request.body));
+    const fields = cleanTaskPatchPayload(request.body);
+    if (Object.prototype.hasOwnProperty.call(request.body, 'project')) {
+      const resolvedId = await resolveProjectId(request.body.project);
+      if (resolvedId === null) { reply.code(400); return { message: 'project is invalid' }; }
+      fields.projectId = resolvedId;
+    }
+
+    const task = await repository.updateTask(request.params.id, fields);
     if (!task) {
       reply.code(404);
       return { message: 'task not found' };

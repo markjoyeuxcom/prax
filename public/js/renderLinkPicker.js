@@ -19,7 +19,7 @@ export function renderLinkPickerHtml({ documents = [], linkedIds = [], query = '
   const linked = new Set(linkedIds);
   const q = String(query).trim().toLowerCase();
   const filtered = !q ? documents : documents.filter(d =>
-    [d.title, d.documentType, d.context, ...(d.tags || [])].some(v => String(v || '').toLowerCase().includes(q)));
+    [d.title, d.documentType, ...(d.tags || [])].some(v => String(v || '').toLowerCase().includes(q)));
 
   const rows = filtered.length
     ? filtered.map(d => {
@@ -29,7 +29,7 @@ export function renderLinkPickerHtml({ documents = [], linkedIds = [], query = '
           <span class="link-picker__check">${isLinked ? '[x]' : '[ ]'}</span>
           <span class="link-picker__title">
             <strong>${escapeHtml(d.title || 'Untitled document')}</strong>
-            <small>${escapeHtml(labelFromValue(d.documentType || 'note'))} · ${escapeHtml(d.context || '')}</small>
+            <small>${escapeHtml(labelFromValue(d.documentType || 'note'))}</small>
           </span>
         </button>`;
       }).join('')

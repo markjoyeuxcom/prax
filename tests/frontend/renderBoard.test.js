@@ -72,6 +72,40 @@ test('board card uses bracket card markup with priority stripe', () => {
   assert.match(html, /2026-05-19/);
 });
 
+test('board cards render a priority dot matching the stripe', () => {
+  const tasks = [
+    { id: 'h', title: 'High', priority: 'high', status: 'high-priority', sortOrder: 0 },
+    { id: 'l', title: 'Low', priority: 'low', status: 'planned', sortOrder: 0 },
+  ];
+  const html = renderBoardHtml(tasks, null);
+  assert.match(html, /board-card__dot board-card__dot--hi/);
+  assert.match(html, /board-card__dot board-card__dot--lo/);
+});
+
+test('board flags overdue and due-soon dates relative to today', () => {
+  const tasks = [
+    { id: 'o', title: 'Overdue', priority: 'high', status: 'planned', sortOrder: 0, dueDate: '2026-05-18' },
+    { id: 's', title: 'Soon', priority: 'medium', status: 'planned', sortOrder: 1, dueDate: '2026-05-22' },
+    { id: 'f', title: 'Far', priority: 'low', status: 'planned', sortOrder: 2, dueDate: '2026-06-30' },
+  ];
+  const html = renderBoardHtml(tasks, null, { today: '2026-05-21' });
+  // Card shows the compact MM-DD; the full ISO date is kept as a tooltip.
+  assert.match(html, /board-card__due--over[^>]*title="2026-05-18"[^>]*>05-18 ⚠/);
+  assert.match(html, /board-card__due--soon[^>]*>05-22/);
+  assert.match(html, /board-card__due--ok[^>]*>06-30/);
+});
+
+test('board shows a project chip only in the all-projects view', () => {
+  const tasks = [{ id: 'a', title: 'X', priority: 'medium', status: 'planned', sortOrder: 0, projectId: 'p1' }];
+  const projects = [{ id: 'p1', name: 'Homelab', slug: 'homelab', status: 'active' }];
+
+  const withChips = renderBoardHtml(tasks, null, { showProjectChips: true, projects });
+  assert.match(withChips, /class="board-card__chip">Homelab</);
+
+  const withoutChips = renderBoardHtml(tasks, null, { showProjectChips: false, projects });
+  assert.doesNotMatch(withoutChips, /board-card__chip/);
+});
+
 test('board column header includes a collapse toggle', () => {
   const html = renderBoardHtml([], null, { boardOpenSections: { 'high-priority': true } });
   assert.match(html, /data-action="toggle-board-section"[^>]*data-section="high-priority"/);

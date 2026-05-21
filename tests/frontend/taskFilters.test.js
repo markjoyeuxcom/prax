@@ -9,7 +9,6 @@ const tasks = [
     description: 'Verify backup schedule',
     priority: 'high',
     status: 'planned',
-    context: 'homelab',
     dueDate: '2026-05-17',
   },
   {
@@ -18,7 +17,6 @@ const tasks = [
     description: 'Work planning',
     priority: 'medium',
     status: 'in-progress',
-    tab: 'work',
     dueDate: null,
   },
 ];
@@ -35,7 +33,6 @@ test('filterTasks matches title and description case-insensitively', () => {
 
 test('filterTasks matches metadata fields', () => {
   assert.deepEqual(filterTasks(tasks, 'in progress').map(task => task.id), ['task-2']);
-  assert.deepEqual(filterTasks(tasks, 'homelab').map(task => task.id), ['task-1']);
   assert.deepEqual(filterTasks(tasks, '2026-05-17').map(task => task.id), ['task-1']);
 });
 

@@ -27,12 +27,12 @@ const BASE = 'http://127.0.0.1:3000';
 test('listDocuments builds query string and omits empty params', async () => {
   const fetch = recordingFetch(jsonResponse(200, [{ id: 'd1' }]));
   const client = createMoomoraClient({ baseUrl: BASE, fetch });
-  const docs = await client.listDocuments({ q: 'backup', context: 'homelab', documentType: undefined });
+  const docs = await client.listDocuments({ q: 'backup', project: 'homelab', documentType: undefined });
   assert.deepEqual(docs, [{ id: 'd1' }]);
   const url = new URL(fetch.calls[0].url);
   assert.equal(url.pathname, '/api/library/documents');
   assert.equal(url.searchParams.get('q'), 'backup');
-  assert.equal(url.searchParams.get('context'), 'homelab');
+  assert.equal(url.searchParams.get('project'), 'homelab');
   assert.equal(url.searchParams.has('documentType'), false);
   assert.equal(fetch.calls[0].options.method, 'GET');
 });
@@ -50,11 +50,11 @@ test('adds Authorization header only when a token is set', async () => {
 test('createDocument POSTs a JSON body and returns the created doc', async () => {
   const fetch = recordingFetch(jsonResponse(201, { id: 'd9', title: 'New' }));
   const client = createMoomoraClient({ baseUrl: BASE, fetch });
-  const doc = await client.createDocument({ title: 'New', body: 'b', documentType: 'note', context: 'work' });
+  const doc = await client.createDocument({ title: 'New', body: 'b', documentType: 'note', project: 'work' });
   assert.deepEqual(doc, { id: 'd9', title: 'New' });
   assert.equal(fetch.calls[0].options.method, 'POST');
   assert.deepEqual(JSON.parse(fetch.calls[0].options.body), {
-    title: 'New', body: 'b', documentType: 'note', context: 'work',
+    title: 'New', body: 'b', documentType: 'note', project: 'work',
   });
 });
 

@@ -264,9 +264,15 @@ test('library tags drawer is open when isLibraryTagsDrawerOpen is true', () => {
   assert.match(html, /class="library-tag-filter__drawer is-open"/);
 });
 
+const TEST_PROJECTS = [
+  { id: 'p1', name: 'Homelab', slug: 'homelab', status: 'active' },
+  { id: 'p2', name: 'Work', slug: 'work', status: 'active' },
+];
+
 test('renderDocumentFormHtml renders create and edit fields', () => {
   const html = renderDocumentFormHtml({
-    activeContext: 'homelab',
+    projects: TEST_PROJECTS,
+    values: { project: 'p1' },
     document: documents[0],
     error: 'Title is required.',
   });
@@ -279,10 +285,14 @@ test('renderDocumentFormHtml renders create and edit fields', () => {
   assert.match(html, /value="runbook" selected/);
   assert.match(html, /name="tags"/);
   assert.match(html, /postgres, backup/);
+  assert.match(html, /name="project"[\s\S]*value="p1" selected/);
+  assert.match(html, /<option value="p1"[^>]*>Homelab<\/option>/);
+  assert.match(html, /<option value="p2"[^>]*>Work<\/option>/);
+  assert.doesNotMatch(html, /name="context"/);
 });
 
 test('document form renders both desktop and mobile modal headers', () => {
-  const html = renderDocumentFormHtml({ document: null, activeContext: 'homelab', error: '', isSaving: false });
+  const html = renderDocumentFormHtml({ document: null, projects: TEST_PROJECTS, error: '', isSaving: false });
   assert.match(html, /class="modal-header--desktop"/);
   assert.match(html, /class="modal-header--mobile"/);
   assert.match(html, /<button[^>]*type="submit"[^>]*form="document-form"[^>]*>\[s\] save/);

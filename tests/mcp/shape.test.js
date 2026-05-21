@@ -12,12 +12,12 @@ test('snippet collapses whitespace and truncates to max length', () => {
 test('toDocumentRef drops the body and adds a snippet', () => {
   const doc = {
     id: 'd1', title: 'Runbook', body: 'full body text here',
-    documentType: 'runbook', context: 'homelab', tags: ['k8s'], extra: 'ignored',
+    documentType: 'runbook', projectId: 'homelab', tags: ['k8s'], extra: 'ignored',
   };
   const ref = toDocumentRef(doc);
   assert.deepEqual(ref, {
     id: 'd1', title: 'Runbook', documentType: 'runbook',
-    context: 'homelab', tags: ['k8s'], snippet: 'full body text here',
+    projectId: 'homelab', tags: ['k8s'], snippet: 'full body text here',
   });
   assert.equal('body' in ref, false);
 });
@@ -25,11 +25,11 @@ test('toDocumentRef drops the body and adds a snippet', () => {
 test('toTaskRef keeps summary fields only', () => {
   const task = {
     id: 't1', title: 'Backup', description: 'long', status: 'planned',
-    priority: 'high', context: 'homelab', dueDate: '2026-05-12', sortOrder: 3,
+    priority: 'high', projectId: 'homelab', dueDate: '2026-05-12', sortOrder: 3,
   };
   assert.deepEqual(toTaskRef(task), {
     id: 't1', title: 'Backup', status: 'planned',
-    priority: 'high', context: 'homelab', dueDate: '2026-05-12',
+    priority: 'high', projectId: 'homelab', dueDate: '2026-05-12',
   });
 });
 

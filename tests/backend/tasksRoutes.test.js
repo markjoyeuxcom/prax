@@ -12,6 +12,18 @@ const IMPORTED_TASK_IDS = [
   '55555555-5555-4555-8555-555555555555',
   '66666666-6666-4666-8666-666666666666',
 ];
+const PROJECT_UUID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+function createFakeProjectsRepository() {
+  return {
+    async resolveProject(value) {
+      if (value === 'homelab' || value === PROJECT_UUID) {
+        return { id: PROJECT_UUID, slug: 'homelab', status: 'active' };
+      }
+      return null;
+    },
+  };
+}
 
 function createFakeRepository() {
   const tasks = [
@@ -21,7 +33,7 @@ function createFakeRepository() {
       description: '',
       priority: 'high',
       status: 'planned',
-      context: 'homelab',
+      projectId: PROJECT_UUID,
       dueDate: '2026-05-12',
       sortOrder: 0,
       createdAt: 'now',
@@ -34,14 +46,14 @@ function createFakeRepository() {
       id: DOCUMENT_ID,
       title: 'CloudNativePG Restore',
       documentType: 'runbook',
-      context: 'homelab',
+      projectId: PROJECT_UUID,
     },
   ];
   const links = [];
   return {
     async listTasks(filters = {}) {
       return tasks.filter((task) => {
-        if (filters.context && task.context !== filters.context) return false;
+        if (filters.projectId && task.projectId !== filters.projectId) return false;
         if (filters.status && task.status !== filters.status) return false;
         if (filters.archived === true || filters.archived === 'true') return Boolean(task.archivedAt);
         if (filters.archived !== 'all') return !task.archivedAt;
@@ -69,9 +81,9 @@ function createFakeRepository() {
       tasks.push(...created);
       return created;
     },
-    async replaceContextTasks(context, importedTasks) {
+    async replaceProjectTasks(projectId, importedTasks) {
       for (let index = tasks.length - 1; index >= 0; index -= 1) {
-        if (tasks[index].context === context) tasks.splice(index, 1);
+        if (tasks[index].projectId === projectId) tasks.splice(index, 1);
       }
       return this.importTasks(importedTasks);
     },
@@ -135,6 +147,7 @@ test('GET /api/tasks returns tasks from repository', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -150,7 +163,7 @@ test('GET /api/tasks returns tasks from repository', async () => {
       description: '',
       priority: 'high',
       status: 'planned',
-      context: 'homelab',
+      projectId: PROJECT_UUID,
       dueDate: '2026-05-12',
       sortOrder: 0,
       createdAt: 'now',
@@ -162,28 +175,98 @@ test('GET /api/tasks returns tasks from repository', async () => {
   await app.close();
 });
 
-test('GET /api/tasks/export returns a versioned context export', async () => {
+test('GET /api/tasks?project=homelab filters by resolved projectId', async () => {
+  const calls = [];
+  const repository = {
+    ...createFakeRepository(),
+    async listTasks(filters) {
+      calls.push(filters);
+      return [];
+    },
+  };
   const app = await buildApp({
     skipDb: true,
-    tasksRepository: createFakeRepository(),
+    tasksRepository: repository,
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
     method: 'GET',
-    url: '/api/tasks/export?context=homelab',
+    url: '/api/tasks?project=homelab',
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(calls[0].projectId, PROJECT_UUID);
+
+  await app.close();
+});
+
+test('GET /api/tasks?project=<unknown> returns 400 (not a cross-project query)', async () => {
+  let listed = false;
+  const repository = {
+    ...createFakeRepository(),
+    async listTasks() { listed = true; return []; },
+  };
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: repository,
+    projectsRepository: createFakeProjectsRepository(),
+  });
+
+  const response = await app.inject({ method: 'GET', url: '/api/tasks?project=nope' });
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json().message, 'project is invalid');
+  assert.equal(listed, false);
+
+  await app.close();
+});
+
+test('PATCH /api/tasks/:id rejects a raw projectId (must use project slug-or-id)', async () => {
+  let updated = false;
+  const repository = {
+    ...createFakeRepository(),
+    async updateTask() { updated = true; return null; },
+  };
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: repository,
+    projectsRepository: createFakeProjectsRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'PATCH',
+    url: `/api/tasks/${TASK_ID}`,
+    payload: { projectId: PROJECT_UUID },
+  });
+  assert.equal(response.statusCode, 400);
+  assert.equal(updated, false);
+
+  await app.close();
+});
+
+test('GET /api/tasks/export returns a versioned project export', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'GET',
+    url: '/api/tasks/export?project=homelab',
   });
 
   assert.equal(response.statusCode, 200);
   assert.equal(response.json().format, 'moomora.tasks');
   assert.equal(response.json().version, 1);
-  assert.equal(response.json().context, 'homelab');
+  assert.equal(response.json().project, 'homelab');
   assert.match(response.json().exportedAt, /^\d{4}-\d{2}-\d{2}T/);
   assert.equal(response.json().tasks.length, 1);
 
   await app.close();
 });
 
-test('GET /api/tasks/export returns an all-context backup', async () => {
+test('GET /api/tasks/export returns an all-project backup', async () => {
   const repository = createFakeRepository();
   await repository.importTasks([
     {
@@ -191,7 +274,7 @@ test('GET /api/tasks/export returns an all-context backup', async () => {
       description: '',
       priority: 'low',
       status: 'completed',
-      context: 'personal',
+      projectId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
       dueDate: null,
       sortOrder: 0,
       archivedAt: '2026-05-11T12:00:00.000Z',
@@ -200,27 +283,36 @@ test('GET /api/tasks/export returns an all-context backup', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: repository,
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
     method: 'GET',
-    url: '/api/tasks/export?context=all',
+    url: '/api/tasks/export?project=all',
   });
 
   assert.equal(response.statusCode, 200);
   assert.equal(response.json().format, 'moomora.tasks');
   assert.equal(response.json().version, 1);
-  assert.equal(response.json().context, 'all');
-  assert.deepEqual(response.json().tasks.map(task => task.context).sort(), ['homelab', 'personal']);
-  assert.equal(response.json().tasks.find(task => task.context === 'personal').archivedAt, '2026-05-11T12:00:00.000Z');
+  assert.equal(response.json().project, 'all');
+  assert.equal(response.json().tasks.length, 2);
 
   await app.close();
 });
 
-test('POST /api/tasks creates a task', async () => {
+test('POST /api/tasks creates a task with project slug resolved to projectId', async () => {
+  const calls = [];
+  const repository = {
+    ...createFakeRepository(),
+    async createTask(task) {
+      calls.push(task);
+      return { id: CREATED_TASK_ID, ...task, createdAt: 'now', updatedAt: 'now', archivedAt: null };
+    },
+  };
   const app = await buildApp({
     skipDb: true,
-    tasksRepository: createFakeRepository(),
+    tasksRepository: repository,
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -231,7 +323,7 @@ test('POST /api/tasks creates a task', async () => {
       description: '',
       priority: 'high',
       status: 'planned',
-      context: 'homelab',
+      project: 'homelab',
       dueDate: '2026-05-12',
       sortOrder: 0,
     },
@@ -240,28 +332,82 @@ test('POST /api/tasks creates a task', async () => {
   assert.equal(response.statusCode, 201);
   assert.equal(response.json().title, 'Back up CloudNativePG');
   assert.equal(response.json().id, CREATED_TASK_ID);
+  assert.equal(calls[0].projectId, PROJECT_UUID);
 
   await app.close();
 });
 
-test('POST /api/tasks/import imports sanitized tasks into the requested context', async () => {
+test('POST /api/tasks rejects unknown project with 400', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/tasks',
+    payload: {
+      title: 'Bad task',
+      description: '',
+      priority: 'high',
+      status: 'planned',
+      project: 'nope',
+      dueDate: null,
+      sortOrder: 0,
+    },
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json().message, 'project is invalid');
+
+  await app.close();
+});
+
+test('POST /api/tasks rejects missing project with 400', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/tasks',
+    payload: {
+      title: 'Bad task',
+      description: '',
+      priority: 'high',
+      status: 'planned',
+      dueDate: null,
+      sortOrder: 0,
+    },
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().message, /project/);
+
+  await app.close();
+});
+
+test('POST /api/tasks/import imports sanitized tasks into the requested project', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
     method: 'POST',
     url: '/api/tasks/import',
     payload: {
-      context: 'homelab',
+      project: 'homelab',
       tasks: [
         {
           title: '  Imported task  ',
           description: '  From backup  ',
           priority: 'medium',
           status: 'planned',
-          context: 'work',
           dueDate: '2026-05-18',
           sortOrder: 2,
           archivedAt: null,
@@ -276,7 +422,7 @@ test('POST /api/tasks/import imports sanitized tasks into the requested context'
   assert.equal(response.json().skipped, 0);
   assert.equal(response.json().tasks[0].title, 'Imported task');
   assert.equal(response.json().tasks[0].description, 'From backup');
-  assert.equal(response.json().tasks[0].context, 'homelab');
+  assert.equal(response.json().tasks[0].projectId, PROJECT_UUID);
 
   await app.close();
 });
@@ -285,13 +431,14 @@ test('POST /api/tasks/import skips duplicates by default', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
     method: 'POST',
     url: '/api/tasks/import',
     payload: {
-      context: 'homelab',
+      project: 'homelab',
       tasks: [
         {
           title: ' back up cloudnativepg ',
@@ -317,13 +464,14 @@ test('POST /api/tasks/import appends duplicates when requested', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
     method: 'POST',
     url: '/api/tasks/import',
     payload: {
-      context: 'homelab',
+      project: 'homelab',
       mode: 'append',
       tasks: [
         {
@@ -345,15 +493,16 @@ test('POST /api/tasks/import appends duplicates when requested', async () => {
   await app.close();
 });
 
-test('POST /api/tasks/import replaces the selected context when requested', async () => {
+test('POST /api/tasks/import replaces the selected project when requested', async () => {
   const repository = createFakeRepository();
+  const OTHER_PROJECT_UUID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
   await repository.importTasks([
     {
       title: 'Personal stays',
       description: '',
       priority: 'low',
       status: 'planned',
-      context: 'personal',
+      projectId: OTHER_PROJECT_UUID,
       dueDate: null,
       sortOrder: 0,
       archivedAt: null,
@@ -362,13 +511,14 @@ test('POST /api/tasks/import replaces the selected context when requested', asyn
   const app = await buildApp({
     skipDb: true,
     tasksRepository: repository,
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
     method: 'POST',
     url: '/api/tasks/import',
     payload: {
-      context: 'homelab',
+      project: 'homelab',
       mode: 'replace',
       tasks: [
         {
@@ -398,13 +548,14 @@ test('POST /api/tasks/import rejects invalid import modes', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
     method: 'POST',
     url: '/api/tasks/import',
     payload: {
-      context: 'homelab',
+      project: 'homelab',
       mode: 'merge',
       tasks: [{ title: 'Imported task' }],
     },
@@ -420,13 +571,14 @@ test('POST /api/tasks/import accepts exported envelope payloads', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
     method: 'POST',
     url: '/api/tasks/import',
     payload: {
-      context: 'homelab',
+      project: 'homelab',
       format: 'moomora.tasks',
       version: 1,
       tasks: [
@@ -452,13 +604,14 @@ test('POST /api/tasks/import rejects legacy TaskBoard envelope payloads', async 
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
     method: 'POST',
     url: '/api/tasks/import',
     payload: {
-      context: 'homelab',
+      project: 'homelab',
       format: 'taskboard.tasks',
       tasks: [
         {
@@ -476,23 +629,24 @@ test('POST /api/tasks/import rejects legacy TaskBoard envelope payloads', async 
   await app.close();
 });
 
-test('POST /api/tasks/import rejects invalid context', async () => {
+test('POST /api/tasks/import rejects unknown project', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
     method: 'POST',
     url: '/api/tasks/import',
     payload: {
-      context: 'cluster',
+      project: 'cluster',
       tasks: [{ title: 'Imported task' }],
     },
   });
 
   assert.equal(response.statusCode, 400);
-  assert.match(response.json().message, /context/);
+  assert.match(response.json().message, /project/);
 
   await app.close();
 });
@@ -501,13 +655,14 @@ test('POST /api/tasks/import rejects empty tasks', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
     method: 'POST',
     url: '/api/tasks/import',
     payload: {
-      context: 'homelab',
+      project: 'homelab',
       tasks: [],
     },
   });
@@ -522,13 +677,14 @@ test('POST /api/tasks/import rejects invalid task payloads', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
     method: 'POST',
     url: '/api/tasks/import',
     payload: {
-      context: 'homelab',
+      project: 'homelab',
       tasks: [{ title: '', priority: 'urgent' }],
     },
   });
@@ -543,6 +699,7 @@ test('POST /api/tasks rejects invalid priority', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -553,7 +710,7 @@ test('POST /api/tasks rejects invalid priority', async () => {
       description: '',
       priority: 'urgent',
       status: 'planned',
-      context: 'homelab',
+      project: 'homelab',
       dueDate: null,
       sortOrder: 0,
     },
@@ -569,6 +726,7 @@ test('POST /api/tasks rejects invalid dueDate', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -579,7 +737,7 @@ test('POST /api/tasks rejects invalid dueDate', async () => {
       description: '',
       priority: 'high',
       status: 'planned',
-      context: 'homelab',
+      project: 'homelab',
       dueDate: 'not-a-date',
       sortOrder: 0,
     },
@@ -595,6 +753,7 @@ test('POST /api/tasks rejects invalid sortOrder', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -605,7 +764,7 @@ test('POST /api/tasks rejects invalid sortOrder', async () => {
       description: '',
       priority: 'high',
       status: 'planned',
-      context: 'homelab',
+      project: 'homelab',
       dueDate: null,
       sortOrder: 'abc',
     },
@@ -621,6 +780,7 @@ test('POST /api/tasks rejects fractional sortOrder', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -631,7 +791,7 @@ test('POST /api/tasks rejects fractional sortOrder', async () => {
       description: '',
       priority: 'high',
       status: 'planned',
-      context: 'homelab',
+      project: 'homelab',
       dueDate: null,
       sortOrder: 1.5,
     },
@@ -647,6 +807,7 @@ test('POST /api/tasks rejects out-of-range sortOrder', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -657,7 +818,7 @@ test('POST /api/tasks rejects out-of-range sortOrder', async () => {
       description: '',
       priority: 'high',
       status: 'planned',
-      context: 'homelab',
+      project: 'homelab',
       dueDate: null,
       sortOrder: 2147483648,
     },
@@ -673,6 +834,7 @@ test('PATCH /api/tasks/:id updates task with valid partial payload', async () =>
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -694,10 +856,40 @@ test('PATCH /api/tasks/:id updates task with valid partial payload', async () =>
   await app.close();
 });
 
+test('PATCH /api/tasks/:id with project slug resolves to projectId', async () => {
+  const calls = [];
+  const repository = {
+    ...createFakeRepository(),
+    async updateTask(id, fields) {
+      calls.push({ id, fields });
+      return { id, ...fields, createdAt: 'now', updatedAt: 'now', archivedAt: null };
+    },
+  };
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: repository,
+    projectsRepository: createFakeProjectsRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'PATCH',
+    url: `/api/tasks/${TASK_ID}`,
+    payload: {
+      project: 'homelab',
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(calls[0].fields.projectId, PROJECT_UUID);
+
+  await app.close();
+});
+
 test('PATCH /api/tasks/:id rejects empty body', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -716,6 +908,7 @@ test('PATCH /api/tasks/:id rejects invalid priority', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -736,6 +929,7 @@ test('PATCH /api/tasks/:id rejects invalid dueDate', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -756,6 +950,7 @@ test('PATCH /api/tasks/:id rejects fractional sortOrder', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -776,6 +971,7 @@ test('PATCH /api/tasks/:id rejects out-of-range sortOrder', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -804,6 +1000,7 @@ test('PATCH /api/tasks/:id rejects malformed task id before repository lookup', 
   const app = await buildApp({
     skipDb: true,
     tasksRepository: repository,
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -825,6 +1022,7 @@ test('PATCH /api/tasks/:id returns 404 for unknown task', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -846,6 +1044,7 @@ test('PATCH /api/tasks/reorder updates status and sort order in batch', async ()
   const app = await buildApp({
     skipDb: true,
     tasksRepository: repository,
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -871,6 +1070,7 @@ test('PATCH /api/tasks/reorder rejects invalid payload shape', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -889,6 +1089,7 @@ test('PATCH /api/tasks/reorder rejects invalid task ids', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -909,6 +1110,7 @@ test('PATCH /api/tasks/reorder rejects invalid status values', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -929,6 +1131,7 @@ test('PATCH /api/tasks/reorder rejects invalid sort orders', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -949,6 +1152,7 @@ test('DELETE /api/tasks/:id archives existing task', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -968,6 +1172,7 @@ test('PATCH /api/tasks/:id/restore restores an archived task', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: repository,
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -994,6 +1199,7 @@ test('PATCH /api/tasks/:id/restore rejects malformed task id before repository l
   const app = await buildApp({
     skipDb: true,
     tasksRepository: repository,
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -1012,6 +1218,7 @@ test('PATCH /api/tasks/:id/restore returns 404 for unknown or active task', asyn
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -1031,6 +1238,7 @@ test('DELETE /api/tasks/:id/permanent deletes an archived task', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: repository,
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -1050,6 +1258,7 @@ test('DELETE /api/tasks/:id/permanent rejects active tasks', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -1075,6 +1284,7 @@ test('DELETE /api/tasks/:id/permanent rejects malformed task id before repositor
   const app = await buildApp({
     skipDb: true,
     tasksRepository: repository,
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -1101,6 +1311,7 @@ test('DELETE /api/tasks/:id rejects malformed task id before repository lookup',
   const app = await buildApp({
     skipDb: true,
     tasksRepository: repository,
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -1119,6 +1330,7 @@ test('DELETE /api/tasks/:id returns 404 for unknown task', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -1138,6 +1350,7 @@ test('GET /api/tasks/:id/documents returns linked document list', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: repository,
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -1157,6 +1370,7 @@ test('GET /api/tasks/:id/documents rejects malformed task id', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -1174,6 +1388,7 @@ test('POST /api/tasks/:id/documents links a document and returns 201 with update
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -1195,6 +1410,7 @@ test('POST /api/tasks/:id/documents returns 200 when link already exists (idempo
   const app = await buildApp({
     skipDb: true,
     tasksRepository: repository,
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -1214,6 +1430,7 @@ test('POST /api/tasks/:id/documents rejects malformed task id', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -1232,6 +1449,7 @@ test('POST /api/tasks/:id/documents rejects malformed documentId', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -1250,6 +1468,7 @@ test('POST /api/tasks/:id/documents returns 404 when task or document missing', 
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -1270,6 +1489,7 @@ test('DELETE /api/tasks/:id/documents/:documentId removes link and returns updat
   const app = await buildApp({
     skipDb: true,
     tasksRepository: repository,
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -1287,6 +1507,7 @@ test('DELETE /api/tasks/:id/documents/:documentId returns 404 for missing link',
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -1304,6 +1525,7 @@ test('DELETE /api/tasks/:id/documents/:documentId rejects malformed task id', as
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({
@@ -1321,6 +1543,7 @@ test('DELETE /api/tasks/:id/documents/:documentId rejects malformed documentId',
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
   });
 
   const response = await app.inject({

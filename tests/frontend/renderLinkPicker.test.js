@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { renderLinkPickerHtml } from '../../public/js/renderLinkPicker.js';
 
 const sampleDocuments = [
-  { id: 'doc-1', title: 'Deploy Runbook', documentType: 'runbook', context: 'homelab', tags: ['deploy'] },
-  { id: 'doc-2', title: 'Ops Note', documentType: 'note', context: 'work', tags: ['ops'] },
-  { id: 'doc-3', title: 'Homelab Setup', documentType: 'runbook', context: 'homelab', tags: ['setup'] },
+  { id: 'doc-1', title: 'Deploy Runbook', documentType: 'runbook', projectId: 'homelab', tags: ['deploy'] },
+  { id: 'doc-2', title: 'Ops Note', documentType: 'note', projectId: 'work', tags: ['ops'] },
+  { id: 'doc-3', title: 'Homelab Setup', documentType: 'runbook', projectId: 'homelab', tags: ['setup'] },
 ];
 
 test('link picker renders a modal backdrop and dialog', () => {
@@ -51,13 +51,6 @@ test('link picker filters by query against documentType', () => {
   assert.doesNotMatch(html, /Deploy Runbook/);
 });
 
-test('link picker filters by query against context', () => {
-  const html = renderLinkPickerHtml({ documents: sampleDocuments, query: 'work' });
-  assert.match(html, /Ops Note/);
-  assert.doesNotMatch(html, /Deploy Runbook/);
-  assert.doesNotMatch(html, /Homelab Setup/);
-});
-
 test('link picker filters by query against tags', () => {
   const html = renderLinkPickerHtml({ documents: sampleDocuments, query: 'setup' });
   assert.match(html, /Homelab Setup/);
@@ -88,7 +81,7 @@ test('link picker renders close action buttons', () => {
 });
 
 test('link picker escapes HTML in document titles', () => {
-  const docs = [{ id: 'doc-x', title: '<script>alert(1)</script>', documentType: 'note', context: 'homelab', tags: [] }];
+  const docs = [{ id: 'doc-x', title: '<script>alert(1)</script>', documentType: 'note', projectId: 'homelab', tags: [] }];
   const html = renderLinkPickerHtml({ documents: docs });
   assert.doesNotMatch(html, /<script>/);
   assert.match(html, /&lt;script&gt;/);

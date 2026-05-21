@@ -31,6 +31,7 @@ function renderFontScaleButton(value, activeValue) {
 function paletteDescription(value) {
   if (value === 'graphite') return 'Neutral dark, less blue';
   if (value === 'daylight') return 'GitHub-like light mode';
+  if (value === 'midnight') return 'GitHub-dark with a blue accent';
   return 'Current dark console palette';
 }
 

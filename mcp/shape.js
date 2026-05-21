@@ -11,7 +11,7 @@ export function toDocumentRef(doc) {
     id: doc.id,
     title: doc.title,
     documentType: doc.documentType,
-    context: doc.context,
+    projectId: doc.projectId,
     tags: doc.tags ?? [],
     snippet: snippet(doc.body),
   };
@@ -23,7 +23,7 @@ export function toTaskRef(task) {
     title: task.title,
     status: task.status,
     priority: task.priority,
-    context: task.context,
+    projectId: task.projectId,
     dueDate: task.dueDate ?? null,
   };
 }

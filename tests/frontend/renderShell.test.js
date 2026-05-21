@@ -2,23 +2,31 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { renderShellHtml } from '../../public/js/renderShell.js';
 
-test('renderShellHtml includes navigation, context filters, status, and metrics', () => {
+// ---------------------------------------------------------------------------
+// Project nav — core assertions
+// ---------------------------------------------------------------------------
+
+test('renderShellHtml renders All-projects button active when activeProject is "all"', () => {
   const html = renderShellHtml({
+    activeProject: 'all',
+    projects: [{ id: 'p1', name: 'Homelab', slug: 'homelab', status: 'active' }],
     activeView: 'list',
-    activeContext: 'homelab',
-    metrics: {
-      dueToday: 4,
-      overdue: 1,
-      inProgress: 7,
-      completedThisWeek: 18,
-    },
+    metrics: { dueToday: 4, overdue: 1, inProgress: 7, completedThisWeek: 18 },
   });
 
-  assert.match(html, /Today/);
+  // "All projects" button with active class (class comes before data-project in markup)
+  assert.match(html, /class="nav-button is-active"[^>]*data-project="all"/);
+  // Project button present
+  assert.match(html, /data-project="p1"/);
+  assert.match(html, /Homelab/);
+  // Action buttons present
+  assert.match(html, /data-action="new-project"/);
+  assert.match(html, /data-action="open-project-manager"/);
+  // Standard shell elements still present
+  assert.match(html, /Tasks/);
   assert.match(html, /Moomora Console/);
   assert.match(html, /aria-label="Moomora Console navigation"/);
   assert.match(html, /Board/);
-  assert.match(html, /Homelab/);
   assert.match(html, /Library/);
   assert.match(html, /Postgres/);
   assert.match(html, /Due today/);
@@ -28,10 +36,58 @@ test('renderShellHtml includes navigation, context filters, status, and metrics'
   assert.match(html, /aria-pressed="true"/);
 });
 
+test('renderShellHtml renders project button active when activeProject matches a project id', () => {
+  const html = renderShellHtml({
+    activeProject: 'p1',
+    projects: [{ id: 'p1', name: 'Homelab', slug: 'homelab', status: 'active' }],
+    activeView: 'list',
+    metrics: {},
+  });
+
+  // p1 button has active class; all-projects does not
+  assert.match(html, /class="nav-button is-active"[^>]*data-project="p1"/);
+  assert.doesNotMatch(html, /class="nav-button is-active"[^>]*data-project="all"/);
+  // Status-footer breadcrumb shows project name
+  assert.match(html, /moomora.*homelab/i);
+});
+
+test('renderShellHtml status-footer breadcrumb shows "all projects" when activeProject is "all"', () => {
+  const html = renderShellHtml({
+    activeProject: 'all',
+    projects: [],
+    activeView: 'list',
+    metrics: {},
+  });
+  assert.match(html, /moomora.*all projects/i);
+});
+
+test('renderShellHtml includes new-project and open-project-manager controls', () => {
+  const html = renderShellHtml({
+    activeProject: 'all',
+    projects: [],
+  });
+  assert.match(html, /data-action="new-project"/);
+  assert.match(html, /data-action="open-project-manager"/);
+});
+
+test('renderShellHtml groups manage and archived projects with new-project in the sidebar', () => {
+  const html = renderShellHtml({ activeProject: 'all', projects: [] });
+  // Manage/archived sit in the sidebar projects nav, styled like new-project (accent).
+  assert.match(html, /nav-button--accent" type="button" data-action="open-project-manager"/);
+  assert.match(html, /nav-button--accent" type="button" data-action="open-archived-projects"/);
+  // They are not in the topbar action group.
+  assert.doesNotMatch(html, /class="topbar-actions">[\s\S]*data-action="open-project-manager"/);
+});
+
+// ---------------------------------------------------------------------------
+// Existing tests updated to pass activeProject / projects instead of activeContext
+// ---------------------------------------------------------------------------
+
 test('renderShellHtml derives heading from active view', () => {
   const html = renderShellHtml({
     activeView: 'board',
-    activeContext: 'work',
+    activeProject: 'all',
+    projects: [],
     metrics: {},
   });
 
@@ -42,7 +98,8 @@ test('renderShellHtml derives heading from active view', () => {
 test('renderShellHtml derives Library heading and document action', () => {
   const html = renderShellHtml({
     activeView: 'library',
-    activeContext: 'homelab',
+    activeProject: 'all',
+    projects: [],
     metrics: {},
   });
 
@@ -58,6 +115,8 @@ test('renderShellHtml derives Library heading and document action', () => {
 test('renderShellHtml defaults missing metric values and reflects API status', () => {
   const html = renderShellHtml({
     apiStatus: 'error',
+    activeProject: 'all',
+    projects: [],
     metrics: {
       dueToday: 2,
       overdue: Number.NaN,
@@ -69,13 +128,13 @@ test('renderShellHtml defaults missing metric values and reflects API status', (
   assert.match(html, />0</);
 });
 
-test('renderShellHtml includes workflow hooks for search, context, and actions', () => {
+test('renderShellHtml includes workflow hooks for search and actions', () => {
   const html = renderShellHtml({
-    activeContext: 'work',
+    activeProject: 'all',
+    projects: [],
     searchQuery: 'backup',
   });
 
-  assert.match(html, /data-context="work"/);
   assert.match(html, /data-action="new-task"/);
   assert.match(html, /data-action="open-settings"/);
   assert.match(html, /data-action="open-admin"/);
@@ -86,7 +145,8 @@ test('renderShellHtml includes workflow hooks for search, context, and actions',
 
 test('shell renders a status footer with breadcrumb, sync, and mode tag', () => {
   const html = renderShellHtml({
-    activeContext: 'homelab',
+    activeProject: 'p1',
+    projects: [{ id: 'p1', name: 'Homelab', slug: 'homelab', status: 'active' }],
     activeView: 'list',
     apiStatus: 'connected',
     searchQuery: '',
@@ -94,14 +154,15 @@ test('shell renders a status footer with breadcrumb, sync, and mode tag', () => 
   });
   assert.match(html, /class="status-footer"/);
   assert.match(html, /class="status-footer__breadcrumb"/);
-  assert.match(html, /moomora.*today.*homelab/i);
+  assert.match(html, /moomora.*tasks.*homelab/i);
   assert.match(html, /class="status-footer__sync"/);
-  assert.match(html, /class="status-footer__mode">&lt;TODAY&gt;/);
+  assert.match(html, /class="status-footer__mode">&lt;TASKS&gt;/);
 });
 
 test('shell topbar renders bracket-style Admin and primary action buttons', () => {
   const html = renderShellHtml({
-    activeContext: 'homelab',
+    activeProject: 'all',
+    projects: [],
     activeView: 'list',
     apiStatus: 'connected',
     searchQuery: '',
@@ -113,7 +174,8 @@ test('shell topbar renders bracket-style Admin and primary action buttons', () =
 
 test('shell topbar primary action becomes new-document on library view', () => {
   const html = renderShellHtml({
-    activeContext: 'homelab',
+    activeProject: 'all',
+    projects: [],
     activeView: 'library',
     apiStatus: 'connected',
     searchQuery: '',
@@ -124,7 +186,8 @@ test('shell topbar primary action becomes new-document on library view', () => {
 
 test('shell renders bottom nav with 5 slots and active state', () => {
   const html = renderShellHtml({
-    activeContext: 'homelab', activeView: 'library',
+    activeProject: 'all', activeView: 'library',
+    projects: [],
     apiStatus: 'connected', searchQuery: '',
     metrics: { dueToday: 0, overdue: 0, inProgress: 0, completedThisWeek: 0 },
   });
@@ -135,23 +198,27 @@ test('shell renders bottom nav with 5 slots and active state', () => {
 
 test('shell bottom nav new slot dispatches new-document on library and new-task elsewhere', () => {
   const libHtml = renderShellHtml({
-    activeContext: 'homelab', activeView: 'library',
+    activeProject: 'all', activeView: 'library',
+    projects: [],
     apiStatus: 'connected', searchQuery: '',
     metrics: { dueToday: 0, overdue: 0, inProgress: 0, completedThisWeek: 0 },
   });
   assert.match(libHtml, /data-bottom-nav="new"[^>]*data-action="new-document"/);
 
   const todayHtml = renderShellHtml({
-    activeContext: 'homelab', activeView: 'list',
+    activeProject: 'all', activeView: 'list',
+    projects: [],
     apiStatus: 'connected', searchQuery: '',
     metrics: { dueToday: 0, overdue: 0, inProgress: 0, completedThisWeek: 0 },
   });
   assert.match(todayHtml, /data-bottom-nav="new"[^>]*data-action="new-task"/);
 });
 
-test('shell renders hamburger drawer with backlog, admin, contexts', () => {
+test('shell renders hamburger drawer with backlog, admin, and projects', () => {
   const html = renderShellHtml({
-    activeContext: 'homelab', activeView: 'list',
+    activeProject: 'all',
+    projects: [{ id: 'p1', name: 'Homelab', slug: 'homelab', status: 'active' }],
+    activeView: 'list',
     apiStatus: 'connected', searchQuery: '',
     metrics: { dueToday: 0, overdue: 0, inProgress: 0, completedThisWeek: 0 },
     isDrawerOpen: false,
@@ -159,12 +226,31 @@ test('shell renders hamburger drawer with backlog, admin, contexts', () => {
   assert.match(html, /class="hamburger-drawer"/);
   assert.match(html, /data-view="backlog"/);
   assert.match(html, /data-action="open-admin"/);
-  assert.match(html, /data-context="personal"/);
+  // Drawer shows projects section
+  assert.match(html, /data-project="all"/);
+  assert.match(html, /data-project="p1"/);
+  // Drawer active state follows activeProject ('all' here)
+  assert.match(html, /class="hamburger-drawer__item is-active"[^>]*data-project="all"/);
+  assert.doesNotMatch(html, /class="hamburger-drawer__item is-active"[^>]*data-project="p1"/);
+});
+
+test('project name with HTML characters is escaped in the nav and breadcrumb', () => {
+  const html = renderShellHtml({
+    activeProject: 'p1',
+    projects: [{ id: 'p1', name: '<script>alert(1)</script>', slug: 'x', status: 'active' }],
+    activeView: 'list',
+    apiStatus: 'connected', searchQuery: '',
+    metrics: { dueToday: 0, overdue: 0, inProgress: 0, completedThisWeek: 0 },
+  });
+  assert.doesNotMatch(html, /<script>alert\(1\)<\/script>/);
+  assert.match(html, /&lt;script&gt;/);
 });
 
 test('shell drawer is open when isDrawerOpen is true', () => {
   const html = renderShellHtml({
-    activeContext: 'homelab', activeView: 'list',
+    activeProject: 'all',
+    projects: [],
+    activeView: 'list',
     apiStatus: 'connected', searchQuery: '',
     metrics: { dueToday: 0, overdue: 0, inProgress: 0, completedThisWeek: 0 },
     isDrawerOpen: true,
@@ -174,7 +260,9 @@ test('shell drawer is open when isDrawerOpen is true', () => {
 
 test('shell renders hamburger trigger button', () => {
   const html = renderShellHtml({
-    activeContext: 'homelab', activeView: 'list',
+    activeProject: 'all',
+    projects: [],
+    activeView: 'list',
     apiStatus: 'connected', searchQuery: '',
     metrics: { dueToday: 0, overdue: 0, inProgress: 0, completedThisWeek: 0 },
   });
@@ -182,26 +270,63 @@ test('shell renders hamburger trigger button', () => {
 });
 
 test('topbar shows [↑] import only on the library view', () => {
-  const lib = renderShellHtml({ activeContext: 'homelab', activeView: 'library', apiStatus: 'connected', searchQuery: '', metrics: {} });
+  const lib = renderShellHtml({ activeProject: 'all', projects: [], activeView: 'library', apiStatus: 'connected', searchQuery: '', metrics: {} });
   assert.match(lib, /data-action="import-document"[^>]*>\[↑\] import/);
-  const today = renderShellHtml({ activeContext: 'homelab', activeView: 'list', apiStatus: 'connected', searchQuery: '', metrics: {} });
+  const today = renderShellHtml({ activeProject: 'all', projects: [], activeView: 'list', apiStatus: 'connected', searchQuery: '', metrics: {} });
   assert.doesNotMatch(today, /data-action="import-document"/);
 });
 
 test('topbar search placeholder is context-aware', () => {
-  const lib = renderShellHtml({ activeContext: 'homelab', activeView: 'library', apiStatus: 'connected', searchQuery: '', metrics: {} });
+  const lib = renderShellHtml({ activeProject: 'all', projects: [], activeView: 'library', apiStatus: 'connected', searchQuery: '', metrics: {} });
   assert.match(lib, /placeholder="Search documents"/);
   assert.match(lib, /Search documents<\/span>/);
 
-  const today = renderShellHtml({ activeContext: 'homelab', activeView: 'list', apiStatus: 'connected', searchQuery: '', metrics: {} });
+  const today = renderShellHtml({ activeProject: 'all', projects: [], activeView: 'list', apiStatus: 'connected', searchQuery: '', metrics: {} });
   assert.match(today, /placeholder="Search tasks"/);
   assert.match(today, /Search tasks<\/span>/);
 });
 
 test('hamburger drawer has inert when closed and not when open', () => {
-  const closed = renderShellHtml({ activeContext: 'homelab', activeView: 'list', apiStatus: 'connected', searchQuery: '', metrics: {}, isDrawerOpen: false });
+  const closed = renderShellHtml({ activeProject: 'all', projects: [], activeView: 'list', apiStatus: 'connected', searchQuery: '', metrics: {}, isDrawerOpen: false });
   assert.match(closed, /aria-hidden="true" inert/);
 
-  const open = renderShellHtml({ activeContext: 'homelab', activeView: 'list', apiStatus: 'connected', searchQuery: '', metrics: {}, isDrawerOpen: true });
+  const open = renderShellHtml({ activeProject: 'all', projects: [], activeView: 'list', apiStatus: 'connected', searchQuery: '', metrics: {}, isDrawerOpen: true });
   assert.doesNotMatch(open, / inert/);
+});
+
+// ---------------------------------------------------------------------------
+// Task 1: Views topbar tab strip + slim sidebar
+// ---------------------------------------------------------------------------
+
+test('topbar contains a topbar-tabs nav', () => {
+  const html = renderShellHtml({
+    activeProject: 'all',
+    projects: [],
+    activeView: 'board',
+    metrics: {},
+  });
+  assert.match(html, /class="topbar-tabs"/);
+  assert.match(html, /topbar-tabs[\s\S]*data-view="board"/);
+});
+
+test('sidebar no longer has a Views label', () => {
+  const html = renderShellHtml({
+    activeProject: 'all',
+    projects: [],
+    activeView: 'list',
+    metrics: {},
+  });
+  assert.doesNotMatch(html, /nav-label">Views/);
+});
+
+test('sidebar still has projects nav with expected controls', () => {
+  const html = renderShellHtml({
+    activeProject: 'all',
+    projects: [{ id: 'p1', name: 'Homelab', slug: 'homelab', status: 'active' }],
+    activeView: 'list',
+    metrics: {},
+  });
+  assert.match(html, /data-project="all"/);
+  assert.match(html, /data-action="new-project"/);
+  assert.match(html, /data-action="open-project-manager"/);
 });

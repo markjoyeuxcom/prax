@@ -6,12 +6,6 @@ const DOCUMENT_TYPES = [
   { value: 'note', label: 'Note' },
 ];
 
-const CONTEXTS = [
-  { value: 'personal', label: 'Personal' },
-  { value: 'work', label: 'Work' },
-  { value: 'homelab', label: 'Homelab' },
-];
-
 const MARKDOWN_TOOLS = [
   { action: 'heading', label: 'H2', title: 'Heading' },
   { action: 'bold', label: 'B', title: 'Bold' },
@@ -397,7 +391,8 @@ export function renderLibraryHtml({
 
 export function renderDocumentFormHtml({
   document = null,
-  activeContext = 'homelab',
+  projects = [],
+  values: valuesOverride = {},
   error = '',
   isSaving = false,
 } = {}) {
@@ -406,7 +401,7 @@ export function renderDocumentFormHtml({
     title: document?.title || '',
     body: document?.body || '',
     documentType: document?.documentType || 'note',
-    context: document?.context || activeContext,
+    project: valuesOverride.project || '',
     tags: Array.isArray(document?.tags) ? document.tags.join(', ') : '',
     sourceFilename: document?.sourceFilename || '',
   };
@@ -446,9 +441,10 @@ export function renderDocumentFormHtml({
               </select>
             </label>
             <label>
-              <span>Context</span>
-              <select name="context">${renderOptions(CONTEXTS, values.context)}
-              </select>
+              <span>Project</span>
+              <select name="project">${projects.map(project =>
+    `<option value="${escapeHtml(project.id)}"${project.id === values.project ? ' selected' : ''}>${escapeHtml(project.name)}</option>`
+  ).join('')}</select>
             </label>
             <label>
               <span>Tags</span>

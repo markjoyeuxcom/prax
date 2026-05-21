@@ -1,4 +1,7 @@
-import { state, setState } from './state.js';
+import { state, setState, loadActiveProject, persistActiveProject } from './state.js';
+import { fetchProjects, createProject, updateProject, archiveProject, deleteProjectPermanent } from './projectApi.js';
+import { renderProjectManagerHtml } from './renderProjectManager.js';
+import { renderProjectArchiveHtml } from './renderProjectArchive.js';
 import {
   archiveTask,
   createTask,
@@ -107,7 +110,9 @@ function editingTask() {
 
 function visibleDocumentsForCurrentView() {
   const query = state.searchQuery.trim().toLowerCase();
-  const contextDocuments = state.documents.filter(document => document.context === state.activeContext);
+  const contextDocuments = state.activeProject === 'all'
+    ? state.documents
+    : state.documents.filter(document => document.projectId === state.activeProject);
   const taggedDocuments = filterDocumentsByTags(contextDocuments, state.activeLibraryTags);
   const typeFilteredDocuments = filterDocumentsByType(taggedDocuments, state.libraryTypeFilter);
   const searchedDocuments = query
@@ -326,8 +331,7 @@ function renderWorkspace() {
   workspace.querySelectorAll('[data-action="open-linked-doc"]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const docId = btn.dataset.documentId;
-      const docContext = btn.dataset.documentContext || state.activeContext;
-      setState({ activeView: 'library', activeContext: docContext, selectedDocumentId: docId, mobileDetailOpen: false });
+      setState({ activeView: 'library', selectedDocumentId: docId, mobileDetailOpen: false });
       try {
         await loadDocuments({ selectedDocumentId: docId });
       } catch (error) {
@@ -426,7 +430,9 @@ function setupLibraryResizer(workspace, libraryWorkspaceElement) {
 }
 
 function renderLibraryWorkspace(workspace) {
-  const contextDocuments = state.documents.filter(document => document.context === state.activeContext);
+  const contextDocuments = state.activeProject === 'all'
+    ? state.documents
+    : state.documents.filter(document => document.projectId === state.activeProject);
   const visibleDocuments = visibleDocumentsForCurrentView();
   const document = selectedDocument();
   workspace.innerHTML = renderLibraryHtml({
@@ -1048,7 +1054,7 @@ function listOptionsForView(activeView) {
       title: 'Archived Tasks',
       countLabel: 'archived tasks',
       emptyTitle: 'No archived tasks',
-      emptyDescription: 'Archived work for this context will appear here.',
+      emptyDescription: 'Archived work will appear here.',
     };
   }
   return {
@@ -1061,7 +1067,12 @@ function listOptionsForView(activeView) {
 
 function renderWorkspacePrimary(visibleTasks, selectedTaskId) {
   if (state.activeView === 'board') {
-    return renderBoardHtml(visibleTasks, selectedTaskId, { boardOpenSections: state.boardOpenSections });
+    return renderBoardHtml(visibleTasks, selectedTaskId, {
+      boardOpenSections: state.boardOpenSections,
+      today: today(),
+      showProjectChips: state.activeProject === 'all',
+      projects: state.projects,
+    });
   }
 
   return renderListHtml(visibleTasks, selectedTaskId, listOptionsForView(state.activeView));
@@ -1070,7 +1081,8 @@ function renderWorkspacePrimary(visibleTasks, selectedTaskId) {
 function renderApp() {
   const metrics = buildMetrics(state.tasks, today());
   app.innerHTML = renderShellHtml({
-    activeContext: state.activeContext,
+    activeProject: state.activeProject,
+    projects: state.projects,
     activeView: state.activeView,
     apiStatus: state.apiStatus,
     searchQuery: state.searchQuery,
@@ -1081,7 +1093,8 @@ function renderApp() {
   if (state.isTaskFormOpen) {
     app.insertAdjacentHTML('beforeend', renderTaskFormHtml({
       task: editingTask(),
-      activeContext: state.activeContext,
+      projects: state.projects,
+      values: { project: editingTask()?.projectId || defaultProjectId() },
       error: state.formError,
       isSaving: state.isSaving,
     }));
@@ -1089,16 +1102,34 @@ function renderApp() {
   if (state.isDocumentFormOpen) {
     app.insertAdjacentHTML('beforeend', renderDocumentFormHtml({
       document: editingDocument(),
-      activeContext: state.activeContext,
+      projects: state.projects,
+      values: { project: editingDocument()?.projectId || defaultProjectId() },
       error: state.documentFormError,
       isSaving: state.isSaving,
     }));
   }
   if (state.isAdminPanelOpen) {
     app.insertAdjacentHTML('beforeend', renderAdminPanelHtml({
-      activeContext: state.activeContext,
+      activeProject: state.activeProject,
+      projects: state.projects,
       taskCount: state.tasks.length,
       importMode: state.adminImportMode,
+    }));
+  }
+  if (state.isProjectManagerOpen) {
+    const liveProjects = state.managedProjects.filter((p) => p.status !== 'archived');
+    const archivedCount = state.managedProjects.length - liveProjects.length;
+    app.insertAdjacentHTML('beforeend', renderProjectManagerHtml({
+      projects: liveProjects,
+      archivedCount,
+      error: state.projectManagerError,
+    }));
+  }
+  if (state.isProjectArchiveOpen) {
+    const archivedProjects = state.managedProjects.filter((p) => p.status === 'archived');
+    app.insertAdjacentHTML('beforeend', renderProjectArchiveHtml({
+      projects: archivedProjects,
+      error: state.projectManagerError,
     }));
   }
   if (state.isSettingsPanelOpen) {
@@ -1118,6 +1149,8 @@ function renderApp() {
   bindTaskFormEvents();
   bindDocumentFormEvents();
   bindAdminPanelEvents();
+  bindProjectManagerEvents();
+  bindProjectArchiveEvents();
   bindSettingsPanelEvents();
   bindLinkPickerEvents();
 }
@@ -1200,13 +1233,13 @@ function bindShellEvents() {
     renderWorkspace();
   });
 
-  app.querySelectorAll('[data-context]').forEach((button) => {
+  app.querySelectorAll('[data-project]').forEach((button) => {
     button.addEventListener('click', async () => {
-      const nextContext = button.dataset.context;
-      if (!nextContext || nextContext === state.activeContext) return;
+      const nextProject = button.dataset.project;
+      if (!nextProject || nextProject === state.activeProject) return;
       clearDocumentAutosave();
       setState({
-        activeContext: nextContext,
+        activeProject: nextProject,
         selectedTaskId: null,
         selectedDocumentId: null,
         activeLibraryTags: [],
@@ -1230,6 +1263,7 @@ function bindShellEvents() {
         isLibraryDocOpen: false,
         isLinkPickerOpen: false,
       });
+      persistActiveProject(nextProject);
       try {
         if (state.activeView === 'library') {
           await loadDocuments({ selectedDocumentId: null });
@@ -1239,6 +1273,55 @@ function bindShellEvents() {
       } catch (error) {
         setState({ apiStatus: 'error' });
         renderError(error.message);
+      }
+    });
+  });
+
+  app.querySelectorAll('[data-action="new-project"]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const name = window.prompt('New project name');
+      if (!name || !name.trim()) return;
+      try {
+        const project = await createProject(name.trim());
+        await loadProjects();
+        setState({ activeProject: project.id });
+        persistActiveProject(project.id);
+        if (state.activeView === 'library') await loadDocuments({ selectedDocumentId: null });
+        else await loadTasks({ selectedTaskId: null });
+      } catch {
+        window.alert('Moomora Console could not create that project.');
+      }
+    });
+  });
+
+  app.querySelectorAll('[data-action="open-project-manager"]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      try {
+        const managed = await fetchProjects('all');
+        setState({ isProjectManagerOpen: true, managedProjects: managed, projectManagerError: '', isDrawerOpen: false });
+        renderApp();
+      } catch {
+        window.alert('Moomora Console could not load projects.');
+      }
+    });
+  });
+
+  app.querySelectorAll('[data-action="open-archived-projects"]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      try {
+        const managed = await fetchProjects('all');
+        // Open the archive directly, with the manager layered underneath so the
+        // dialog's [<] back returns to Manage rather than the bare app.
+        setState({
+          isProjectManagerOpen: true,
+          isProjectArchiveOpen: true,
+          managedProjects: managed,
+          projectManagerError: '',
+          isDrawerOpen: false,
+        });
+        renderApp();
+      } catch {
+        window.alert('Moomora Console could not load projects.');
       }
     });
   });
@@ -1333,7 +1416,7 @@ function bindDocumentFormEvents() {
       title,
       body: String(data.get('body') || ''),
       documentType: String(data.get('documentType') || 'note'),
-      context: String(data.get('context') || state.activeContext),
+      project: String(data.get('project') || defaultProjectId()),
       tags: tagsFromFormValue(data.get('tags')),
       sourceFilename: String(data.get('sourceFilename') || '').trim() || null,
     };
@@ -1346,8 +1429,10 @@ function bindDocumentFormEvents() {
         ? await updateDocument(state.editingDocumentId, payload)
         : await createDocument(payload);
 
+      const nextProject = savedDocument.projectId || state.activeProject;
+      persistActiveProject(nextProject);
       setState({
-        activeContext: savedDocument.context || payload.context,
+        activeProject: nextProject,
         selectedDocumentId: savedDocument.id,
         isDocumentFormOpen: false,
         editingDocumentId: null,
@@ -1365,14 +1450,14 @@ function bindDocumentFormEvents() {
   });
 }
 
-async function exportAdminTasks(context) {
+async function exportAdminTasks(project) {
   try {
-    const exported = await exportTasks({ context });
-    downloadJsonFile(exportFilename(context), exported);
+    const exported = await exportTasks({ project });
+    downloadJsonFile(exportFilename(project), exported);
   } catch {
-    window.alert(context === 'all'
-      ? 'Moomora Console could not export all contexts.'
-      : 'Moomora Console could not export this context.');
+    window.alert(project === 'all'
+      ? 'Moomora Console could not export all projects.'
+      : 'Moomora Console could not export this project.');
   }
 }
 
@@ -1393,10 +1478,16 @@ async function importAdminFile(file, panel) {
     return;
   }
 
+  const importTarget = state.activeProject === 'all' ? state.projects[0]?.id : state.activeProject;
+  if (!importTarget) {
+    window.alert('Create a project before importing tasks.');
+    return;
+  }
+
   try {
     const payload = JSON.parse(await file.text());
     const tasks = tasksFromImportPayload(payload);
-    const result = await importTasks({ context: state.activeContext, mode, tasks });
+    const result = await importTasks({ project: importTarget, mode, tasks });
     const skipped = result.skipped ? ` Skipped ${result.skipped}.` : '';
     window.alert(`Imported ${result.imported} ${result.imported === 1 ? 'task' : 'tasks'}.${skipped}`);
     setState({ isAdminPanelOpen: false });
@@ -1407,13 +1498,18 @@ async function importAdminFile(file, panel) {
 }
 
 async function importLibraryMarkdownFile(file) {
+  const projectId = defaultProjectId();
+  if (!projectId) {
+    window.alert('Create a project before importing documents.');
+    return;
+  }
   try {
     const body = await file.text();
     const doc = await createDocument({
       title: titleFromMarkdown(body, file.name),
       body,
       documentType: 'note',
-      context: state.activeContext,
+      project: projectId,
       tags: [],
       sourceFilename: file.name || null,
     });
@@ -1433,8 +1529,8 @@ function bindAdminPanelEvents() {
     renderApp();
   });
 
-  panel.querySelector('[data-action="export-context"]')?.addEventListener('click', () => {
-    exportAdminTasks(state.activeContext);
+  panel.querySelector('[data-action="export-project"]')?.addEventListener('click', () => {
+    exportAdminTasks(state.activeProject);
   });
 
   panel.querySelector('[data-action="export-all"]')?.addEventListener('click', () => {
@@ -1469,6 +1565,173 @@ function bindAdminPanelEvents() {
       setState({ apiStatus: 'error' });
       renderError(error.message);
     }
+  });
+}
+
+async function refreshProjectManager() {
+  const managed = await fetchProjects('all');
+  await loadProjects();
+  // The nav only shows active projects, so if the selected project is no
+  // longer active (archived, on-hold, completed, or deleted) it can't be the
+  // highlighted selection — reset to 'all' to keep nav and breadcrumb honest.
+  if (state.activeProject !== 'all' && !state.projects.some((p) => p.id === state.activeProject)) {
+    setState({ activeProject: 'all' });
+    persistActiveProject('all');
+  }
+  setState({ managedProjects: managed });
+  renderApp();
+}
+
+function bindProjectManagerEvents() {
+  const panel = app.querySelector('[data-project-manager]');
+  if (!panel) return;
+
+  panel.querySelectorAll('[data-action="close-project-manager"]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      setState({ isProjectManagerOpen: false, projectManagerError: '' });
+      try {
+        if (state.activeView === 'library') await loadDocuments({ selectedDocumentId: null });
+        else await loadTasks({ selectedTaskId: null });
+      } catch (error) {
+        setState({ apiStatus: 'error' });
+        renderError(error.message);
+      }
+    });
+  });
+
+  panel.querySelector('[data-action="manager-create"]')?.addEventListener('click', async () => {
+    const name = panel.querySelector('[data-project-new-name]')?.value?.trim();
+    if (!name) {
+      setState({ projectManagerError: 'Project name is required.' });
+      renderApp();
+      return;
+    }
+    try {
+      await createProject(name);
+      await refreshProjectManager();
+    } catch {
+      setState({ projectManagerError: 'Could not create that project.' });
+      renderApp();
+    }
+  });
+
+  panel.querySelectorAll('[data-action="manager-save"]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const id = button.dataset.projectId;
+      const name = panel.querySelector(`[data-project-name="${id}"]`)?.value?.trim();
+      const status = panel.querySelector(`[data-project-status="${id}"]`)?.value;
+      if (!name) {
+        setState({ projectManagerError: 'Project name is required.' });
+        renderApp();
+        return;
+      }
+      try {
+        await updateProject(id, { name, status });
+        await refreshProjectManager();
+      } catch {
+        setState({ projectManagerError: 'Could not save that project.' });
+        renderApp();
+      }
+    });
+  });
+
+  panel.querySelectorAll('[data-action="manager-delete"]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const id = button.dataset.projectId;
+      if (!window.confirm('Permanently delete this project? Only empty projects (no tasks or documents) can be deleted.')) return;
+      try {
+        await deleteProjectPermanent(id);
+        await refreshProjectManager();
+      } catch {
+        setState({ projectManagerError: 'Could not delete: the project still has tasks or documents.' });
+        renderApp();
+      }
+    });
+  });
+
+  const move = async (id, direction) => {
+    // Only live projects are shown in the manager, so reorder must ignore
+    // archived rows — otherwise move up/down can swap with a hidden project.
+    const ordered = state.managedProjects
+      .filter((p) => p.status !== 'archived')
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+    const index = ordered.findIndex((p) => p.id === id);
+    const swapIndex = direction === 'up' ? index - 1 : index + 1;
+    if (index < 0 || swapIndex < 0 || swapIndex >= ordered.length) return;
+    const current = ordered[index];
+    const neighbor = ordered[swapIndex];
+    try {
+      await updateProject(current.id, { sortOrder: neighbor.sortOrder });
+      await updateProject(neighbor.id, { sortOrder: current.sortOrder });
+      await refreshProjectManager();
+    } catch {
+      setState({ projectManagerError: 'Could not reorder projects.' });
+      renderApp();
+    }
+  };
+  panel.querySelectorAll('[data-action="manager-move-up"]').forEach((button) => {
+    button.addEventListener('click', () => move(button.dataset.projectId, 'up'));
+  });
+  panel.querySelectorAll('[data-action="manager-move-down"]').forEach((button) => {
+    button.addEventListener('click', () => move(button.dataset.projectId, 'down'));
+  });
+
+  panel.querySelectorAll('[data-action="manager-archive"]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      try {
+        await archiveProject(button.dataset.projectId);
+        await refreshProjectManager();
+      } catch {
+        setState({ projectManagerError: 'Could not archive that project.' });
+        renderApp();
+      }
+    });
+  });
+
+  panel.querySelector('[data-action="open-project-archive"]')?.addEventListener('click', () => {
+    setState({ isProjectArchiveOpen: true, projectManagerError: '' });
+    renderApp();
+  });
+}
+
+function bindProjectArchiveEvents() {
+  const panel = app.querySelector('[data-project-archive]');
+  if (!panel) return;
+
+  panel.querySelectorAll('[data-action="back-to-manager"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      setState({ isProjectArchiveOpen: false, projectManagerError: '' });
+      renderApp();
+    });
+  });
+  panel.querySelector('[data-action="close-project-archive"]')?.addEventListener('click', () => {
+    setState({ isProjectArchiveOpen: false, isProjectManagerOpen: false, projectManagerError: '' });
+    renderApp();
+  });
+
+  panel.querySelectorAll('[data-action="archive-restore"]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      try {
+        await updateProject(button.dataset.projectId, { status: 'active' });
+        await refreshProjectManager();
+      } catch {
+        setState({ projectManagerError: 'Could not restore that project.' });
+        renderApp();
+      }
+    });
+  });
+
+  panel.querySelectorAll('[data-action="archive-delete"]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      if (!window.confirm('Permanently delete this archived project? Only empty projects can be deleted.')) return;
+      try {
+        await deleteProjectPermanent(button.dataset.projectId);
+        await refreshProjectManager();
+      } catch {
+        setState({ projectManagerError: 'Could not delete: the project still has tasks or documents.' });
+        renderApp();
+      }
+    });
   });
 }
 
@@ -1601,7 +1864,7 @@ function bindTaskFormEvents() {
       description: String(data.get('description') || '').trim(),
       priority: String(data.get('priority') || 'medium'),
       status: String(data.get('status') || 'planned'),
-      context: String(data.get('context') || state.activeContext),
+      project: String(data.get('project') || defaultProjectId()),
       dueDate: String(data.get('dueDate') || '') || null,
     };
 
@@ -1613,8 +1876,10 @@ function bindTaskFormEvents() {
         ? await updateTask(state.editingTaskId, payload)
         : await createTask({ ...payload, sortOrder: state.tasks.length });
 
+      const nextProject = savedTask.projectId || state.activeProject;
+      persistActiveProject(nextProject);
       setState({
-        activeContext: savedTask.context || payload.context,
+        activeProject: nextProject,
         selectedTaskId: savedTask.id,
         isTaskFormOpen: false,
         editingTaskId: null,
@@ -1632,11 +1897,21 @@ function bindTaskFormEvents() {
   });
 }
 
+async function loadProjects() {
+  const projects = await fetchProjects('active');
+  setState({ projects });
+  return projects;
+}
+
+function defaultProjectId() {
+  return state.activeProject !== 'all' ? state.activeProject : (state.projects[0]?.id || '');
+}
+
 async function loadTasks({ selectedTaskId = state.selectedTaskId } = {}) {
   setState({ apiStatus: 'loading' });
   renderLoading();
   const tasks = await fetchTasks({
-    context: state.activeContext,
+    project: state.activeProject === 'all' ? undefined : state.activeProject,
     archived: isArchiveView(state.activeView) ? true : undefined,
   });
   const normalizedTasks = tasks.map(normalizeTask);
@@ -1655,7 +1930,7 @@ async function loadDocuments({ selectedDocumentId = state.selectedDocumentId } =
   setState({ apiStatus: 'loading' });
   renderLoading();
   const documents = await fetchDocuments({
-    context: state.activeContext,
+    project: state.activeProject === 'all' ? undefined : state.activeProject,
     archived: 'all',
   });
   const selectedDocumentExists = documents.some(document => document.id === selectedDocumentId);
@@ -1678,6 +1953,10 @@ async function init() {
       librarySavedViews: savedLibraryViewsFromJson(window.localStorage?.getItem(SAVED_LIBRARY_VIEWS_KEY)),
       ...loadLibraryControls(),
     });
+    await loadProjects();
+    const stored = loadActiveProject();
+    const valid = stored === 'all' || state.projects.some((p) => p.id === stored);
+    setState({ activeProject: valid ? stored : 'all' });
     await loadTasks();
   } catch (error) {
     setState({ apiStatus: 'error' });
@@ -1713,7 +1992,10 @@ async function init() {
         }
       },
       escape() {
-        const closer = app.querySelector('[data-action="close-task-form"], [data-action="close-document-form"], [data-action="close-admin"], [data-action="close-settings"], [data-action="close-link-picker"]');
+        // The archive dialog mounts on top of the manager, so handle it first:
+        // Escape backs out of the archive before closing the manager beneath it.
+        if (state.isProjectArchiveOpen) { app.querySelector('[data-action="back-to-manager"]')?.click(); return; }
+        const closer = app.querySelector('[data-action="close-task-form"], [data-action="close-document-form"], [data-action="close-admin"], [data-action="close-settings"], [data-action="close-link-picker"], [data-action="close-project-manager"]');
         if (closer) { closer.click(); return; }
         if (state.isDrawerOpen) { app.querySelector('[data-action="toggle-drawer"]')?.click(); return; }
         if (state.mobileDetailOpen) { app.querySelector('[data-action="close-mobile-detail"]')?.click(); return; }

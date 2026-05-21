@@ -4,7 +4,7 @@ import {
   createTasksRepository,
   buildDeleteArchivedTask,
   buildImportTasks,
-  buildReplaceContextTasks,
+  buildReplaceProjectTasks,
   normalizeTaskRow,
   buildCreateTask,
   buildReorderTasks,
@@ -16,6 +16,8 @@ import {
   buildLinkExists,
 } from '../../server/tasksRepository.js';
 
+const PROJECT_ID = '99999999-9999-4999-8999-999999999999';
+
 test('normalizeTaskRow maps database fields to API task fields', () => {
   const task = normalizeTaskRow({
     id: '11111111-1111-4111-8111-111111111111',
@@ -23,7 +25,7 @@ test('normalizeTaskRow maps database fields to API task fields', () => {
     description: 'Verify backup schedule',
     priority: 'high',
     status: 'planned',
-    context: 'homelab',
+    project_id: PROJECT_ID,
     due_date: '2026-05-11',
     sort_order: 2,
     archived_at: null,
@@ -37,7 +39,7 @@ test('normalizeTaskRow maps database fields to API task fields', () => {
     description: 'Verify backup schedule',
     priority: 'high',
     status: 'planned',
-    context: 'homelab',
+    projectId: PROJECT_ID,
     dueDate: '2026-05-11',
     sortOrder: 2,
     archivedAt: null,
@@ -52,7 +54,7 @@ test('buildCreateTask returns parameterized insert query', () => {
     description: '',
     priority: 'high',
     status: 'in-progress',
-    context: 'homelab',
+    projectId: PROJECT_ID,
     dueDate: '2026-05-12',
     sortOrder: 0,
   });
@@ -122,7 +124,7 @@ test('buildImportTasks returns a parameterized batch insert query', () => {
       description: 'From backup',
       priority: 'medium',
       status: 'planned',
-      context: 'homelab',
+      projectId: PROJECT_ID,
       dueDate: '2026-05-18',
       sortOrder: 2,
       archivedAt: null,
@@ -132,7 +134,7 @@ test('buildImportTasks returns a parameterized batch insert query', () => {
       description: '',
       priority: 'low',
       status: 'completed',
-      context: 'homelab',
+      projectId: PROJECT_ID,
       dueDate: null,
       sortOrder: 3,
       archivedAt: '2026-05-11T12:00:00.000Z',
@@ -147,7 +149,7 @@ test('buildImportTasks returns a parameterized batch insert query', () => {
     'From backup',
     'medium',
     'planned',
-    'homelab',
+    PROJECT_ID,
     '2026-05-18',
     2,
     null,
@@ -155,7 +157,7 @@ test('buildImportTasks returns a parameterized batch insert query', () => {
     '',
     'low',
     'completed',
-    'homelab',
+    PROJECT_ID,
     null,
     3,
     '2026-05-11T12:00:00.000Z',
@@ -169,14 +171,14 @@ test('buildImportTasks rejects empty imports', () => {
   );
 });
 
-test('buildReplaceContextTasks deletes one context and inserts imported tasks', () => {
-  const query = buildReplaceContextTasks('homelab', [
+test('buildReplaceProjectTasks deletes one project and inserts imported tasks', () => {
+  const query = buildReplaceProjectTasks(PROJECT_ID, [
     {
       title: 'Imported task',
       description: '',
       priority: 'medium',
       status: 'planned',
-      context: 'homelab',
+      projectId: PROJECT_ID,
       dueDate: null,
       sortOrder: 0,
       archivedAt: null,
@@ -184,20 +186,34 @@ test('buildReplaceContextTasks deletes one context and inserts imported tasks', 
   ]);
 
   assert.match(query.text, /delete from tasks/);
-  assert.match(query.text, /where context = \$1/);
+  assert.match(query.text, /where project_id = \$1/);
   assert.match(query.text, /insert into tasks/);
   assert.match(query.text, /returning \*/);
+  // project_id is bound to $1 (the target project), not a per-row value, so the
+  // values array carries the target id once followed by the 7 other columns.
   assert.deepEqual(query.values, [
-    'homelab',
+    PROJECT_ID,
     'Imported task',
     '',
     'medium',
     'planned',
-    'homelab',
     null,
     0,
     null,
   ]);
+});
+
+test('buildReplaceProjectTasks forces every row into the target project', () => {
+  const OTHER_PROJECT = '11111111-1111-4111-8111-111111111111';
+  const query = buildReplaceProjectTasks(PROJECT_ID, [
+    { title: 'Wrong project', projectId: OTHER_PROJECT },
+    { title: 'No project' },
+  ]);
+
+  // Both rows must bind project_id to $1; the stray/absent projectId is ignored.
+  assert.match(query.text, /\$1, \$\d+, \$\d+, \$\d+\)/);
+  assert.ok(!query.values.includes(OTHER_PROJECT));
+  assert.equal(query.values.filter(value => value === PROJECT_ID).length, 1);
 });
 
 test('listTasks filters active tasks by default', async () => {
@@ -242,7 +258,7 @@ test('listTasks filters archived tasks when requested', async () => {
   assert.match(calls[0].text, /archived_at is not null/);
 });
 
-test('listTasks parameterizes context status and search filters', async () => {
+test('listTasks parameterizes projectId status and search filters', async () => {
   const calls = [];
   const repository = createTasksRepository({
     async query(text, values) {
@@ -252,22 +268,22 @@ test('listTasks parameterizes context status and search filters', async () => {
   });
 
   await repository.listTasks({
-    context: 'homelab',
+    projectId: PROJECT_ID,
     status: 'planned',
     q: 'backup',
   });
 
-  assert.match(calls[0].text, /context = \$1/);
+  assert.match(calls[0].text, /project_id = \$1/);
   assert.match(calls[0].text, /status = \$2/);
   assert.match(calls[0].text, /title ilike \$3 or description ilike \$3/);
-  assert.deepEqual(calls[0].values, ['homelab', 'planned', '%backup%']);
+  assert.deepEqual(calls[0].values, [PROJECT_ID, 'planned', '%backup%']);
 });
 
 test('buildListTaskDocuments returns join query with task_id param', () => {
   const taskId = '11111111-1111-4111-8111-111111111111';
   const query = buildListTaskDocuments(taskId);
 
-  assert.match(query.text, /select d\.id, d\.title, d\.document_type, d\.context/);
+  assert.match(query.text, /select d\.id, d\.title, d\.document_type, d\.project_id/);
   assert.match(query.text, /from task_documents td/);
   assert.match(query.text, /join markdown_documents d on d\.id = td\.document_id/);
   assert.match(query.text, /where td\.task_id = \$1 and d\.archived_at is null/);

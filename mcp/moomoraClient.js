@@ -76,8 +76,8 @@ export function createMoomoraClient({
   }
 
   return {
-    listDocuments: ({ q, context, documentType } = {}) =>
-      request('GET', '/api/library/documents', { query: { q, context, documentType } }),
+    listDocuments: ({ q, project, documentType } = {}) =>
+      request('GET', '/api/library/documents', { query: { q, project, documentType } }),
 
     getDocument: async (id) => {
       const docs = await request('GET', '/api/library/documents');
@@ -90,8 +90,8 @@ export function createMoomoraClient({
     updateDocument: (id, patch) =>
       patchOrNull(`/api/library/documents/${id}`, patch),
 
-    listTasks: ({ q, context, status } = {}) =>
-      request('GET', '/api/tasks', { query: { q, context, status } }),
+    listTasks: ({ q, project, status } = {}) =>
+      request('GET', '/api/tasks', { query: { q, project, status } }),
 
     getTask: async (id) => {
       const tasks = await request('GET', '/api/tasks');

@@ -45,6 +45,10 @@ Writes: `create_document`, `update_document`, `create_task`, `update_task`,
 
 No archive, delete, reorder, or import tools are exposed.
 
+Projects: search tools take an optional `project` (a project slug or id) to scope
+results — omit it to span all projects. Create tools take a required `project` (slug or
+id); the server resolves it.
+
 ## Known limitations
 
 - `get_document` and `get_task` fetch the list endpoint and filter by id in the MCP
@@ -59,6 +63,6 @@ No archive, delete, reorder, or import tools are exposed.
 3. In Claude Code, confirm the round-trip:
    - "search documents for <a term you know exists>" → returns refs.
    - "get document <id from the search>" → returns the full body.
-   - "create a note titled 'mcp smoke' in the work context with body 'hello'" → returns
+   - "create a note titled 'mcp smoke' in the work project with body 'hello'" → returns
      the new document; confirm it appears in the Library UI.
    - "link document <id> to task <id>" then "list documents for task <id>" → shows the link.

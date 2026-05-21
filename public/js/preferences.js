@@ -6,7 +6,7 @@ export const DEFAULT_PREFERENCES = Object.freeze({
 });
 
 export const FONT_SCALE_OPTIONS = Object.freeze(['compact', 'comfortable', 'large']);
-export const PALETTE_OPTIONS = Object.freeze(['console', 'graphite', 'daylight']);
+export const PALETTE_OPTIONS = Object.freeze(['console', 'graphite', 'daylight', 'midnight']);
 
 function isAllowed(value, allowed) {
   return allowed.includes(String(value || ''));

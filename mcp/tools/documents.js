@@ -3,7 +3,6 @@ import { isValidUuid } from '../validate.js';
 import { okResult, errorResult, withErrorHandling } from '../toolResult.js';
 import { toDocumentRef, capResults } from '../shape.js';
 
-const CONTEXT = z.enum(['personal', 'work', 'homelab']);
 const DOCUMENT_TYPE = z.enum(['runbook', 'note']);
 
 export function createDocumentTools(client) {
@@ -12,16 +11,16 @@ export function createDocumentTools(client) {
       name: 'search_documents',
       title: 'Search documents',
       description:
-        'Full-text search the Moomora library. Returns lightweight references (id, title, type, context, tags, snippet) without bodies. Call get_document to read a full document.',
+        'Full-text search the Moomora library. Returns lightweight references (id, title, type, projectId, tags, snippet) without bodies. Call get_document to read a full document.',
       annotations: { readOnlyHint: true },
       inputSchema: {
-        query: z.string().optional().describe('Search text matched against title, body, and tags. Omit to browse by context/tags alone.'),
-        context: CONTEXT.optional().describe('Limit to one context; omit to search all.'),
+        query: z.string().optional().describe('Search text matched against title, body, and tags. Omit to browse by project/tags alone.'),
+        project: z.string().optional().describe('Limit to one project (slug or id); omit to search all.'),
         documentType: DOCUMENT_TYPE.optional().describe('Limit to runbooks or notes.'),
         tags: z.array(z.string()).optional().describe('Require all of these tags.'),
       },
-      handler: withErrorHandling(async ({ query, context, documentType, tags }) => {
-        const docs = await client.listDocuments({ q: query, context, documentType });
+      handler: withErrorHandling(async ({ query, project, documentType, tags }) => {
+        const docs = await client.listDocuments({ q: query, project, documentType });
         let refs = (Array.isArray(docs) ? docs : []).map(toDocumentRef);
         if (Array.isArray(tags) && tags.length > 0) {
           refs = refs.filter((ref) => tags.every((tag) => ref.tags.includes(tag)));
@@ -53,7 +52,7 @@ export function createDocumentTools(client) {
         title: z.string().min(1).describe('Document title.'),
         body: z.string().describe('Markdown body.'),
         documentType: DOCUMENT_TYPE,
-        context: CONTEXT,
+        project: z.string().describe('Project slug or id.'),
         tags: z.array(z.string()).optional(),
       },
       handler: withErrorHandling(async (args) => {
@@ -70,7 +69,7 @@ export function createDocumentTools(client) {
         title: z.string().min(1).optional(),
         body: z.string().optional(),
         documentType: DOCUMENT_TYPE.optional(),
-        context: CONTEXT.optional(),
+        project: z.string().optional().describe('Project slug or id.'),
         tags: z.array(z.string()).optional(),
       },
       handler: withErrorHandling(async ({ id, ...patch }) => {

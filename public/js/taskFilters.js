@@ -8,8 +8,6 @@ function searchableText(task) {
     task.description,
     task.priority,
     task.status,
-    task.context,
-    task.tab,
     task.dueDate,
   ].map(normalize).join(' ');
 }

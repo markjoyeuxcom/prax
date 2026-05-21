@@ -50,7 +50,7 @@ function renderLinkedDocs(linkedDocuments = [], options = {}) {
   const rows = linkedDocuments.length
     ? linkedDocuments.map(doc => `
         <div class="linked-doc" data-linked-doc-id="${escapeHtml(doc.id)}">
-          <button class="linked-doc__open" type="button" data-action="open-linked-doc" data-document-id="${escapeHtml(doc.id)}" data-document-context="${escapeHtml(doc.context)}">
+          <button class="linked-doc__open" type="button" data-action="open-linked-doc" data-document-id="${escapeHtml(doc.id)}">
             <strong>${escapeHtml(doc.title || 'Untitled document')}</strong>
             <small>${escapeHtml(labelFromValue(doc.documentType || 'note'))}</small>
           </button>

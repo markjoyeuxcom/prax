@@ -12,12 +12,6 @@ const STATUSES = [
   { value: 'notes', label: 'Notes' },
 ];
 
-const CONTEXTS = [
-  { value: 'personal', label: 'Personal' },
-  { value: 'work', label: 'Work' },
-  { value: 'homelab', label: 'Homelab' },
-];
-
 function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -34,7 +28,8 @@ function renderOptions(options, selectedValue) {
 
 export function renderTaskFormHtml({
   task = null,
-  activeContext = 'homelab',
+  projects = [],
+  values: valuesOverride = {},
   error = '',
   isSaving = false,
 } = {}) {
@@ -44,7 +39,7 @@ export function renderTaskFormHtml({
     description: task?.description || '',
     priority: task?.priority || 'medium',
     status: task?.status || 'planned',
-    context: task?.context || task?.tab || activeContext,
+    project: valuesOverride.project || task?.projectId || '',
     dueDate: task?.dueDate || '',
   };
 
@@ -88,9 +83,10 @@ export function renderTaskFormHtml({
               </select>
             </label>
             <label>
-              <span>Context</span>
-              <select name="context">${renderOptions(CONTEXTS, values.context)}
-              </select>
+              <span>Project</span>
+              <select name="project">${projects.map(project =>
+    `<option value="${escapeHtml(project.id)}"${project.id === values.project ? ' selected' : ''}>${escapeHtml(project.name)}</option>`
+  ).join('')}</select>
             </label>
             <label>
               <span>Due</span>

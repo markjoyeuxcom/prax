@@ -1,8 +1,8 @@
 const viewButtons = [
   {
     id: 'list',
-    label: 'Today',
-    heading: 'Today',
+    label: 'Tasks',
+    heading: 'Tasks',
     description: 'Coordinate urgent work, homelab maintenance, and operational follow-through from one calm queue.',
   },
   {
@@ -27,15 +27,10 @@ const viewButtons = [
     id: 'library',
     label: 'Library',
     heading: 'Library',
-    description: 'Markdown runbooks and notes for personal, work, and homelab operations.',
+    description: 'Markdown runbooks and notes across your projects.',
   },
 ];
 
-const contextButtons = [
-  { id: 'personal', label: 'Personal' },
-  { id: 'work', label: 'Work' },
-  { id: 'homelab', label: 'Homelab' },
-];
 
 const metricCards = [
   { key: 'dueToday', label: 'Due today' },
@@ -64,7 +59,7 @@ function viewFor(activeView) {
 
 function modeTagFor(activeView) {
   const tags = {
-    list: 'TODAY',
+    list: 'TASKS',
     board: 'BOARD',
     backlog: 'BACKLOG',
     archive: 'ARCHIVE',
@@ -79,7 +74,8 @@ function syncLabelFor(apiStatus) {
   return '<span class="sync-dots sync-dots--ok">●●●</span> ok';
 }
 
-function renderHamburgerDrawer({ activeContext, isDrawerOpen, apiStatus }) {
+function renderHamburgerDrawer({ activeProject, projects, isDrawerOpen, apiStatus }) {
+  const allActive = activeProject === 'all';
   return `
        <aside class="hamburger-drawer${isDrawerOpen ? ' is-open' : ''}" aria-label="Secondary navigation"${isDrawerOpen ? '' : ' aria-hidden="true" inert'}>
          <header class="hamburger-drawer__header">
@@ -91,8 +87,12 @@ function renderHamburgerDrawer({ activeContext, isDrawerOpen, apiStatus }) {
            <button class="hamburger-drawer__item" type="button" data-view="backlog">backlog</button>
          </div>
          <div class="hamburger-drawer__group">
-           <p class="hamburger-drawer__label">// CONTEXTS</p>
-           ${['personal', 'work', 'homelab'].map(c => `<button class="hamburger-drawer__item${c === activeContext ? ' is-active' : ''}" type="button" data-context="${c}">${escapeHtml(c)}</button>`).join('')}
+           <p class="hamburger-drawer__label">// PROJECTS</p>
+           <button class="hamburger-drawer__item${allActive ? ' is-active' : ''}" type="button" data-project="all">all projects</button>
+           ${projects.map(p => `<button class="hamburger-drawer__item${p.id === activeProject ? ' is-active' : ''}" type="button" data-project="${escapeHtml(p.id)}">${escapeHtml(p.name)}</button>`).join('')}
+           <button class="hamburger-drawer__item" type="button" data-action="new-project">[+] new project</button>
+           <button class="hamburger-drawer__item hamburger-drawer__item--manage" type="button" data-action="open-project-manager">[≡] manage projects</button>
+           <button class="hamburger-drawer__item" type="button" data-action="open-archived-projects">[▤] archived projects</button>
          </div>
          <div class="hamburger-drawer__group">
            <p class="hamburger-drawer__label">// ADMIN</p>
@@ -113,7 +113,7 @@ function renderHamburgerDrawer({ activeContext, isDrawerOpen, apiStatus }) {
 function renderBottomNav(activeView) {
   const newAction = activeView === 'library' ? 'new-document' : 'new-task';
   const slots = [
-    { key: 'list',    glyph: 'T', label: 'today',   view: 'list',    action: null },
+    { key: 'list',    glyph: 'T', label: 'tasks',   view: 'list',    action: null },
     { key: 'board',   glyph: 'B', label: 'board',   view: 'board',   action: null },
     { key: 'new',     glyph: '+', label: '',        view: null,      action: newAction },
     { key: 'library', glyph: 'L', label: 'library', view: 'library', action: null },
@@ -149,14 +149,26 @@ function renderViewButtons(activeView) {
   }).join('');
 }
 
-function renderContextButtons(activeContext) {
-  return contextButtons.map((context) => {
-    const isActive = activeContext === context.id;
+function renderProjectButtons(activeProject, projects) {
+  const allActive = activeProject === 'all';
+  const newBtn = `
+          <button class="nav-button nav-button--accent" type="button" data-action="new-project"><span>[+] new project</span></button>`;
+  const manageBtn = `
+          <button class="nav-button nav-button--accent" type="button" data-action="open-project-manager"><span>[≡] manage</span></button>`;
+  const archivedBtn = `
+          <button class="nav-button nav-button--accent" type="button" data-action="open-archived-projects"><span>[▤] archived</span></button>`;
+  const allBtn = `
+          <button class="nav-button${allActive ? ' is-active' : ''}" type="button" aria-pressed="${allActive}" data-project="all">
+            <span>All projects</span>
+          </button>`;
+  const projectBtns = projects.map((project) => {
+    const isActive = project.id === activeProject;
     return `
-          <button class="nav-button${isActive ? ' is-active' : ''}" type="button" aria-pressed="${isActive}" data-context="${context.id}">
-            <span>${context.label}</span>
+          <button class="nav-button${isActive ? ' is-active' : ''}" type="button" aria-pressed="${isActive}" data-project="${escapeHtml(project.id)}">
+            <span>${escapeHtml(project.name)}</span>
           </button>`;
   }).join('');
+  return newBtn + manageBtn + archivedBtn + allBtn + projectBtns;
 }
 
 function renderMetricCards(metrics) {
@@ -174,7 +186,8 @@ function apiStatusLabel(apiStatus) {
 }
 
 export function renderShellHtml({
-  activeContext = 'homelab',
+  activeProject = 'all',
+  projects = [],
   activeView = 'list',
   apiStatus = 'connected',
   searchQuery = '',
@@ -192,19 +205,15 @@ export function renderShellHtml({
 
   return `
     <div class="app-shell">
-      ${renderHamburgerDrawer({ activeContext, isDrawerOpen, apiStatus })}
+      ${renderHamburgerDrawer({ activeProject, projects, isDrawerOpen, apiStatus })}
       <aside class="sidebar" aria-label="Moomora Console navigation">
         <div class="brand">
           <span class="brand-mark" aria-hidden="true">M</span>
           <span class="brand-name">Moomora Console</span>
         </div>
 
-        <nav class="side-nav" aria-label="Views">
-          <p class="nav-label">Views</p>${renderViewButtons(activeView)}
-        </nav>
-
-        <nav class="side-nav" aria-label="Contexts">
-          <p class="nav-label">Contexts</p>${renderContextButtons(activeContext)}
+        <nav class="side-nav" aria-label="Projects">
+          <p class="nav-label">Projects</p>${renderProjectButtons(activeProject, projects)}
         </nav>
 
         <section class="cluster-card" aria-label="Cluster status">
@@ -232,6 +241,7 @@ export function renderShellHtml({
       <main class="console-main${isLibraryView ? ' console-main--library' : ''}">
         <header class="topbar">
           <button class="hamburger-trigger" type="button" data-action="toggle-drawer" aria-label="Menu">≡</button>
+          <nav class="topbar-tabs" aria-label="Views">${renderViewButtons(activeView)}</nav>
           <label class="search-field">
             <span class="sr-only">${isLibraryView ? 'Search documents' : 'Search tasks'}</span>
             <input type="search" placeholder="${isLibraryView ? 'Search documents' : 'Search tasks'}" autocomplete="off" value="${escapeHtml(searchQuery)}" data-search-input>
@@ -254,7 +264,7 @@ export function renderShellHtml({
         ${metricsHtml}
         <div id="workspace" class="workspace${isLibraryView ? ' workspace--library' : ''}"></div>
         <footer class="status-footer" aria-label="Console status">
-          <span class="status-footer__breadcrumb">moomora <span class="status-footer__slash">/</span> ${escapeHtml(activeViewConfig.label)} <span class="status-footer__slash">/</span> <strong>${escapeHtml(activeContext)}</strong></span>
+          <span class="status-footer__breadcrumb">moomora <span class="status-footer__slash">/</span> ${escapeHtml(activeViewConfig.label)} <span class="status-footer__slash">/</span> <strong>${escapeHtml(activeProject === 'all' ? 'all projects' : (projects.find(p => p.id === activeProject)?.name || 'all projects'))}</strong></span>
           <span class="status-footer__sync">${syncLabelFor(apiStatus)}</span>
           <span class="status-footer__mode">&lt;${escapeHtml(modeTagFor(activeView))}&gt;</span>
         </footer>

@@ -11,7 +11,7 @@ function byName(tools, name) {
 const TASK_ID = '11111111-1111-4111-8111-111111111111';
 const SAMPLE_TASK = {
   id: TASK_ID, title: 'Backup CNPG', description: 'details',
-  status: 'planned', priority: 'high', context: 'homelab',
+  status: 'planned', priority: 'high', projectId: 'homelab',
   dueDate: '2026-05-12', sortOrder: 0,
 };
 
@@ -24,8 +24,8 @@ test('search_tasks maps args and returns task summaries', async () => {
   let received;
   const client = { listTasks: async (f) => { received = f; return [SAMPLE_TASK]; } };
   const tool = byName(createTaskTools(client), 'search_tasks');
-  const res = await tool.handler({ query: 'backup', context: 'homelab', status: 'planned' });
-  assert.deepEqual(received, { q: 'backup', context: 'homelab', status: 'planned' });
+  const res = await tool.handler({ query: 'backup', project: 'homelab', status: 'planned' });
+  assert.deepEqual(received, { q: 'backup', project: 'homelab', status: 'planned' });
   const data = JSON.parse(res.content[0].text);
   assert.equal('description' in data[0], false);
   assert.equal(data[0].priority, 'high');
@@ -48,7 +48,7 @@ test('create_task forwards args to the client', async () => {
   let received;
   const client = { createTask: async (p) => { received = p; return { id: 'new', ...p }; } };
   const tool = byName(createTaskTools(client), 'create_task');
-  const payload = { title: 'New', context: 'work', priority: 'medium', status: 'planned' };
+  const payload = { title: 'New', project: 'work', priority: 'medium', status: 'planned' };
   await tool.handler(payload);
   assert.deepEqual(received, payload);
 });
@@ -57,9 +57,9 @@ test('create_task applies priority/status defaults the API requires', async () =
   let received;
   const client = { createTask: async (p) => { received = p; return { id: 'new', ...p }; } };
   const tool = byName(createTaskTools(client), 'create_task');
-  await tool.handler({ title: 'Minimal', context: 'homelab' });
+  await tool.handler({ title: 'Minimal', project: 'homelab' });
   assert.deepEqual(received, {
-    priority: 'medium', status: 'planned', title: 'Minimal', context: 'homelab',
+    priority: 'medium', status: 'planned', title: 'Minimal', project: 'homelab',
   });
 });
 
@@ -67,7 +67,7 @@ test('create_task lets explicit priority/status override the defaults', async ()
   let received;
   const client = { createTask: async (p) => { received = p; return { id: 'new', ...p }; } };
   const tool = byName(createTaskTools(client), 'create_task');
-  await tool.handler({ title: 'X', context: 'work', priority: 'high', status: 'in-progress' });
+  await tool.handler({ title: 'X', project: 'work', priority: 'high', status: 'in-progress' });
   assert.equal(received.priority, 'high');
   assert.equal(received.status, 'in-progress');
 });

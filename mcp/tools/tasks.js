@@ -3,7 +3,6 @@ import { isValidUuid } from '../validate.js';
 import { okResult, errorResult, withErrorHandling } from '../toolResult.js';
 import { toTaskRef, capResults } from '../shape.js';
 
-const CONTEXT = z.enum(['personal', 'work', 'homelab']);
 const STATUS = z.enum(['high-priority', 'in-progress', 'planned', 'completed', 'notes']);
 const PRIORITY = z.enum(['high', 'medium', 'low']);
 
@@ -13,15 +12,15 @@ export function createTaskTools(client) {
       name: 'search_tasks',
       title: 'Search tasks',
       description:
-        'Search active Moomora tasks. Returns summaries (id, title, status, priority, context, dueDate). Call get_task for the full record.',
+        'Search active Moomora tasks. Returns summaries (id, title, status, priority, projectId, dueDate). Call get_task for the full record.',
       annotations: { readOnlyHint: true },
       inputSchema: {
         query: z.string().optional().describe('Text matched against task title.'),
-        context: CONTEXT.optional().describe('Limit to one context; omit for all.'),
+        project: z.string().optional().describe('Limit to one project (slug or id); omit for all.'),
         status: STATUS.optional().describe('Limit to one status.'),
       },
-      handler: withErrorHandling(async ({ query, context, status }) => {
-        const tasks = await client.listTasks({ q: query, context, status });
+      handler: withErrorHandling(async ({ query, project, status }) => {
+        const tasks = await client.listTasks({ q: query, project, status });
         const refs = (Array.isArray(tasks) ? tasks : []).map(toTaskRef);
         return okResult(capResults(refs));
       }),
@@ -47,7 +46,7 @@ export function createTaskTools(client) {
       description: 'Create a new task. priority defaults to medium and status to planned if omitted.',
       inputSchema: {
         title: z.string().min(1).describe('Task title.'),
-        context: CONTEXT,
+        project: z.string().describe('Project slug or id.'),
         description: z.string().optional(),
         priority: PRIORITY.optional(),
         status: STATUS.optional(),
@@ -70,7 +69,7 @@ export function createTaskTools(client) {
         description: z.string().optional(),
         priority: PRIORITY.optional(),
         status: STATUS.optional(),
-        context: CONTEXT.optional(),
+        project: z.string().optional().describe('Project slug or id.'),
         dueDate: z.string().optional(),
       },
       handler: withErrorHandling(async ({ id, ...patch }) => {

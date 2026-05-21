@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   DEFAULT_PREFERENCES,
   LOCAL_STORAGE_KEY,
+  PALETTE_OPTIONS,
   applyPreferences,
   loadPreferences,
   normalizePreferences,
@@ -47,6 +48,17 @@ test('normalizePreferences preserves valid font scale and palette values', () =>
   assert.deepEqual(
     normalizePreferences({ fontScale: 'large', palette: 'daylight' }),
     { fontScale: 'large', palette: 'daylight' },
+  );
+});
+
+test('PALETTE_OPTIONS includes the midnight palette', () => {
+  assert.ok(PALETTE_OPTIONS.includes('midnight'));
+});
+
+test('normalizePreferences preserves the midnight palette', () => {
+  assert.deepEqual(
+    normalizePreferences({ fontScale: 'comfortable', palette: 'midnight' }),
+    { fontScale: 'comfortable', palette: 'midnight' },
   );
 });
 

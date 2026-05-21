@@ -11,7 +11,7 @@ function byName(tools, name) {
 const SAMPLE_DOC = {
   id: '11111111-1111-4111-8111-111111111111',
   title: 'k8s upgrade', body: 'long runbook body',
-  documentType: 'runbook', context: 'homelab', tags: ['k8s', 'upgrade'],
+  documentType: 'runbook', projectId: 'homelab', tags: ['k8s', 'upgrade'],
 };
 
 test('exposes the four document tools', () => {
@@ -28,20 +28,20 @@ test('search_documents maps args to listDocuments and returns refs without bodie
     listDocuments: async (filters) => { received = filters; return [SAMPLE_DOC]; },
   };
   const tool = byName(createDocumentTools(client), 'search_documents');
-  const res = await tool.handler({ query: 'upgrade', context: 'homelab' });
-  assert.deepEqual(received, { q: 'upgrade', context: 'homelab', documentType: undefined });
+  const res = await tool.handler({ query: 'upgrade', project: 'homelab' });
+  assert.deepEqual(received, { q: 'upgrade', project: 'homelab', documentType: undefined });
   const data = JSON.parse(res.content[0].text);
   assert.equal(data.length, 1);
   assert.equal('body' in data[0], false);
   assert.equal(data[0].snippet, 'long runbook body');
 });
 
-test('search_documents allows an omitted query (browse by context/tags)', async () => {
+test('search_documents allows an omitted query (browse by project/tags)', async () => {
   let received;
   const client = { listDocuments: async (filters) => { received = filters; return [SAMPLE_DOC]; } };
   const tool = byName(createDocumentTools(client), 'search_documents');
-  const res = await tool.handler({ context: 'homelab' });
-  assert.deepEqual(received, { q: undefined, context: 'homelab', documentType: undefined });
+  const res = await tool.handler({ project: 'homelab' });
+  assert.deepEqual(received, { q: undefined, project: 'homelab', documentType: undefined });
   assert.equal(JSON.parse(res.content[0].text).length, 1);
 });
 
@@ -84,7 +84,7 @@ test('create_document forwards args to the client', async () => {
   let received;
   const client = { createDocument: async (p) => { received = p; return { id: 'new', ...p }; } };
   const tool = byName(createDocumentTools(client), 'create_document');
-  const payload = { title: 'New', body: 'b', documentType: 'note', context: 'work', tags: ['x'] };
+  const payload = { title: 'New', body: 'b', documentType: 'note', project: 'work', tags: ['x'] };
   const res = await tool.handler(payload);
   assert.deepEqual(received, payload);
   assert.equal(JSON.parse(res.content[0].text).id, 'new');

@@ -1,12 +1,27 @@
 create extension if not exists pgcrypto;
 
+create table if not exists projects (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  slug text not null unique,
+  status text not null default 'active'
+    check (status in ('active', 'on-hold', 'completed', 'archived')),
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+insert into projects (name, slug, sort_order)
+values ('Personal', 'personal', 0), ('Work', 'work', 1), ('Homelab', 'homelab', 2)
+on conflict (slug) do nothing;
+
 create table if not exists tasks (
   id uuid primary key default gen_random_uuid(),
   title text not null,
   description text not null default '',
   priority text not null check (priority in ('high', 'medium', 'low')),
   status text not null check (status in ('high-priority', 'in-progress', 'planned', 'completed', 'notes')),
-  context text not null check (context in ('personal', 'work', 'homelab')),
+  project_id uuid not null references projects(id),
   due_date date,
   sort_order integer not null default 0,
   archived_at timestamptz,
@@ -37,7 +52,7 @@ create table if not exists markdown_documents (
   title text not null,
   body text not null default '',
   document_type text not null check (document_type in ('runbook', 'note')),
-  context text not null check (context in ('personal', 'work', 'homelab')),
+  project_id uuid not null references projects(id),
   tags text[] not null default '{}',
   source_filename text,
   archived_at timestamptz,
@@ -45,10 +60,10 @@ create table if not exists markdown_documents (
   updated_at timestamptz not null default now()
 );
 
-create index if not exists idx_tasks_context_status on tasks (context, status);
+create index if not exists idx_tasks_project_status on tasks (project_id, status);
 create index if not exists idx_tasks_archived_at on tasks (archived_at);
 create index if not exists idx_tasks_due_date on tasks (due_date);
-create index if not exists idx_markdown_documents_context_type on markdown_documents (context, document_type);
+create index if not exists idx_markdown_documents_project_type on markdown_documents (project_id, document_type);
 create index if not exists idx_markdown_documents_archived_at on markdown_documents (archived_at);
 create index if not exists idx_markdown_documents_fts
   on markdown_documents

@@ -78,33 +78,33 @@ test('deleteArchivedTask sends a DELETE request to the permanent endpoint', asyn
   assert.equal(calls[0][1].method, 'DELETE');
 });
 
-test('exportTasks fetches a context export envelope', async () => {
+test('exportTasks fetches a project export envelope', async () => {
   const calls = [];
   globalThis.fetch = async (...args) => {
     calls.push(args);
     return jsonResponse({ format: 'moomora.tasks', tasks: [] });
   };
 
-  const exported = await exportTasks({ context: 'homelab' });
+  const exported = await exportTasks({ project: 'p1' });
 
   assert.deepEqual(exported, { format: 'moomora.tasks', tasks: [] });
-  assert.equal(calls[0][0], '/api/tasks/export?context=homelab');
+  assert.equal(calls[0][0], '/api/tasks/export?project=p1');
 });
 
-test('exportTasks fetches an all-context backup envelope', async () => {
+test('exportTasks fetches an all-projects backup envelope', async () => {
   const calls = [];
   globalThis.fetch = async (...args) => {
     calls.push(args);
-    return jsonResponse({ format: 'moomora.tasks', context: 'all', tasks: [] });
+    return jsonResponse({ format: 'moomora.tasks', project: 'all', tasks: [] });
   };
 
-  const exported = await exportTasks({ context: 'all' });
+  const exported = await exportTasks({ project: 'all' });
 
-  assert.deepEqual(exported, { format: 'moomora.tasks', context: 'all', tasks: [] });
-  assert.equal(calls[0][0], '/api/tasks/export?context=all');
+  assert.deepEqual(exported, { format: 'moomora.tasks', project: 'all', tasks: [] });
+  assert.equal(calls[0][0], '/api/tasks/export?project=all');
 });
 
-test('importTasks posts tasks for the selected context', async () => {
+test('importTasks posts tasks for the selected project', async () => {
   const calls = [];
   globalThis.fetch = async (...args) => {
     calls.push(args);
@@ -112,7 +112,7 @@ test('importTasks posts tasks for the selected context', async () => {
   };
 
   const result = await importTasks({
-    context: 'homelab',
+    project: 'p1',
     tasks: [{ title: 'Imported task' }],
   });
 
@@ -121,7 +121,7 @@ test('importTasks posts tasks for the selected context', async () => {
   assert.equal(calls[0][1].method, 'POST');
   assert.deepEqual(calls[0][1].headers, { 'content-type': 'application/json' });
   assert.equal(calls[0][1].body, JSON.stringify({
-    context: 'homelab',
+    project: 'p1',
     mode: 'skip',
     tasks: [{ title: 'Imported task' }],
   }));
@@ -135,13 +135,13 @@ test('importTasks posts explicit import modes', async () => {
   };
 
   await importTasks({
-    context: 'homelab',
+    project: 'p1',
     mode: 'replace',
     tasks: [{ title: 'Imported task' }],
   });
 
   assert.equal(calls[0][1].body, JSON.stringify({
-    context: 'homelab',
+    project: 'p1',
     mode: 'replace',
     tasks: [{ title: 'Imported task' }],
   }));
@@ -189,7 +189,7 @@ test('importTasks throws when the API rejects the request', async () => {
   globalThis.fetch = async () => jsonResponse({ message: 'bad' }, false);
 
   await assert.rejects(
-    () => importTasks({ context: 'homelab', tasks: [] }),
+    () => importTasks({ project: 'p1', tasks: [] }),
     /Failed to import tasks/,
   );
 });

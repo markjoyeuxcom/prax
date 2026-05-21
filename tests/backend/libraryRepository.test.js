@@ -12,13 +12,15 @@ import {
 
 const DOCUMENT_ID = '11111111-1111-4111-8111-111111111111';
 
+const PROJECT_UUID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
 test('normalizeDocumentRow maps database fields to API document fields', () => {
   const document = normalizeDocumentRow({
     id: DOCUMENT_ID,
     title: 'Restore CloudNativePG',
     body: '# Restore CloudNativePG',
     document_type: 'runbook',
-    context: 'homelab',
+    project_id: PROJECT_UUID,
     tags: ['postgres', 'backup'],
     source_filename: 'restore.md',
     archived_at: null,
@@ -31,7 +33,7 @@ test('normalizeDocumentRow maps database fields to API document fields', () => {
     title: 'Restore CloudNativePG',
     body: '# Restore CloudNativePG',
     documentType: 'runbook',
-    context: 'homelab',
+    projectId: PROJECT_UUID,
     tags: ['postgres', 'backup'],
     sourceFilename: 'restore.md',
     archivedAt: null,
@@ -45,7 +47,7 @@ test('buildCreateDocument returns a parameterized insert query', () => {
     title: 'Ingress Notes',
     body: '# Ingress Notes',
     documentType: 'note',
-    context: 'homelab',
+    projectId: PROJECT_UUID,
     tags: ['ingress'],
     sourceFilename: 'ingress.md',
   });
@@ -56,7 +58,7 @@ test('buildCreateDocument returns a parameterized insert query', () => {
     'Ingress Notes',
     '# Ingress Notes',
     'note',
-    'homelab',
+    PROJECT_UUID,
     ['ingress'],
     'ingress.md',
   ]);
@@ -124,12 +126,12 @@ test('listDocuments adds no FTS clause when q has no alphanumeric terms', async 
   assert.doesNotMatch(captured.text, /to_tsquery/);
 });
 
-test('listDocuments combines context and full-text search', async () => {
+test('listDocuments combines projectId and full-text search', async () => {
   let captured;
   const db = { query: async (text, values) => { captured = { text, values }; return { rows: [] }; } };
   const repo = createLibraryRepository(db);
-  await repo.listDocuments({ context: 'homelab', q: 'restore' });
-  assert.match(captured.text, /context = \$1/);
+  await repo.listDocuments({ projectId: PROJECT_UUID, q: 'restore' });
+  assert.match(captured.text, /project_id = \$1/);
   assert.match(captured.text, /to_tsquery\('english', \$2\)/);
-  assert.deepEqual(captured.values, ['homelab', 'restore:*']);
+  assert.deepEqual(captured.values, [PROJECT_UUID, 'restore:*']);
 });

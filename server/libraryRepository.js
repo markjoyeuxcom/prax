@@ -1,9 +1,9 @@
-const CREATE_FIELDS = ['title', 'body', 'documentType', 'context', 'tags', 'sourceFilename'];
+const CREATE_FIELDS = ['title', 'body', 'documentType', 'projectId', 'tags', 'sourceFilename'];
 const UPDATE_COLUMN_MAP = {
   title: 'title',
   body: 'body',
   documentType: 'document_type',
-  context: 'context',
+  projectId: 'project_id',
   tags: 'tags',
   sourceFilename: 'source_filename',
 };
@@ -18,7 +18,7 @@ export function normalizeDocumentRow(row) {
     title: row.title,
     body: row.body,
     documentType: row.document_type,
-    context: row.context,
+    projectId: row.project_id,
     tags: row.tags || [],
     sourceFilename: row.source_filename,
     archivedAt: row.archived_at,
@@ -30,7 +30,7 @@ export function normalizeDocumentRow(row) {
 export function buildCreateDocument(document) {
   return {
     text: `
-      insert into markdown_documents (title, body, document_type, context, tags, source_filename)
+      insert into markdown_documents (title, body, document_type, project_id, tags, source_filename)
       values ($1, $2, $3, $4, $5, $6)
       returning *
     `,
@@ -97,9 +97,9 @@ export function createLibraryRepository(db) {
       const clauses = [];
       const values = [];
 
-      if (filters.context) {
-        values.push(filters.context);
-        clauses.push(`context = $${values.length}`);
+      if (filters.projectId) {
+        values.push(filters.projectId);
+        clauses.push(`project_id = $${values.length}`);
       }
       if (filters.documentType) {
         values.push(filters.documentType);
@@ -122,7 +122,7 @@ export function createLibraryRepository(db) {
       const result = await db.query(`
         select * from markdown_documents
         ${where}
-        order by context, document_type, updated_at desc, title
+        order by project_id, document_type, updated_at desc, title
       `, values);
       return result.rows.map(normalizeDocumentRow);
     },

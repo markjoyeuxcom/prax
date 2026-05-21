@@ -20,7 +20,7 @@ export function normalizeImportMode(value) {
 export function duplicateKeyForTask(task) {
   return [
     String(task?.title || '').trim().toLowerCase(),
-    String(task?.context || '').trim().toLowerCase(),
+    String(task?.projectId || '').trim().toLowerCase(),
     String(task?.status || 'planned').trim().toLowerCase(),
     String(task?.dueDate || '').trim(),
   ].join('\u001f');

@@ -1,11 +1,11 @@
-const ALLOWED_CREATE_FIELDS = ['title', 'description', 'priority', 'status', 'context', 'dueDate', 'sortOrder'];
-const IMPORT_FIELDS = ['title', 'description', 'priority', 'status', 'context', 'dueDate', 'sortOrder', 'archivedAt'];
+const ALLOWED_CREATE_FIELDS = ['title', 'description', 'priority', 'status', 'projectId', 'dueDate', 'sortOrder'];
+const IMPORT_FIELDS = ['title', 'description', 'priority', 'status', 'projectId', 'dueDate', 'sortOrder', 'archivedAt'];
 const UPDATE_COLUMN_MAP = {
   title: 'title',
   description: 'description',
   priority: 'priority',
   status: 'status',
-  context: 'context',
+  projectId: 'project_id',
   dueDate: 'due_date',
   sortOrder: 'sort_order',
 };
@@ -17,7 +17,7 @@ export function normalizeTaskRow(row) {
     description: row.description,
     priority: row.priority,
     status: row.status,
-    context: row.context,
+    projectId: row.project_id,
     dueDate: row.due_date,
     sortOrder: row.sort_order,
     archivedAt: row.archived_at,
@@ -29,7 +29,7 @@ export function normalizeTaskRow(row) {
 export function buildCreateTask(task) {
   return {
     text: `
-      insert into tasks (title, description, priority, status, context, due_date, sort_order)
+      insert into tasks (title, description, priority, status, project_id, due_date, sort_order)
       values ($1, $2, $3, $4, $5, $6, $7)
       returning *
     `,
@@ -49,7 +49,7 @@ export function buildImportTasks(tasks) {
 
   return {
     text: `
-      insert into tasks (title, description, priority, status, context, due_date, sort_order, archived_at)
+      insert into tasks (title, description, priority, status, project_id, due_date, sort_order, archived_at)
       values ${rows.join(', ')}
       returning *
     `,
@@ -57,27 +57,34 @@ export function buildImportTasks(tasks) {
   };
 }
 
-export function buildReplaceContextTasks(context, tasks) {
+// Fields written per imported row, excluding project_id — a replace import
+// always belongs to the target project ($1), so we never trust the row's own
+// projectId (a row missing it must not land in some default project).
+const REPLACE_FIELDS = IMPORT_FIELDS.filter(field => field !== 'projectId');
+
+export function buildReplaceProjectTasks(projectId, tasks) {
   if (!Array.isArray(tasks) || tasks.length === 0) {
     throw new Error('No task import records provided');
   }
 
   const rows = tasks.map((_, rowIndex) => {
-    const offset = 2 + (rowIndex * IMPORT_FIELDS.length);
-    return `($${offset}, $${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7})`;
+    const offset = 2 + (rowIndex * REPLACE_FIELDS.length);
+    // Column order: title, description, priority, status, project_id, due_date, sort_order, archived_at.
+    // project_id is fixed to $1 (the target project); the other 7 columns are per-row placeholders.
+    return `($${offset}, $${offset + 1}, $${offset + 2}, $${offset + 3}, $1, $${offset + 4}, $${offset + 5}, $${offset + 6})`;
   });
 
   return {
     text: `
       with deleted as (
         delete from tasks
-        where context = $1
+        where project_id = $1
       )
-      insert into tasks (title, description, priority, status, context, due_date, sort_order, archived_at)
+      insert into tasks (title, description, priority, status, project_id, due_date, sort_order, archived_at)
       values ${rows.join(', ')}
       returning *
     `,
-    values: [context, ...tasks.flatMap(task => IMPORT_FIELDS.map(field => task[field] ?? null))],
+    values: [projectId, ...tasks.flatMap(task => REPLACE_FIELDS.map(field => task[field] ?? null))],
   };
 }
 
@@ -150,7 +157,7 @@ export function buildDeleteArchivedTask(id) {
 export function buildListTaskDocuments(taskId) {
   return {
     text: `
-      select d.id, d.title, d.document_type, d.context
+      select d.id, d.title, d.document_type, d.project_id
       from task_documents td
       join markdown_documents d on d.id = td.document_id
       where td.task_id = $1 and d.archived_at is null
@@ -202,9 +209,9 @@ export function createTasksRepository(db) {
       const clauses = [];
       const values = [];
 
-      if (filters.context) {
-        values.push(filters.context);
-        clauses.push(`context = $${values.length}`);
+      if (filters.projectId) {
+        values.push(filters.projectId);
+        clauses.push(`project_id = $${values.length}`);
       }
       if (filters.status) {
         values.push(filters.status);
@@ -224,13 +231,14 @@ export function createTasksRepository(db) {
       const result = await db.query(`
         select * from tasks
         ${where}
-        order by context, status, sort_order, created_at
+        order by project_id, status, sort_order, created_at
       `, values);
       return result.rows.map(normalizeTaskRow);
     },
 
     async createTask(task) {
-      const result = await db.query(buildCreateTask(task).text, buildCreateTask(task).values);
+      const query = buildCreateTask(task);
+      const result = await db.query(query.text, query.values);
       return normalizeTaskRow(result.rows[0]);
     },
 
@@ -240,8 +248,8 @@ export function createTasksRepository(db) {
       return result.rows.map(normalizeTaskRow);
     },
 
-    async replaceContextTasks(context, tasks) {
-      const query = buildReplaceContextTasks(context, tasks);
+    async replaceProjectTasks(projectId, tasks) {
+      const query = buildReplaceProjectTasks(projectId, tasks);
       const result = await db.query(query.text, query.values);
       return result.rows.map(normalizeTaskRow);
     },
@@ -287,7 +295,7 @@ export function createTasksRepository(db) {
         id: row.id,
         title: row.title,
         documentType: row.document_type,
-        context: row.context,
+        projectId: row.project_id,
       }));
     },
 

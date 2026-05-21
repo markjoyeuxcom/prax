@@ -27,12 +27,15 @@ function radioLine(mode, label, importMode) {
 
 
 export function renderAdminPanelHtml({
-  activeContext = 'homelab',
+  activeProject = 'all',
+  projects = [],
   taskCount = 0,
   importMode = 'skip',
 } = {}) {
-  const contextLabel = labelFromValue(activeContext);
-  const safeContext = escapeHtml(contextLabel);
+  const activeProjectName = activeProject === 'all'
+    ? 'all projects'
+    : (projects.find(p => p.id === activeProject)?.name || 'all projects');
+  const safeProjectName = escapeHtml(activeProjectName);
   const safeTaskCount = Number.isFinite(Number(taskCount)) ? Number(taskCount) : 0;
 
   return `
@@ -43,7 +46,7 @@ export function renderAdminPanelHtml({
             <div class="modal-header__heading">
               <span class="detail-kicker">Operations</span>
               <h2 id="admin-title">Admin Operations</h2>
-              <p>Backup and restore controls for the selected Moomora Console context.</p>
+              <p>Backup and restore controls for the selected Moomora Console project.</p>
             </div>
             <button class="modal-header__close bracket-button bracket-button--quiet" type="button" data-action="close-admin" aria-label="Close Admin">[x] close</button>
           </div>
@@ -58,10 +61,10 @@ export function renderAdminPanelHtml({
           <section class="admin-section" aria-labelledby="backup-title">
             <div>
               <h3 id="backup-title">Backup</h3>
-              <p>${safeContext} &middot; ${safeTaskCount} loaded tasks &middot; Generated at download time</p>
+              <p>${safeProjectName} &middot; ${safeTaskCount} loaded tasks &middot; Generated at download time</p>
             </div>
             <div class="admin-actions">
-              <button class="bracket-button" type="button" data-action="export-context">[x] export ${safeContext}</button>
+              <button class="bracket-button" type="button" data-action="export-project">[x] export ${safeProjectName}</button>
               <button class="bracket-button" type="button" data-action="export-all">[X] export all</button>
             </div>
           </section>
@@ -69,13 +72,13 @@ export function renderAdminPanelHtml({
           <section class="admin-section" aria-labelledby="import-title">
             <div>
               <h3 id="import-title">Restore / Import</h3>
-              <p>Imports apply to the selected ${safeContext} context.</p>
+              <p>Imports apply to the selected ${safeProjectName} project.</p>
             </div>
             <fieldset class="admin-mode-group">
               <legend>Import mode</legend>
               ${radioLine('skip', 'Skip duplicates', importMode)}
               ${radioLine('append', 'Append', importMode)}
-              ${radioLine('replace', 'Replace context', importMode)}
+              ${radioLine('replace', 'Replace project', importMode)}
             </fieldset>
             <label class="admin-input-row">
               <span>Replace confirmation</span>
