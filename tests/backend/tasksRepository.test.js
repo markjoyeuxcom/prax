@@ -48,6 +48,25 @@ test('normalizeTaskRow maps database fields to API task fields', () => {
   });
 });
 
+test('normalizeTaskRow coerces a Date due_date to a YYYY-MM-DD string', () => {
+  // pg returns DATE columns as Date objects; the API must expose a plain date.
+  const task = normalizeTaskRow({
+    id: 'a', title: 'X', priority: 'high', status: 'planned',
+    project_id: PROJECT_ID, due_date: new Date('2026-05-18T00:00:00.000Z'),
+    sort_order: 0, archived_at: null, created_at: 'c', updated_at: 'u',
+  });
+  assert.equal(task.dueDate, '2026-05-18');
+});
+
+test('normalizeTaskRow leaves a null due_date as null', () => {
+  const task = normalizeTaskRow({
+    id: 'a', title: 'X', priority: 'high', status: 'planned',
+    project_id: PROJECT_ID, due_date: null,
+    sort_order: 0, archived_at: null, created_at: 'c', updated_at: 'u',
+  });
+  assert.equal(task.dueDate, null);
+});
+
 test('buildCreateTask returns parameterized insert query', () => {
   const query = buildCreateTask({
     title: 'Wire API adapter',

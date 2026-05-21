@@ -10,6 +10,15 @@ const UPDATE_COLUMN_MAP = {
   sortOrder: 'sort_order',
 };
 
+// pg returns DATE columns as JS Date objects (serialised as full ISO datetimes
+// like "2026-05-18T00:00:00.000Z"). Callers expect a plain calendar date, so
+// normalise due_date to YYYY-MM-DD; the in-memory demo already stores strings.
+function toDateOnly(value) {
+  if (!value) return null;
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return String(value).slice(0, 10);
+}
+
 export function normalizeTaskRow(row) {
   return {
     id: row.id,
@@ -18,7 +27,7 @@ export function normalizeTaskRow(row) {
     priority: row.priority,
     status: row.status,
     projectId: row.project_id,
-    dueDate: row.due_date,
+    dueDate: toDateOnly(row.due_date),
     sortOrder: row.sort_order,
     archivedAt: row.archived_at,
     createdAt: row.created_at,
