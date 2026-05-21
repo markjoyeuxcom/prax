@@ -104,3 +104,70 @@ export function renderBoardHtml(tasks = [], selectedTaskId = null, options = {})
       }).join('')}
     </section>`;
 }
+
+function renderLaneColumns(laneTasks, selectedTaskId, ctx) {
+  return COLUMNS.map(col => {
+    const cards = renderColumnCards(laneTasks, col.id, selectedTaskId, ctx);
+    const count = laneTasks.filter(t => (t.status || t.column || 'planned') === col.id).length;
+    return `
+        <section class="board-column board-column--open" aria-label="${col.label}" data-board-column="${col.id}">
+          <header class="board-column__header">
+            <span class="board-column__title">[ ${col.label} ]</span>
+            <span class="board-column__count">${count}</span>
+          </header>
+          <div class="board-cards" data-board-column="${col.id}">${cards}
+          </div>
+        </section>`;
+  }).join('');
+}
+
+export function renderSwimlaneBoardHtml(tasks = [], selectedTaskId = null, options = {}) {
+  const safe = Array.isArray(tasks) ? tasks : [];
+  const projects = Array.isArray(options.projects) ? options.projects : [];
+  const collapsed = options.boardLaneCollapsed || {};
+  const ctx = {
+    today: options.today || localToday(),
+    showProjectChips: false,
+    projectName: () => '',
+  };
+
+  const lanes = projects
+    .map(project => ({ project, tasks: safe.filter(t => t.projectId === project.id) }))
+    .filter(lane => lane.tasks.length > 0);
+
+  const known = new Set(projects.map(p => p.id));
+  const orphans = safe.filter(t => !known.has(t.projectId));
+  if (orphans.length) lanes.push({ project: { id: '__none__', name: 'No project' }, tasks: orphans });
+
+  if (!lanes.length) {
+    return `<section class="board-swimlanes" aria-label="Task board"><p class="board-empty">[ no tasks ]</p></section>`;
+  }
+
+  return `
+    <section class="board-swimlanes" aria-label="Task board">
+      ${lanes.map(({ project, tasks: laneTasks }) => {
+        const isCollapsed = collapsed[project.id] === true;
+        return `
+        <section class="board-lane${isCollapsed ? ' board-lane--collapsed' : ''}" data-board-lane="${escapeHtml(project.id)}">
+          <header class="board-lane__header">
+            <button class="board-lane__toggle" type="button" data-action="toggle-board-lane" data-project-id="${escapeHtml(project.id)}" aria-label="Toggle ${escapeHtml(project.name)}" aria-expanded="${!isCollapsed}">
+              <span class="board-lane__glyph">${isCollapsed ? '▸' : '▾'}</span>
+              <span class="board-lane__name">${escapeHtml(project.name)}</span>
+              <span class="board-lane__count">· ${laneTasks.length}</span>
+            </button>
+          </header>
+          ${isCollapsed ? '' : `<div class="board-panel">${renderLaneColumns(laneTasks, selectedTaskId, ctx)}</div>`}
+        </section>`;
+      }).join('')}
+    </section>`;
+}
+
+export function renderBoardToolbar(grouping = 'flat') {
+  const option = (value, label) =>
+    `<button class="board-toolbar__option" type="button" data-action="set-board-grouping" data-grouping="${value}" aria-pressed="${grouping === value}">${label}</button>`;
+  return `
+    <div class="board-toolbar">
+      <span class="board-toolbar__label">Group</span>
+      <div class="board-toolbar__group">${option('flat', 'flat')}${option('swimlanes', 'swimlanes')}</div>
+    </div>`;
+}

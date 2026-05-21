@@ -1,4 +1,4 @@
-import { DEFAULT_PREFERENCES, FONT_SCALE_OPTIONS, PALETTE_OPTIONS, normalizePreferences } from './preferences.js';
+import { BOARD_DENSITY_OPTIONS, DEFAULT_PREFERENCES, FONT_SCALE_OPTIONS, PALETTE_OPTIONS, normalizePreferences } from './preferences.js';
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -28,6 +28,10 @@ function renderFontScaleButton(value, activeValue) {
   return `<button class="settings-choice settings-choice--font" type="button" data-settings-font-scale="${escapeHtml(value)}"${selected(value, activeValue)}>${escapeHtml(labelFromValue(value))}</button>`;
 }
 
+function renderDensityButton(value, activeValue) {
+  return `<button class="settings-choice settings-choice--density" type="button" data-settings-board-density="${escapeHtml(value)}"${selected(value, activeValue)}>${escapeHtml(labelFromValue(value))}</button>`;
+}
+
 function paletteDescription(value) {
   if (value === 'graphite') return 'Neutral dark, less blue';
   if (value === 'daylight') return 'GitHub-like light mode';
@@ -55,6 +59,15 @@ function renderAppearance(preferences) {
         ${FONT_SCALE_OPTIONS.map(value => renderFontScaleButton(value, preferences.fontScale)).join('')}
       </div>
     </section>
+    <section class="settings-section" aria-labelledby="settings-density-title">
+      <div>
+        <h3 id="settings-density-title">Board Density</h3>
+        <p>Card spacing on the board. Compact fits more cards without hiding signals.</p>
+      </div>
+      <div class="settings-choice-row" aria-label="Board density">
+        ${BOARD_DENSITY_OPTIONS.map(value => renderDensityButton(value, preferences.boardDensity)).join('')}
+      </div>
+    </section>
     <section class="settings-section" aria-labelledby="settings-palette-title">
       <div>
         <h3 id="settings-palette-title">Colour Palette</h3>
@@ -67,7 +80,7 @@ function renderAppearance(preferences) {
     <section class="settings-section settings-section--inline" aria-labelledby="settings-reset-title">
       <div>
         <h3 id="settings-reset-title">Reset Preferences</h3>
-        <p>Return to ${escapeHtml(labelFromValue(DEFAULT_PREFERENCES.fontScale))} size and ${escapeHtml(labelFromValue(DEFAULT_PREFERENCES.palette))} palette.</p>
+        <p>Return to ${escapeHtml(labelFromValue(DEFAULT_PREFERENCES.fontScale))} size, ${escapeHtml(labelFromValue(DEFAULT_PREFERENCES.boardDensity))} board density, and ${escapeHtml(labelFromValue(DEFAULT_PREFERENCES.palette))} palette.</p>
       </div>
       <button class="danger-action" type="button" data-action="reset-preferences">Reset</button>
     </section>`;

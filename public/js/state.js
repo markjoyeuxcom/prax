@@ -50,6 +50,8 @@ export const state = {
   linkPickerQuery: '',
   preferences: { ...DEFAULT_PREFERENCES },
   boardOpenSections: { 'high-priority': true, 'in-progress': true, planned: false, completed: false, notes: false },
+  boardGrouping: 'flat',        // 'flat' | 'swimlanes' (All-projects board only)
+  boardLaneCollapsed: {},        // { [projectId]: true } collapsed lanes (session-only)
 };
 
 export function setState(patch) {
@@ -69,6 +71,24 @@ export function loadActiveProject(storage = globalThis.localStorage) {
 export function persistActiveProject(value, storage = globalThis.localStorage) {
   try {
     storage?.setItem?.(ACTIVE_PROJECT_KEY, value);
+  } catch {
+    /* ignore storage failures */
+  }
+}
+
+const BOARD_GROUPING_KEY = 'moomora.boardGrouping.v1';
+
+export function loadBoardGrouping(storage = globalThis.localStorage) {
+  try {
+    return storage?.getItem?.(BOARD_GROUPING_KEY) === 'swimlanes' ? 'swimlanes' : 'flat';
+  } catch {
+    return 'flat';
+  }
+}
+
+export function persistBoardGrouping(value, storage = globalThis.localStorage) {
+  try {
+    storage?.setItem?.(BOARD_GROUPING_KEY, value === 'swimlanes' ? 'swimlanes' : 'flat');
   } catch {
     /* ignore storage failures */
   }

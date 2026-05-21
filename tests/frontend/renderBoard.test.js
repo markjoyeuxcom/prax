@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { renderBoardHtml } from '../../public/js/renderBoard.js';
+import { renderBoardHtml, renderSwimlaneBoardHtml, renderBoardToolbar } from '../../public/js/renderBoard.js';
 
 test('renderBoardHtml renders status columns and task cards', () => {
   const html = renderBoardHtml([
@@ -118,4 +118,61 @@ test('board column with closed section uses closed glyph and hidden cards', () =
   assert.doesNotMatch(html, /data-board-column="planned"[^>]*aria-expanded="false"/);
   assert.match(html, /data-section="planned"[^>]*aria-expanded="false"/);
   assert.match(html, /data-section="planned"[\s\S]*?▸/);
+});
+
+const SWIM_PROJECTS = [
+  { id: 'p1', name: 'Homelab', slug: 'homelab', status: 'active' },
+  { id: 'p2', name: 'Work', slug: 'work', status: 'active' },
+  { id: 'p3', name: 'Empty', slug: 'empty', status: 'active' },
+];
+
+test('renderSwimlaneBoardHtml renders a lane only for projects with tasks', () => {
+  const tasks = [
+    { id: 'a', title: 'Patch ingress', priority: 'medium', status: 'in-progress', projectId: 'p1', sortOrder: 0 },
+    { id: 'b', title: 'Q2 pack', priority: 'high', status: 'planned', projectId: 'p2', sortOrder: 0, dueDate: '2026-05-19' },
+  ];
+  const html = renderSwimlaneBoardHtml(tasks, null, { today: '2026-05-21', projects: SWIM_PROJECTS });
+  assert.match(html, /data-board-lane="p1"/);
+  assert.match(html, /data-board-lane="p2"/);
+  assert.doesNotMatch(html, /data-board-lane="p3"/);
+  assert.match(html, /board-lane__name">Homelab</);
+  assert.match(html, /data-action="toggle-board-lane"[^>]*data-project-id="p1"/);
+  assert.match(html, /board-card__due--over/);
+  assert.match(html, /class="board-panel"/);
+  assert.doesNotMatch(html, /board-card__chip/);
+});
+
+test('renderSwimlaneBoardHtml hides columns for a collapsed lane', () => {
+  const tasks = [{ id: 'a', title: 'X', priority: 'low', status: 'planned', projectId: 'p1', sortOrder: 0 }];
+  const html = renderSwimlaneBoardHtml(tasks, null, {
+    today: '2026-05-21', projects: SWIM_PROJECTS, boardLaneCollapsed: { p1: true },
+  });
+  assert.match(html, /data-board-lane="p1"/);
+  assert.match(html, /aria-expanded="false"/);
+  assert.doesNotMatch(html, /class="board-panel"/);
+});
+
+test('renderSwimlaneBoardHtml groups tasks with no known project into a single "No project" lane', () => {
+  const tasks = [
+    { id: 'o1', title: 'Orphan one', priority: 'low', status: 'planned', projectId: 'gone', sortOrder: 0 },
+    { id: 'o2', title: 'Orphan two', priority: 'low', status: 'planned', projectId: null, sortOrder: 1 },
+  ];
+  const html = renderSwimlaneBoardHtml(tasks, null, { today: '2026-05-21', projects: SWIM_PROJECTS });
+  assert.match(html, /data-board-lane="__none__"/);
+  assert.match(html, /board-lane__name">No project</);
+  // only one orphan lane even though there are two orphan tasks
+  assert.equal((html.match(/data-board-lane="__none__"/g) || []).length, 1);
+});
+
+test('renderSwimlaneBoardHtml shows a placeholder when there are no tasks', () => {
+  const html = renderSwimlaneBoardHtml([], null, { today: '2026-05-21', projects: SWIM_PROJECTS });
+  assert.match(html, /board-swimlanes/);
+  assert.match(html, /\[ no tasks \]/);
+  assert.doesNotMatch(html, /data-board-lane/);
+});
+
+test('renderBoardToolbar marks the active grouping', () => {
+  const html = renderBoardToolbar('swimlanes');
+  assert.match(html, /data-action="set-board-grouping"[^>]*data-grouping="flat"/);
+  assert.match(html, /data-grouping="swimlanes"[^>]*aria-pressed="true"/);
 });
