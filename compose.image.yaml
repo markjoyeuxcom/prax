@@ -1,4 +1,4 @@
 services:
   app:
-    image: ghcr.io/markjoyeuxcom/moomora-console:v0.1.0
+    image: ghcr.io/markjoyeuxcom/moomora-console:v0.4.0
     build: !reset null
