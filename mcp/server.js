@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -8,8 +9,13 @@ import { createDocumentTools } from './tools/documents.js';
 import { createTaskTools } from './tools/tasks.js';
 import { createLinkTools } from './tools/links.js';
 
+// Advertise the package version so the MCP serverInfo never drifts from releases.
+const { version: PACKAGE_VERSION } = JSON.parse(
+  readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+);
+
 export function buildServer({ server, client } = {}) {
-  const mcp = server || new McpServer({ name: 'moomora-console', version: '0.2.0' });
+  const mcp = server || new McpServer({ name: 'moomora-console', version: PACKAGE_VERSION });
   const apiClient = client || createMoomoraClient();
 
   const tools = [
