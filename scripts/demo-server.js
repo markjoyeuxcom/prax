@@ -120,6 +120,7 @@ function createTask(seed) {
     id: randomUUID(),
     title: seed.title,
     description: seed.description || '',
+    notes: seed.notes || '',
     priority: seed.priority || 'medium',
     status: seed.status || 'planned',
     projectId: seed.projectId || PROJECT_ID_HOMELAB,
@@ -182,6 +183,19 @@ const sharedTasks = [
 function createMemoryTasksRepository(documentsRef) {
   const links = [];
   const tasks = sharedTasks;
+  const activity = [];
+
+  // Seed one `created` activity event per seeded task so the demo detail panel
+  // shows a populated activity feed out of the box.
+  for (const task of tasks) {
+    activity.push({
+      id: `act-${activity.length + 1}`,
+      taskId: task.id,
+      eventType: 'created',
+      message: 'Task created',
+      createdAt: new Date().toISOString(),
+    });
+  }
 
   return {
     async listTasks(filters = {}) {
@@ -244,6 +258,23 @@ function createMemoryTasksRepository(documentsRef) {
         Object.assign(task, update, { updatedAt: new Date().toISOString() });
         return task;
       }).filter(Boolean);
+    },
+
+    async getTask(id) {
+      // Return a snapshot (not the live object) so the route layer can compare
+      // a task's prior status against the post-update status — updateTask
+      // mutates the stored object in place, which would otherwise make the
+      // `prior` reference reflect the new status before the comparison.
+      const task = tasks.find(t => t.id === id);
+      return task ? { ...task } : null;
+    },
+    async recordActivity(taskId, eventType, message) {
+      const event = { id: `act-${activity.length + 1}`, taskId, eventType, message, createdAt: new Date().toISOString() };
+      activity.push(event);
+      return event;
+    },
+    async listTaskActivity(taskId) {
+      return activity.filter(a => a.taskId === taskId).slice().reverse();
     },
 
     async listTaskDocuments(taskId) {
@@ -371,6 +402,45 @@ function createMemoryLibraryRepository(documents) {
   };
 }
 
+function createMemoryChecklistRepository() {
+  const items = [];
+  // Item ids must be UUIDs so they pass the route layer's itemId validation,
+  // mirroring the real Postgres repository's gen_random_uuid() ids.
+  const nextId = () => randomUUID();
+  return {
+    async listChecklist(taskId) {
+      return items.filter(i => i.taskId === taskId).sort((a, b) => a.sortOrder - b.sortOrder);
+    },
+    async addChecklistItem(taskId, label) {
+      const sortOrder = items.filter(i => i.taskId === taskId).reduce((m, i) => Math.max(m, i.sortOrder), -1) + 1;
+      const item = { id: nextId(), taskId, label, completed: false, sortOrder, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      items.push(item);
+      return item;
+    },
+    async setChecklistItemCompleted(itemId, completed) {
+      const it = items.find(i => i.id === itemId);
+      if (!it) return null;
+      it.completed = completed; it.updatedAt = new Date().toISOString();
+      return it;
+    },
+    async deleteChecklistItem(itemId) {
+      const i = items.findIndex(x => x.id === itemId);
+      if (i < 0) return null;
+      return items.splice(i, 1)[0];
+    },
+    _seed(taskId, labels) { for (const l of labels) { const sortOrder = items.filter(i => i.taskId === taskId).length; items.push({ id: nextId(), taskId, label: l, completed: false, sortOrder, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); } },
+  };
+}
+
+const checklistRepository = createMemoryChecklistRepository();
+
+// Seed checklist items onto the "Back up CNPG" task so the demo detail panel
+// shows a populated checklist out of the box.
+const backupCnpgTask = sharedTasks.find(t => t.title === 'Back up CNPG');
+if (backupCnpgTask) {
+  checklistRepository._seed(backupCnpgTask.id, ['Verify backup CR', 'Confirm object-store creds']);
+}
+
 const config = loadConfig({
   ...process.env,
   DATABASE_URL: '',
@@ -385,6 +455,7 @@ const app = await buildApp({
   tasksRepository: createMemoryTasksRepository(sharedDocuments),
   libraryRepository: createMemoryLibraryRepository(sharedDocuments),
   projectsRepository: createMemoryProjectsRepository(sharedProjects),
+  checklistRepository,
 });
 
 await app.listen({ host: config.host, port: config.port });

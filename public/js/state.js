@@ -45,6 +45,8 @@ export const state = {
   librarySortBy: 'updated',
   libraryGroupByType: false,
   taskDocuments: [],
+  taskChecklist: [],
+  taskActivity: [],
   isLinkPickerOpen: false,
   linkPickerDocuments: [],
   linkPickerQuery: '',

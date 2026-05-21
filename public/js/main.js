@@ -3,16 +3,21 @@ import { fetchProjects, createProject, updateProject, archiveProject, deleteProj
 import { renderProjectManagerHtml } from './renderProjectManager.js';
 import { renderProjectArchiveHtml } from './renderProjectArchive.js';
 import {
+  addChecklistItem,
   archiveTask,
   createTask,
   deleteArchivedTask,
+  deleteChecklistItem,
   exportTasks,
+  fetchTaskActivity,
+  fetchTaskChecklist,
   fetchTaskDocuments,
   fetchTasks,
   importTasks,
   linkTaskDocument,
   reorderTasks,
   restoreTask,
+  setChecklistItem,
   unlinkTaskDocument,
   updateTask,
 } from './taskApi.js';
@@ -219,6 +224,28 @@ async function loadTaskDocuments(taskId) {
   }
 }
 
+async function loadTaskChecklist(taskId) {
+  if (!taskId) { setState({ taskChecklist: [] }); return; }
+  const requestedTaskId = taskId;
+  try {
+    const items = await fetchTaskChecklist(taskId);
+    if (state.selectedTaskId === requestedTaskId) setState({ taskChecklist: items });
+  } catch {
+    if (state.selectedTaskId === requestedTaskId) setState({ taskChecklist: [] });
+  }
+}
+
+async function loadTaskActivity(taskId) {
+  if (!taskId) { setState({ taskActivity: [] }); return; }
+  const requestedTaskId = taskId;
+  try {
+    const events = await fetchTaskActivity(taskId);
+    if (state.selectedTaskId === requestedTaskId) setState({ taskActivity: events });
+  } catch {
+    if (state.selectedTaskId === requestedTaskId) setState({ taskActivity: [] });
+  }
+}
+
 function renderWorkspace() {
   const workspace = document.getElementById('workspace');
   if (!workspace) return;
@@ -235,7 +262,7 @@ function renderWorkspace() {
 
   workspace.innerHTML = [
     renderWorkspacePrimary(visibleTasks, selectedTaskId),
-    renderTaskDetailHtml(task, { readOnly, restoreAction: readOnly, deleteAction: readOnly, mobileDetailOpen: state.mobileDetailOpen, linkedDocuments: state.taskDocuments }),
+    renderTaskDetailHtml(task, { readOnly, restoreAction: readOnly, deleteAction: readOnly, mobileDetailOpen: state.mobileDetailOpen, linkedDocuments: state.taskDocuments, checklistItems: state.taskChecklist, activityEvents: state.taskActivity }),
   ].join('');
 
   workspace.classList.toggle('is-mobile-detail-open', Boolean(state.mobileDetailOpen));
@@ -247,6 +274,8 @@ function renderWorkspace() {
         mobileDetailOpen: isMobile() ? true : state.mobileDetailOpen,
       });
       await loadTaskDocuments(row.dataset.taskId);
+      await loadTaskChecklist(row.dataset.taskId);
+      await loadTaskActivity(row.dataset.taskId);
       renderWorkspace();
     });
   });
@@ -351,6 +380,71 @@ function renderWorkspace() {
         renderWorkspace();
       } catch {
         window.alert('Moomora Console could not unlink the document.');
+      }
+    });
+  });
+
+  workspace.querySelector('[data-action="save-task-notes"]')?.addEventListener('click', async () => {
+    const textarea = workspace.querySelector('[data-task-notes]');
+    if (!textarea) return;
+    const taskToSave = selectedTask();
+    if (!taskToSave) return;
+    try {
+      const updated = normalizeTask(await updateTask(taskToSave.id, { notes: textarea.value }));
+      setState({ tasks: state.tasks.map((t) => (t.id === updated.id ? updated : t)) });
+      renderWorkspace();
+    } catch {
+      window.alert('Moomora Console could not save notes.');
+    }
+  });
+
+  async function submitNewChecklistItem(input) {
+    const taskId = state.selectedTaskId;
+    const label = input?.value.trim();
+    if (!label || !taskId) return;
+    try {
+      await addChecklistItem(taskId, label);
+      await loadTaskChecklist(taskId);
+      renderWorkspace();
+    } catch {
+      window.alert('Moomora Console could not add the checklist item.');
+    }
+  }
+
+  workspace.querySelector('[data-action="add-checklist-item"]')?.addEventListener('click', () => {
+    submitNewChecklistItem(workspace.querySelector('[data-checklist-new]'));
+  });
+
+  workspace.querySelector('[data-checklist-new]')?.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    submitNewChecklistItem(event.target);
+  });
+
+  workspace.querySelectorAll('[data-action="toggle-checklist-item"]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const taskId = state.selectedTaskId;
+      if (!taskId) return;
+      try {
+        await setChecklistItem(taskId, btn.dataset.itemId, btn.dataset.completed !== 'true');
+        await loadTaskChecklist(taskId);
+        renderWorkspace();
+      } catch {
+        window.alert('Moomora Console could not update the checklist item.');
+      }
+    });
+  });
+
+  workspace.querySelectorAll('[data-action="delete-checklist-item"]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const taskId = state.selectedTaskId;
+      if (!taskId) return;
+      try {
+        await deleteChecklistItem(taskId, btn.dataset.itemId);
+        await loadTaskChecklist(taskId);
+        renderWorkspace();
+      } catch {
+        window.alert('Moomora Console could not delete the checklist item.');
       }
     });
   });
@@ -1905,6 +1999,7 @@ function bindTaskFormEvents() {
     const payload = {
       title,
       description: String(data.get('description') || '').trim(),
+      notes: String(data.get('notes') || '').trim(),
       priority: String(data.get('priority') || 'medium'),
       status: String(data.get('status') || 'planned'),
       project: String(data.get('project') || defaultProjectId()),
@@ -1930,6 +2025,7 @@ function bindTaskFormEvents() {
         formError: '',
       });
       await loadTasks({ selectedTaskId: savedTask.id });
+      await loadTaskActivity(state.selectedTaskId);
     } catch {
       setState({
         isSaving: false,
@@ -1966,6 +2062,8 @@ async function loadTasks({ selectedTaskId = state.selectedTaskId } = {}) {
     selectedTaskId: resolvedTaskId,
   });
   await loadTaskDocuments(resolvedTaskId);
+  await loadTaskChecklist(resolvedTaskId);
+  await loadTaskActivity(resolvedTaskId);
   renderApp();
 }
 

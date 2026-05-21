@@ -11,6 +11,11 @@ import {
   restoreTask,
   unlinkTaskDocument,
   updateTask,
+  fetchTaskChecklist,
+  addChecklistItem,
+  setChecklistItem,
+  deleteChecklistItem,
+  fetchTaskActivity,
 } from '../../public/js/taskApi.js';
 
 function jsonResponse(body, ok = true) {
@@ -263,4 +268,105 @@ test('unlinkTaskDocument throws when the API rejects the request', async () => {
     () => unlinkTaskDocument('task-1', 'doc-1'),
     /Failed to unlink document/,
   );
+});
+
+test('fetchTaskChecklist GETs the checklist for a task', async () => {
+  const calls = [];
+  globalThis.fetch = async (...args) => {
+    calls.push(args);
+    return jsonResponse([{ id: 'c1', label: 'Step', completed: false }]);
+  };
+
+  const items = await fetchTaskChecklist('task-1');
+
+  assert.deepEqual(items, [{ id: 'c1', label: 'Step', completed: false }]);
+  assert.equal(calls[0][0], '/api/tasks/task-1/checklist');
+});
+
+test('fetchTaskChecklist throws when the API rejects the request', async () => {
+  globalThis.fetch = async () => jsonResponse({ message: 'bad' }, false);
+
+  await assert.rejects(() => fetchTaskChecklist('task-1'), /Failed to load checklist/);
+});
+
+test('addChecklistItem POSTs a label to create an item', async () => {
+  const calls = [];
+  globalThis.fetch = async (...args) => {
+    calls.push(args);
+    return jsonResponse({ id: 'c1', label: 'New step', completed: false });
+  };
+
+  const item = await addChecklistItem('task-1', 'New step');
+
+  assert.deepEqual(item, { id: 'c1', label: 'New step', completed: false });
+  assert.equal(calls[0][0], '/api/tasks/task-1/checklist');
+  assert.equal(calls[0][1].method, 'POST');
+  assert.deepEqual(calls[0][1].headers, { 'content-type': 'application/json' });
+  assert.equal(calls[0][1].body, JSON.stringify({ label: 'New step' }));
+});
+
+test('addChecklistItem throws when the API rejects the request', async () => {
+  globalThis.fetch = async () => jsonResponse({ message: 'bad' }, false);
+
+  await assert.rejects(() => addChecklistItem('task-1', 'x'), /Failed to add checklist item/);
+});
+
+test('setChecklistItem PATCHes the completed flag for an item', async () => {
+  const calls = [];
+  globalThis.fetch = async (...args) => {
+    calls.push(args);
+    return jsonResponse({ id: 'c1', label: 'Step', completed: true });
+  };
+
+  const item = await setChecklistItem('task-1', 'c1', true);
+
+  assert.deepEqual(item, { id: 'c1', label: 'Step', completed: true });
+  assert.equal(calls[0][0], '/api/tasks/task-1/checklist/c1');
+  assert.equal(calls[0][1].method, 'PATCH');
+  assert.deepEqual(calls[0][1].headers, { 'content-type': 'application/json' });
+  assert.equal(calls[0][1].body, JSON.stringify({ completed: true }));
+});
+
+test('setChecklistItem throws when the API rejects the request', async () => {
+  globalThis.fetch = async () => jsonResponse({ message: 'bad' }, false);
+
+  await assert.rejects(() => setChecklistItem('task-1', 'c1', true), /Failed to update checklist item/);
+});
+
+test('deleteChecklistItem DELETEs an item', async () => {
+  const calls = [];
+  globalThis.fetch = async (...args) => {
+    calls.push(args);
+    return { ok: true };
+  };
+
+  await deleteChecklistItem('task-1', 'c1');
+
+  assert.equal(calls[0][0], '/api/tasks/task-1/checklist/c1');
+  assert.equal(calls[0][1].method, 'DELETE');
+});
+
+test('deleteChecklistItem throws when the API rejects the request', async () => {
+  globalThis.fetch = async () => ({ ok: false });
+
+  await assert.rejects(() => deleteChecklistItem('task-1', 'c1'), /Failed to delete checklist item/);
+});
+
+test('fetchTaskActivity GETs the activity feed for a task', async () => {
+  const calls = [];
+  globalThis.fetch = async (...args) => {
+    calls.push(args);
+    return jsonResponse([{ id: 'a1', message: 'Task created', createdAt: '2026-05-19T09:00:00.000Z' }]);
+  };
+
+  const events = await fetchTaskActivity('task-1');
+
+  assert.deepEqual(events, [{ id: 'a1', message: 'Task created', createdAt: '2026-05-19T09:00:00.000Z' }]);
+  assert.equal(calls[0][0], '/api/tasks/task-1/activity');
+});
+
+test('fetchTaskActivity throws when the API rejects the request', async () => {
+  globalThis.fetch = async () => jsonResponse({ message: 'bad' }, false);
+
+  await assert.rejects(() => fetchTaskActivity('task-1'), /Failed to load activity/);
 });

@@ -112,5 +112,20 @@ export function createMoomoraClient({
 
     unlinkTaskDocument: (taskId, documentId) =>
       request('DELETE', `/api/tasks/${taskId}/documents/${documentId}`, {}),
+
+    listChecklist: (taskId) =>
+      request('GET', `/api/tasks/${taskId}/checklist`, {}),
+
+    addChecklistItem: (taskId, label) =>
+      request('POST', `/api/tasks/${taskId}/checklist`, { body: { label } }),
+
+    setChecklistItem: (taskId, itemId, completed) =>
+      request('PATCH', `/api/tasks/${taskId}/checklist/${itemId}`, { body: { completed } }),
+
+    deleteChecklistItem: (taskId, itemId) =>
+      request('DELETE', `/api/tasks/${taskId}/checklist/${itemId}`, {}),
+
+    listTaskActivity: (taskId) =>
+      request('GET', `/api/tasks/${taskId}/activity`, {}),
   };
 }

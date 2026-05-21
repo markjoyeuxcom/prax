@@ -1,4 +1,4 @@
-const ALLOWED_CREATE_FIELDS = ['title', 'description', 'priority', 'status', 'projectId', 'dueDate', 'sortOrder'];
+const ALLOWED_CREATE_FIELDS = ['title', 'description', 'priority', 'status', 'projectId', 'dueDate', 'sortOrder', 'notes'];
 const IMPORT_FIELDS = ['title', 'description', 'priority', 'status', 'projectId', 'dueDate', 'sortOrder', 'archivedAt'];
 const UPDATE_COLUMN_MAP = {
   title: 'title',
@@ -8,6 +8,7 @@ const UPDATE_COLUMN_MAP = {
   projectId: 'project_id',
   dueDate: 'due_date',
   sortOrder: 'sort_order',
+  notes: 'notes',
 };
 
 // pg returns DATE columns as JS Date objects (serialised as full ISO datetimes
@@ -24,6 +25,7 @@ export function normalizeTaskRow(row) {
     id: row.id,
     title: row.title,
     description: row.description,
+    notes: row.notes,
     priority: row.priority,
     status: row.status,
     projectId: row.project_id,
@@ -38,8 +40,8 @@ export function normalizeTaskRow(row) {
 export function buildCreateTask(task) {
   return {
     text: `
-      insert into tasks (title, description, priority, status, project_id, due_date, sort_order)
-      values ($1, $2, $3, $4, $5, $6, $7)
+      insert into tasks (title, description, priority, status, project_id, due_date, sort_order, notes)
+      values ($1, $2, $3, $4, $5, $6, $7, $8)
       returning *
     `,
     values: ALLOWED_CREATE_FIELDS.map(field => task[field] ?? null),
@@ -212,6 +214,28 @@ export function buildLinkExists(taskId, documentId) {
   };
 }
 
+export function normalizeActivityRow(row) {
+  return { id: row.id, taskId: row.task_id, eventType: row.event_type, message: row.message, createdAt: row.created_at };
+}
+
+export function buildRecordActivity(taskId, eventType, message) {
+  return {
+    text: `insert into task_activity (task_id, event_type, message) values ($1, $2, $3) returning *`,
+    values: [taskId, eventType, message],
+  };
+}
+
+export function buildListTaskActivity(taskId) {
+  return {
+    text: `select * from task_activity where task_id = $1 order by created_at desc, id desc`,
+    values: [taskId],
+  };
+}
+
+export function buildGetTask(id) {
+  return { text: `select * from tasks where id = $1 limit 1`, values: [id] };
+}
+
 export function createTasksRepository(db) {
   return {
     async listTasks(filters = {}) {
@@ -326,6 +350,24 @@ export function createTasksRepository(db) {
       const query = buildUnlinkTaskDocument(taskId, documentId);
       const result = await db.query(query.text, query.values);
       return result.rows.length > 0;
+    },
+
+    async getTask(id) {
+      const q = buildGetTask(id);
+      const result = await db.query(q.text, q.values);
+      return result.rows[0] ? normalizeTaskRow(result.rows[0]) : null;
+    },
+
+    async recordActivity(taskId, eventType, message) {
+      const q = buildRecordActivity(taskId, eventType, message);
+      const result = await db.query(q.text, q.values);
+      return normalizeActivityRow(result.rows[0]);
+    },
+
+    async listTaskActivity(taskId) {
+      const q = buildListTaskActivity(taskId);
+      const result = await db.query(q.text, q.values);
+      return result.rows.map(normalizeActivityRow);
     },
   };
 }

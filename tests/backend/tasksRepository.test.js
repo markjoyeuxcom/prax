@@ -14,6 +14,10 @@ import {
   buildLinkTaskDocument,
   buildUnlinkTaskDocument,
   buildLinkExists,
+  buildRecordActivity,
+  buildListTaskActivity,
+  normalizeActivityRow,
+  buildGetTask,
 } from '../../server/tasksRepository.js';
 
 const PROJECT_ID = '99999999-9999-4999-8999-999999999999';
@@ -23,6 +27,7 @@ test('normalizeTaskRow maps database fields to API task fields', () => {
     id: '11111111-1111-4111-8111-111111111111',
     title: 'Back up CloudNativePG',
     description: 'Verify backup schedule',
+    notes: 'Confirm the off-site copy completed.',
     priority: 'high',
     status: 'planned',
     project_id: PROJECT_ID,
@@ -37,6 +42,7 @@ test('normalizeTaskRow maps database fields to API task fields', () => {
     id: '11111111-1111-4111-8111-111111111111',
     title: 'Back up CloudNativePG',
     description: 'Verify backup schedule',
+    notes: 'Confirm the off-site copy completed.',
     priority: 'high',
     status: 'planned',
     projectId: PROJECT_ID,
@@ -79,8 +85,24 @@ test('buildCreateTask returns parameterized insert query', () => {
   });
 
   assert.match(query.text, /insert into tasks/);
-  assert.equal(query.values.length, 7);
+  assert.equal(query.values.length, 8);
   assert.equal(query.values[0], 'Wire API adapter');
+});
+
+test('buildCreateTask places notes at $8', () => {
+  const query = buildCreateTask({
+    title: 'T', description: '', priority: 'low', status: 'planned',
+    projectId: PROJECT_ID, dueDate: null, sortOrder: 0,
+    notes: 'Handoff context',
+  });
+  assert.match(query.text, /sort_order, notes\)/);
+  assert.equal(query.values[7], 'Handoff context');
+});
+
+test('buildUpdateTask maps notes to the notes column', () => {
+  const q = buildUpdateTask('11111111-1111-4111-8111-111111111111', { notes: 'Handoff: paused on step 3.' });
+  assert.match(q.text, /notes = \$2/);
+  assert.deepEqual(q.values, ['11111111-1111-4111-8111-111111111111', 'Handoff: paused on step 3.']);
 });
 
 test('buildUpdateTask rejects empty updates', () => {
@@ -415,4 +437,32 @@ test('unlinkTaskDocument returns false when link does not exist', async () => {
     '22222222-2222-4222-8222-222222222222',
   );
   assert.equal(result, false);
+});
+
+test('buildRecordActivity inserts an event', () => {
+  const q = buildRecordActivity(PROJECT_ID, 'status', 'Status → in-progress');
+  assert.match(q.text, /insert into task_activity/);
+  assert.match(q.text, /\(task_id, event_type, message\)/);
+  assert.deepEqual(q.values, [PROJECT_ID, 'status', 'Status → in-progress']);
+});
+
+test('buildListTaskActivity orders newest first', () => {
+  const q = buildListTaskActivity(PROJECT_ID);
+  assert.match(q.text, /from task_activity/);
+  assert.match(q.text, /where task_id = \$1/);
+  assert.match(q.text, /order by created_at desc/);
+  assert.deepEqual(q.values, [PROJECT_ID]);
+});
+
+test('normalizeActivityRow maps columns', () => {
+  assert.deepEqual(
+    normalizeActivityRow({ id: 'a', task_id: PROJECT_ID, event_type: 'created', message: 'Task created', created_at: 'c' }),
+    { id: 'a', taskId: PROJECT_ID, eventType: 'created', message: 'Task created', createdAt: 'c' },
+  );
+});
+
+test('buildGetTask selects one task by id', () => {
+  const q = buildGetTask(PROJECT_ID);
+  assert.match(q.text, /select \* from tasks where id = \$1/);
+  assert.deepEqual(q.values, [PROJECT_ID]);
 });

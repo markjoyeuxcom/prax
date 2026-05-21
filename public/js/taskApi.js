@@ -103,3 +103,36 @@ export async function unlinkTaskDocument(taskId, documentId) {
   if (!response.ok) throw new Error('Failed to unlink document');
   return response.json();
 }
+
+export async function fetchTaskChecklist(taskId) {
+  const response = await fetch(`/api/tasks/${taskId}/checklist`);
+  if (!response.ok) throw new Error('Failed to load checklist');
+  return response.json();
+}
+
+export async function fetchTaskActivity(taskId) {
+  const response = await fetch(`/api/tasks/${taskId}/activity`);
+  if (!response.ok) throw new Error('Failed to load activity');
+  return response.json();
+}
+
+export async function addChecklistItem(taskId, label) {
+  const response = await fetch(`/api/tasks/${taskId}/checklist`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ label }),
+  });
+  if (!response.ok) throw new Error('Failed to add checklist item');
+  return response.json();
+}
+
+export async function setChecklistItem(taskId, itemId, completed) {
+  const response = await fetch(`/api/tasks/${taskId}/checklist/${itemId}`, {
+    method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ completed }),
+  });
+  if (!response.ok) throw new Error('Failed to update checklist item');
+  return response.json();
+}
+
+export async function deleteChecklistItem(taskId, itemId) {
+  const response = await fetch(`/api/tasks/${taskId}/checklist/${itemId}`, { method: 'DELETE' });
+  if (!response.ok) throw new Error('Failed to delete checklist item');
+}

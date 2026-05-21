@@ -8,6 +8,8 @@ import { createMoomoraClient } from './moomoraClient.js';
 import { createDocumentTools } from './tools/documents.js';
 import { createTaskTools } from './tools/tasks.js';
 import { createLinkTools } from './tools/links.js';
+import { createChecklistTools } from './tools/checklist.js';
+import { createActivityTools } from './tools/activity.js';
 
 // Advertise the package version so the MCP serverInfo never drifts from releases.
 const { version: PACKAGE_VERSION } = JSON.parse(
@@ -22,6 +24,8 @@ export function buildServer({ server, client } = {}) {
     ...createDocumentTools(apiClient),
     ...createTaskTools(apiClient),
     ...createLinkTools(apiClient),
+    ...createChecklistTools(apiClient),
+    ...createActivityTools(apiClient),
   ];
 
   for (const tool of tools) {

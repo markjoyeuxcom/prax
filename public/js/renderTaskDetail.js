@@ -37,14 +37,6 @@ function renderMetaItem(label, value) {
         </div>`;
 }
 
-function renderDetailBlock(title, text) {
-  return `
-      <section class="detail-block">
-        <h3>${title}</h3>
-        <p>${text}</p>
-      </section>`;
-}
-
 function renderLinkedDocs(linkedDocuments = [], options = {}) {
   const readOnly = Boolean(options.readOnly);
   const rows = linkedDocuments.length
@@ -65,6 +57,69 @@ function renderLinkedDocs(linkedDocuments = [], options = {}) {
           ${readOnly ? '' : '<button class="bracket-button bracket-button--quiet" type="button" data-action="open-link-picker">[+] link doc</button>'}
         </div>
         <div class="linked-docs">${rows}</div>
+      </section>`;
+}
+
+function renderChecklist(items = [], options = {}) {
+  const readOnly = Boolean(options.readOnly);
+  const done = items.filter(i => i.completed).length;
+  const rows = items.length
+    ? items.map(item => `
+        <div class="checklist-item${item.completed ? ' is-done' : ''}" data-checklist-id="${escapeHtml(item.id)}">
+          ${readOnly
+            ? `<span class="checklist-item__mark">${item.completed ? '[x]' : '[ ]'}</span>`
+            : `<button class="checklist-item__toggle bracket-button bracket-button--quiet" type="button" data-action="toggle-checklist-item" data-item-id="${escapeHtml(item.id)}" data-completed="${item.completed ? 'true' : 'false'}" aria-label="${item.completed ? 'Mark incomplete' : 'Mark complete'}: ${escapeHtml(item.label || '')}">${item.completed ? '[x]' : '[ ]'}</button>`}
+          <span class="checklist-item__label">${escapeHtml(item.label || '')}</span>
+          ${readOnly ? '' : `<button class="checklist-item__delete bracket-button bracket-button--quiet" type="button" data-action="delete-checklist-item" data-item-id="${escapeHtml(item.id)}" aria-label="Delete: ${escapeHtml(item.label || '')}">[x]</button>`}
+        </div>`).join('')
+    : '<p class="checklist__empty">No checklist items.</p>';
+  const adder = readOnly ? '' : `
+        <div class="checklist-add">
+          <input type="text" class="checklist-add__input" data-checklist-new placeholder="Add a checklist item" autocomplete="off">
+          <button class="bracket-button bracket-button--quiet" type="button" data-action="add-checklist-item">[+] add</button>
+        </div>`;
+  return `
+      <section class="detail-block">
+        <div class="detail-block__head">
+          <h3>Checklist</h3>
+          <span class="detail-block__count">${done}/${items.length}</span>
+        </div>
+        <div class="checklist">${rows}</div>${adder}
+      </section>`;
+}
+
+function renderActivity(events = []) {
+  const rows = events.length
+    ? events.map(e => `
+        <div class="activity-item">
+          <span class="activity-item__msg">${escapeHtml(e.message || '')}</span>
+          <span class="activity-item__time">${escapeHtml((e.createdAt || '').slice(0, 10))}</span>
+        </div>`).join('')
+    : '<p class="activity__empty">No activity yet.</p>';
+  return `
+      <section class="detail-block">
+        <h3>Activity</h3>
+        <div class="activity">${rows}</div>
+      </section>`;
+}
+
+function renderNotes(task, options = {}) {
+  const readOnly = Boolean(options.readOnly);
+  const notes = task.notes || '';
+  if (readOnly) {
+    return `
+      <section class="detail-block">
+        <h3>Notes</h3>
+        <p>${notes ? escapeHtml(notes) : 'No notes.'}</p>
+      </section>`;
+  }
+  return `
+      <section class="detail-block">
+        <div class="detail-block__head">
+          <h3>Notes</h3>
+          <button class="bracket-button bracket-button--quiet" type="button" data-action="save-task-notes">[s] save</button>
+        </div>
+        <textarea class="detail-notes" data-task-notes rows="4" placeholder="Operational notes and handoff context…">${escapeHtml(notes)}</textarea>
       </section>`;
 }
 
@@ -120,7 +175,7 @@ export function renderTaskDetailHtml(task, options = {}) {
       <dl class="detail-meta" aria-label="Task metadata">${renderMetaItem('Priority', priorityBadge)}${renderMetaItem('Status', escapeHtml(status))}${renderMetaItem('Due', escapeHtml(dueDate))}
       </dl>
 
-      <div class="detail-body">${renderLinkedDocs(options.linkedDocuments, options)}${renderDetailBlock('Checklist', 'Checklist items will be tracked here as execution details are added.')}${renderDetailBlock('Notes', 'Operational notes and handoff context will appear here.')}${renderDetailBlock('Activity', 'Task history will show recent changes when activity tracking is enabled.')}
+      <div class="detail-body">${renderLinkedDocs(options.linkedDocuments, options)}${renderChecklist(options.checklistItems, options)}${renderNotes(task, options)}${renderActivity(options.activityEvents)}
       </div>
     </aside>`;
 }

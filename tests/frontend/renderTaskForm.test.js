@@ -45,6 +45,28 @@ test('renderTaskFormHtml renders edit values and selected options', () => {
   assert.match(html, /value="2026-05-17"/);
 });
 
+test('renderTaskFormHtml renders an empty notes field on create', () => {
+  const html = renderTaskFormHtml({ projects: TEST_PROJECTS });
+  assert.match(html, /<textarea name="notes"[^>]*><\/textarea>/);
+});
+
+test('renderTaskFormHtml prefills notes when editing', () => {
+  const html = renderTaskFormHtml({
+    task: { title: 'Patch NAS', priority: 'high', status: 'planned', notes: 'paused on step 3' },
+    projects: TEST_PROJECTS,
+  });
+  assert.match(html, /<textarea name="notes"[^>]*>paused on step 3<\/textarea>/);
+});
+
+test('renderTaskFormHtml escapes notes content', () => {
+  const html = renderTaskFormHtml({
+    task: { title: 'X', priority: 'low', status: 'planned', notes: '<b>"bold"</b>' },
+    projects: TEST_PROJECTS,
+  });
+  assert.match(html, /&lt;b&gt;&quot;bold&quot;&lt;\/b&gt;/);
+  assert.doesNotMatch(html, /<b>"bold"<\/b>/);
+});
+
 test('renderTaskFormHtml falls back to the task project when no override is given', () => {
   const html = renderTaskFormHtml({
     task: {

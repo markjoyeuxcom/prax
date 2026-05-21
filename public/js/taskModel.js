@@ -44,6 +44,7 @@ export function normalizeTask(task) {
     id: task.id,
     title: task.title || '',
     description: task.description || '',
+    notes: task.notes || '',
     priority: task.priority || 'medium',
     status: task.status || task.column || 'planned',
     column: task.status || task.column || 'planned',

@@ -41,6 +41,7 @@ export function renderTaskFormHtml({
     status: task?.status || 'planned',
     project: valuesOverride.project || task?.projectId || '',
     dueDate: task?.dueDate || '',
+    notes: task?.notes || '',
   };
 
   return `
@@ -93,6 +94,10 @@ export function renderTaskFormHtml({
               <input name="dueDate" type="date" value="${escapeHtml(values.dueDate)}">
             </label>
           </div>
+          <label>
+            <span>Notes</span>
+            <textarea name="notes" rows="3" placeholder="Operational notes and handoff context…">${escapeHtml(values.notes)}</textarea>
+          </label>
           <footer class="task-form-actions">
             <button class="bracket-button bracket-button--quiet" type="button" data-action="close-task-form">cancel</button>
             <button class="bracket-button bracket-button--primary" type="submit"${isSaving ? ' disabled' : ''}>${isSaving ? '[s] saving...' : '[s] save'}</button>

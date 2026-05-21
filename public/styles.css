@@ -3128,6 +3128,20 @@ button.task-row:hover { background: color-mix(in srgb, var(--accent) 4%, transpa
   font-style: italic;
 }
 
+.checklist { display: flex; flex-direction: column; gap: 6px; }
+.checklist-item { display: flex; align-items: center; gap: 8px; }
+.checklist-item__label { flex: 1; }
+.checklist-item.is-done .checklist-item__label { text-decoration: line-through; color: var(--text-dim); }
+.checklist__empty { color: var(--text-dim); }
+.checklist-add { display: flex; gap: 8px; margin-top: 8px; }
+.checklist-add__input { flex: 1; }
+.detail-block__count { font-family: var(--font-mono); color: var(--accent-amber); font-size: 0.78rem; }
+
+.activity { display: grid; gap: 6px; }
+.activity-item { display: flex; justify-content: space-between; gap: 10px; font-size: 0.82rem; }
+.activity-item__time { color: var(--text-dim); font-family: var(--font-mono); font-size: 0.74rem; }
+.activity__empty { color: var(--text-dim); }
+
 /* ============================================================
    Link picker modal
    ============================================================ */

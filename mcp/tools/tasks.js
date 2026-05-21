@@ -67,6 +67,7 @@ export function createTaskTools(client) {
         id: z.string().describe('Task UUID.'),
         title: z.string().min(1).optional(),
         description: z.string().optional(),
+        notes: z.string().optional().describe('Free-form operational notes / handoff context for the task.'),
         priority: PRIORITY.optional(),
         status: STATUS.optional(),
         project: z.string().optional().describe('Project slug or id.'),

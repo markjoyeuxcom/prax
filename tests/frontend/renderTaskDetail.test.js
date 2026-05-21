@@ -65,3 +65,74 @@ test('linked docs shows the link picker button when not read-only', () => {
   assert.match(html, /data-action="open-link-picker"/);
   assert.match(html, /\[\+\] link doc/);
 });
+
+test('renderTaskDetailHtml renders an editable notes textarea with the task notes', () => {
+  const html = renderTaskDetailHtml(
+    { id: 't1', title: 'X', status: 'planned', priority: 'low', notes: 'paused on step 3' },
+    {},
+  );
+  assert.match(html, /<textarea[^>]*data-task-notes[^>]*>paused on step 3<\/textarea>/);
+  assert.match(html, /data-action="save-task-notes"/);
+});
+
+test('renderTaskDetailHtml renders notes read-only when readOnly', () => {
+  const html = renderTaskDetailHtml(
+    { id: 't1', title: 'X', status: 'completed', priority: 'low', notes: 'archived note' },
+    { readOnly: true },
+  );
+  assert.doesNotMatch(html, /data-action="save-task-notes"/);
+  assert.match(html, /archived note/);
+});
+
+test('renderNotes escapes HTML-special characters in notes', () => {
+  const html = renderTaskDetailHtml(
+    { id: 't1', title: 'X', status: 'planned', priority: 'low', notes: '</textarea><script>alert(1)</script>' },
+    {},
+  );
+  assert.doesNotMatch(html, /<script>/);
+  assert.match(html, /&lt;\/textarea&gt;/);
+});
+
+test('renderTaskDetailHtml renders checklist items with a done count and controls', () => {
+  const html = renderTaskDetailHtml(
+    { id: 't1', title: 'X', status: 'planned', priority: 'low' },
+    { checklistItems: [
+      { id: 'c1', label: 'Step one', completed: true },
+      { id: 'c2', label: 'Step two', completed: false },
+    ] },
+  );
+  assert.match(html, /Checklist/);
+  assert.match(html, /1\/2/);
+  assert.match(html, /data-action="toggle-checklist-item"[^>]*data-item-id="c1"/);
+  assert.match(html, /data-action="delete-checklist-item"[^>]*data-item-id="c2"/);
+  assert.match(html, /data-action="add-checklist-item"/);
+  assert.match(html, /Step one/);
+});
+
+test('renderTaskDetailHtml checklist is read-only with no controls when readOnly', () => {
+  const html = renderTaskDetailHtml(
+    { id: 't1', title: 'X', status: 'completed', priority: 'low' },
+    { readOnly: true, checklistItems: [{ id: 'c1', label: 'Done step', completed: true }] },
+  );
+  assert.match(html, /Done step/);
+  assert.doesNotMatch(html, /data-action="toggle-checklist-item"/);
+  assert.doesNotMatch(html, /data-action="add-checklist-item"/);
+});
+
+test('renderTaskDetailHtml renders an activity feed newest-first', () => {
+  const html = renderTaskDetailHtml(
+    { id: 't1', title: 'X', status: 'planned', priority: 'low' },
+    { activityEvents: [
+      { id: 'a2', message: 'Status → in-progress', createdAt: '2026-05-20T10:00:00.000Z' },
+      { id: 'a1', message: 'Task created', createdAt: '2026-05-19T09:00:00.000Z' },
+    ] },
+  );
+  assert.match(html, /Activity/);
+  assert.match(html, /Status → in-progress/);
+  assert.match(html, /Task created/);
+});
+
+test('renderTaskDetailHtml shows an empty activity state', () => {
+  const html = renderTaskDetailHtml({ id: 't1', title: 'X', status: 'planned', priority: 'low' }, { activityEvents: [] });
+  assert.match(html, /No activity yet\./);
+});

@@ -19,6 +19,7 @@ create table if not exists tasks (
   id uuid primary key default gen_random_uuid(),
   title text not null,
   description text not null default '',
+  notes text not null default '',
   priority text not null check (priority in ('high', 'medium', 'low')),
   status text not null check (status in ('high-priority', 'in-progress', 'planned', 'completed', 'notes')),
   project_id uuid not null references projects(id),
@@ -77,3 +78,5 @@ create table if not exists task_documents (
 );
 
 create index if not exists idx_task_documents_document on task_documents (document_id);
+create index if not exists idx_task_checklist_items_task on task_checklist_items (task_id, sort_order);
+create index if not exists idx_task_activity_task on task_activity (task_id, created_at desc);
