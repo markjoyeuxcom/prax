@@ -180,7 +180,7 @@ const sharedTasks = [
   }),
 ];
 
-function createMemoryTasksRepository(documentsRef) {
+function createMemoryTasksRepository(documentsRef, checklistRepositoryRef = null) {
   const links = [];
   const tasks = sharedTasks;
   const activity = [];
@@ -275,6 +275,28 @@ function createMemoryTasksRepository(documentsRef) {
     },
     async listTaskActivity(taskId) {
       return activity.filter(a => a.taskId === taskId).slice().reverse();
+    },
+
+    async listTaskBoardExtras(taskIds) {
+      const ids = Array.isArray(taskIds) ? taskIds : [];
+      const result = [];
+      for (const taskId of ids) {
+        const docsCount = links
+          .filter(link => link.taskId === taskId)
+          .map(link => documentsRef.find(doc => doc.id === link.documentId && !doc.archivedAt))
+          .filter(Boolean).length;
+        const items = checklistRepositoryRef ? await checklistRepositoryRef.listChecklist(taskId) : [];
+        const taskActivity = activity.filter(a => a.taskId === taskId);
+        result.push({
+          taskId,
+          docsCount,
+          checklistDone: items.filter(item => item.completed).length,
+          checklistTotal: items.length,
+          nextChecklistItem: items.find(item => !item.completed)?.label || '',
+          latestActivity: taskActivity.length ? taskActivity[taskActivity.length - 1].message : '',
+        });
+      }
+      return result;
     },
 
     async listTaskDocuments(taskId) {
@@ -452,7 +474,7 @@ const app = await buildApp({
   config,
   logger: true,
   skipDb: true,
-  tasksRepository: createMemoryTasksRepository(sharedDocuments),
+  tasksRepository: createMemoryTasksRepository(sharedDocuments, checklistRepository),
   libraryRepository: createMemoryLibraryRepository(sharedDocuments),
   projectsRepository: createMemoryProjectsRepository(sharedProjects),
   checklistRepository,
