@@ -232,6 +232,65 @@ export function buildListTaskActivity(taskId) {
   };
 }
 
+export function buildListTaskBoardExtras(taskIds) {
+  return {
+    text: `
+      with requested(task_id, position) as (
+        select * from unnest($1::uuid[]) with ordinality
+      ),
+      docs as (
+        select td.task_id, count(*)::integer as docs_count
+        from task_documents td
+        join markdown_documents d on d.id = td.document_id and d.archived_at is null
+        where td.task_id = any($1::uuid[])
+        group by td.task_id
+      ),
+      checklist as (
+        select
+          task_id,
+          count(*) filter (where completed)::integer as checklist_done,
+          count(*)::integer as checklist_total,
+          (array_agg(label order by sort_order, created_at) filter (where not completed))[1] as next_checklist_item
+        from task_checklist_items
+        where task_id = any($1::uuid[])
+        group by task_id
+      ),
+      activity as (
+        select distinct on (task_id)
+          task_id,
+          message as latest_activity
+        from task_activity
+        where task_id = any($1::uuid[])
+        order by task_id, created_at desc, id desc
+      )
+      select
+        requested.task_id,
+        coalesce(docs.docs_count, 0) as docs_count,
+        coalesce(checklist.checklist_done, 0) as checklist_done,
+        coalesce(checklist.checklist_total, 0) as checklist_total,
+        coalesce(checklist.next_checklist_item, '') as next_checklist_item,
+        coalesce(activity.latest_activity, '') as latest_activity
+      from requested
+      left join docs on docs.task_id = requested.task_id
+      left join checklist on checklist.task_id = requested.task_id
+      left join activity on activity.task_id = requested.task_id
+      order by requested.position
+    `,
+    values: [taskIds],
+  };
+}
+
+export function normalizeTaskBoardExtraRow(row) {
+  return {
+    taskId: row.task_id,
+    docsCount: Number(row.docs_count || 0),
+    checklistDone: Number(row.checklist_done || 0),
+    checklistTotal: Number(row.checklist_total || 0),
+    nextChecklistItem: row.next_checklist_item || '',
+    latestActivity: row.latest_activity || '',
+  };
+}
+
 export function buildGetTask(id) {
   return { text: `select * from tasks where id = $1 limit 1`, values: [id] };
 }
@@ -368,6 +427,13 @@ export function createTasksRepository(db) {
       const q = buildListTaskActivity(taskId);
       const result = await db.query(q.text, q.values);
       return result.rows.map(normalizeActivityRow);
+    },
+
+    async listTaskBoardExtras(taskIds) {
+      if (!Array.isArray(taskIds) || taskIds.length === 0) return [];
+      const q = buildListTaskBoardExtras(taskIds);
+      const result = await db.query(q.text, q.values);
+      return result.rows.map(normalizeTaskBoardExtraRow);
     },
   };
 }

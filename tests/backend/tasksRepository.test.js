@@ -15,6 +15,7 @@ import {
   buildUnlinkTaskDocument,
   buildLinkExists,
   buildRecordActivity,
+  buildListTaskBoardExtras,
   buildListTaskActivity,
   normalizeActivityRow,
   buildGetTask,
@@ -452,6 +453,53 @@ test('buildListTaskActivity orders newest first', () => {
   assert.match(q.text, /where task_id = \$1/);
   assert.match(q.text, /order by created_at desc/);
   assert.deepEqual(q.values, [PROJECT_ID]);
+});
+
+test('buildListTaskBoardExtras returns one aggregate query for board card signals', () => {
+  const taskIds = [
+    '11111111-1111-4111-8111-111111111111',
+    '22222222-2222-4222-8222-222222222222',
+  ];
+  const q = buildListTaskBoardExtras(taskIds);
+
+  assert.match(q.text, /unnest\(\$1::uuid\[\]\) with ordinality/);
+  assert.match(q.text, /from task_documents td/);
+  assert.match(q.text, /from task_checklist_items/);
+  assert.match(q.text, /from task_activity/);
+  assert.match(q.text, /latest_activity/);
+  assert.deepEqual(q.values, [taskIds]);
+});
+
+test('listTaskBoardExtras normalizes aggregate rows for board cards', async () => {
+  const repository = createTasksRepository({
+    async query() {
+      return {
+        rows: [
+          {
+            task_id: '11111111-1111-4111-8111-111111111111',
+            docs_count: '2',
+            checklist_done: '1',
+            checklist_total: '3',
+            next_checklist_item: 'Confirm object-store creds',
+            latest_activity: 'Status -> planned',
+          },
+        ],
+      };
+    },
+  });
+
+  const extras = await repository.listTaskBoardExtras(['11111111-1111-4111-8111-111111111111']);
+
+  assert.deepEqual(extras, [
+    {
+      taskId: '11111111-1111-4111-8111-111111111111',
+      docsCount: 2,
+      checklistDone: 1,
+      checklistTotal: 3,
+      nextChecklistItem: 'Confirm object-store creds',
+      latestActivity: 'Status -> planned',
+    },
+  ]);
 });
 
 test('normalizeActivityRow maps columns', () => {

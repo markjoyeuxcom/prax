@@ -12,6 +12,7 @@ import {
   unlinkTaskDocument,
   updateTask,
   fetchTaskChecklist,
+  fetchTaskBoardExtras,
   addChecklistItem,
   setChecklistItem,
   deleteChecklistItem,
@@ -369,4 +370,36 @@ test('fetchTaskActivity throws when the API rejects the request', async () => {
   globalThis.fetch = async () => jsonResponse({ message: 'bad' }, false);
 
   await assert.rejects(() => fetchTaskActivity('task-1'), /Failed to load activity/);
+});
+
+test('fetchTaskBoardExtras GETs board summaries for multiple tasks', async () => {
+  const calls = [];
+  globalThis.fetch = async (...args) => {
+    calls.push(args);
+    return jsonResponse([{ taskId: 'task-1', docsCount: 2 }]);
+  };
+
+  const extras = await fetchTaskBoardExtras(['task-1', 'task-2']);
+
+  assert.deepEqual(extras, [{ taskId: 'task-1', docsCount: 2 }]);
+  assert.equal(calls[0][0], '/api/tasks/board-extras?ids=task-1%2Ctask-2');
+});
+
+test('fetchTaskBoardExtras returns an empty list without requesting for no task ids', async () => {
+  let callCount = 0;
+  globalThis.fetch = async () => {
+    callCount += 1;
+    return jsonResponse([]);
+  };
+
+  const extras = await fetchTaskBoardExtras([]);
+
+  assert.deepEqual(extras, []);
+  assert.equal(callCount, 0);
+});
+
+test('fetchTaskBoardExtras throws when the API rejects the request', async () => {
+  globalThis.fetch = async () => jsonResponse({ message: 'bad' }, false);
+
+  await assert.rejects(() => fetchTaskBoardExtras(['task-1']), /Failed to load board task summaries/);
 });

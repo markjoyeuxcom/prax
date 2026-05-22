@@ -75,6 +75,26 @@ function createFakeRepository() {
         .slice()
         .reverse();
     },
+    async listTaskBoardExtras(taskIds) {
+      return taskIds.map((taskId) => {
+        const taskDocs = links
+          .filter(link => link.taskId === taskId)
+          .map(link => documents.find(doc => doc.id === link.documentId))
+          .filter(Boolean);
+        const latestActivity = activity
+          .filter(event => event.taskId === taskId)
+          .slice()
+          .reverse()[0]?.message || '';
+        return {
+          taskId,
+          docsCount: taskDocs.length,
+          checklistDone: 0,
+          checklistTotal: 0,
+          nextChecklistItem: '',
+          latestActivity,
+        };
+      });
+    },
     async listTasks(filters = {}) {
       return tasks.filter((task) => {
         if (filters.projectId && task.projectId !== filters.projectId) return false;
@@ -196,6 +216,68 @@ test('GET /api/tasks returns tasks from repository', async () => {
     },
   ]);
 
+  await app.close();
+});
+
+test('GET /api/tasks/board-extras returns board card summaries for requested ids', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
+  });
+
+  await app.inject({
+    method: 'POST',
+    url: `/api/tasks/${TASK_ID}/documents`,
+    payload: { documentId: DOCUMENT_ID },
+  });
+  await app.inject({
+    method: 'PATCH',
+    url: `/api/tasks/${TASK_ID}`,
+    payload: { status: 'in-progress' },
+  });
+
+  const response = await app.inject({
+    method: 'GET',
+    url: `/api/tasks/board-extras?ids=${TASK_ID},${SECOND_TASK_ID}`,
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json(), [
+    {
+      taskId: TASK_ID,
+      docsCount: 1,
+      checklistDone: 0,
+      checklistTotal: 0,
+      nextChecklistItem: '',
+      latestActivity: 'Status → in-progress',
+    },
+    {
+      taskId: SECOND_TASK_ID,
+      docsCount: 0,
+      checklistDone: 0,
+      checklistTotal: 0,
+      nextChecklistItem: '',
+      latestActivity: '',
+    },
+  ]);
+  await app.close();
+});
+
+test('GET /api/tasks/board-extras rejects malformed ids', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'GET',
+    url: `/api/tasks/board-extras?ids=${TASK_ID},not-a-uuid`,
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.deepEqual(response.json(), { message: 'task ids are invalid' });
   await app.close();
 });
 

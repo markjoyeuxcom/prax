@@ -116,6 +116,15 @@ export async function fetchTaskActivity(taskId) {
   return response.json();
 }
 
+export async function fetchTaskBoardExtras(taskIds = []) {
+  const ids = [...new Set((Array.isArray(taskIds) ? taskIds : []).filter(Boolean))];
+  if (!ids.length) return [];
+  const params = new URLSearchParams({ ids: ids.join(',') });
+  const response = await fetch(`/api/tasks/board-extras?${params.toString()}`);
+  if (!response.ok) throw new Error('Failed to load board task summaries');
+  return response.json();
+}
+
 export async function addChecklistItem(taskId, label) {
   const response = await fetch(`/api/tasks/${taskId}/checklist`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ label }),

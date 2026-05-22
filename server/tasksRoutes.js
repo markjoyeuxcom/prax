@@ -11,6 +11,7 @@ const TASK_EXPORT_FORMAT = 'moomora.tasks';
 const MIN_SORT_ORDER = -2147483648;
 const MAX_SORT_ORDER = 2147483647;
 const MAX_IMPORT_TASKS = 500;
+const MAX_BOARD_EXTRA_TASKS = 200;
 
 function isValidDateString(value) {
   if (value === null || value === undefined || value === '') return true;
@@ -241,6 +242,14 @@ function cleanTaskReorderPayload(payload) {
   }));
 }
 
+function taskIdsFromQuery(value) {
+  const values = Array.isArray(value) ? value : [value];
+  return [...new Set(values
+    .flatMap(item => String(item || '').split(','))
+    .map(item => item.trim())
+    .filter(Boolean))];
+}
+
 export async function registerTasksRoutes(app, options = {}) {
   const repository = options.tasksRepository || app.tasksRepository || createTasksRepository(app.db);
   const projectsRepository = options.projectsRepository || app.projectsRepository || createProjectsRepository(app.db);
@@ -288,6 +297,16 @@ export async function registerTasksRoutes(app, options = {}) {
       if (projectId === null) { reply.code(400); return { message: 'project is invalid' }; }
     }
     return repository.listTasks({ ...request.query, projectId });
+  });
+
+  app.get('/api/tasks/board-extras', async (request, reply) => {
+    const taskIds = taskIdsFromQuery(request.query.ids);
+    if (taskIds.length === 0) return [];
+    if (taskIds.length > MAX_BOARD_EXTRA_TASKS || taskIds.some(id => !isValidUuid(id))) {
+      reply.code(400);
+      return { message: 'task ids are invalid' };
+    }
+    return repository.listTaskBoardExtras ? repository.listTaskBoardExtras(taskIds) : [];
   });
 
   app.post('/api/tasks/import', async (request, reply) => {

@@ -10,6 +10,7 @@ import {
   deleteChecklistItem,
   exportTasks,
   fetchTaskActivity,
+  fetchTaskBoardExtras,
   fetchTaskChecklist,
   fetchTaskDocuments,
   fetchTasks,
@@ -75,7 +76,7 @@ const SAVED_LIBRARY_VIEWS_KEY = 'moomora.librarySavedViews.v1';
 const LIBRARY_BROWSER_WIDTH_KEY = 'moomora.libraryBrowserWidth.v1';
 const LIBRARY_CONTROLS_KEY = 'moomora.libraryControls.v1';
 const DOCUMENT_AUTOSAVE_DELAY_MS = 1200;
-const BOARD_EXTRA_FETCH_CONCURRENCY = 4;
+const BOARD_EXTRA_FETCH_BATCH_SIZE = 50;
 let documentAutosaveTimer = null;
 let isSavingDocumentDraft = false;
 let boardExtraRequestSequence = 0;
@@ -264,27 +265,21 @@ async function loadTaskActivity(taskId) {
   }
 }
 
-function boardExtraFromResults(docsResult, checklistResult, activityResult) {
-  const docs = docsResult.status === 'fulfilled' && Array.isArray(docsResult.value) ? docsResult.value : [];
-  const checklist = checklistResult.status === 'fulfilled' && Array.isArray(checklistResult.value) ? checklistResult.value : [];
-  const activity = activityResult.status === 'fulfilled' && Array.isArray(activityResult.value) ? activityResult.value : [];
-  const nextChecklistItem = checklist.find(item => !item.completed)?.label || '';
+function emptyBoardExtra() {
   return {
-    docsCount: docs.length,
-    checklistDone: checklist.filter(item => item.completed).length,
-    checklistTotal: checklist.length,
-    nextChecklistItem,
-    latestActivity: activity[0]?.message || '',
+    docsCount: 0,
+    checklistDone: 0,
+    checklistTotal: 0,
+    nextChecklistItem: '',
+    latestActivity: '',
   };
 }
 
-async function fetchTaskBoardExtra(taskId) {
-  const [docsResult, checklistResult, activityResult] = await Promise.allSettled([
-    fetchTaskDocuments(taskId),
-    fetchTaskChecklist(taskId),
-    fetchTaskActivity(taskId),
-  ]);
-  return boardExtraFromResults(docsResult, checklistResult, activityResult);
+function normalizeBoardExtra(extra) {
+  return {
+    ...emptyBoardExtra(),
+    ...(extra || {}),
+  };
 }
 
 function nextBoardExtraRequestToken(taskId) {
@@ -294,12 +289,15 @@ function nextBoardExtraRequestToken(taskId) {
 
 async function fetchTaskBoardExtraEntries(taskIds, tokens) {
   const entries = [];
-  for (let index = 0; index < taskIds.length; index += BOARD_EXTRA_FETCH_CONCURRENCY) {
-    const batch = taskIds.slice(index, index + BOARD_EXTRA_FETCH_CONCURRENCY);
-    const batchEntries = await Promise.all(
-      batch.map(async id => [id, tokens[id], await fetchTaskBoardExtra(id)]),
-    );
-    entries.push(...batchEntries);
+  for (let index = 0; index < taskIds.length; index += BOARD_EXTRA_FETCH_BATCH_SIZE) {
+    const batch = taskIds.slice(index, index + BOARD_EXTRA_FETCH_BATCH_SIZE);
+    try {
+      const extras = await fetchTaskBoardExtras(batch);
+      const extrasByTask = new Map(extras.map(extra => [extra.taskId, normalizeBoardExtra(extra)]));
+      entries.push(...batch.map(id => [id, tokens[id], extrasByTask.get(id) || emptyBoardExtra()]));
+    } catch {
+      entries.push(...batch.map(id => [id, tokens[id], null]));
+    }
   }
   return entries;
 }
@@ -332,7 +330,7 @@ async function ensureBoardExtras(tasks) {
   const extras = { ...state.taskBoardExtras };
   for (const [id, token, extra] of entries) {
     if (loading[id] !== token) continue;
-    extras[id] = extra;
+    if (extra) extras[id] = extra;
     delete loading[id];
   }
   setState({
