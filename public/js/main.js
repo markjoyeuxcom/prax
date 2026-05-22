@@ -1,4 +1,4 @@
-import { state, setState, loadActiveProject, persistActiveProject, loadBoardGrouping, persistBoardGrouping } from './state.js';
+import { state, setState, loadActiveProject, persistActiveProject, loadBoardGrouping, persistBoardGrouping, loadListGrouping, persistListGrouping } from './state.js';
 import { fetchProjects, createProject, updateProject, archiveProject, deleteProjectPermanent } from './projectApi.js';
 import { renderProjectManagerHtml } from './renderProjectManager.js';
 import { renderProjectArchiveHtml } from './renderProjectArchive.js';
@@ -39,7 +39,7 @@ import { filterTasks } from './taskFilters.js';
 import { buildMetrics, normalizeTask } from './taskModel.js';
 import { isArchiveView, tasksForView } from './taskViews.js';
 import { renderShellHtml } from './renderShell.js';
-import { renderListHtml } from './renderList.js';
+import { renderListHtml, renderSwimlaneListHtml, renderListToolbar } from './renderList.js';
 import { renderBoardHtml, renderSwimlaneBoardHtml, renderBoardToolbar } from './renderBoard.js';
 import { renderTaskDetailHtml } from './renderTaskDetail.js';
 import { renderTaskFormHtml } from './renderTaskForm.js';
@@ -288,6 +288,7 @@ function renderWorkspace() {
   });
 
   bindBoardEvents(workspace);
+  bindListGroupingEvents(workspace);
 
   const editButton = workspace.querySelector('[data-action="edit-task"]');
   editButton?.addEventListener('click', () => {
@@ -1141,6 +1142,28 @@ function bindBoardEvents(workspace) {
   });
 }
 
+function bindListGroupingEvents(workspace) {
+  workspace.querySelectorAll('[data-action="set-list-grouping"]').forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      event.preventDefault();
+      const grouping = btn.dataset.grouping === 'swimlanes' ? 'swimlanes' : 'flat';
+      persistListGrouping(grouping);
+      setState({ listGrouping: grouping });
+      renderWorkspace();
+    });
+  });
+
+  workspace.querySelectorAll('[data-action="toggle-list-lane"]').forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      event.preventDefault();
+      const id = btn.dataset.projectId;
+      if (!id) return;
+      setState({ listLaneCollapsed: { ...state.listLaneCollapsed, [id]: state.listLaneCollapsed[id] !== true } });
+      renderWorkspace();
+    });
+  });
+}
+
 async function handleBoardDrop({ taskId, targetStatus, beforeTaskId }) {
   if (!taskId || !targetStatus) return;
 
@@ -1219,7 +1242,18 @@ function renderWorkspacePrimary(visibleTasks, selectedTaskId) {
     return `<div class="board-view">${toolbar}${board}</div>`;
   }
 
-  return renderListHtml(visibleTasks, selectedTaskId, listOptionsForView(state.activeView));
+  const listOptions = listOptionsForView(state.activeView);
+  const showListToolbar = state.activeProject === 'all' && state.activeView === 'list';
+  const useSwimlanes = showListToolbar && state.listGrouping === 'swimlanes';
+  const toolbar = showListToolbar ? renderListToolbar(state.listGrouping) : '';
+  return useSwimlanes
+    ? renderSwimlaneListHtml(visibleTasks, selectedTaskId, {
+        ...listOptions,
+        toolbar,
+        projects: state.projects,
+        listLaneCollapsed: state.listLaneCollapsed,
+      })
+    : renderListHtml(visibleTasks, selectedTaskId, { ...listOptions, toolbar });
 }
 
 function renderApp() {
@@ -2109,6 +2143,7 @@ async function init() {
     setState({
       preferences,
       boardGrouping: loadBoardGrouping(),
+      listGrouping: loadListGrouping(),
       librarySavedViews: savedLibraryViewsFromJson(window.localStorage?.getItem(SAVED_LIBRARY_VIEWS_KEY)),
       ...loadLibraryControls(),
     });

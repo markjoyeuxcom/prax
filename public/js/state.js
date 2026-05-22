@@ -54,6 +54,8 @@ export const state = {
   boardOpenSections: { 'high-priority': true, 'in-progress': true, planned: false, completed: false, notes: false },
   boardGrouping: 'flat',        // 'flat' | 'swimlanes' (All-projects board only)
   boardLaneCollapsed: {},        // { [projectId]: true } collapsed lanes (session-only)
+  listGrouping: 'flat',         // 'flat' | 'swimlanes' (All-projects Tasks view only)
+  listLaneCollapsed: {},         // { [projectId]: true } collapsed list lanes (session-only)
 };
 
 export function setState(patch) {
@@ -91,6 +93,24 @@ export function loadBoardGrouping(storage = globalThis.localStorage) {
 export function persistBoardGrouping(value, storage = globalThis.localStorage) {
   try {
     storage?.setItem?.(BOARD_GROUPING_KEY, value === 'swimlanes' ? 'swimlanes' : 'flat');
+  } catch {
+    /* ignore storage failures */
+  }
+}
+
+const LIST_GROUPING_KEY = 'moomora.listGrouping.v1';
+
+export function loadListGrouping(storage = globalThis.localStorage) {
+  try {
+    return storage?.getItem?.(LIST_GROUPING_KEY) === 'swimlanes' ? 'swimlanes' : 'flat';
+  } catch {
+    return 'flat';
+  }
+}
+
+export function persistListGrouping(value, storage = globalThis.localStorage) {
+  try {
+    storage?.setItem?.(LIST_GROUPING_KEY, value === 'swimlanes' ? 'swimlanes' : 'flat');
   } catch {
     /* ignore storage failures */
   }
