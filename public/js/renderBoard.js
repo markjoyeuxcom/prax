@@ -1,3 +1,5 @@
+import { boardFilterOptions } from './boardFilters.js';
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -47,11 +49,34 @@ function dueState(dueDate, today) {
   return { cls: 'ok', full: dueDate, label: short, flag: '' };
 }
 
+function extrasFor(ctx, taskId) {
+  return ctx.taskBoardExtras?.[taskId] || {};
+}
+
+function renderSignals(task, extras) {
+  const signals = [];
+  const checklistTotal = Number(extras.checklistTotal || 0);
+  const checklistDone = Number(extras.checklistDone || 0);
+  const docsCount = Number(extras.docsCount || 0);
+  if (checklistTotal > 0) signals.push(`checklist ${checklistDone}/${checklistTotal}`);
+  else signals.push('no checklist');
+  if (docsCount > 0) signals.push(`docs ${docsCount}`);
+  if (String(task.notes || '').trim()) signals.push('notes');
+  return `<span class="board-card__signals">${signals.map(signal => `<span>${escapeHtml(signal)}</span>`).join('')}</span>`;
+}
+
+function renderLatestActivity(extras) {
+  const activity = String(extras.latestActivity || '').trim();
+  if (!activity) return '';
+  return `<span class="board-card__activity">${escapeHtml(activity)}</span>`;
+}
+
 function renderCard(task, selectedTaskId, ctx) {
   const pClass = priorityClass(task.priority);
   const isSel = task.id === selectedTaskId;
   const due = dueState(task.dueDate, ctx.today);
   const projectName = ctx.showProjectChips ? ctx.projectName(task.projectId) : '';
+  const extras = extrasFor(ctx, task.id);
   const chip = projectName
     ? `<span class="board-card__chip">${escapeHtml(projectName)}</span>`
     : '';
@@ -60,7 +85,7 @@ function renderCard(task, selectedTaskId, ctx) {
           <span class="board-card__row">
             <span class="board-card__id"><span class="board-card__dot board-card__dot--${pClass}" aria-hidden="true"></span><strong class="board-card__title">${escapeHtml(task.title || 'Untitled task')}</strong></span>
             <span class="board-card__due board-card__due--${due.cls}"${due.full ? ` title="${escapeHtml(due.full)}"` : ''}>${escapeHtml(due.label)}${due.flag}</span>
-          </span>${chip}
+          </span>${chip}${renderSignals(task, extras)}${renderLatestActivity(extras)}
         </button>`;
 }
 
@@ -81,6 +106,7 @@ export function renderBoardHtml(tasks = [], selectedTaskId = null, options = {})
   const ctx = {
     today: options.today || localToday(),
     showProjectChips: Boolean(options.showProjectChips),
+    taskBoardExtras: options.taskBoardExtras || {},
     projectName: (id) => projectsById.get(id) || '',
   };
   return `
@@ -121,6 +147,16 @@ function renderLaneColumns(laneTasks, selectedTaskId, ctx) {
   }).join('');
 }
 
+function laneHealth(tasks, today) {
+  const active = tasks.filter(task => (task.status || task.column || 'planned') !== 'completed').length;
+  const overdue = tasks.filter(task => task.dueDate && task.dueDate < today && (task.status || task.column || 'planned') !== 'completed').length;
+  const inProgress = tasks.filter(task => (task.status || task.column || 'planned') === 'in-progress').length;
+  const parts = [`${active} active`];
+  if (overdue) parts.push(`${overdue} overdue`);
+  if (inProgress) parts.push(`${inProgress} in progress`);
+  return parts.join(' · ');
+}
+
 export function renderSwimlaneBoardHtml(tasks = [], selectedTaskId = null, options = {}) {
   const safe = Array.isArray(tasks) ? tasks : [];
   const projects = Array.isArray(options.projects) ? options.projects : [];
@@ -128,6 +164,7 @@ export function renderSwimlaneBoardHtml(tasks = [], selectedTaskId = null, optio
   const ctx = {
     today: options.today || localToday(),
     showProjectChips: false,
+    taskBoardExtras: options.taskBoardExtras || {},
     projectName: () => '',
   };
 
@@ -153,13 +190,71 @@ export function renderSwimlaneBoardHtml(tasks = [], selectedTaskId = null, optio
             <button class="board-lane__toggle" type="button" data-action="toggle-board-lane" data-project-id="${escapeHtml(project.id)}" aria-label="Toggle ${escapeHtml(project.name)}" aria-expanded="${!isCollapsed}">
               <span class="board-lane__glyph">${isCollapsed ? '▸' : '▾'}</span>
               <span class="board-lane__name">${escapeHtml(project.name)}</span>
-              <span class="board-lane__count">· ${laneTasks.length}</span>
+              <span class="board-lane__summary">${escapeHtml(laneHealth(laneTasks, ctx.today))}</span>
             </button>
           </header>
           ${isCollapsed ? '' : `<div class="board-panel">${renderLaneColumns(laneTasks, selectedTaskId, ctx)}</div>`}
         </section>`;
       }).join('')}
     </section>`;
+}
+
+export function renderBoardFilters(activeFilters = []) {
+  const active = new Set(Array.isArray(activeFilters) ? activeFilters : []);
+  return `
+    <div class="board-filterbar" aria-label="Board filters">
+      <span class="board-filterbar__label">Focus</span>
+      <div class="board-filterbar__chips">
+        ${boardFilterOptions().map(filter => `
+        <button class="board-filterbar__chip" type="button" data-action="toggle-board-filter" data-filter="${filter.id}" aria-pressed="${active.has(filter.id)}">${escapeHtml(filter.label)}</button>`).join('')}
+      </div>
+    </div>`;
+}
+
+export function renderBoardInspectorHtml(task, extras = {}, options = {}) {
+  if (!task) {
+    return `
+      <aside class="board-inspector" aria-label="Board inspector">
+        <div class="board-inspector__empty">
+          <strong>No card selected</strong>
+          <span>Select a card to inspect due date, linked docs, checklist progress, and next action.</span>
+        </div>
+      </aside>`;
+  }
+
+  const today = options.today || localToday();
+  const due = dueState(task.dueDate, today);
+  const dueLabel = due.cls === 'over' ? 'overdue' : (task.dueDate || 'no due date');
+  const docsCount = Number(extras.docsCount || 0);
+  const checklistTotal = Number(extras.checklistTotal || 0);
+  const checklistDone = Number(extras.checklistDone || 0);
+  const nextAction = String(extras.nextChecklistItem || '').trim() || String(task.description || task.notes || '').trim() || 'No next action captured.';
+  const moveButton = (status, label) => `
+    <button type="button" data-action="board-move-selected" data-status="${status}"${(task.status || 'planned') === status ? ' disabled' : ''}>${label}</button>`;
+
+  return `
+    <aside class="board-inspector" aria-label="Board inspector">
+      <div class="board-inspector__heading">
+        <span>Selected card</span>
+        <strong>${escapeHtml(task.title || 'Untitled task')}</strong>
+      </div>
+      <dl class="board-inspector__signals">
+        <div><dt>Due</dt><dd class="board-inspector__due board-inspector__due--${due.cls}">${escapeHtml(dueLabel)}</dd></div>
+        <div><dt>Docs</dt><dd>docs ${docsCount}</dd></div>
+        <div><dt>Checklist</dt><dd>checklist ${checklistDone}/${checklistTotal}</dd></div>
+      </dl>
+      <div class="board-inspector__next">
+        <span>Next action</span>
+        <p>${escapeHtml(nextAction)}</p>
+      </div>
+      <div class="board-inspector__moves" aria-label="Move selected task">
+        ${moveButton('high-priority', 'high')}
+        ${moveButton('in-progress', 'progress')}
+        ${moveButton('planned', 'planned')}
+        ${moveButton('completed', 'done')}
+        <button class="board-inspector__detail-action" type="button" data-action="open-board-task-detail">[enter] detail</button>
+      </div>
+    </aside>`;
 }
 
 export function renderBoardToolbar(grouping = 'flat') {

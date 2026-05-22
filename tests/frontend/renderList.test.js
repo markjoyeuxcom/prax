@@ -134,18 +134,28 @@ const SWIMLANE_PROJECTS = [
 
 test('renderSwimlaneListHtml groups cards under per-project lane headers', () => {
   const tasks = [
-    { id: 't1', title: 'Alpha', priority: 'high', status: 'planned', projectId: 'p1' },
+    { id: 't1', title: 'Alpha', priority: 'high', status: 'planned', projectId: 'p1', dueDate: '2026-05-19' },
     { id: 't2', title: 'Beta', priority: 'low', status: 'planned', projectId: 'p2' },
   ];
-  const html = renderSwimlaneListHtml(tasks, null, { projects: SWIMLANE_PROJECTS });
+  const html = renderSwimlaneListHtml(tasks, null, { projects: SWIMLANE_PROJECTS, today: '2026-05-20' });
   assert.match(html, /data-task-lane="p1"/);
   assert.match(html, /data-task-lane="p2"/);
   assert.match(html, /class="task-lane__name">Homelab</);
   assert.match(html, /class="task-lane__name">Work</);
-  assert.match(html, /class="task-lane__count">· 1</);
+  assert.match(html, /class="task-lane__summary">1 active · 1 overdue/);
+  assert.match(html, /class="task-lane__summary">1 active/);
   assert.match(html, /Alpha/);
   assert.match(html, /Beta/);
   assert.match(html, /data-action="toggle-list-lane"[^>]*data-project-id="p1"/);
+});
+
+test('renderSwimlaneListHtml summarizes due-today lane metadata', () => {
+  const tasks = [
+    { id: 't1', title: 'Alpha', priority: 'high', status: 'planned', projectId: 'p1', dueDate: '2026-05-20' },
+    { id: 't2', title: 'Done', priority: 'low', status: 'completed', projectId: 'p1', dueDate: '2026-05-20' },
+  ];
+  const html = renderSwimlaneListHtml(tasks, null, { projects: SWIMLANE_PROJECTS, today: '2026-05-20' });
+  assert.match(html, /class="task-lane__summary">1 active · 1 due today/);
 });
 
 test('renderSwimlaneListHtml only renders lanes for projects with tasks', () => {

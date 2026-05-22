@@ -47,6 +47,13 @@ export const state = {
   taskDocuments: [],
   taskChecklist: [],
   taskActivity: [],
+  activeTaskDetailTab: 'work',
+  activeTaskDetailSection: 'docs',
+  taskNotesDraftId: null,
+  taskNotesDraft: '',
+  isTaskNotesDirty: false,
+  taskNotesSavedAt: '',
+  isBoardTaskDetailOpen: false,
   isLinkPickerOpen: false,
   linkPickerDocuments: [],
   linkPickerQuery: '',
@@ -54,6 +61,9 @@ export const state = {
   boardOpenSections: { 'high-priority': true, 'in-progress': true, planned: false, completed: false, notes: false },
   boardGrouping: 'flat',        // 'flat' | 'swimlanes' (All-projects board only)
   boardLaneCollapsed: {},        // { [projectId]: true } collapsed lanes (session-only)
+  boardFilters: [],              // active Board focus chips (session-only)
+  taskBoardExtras: {},           // { [taskId]: { docsCount, checklistDone, checklistTotal, nextChecklistItem, latestActivity } }
+  taskBoardExtrasLoading: {},    // { [taskId]: token } requests currently in flight
   listGrouping: 'flat',         // 'flat' | 'swimlanes' (All-projects Tasks view only)
   listLaneCollapsed: {},         // { [projectId]: true } collapsed list lanes (session-only)
 };

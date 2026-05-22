@@ -40,7 +40,14 @@ import { buildMetrics, normalizeTask } from './taskModel.js';
 import { isArchiveView, tasksForView } from './taskViews.js';
 import { renderShellHtml } from './renderShell.js';
 import { renderListHtml, renderSwimlaneListHtml, renderListToolbar } from './renderList.js';
-import { renderBoardHtml, renderSwimlaneBoardHtml, renderBoardToolbar } from './renderBoard.js';
+import {
+  renderBoardFilters,
+  renderBoardHtml,
+  renderBoardInspectorHtml,
+  renderBoardToolbar,
+  renderSwimlaneBoardHtml,
+} from './renderBoard.js';
+import { applyBoardFilters } from './boardFilters.js';
 import { renderTaskDetailHtml } from './renderTaskDetail.js';
 import { renderTaskFormHtml } from './renderTaskForm.js';
 import { renderAdminPanelHtml } from './renderAdminPanel.js';
@@ -68,8 +75,10 @@ const SAVED_LIBRARY_VIEWS_KEY = 'moomora.librarySavedViews.v1';
 const LIBRARY_BROWSER_WIDTH_KEY = 'moomora.libraryBrowserWidth.v1';
 const LIBRARY_CONTROLS_KEY = 'moomora.libraryControls.v1';
 const DOCUMENT_AUTOSAVE_DELAY_MS = 1200;
+const BOARD_EXTRA_FETCH_CONCURRENCY = 4;
 let documentAutosaveTimer = null;
 let isSavingDocumentDraft = false;
+let boardExtraRequestSequence = 0;
 
 function today() {
   const now = new Date();
@@ -77,6 +86,15 @@ function today() {
   const month = String(now.getMonth() + 1).padStart(2, '0');
   const day = String(now.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function shortTime(date = new Date()) {
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+function taskNotesDraftFor(task) {
+  if (!task) return '';
+  return state.taskNotesDraftId === task.id ? state.taskNotesDraft : (task.notes || '');
 }
 
 function renderLoading() {
@@ -246,6 +264,84 @@ async function loadTaskActivity(taskId) {
   }
 }
 
+function boardExtraFromResults(docsResult, checklistResult, activityResult) {
+  const docs = docsResult.status === 'fulfilled' && Array.isArray(docsResult.value) ? docsResult.value : [];
+  const checklist = checklistResult.status === 'fulfilled' && Array.isArray(checklistResult.value) ? checklistResult.value : [];
+  const activity = activityResult.status === 'fulfilled' && Array.isArray(activityResult.value) ? activityResult.value : [];
+  const nextChecklistItem = checklist.find(item => !item.completed)?.label || '';
+  return {
+    docsCount: docs.length,
+    checklistDone: checklist.filter(item => item.completed).length,
+    checklistTotal: checklist.length,
+    nextChecklistItem,
+    latestActivity: activity[0]?.message || '',
+  };
+}
+
+async function fetchTaskBoardExtra(taskId) {
+  const [docsResult, checklistResult, activityResult] = await Promise.allSettled([
+    fetchTaskDocuments(taskId),
+    fetchTaskChecklist(taskId),
+    fetchTaskActivity(taskId),
+  ]);
+  return boardExtraFromResults(docsResult, checklistResult, activityResult);
+}
+
+function nextBoardExtraRequestToken(taskId) {
+  boardExtraRequestSequence += 1;
+  return `${taskId}:${boardExtraRequestSequence}`;
+}
+
+async function fetchTaskBoardExtraEntries(taskIds, tokens) {
+  const entries = [];
+  for (let index = 0; index < taskIds.length; index += BOARD_EXTRA_FETCH_CONCURRENCY) {
+    const batch = taskIds.slice(index, index + BOARD_EXTRA_FETCH_CONCURRENCY);
+    const batchEntries = await Promise.all(
+      batch.map(async id => [id, tokens[id], await fetchTaskBoardExtra(id)]),
+    );
+    entries.push(...batchEntries);
+  }
+  return entries;
+}
+
+function clearTaskBoardExtra(taskId) {
+  if (!taskId) return;
+  const nextExtras = { ...state.taskBoardExtras };
+  const nextLoading = { ...state.taskBoardExtrasLoading };
+  delete nextExtras[taskId];
+  delete nextLoading[taskId];
+  setState({ taskBoardExtras: nextExtras, taskBoardExtrasLoading: nextLoading });
+}
+
+async function ensureBoardExtras(tasks) {
+  if (state.activeView !== 'board') return;
+  const ids = [...new Set((Array.isArray(tasks) ? tasks : []).map(task => task.id).filter(Boolean))];
+  const needed = ids.filter(id => !state.taskBoardExtras?.[id] && !state.taskBoardExtrasLoading?.[id]);
+  if (!needed.length) return;
+  const tokens = Object.fromEntries(needed.map(id => [id, nextBoardExtraRequestToken(id)]));
+
+  setState({
+    taskBoardExtrasLoading: {
+      ...state.taskBoardExtrasLoading,
+      ...tokens,
+    },
+  });
+
+  const entries = await fetchTaskBoardExtraEntries(needed, tokens);
+  const loading = { ...state.taskBoardExtrasLoading };
+  const extras = { ...state.taskBoardExtras };
+  for (const [id, token, extra] of entries) {
+    if (loading[id] !== token) continue;
+    extras[id] = extra;
+    delete loading[id];
+  }
+  setState({
+    taskBoardExtras: extras,
+    taskBoardExtrasLoading: loading,
+  });
+  if (state.activeView === 'board') renderWorkspace();
+}
+
 function renderWorkspace() {
   const workspace = document.getElementById('workspace');
   if (!workspace) return;
@@ -259,23 +355,65 @@ function renderWorkspace() {
   const task = selectedTask();
   const selectedTaskId = task?.id || null;
   const readOnly = isArchiveView(state.activeView);
+  const isBoardView = state.activeView === 'board';
+  const shouldRenderTaskDetail = !isBoardView || state.isBoardTaskDetailOpen;
+  const taskDetailHtml = shouldRenderTaskDetail
+    ? renderTaskDetailHtml(task, {
+        readOnly,
+        restoreAction: readOnly,
+        deleteAction: readOnly,
+        mobileDetailOpen: state.mobileDetailOpen,
+        linkedDocuments: state.taskDocuments,
+        checklistItems: state.taskChecklist,
+        activityEvents: state.taskActivity,
+        activeTaskDetailTab: state.activeTaskDetailTab,
+        activeTaskDetailSection: state.activeTaskDetailSection,
+        taskNotesDraft: taskNotesDraftFor(task),
+        isTaskNotesDirty: Boolean(task && state.taskNotesDraftId === task.id && state.isTaskNotesDirty),
+        taskNotesSavedAt: task && state.taskNotesDraftId === task.id ? state.taskNotesSavedAt : '',
+        closeAction: isBoardView ? 'close-board-task-detail' : '',
+      })
+    : '';
 
   workspace.innerHTML = [
     renderWorkspacePrimary(visibleTasks, selectedTaskId),
-    renderTaskDetailHtml(task, { readOnly, restoreAction: readOnly, deleteAction: readOnly, mobileDetailOpen: state.mobileDetailOpen, linkedDocuments: state.taskDocuments, checklistItems: state.taskChecklist, activityEvents: state.taskActivity }),
+    taskDetailHtml,
   ].join('');
 
   workspace.classList.toggle('is-mobile-detail-open', Boolean(state.mobileDetailOpen));
+  workspace.classList.toggle('is-board-detail-open', Boolean(isBoardView && state.isBoardTaskDetailOpen));
 
   workspace.querySelectorAll('[data-task-id]').forEach((row) => {
     row.addEventListener('click', async () => {
+      const nextTask = state.tasks.find((item) => item.id === row.dataset.taskId);
+      const keepDraft = state.taskNotesDraftId === row.dataset.taskId && state.isTaskNotesDirty;
       setState({
         selectedTaskId: row.dataset.taskId,
         mobileDetailOpen: isMobile() ? true : state.mobileDetailOpen,
+        activeTaskDetailTab: isMobile() ? 'work' : state.activeTaskDetailTab,
+        activeTaskDetailSection: 'docs',
+        taskNotesDraftId: row.dataset.taskId,
+        taskNotesDraft: keepDraft ? state.taskNotesDraft : (nextTask?.notes || ''),
+        isTaskNotesDirty: keepDraft,
+        taskNotesSavedAt: keepDraft ? state.taskNotesSavedAt : '',
       });
       await loadTaskDocuments(row.dataset.taskId);
       await loadTaskChecklist(row.dataset.taskId);
       await loadTaskActivity(row.dataset.taskId);
+      renderWorkspace();
+    });
+  });
+
+  workspace.querySelectorAll('[data-action="set-task-detail-tab"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      setState({ activeTaskDetailTab: btn.dataset.tab || 'work' });
+      renderWorkspace();
+    });
+  });
+
+  workspace.querySelectorAll('[data-action="set-task-detail-section"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      setState({ activeTaskDetailSection: btn.dataset.section || 'docs' });
       renderWorkspace();
     });
   });
@@ -287,8 +425,14 @@ function renderWorkspace() {
     });
   });
 
+  workspace.querySelector('[data-action="close-board-task-detail"]')?.addEventListener('click', () => {
+    setState({ isBoardTaskDetailOpen: false });
+    renderWorkspace();
+  });
+
   bindBoardEvents(workspace);
   bindListGroupingEvents(workspace);
+  ensureBoardExtras(visibleTasks);
 
   const editButton = workspace.querySelector('[data-action="edit-task"]');
   editButton?.addEventListener('click', () => {
@@ -395,6 +539,7 @@ function renderWorkspace() {
       try {
         const updated = await unlinkTaskDocument(taskId, btn.dataset.documentId);
         setState({ taskDocuments: updated });
+        clearTaskBoardExtra(taskId);
         renderWorkspace();
       } catch {
         window.alert('Moomora Console could not unlink the document.');
@@ -408,12 +553,47 @@ function renderWorkspace() {
     const taskToSave = selectedTask();
     if (!taskToSave) return;
     try {
-      const updated = normalizeTask(await updateTask(taskToSave.id, { notes: textarea.value }));
+      const notes = state.taskNotesDraftId === taskToSave.id ? state.taskNotesDraft : textarea.value;
+      const updated = normalizeTask(await updateTask(taskToSave.id, { notes }));
       setState({ tasks: state.tasks.map((t) => (t.id === updated.id ? updated : t)) });
+      setState({
+        taskNotesDraftId: updated.id,
+        taskNotesDraft: updated.notes || '',
+        isTaskNotesDirty: false,
+        taskNotesSavedAt: shortTime(),
+      });
+      clearTaskBoardExtra(updated.id);
       renderWorkspace();
     } catch {
       window.alert('Moomora Console could not save notes.');
     }
+  });
+
+  workspace.querySelector('[data-action="discard-task-notes"]')?.addEventListener('click', () => {
+    const taskToReset = selectedTask();
+    if (!taskToReset) return;
+    setState({
+      taskNotesDraftId: taskToReset.id,
+      taskNotesDraft: taskToReset.notes || '',
+      isTaskNotesDirty: false,
+    });
+    renderWorkspace();
+  });
+
+  workspace.querySelector('[data-task-notes]')?.addEventListener('input', (event) => {
+    const taskToEdit = selectedTask();
+    if (!taskToEdit) return;
+    const value = event.target.value;
+    const isDirty = value !== (taskToEdit.notes || '');
+    setState({
+      taskNotesDraftId: taskToEdit.id,
+      taskNotesDraft: value,
+      isTaskNotesDirty: isDirty,
+    });
+    const status = workspace.querySelector('[data-task-notes-status]');
+    const saveButton = workspace.querySelector('[data-action="save-task-notes"]');
+    if (status) status.textContent = isDirty ? 'dirty · local edit' : 'saved';
+    if (saveButton) saveButton.disabled = !isDirty;
   });
 
   async function submitNewChecklistItem(input) {
@@ -423,6 +603,7 @@ function renderWorkspace() {
     try {
       await addChecklistItem(taskId, label);
       await loadTaskChecklist(taskId);
+      clearTaskBoardExtra(taskId);
       renderWorkspace();
     } catch {
       window.alert('Moomora Console could not add the checklist item.');
@@ -446,6 +627,7 @@ function renderWorkspace() {
       try {
         await setChecklistItem(taskId, btn.dataset.itemId, btn.dataset.completed !== 'true');
         await loadTaskChecklist(taskId);
+        clearTaskBoardExtra(taskId);
         renderWorkspace();
       } catch {
         window.alert('Moomora Console could not update the checklist item.');
@@ -460,6 +642,7 @@ function renderWorkspace() {
       try {
         await deleteChecklistItem(taskId, btn.dataset.itemId);
         await loadTaskChecklist(taskId);
+        clearTaskBoardExtra(taskId);
         renderWorkspace();
       } catch {
         window.alert('Moomora Console could not delete the checklist item.');
@@ -1032,8 +1215,25 @@ function openTouchMoveMenu(taskId, _anchorElement) {
   handleBoardDrop({ taskId, targetStatus, beforeTaskId: null });
 }
 
+function handleOpenBoardTaskDetail(event) {
+  event.preventDefault();
+  const taskId = state.selectedTaskId || selectedTask()?.id;
+  if (!taskId) return;
+  setState({
+    selectedTaskId: taskId,
+    isBoardTaskDetailOpen: true,
+    activeTaskDetailSection: 'summary',
+    activeTaskDetailTab: 'summary',
+  });
+  renderWorkspace();
+}
+
 function bindBoardEvents(workspace) {
   if (state.activeView !== 'board') return;
+
+  const openDetailButton = workspace.querySelector('[data-action="open-board-task-detail"]');
+  openDetailButton?.removeEventListener('click', handleOpenBoardTaskDetail);
+  openDetailButton?.addEventListener('click', handleOpenBoardTaskDetail);
 
   workspace.querySelectorAll('[data-board-card]').forEach((card) => {
     card.addEventListener('dragstart', (event) => {
@@ -1121,6 +1321,42 @@ function bindBoardEvents(workspace) {
     });
   });
 
+  workspace.querySelectorAll('[data-action="toggle-board-filter"]').forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      event.preventDefault();
+      const filter = btn.dataset.filter;
+      if (!filter) return;
+      const active = new Set(state.boardFilters);
+      if (active.has(filter)) active.delete(filter);
+      else active.add(filter);
+      setState({ boardFilters: [...active] });
+      renderWorkspace();
+    });
+  });
+
+  workspace.querySelectorAll('[data-action="board-move-selected"]').forEach((btn) => {
+    btn.addEventListener('click', async (event) => {
+      event.preventDefault();
+      const targetStatus = btn.dataset.status;
+      const taskId = state.selectedTaskId || selectedTask()?.id;
+      if (!taskId || !targetStatus) return;
+      const task = state.tasks.find(item => item.id === taskId);
+      if (!task || (task.status || 'planned') === targetStatus) return;
+      setState({
+        tasks: state.tasks.map(item => (item.id === taskId ? { ...item, status: targetStatus } : item)),
+      });
+      clearTaskBoardExtra(taskId);
+      renderWorkspace();
+      try {
+        await updateTask(taskId, { status: targetStatus });
+        await loadTasks({ selectedTaskId: taskId });
+      } catch {
+        window.alert('Moomora Console could not move the selected card.');
+        await loadTasks({ selectedTaskId: taskId });
+      }
+    });
+  });
+
   workspace.querySelectorAll('[data-action="set-board-grouping"]').forEach((btn) => {
     btn.addEventListener('click', (event) => {
       event.preventDefault();
@@ -1179,6 +1415,7 @@ async function handleBoardDrop({ taskId, targetStatus, beforeTaskId }) {
     ],
     selectedTaskId: taskId,
   });
+  clearTaskBoardExtra(taskId);
   renderWorkspace();
 
   try {
@@ -1223,23 +1460,29 @@ function renderWorkspacePrimary(visibleTasks, selectedTaskId) {
   if (state.activeView === 'board') {
     const isAllProjects = state.activeProject === 'all';
     const useSwimlanes = state.boardGrouping === 'swimlanes' && isAllProjects;
+    const boardTasks = applyBoardFilters(visibleTasks, state.boardFilters, state.taskBoardExtras, today());
+    const selected = state.tasks.find(task => task.id === selectedTaskId) || null;
+    const inspector = renderBoardInspectorHtml(selected, state.taskBoardExtras?.[selectedTaskId] || {}, { today: today() });
     const board = useSwimlanes
-      ? renderSwimlaneBoardHtml(visibleTasks, selectedTaskId, {
+      ? renderSwimlaneBoardHtml(boardTasks, selectedTaskId, {
           today: today(),
           projects: state.projects,
           boardLaneCollapsed: state.boardLaneCollapsed,
+          taskBoardExtras: state.taskBoardExtras,
         })
-      : renderBoardHtml(visibleTasks, selectedTaskId, {
+      : renderBoardHtml(boardTasks, selectedTaskId, {
           boardOpenSections: state.boardOpenSections,
           today: today(),
           showProjectChips: isAllProjects,
           projects: state.projects,
+          taskBoardExtras: state.taskBoardExtras,
         });
     const toolbar = isAllProjects ? renderBoardToolbar(state.boardGrouping) : '';
+    const filters = renderBoardFilters(state.boardFilters);
     // Wrap in one element so the .workspace grid treats the board as a single
     // primary cell — otherwise the prepended toolbar becomes a second grid item
     // and the board spills into the detail column.
-    return `<div class="board-view">${toolbar}${board}</div>`;
+    return `<div class="board-view">${toolbar}${filters}${inspector}${board}</div>`;
   }
 
   const listOptions = listOptionsForView(state.activeView);
@@ -1252,6 +1495,7 @@ function renderWorkspacePrimary(visibleTasks, selectedTaskId) {
         toolbar,
         projects: state.projects,
         listLaneCollapsed: state.listLaneCollapsed,
+        today: today(),
       })
     : renderListHtml(visibleTasks, selectedTaskId, { ...listOptions, toolbar });
 }
@@ -1438,6 +1682,7 @@ function bindShellEvents() {
         documentInfoError: '',
         isDrawerOpen: false,
         mobileDetailOpen: false,
+        isBoardTaskDetailOpen: false,
         isLibraryDocOpen: false,
         isLinkPickerOpen: false,
       });
@@ -1533,6 +1778,7 @@ function bindShellEvents() {
         documentInfoError: '',
         isDrawerOpen: false,
         mobileDetailOpen: false,
+        isBoardTaskDetailOpen: false,
         isLibraryDocOpen: false,
         isLinkPickerOpen: false,
       });
@@ -2013,6 +2259,7 @@ function bindLinkPickerEvents() {
           ? await unlinkTaskDocument(taskId, docId)
           : await linkTaskDocument(taskId, docId);
         setState({ taskDocuments: updated });
+        clearTaskBoardExtra(taskId);
         renderApp();
       } catch {
         window.alert('Moomora Console could not update the document link.');
@@ -2107,10 +2354,15 @@ async function loadTasks({ selectedTaskId = state.selectedTaskId } = {}) {
   const normalizedTasks = tasks.map(normalizeTask);
   const selectedTaskExists = normalizedTasks.some((task) => task.id === selectedTaskId);
   const resolvedTaskId = selectedTaskExists ? selectedTaskId : normalizedTasks[0]?.id || null;
+  const resolvedTask = normalizedTasks.find((task) => task.id === resolvedTaskId) || null;
   setState({
     tasks: normalizedTasks,
     apiStatus: 'connected',
     selectedTaskId: resolvedTaskId,
+    taskNotesDraftId: resolvedTaskId,
+    taskNotesDraft: resolvedTask?.notes || '',
+    isTaskNotesDirty: false,
+    taskNotesSavedAt: '',
   });
   await loadTaskDocuments(resolvedTaskId);
   await loadTaskChecklist(resolvedTaskId);

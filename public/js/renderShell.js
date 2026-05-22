@@ -149,14 +149,20 @@ function renderViewButtons(activeView) {
   }).join('');
 }
 
+function renderSidebarMainButtons(activeView) {
+  const primaryViews = viewButtons.filter(view => ['list', 'board', 'library'].includes(view.id));
+  const keys = { list: 't', board: 'b', library: 'l' };
+  return primaryViews.map((view) => {
+    const isActive = view.id === activeView;
+    return `
+          <button class="nav-button${isActive ? ' is-active' : ''}" type="button" aria-pressed="${isActive}" data-view="${view.id}">
+            <span class="nav-button__main"><span class="nav-button__key">[${keys[view.id]}]</span><span>${view.label}</span></span>
+          </button>`;
+  }).join('');
+}
+
 function renderProjectButtons(activeProject, projects) {
   const allActive = activeProject === 'all';
-  const newBtn = `
-          <button class="nav-button nav-button--accent" type="button" data-action="new-project"><span>[+] new project</span></button>`;
-  const manageBtn = `
-          <button class="nav-button nav-button--accent" type="button" data-action="open-project-manager"><span>[≡] manage</span></button>`;
-  const archivedBtn = `
-          <button class="nav-button nav-button--accent" type="button" data-action="open-archived-projects"><span>[▤] archived</span></button>`;
   const allBtn = `
           <button class="nav-button${allActive ? ' is-active' : ''}" type="button" aria-pressed="${allActive}" data-project="all">
             <span>All projects</span>
@@ -168,7 +174,19 @@ function renderProjectButtons(activeProject, projects) {
             <span>${escapeHtml(project.name)}</span>
           </button>`;
   }).join('');
-  return newBtn + manageBtn + archivedBtn + allBtn + projectBtns;
+  return allBtn + projectBtns;
+}
+
+function renderProjectToolsMenu() {
+  return `
+          <details class="project-tools-menu">
+            <summary class="project-tools-menu__summary" aria-label="Project tools" title="Project tools">[...]</summary>
+            <div class="project-tools-menu__items">
+              <button class="nav-button nav-button--accent" type="button" data-action="new-project"><span>[+] new project</span></button>
+              <button class="nav-button nav-button--accent" type="button" data-action="open-project-manager"><span>[≡] manage</span></button>
+              <button class="nav-button nav-button--accent" type="button" data-action="open-archived-projects"><span>[▤] archived</span></button>
+            </div>
+          </details>`;
 }
 
 function renderMetricCards(metrics) {
@@ -202,6 +220,9 @@ export function renderShellHtml({
   const metricsHtml = isLibraryView ? '' : `
         <section class="metrics-row" aria-label="Task metrics">${renderMetricCards(metrics)}
         </section>`;
+  const workspaceClass = ['workspace'];
+  if (isLibraryView) workspaceClass.push('workspace--library');
+  if (activeViewConfig.id === 'board') workspaceClass.push('workspace--board');
 
   return `
     <div class="app-shell">
@@ -212,8 +233,17 @@ export function renderShellHtml({
           <span class="brand-name">Moomora Console</span>
         </div>
 
+        <nav class="side-nav" aria-label="Main">
+          <p class="nav-label">Main</p>
+          ${renderSidebarMainButtons(activeViewConfig.id)}
+        </nav>
+
         <nav class="side-nav" aria-label="Projects">
-          <p class="nav-label">Projects</p>${renderProjectButtons(activeProject, projects)}
+          <div class="nav-heading">
+            <p class="nav-label">Projects</p>
+            ${renderProjectToolsMenu()}
+          </div>
+          ${renderProjectButtons(activeProject, projects)}
         </nav>
 
         <section class="cluster-card" aria-label="Cluster status">
@@ -262,7 +292,7 @@ export function renderShellHtml({
           <span class="sync-pill">Synced</span>
         </section>
         ${metricsHtml}
-        <div id="workspace" class="workspace${isLibraryView ? ' workspace--library' : ''}"></div>
+        <div id="workspace" class="${workspaceClass.join(' ')}"></div>
         <footer class="status-footer" aria-label="Console status">
           <span class="status-footer__breadcrumb">moomora <span class="status-footer__slash">/</span> ${escapeHtml(activeViewConfig.label)} <span class="status-footer__slash">/</span> <strong>${escapeHtml(activeProject === 'all' ? 'all projects' : (projects.find(p => p.id === activeProject)?.name || 'all projects'))}</strong></span>
           <span class="status-footer__sync">${syncLabelFor(apiStatus)}</span>

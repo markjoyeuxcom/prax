@@ -72,9 +72,10 @@ test('renderShellHtml includes new-project and open-project-manager controls', (
 
 test('renderShellHtml groups manage and archived projects with new-project in the sidebar', () => {
   const html = renderShellHtml({ activeProject: 'all', projects: [] });
-  // Manage/archived sit in the sidebar projects nav, styled like new-project (accent).
-  assert.match(html, /nav-button--accent" type="button" data-action="open-project-manager"/);
-  assert.match(html, /nav-button--accent" type="button" data-action="open-archived-projects"/);
+  // Manage/archived sit in the sidebar project tools menu, not as primary project rows.
+  assert.match(html, /class="project-tools-menu"/);
+  assert.match(html, /project-tools-menu[\s\S]*data-action="open-project-manager"/);
+  assert.match(html, /project-tools-menu[\s\S]*data-action="open-archived-projects"/);
   // They are not in the topbar action group.
   assert.doesNotMatch(html, /class="topbar-actions">[\s\S]*data-action="open-project-manager"/);
 });
@@ -93,6 +94,7 @@ test('renderShellHtml derives heading from active view', () => {
 
   assert.match(html, /<h1 id="view-title">Board<\/h1>/);
   assert.match(html, /Track active work by status/);
+  assert.match(html, /id="workspace" class="workspace workspace--board"/);
 });
 
 test('renderShellHtml derives Library heading and document action', () => {
@@ -319,6 +321,20 @@ test('sidebar no longer has a Views label', () => {
   assert.doesNotMatch(html, /nav-label">Views/);
 });
 
+test('sidebar renders slim Main navigation for primary areas', () => {
+  const html = renderShellHtml({
+    activeProject: 'all',
+    projects: [],
+    activeView: 'board',
+    metrics: {},
+  });
+
+  assert.match(html, /aria-label="Main"/);
+  assert.match(html, /aria-label="Main"[\s\S]*data-view="list"/);
+  assert.match(html, /aria-label="Main"[\s\S]*data-view="board"/);
+  assert.match(html, /aria-label="Main"[\s\S]*data-view="library"/);
+});
+
 test('sidebar still has projects nav with expected controls', () => {
   const html = renderShellHtml({
     activeProject: 'all',
@@ -327,6 +343,23 @@ test('sidebar still has projects nav with expected controls', () => {
     metrics: {},
   });
   assert.match(html, /data-project="all"/);
+  assert.match(html, /class="project-tools-menu"/);
   assert.match(html, /data-action="new-project"/);
   assert.match(html, /data-action="open-project-manager"/);
+});
+
+test('sidebar project tools are behind a Projects menu', () => {
+  const html = renderShellHtml({
+    activeProject: 'all',
+    projects: [{ id: 'p1', name: 'Homelab', slug: 'homelab', status: 'active' }],
+    activeView: 'board',
+    metrics: {},
+  });
+
+  assert.match(html, /<summary[^>]*class="project-tools-menu__summary"[^>]*>\[\.\.\.\]<\/summary>/);
+  assert.match(html, /class="project-tools-menu__items"[\s\S]*data-action="new-project"/);
+  assert.match(html, /class="project-tools-menu__items"[\s\S]*data-action="open-project-manager"/);
+  assert.match(html, /class="project-tools-menu__items"[\s\S]*data-action="open-archived-projects"/);
+  assert.match(html, /class="nav-button is-active"[^>]*data-project="all"/);
+  assert.match(html, /data-project="p1"/);
 });

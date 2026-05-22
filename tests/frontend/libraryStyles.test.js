@@ -33,3 +33,8 @@ test('Preference palettes and font scales are defined', () => {
   assert.match(styles, /\.settings-modal/);
   assert.match(styles, /\.settings-palette__swatches--daylight/);
 });
+
+test('Task detail summary tab keeps only the summary detail section visible', () => {
+  assert.match(styles, /\.detail-panel\[data-active-detail-section="summary"\]\s+\.detail-body\s+\[data-detail-section\]:not\(\[data-detail-section="summary"\]\)/);
+  assert.doesNotMatch(styles, /\.detail-panel\[data-active-detail-section="summary"\]\s+\.detail-body\s+\[data-detail-section\],/);
+});

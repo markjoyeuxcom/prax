@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { renderBoardHtml, renderSwimlaneBoardHtml, renderBoardToolbar } from '../../public/js/renderBoard.js';
+import {
+  renderBoardFilters,
+  renderBoardHtml,
+  renderBoardInspectorHtml,
+  renderBoardToolbar,
+  renderSwimlaneBoardHtml,
+} from '../../public/js/renderBoard.js';
+import { applyBoardFilters } from '../../public/js/boardFilters.js';
 
 test('renderBoardHtml renders status columns and task cards', () => {
   const html = renderBoardHtml([
@@ -82,6 +89,32 @@ test('board cards render a priority dot matching the stripe', () => {
   assert.match(html, /board-card__dot board-card__dot--lo/);
 });
 
+test('board cards render workflow signals from task extras', () => {
+  const tasks = [{
+    id: 'a',
+    title: 'Patch ingress',
+    priority: 'medium',
+    status: 'in-progress',
+    sortOrder: 0,
+    notes: 'Check release notes',
+  }];
+  const html = renderBoardHtml(tasks, 'a', {
+    taskBoardExtras: {
+      a: {
+        docsCount: 2,
+        checklistDone: 1,
+        checklistTotal: 3,
+        latestActivity: 'Status changed to in progress',
+      },
+    },
+  });
+
+  assert.match(html, /checklist 1\/3/);
+  assert.match(html, /docs 2/);
+  assert.match(html, /notes/);
+  assert.match(html, /Status changed to in progress/);
+});
+
 test('board flags overdue and due-soon dates relative to today', () => {
   const tasks = [
     { id: 'o', title: 'Overdue', priority: 'high', status: 'planned', sortOrder: 0, dueDate: '2026-05-18' },
@@ -142,6 +175,19 @@ test('renderSwimlaneBoardHtml renders a lane only for projects with tasks', () =
   assert.doesNotMatch(html, /board-card__chip/);
 });
 
+test('renderSwimlaneBoardHtml shows lane health signals', () => {
+  const tasks = [
+    { id: 'a', title: 'Patch ingress', priority: 'medium', status: 'in-progress', projectId: 'p1', sortOrder: 0 },
+    { id: 'b', title: 'Back up CNPG', priority: 'high', status: 'planned', projectId: 'p1', sortOrder: 1, dueDate: '2026-05-18' },
+    { id: 'c', title: 'Done', priority: 'low', status: 'completed', projectId: 'p1', sortOrder: 2 },
+  ];
+  const html = renderSwimlaneBoardHtml(tasks, null, { today: '2026-05-21', projects: SWIM_PROJECTS });
+
+  assert.match(html, /2 active/);
+  assert.match(html, /1 overdue/);
+  assert.match(html, /1 in progress/);
+});
+
 test('renderSwimlaneBoardHtml hides columns for a collapsed lane', () => {
   const tasks = [{ id: 'a', title: 'X', priority: 'low', status: 'planned', projectId: 'p1', sortOrder: 0 }];
   const html = renderSwimlaneBoardHtml(tasks, null, {
@@ -175,4 +221,62 @@ test('renderBoardToolbar marks the active grouping', () => {
   const html = renderBoardToolbar('swimlanes');
   assert.match(html, /data-action="set-board-grouping"[^>]*data-grouping="flat"/);
   assert.match(html, /data-grouping="swimlanes"[^>]*aria-pressed="true"/);
+});
+
+test('renderBoardFilters renders active board filter chips', () => {
+  const html = renderBoardFilters(['overdue', 'has-docs']);
+
+  assert.match(html, /data-action="toggle-board-filter"[^>]*data-filter="overdue"[^>]*aria-pressed="true"/);
+  assert.match(html, /data-action="toggle-board-filter"[^>]*data-filter="high"[^>]*aria-pressed="false"/);
+  assert.match(html, /has docs/);
+});
+
+test('applyBoardFilters filters by task and task-extra signals', () => {
+  const tasks = [
+    { id: 'overdue', title: 'Overdue', priority: 'medium', status: 'planned', dueDate: '2026-05-18' },
+    { id: 'docs', title: 'With docs', priority: 'medium', status: 'planned', dueDate: '2026-06-01' },
+    { id: 'high', title: 'High', priority: 'high', status: 'planned', dueDate: '2026-06-01' },
+    { id: 'complete', title: 'Done', priority: 'high', status: 'completed', dueDate: '2026-05-18' },
+  ];
+  const extras = {
+    docs: { docsCount: 2, checklistTotal: 1 },
+    high: { docsCount: 0, checklistTotal: 0 },
+  };
+
+  assert.deepEqual(applyBoardFilters(tasks, ['overdue'], extras, '2026-05-21').map(t => t.id), ['overdue']);
+  assert.deepEqual(applyBoardFilters(tasks, ['has-docs'], extras, '2026-05-21').map(t => t.id), ['docs']);
+  assert.deepEqual(applyBoardFilters(tasks, ['high', 'no-checklist'], extras, '2026-05-21').map(t => t.id), ['high']);
+});
+
+test('renderBoardInspectorHtml renders selected task context and move actions', () => {
+  const task = {
+    id: 'task-1',
+    title: 'Patch ingress',
+    priority: 'high',
+    status: 'planned',
+    dueDate: '2026-05-18',
+    notes: 'Check release notes',
+  };
+  const html = renderBoardInspectorHtml(task, {
+    docsCount: 1,
+    checklistDone: 1,
+    checklistTotal: 2,
+    nextChecklistItem: 'Confirm controller version',
+  }, { today: '2026-05-21' });
+
+  assert.match(html, /Patch ingress/);
+  assert.match(html, /overdue/);
+  assert.match(html, /Confirm controller version/);
+  assert.match(html, /docs 1/);
+  assert.match(html, /checklist 1\/2/);
+  assert.match(html, /data-action="board-move-selected"[^>]*data-status="in-progress"/);
+  assert.match(html, /data-action="open-board-task-detail"/);
+  assert.match(html, /\[enter\] detail/);
+  assert.match(html, /board-inspector__detail-action/);
+});
+
+test('renderBoardInspectorHtml renders a useful empty inspector state', () => {
+  const html = renderBoardInspectorHtml(null);
+  assert.match(html, /No card selected/);
+  assert.match(html, /Select a card to inspect due date/);
 });

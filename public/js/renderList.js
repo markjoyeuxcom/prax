@@ -90,6 +90,16 @@ function buildProjectLanes(tasks, projects) {
   return lanes;
 }
 
+function laneSummary(tasks, today) {
+  const activeCount = tasks.filter(t => t.status !== 'completed').length;
+  const dueToday = today ? tasks.filter(t => t.dueDate === today && t.status !== 'completed').length : 0;
+  const overdue = today ? tasks.filter(t => t.dueDate && t.dueDate < today && t.status !== 'completed').length : 0;
+  const parts = [`${activeCount} active`];
+  if (overdue) parts.push(`${overdue} overdue`);
+  else if (dueToday) parts.push(`${dueToday} due today`);
+  return parts.join(' · ');
+}
+
 export function renderSwimlaneListHtml(tasks = [], selectedTaskId = null, options = {}) {
   const safeTasks = Array.isArray(tasks) ? tasks : [];
   const projects = Array.isArray(options.projects) ? options.projects : [];
@@ -105,7 +115,7 @@ export function renderSwimlaneListHtml(tasks = [], selectedTaskId = null, option
             <button class="task-lane__toggle" type="button" data-action="toggle-list-lane" data-project-id="${escapeHtml(project.id)}" aria-label="Toggle ${escapeHtml(project.name)}" aria-expanded="${!isCollapsed}">
               <span class="task-lane__glyph">${isCollapsed ? '▸' : '▾'}</span>
               <span class="task-lane__name">${escapeHtml(project.name)}</span>
-              <span class="task-lane__count">· ${laneTasks.length}</span>
+              <span class="task-lane__summary">${escapeHtml(laneSummary(laneTasks, options.today))}</span>
             </button>
           </header>
           ${isCollapsed ? '' : `<div class="task-lane__cards">${renderCards(laneTasks, selectedTaskId, options.emptyTitle, options.emptyDescription)}</div>`}

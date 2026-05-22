@@ -28,6 +28,12 @@ test('detail omits back button when mobileDetailOpen is false', () => {
   assert.doesNotMatch(html, /data-action="close-mobile-detail"/);
 });
 
+test('detail renders an optional close action for board detail mode', () => {
+  const task = { id: 'a', title: 'X', description: '', priority: 'low', status: 'planned', dueDate: null };
+  const html = renderTaskDetailHtml(task, { closeAction: 'close-board-task-detail' });
+  assert.match(html, /data-action="close-board-task-detail"[^>]*>\[x\] close/);
+});
+
 test('linked docs renders rows with open and unlink controls', () => {
   const task = { id: 'a', title: 'X', description: '', priority: 'medium', status: 'planned', dueDate: null };
   const linkedDocuments = [
@@ -75,6 +81,61 @@ test('renderTaskDetailHtml renders an editable notes textarea with the task note
   assert.match(html, /data-action="save-task-notes"/);
 });
 
+test('renderTaskDetailHtml renders detail section rail and mobile tab controls', () => {
+  const html = renderTaskDetailHtml(
+    { id: 't1', title: 'X', status: 'planned', priority: 'low', notes: '' },
+    { activeTaskDetailTab: 'work', activeTaskDetailSection: 'docs' },
+  );
+  assert.match(html, /data-active-detail-section="docs"/);
+  assert.match(html, /class="detail-section-rail"/);
+  assert.match(html, /data-action="set-task-detail-section"[^>]*data-section="summary"/);
+  assert.match(html, /data-action="set-task-detail-section"[^>]*data-section="docs"[^>]*aria-pressed="true"/);
+  assert.match(html, /data-action="set-task-detail-section"[^>]*data-section="checklist"/);
+  assert.match(html, /data-action="set-task-detail-section"[^>]*data-section="notes"/);
+  assert.match(html, /data-action="set-task-detail-section"[^>]*data-section="activity"/);
+  assert.match(html, /class="detail-mobile-tabs"/);
+  assert.match(html, /data-action="set-task-detail-tab"[^>]*data-tab="summary"/);
+  assert.match(html, /data-action="set-task-detail-tab"[^>]*data-tab="work"[^>]*aria-pressed="true"/);
+  assert.match(html, /data-action="set-task-detail-tab"[^>]*data-tab="activity"/);
+});
+
+test('renderTaskDetailHtml renders a real summary section below the rail', () => {
+  const html = renderTaskDetailHtml(
+    { id: 't1', title: 'Back up CNPG', description: 'Verify backup schedule', status: 'planned', priority: 'high', dueDate: '2026-05-18', notes: 'Restore drill pending' },
+    {
+      activeTaskDetailSection: 'summary',
+      linkedDocuments: [{ id: 'd1', title: 'Restore runbook', documentType: 'runbook' }],
+      checklistItems: [
+        { id: 'c1', label: 'Verify backup CR', completed: true },
+        { id: 'c2', label: 'Confirm object-store creds', completed: false },
+      ],
+      activityEvents: [{ id: 'a1', message: 'Task created', createdAt: '2026-05-22T01:17:00.000Z' }],
+    },
+  );
+  assert.match(html, /id="detail-summary-panel"/);
+  assert.match(html, /data-detail-section="summary"/);
+  assert.match(html, /Back up CNPG/);
+  assert.match(html, /Verify backup schedule/);
+  assert.match(html, /class="detail-summary__value">Planned/);
+  assert.match(html, /class="detail-summary__value">2026-05-18/);
+  assert.match(html, /1\/2 done/);
+  assert.match(html, /1 linked doc/);
+  assert.match(html, /notes captured/);
+  assert.match(html, /Task created/);
+});
+
+test('renderTaskDetailHtml exposes notes dirty state and saved timestamp controls', () => {
+  const html = renderTaskDetailHtml(
+    { id: 't1', title: 'X', status: 'planned', priority: 'low', notes: 'draft text' },
+    { isTaskNotesDirty: true, taskNotesDraft: 'unsaved draft', taskNotesSavedAt: '09:38' },
+  );
+  assert.match(html, /class="detail-notes-shell is-dirty"/);
+  assert.match(html, /data-task-notes-status[^>]*>dirty · local edit/);
+  assert.match(html, /last saved 09:38/);
+  assert.match(html, /data-action="discard-task-notes"/);
+  assert.match(html, /unsaved draft/);
+});
+
 test('renderTaskDetailHtml renders notes read-only when readOnly', () => {
   const html = renderTaskDetailHtml(
     { id: 't1', title: 'X', status: 'completed', priority: 'low', notes: 'archived note' },
@@ -105,6 +166,7 @@ test('renderTaskDetailHtml renders checklist items with a done count and control
   assert.match(html, /1\/2/);
   assert.match(html, /data-action="toggle-checklist-item"[^>]*data-item-id="c1"/);
   assert.match(html, /data-action="delete-checklist-item"[^>]*data-item-id="c2"/);
+  assert.match(html, /data-action="delete-checklist-item"[^>]*>\[del\]/);
   assert.match(html, /data-action="add-checklist-item"/);
   assert.match(html, /Step one/);
 });
@@ -129,6 +191,7 @@ test('renderTaskDetailHtml renders an activity feed newest-first', () => {
   );
   assert.match(html, /Activity/);
   assert.match(html, /Status → in-progress/);
+  assert.match(html, /2026-05-20 10:00/);
   assert.match(html, /Task created/);
 });
 
