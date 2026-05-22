@@ -360,7 +360,24 @@ function renderWorkspace() {
   workspace.querySelectorAll('[data-action="open-linked-doc"]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const docId = btn.dataset.documentId;
-      setState({ activeView: 'library', selectedDocumentId: docId, mobileDetailOpen: false });
+      // Clear Library filters so the linked document is always the one shown.
+      // Otherwise an active type/tag/search filter can hide it and
+      // selectedDocument() silently falls back to the first visible doc.
+      const linkedDoc = state.taskDocuments.find(d => d.id === docId);
+      const patch = {
+        activeView: 'library',
+        selectedDocumentId: docId,
+        libraryTypeFilter: 'all',
+        activeLibraryTags: [],
+        searchQuery: '',
+        mobileDetailOpen: false,
+      };
+      // Align the project context when the linked doc lives in another project.
+      if (linkedDoc?.projectId && state.activeProject !== 'all' && state.activeProject !== linkedDoc.projectId) {
+        patch.activeProject = linkedDoc.projectId;
+        persistActiveProject(linkedDoc.projectId);
+      }
+      setState(patch);
       try {
         await loadDocuments({ selectedDocumentId: docId });
       } catch (error) {
