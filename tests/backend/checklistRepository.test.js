@@ -32,17 +32,17 @@ test('buildAddChecklistItem appends with max\+1 sort_order', () => {
   assert.deepEqual(q.values, [TASK, 'New step']);
 });
 
-test('buildSetChecklistItemCompleted updates completed + updated_at', () => {
-  const q = buildSetChecklistItemCompleted('item1', true);
+test('buildSetChecklistItemCompleted scopes the update to task and item', () => {
+  const q = buildSetChecklistItemCompleted(TASK, 'item1', true);
   assert.match(q.text, /update task_checklist_items/);
-  assert.match(q.text, /set completed = \$2, updated_at = now\(\)/);
-  assert.match(q.text, /where id = \$1/);
-  assert.deepEqual(q.values, ['item1', true]);
+  assert.match(q.text, /set completed = \$3, updated_at = now\(\)/);
+  assert.match(q.text, /where id = \$2 and task_id = \$1/);
+  assert.deepEqual(q.values, [TASK, 'item1', true]);
 });
 
-test('buildDeleteChecklistItem deletes by id', () => {
-  const q = buildDeleteChecklistItem('item1');
+test('buildDeleteChecklistItem scopes the delete to task and item', () => {
+  const q = buildDeleteChecklistItem(TASK, 'item1');
   assert.match(q.text, /delete from task_checklist_items/);
-  assert.match(q.text, /where id = \$1/);
-  assert.deepEqual(q.values, ['item1']);
+  assert.match(q.text, /where id = \$2 and task_id = \$1/);
+  assert.deepEqual(q.values, [TASK, 'item1']);
 });

@@ -417,14 +417,14 @@ function createMemoryChecklistRepository() {
       items.push(item);
       return item;
     },
-    async setChecklistItemCompleted(itemId, completed) {
-      const it = items.find(i => i.id === itemId);
+    async setChecklistItemCompleted(taskId, itemId, completed) {
+      const it = items.find(i => i.id === itemId && i.taskId === taskId);
       if (!it) return null;
       it.completed = completed; it.updatedAt = new Date().toISOString();
       return it;
     },
-    async deleteChecklistItem(itemId) {
-      const i = items.findIndex(x => x.id === itemId);
+    async deleteChecklistItem(taskId, itemId) {
+      const i = items.findIndex(x => x.id === itemId && x.taskId === taskId);
       if (i < 0) return null;
       return items.splice(i, 1)[0];
     },

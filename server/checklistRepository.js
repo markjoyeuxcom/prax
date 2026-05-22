@@ -32,17 +32,17 @@ export function buildAddChecklistItem(taskId, label) {
   };
 }
 
-export function buildSetChecklistItemCompleted(itemId, completed) {
+export function buildSetChecklistItemCompleted(taskId, itemId, completed) {
   return {
-    text: `update task_checklist_items set completed = $2, updated_at = now() where id = $1 returning *`,
-    values: [itemId, completed],
+    text: `update task_checklist_items set completed = $3, updated_at = now() where id = $2 and task_id = $1 returning *`,
+    values: [taskId, itemId, completed],
   };
 }
 
-export function buildDeleteChecklistItem(itemId) {
+export function buildDeleteChecklistItem(taskId, itemId) {
   return {
-    text: `delete from task_checklist_items where id = $1 returning *`,
-    values: [itemId],
+    text: `delete from task_checklist_items where id = $2 and task_id = $1 returning *`,
+    values: [taskId, itemId],
   };
 }
 
@@ -58,13 +58,13 @@ export function createChecklistRepository(db) {
       const result = await db.query(q.text, q.values);
       return normalizeChecklistRow(result.rows[0]);
     },
-    async setChecklistItemCompleted(itemId, completed) {
-      const q = buildSetChecklistItemCompleted(itemId, completed);
+    async setChecklistItemCompleted(taskId, itemId, completed) {
+      const q = buildSetChecklistItemCompleted(taskId, itemId, completed);
       const result = await db.query(q.text, q.values);
       return result.rows[0] ? normalizeChecklistRow(result.rows[0]) : null;
     },
-    async deleteChecklistItem(itemId) {
-      const q = buildDeleteChecklistItem(itemId);
+    async deleteChecklistItem(taskId, itemId) {
+      const q = buildDeleteChecklistItem(taskId, itemId);
       const result = await db.query(q.text, q.values);
       return result.rows[0] ? normalizeChecklistRow(result.rows[0]) : null;
     },
