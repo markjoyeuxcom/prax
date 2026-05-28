@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import {
   renderBoardFilters,
   renderBoardHtml,
-  renderBoardInspectorHtml,
   renderBoardToolbar,
   renderSwimlaneBoardHtml,
 } from '../../public/js/renderBoard.js';
@@ -253,37 +252,4 @@ test('renderBoardHtml does not embed a stacked selected-card inspector', () => {
   const html = renderBoardHtml(tasks, 't1', { today: '2026-05-28', boardOpenSections: {}, projects: [], taskBoardExtras: {} });
   assert.doesNotMatch(html, /board-inspector/i);
   assert.match(html, /board-column/i);
-});
-
-test('renderBoardInspectorHtml renders selected task context and move actions', () => {
-  const task = {
-    id: 'task-1',
-    title: 'Patch ingress',
-    priority: 'high',
-    status: 'planned',
-    dueDate: '2026-05-18',
-    notes: 'Check release notes',
-  };
-  const html = renderBoardInspectorHtml(task, {
-    docsCount: 1,
-    checklistDone: 1,
-    checklistTotal: 2,
-    nextChecklistItem: 'Confirm controller version',
-  }, { today: '2026-05-21' });
-
-  assert.match(html, /Patch ingress/);
-  assert.match(html, /overdue/);
-  assert.match(html, /Confirm controller version/);
-  assert.match(html, /docs 1/);
-  assert.match(html, /checklist 1\/2/);
-  assert.match(html, /data-action="board-move-selected"[^>]*data-status="in-progress"/);
-  assert.match(html, /data-action="open-board-task-detail"/);
-  assert.match(html, /\[enter\] detail/);
-  assert.match(html, /board-inspector__detail-action/);
-});
-
-test('renderBoardInspectorHtml renders a useful empty inspector state', () => {
-  const html = renderBoardInspectorHtml(null);
-  assert.match(html, /No card selected/);
-  assert.match(html, /Select a card to inspect due date/);
 });

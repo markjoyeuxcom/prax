@@ -1252,25 +1252,8 @@ function openTouchMoveMenu(taskId, _anchorElement) {
   handleBoardDrop({ taskId, targetStatus, beforeTaskId: null });
 }
 
-function handleOpenBoardTaskDetail(event) {
-  event.preventDefault();
-  const taskId = state.selectedTaskId || selectedTask()?.id;
-  if (!taskId) return;
-  setState({
-    selectedTaskId: taskId,
-    taskDetailOpen: true,
-    activeTaskDetailSection: 'summary',
-    activeTaskDetailTab: 'summary',
-  });
-  renderWorkspace();
-}
-
 function bindBoardEvents(workspace) {
   if (state.activeView !== 'board') return;
-
-  const openDetailButton = workspace.querySelector('[data-action="open-board-task-detail"]');
-  openDetailButton?.removeEventListener('click', handleOpenBoardTaskDetail);
-  openDetailButton?.addEventListener('click', handleOpenBoardTaskDetail);
 
   workspace.querySelectorAll('[data-board-card]').forEach((card) => {
     card.addEventListener('dragstart', (event) => {
@@ -1368,29 +1351,6 @@ function bindBoardEvents(workspace) {
       else active.add(filter);
       setState({ boardFilters: [...active] });
       renderWorkspace();
-    });
-  });
-
-  workspace.querySelectorAll('[data-action="board-move-selected"]').forEach((btn) => {
-    btn.addEventListener('click', async (event) => {
-      event.preventDefault();
-      const targetStatus = btn.dataset.status;
-      const taskId = state.selectedTaskId || selectedTask()?.id;
-      if (!taskId || !targetStatus) return;
-      const task = state.tasks.find(item => item.id === taskId);
-      if (!task || (task.status || 'planned') === targetStatus) return;
-      setState({
-        tasks: state.tasks.map(item => (item.id === taskId ? { ...item, status: targetStatus } : item)),
-      });
-      clearTaskBoardExtra(taskId);
-      renderWorkspace();
-      try {
-        await updateTask(taskId, { status: targetStatus });
-        await loadTasks({ selectedTaskId: taskId });
-      } catch {
-        window.alert('Moomora Console could not move the selected card.');
-        await loadTasks({ selectedTaskId: taskId });
-      }
     });
   });
 

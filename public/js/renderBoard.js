@@ -211,52 +211,6 @@ export function renderBoardFilters(activeFilters = []) {
     </div>`;
 }
 
-export function renderBoardInspectorHtml(task, extras = {}, options = {}) {
-  if (!task) {
-    return `
-      <aside class="board-inspector" aria-label="Board inspector">
-        <div class="board-inspector__empty">
-          <strong>No card selected</strong>
-          <span>Select a card to inspect due date, linked docs, checklist progress, and next action.</span>
-        </div>
-      </aside>`;
-  }
-
-  const today = options.today || localToday();
-  const due = dueState(task.dueDate, today);
-  const dueLabel = due.cls === 'over' ? 'overdue' : (task.dueDate || 'no due date');
-  const docsCount = Number(extras.docsCount || 0);
-  const checklistTotal = Number(extras.checklistTotal || 0);
-  const checklistDone = Number(extras.checklistDone || 0);
-  const nextAction = String(extras.nextChecklistItem || '').trim() || String(task.description || task.notes || '').trim() || 'No next action captured.';
-  const moveButton = (status, label) => `
-    <button type="button" data-action="board-move-selected" data-status="${status}"${(task.status || 'planned') === status ? ' disabled' : ''}>${label}</button>`;
-
-  return `
-    <aside class="board-inspector" aria-label="Board inspector">
-      <div class="board-inspector__heading">
-        <span>Selected card</span>
-        <strong>${escapeHtml(task.title || 'Untitled task')}</strong>
-      </div>
-      <dl class="board-inspector__signals">
-        <div><dt>Due</dt><dd class="board-inspector__due board-inspector__due--${due.cls}">${escapeHtml(dueLabel)}</dd></div>
-        <div><dt>Docs</dt><dd>docs ${docsCount}</dd></div>
-        <div><dt>Checklist</dt><dd>checklist ${checklistDone}/${checklistTotal}</dd></div>
-      </dl>
-      <div class="board-inspector__next">
-        <span>Next action</span>
-        <p>${escapeHtml(nextAction)}</p>
-      </div>
-      <div class="board-inspector__moves" aria-label="Move selected task">
-        ${moveButton('high-priority', 'high')}
-        ${moveButton('in-progress', 'progress')}
-        ${moveButton('planned', 'planned')}
-        ${moveButton('completed', 'done')}
-        <button class="board-inspector__detail-action" type="button" data-action="open-board-task-detail">[enter] detail</button>
-      </div>
-    </aside>`;
-}
-
 export function renderBoardToolbar(grouping = 'flat') {
   const option = (value, label) =>
     `<button class="board-toolbar__option" type="button" data-action="set-board-grouping" data-grouping="${value}" aria-pressed="${grouping === value}">${label}</button>`;
