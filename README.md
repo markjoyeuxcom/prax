@@ -47,7 +47,7 @@ The project is early, but usable locally today through the in-memory demo server
 Clone the repo:
 
 ```bash
-git clone git@github.com:markjoyeuxcom/moomora-console.git
+git clone git@github.com:awaybreaktoday/moomora-console.git
 cd moomora-console
 ```
 
@@ -110,7 +110,7 @@ docker compose -f compose.yaml -f compose.image.yaml up
 The image override uses:
 
 ```text
-ghcr.io/markjoyeuxcom/moomora-console:v0.7.3
+ghcr.io/awaybreaktoday/moomora-console:v0.7.4
 ```
 
 Use source-build Compose for development, and use the published image path when you want to test the same artifact Kubernetes will run.
@@ -224,5 +224,5 @@ MIT. See [LICENSE](LICENSE).
 GitHub:
 
 ```text
-https://github.com/markjoyeuxcom/moomora-console
+https://github.com/awaybreaktoday/moomora-console
 ```
