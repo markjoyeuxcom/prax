@@ -751,6 +751,7 @@ function renderLibraryWorkspace(workspace) {
     typeFilter: state.libraryTypeFilter,
     sortBy: state.librarySortBy,
     groupByType: state.libraryGroupByType,
+    libraryView: state.libraryView,
   });
 
   const libraryWorkspaceElement = workspace.querySelector('.library-workspace');
@@ -762,6 +763,24 @@ function renderLibraryWorkspace(workspace) {
   workspace.querySelector('[data-action="toggle-library-tags-drawer"]')?.addEventListener('click', () => {
     setState({ isLibraryTagsDrawerOpen: !state.isLibraryTagsDrawerOpen });
     renderWorkspace();
+  });
+
+  workspace.querySelector('[data-action="toggle-library-view"]')?.addEventListener('click', async () => {
+    clearDocumentAutosave();
+    setState({
+      libraryView: state.libraryView === 'archive' ? 'active' : 'archive',
+      selectedDocumentId: null,
+      documentDraftId: null,
+      documentDraftBody: '',
+      isDocumentDirty: false,
+      isDocumentFocusMode: false,
+    });
+    try {
+      await loadDocuments({ selectedDocumentId: null });
+    } catch (error) {
+      setState({ apiStatus: 'error' });
+      renderError(error.message);
+    }
   });
 
   workspace.querySelector('[data-action="close-library-doc"]')?.addEventListener('click', () => {
@@ -1539,7 +1558,7 @@ function renderApp() {
       activeProject: state.activeProject,
       projects: state.projects,
       taskCount: state.tasks.length,
-      documentCount: (state.documents || []).filter(d => !d.archivedAt && (state.activeProject === 'all' || d.projectId === state.activeProject)).length,
+      documentCount: state.libraryActiveDocumentCount,
       importMode: state.adminImportMode,
     }));
   }
@@ -1669,6 +1688,7 @@ function bindShellEvents() {
         activeProject: nextProject,
         selectedTaskId: null,
         selectedDocumentId: null,
+        libraryView: 'active',
         activeLibraryTags: [],
         libraryTagQuery: '',
         areLibraryTagsExpanded: false,
@@ -1765,6 +1785,7 @@ function bindShellEvents() {
         activeView: nextView,
         selectedTaskId: null,
         selectedDocumentId: null,
+        libraryView: 'active',
         activeLibraryTags: [],
         libraryTagQuery: '',
         areLibraryTagsExpanded: false,
@@ -1863,6 +1884,7 @@ function bindDocumentFormEvents() {
       setState({
         activeProject: nextProject,
         selectedDocumentId: savedDocument.id,
+        libraryView: 'active',
         isDocumentFormOpen: false,
         editingDocumentId: null,
         isSaving: false,
@@ -2401,17 +2423,21 @@ async function loadDocuments({ selectedDocumentId = state.selectedDocumentId } =
   renderLoading();
   const documents = await fetchDocuments({
     project: state.activeProject === 'all' ? undefined : state.activeProject,
-    archived: 'all',
+    archived: state.libraryView === 'archive' ? true : undefined,
   });
   const selectedDocumentExists = documents.some(document => document.id === selectedDocumentId);
-  setState({
+  const patch = {
     documents,
     apiStatus: 'connected',
     selectedDocumentId: selectedDocumentExists ? selectedDocumentId : documents[0]?.id || null,
     documentDraftId: selectedDocumentExists ? selectedDocumentId : documents[0]?.id || null,
     documentDraftBody: (selectedDocumentExists ? documents.find(document => document.id === selectedDocumentId) : documents[0])?.body || '',
     isDocumentDirty: false,
-  });
+  };
+  if (state.libraryView === 'active') {
+    patch.libraryActiveDocumentCount = documents.length;
+  }
+  setState(patch);
   renderApp();
 }
 

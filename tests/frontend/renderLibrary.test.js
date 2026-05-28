@@ -421,3 +421,57 @@ test('renderLibraryHtml hides [x] export when the document is archived (even in 
   });
   assert.doesNotMatch(html, /data-action="export-document"/);
 });
+
+const ACTIVE_DOC = {
+  id: 'd1', title: 'Live runbook', body: '# live', documentType: 'runbook',
+  projectId: 'p1', tags: [], sourceFilename: null, archivedAt: null,
+  createdAt: 'now', updatedAt: 'now',
+};
+const ARCHIVED_DOC = { ...ACTIVE_DOC, id: 'd2', title: 'Old runbook', archivedAt: '2026-05-01T00:00:00.000Z' };
+
+test('renderLibraryHtml active view shows [a] archive toggle and plain document count', () => {
+  const html = renderLibraryHtml({ documents: [ACTIVE_DOC], selectedDocumentId: 'd1', libraryView: 'active' });
+  assert.match(html, /data-action="toggle-library-view"[^>]*>\[a\] archive/);
+  assert.match(html, /1 documents/);
+  assert.doesNotMatch(html, /class="detail-kicker">ARCHIVE</);
+});
+
+test('renderLibraryHtml archive view shows [back] toggle, ARCHIVE kicker, and archived count', () => {
+  const html = renderLibraryHtml({ documents: [ARCHIVED_DOC], selectedDocumentId: 'd2', libraryView: 'archive' });
+  assert.match(html, /data-action="toggle-library-view"[^>]*>\[←\] active/);
+  assert.match(html, /<span class="detail-kicker">ARCHIVE<\/span>/);
+  assert.match(html, /1 archived documents/);
+});
+
+test('renderLibraryHtml archive empty state reads "No archived documents" without the create CTA', () => {
+  const html = renderLibraryHtml({ documents: [], libraryView: 'archive' });
+  assert.match(html, /No archived documents/);
+  assert.doesNotMatch(html, /Create or import Markdown/);
+});
+
+test('renderLibraryHtml active empty state keeps the create/import CTA', () => {
+  const html = renderLibraryHtml({ documents: [], libraryView: 'active' });
+  assert.match(html, /No Markdown documents/);
+  assert.match(html, /Create or import Markdown/);
+});
+
+test('renderLibraryHtml archive view detail panel is preview-only: no mode tabs, no editor toolbar, restore+delete present', () => {
+  const html = renderLibraryHtml({
+    documents: [ARCHIVED_DOC], selectedDocumentId: 'd2', editorMode: 'edit', libraryView: 'archive',
+  });
+  assert.doesNotMatch(html, /data-library-mode="edit"/);
+  assert.doesNotMatch(html, /data-action="save-document-draft"/);
+  assert.doesNotMatch(html, /data-action="export-document"/);
+  assert.match(html, /data-action="restore-document"/);
+  assert.match(html, /data-action="delete-archived-document"/);
+  assert.match(html, /class="markdown-preview"/);
+});
+
+test('renderLibraryHtml active view detail panel keeps editor tabs, archive action, and export', () => {
+  const html = renderLibraryHtml({
+    documents: [ACTIVE_DOC], selectedDocumentId: 'd1', editorMode: 'edit', libraryView: 'active',
+  });
+  assert.match(html, /data-library-mode="edit"/);
+  assert.match(html, /data-action="archive-document"/);
+  assert.match(html, /data-action="export-document"/);
+});

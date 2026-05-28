@@ -176,8 +176,14 @@ function renderDocumentRows(documents, activeDocumentId) {
   }).join('');
 }
 
-function renderDocumentList(documents, activeDocumentId, { groupByType = false } = {}) {
+function renderDocumentList(documents, activeDocumentId, { groupByType = false, libraryView = 'active' } = {}) {
   if (!documents.length) {
+    if (libraryView === 'archive') {
+      return `
+      <div class="task-empty" role="status">
+        <strong>No archived documents</strong>
+      </div>`;
+    }
     return `
       <div class="task-empty" role="status">
         <strong>No Markdown documents</strong>
@@ -284,8 +290,8 @@ function renderDocumentDetail(document, options = {}) {
       </aside>`;
   }
 
-  const editorMode = options.editorMode || 'preview';
   const isArchived = Boolean(document.archivedAt);
+  const editorMode = isArchived ? 'preview' : (options.editorMode || 'preview');
   const body = options.draftBody ?? document.body ?? '';
   const isDirty = Boolean(options.isDirty);
   const isInfoEditing = Boolean(options.isInfoEditing);
@@ -302,7 +308,7 @@ function renderDocumentDetail(document, options = {}) {
         <p>${escapeHtml(document.sourceFilename || 'Created in Moomora Console')}</p>
         <div class="document-tags">${renderTags(document.tags)}</div>
         <div class="detail-actions">
-          ${renderModes(editorMode)}
+          ${isArchived ? '' : renderModes(editorMode)}
           ${isArchived ? '' : '<button class="bracket-button" type="button" data-action="edit-document-info">[i] info</button>'}
           ${isArchived ? `
           <button class="bracket-button" type="button" data-action="restore-document">[r] restore</button>
@@ -344,20 +350,24 @@ export function renderLibraryHtml({
   typeFilter = 'all',
   sortBy = 'updated',
   groupByType = false,
+  libraryView = 'active',
 } = {}) {
   const safeDocuments = Array.isArray(documents) ? documents : [];
   const document = selectedDocument(safeDocuments, selectedDocumentId);
   const activeMode = editorMode || (previewMode === 'raw' ? 'edit' : previewMode) || 'preview';
+  const isArchiveView = libraryView === 'archive';
 
   return `
     <section class="library-workspace${isFocusMode ? ' is-focus-mode' : ''}" aria-label="Knowledge Library workspace">
       <aside class="library-browser" aria-labelledby="library-title">
         <header class="panel-header">
           <div>
+            ${isArchiveView ? '<span class="detail-kicker">ARCHIVE</span>' : ''}
             <h2 id="library-title">Knowledge Library</h2>
-            <p>${safeDocuments.length} documents</p>
+            <p>${safeDocuments.length} ${isArchiveView ? 'archived documents' : 'documents'}</p>
           </div>
           <span class="sync-pill">Markdown</span>
+          <button class="bracket-button bracket-button--quiet" type="button" data-action="toggle-library-view">${isArchiveView ? '[←] active' : '[a] archive'}</button>
           <button class="bracket-button bracket-button--quiet library-tags-toggle" type="button" data-action="toggle-library-tags-drawer" aria-expanded="${isLibraryTagsDrawerOpen}">tags ↕</button>
         </header>
         <div class="library-tag-filter__drawer${isLibraryTagsDrawerOpen ? ' is-open' : ''}">
@@ -381,7 +391,7 @@ export function renderLibraryHtml({
           </label>
           <button class="bracket-button bracket-button--quiet library-group-toggle" type="button" data-action="toggle-library-group" aria-pressed="${groupByType}">group: ${groupByType ? 'type' : 'off'}</button>
         </div>
-        <div class="document-list">${renderDocumentList(safeDocuments, document?.id, { groupByType })}
+        <div class="document-list">${renderDocumentList(safeDocuments, document?.id, { groupByType, libraryView })}
         </div>
       </aside>
       <div class="library-resizer" data-library-resizer role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize library browser"></div>

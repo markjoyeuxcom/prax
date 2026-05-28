@@ -44,6 +44,8 @@ export const state = {
   libraryTypeFilter: 'all',
   librarySortBy: 'updated',
   libraryGroupByType: false,
+  libraryView: 'active',            // 'active' | 'archive' (Library workspace mode)
+  libraryActiveDocumentCount: 0,    // cached count of active docs for the Admin panel
   taskDocuments: [],
   taskChecklist: [],
   taskActivity: [],
