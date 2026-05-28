@@ -110,7 +110,7 @@ docker compose -f compose.yaml -f compose.image.yaml up
 The image override uses:
 
 ```text
-ghcr.io/awaybreaktoday/moomora-console:v0.7.5
+ghcr.io/awaybreaktoday/moomora-console:v0.7.6
 ```
 
 Use source-build Compose for development, and use the published image path when you want to test the same artifact Kubernetes will run.
