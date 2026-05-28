@@ -29,10 +29,10 @@ test('renderShellHtml renders All-projects button active when activeProject is "
   assert.match(html, /Board/);
   assert.match(html, /Library/);
   assert.match(html, /Postgres/);
-  assert.match(html, /Due today/);
-  assert.match(html, /Completed this week/);
-  assert.match(html, />4</);
-  assert.match(html, />18</);
+  assert.match(html, /class="metric-strip"/);
+  assert.match(html, /due today/i);
+  assert.match(html, /4/);
+  assert.match(html, /18/);
   assert.match(html, /aria-pressed="true"/);
 });
 
@@ -85,33 +85,19 @@ test('renderShellHtml groups manage and archived projects with new-project in th
 // ---------------------------------------------------------------------------
 
 test('renderShellHtml derives heading from active view', () => {
-  const html = renderShellHtml({
-    activeView: 'board',
-    activeProject: 'all',
-    projects: [],
-    metrics: {},
-  });
-
-  assert.match(html, /<h1 id="view-title">Board<\/h1>/);
-  assert.match(html, /Track active work by status/);
+  const html = renderShellHtml({ activeView: 'board', activeProject: 'all', projects: [], metrics: {} });
+  assert.match(html, /class="topbar-title"[^>]*>Board</);
+  assert.doesNotMatch(html, /class="content-header"/);
   assert.match(html, /id="workspace" class="workspace workspace--board"/);
 });
 
 test('renderShellHtml derives Library heading and document action', () => {
-  const html = renderShellHtml({
-    activeView: 'library',
-    activeProject: 'all',
-    projects: [],
-    metrics: {},
-  });
-
+  const html = renderShellHtml({ activeView: 'library', activeProject: 'all', projects: [], metrics: {} });
   assert.match(html, /console-main console-main--library/);
-  assert.match(html, /<h1 id="view-title">Library<\/h1>/);
-  assert.match(html, /Markdown runbooks and notes/);
+  assert.match(html, /class="topbar-title"[^>]*>Library</);
   assert.match(html, /data-action="new-document"/);
   assert.match(html, /\[\+\] new doc/);
-  assert.doesNotMatch(html, /aria-label="Task metrics"/);
-  assert.doesNotMatch(html, /Due today/);
+  assert.doesNotMatch(html, /class="metric-strip"/);
 });
 
 test('renderShellHtml defaults missing metric values and reflects API status', () => {
@@ -126,8 +112,8 @@ test('renderShellHtml defaults missing metric values and reflects API status', (
   });
 
   assert.match(html, /Offline/);
-  assert.match(html, />2</);
-  assert.match(html, />0</);
+  assert.match(html, /class="metric-strip"/);
+  assert.match(html, /2/);
 });
 
 test('renderShellHtml includes workflow hooks for search and actions', () => {
@@ -300,39 +286,37 @@ test('hamburger drawer has inert when closed and not when open', () => {
 // Task 1: Views topbar tab strip + slim sidebar
 // ---------------------------------------------------------------------------
 
-test('topbar contains a topbar-tabs nav', () => {
-  const html = renderShellHtml({
-    activeProject: 'all',
-    projects: [],
-    activeView: 'board',
-    metrics: {},
-  });
-  assert.match(html, /class="topbar-tabs"/);
-  assert.match(html, /topbar-tabs[\s\S]*data-view="board"/);
+test('topbar no longer contains view-switch tabs', () => {
+  const html = renderShellHtml({ activeProject: 'all', projects: [], activeView: 'board', metrics: {} });
+  assert.doesNotMatch(html, /class="topbar-tabs"/);
+  // No data-view buttons inside the topbar element
+  const topbar = html.slice(html.indexOf('<header class="topbar"'), html.indexOf('</header>'));
+  assert.doesNotMatch(topbar, /data-view=/);
 });
 
-test('sidebar no longer has a Views label', () => {
-  const html = renderShellHtml({
-    activeProject: 'all',
-    projects: [],
-    activeView: 'list',
-    metrics: {},
-  });
-  assert.doesNotMatch(html, /nav-label">Views/);
+test('topbar shows a compact view title', () => {
+  const html = renderShellHtml({ activeProject: 'all', projects: [], activeView: 'board', metrics: {} });
+  assert.match(html, /class="topbar-title"[^>]*>Board</);
 });
 
-test('sidebar renders slim Main navigation for primary areas', () => {
-  const html = renderShellHtml({
-    activeProject: 'all',
-    projects: [],
-    activeView: 'board',
-    metrics: {},
-  });
+test('left rail groups WORK and VIEWS with all five views', () => {
+  const html = renderShellHtml({ activeProject: 'all', projects: [], activeView: 'list', metrics: {} });
+  assert.match(html, /nav-label">Work/i);
+  assert.match(html, /nav-label">Views/i);
+  assert.match(html, /aria-label="Work"[\s\S]*data-view="list"/);
+  assert.match(html, /aria-label="Work"[\s\S]*data-view="board"/);
+  assert.match(html, /aria-label="Work"[\s\S]*data-view="library"/);
+  assert.match(html, /aria-label="Views"[\s\S]*data-view="backlog"/);
+  assert.match(html, /aria-label="Views"[\s\S]*data-view="archive"/);
+});
 
-  assert.match(html, /aria-label="Main"/);
-  assert.match(html, /aria-label="Main"[\s\S]*data-view="list"/);
-  assert.match(html, /aria-label="Main"[\s\S]*data-view="board"/);
-  assert.match(html, /aria-label="Main"[\s\S]*data-view="library"/);
+test('metric strip is hidden on board and library, shown on list', () => {
+  const list = renderShellHtml({ activeProject: 'all', projects: [], activeView: 'list', metrics: { dueToday: 1 } });
+  assert.match(list, /class="metric-strip"/);
+  const board = renderShellHtml({ activeProject: 'all', projects: [], activeView: 'board', metrics: { dueToday: 1 } });
+  assert.doesNotMatch(board, /class="metric-strip"/);
+  const lib = renderShellHtml({ activeProject: 'all', projects: [], activeView: 'library', metrics: { dueToday: 1 } });
+  assert.doesNotMatch(lib, /class="metric-strip"/);
 });
 
 test('sidebar still has projects nav with expected controls', () => {

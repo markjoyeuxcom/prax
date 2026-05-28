@@ -31,6 +31,12 @@ const viewButtons = [
   },
 ];
 
+const navGroups = [
+  { label: 'Work', ids: ['list', 'board', 'library'] },
+  { label: 'Views', ids: ['backlog', 'archive'] },
+];
+const viewKeyGlyph = { list: 't', board: 'b', library: 'l', backlog: 'k', archive: 'r' };
+
 
 const metricCards = [
   { key: 'dueToday', label: 'Due today' },
@@ -135,29 +141,21 @@ function renderBottomNav(activeView) {
         </nav>`;
 }
 
-function renderViewButtons(activeView) {
-  const activeViewConfig = viewFor(activeView);
-  const primaryAction = activeViewConfig.id === 'library'
-    ? { action: 'new-document', label: 'New Document' }
-    : { action: 'new-task', label: 'New Task' };
-  return viewButtons.map((view) => {
-    const isActive = activeViewConfig.id === view.id;
-    return `
-          <button class="nav-button${isActive ? ' is-active' : ''}" type="button" aria-pressed="${isActive}" data-view="${view.id}">
-            <span>${view.label}</span>
+function renderSidebarNavGroups(activeView) {
+  return navGroups.map((group) => {
+    const buttons = group.ids.map((id) => {
+      const view = viewButtons.find(v => v.id === id);
+      const isActive = id === activeView;
+      return `
+          <button class="nav-button${isActive ? ' is-active' : ''}" type="button" aria-pressed="${isActive}" data-view="${id}">
+            <span class="nav-button__main"><span class="nav-button__key">[${viewKeyGlyph[id]}]</span><span>${view.label}</span></span>
           </button>`;
-  }).join('');
-}
-
-function renderSidebarMainButtons(activeView) {
-  const primaryViews = viewButtons.filter(view => ['list', 'board', 'library'].includes(view.id));
-  const keys = { list: 't', board: 'b', library: 'l' };
-  return primaryViews.map((view) => {
-    const isActive = view.id === activeView;
+    }).join('');
     return `
-          <button class="nav-button${isActive ? ' is-active' : ''}" type="button" aria-pressed="${isActive}" data-view="${view.id}">
-            <span class="nav-button__main"><span class="nav-button__key">[${keys[view.id]}]</span><span>${view.label}</span></span>
-          </button>`;
+        <nav class="side-nav" aria-label="${group.label}">
+          <p class="nav-label">${group.label}</p>
+          ${buttons}
+        </nav>`;
   }).join('');
 }
 
@@ -189,12 +187,9 @@ function renderProjectToolsMenu() {
           </details>`;
 }
 
-function renderMetricCards(metrics) {
-  return metricCards.map((metric) => `
-          <article class="metric-card">
-            <span class="metric-label">${metric.label}</span>
-            <strong>${metricValue(metrics, metric.key)}</strong>
-          </article>`).join('');
+function renderMetricStrip(metrics) {
+  const items = metricCards.map(m => `<span class="metric-strip__item">${m.label.toLowerCase()} <b>${metricValue(metrics, m.key)}</b></span>`);
+  return `<section class="metric-strip" aria-label="Task metrics">${items.join('<span class="metric-strip__sep">·</span>')}</section>`;
 }
 
 function apiStatusLabel(apiStatus) {
@@ -217,9 +212,8 @@ export function renderShellHtml({
   const primaryAction = activeViewConfig.id === 'library'
     ? { action: 'new-document', label: 'New Document' }
     : { action: 'new-task', label: 'New Task' };
-  const metricsHtml = isLibraryView ? '' : `
-        <section class="metrics-row" aria-label="Task metrics">${renderMetricCards(metrics)}
-        </section>`;
+  const showMetrics = activeViewConfig.id !== 'library' && activeViewConfig.id !== 'board';
+  const metricsHtml = showMetrics ? renderMetricStrip(metrics) : '';
   const workspaceClass = ['workspace'];
   if (isLibraryView) workspaceClass.push('workspace--library');
   if (activeViewConfig.id === 'board') workspaceClass.push('workspace--board');
@@ -233,10 +227,7 @@ export function renderShellHtml({
           <span class="brand-name">Moomora Console</span>
         </div>
 
-        <nav class="side-nav" aria-label="Main">
-          <p class="nav-label">Main</p>
-          ${renderSidebarMainButtons(activeViewConfig.id)}
-        </nav>
+        ${renderSidebarNavGroups(activeViewConfig.id)}
 
         <nav class="side-nav" aria-label="Projects">
           <div class="nav-heading">
@@ -271,7 +262,7 @@ export function renderShellHtml({
       <main class="console-main${isLibraryView ? ' console-main--library' : ''}">
         <header class="topbar">
           <button class="hamburger-trigger" type="button" data-action="toggle-drawer" aria-label="Menu">≡</button>
-          <nav class="topbar-tabs" aria-label="Views">${renderViewButtons(activeView)}</nav>
+          <h1 class="topbar-title">${escapeHtml(activeViewConfig.label)}</h1>
           <label class="search-field">
             <span class="sr-only">${isLibraryView ? 'Search documents' : 'Search tasks'}</span>
             <input type="search" placeholder="${isLibraryView ? 'Search documents' : 'Search tasks'}" autocomplete="off" value="${escapeHtml(searchQuery)}" data-search-input>
@@ -283,14 +274,6 @@ export function renderShellHtml({
             <button type="button" data-action="${primaryAction.action}" class="bracket-button bracket-button--primary">[+] ${primaryAction.label === 'New Document' ? 'new doc' : 'new'}</button>
           </div>
         </header>
-
-        <section class="content-header" aria-labelledby="view-title">
-          <div>
-            <h1 id="view-title">${activeViewConfig.heading}</h1>
-            <p>${activeViewConfig.description}</p>
-          </div>
-          <span class="sync-pill">Synced</span>
-        </section>
         ${metricsHtml}
         <div id="workspace" class="${workspaceClass.join(' ')}"></div>
         <footer class="status-footer" aria-label="Console status">

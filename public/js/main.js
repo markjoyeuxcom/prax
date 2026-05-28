@@ -44,7 +44,6 @@ import { renderListHtml, renderSwimlaneListHtml, renderListToolbar } from './ren
 import {
   renderBoardFilters,
   renderBoardHtml,
-  renderBoardInspectorHtml,
   renderBoardToolbar,
   renderSwimlaneBoardHtml,
 } from './renderBoard.js';
@@ -355,23 +354,30 @@ function renderWorkspace() {
   const selectedTaskId = task?.id || null;
   const readOnly = isArchiveView(state.activeView);
   const isBoardView = state.activeView === 'board';
-  const shouldRenderTaskDetail = !isBoardView || state.isBoardTaskDetailOpen;
+  // Only render the drawer for the task the user actually selected. selectedTask()
+  // falls back to visibleTasks[0] when the selected id is no longer visible (search
+  // filtered it out, or it was archived/deleted) — rendering that fallback would show
+  // the WRONG task in an open drawer, so gate on an exact id match.
+  const shouldRenderTaskDetail = state.taskDetailOpen && Boolean(task) && task.id === state.selectedTaskId;
   const taskDetailHtml = shouldRenderTaskDetail
-    ? renderTaskDetailHtml(task, {
-        readOnly,
-        restoreAction: readOnly,
-        deleteAction: readOnly,
-        mobileDetailOpen: state.mobileDetailOpen,
-        linkedDocuments: state.taskDocuments,
-        checklistItems: state.taskChecklist,
-        activityEvents: state.taskActivity,
-        activeTaskDetailTab: state.activeTaskDetailTab,
-        activeTaskDetailSection: state.activeTaskDetailSection,
-        taskNotesDraft: taskNotesDraftFor(task),
-        isTaskNotesDirty: Boolean(task && state.taskNotesDraftId === task.id && state.isTaskNotesDirty),
-        taskNotesSavedAt: task && state.taskNotesDraftId === task.id ? state.taskNotesSavedAt : '',
-        closeAction: isBoardView ? 'close-board-task-detail' : '',
-      })
+    ? `<div class="task-detail-drawer" data-task-detail-drawer>
+         <div class="task-detail-resizer" data-task-detail-resizer role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize detail"></div>
+         ${renderTaskDetailHtml(task, {
+           readOnly,
+           restoreAction: readOnly,
+           deleteAction: readOnly,
+           mobileDetailOpen: state.mobileDetailOpen,
+           linkedDocuments: state.taskDocuments,
+           checklistItems: state.taskChecklist,
+           activityEvents: state.taskActivity,
+           activeTaskDetailTab: state.activeTaskDetailTab,
+           activeTaskDetailSection: state.activeTaskDetailSection,
+           taskNotesDraft: taskNotesDraftFor(task),
+           isTaskNotesDirty: Boolean(task && state.taskNotesDraftId === task.id && state.isTaskNotesDirty),
+           taskNotesSavedAt: task && state.taskNotesDraftId === task.id ? state.taskNotesSavedAt : '',
+           closeAction: 'close-task-detail',
+         })}
+       </div>`
     : '';
 
   workspace.innerHTML = [
@@ -380,7 +386,20 @@ function renderWorkspace() {
   ].join('');
 
   workspace.classList.toggle('is-mobile-detail-open', Boolean(state.mobileDetailOpen));
-  workspace.classList.toggle('is-board-detail-open', Boolean(isBoardView && state.isBoardTaskDetailOpen));
+  workspace.classList.toggle('is-task-detail-open', Boolean(state.taskDetailOpen));
+
+  if (state.taskDetailOpen) {
+    setupPaneResizer({
+      resizer: workspace.querySelector('[data-task-detail-resizer]'),
+      pane: workspace.querySelector('[data-task-detail-drawer]'),
+      target: workspace,
+      cssVar: '--task-detail-width',
+      storageKey: 'moomora.taskDetailWidth.v1',
+      min: 300,
+      max: 640,
+      edge: 'left',
+    });
+  }
 
   workspace.querySelectorAll('[data-task-id]').forEach((row) => {
     row.addEventListener('click', async () => {
@@ -388,6 +407,7 @@ function renderWorkspace() {
       const keepDraft = state.taskNotesDraftId === row.dataset.taskId && state.isTaskNotesDirty;
       setState({
         selectedTaskId: row.dataset.taskId,
+        taskDetailOpen: true,
         mobileDetailOpen: isMobile() ? true : state.mobileDetailOpen,
         activeTaskDetailTab: isMobile() ? 'work' : state.activeTaskDetailTab,
         activeTaskDetailSection: 'docs',
@@ -401,6 +421,11 @@ function renderWorkspace() {
       await loadTaskActivity(row.dataset.taskId);
       renderWorkspace();
     });
+  });
+
+  workspace.querySelector('[data-action="close-task-detail"]')?.addEventListener('click', () => {
+    setState({ taskDetailOpen: false, mobileDetailOpen: false });
+    renderWorkspace();
   });
 
   workspace.querySelectorAll('[data-action="set-task-detail-tab"]').forEach((btn) => {
@@ -419,14 +444,9 @@ function renderWorkspace() {
 
   workspace.querySelectorAll('[data-action="close-mobile-detail"]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      setState({ mobileDetailOpen: false });
+      setState({ taskDetailOpen: false, mobileDetailOpen: false });
       renderWorkspace();
     });
-  });
-
-  workspace.querySelector('[data-action="close-board-task-detail"]')?.addEventListener('click', () => {
-    setState({ isBoardTaskDetailOpen: false });
-    renderWorkspace();
   });
 
   bindBoardEvents(workspace);
@@ -650,76 +670,70 @@ function renderWorkspace() {
   });
 }
 
-function setupLibraryResizer(workspace, libraryWorkspaceElement) {
-  const resizer = workspace.querySelector('[data-library-resizer]');
-  const browser = workspace.querySelector('.library-browser');
-  if (!resizer || !browser) return;
-
-  const MIN_WIDTH = 220;
-  const MAX_WIDTH = 560;
-
+// Generic drag-to-resize for a pane. edge:'right' grows the pane as the pointer
+// moves right (left-docked browser); edge:'left' grows it as the pointer moves
+// left (right-docked drawer). Width is applied to `target` as `cssVar` and
+// persisted under `storageKey`.
+function setupPaneResizer({ resizer, pane, target, cssVar, storageKey, min, max, edge = 'right' }) {
+  if (!resizer || !pane || !target) return;
   const applyWidth = (width) => {
-    const clamped = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, width));
-    libraryWorkspaceElement.style.setProperty('--library-browser-width', `${clamped}px`);
+    const clamped = Math.min(max, Math.max(min, width));
+    target.style.setProperty(cssVar, `${clamped}px`);
     return clamped;
   };
+  let saved = null;
+  try { saved = window.localStorage?.getItem(storageKey); } catch { saved = null; }
+  if (saved) applyWidth(parseInt(saved, 10) || min);
 
-  let savedWidth = null;
-  try {
-    savedWidth = window.localStorage?.getItem(LIBRARY_BROWSER_WIDTH_KEY);
-  } catch {
-    savedWidth = null;
-  }
-  if (savedWidth) applyWidth(parseInt(savedWidth, 10) || MIN_WIDTH);
+  const persist = () => {
+    try {
+      const current = target.style.getPropertyValue(cssVar);
+      if (current) window.localStorage?.setItem(storageKey, current.trim());
+    } catch { /* convenience only */ }
+  };
 
-  const startDrag = (event) => {
+  resizer.addEventListener('pointerdown', (event) => {
     event.preventDefault();
     const startX = event.clientX;
-    const startWidth = browser.getBoundingClientRect().width;
+    const startWidth = pane.getBoundingClientRect().width;
     resizer.classList.add('is-dragging');
     resizer.setPointerCapture?.(event.pointerId);
-
-    const onMove = (moveEvent) => {
-      applyWidth(startWidth + (moveEvent.clientX - startX));
-    };
+    const sign = edge === 'left' ? -1 : 1;
+    const onMove = (m) => applyWidth(startWidth + sign * (m.clientX - startX));
     const onEnd = () => {
       resizer.classList.remove('is-dragging');
       resizer.releasePointerCapture?.(event.pointerId);
       resizer.removeEventListener('pointermove', onMove);
       resizer.removeEventListener('pointerup', onEnd);
       resizer.removeEventListener('pointercancel', onEnd);
-      try {
-        const current = libraryWorkspaceElement.style.getPropertyValue('--library-browser-width');
-        if (current) window.localStorage?.setItem(LIBRARY_BROWSER_WIDTH_KEY, current.trim());
-      } catch {
-        // persistence is a convenience; resize still works without it
-      }
+      persist();
     };
-
     resizer.addEventListener('pointermove', onMove);
     resizer.addEventListener('pointerup', onEnd);
     resizer.addEventListener('pointercancel', onEnd);
-  };
-
-  resizer.addEventListener('pointerdown', startDrag);
+  });
 
   resizer.addEventListener('keydown', (event) => {
-    const step = event.shiftKey ? 32 : 16;
-    if (event.key === 'ArrowLeft') {
-      event.preventDefault();
-      applyWidth(browser.getBoundingClientRect().width - step);
-    } else if (event.key === 'ArrowRight') {
-      event.preventDefault();
-      applyWidth(browser.getBoundingClientRect().width + step);
-    } else {
-      return;
-    }
-    try {
-      const current = libraryWorkspaceElement.style.getPropertyValue('--library-browser-width');
-      if (current) window.localStorage?.setItem(LIBRARY_BROWSER_WIDTH_KEY, current.trim());
-    } catch {
-      // ignore
-    }
+    const step = (event.shiftKey ? 32 : 16) * (edge === 'left' ? -1 : 1);
+    if (event.key === 'ArrowLeft') { event.preventDefault(); applyWidth(pane.getBoundingClientRect().width - step); }
+    else if (event.key === 'ArrowRight') { event.preventDefault(); applyWidth(pane.getBoundingClientRect().width + step); }
+    else { return; }
+    persist();
+  });
+}
+
+function setupLibraryResizer(workspace, libraryWorkspaceElement) {
+  const resizer = workspace.querySelector('[data-library-resizer]');
+  const browser = workspace.querySelector('.library-browser');
+  setupPaneResizer({
+    resizer,
+    pane: browser,
+    target: libraryWorkspaceElement,
+    cssVar: '--library-browser-width',
+    storageKey: LIBRARY_BROWSER_WIDTH_KEY,
+    min: 220,
+    max: 560,
+    edge: 'right',
   });
 }
 
@@ -1244,7 +1258,7 @@ function handleOpenBoardTaskDetail(event) {
   if (!taskId) return;
   setState({
     selectedTaskId: taskId,
-    isBoardTaskDetailOpen: true,
+    taskDetailOpen: true,
     activeTaskDetailSection: 'summary',
     activeTaskDetailTab: 'summary',
   });
@@ -1484,8 +1498,6 @@ function renderWorkspacePrimary(visibleTasks, selectedTaskId) {
     const isAllProjects = state.activeProject === 'all';
     const useSwimlanes = state.boardGrouping === 'swimlanes' && isAllProjects;
     const boardTasks = applyBoardFilters(visibleTasks, state.boardFilters, state.taskBoardExtras, today());
-    const selected = state.tasks.find(task => task.id === selectedTaskId) || null;
-    const inspector = renderBoardInspectorHtml(selected, state.taskBoardExtras?.[selectedTaskId] || {}, { today: today() });
     const board = useSwimlanes
       ? renderSwimlaneBoardHtml(boardTasks, selectedTaskId, {
           today: today(),
@@ -1505,7 +1517,7 @@ function renderWorkspacePrimary(visibleTasks, selectedTaskId) {
     // Wrap in one element so the .workspace grid treats the board as a single
     // primary cell — otherwise the prepended toolbar becomes a second grid item
     // and the board spills into the detail column.
-    return `<div class="board-view">${toolbar}${filters}${inspector}${board}</div>`;
+    return `<div class="board-view">${toolbar}${filters}${board}</div>`;
   }
 
   const listOptions = listOptionsForView(state.activeView);
@@ -1707,7 +1719,7 @@ function bindShellEvents() {
         documentInfoError: '',
         isDrawerOpen: false,
         mobileDetailOpen: false,
-        isBoardTaskDetailOpen: false,
+        taskDetailOpen: false,
         isLibraryDocOpen: false,
         isLinkPickerOpen: false,
       });
@@ -1804,7 +1816,7 @@ function bindShellEvents() {
         documentInfoError: '',
         isDrawerOpen: false,
         mobileDetailOpen: false,
-        isBoardTaskDetailOpen: false,
+        taskDetailOpen: false,
         isLibraryDocOpen: false,
         isLinkPickerOpen: false,
       });
@@ -2496,6 +2508,7 @@ async function init() {
         const closer = app.querySelector('[data-action="close-task-form"], [data-action="close-document-form"], [data-action="close-admin"], [data-action="close-settings"], [data-action="close-link-picker"], [data-action="close-project-manager"]');
         if (closer) { closer.click(); return; }
         if (state.isDrawerOpen) { app.querySelector('[data-action="toggle-drawer"]')?.click(); return; }
+        if (state.taskDetailOpen) { setState({ taskDetailOpen: false, mobileDetailOpen: false }); renderWorkspace(); return; }
         if (state.mobileDetailOpen) { app.querySelector('[data-action="close-mobile-detail"]')?.click(); return; }
         if (state.isLibraryDocOpen) { app.querySelector('[data-action="close-library-doc"]')?.click(); return; }
       },

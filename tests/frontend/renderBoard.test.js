@@ -248,6 +248,13 @@ test('applyBoardFilters filters by task and task-extra signals', () => {
   assert.deepEqual(applyBoardFilters(tasks, ['high', 'no-checklist'], extras, '2026-05-21').map(t => t.id), ['high']);
 });
 
+test('renderBoardHtml does not embed a stacked selected-card inspector', () => {
+  const tasks = [{ id: 't1', title: 'Patch ingress', status: 'in-progress', priority: 'medium', projectId: 'p1' }];
+  const html = renderBoardHtml(tasks, 't1', { today: '2026-05-28', boardOpenSections: {}, projects: [], taskBoardExtras: {} });
+  assert.doesNotMatch(html, /board-inspector/i);
+  assert.match(html, /board-column/i);
+});
+
 test('renderBoardInspectorHtml renders selected task context and move actions', () => {
   const task = {
     id: 'task-1',

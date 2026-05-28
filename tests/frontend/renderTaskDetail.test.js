@@ -34,6 +34,12 @@ test('detail renders an optional close action for board detail mode', () => {
   assert.match(html, /data-action="close-board-task-detail"[^>]*>\[x\] close/);
 });
 
+test('renderTaskDetailHtml renders a close control when closeAction is provided', () => {
+  const task = { id: 't1', title: 'Back up CNPG', status: 'planned', priority: 'high', projectId: 'p1' };
+  const html = renderTaskDetailHtml(task, { closeAction: 'close-task-detail' });
+  assert.match(html, /data-action="close-task-detail"/);
+});
+
 test('linked docs renders rows with open and unlink controls', () => {
   const task = { id: 'a', title: 'X', description: '', priority: 'medium', status: 'planned', dueDate: null };
   const linkedDocuments = [

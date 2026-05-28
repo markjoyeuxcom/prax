@@ -55,7 +55,7 @@ export const state = {
   taskNotesDraft: '',
   isTaskNotesDirty: false,
   taskNotesSavedAt: '',
-  isBoardTaskDetailOpen: false,
+  taskDetailOpen: false,          // unified detail drawer open state (Tasks/Board/Backlog/Archive)
   isLinkPickerOpen: false,
   linkPickerDocuments: [],
   linkPickerQuery: '',

@@ -397,11 +397,6 @@ html {
   margin-bottom: 10px;
 }
 
-/* legacy .metric-card shared rule — see metrics section for full style */
-.metric-card {
-  border: 1px solid var(--border);
-  background: var(--surface);
-}
 
 .status-dot {
   width: 8px;
@@ -445,9 +440,26 @@ html {
 }
 
 .console-main--library {
-  grid-template-rows: auto auto minmax(0, 1fr);
+  /* Rows: topbar (auto) · workspace (flexible) · footer (auto, pinned bottom).
+     The workspace must take the 1fr track — when it had `auto auto minmax(0,1fr)`
+     (a layout that assumed the removed content-header), the flexible row fell on
+     the footer instead, so it floated on short docs and scrolled away on long ones. */
+  grid-template-rows: auto minmax(0, 1fr) auto;
   height: 100vh;
   overflow: hidden;
+}
+
+/* Task views: flex column so #workspace absorbs vertical slack and the footer
+   pins to the bottom. (The base grid-template-rows assumed a content-header row
+   that no longer exists, which left the 1fr track on the footer.) Library keeps
+   its own grid layout above. */
+.console-main:not(.console-main--library) {
+  display: flex;
+  flex-direction: column;
+}
+.console-main:not(.console-main--library) > #workspace {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 /* ============================================================
@@ -463,6 +475,26 @@ html {
   border-bottom: 1px solid var(--border);
   background: var(--bg);
 }
+
+.topbar-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 4px 0 0;
+  white-space: nowrap;
+}
+.metric-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 16px 10px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+.metric-strip__item b { color: var(--accent-amber); font-weight: 700; margin-left: 2px; }
+.metric-strip__sep { color: var(--border-dim); }
 
 .search-field {
   flex: 1;
@@ -603,82 +635,6 @@ html {
 .icon-action:hover { color: var(--text-body); border-color: var(--border); }
 
 /* ============================================================
-   Content header + metrics
-   ============================================================ */
-.content-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 16px 16px 10px;
-}
-
-.content-header h1 {
-  margin: 0;
-  color: var(--text);
-  font-size: 1.2143rem;
-  font-weight: 700;
-  letter-spacing: 0;
-  line-height: 1.2;
-}
-
-.content-header p {
-  max-width: 720px;
-  margin: 6px 0 0;
-  color: var(--text-dim);
-  font-size: 0.8571rem;
-  line-height: 1.45;
-}
-
-.sync-pill {
-  display: inline-flex;
-  align-items: center;
-  min-height: 24px;
-  padding: 3px 8px;
-  border: 1px solid var(--accent);
-  background: color-mix(in srgb, var(--accent) 7%, transparent);
-  color: var(--accent);
-  font-size: 0.7857rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-}
-
-.metrics-row {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  padding: 0 16px 12px;
-}
-
-.metric-card {
-  display: grid;
-  gap: 4px;
-  min-height: 60px;
-  padding: 10px 12px;
-}
-
-.metric-label {
-  color: var(--text-dimmer);
-  font-size: 0.7857rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.metric-card strong {
-  color: var(--accent-amber);
-  font-size: 1.5rem;
-  font-weight: 700;
-  line-height: 1;
-  letter-spacing: 0;
-}
-
-.metric-card strong.is-danger { color: var(--danger); }
-.metric-card strong.is-ok    { color: var(--accent); }
-.metric-card strong.is-dim   { color: var(--text-dim); }
-
-/* ============================================================
    Status footer
    ============================================================ */
 .status-footer {
@@ -720,27 +676,44 @@ html {
    Workspace
    ============================================================ */
 .workspace {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
-  gap: 12px;
-  align-items: start;
-  margin: 0 16px 16px;
-}
-
-.workspace--library {
+  position: relative;
   display: block;
   min-height: 0;
   margin: 0 16px 16px;
-  overflow: hidden;
 }
+.workspace--library { display: block; min-height: 0; margin: 0 16px 16px; overflow: hidden; }
+.workspace--board { display: block; }
 
-.workspace--board {
-  display: block;
+/* ============================================================
+   Task detail drawer (overlay)
+   ============================================================ */
+.task-detail-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--task-detail-width, 380px);
+  display: flex;
+  background: var(--surface);
+  border-left: 1px solid var(--accent);
+  box-shadow: -10px 0 24px rgba(0, 0, 0, 0.5);
+  z-index: 5;
 }
+.task-detail-resizer {
+  width: 6px;
+  flex: 0 0 6px;
+  cursor: col-resize;
+  background: transparent;
+  border-right: 1px solid var(--border);
+}
+.task-detail-resizer:hover,
+.task-detail-resizer:focus-visible,
+.task-detail-resizer.is-dragging { background: var(--border-dim); border-right-color: var(--accent); }
+.task-detail-drawer .detail-panel { flex: 1; min-width: 0; border: none; overflow-y: auto; }
 
-.workspace--board.is-board-detail-open {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
+@media (max-width: 767px) {
+  .task-detail-drawer { position: fixed; inset: 0; width: auto; border-left: none; box-shadow: none; z-index: 50; }
+  .task-detail-resizer { display: none; }
 }
 
 /* ============================================================
@@ -986,7 +959,7 @@ button.task-row:hover { background: color-mix(in srgb, var(--accent) 4%, transpa
   display: grid;
   align-content: start;
   gap: 8px;
-  min-height: 200px;
+  min-height: 64px;
   padding: 8px;
   border: 1px solid transparent;
 }
@@ -1203,6 +1176,22 @@ button.task-row:hover { background: color-mix(in srgb, var(--accent) 4%, transpa
 
 .library-browser .panel-header {
   min-height: 56px;
+}
+
+/* The Library workspace header is the only remaining consumer of .sync-pill
+   after the content-header (which held the "Synced" pill) was removed. */
+.sync-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 8px;
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  color: var(--accent);
+  font-size: 0.7857rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
 }
 
 .library-browser .sync-pill {
@@ -3020,9 +3009,6 @@ button.task-row:hover { background: color-mix(in srgb, var(--accent) 4%, transpa
     margin-inline: 12px;
   }
 
-  .metrics-row { padding-inline: 12px; }
-  .content-header { padding-inline: 12px; }
-
   .board-panel {
     grid-template-columns: repeat(3, minmax(190px, 1fr));
     overflow-x: auto;
@@ -3096,47 +3082,13 @@ button.task-row:hover { background: color-mix(in srgb, var(--accent) 4%, transpa
 
   .search-field { max-width: none; }
 
-  .content-header {
-    padding: 12px 12px 8px;
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .metrics-row {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 4px;
-    padding: 0 12px 8px;
-  }
-
-  .metric-card {
-    min-height: 50px;
-    padding: 7px 8px;
-  }
-
-  .metric-card strong { font-size: 1.1rem; }
-
   .status-footer { height: 22px; }
 
   /* workspace list+detail — mobile drill-down */
   .workspace {
-    grid-template-columns: 1fr;
     margin-inline: 0;
     gap: 0;
   }
-
-  .detail-panel {
-    position: static;
-    display: none; /* hidden until .is-mobile-detail-open */
-  }
-
-  .workspace.is-mobile-detail-open .task-panel { display: none; }
-  .workspace.is-mobile-detail-open .detail-panel { display: block; }
-  .workspace--board.is-board-detail-open {
-    display: grid;
-    grid-template-columns: 1fr;
-  }
-  .workspace--board.is-board-detail-open .task-panel { display: none; }
-  .workspace--board.is-board-detail-open .detail-panel { display: block; }
 
   .detail-back { display: flex; }
   .detail-section-rail { display: none; }
@@ -3596,11 +3548,6 @@ button.task-row:hover { background: color-mix(in srgb, var(--accent) 4%, transpa
 .project-row__status { background: transparent; border: 1px solid var(--border); border-radius: 6px; color: var(--text-body); padding: 6px 8px; }
 .project-row__actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .project-manager__empty { color: var(--text-dimmer); font-size: 0.85rem; padding: 6px 2px; list-style: none; }
-
-/* Topbar view tabs */
-.topbar-tabs { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
-.topbar-tabs .nav-button { width: auto; min-height: 0; padding: 5px 10px; }
-@media (max-width: 1023px) { .topbar-tabs { display: none; } } /* bottom-nav covers views on mobile */
 
 /* Sidebar project action variants */
 .nav-button--accent { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
