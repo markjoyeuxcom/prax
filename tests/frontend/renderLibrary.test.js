@@ -361,3 +361,63 @@ test('renderLibraryHtml renders flat list when groupByType is false', () => {
   assert.match(html, /data-library-document-id="doc-1"/);
   assert.match(html, /data-library-document-id="doc-2"/);
 });
+
+test('renderLibraryHtml shows [x] export on the editor toolbar for active docs', () => {
+  const html = renderLibraryHtml({
+    documents: [{
+      id: 'd1',
+      title: 'Restore',
+      body: '# r',
+      documentType: 'runbook',
+      projectId: 'p1',
+      tags: [],
+      sourceFilename: null,
+      archivedAt: null,
+      createdAt: 'now',
+      updatedAt: 'now',
+    }],
+    selectedDocumentId: 'd1',
+    editorMode: 'edit',
+  });
+  assert.match(html, /data-action="export-document"[^>]*data-document-id="d1"[^>]*>\[x\] export/);
+});
+
+test('renderLibraryHtml hides [x] export when the editor pane is not visible', () => {
+  const html = renderLibraryHtml({
+    documents: [{
+      id: 'd1',
+      title: 'Restore',
+      body: '',
+      documentType: 'note',
+      projectId: 'p1',
+      tags: [],
+      sourceFilename: null,
+      archivedAt: null,
+      createdAt: 'now',
+      updatedAt: 'now',
+    }],
+    selectedDocumentId: 'd1',
+    editorMode: 'preview',
+  });
+  assert.doesNotMatch(html, /data-action="export-document"/);
+});
+
+test('renderLibraryHtml hides [x] export when the document is archived (even in edit mode)', () => {
+  const html = renderLibraryHtml({
+    documents: [{
+      id: 'd1',
+      title: 'Old runbook',
+      body: '# old',
+      documentType: 'runbook',
+      projectId: 'p1',
+      tags: [],
+      sourceFilename: null,
+      archivedAt: '2026-05-01T00:00:00.000Z',
+      createdAt: 'then',
+      updatedAt: 'then',
+    }],
+    selectedDocumentId: 'd1',
+    editorMode: 'edit',
+  });
+  assert.doesNotMatch(html, /data-action="export-document"/);
+});

@@ -1,5 +1,12 @@
+import archiver from 'archiver';
 import { createLibraryRepository } from './libraryRepository.js';
 import { createProjectsRepository } from './projectsRepository.js';
+import {
+  documentFilename,
+  renderDocumentMarkdown,
+  dedupeFilenames,
+  libraryArchiveFilename,
+} from './libraryExport.js';
 
 const DOCUMENT_TYPES = new Set(['runbook', 'note']);
 // 'project' (slug-or-id) is the client-facing field; 'projectId' is resolved
@@ -79,6 +86,51 @@ export async function registerLibraryRoutes(app, options = {}) {
     const project = await projectsRepository.resolveProject(String(value));
     return project ? project.id : null; // null signals "given but not found"
   }
+
+  app.get('/api/library/export', async (request, reply) => {
+    const projectParam = request.query.project;
+    let projectId;
+    let scope = 'all';
+
+    if (projectParam && projectParam !== 'all') {
+      const resolved = await projectsRepository.resolveProject(String(projectParam));
+      if (!resolved) {
+        reply.code(400);
+        return { message: 'project is invalid' };
+      }
+      projectId = resolved.id;
+      scope = resolved.slug;
+    }
+
+    const documents = await repository.listActiveDocumentsForExport({ projectId });
+    const isAll = scope === 'all';
+
+    const entries = documents.map((doc) => ({
+      doc,
+      path: isAll ? `${doc.projectSlug || 'unknown'}/` : '',
+      filename: documentFilename(doc),
+    }));
+    dedupeFilenames(entries);
+
+    const filename = libraryArchiveFilename(scope);
+    reply.header('Content-Type', 'application/zip');
+    reply.header('Content-Disposition', `attachment; filename="${filename}"`);
+
+    const archive = archiver('zip', { zlib: { level: 6 } });
+    archive.on('error', (err) => {
+      request.log.error({ err }, 'library export archive error');
+    });
+
+    for (const entry of entries) {
+      const content = renderDocumentMarkdown(entry.doc, entry.doc.projectSlug);
+      archive.append(content, { name: `${entry.path}${entry.filename}` });
+    }
+    archive.finalize().catch((err) => {
+      request.log.error({ err }, 'library export archive finalize rejected');
+    });
+
+    return reply.send(archive);
+  });
 
   app.get('/api/library/documents', async (request, reply) => {
     let projectId;

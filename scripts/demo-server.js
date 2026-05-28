@@ -421,6 +421,22 @@ function createMemoryLibraryRepository(documents) {
       if (index < 0) return null;
       return documents.splice(index, 1)[0];
     },
+    async listActiveDocumentsForExport(filters = {}) {
+      const filtered = documents.filter((document) => {
+        if (document.archivedAt) return false;
+        if (filters.projectId && document.projectId !== filters.projectId) return false;
+        return true;
+      });
+      return filtered
+        .map((doc) => {
+          const project = sharedProjects.find(p => p.id === doc.projectId);
+          return { ...doc, projectSlug: project?.slug || 'unknown' };
+        })
+        .sort((a, b) => {
+          const slugCompare = (a.projectSlug || '').localeCompare(b.projectSlug || '');
+          return slugCompare !== 0 ? slugCompare : (a.title || '').localeCompare(b.title || '');
+        });
+    },
   };
 }
 

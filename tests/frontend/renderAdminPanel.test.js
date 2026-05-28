@@ -73,3 +73,28 @@ test('admin panel renders both desktop and mobile modal headers', () => {
   assert.match(html, /class="modal-header--desktop"/);
   assert.match(html, /class="modal-header--mobile"/);
 });
+
+test('admin panel renders a Library section with per-project and all-projects export buttons', () => {
+  const html = renderAdminPanelHtml({
+    activeProject: 'p1',
+    projects: TEST_PROJECTS,
+    taskCount: 0,
+    documentCount: 4,
+    importMode: 'skip',
+  });
+  assert.match(html, /Library/);
+  assert.match(html, /4 documents/);
+  assert.match(html, /data-action="export-library-project"[^>]*>\[x\] export Homelab/);
+  assert.match(html, /data-action="export-library-all"[^>]*>\[X\] export all/);
+});
+
+test('admin panel Library section uses "all projects" label when activeProject is all', () => {
+  const html = renderAdminPanelHtml({
+    activeProject: 'all',
+    projects: TEST_PROJECTS,
+    taskCount: 0,
+    documentCount: 0,
+    importMode: 'skip',
+  });
+  assert.match(html, /data-action="export-library-project"[^>]*>\[x\] export all projects/);
+});

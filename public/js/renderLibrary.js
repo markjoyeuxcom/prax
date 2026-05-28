@@ -217,6 +217,7 @@ function renderEditorPane(body, options = {}) {
         <span data-document-save-status>${escapeHtml(status)}</span>
         <div class="document-pane-actions">
           <button class="bracket-button" type="button" data-action="toggle-document-focus" aria-label="Focus writing mode" aria-pressed="${Boolean(options.isFocusMode)}">[f] focus</button>
+          ${options.isArchived ? '' : `<button class="bracket-button" type="button" data-action="export-document" data-document-id="${escapeHtml(options.documentId || '')}" aria-label="Export document as Markdown">[x] export</button>`}
           <button class="bracket-button bracket-button--primary" type="button" data-action="save-document-draft"${options.isDirty ? '' : ' disabled'}>[s] save</button>
         </div>
       </header>
@@ -310,7 +311,7 @@ function renderDocumentDetail(document, options = {}) {
         </div>
       </header>
       ${isInfoEditing ? renderDocumentInfoForm(document, { error: options.infoError, isSaving: options.isSaving }) : `
-      <div class="document-workspace document-workspace--${escapeHtml(editorMode)}${isFocusMode ? ' document-workspace--focused' : ''}">${editorVisible ? renderEditorPane(body, { isDirty, saveStatus: options.saveStatus, isFocusMode }) : ''}${previewVisible ? renderPreviewPane(body) : ''}
+      <div class="document-workspace document-workspace--${escapeHtml(editorMode)}${isFocusMode ? ' document-workspace--focused' : ''}">${editorVisible ? renderEditorPane(body, { isDirty, saveStatus: options.saveStatus, isFocusMode, documentId: document.id, isArchived }) : ''}${previewVisible ? renderPreviewPane(body) : ''}
       </div>`}
     </aside>`;
 }

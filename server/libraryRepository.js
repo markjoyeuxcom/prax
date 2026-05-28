@@ -24,6 +24,7 @@ export function normalizeDocumentRow(row) {
     archivedAt: row.archived_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    ...(row.project_slug !== undefined ? { projectSlug: row.project_slug } : {}),
   };
 }
 
@@ -91,6 +92,25 @@ export function buildDeleteArchivedDocument(id) {
   };
 }
 
+export function buildListActiveDocumentsForExport({ projectId } = {}) {
+  const values = [];
+  let where = 'where d.archived_at is null';
+  if (projectId) {
+    values.push(projectId);
+    where += ` and d.project_id = $${values.length}`;
+  }
+  return {
+    text: `
+      select d.*, p.slug as project_slug
+      from markdown_documents d
+      join projects p on p.id = d.project_id
+      ${where}
+      order by p.slug, d.title
+    `,
+    values,
+  };
+}
+
 export function createLibraryRepository(db) {
   return {
     async listDocuments(filters = {}) {
@@ -155,6 +175,12 @@ export function createLibraryRepository(db) {
       const query = buildDeleteArchivedDocument(id);
       const result = await db.query(query.text, query.values);
       return result.rows[0] ? normalizeDocumentRow(result.rows[0]) : null;
+    },
+
+    async listActiveDocumentsForExport(filters = {}) {
+      const query = buildListActiveDocumentsForExport(filters);
+      const result = await db.query(query.text, query.values);
+      return result.rows.map(normalizeDocumentRow);
     },
   };
 }

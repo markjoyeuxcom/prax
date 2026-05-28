@@ -4,6 +4,7 @@ import {
   buildArchiveDocument,
   buildCreateDocument,
   buildDeleteArchivedDocument,
+  buildListActiveDocumentsForExport,
   buildRestoreDocument,
   buildUpdateDocument,
   createLibraryRepository,
@@ -40,6 +41,37 @@ test('normalizeDocumentRow maps database fields to API document fields', () => {
     createdAt: '2026-05-18T10:00:00.000Z',
     updatedAt: '2026-05-18T10:00:00.000Z',
   });
+});
+
+test('normalizeDocumentRow surfaces projectSlug only when the project_slug column is present', () => {
+  const withoutSlug = normalizeDocumentRow({
+    id: DOCUMENT_ID,
+    title: 't',
+    body: '',
+    document_type: 'note',
+    project_id: PROJECT_UUID,
+    tags: [],
+    source_filename: null,
+    archived_at: null,
+    created_at: 'now',
+    updated_at: 'now',
+  });
+  assert.equal('projectSlug' in withoutSlug, false);
+
+  const withNullSlug = normalizeDocumentRow({
+    id: DOCUMENT_ID,
+    title: 't',
+    body: '',
+    document_type: 'note',
+    project_id: PROJECT_UUID,
+    tags: [],
+    source_filename: null,
+    archived_at: null,
+    created_at: 'now',
+    updated_at: 'now',
+    project_slug: null,
+  });
+  assert.equal(withNullSlug.projectSlug, null);
 });
 
 test('buildCreateDocument returns a parameterized insert query', () => {
@@ -134,4 +166,61 @@ test('listDocuments combines projectId and full-text search', async () => {
   assert.match(captured.text, /project_id = \$1/);
   assert.match(captured.text, /to_tsquery\('english', \$2\)/);
   assert.deepEqual(captured.values, [PROJECT_UUID, 'restore:*']);
+});
+
+test('buildListActiveDocumentsForExport joins projects and filters archived', () => {
+  const query = buildListActiveDocumentsForExport({});
+  assert.match(query.text, /from markdown_documents d/);
+  assert.match(query.text, /join projects p on p\.id = d\.project_id/);
+  assert.match(query.text, /d\.archived_at is null/);
+  assert.match(query.text, /order by p\.slug, d\.title/);
+  assert.deepEqual(query.values, []);
+});
+
+test('buildListActiveDocumentsForExport scopes to a single project id', () => {
+  const query = buildListActiveDocumentsForExport({ projectId: PROJECT_UUID });
+  assert.match(query.text, /d\.project_id = \$1/);
+  assert.deepEqual(query.values, [PROJECT_UUID]);
+});
+
+test('buildListActiveDocumentsForExport treats empty-string and null projectId as "all"', () => {
+  for (const value of ['', null, undefined]) {
+    const query = buildListActiveDocumentsForExport({ projectId: value });
+    assert.doesNotMatch(query.text, /d\.project_id = \$/);
+    assert.deepEqual(query.values, []);
+  }
+});
+
+test('createLibraryRepository.listActiveDocumentsForExport normalizes rows with project_slug', async () => {
+  const captured = [];
+  const fakeDb = {
+    async query(text, values) {
+      captured.push({ text, values });
+      return {
+        rows: [{
+          id: DOCUMENT_ID,
+          title: 'Restore',
+          body: '# Restore',
+          document_type: 'runbook',
+          project_id: PROJECT_UUID,
+          tags: ['postgres'],
+          source_filename: 'restore.md',
+          archived_at: null,
+          created_at: '2026-05-18T10:00:00.000Z',
+          updated_at: '2026-05-18T10:00:00.000Z',
+          project_slug: 'homelab',
+        }],
+      };
+    },
+  };
+  const repository = createLibraryRepository(fakeDb);
+  const rows = await repository.listActiveDocumentsForExport({ projectId: PROJECT_UUID });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].projectSlug, 'homelab');
+  assert.equal(rows[0].title, 'Restore');
+  assert.equal(rows[0].documentType, 'runbook');
+  assert.equal(captured.length, 1);
+  assert.match(captured[0].text, /join projects p on p\.id = d\.project_id/);
+  assert.match(captured[0].text, /d\.archived_at is null/);
+  assert.deepEqual(captured[0].values, [PROJECT_UUID]);
 });

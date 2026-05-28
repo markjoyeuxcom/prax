@@ -30,6 +30,7 @@ export function renderAdminPanelHtml({
   activeProject = 'all',
   projects = [],
   taskCount = 0,
+  documentCount = 0,
   importMode = 'skip',
 } = {}) {
   const activeProjectName = activeProject === 'all'
@@ -37,6 +38,7 @@ export function renderAdminPanelHtml({
     : (projects.find(p => p.id === activeProject)?.name || 'all projects');
   const safeProjectName = escapeHtml(activeProjectName);
   const safeTaskCount = Number.isFinite(Number(taskCount)) ? Number(taskCount) : 0;
+  const safeDocumentCount = Number.isFinite(Number(documentCount)) ? Number(documentCount) : 0;
 
   return `
     <div class="modal-backdrop" data-admin-panel>
@@ -58,6 +60,17 @@ export function renderAdminPanelHtml({
         </header>
 
         <div class="admin-sections">
+          <section class="admin-section" aria-labelledby="library-export-title">
+            <div>
+              <h3 id="library-export-title">Library</h3>
+              <p>${safeProjectName} &middot; ${safeDocumentCount} documents &middot; Generated at download time</p>
+            </div>
+            <div class="admin-actions">
+              <button class="bracket-button" type="button" data-action="export-library-project">[x] export ${safeProjectName}</button>
+              <button class="bracket-button" type="button" data-action="export-library-all">[X] export all</button>
+            </div>
+          </section>
+
           <section class="admin-section" aria-labelledby="backup-title">
             <div>
               <h3 id="backup-title">Backup</h3>
