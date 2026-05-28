@@ -1,4 +1,4 @@
-# Moomora Console Homelab Deployment
+# Moomora Console Kubernetes Deployment
 
 Moomora Console runs as one Node container that serves the frontend and API. It expects a CloudNativePG application secret and uses the secret's `uri` key as `DATABASE_URL`.
 
@@ -47,7 +47,7 @@ kubectl apply -f deploy/k8s/ingress.yaml
 
 ## Ingress
 
-The default host is `console.example.internal`. Change it in `deploy/k8s/ingress.yaml` to match your homelab DNS and put authentication at the ingress layer.
+The default host is `console.example.internal`. Change it in `deploy/k8s/ingress.yaml` to match your cluster's DNS and put authentication at the ingress layer.
 
 ## Data Movement
 

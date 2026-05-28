@@ -1,8 +1,8 @@
 # Moomora Console
 
-Moomora Console is a local-first homelab operations console for tasks, runbooks, and Markdown workflows. It is built for a personal Kubernetes cluster, with a quiet operations UI, PostgreSQL persistence, and a growing document library that can become useful context for future AI and MCP integrations.
+Moomora Console is a self-hosted console for tasks, runbooks, and Markdown notes, wrapped in a quiet, terminal-inspired UI. It pairs a project-scoped task queue and board with a full-text Markdown library — import, export, tags, and archive — all backed by PostgreSQL. An optional local MCP server exposes the same data to Claude Code, turning your tasks and notes into working context for AI-assisted work.
 
-The project is early, but usable locally today through the in-memory demo server or a PostgreSQL-backed server.
+Run it locally with Docker Compose or deploy it to Kubernetes (with CloudNativePG for PostgreSQL), or try it instantly with the in-memory demo server.
 
 ## What It Does
 
@@ -15,7 +15,7 @@ The project is early, but usable locally today through the in-memory demo server
 - Adapts across desktop, tablet, and mobile, with browser-local appearance preferences (Console, Graphite, Daylight, and Midnight palettes plus a font-scale control) and keyboard shortcuts.
 - Offers an Admin panel for backup and JSON task import/export with append, skip duplicates, and replace-project modes.
 - Exposes the API to Claude Code through an optional local MCP server for interactive, subscription-backed task and document workflows.
-- Targets a homelab Kubernetes deployment backed by CloudNativePG/PostgreSQL.
+- Runs locally via Docker Compose or deploys to Kubernetes, backed by CloudNativePG/PostgreSQL.
 
 ## Screenshots
 
@@ -182,7 +182,7 @@ Import modes:
 
 Legacy TaskBoard export envelopes are not supported. This project is treated as a greenfield Moomora Console app.
 
-## Homelab Deployment
+## Kubernetes Deployment
 
 Kubernetes manifests live in:
 
@@ -213,7 +213,7 @@ Near-term direction:
 - improve tag-driven retrieval and saved views
 - prepare document and task context for future AI/MCP workflows
 - harden Kubernetes deployment, backup, and restore operations
-- add authentication at the ingress layer for homelab use
+- add authentication at the ingress layer for network-exposed deployments
 
 ## License
 
