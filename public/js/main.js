@@ -1997,9 +1997,11 @@ function bindAdminPanelEvents() {
   const panel = app.querySelector('[data-admin-panel]');
   if (!panel) return;
 
-  panel.querySelector('[data-action="close-admin"]')?.addEventListener('click', () => {
-    setState({ isAdminPanelOpen: false });
-    renderApp();
+  panel.querySelectorAll('[data-action="close-admin"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      setState({ isAdminPanelOpen: false });
+      renderApp();
+    });
   });
 
   panel.querySelector('[data-action="export-project"]')?.addEventListener('click', () => {
@@ -2229,9 +2231,11 @@ function bindSettingsPanelEvents() {
   const panel = app.querySelector('[data-settings-panel]');
   if (!panel) return;
 
-  panel.querySelector('[data-action="close-settings"]')?.addEventListener('click', () => {
-    setState({ isSettingsPanelOpen: false });
-    renderApp();
+  panel.querySelectorAll('[data-action="close-settings"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      setState({ isSettingsPanelOpen: false });
+      renderApp();
+    });
   });
 
   panel.querySelectorAll('[data-settings-section]').forEach((button) => {

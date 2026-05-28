@@ -3082,6 +3082,11 @@ button.task-row:hover { background: color-mix(in srgb, var(--accent) 4%, transpa
 
   .search-field { max-width: none; }
 
+  /* On mobile the action buttons are redundant — settings/admin live in the
+     hamburger drawer and "+ new" is in the bottom nav — so hide the group and
+     let the search field fill the bar. (Library [↑] import is desktop-only.) */
+  .topbar-actions { display: none; }
+
   .status-footer { height: 22px; }
 
   /* workspace list+detail — mobile drill-down */
