@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { loadConfig } from './config.js';
 import { createDb } from './db.js';
+import { runMigrations } from './migrate.js';
 import { registerTasksRoutes } from './tasksRoutes.js';
 import { registerLibraryRoutes } from './libraryRoutes.js';
 import { registerProjectsRoutes } from './projectsRoutes.js';
@@ -11,6 +12,10 @@ export async function buildApp(options = {}) {
   const config = options.config || loadConfig();
   const app = Fastify({ logger: options.logger || false });
   const db = options.db || (options.skipDb ? null : createDb(config.databaseUrl));
+
+  if (db && !options.skipDb && !options.db) {
+    await runMigrations(db, { logger: app.log });
+  }
 
   app.decorate('db', db);
 

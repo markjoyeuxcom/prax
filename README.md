@@ -91,7 +91,7 @@ The compose stack starts:
 - `postgres`: PostgreSQL 18 on host port `54320`
 - `postgres-data`: named volume for database persistence
 
-The first database startup applies `server/schema.sql` automatically through Postgres init scripts. To reset local data:
+The app applies database migrations automatically on startup, so a fresh Postgres volume is initialised on first run. To reset local data:
 
 ```bash
 docker compose down -v
@@ -123,10 +123,10 @@ Set `DATABASE_URL` in your shell:
 export DATABASE_URL="postgresql://user:password@host:5432/database"
 ```
 
-Apply the schema to a PostgreSQL database:
+The app applies migrations automatically on startup. To apply them explicitly (e.g. before first boot or from CI):
 
 ```bash
-psql "$DATABASE_URL" -f server/schema.sql
+DATABASE_URL="postgresql://user:password@host:5432/database" npm run migrate
 ```
 
 Start the production-style server:
@@ -148,6 +148,7 @@ npm run demo
 npm start
 npm test
 npm run check
+npm run migrate
 npm run build:codemirror
 ```
 
@@ -155,11 +156,16 @@ npm run build:codemirror
 - `npm start` starts the PostgreSQL-backed server.
 - `npm test` runs backend and frontend unit tests.
 - `npm run check` syntax-checks key server and browser entry points.
+- `npm run migrate` applies pending database migrations.
 - `npm run build:codemirror` rebuilds the bundled CodeMirror editor asset.
 
 An optional local MCP server lives in `mcp/` — it exposes the Moomora API to Claude Code so
 you can query and edit tasks and documents interactively on a Claude subscription. See
 [mcp/README.md](mcp/README.md).
+
+## Backup & Restore
+
+See [docs/backup-restore.md](docs/backup-restore.md) for backup, restore, and upgrade procedures.
 
 ## Import And Export
 

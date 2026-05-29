@@ -14,14 +14,14 @@ CloudNativePG app secrets include connection fields such as `username`, `passwor
 
 ## Database Schema
 
-Apply the schema before starting the app against a new database:
+The app applies database migrations automatically on startup, so deploying the container is sufficient to initialise or upgrade the schema. To apply migrations explicitly — for example from a pre-deploy Job — run the bundled script against the database:
 
 ```bash
 DATABASE_URL=$(kubectl get secret moomora-console-db-app -o jsonpath='{.data.uri}' | base64 -d)
-psql "$DATABASE_URL" -f server/schema.sql
+DATABASE_URL="$DATABASE_URL" npm run migrate
 ```
 
-If you prefer not to expose the URI in your shell, run `psql` from a temporary pod in the same namespace and mount/read the `moomora-console-db-app` secret there.
+Migrations are forward-only and tracked in a `schema_migrations` table; re-running is safe (already-applied migrations are skipped).
 
 ## Build Image
 
