@@ -15,12 +15,12 @@ Give Moomora Console two standard project documents required for a credible 1.0:
 
 **Format:** Keep a Changelog 1.1.0 conventions + Semantic Versioning. Reverse-chronological.
 
-**Header:** brief intro stating the project adheres to SemVer, and that **what constitutes a breaking change is defined in [`docs/contract.md`](../docs/contract.md)** (the stable export/import formats + MCP surface). This ties the changelog's SemVer claims to the contract just frozen.
+**Header:** brief intro stating the project follows Keep a Changelog conventions and Semantic Versioning. (No "breaking change is defined by the contract" claim — the project is pre-1.0 and the data formats are still evolving; `docs/contract.md` is a format *reference*, not a stability contract.)
 
 **Sections (top to bottom):**
 
 - `## [Unreleased]` — the four changes on `main` since `v0.7.7`, grouped:
-  - *Added* — database migration system with `schema_migrations` tracking, advisory-locked runner, `npm run migrate`, and backup/restore docs (`docs/backup-restore.md`) (#20). Stability & Compatibility contract (`docs/contract.md`) + CI shape-lock tests under `tests/contract/` (#21).
+  - *Added* — database migration system with `schema_migrations` tracking, advisory-locked runner, `npm run migrate`, and backup/restore docs (`docs/backup-restore.md`) (#20). Data-formats reference (`docs/contract.md`) and a regression-test suite under `tests/contract/` covering the export/import formats and MCP surface (#21, #22) — described as the *net* outcome, not the freeze-then-relax churn.
   - *Changed* — refreshed README screenshots for the redesigned desktop UI.
   - *Removed* — dead board-inspector code left over after the task-detail drawer migration (#19).
 - One `## [x.y.z] - YYYY-MM-DD` section per released tag, `v0.7.7` down to `v0.1.0`, dates taken from the tag creator dates. Each section has grouped bullets (Added / Changed / Fixed / Removed as applicable), reconstructed by summarizing `git log <prev>..<tag>`. `v0.1.0` is "Initial release" plus a short list of the headline capabilities present at first tag.
