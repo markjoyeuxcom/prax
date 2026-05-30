@@ -8,6 +8,9 @@ subscription rather than the Anthropic API.
 Internal design spec (for contributors with the repo checked out):
 `docs/superpowers/specs/2026-05-20-moomora-mcp-design.md`.
 
+The MCP tool surface is part of Moomora Console's stable 1.0 public contract — see
+[`docs/contract.md`](../docs/contract.md) for the stability policy and the frozen tool list.
+
 ## Prerequisites
 
 - Node.js 20+
