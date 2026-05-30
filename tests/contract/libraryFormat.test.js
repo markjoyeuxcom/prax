@@ -9,7 +9,7 @@ import {
 } from '../../server/libraryExport.js';
 import { buildExportedMarkdown } from '../../public/js/libraryExport.js';
 
-// The frozen 1.0 library document base field set (order-independent).
+// The current library document base field set this regression test locks (order-independent).
 const FROZEN_DOC_KEYS = [
   'archivedAt', 'body', 'createdAt', 'documentType', 'id',
   'projectId', 'sourceFilename', 'tags', 'title', 'updatedAt',
@@ -40,7 +40,7 @@ updated_at: 2026-05-20T08:11:09.000Z
 Steps...
 `;
 
-test('CONTRACT: normalizeDocumentRow base field set is frozen', () => {
+test('SHAPE: normalizeDocumentRow base field set is locked', () => {
   const row = {
     id: 'id', title: 't', body: 'b', document_type: 'note',
     project_id: 'pid', tags: ['x'], source_filename: null,
@@ -49,7 +49,7 @@ test('CONTRACT: normalizeDocumentRow base field set is frozen', () => {
   assert.deepEqual(Object.keys(normalizeDocumentRow(row)).sort(), FROZEN_DOC_KEYS);
 });
 
-test('CONTRACT: normalizeDocumentRow adds projectSlug only when project_slug present', () => {
+test('SHAPE: normalizeDocumentRow adds projectSlug only when project_slug present', () => {
   const row = {
     id: 'id', title: 't', body: 'b', document_type: 'note',
     project_id: 'pid', tags: [], source_filename: null,
@@ -60,11 +60,11 @@ test('CONTRACT: normalizeDocumentRow adds projectSlug only when project_slug pre
   assert.deepEqual(Object.keys(out).sort(), [...FROZEN_DOC_KEYS, 'projectSlug'].sort());
 });
 
-test('CONTRACT: renderDocumentMarkdown emits the frozen front-matter format', () => {
+test('SHAPE: renderDocumentMarkdown emits the documented front-matter format', () => {
   assert.equal(renderDocumentMarkdown(GOLDEN_DOC, 'homelab'), GOLDEN_MARKDOWN);
 });
 
-test('CONTRACT: browser serializer is byte-identical to server (dual-write invariant)', () => {
+test('SHAPE: browser serializer is byte-identical to server (dual-write invariant)', () => {
   const fixtures = [
     { doc: { ...GOLDEN_DOC, sourceFilename: null }, slug: 'homelab' },
     { doc: { ...GOLDEN_DOC, title: 'Has: colon', sourceFilename: null }, slug: 'homelab' },
@@ -76,20 +76,20 @@ test('CONTRACT: browser serializer is byte-identical to server (dual-write invar
   }
 });
 
-test('CONTRACT: documentFilename precedence is frozen', () => {
+test('SHAPE: documentFilename precedence is locked', () => {
   assert.equal(documentFilename({ sourceFilename: 'runbooks/restore.md', title: 'x' }), 'restore.md');
   assert.equal(documentFilename({ sourceFilename: 'restore', title: 'x' }), 'restore.md');
   assert.equal(documentFilename({ sourceFilename: null, title: 'Postgres Restore — Steps' }), 'postgres-restore-steps.md');
   assert.equal(documentFilename({ sourceFilename: null, title: '   ' }), 'untitled.md');
 });
 
-test('CONTRACT: libraryArchiveFilename shape is frozen', () => {
+test('SHAPE: libraryArchiveFilename shape is locked', () => {
   const date = new Date('2026-05-29T12:00:00.000Z');
   assert.equal(libraryArchiveFilename('homelab', date), 'moomora-console-library-homelab-2026-05-29.zip');
   assert.equal(libraryArchiveFilename('', date), 'moomora-console-library-all-2026-05-29.zip');
 });
 
-test('CONTRACT: dedupeFilenames suffixes per-folder collisions with -N before .md', () => {
+test('SHAPE: dedupeFilenames suffixes per-folder collisions with -N before .md', () => {
   const entries = [
     { path: 'homelab', filename: 'restore.md' },
     { path: 'homelab', filename: 'restore.md' },

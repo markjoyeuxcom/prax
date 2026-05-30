@@ -188,14 +188,14 @@ Import modes:
 
 Legacy TaskBoard export envelopes are not supported. This project is treated as a greenfield Moomora Console app.
 
-## Stability & Compatibility
+## Data Formats
 
 The export/import formats (`moomora.tasks` task backups and library `.md` front-matter) and the
-MCP tool surface are Moomora Console's stable public contract: within a `1.x` line they change
-only additively (new optional fields, new tools), and a breaking change bumps the format
-`version` or the major release. The HTTP API is internal and may change between releases —
-integrate against the export formats or the MCP server for stability. See
-[docs/contract.md](docs/contract.md) for the full policy and the frozen shapes.
+MCP tool surface are documented in [docs/contract.md](docs/contract.md). Moomora Console is
+pre-1.0 and these shapes are still evolving; a regression-test suite under `tests/contract/`
+locks the current shapes so changes are made deliberately rather than by accident. The HTTP API
+is internal and may change between releases — for durable integration prefer the export formats
+or the MCP server.
 
 ## Kubernetes Deployment
 

@@ -6,7 +6,7 @@ import { normalizeTaskRow } from '../../server/tasksRepository.js';
 const PROJECT_UUID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const SEED_TASK_ID = '11111111-1111-4111-8111-111111111111';
 
-// The frozen 1.0 task field set (order-independent).
+// The current task field set this regression test locks (order-independent).
 const FROZEN_TASK_KEYS = [
   'archivedAt', 'createdAt', 'description', 'dueDate', 'id', 'notes',
   'priority', 'projectId', 'sortOrder', 'status', 'title', 'updatedAt',
@@ -80,7 +80,7 @@ function buildContractApp(tasksRepository = createFakeTasksRepository()) {
   });
 }
 
-test('CONTRACT: normalizeTaskRow produces exactly the frozen task field set', () => {
+test('SHAPE: normalizeTaskRow produces exactly the documented task field set', () => {
   const row = {
     id: 'id', title: 't', description: 'd', notes: 'n',
     priority: 'high', status: 'planned', project_id: 'pid',
@@ -90,7 +90,7 @@ test('CONTRACT: normalizeTaskRow produces exactly the frozen task field set', ()
   assert.deepEqual(Object.keys(normalizeTaskRow(row)).sort(), FROZEN_TASK_KEYS);
 });
 
-test('CONTRACT: GET /api/tasks/export envelope shape is frozen', async () => {
+test('SHAPE: GET /api/tasks/export envelope shape is locked', async () => {
   const app = await buildContractApp();
   const res = await app.inject({ method: 'GET', url: '/api/tasks/export?project=homelab' });
   assert.equal(res.statusCode, 200);
@@ -102,7 +102,7 @@ test('CONTRACT: GET /api/tasks/export envelope shape is frozen', async () => {
   await app.close();
 });
 
-test('CONTRACT: import applies documented defaults (priority=medium, status=planned, mode=skip)', async () => {
+test('SHAPE: import applies documented defaults (priority=medium, status=planned, mode=skip)', async () => {
   const app = await buildContractApp();
   const res = await app.inject({
     method: 'POST',
@@ -117,7 +117,7 @@ test('CONTRACT: import applies documented defaults (priority=medium, status=plan
   await app.close();
 });
 
-test('CONTRACT: skip mode dedups on [title(lowercased), projectId, status, dueDate]', async () => {
+test('SHAPE: skip mode dedups on [title(lowercased), projectId, status, dueDate]', async () => {
   const app = await buildContractApp();
   const res = await app.inject({
     method: 'POST',
@@ -130,7 +130,7 @@ test('CONTRACT: skip mode dedups on [title(lowercased), projectId, status, dueDa
   await app.close();
 });
 
-test('CONTRACT: append mode inserts duplicates as new', async () => {
+test('SHAPE: append mode inserts duplicates as new', async () => {
   const app = await buildContractApp();
   const res = await app.inject({
     method: 'POST',
@@ -143,7 +143,7 @@ test('CONTRACT: append mode inserts duplicates as new', async () => {
   await app.close();
 });
 
-test('CONTRACT: replace mode clears the project then inserts', async () => {
+test('SHAPE: replace mode clears the project then inserts', async () => {
   const repo = createFakeTasksRepository();
   const app = await buildContractApp(repo);
   const res = await app.inject({
@@ -158,7 +158,7 @@ test('CONTRACT: replace mode clears the project then inserts', async () => {
   await app.close();
 });
 
-test('CONTRACT: import rejects more than 500 tasks', async () => {
+test('SHAPE: import rejects more than 500 tasks', async () => {
   const app = await buildContractApp();
   const tasks = Array.from({ length: 501 }, (_, i) => ({ title: `Task ${i}` }));
   const res = await app.inject({ method: 'POST', url: '/api/tasks/import', payload: { project: 'homelab', tasks } });
@@ -167,7 +167,7 @@ test('CONTRACT: import rejects more than 500 tasks', async () => {
   await app.close();
 });
 
-test('CONTRACT: priority/status enums are frozen (import rejects out-of-enum)', async () => {
+test('SHAPE: priority/status enums are locked (import rejects out-of-enum)', async () => {
   const app = await buildContractApp();
   const badPriority = await app.inject({
     method: 'POST', url: '/api/tasks/import',

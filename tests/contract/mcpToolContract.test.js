@@ -7,7 +7,7 @@ import { createChecklistTools } from '../../mcp/tools/checklist.js';
 import { createActivityTools } from '../../mcp/tools/activity.js';
 import { toTaskRef, toDocumentRef, capResults } from '../../mcp/shape.js';
 
-// The frozen 1.0 MCP tool surface: tool name -> required + optional input fields.
+// The current MCP tool surface this regression test locks: tool name -> required + optional input fields.
 const FROZEN_TOOLS = {
   search_tasks: { required: [], optional: ['query', 'project', 'status'] },
   get_task: { required: ['id'], optional: [] },
@@ -37,7 +37,7 @@ function allTools(client = {}) {
   ];
 }
 
-test('CONTRACT: the frozen set of MCP tool names is present (no removals/renames)', () => {
+test('SHAPE: the expected set of MCP tool names is present (no removals/renames)', () => {
   const names = allTools().map((t) => t.name);
   for (const frozen of Object.keys(FROZEN_TOOLS)) {
     assert.ok(names.includes(frozen), `MCP tool "${frozen}" is missing from the surface`);
@@ -46,7 +46,7 @@ test('CONTRACT: the frozen set of MCP tool names is present (no removals/renames
   assert.equal(names.length, new Set(names).size, 'duplicate tool names registered');
 });
 
-test('CONTRACT: each frozen tool has the frozen input fields with frozen optionality', () => {
+test('SHAPE: each tool has the documented input fields with documented optionality', () => {
   const tools = allTools();
   for (const [name, spec] of Object.entries(FROZEN_TOOLS)) {
     const tool = tools.find((t) => t.name === name);
@@ -62,7 +62,7 @@ test('CONTRACT: each frozen tool has the frozen input fields with frozen optiona
   }
 });
 
-test('CONTRACT: tool enums expose exactly the frozen option sets', () => {
+test('SHAPE: tool enums expose exactly the documented option sets', () => {
   const tools = allTools();
   const get = (name, field) => tools.find((t) => t.name === name).inputSchema[field];
 
@@ -82,7 +82,7 @@ test('CONTRACT: tool enums expose exactly the frozen option sets', () => {
   assertEnum(get('create_document', 'documentType'), DOCUMENT_TYPE);
 });
 
-test('CONTRACT: MCP-owned ref shapes are frozen', () => {
+test('SHAPE: MCP-owned ref shapes are locked', () => {
   const taskRef = toTaskRef({
     id: '1', title: 't', status: 'planned', priority: 'high',
     projectId: 'p', dueDate: '2026-05-12', description: 'x', notes: 'y',
@@ -95,11 +95,11 @@ test('CONTRACT: MCP-owned ref shapes are frozen', () => {
   assert.deepEqual(Object.keys(docRef).sort(), ['documentType', 'id', 'projectId', 'snippet', 'tags', 'title'].sort());
 });
 
-test('CONTRACT: capResults caps lists at 20', () => {
+test('SHAPE: capResults caps lists at 20', () => {
   assert.equal(capResults(Array.from({ length: 50 }, (_, i) => i)).length, 20);
 });
 
-test('CONTRACT: link/unlink/delete wrapper shapes are frozen', async () => {
+test('SHAPE: link/unlink/delete wrapper shapes are locked', async () => {
   const TASK = '11111111-1111-4111-8111-111111111111';
   const DOC = '55555555-5555-4555-8555-555555555555';
   const ITEM = '99999999-9999-4999-8999-999999999999';

@@ -1,34 +1,31 @@
-# Moomora Console — Stability & Compatibility Contract
+# Moomora Console — Data Formats & Shapes
 
-This document defines Moomora Console's **public contract** as of the 1.0 release: which
-interfaces are stable, what "stable" promises, and how breaking changes are versioned.
+This document describes the **current** shapes of Moomora Console's externally-consumed data:
+the export/import formats (`moomora.tasks` task backups, library `.md` front-matter) and the
+MCP tool surface. It's a reference for anyone writing backups, integrations, or MCP clients.
 
-## Stability tiers
+**These shapes are not frozen.** Moomora Console is pre-1.0 and the data model is still evolving
+(for example, planned document links and provenance). The regression tests under
+`tests/contract/` lock the *current* shapes so that changes are caught and made deliberately
+rather than by accident — they are a safety net, **not a stability promise**.
 
-| Tier | Surfaces | Promise |
-|------|----------|---------|
-| **Stable** | Export/import formats (`moomora.tasks` task backups, library `.md` front-matter) and the MCP tool surface | Within a `1.x` line, changes are **additive only** — new optional fields, new MCP tools, new optional tool inputs. Existing fields keep their name, type, and meaning. |
-| **Internal** | The HTTP API (`/api/…`) | No stability guarantee. Consumed by the co-shipped frontend and the local MCP server, which are released together as one versioned image. May change between any release. |
+## Scope
 
-For durable, version-independent integration, use the **export formats** or the **MCP server** —
-not the HTTP API directly.
+- **Externally consumed** — the export/import formats and the MCP tool surface. These are the
+  surfaces worth keeping stable where practical, because backup files and MCP clients live
+  outside the app. When the project reaches 1.0 these are expected to stabilise and future
+  breaking changes will be versioned (an export envelope `version` bump, MCP changes called out
+  in release notes). Until then, treat them as evolving.
+- **Internal** — the HTTP API (`/api/…`). Consumed only by the co-shipped frontend and the
+  local MCP server (released together as one image); it may change between any release. For
+  durable integration prefer the export formats or the MCP server.
 
-### How breaking changes are versioned
+### Forward-compatibility tip for consumers
 
-- **Export format:** a breaking change bumps the envelope `version` (`1` → `2`); importers
-  continue to accept `version: 1` payloads.
-- **MCP surface:** removing or renaming a tool, removing an input, making an optional input
-  required, or narrowing an enum is a breaking change and requires a new **major** app version
-  plus a documented migration.
-- **Semver mapping:** a stable-surface break ⇒ **major** bump; an additive change ⇒ **minor**;
-  a bug fix ⇒ **patch**.
+Importers and MCP clients should **ignore unknown fields** rather than hard-fail — the server
+may add fields over time.
 
-### Forward-compatibility rule for consumers
-
-Importers and MCP clients **MUST ignore unknown fields**. Exporters and the server **MAY add
-fields** within a major version. Do not hard-fail on a field you do not recognise.
-
-## Stable surface 1 — Task export/import (`moomora.tasks`)
+## Format 1 — Task export/import (`moomora.tasks`)
 
 ### Export envelope (`GET /api/tasks/export`)
 
@@ -87,10 +84,10 @@ fields** within a major version. Do not hard-fail on a field you do not recognis
 - **Duplicate key** (skip mode): `[ title (lowercased), projectId, status, dueDate ]`.
 - Response: `{ "mode", "imported": <count>, "skipped": <count>, "tasks": [] }`.
 
-## Stable surface 2 — Library `.md` front-matter
+## Format 2 — Library `.md` front-matter
 
 Library export (`GET /api/library/export`) produces a ZIP of `.md` files. Each file is YAML
-front-matter followed by the Markdown body, in this exact key order:
+front-matter followed by the Markdown body, in this key order:
 
 ```markdown
 ---
@@ -121,14 +118,14 @@ Steps...
 - **ZIP layout:** `moomora-console-library-<scope>-<YYYY-MM-DD>.zip`, with entries under
   `<project-slug>/<file>.md` for an all-projects export (flat for a single project).
 
-**Not promised at 1.0:** library `.md` / document **import (round-trip) is not supported**.
-Library export is one-way. Documents are created/edited via the app, the HTTP API, or the MCP
+**Not currently supported:** library `.md` / document **import (round-trip)**. Library export
+is one-way today. Documents are created/edited via the app, the HTTP API, or the MCP
 `create_document` / `update_document` tools.
 
-## Stable surface 3 — MCP tools
+## Format 3 — MCP tools
 
-The MCP server (`mcp/`) exposes these tools over stdio. Tool names, input field names,
-required/optional status, and enum option sets are frozen. Shared enums: `STATUS`
+The MCP server (`mcp/`) exposes these tools over stdio. Current tool names, input field names,
+required/optional status, and enum option sets. Shared enums: `STATUS`
 (`high-priority`, `in-progress`, `planned`, `completed`, `notes`), `PRIORITY` (`high`,
 `medium`, `low`), `DOCUMENT_TYPE` (`runbook`, `note`).
 
@@ -151,7 +148,7 @@ required/optional status, and enum option sets are frozen. Shared enums: `STATUS
 | `delete_checklist_item` | `taskId`, `itemId` | — |
 | `list_task_activity` | `taskId` | yes |
 
-MCP-owned output shapes (frozen):
+MCP-owned output shapes:
 
 - Task summary (from `search_tasks`): `{ id, title, status, priority, projectId, dueDate }`.
 - Document summary (from `search_documents`): `{ id, title, documentType, projectId, tags, snippet }` (snippet ≤ 200 chars).
@@ -165,9 +162,9 @@ document record (the fields in the tables above). Operations intentionally **not
 MCP — archive, permanent delete, reorder, project CRUD, task import/export, library export —
 remain HTTP-only.
 
-## Enforcement
+## Regression tests
 
-These shapes are locked by characterization tests under `tests/contract/`, run by `npm test`.
-A change to any frozen shape turns those tests red. Resolving a red contract test means either
-reverting the change or making it deliberately: bump the relevant `version` / major release,
-update this document, and update the contract test.
+The shapes above are locked by characterization tests under `tests/contract/`, run by
+`npm test`. They guard against *accidental* changes: a change to any shape turns a test red, so
+you either revert it or update the test (and this document) **on purpose**. They are a safety
+net for evolving the formats carefully — not a 1.0 stability guarantee.

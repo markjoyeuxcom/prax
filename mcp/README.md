@@ -8,8 +8,9 @@ subscription rather than the Anthropic API.
 Internal design spec (for contributors with the repo checked out):
 `docs/superpowers/specs/2026-05-20-moomora-mcp-design.md`.
 
-The MCP tool surface is part of Moomora Console's stable 1.0 public contract — see
-[`docs/contract.md`](../docs/contract.md) for the stability policy and the frozen tool list.
+The MCP tool surface (tool names, inputs, output shapes) is documented in
+[`docs/contract.md`](../docs/contract.md). It's pre-1.0 and still evolving; a regression suite
+under `tests/contract/` locks the current shapes so changes are made deliberately.
 
 ## Prerequisites
 
