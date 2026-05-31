@@ -270,4 +270,22 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (!removed) { reply.code(404); return { message: 'link not found' }; }
     return documentLinksRepository.listDocumentLinks(sourceId, 'outbound');
   });
+
+  app.get('/api/library/maintenance/stale', async (request, reply) => {
+    let projectId;
+    if (request.query.project) {
+      projectId = await resolveProjectId(request.query.project);
+      if (projectId === null) { reply.code(400); return { message: 'project is invalid' }; }
+    }
+    return documentLinksRepository.listStaleDocuments(projectId);
+  });
+
+  app.get('/api/library/maintenance/orphans', async (request, reply) => {
+    let projectId;
+    if (request.query.project) {
+      projectId = await resolveProjectId(request.query.project);
+      if (projectId === null) { reply.code(400); return { message: 'project is invalid' }; }
+    }
+    return documentLinksRepository.listOrphanDocuments(projectId);
+  });
 }
