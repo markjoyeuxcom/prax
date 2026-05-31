@@ -58,6 +58,13 @@ test('createDocument POSTs a JSON body and returns the created doc', async () =>
   });
 });
 
+test('createDocument sends x-moomora-origin: agent header', async () => {
+  const fetch = recordingFetch(jsonResponse(201, { id: 'd1', title: 'New' }));
+  const client = createMoomoraClient({ baseUrl: BASE, fetch });
+  await client.createDocument({ title: 'New', body: 'b', documentType: 'note', project: 'work' });
+  assert.equal(fetch.calls[0].options.headers['x-moomora-origin'], 'agent');
+});
+
 test('getDocument fetches by id and returns null on 404', async () => {
   const DOC_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const fetch = recordingFetch(jsonResponse(200, { id: DOC_ID, title: 'My Doc' }));
