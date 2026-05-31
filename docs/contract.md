@@ -147,6 +147,9 @@ required/optional status, and enum option sets. Shared enums: `STATUS`
 | `set_checklist_item` | `taskId`, `itemId`, `completed` | — |
 | `delete_checklist_item` | `taskId`, `itemId` | — |
 | `list_task_activity` | `taskId` | yes |
+| `list_document_links` | `documentId`, `direction?:{outbound\|inbound\|both}` | yes |
+| `link_documents` | `sourceId`, `targetId`, `relation:{derived-from\|supersedes}` | — |
+| `unlink_documents` | `sourceId`, `targetId`, `relation:{derived-from\|supersedes}` | — |
 
 MCP-owned output shapes:
 
@@ -161,6 +164,12 @@ Full-record tools (`get_task`, `get_document`, `create_*`, `update_*`) return th
 document record (the fields in the tables above). Operations intentionally **not** exposed over
 MCP — archive, permanent delete, reorder, project CRUD, task import/export, library export —
 remain HTTP-only.
+
+Document graph: `document_links` are directed, typed edges (`derived-from`, `supersedes`)
+between documents, created/removed/listed via the tools above and the
+`/api/library/documents/:id/links` endpoints. `GET /api/library/documents/:id` and
+`GET /api/tasks/:id` fetch a single record by id (returning archived records too). Link
+serialization into exported `.md` is not yet implemented.
 
 ## Regression tests
 
