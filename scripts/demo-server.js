@@ -421,6 +421,10 @@ function createMemoryLibraryRepository(documents) {
       if (index < 0) return null;
       return documents.splice(index, 1)[0];
     },
+    async getDocument(id) {
+      const doc = documents.find((d) => d.id === id);
+      return doc ? { ...doc } : null;
+    },
     async listActiveDocumentsForExport(filters = {}) {
       const filtered = documents.filter((document) => {
         if (document.archivedAt) return false;
@@ -436,6 +440,48 @@ function createMemoryLibraryRepository(documents) {
           const slugCompare = (a.projectSlug || '').localeCompare(b.projectSlug || '');
           return slugCompare !== 0 ? slugCompare : (a.title || '').localeCompare(b.title || '');
         });
+    },
+  };
+}
+
+function createMemoryDocumentLinksRepository(documentsRef) {
+  const links = []; // { sourceId, targetId, relation }
+  const isLive = (id) => documentsRef.some((d) => d.id === id && !d.archivedAt);
+  const toRef = (id, relation, direction) => {
+    const d = documentsRef.find((doc) => doc.id === id && !doc.archivedAt);
+    if (!d) return null;
+    return { documentId: d.id, title: d.title, documentType: d.documentType, projectId: d.projectId, relation, direction };
+  };
+  return {
+    async linkDocuments(sourceId, targetId, relation) {
+      if (!isLive(sourceId) || !isLive(targetId)) return { linked: false };
+      if (links.some((l) => l.sourceId === sourceId && l.targetId === targetId && l.relation === relation)) {
+        return { linked: true, alreadyLinked: true };
+      }
+      links.push({ sourceId, targetId, relation });
+      return { linked: true };
+    },
+    async unlinkDocuments(sourceId, targetId, relation) {
+      const i = links.findIndex((l) => l.sourceId === sourceId && l.targetId === targetId && l.relation === relation);
+      if (i < 0) return false;
+      links.splice(i, 1);
+      return true;
+    },
+    async listDocumentLinks(documentId, direction = 'both') {
+      const out = [];
+      if (direction !== 'inbound') {
+        for (const l of links.filter((l) => l.sourceId === documentId)) {
+          const ref = toRef(l.targetId, l.relation, 'outbound');
+          if (ref) out.push(ref);
+        }
+      }
+      if (direction !== 'outbound') {
+        for (const l of links.filter((l) => l.targetId === documentId)) {
+          const ref = toRef(l.sourceId, l.relation, 'inbound');
+          if (ref) out.push(ref);
+        }
+      }
+      return out;
     },
   };
 }
@@ -494,6 +540,7 @@ const app = await buildApp({
   libraryRepository: createMemoryLibraryRepository(sharedDocuments),
   projectsRepository: createMemoryProjectsRepository(sharedProjects),
   checklistRepository,
+  documentLinksRepository: createMemoryDocumentLinksRepository(sharedDocuments),
 });
 
 await app.listen({ host: config.host, port: config.port });

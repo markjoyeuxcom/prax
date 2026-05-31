@@ -58,14 +58,34 @@ test('createDocument POSTs a JSON body and returns the created doc', async () =>
   });
 });
 
-test('getDocument lists then finds by id, returning null when absent', async () => {
-  const fetch = recordingFetch(jsonResponse(200, [{ id: 'a' }, { id: 'b' }]));
+test('getDocument fetches by id and returns null on 404', async () => {
+  const DOC_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const fetch = recordingFetch(jsonResponse(200, { id: DOC_ID, title: 'My Doc' }));
   const client = createMoomoraClient({ baseUrl: BASE, fetch });
-  assert.deepEqual(await client.getDocument('b'), { id: 'b' });
+  const doc = await client.getDocument(DOC_ID);
+  assert.deepEqual(doc, { id: DOC_ID, title: 'My Doc' });
+  const url = new URL(fetch.calls[0].url);
+  assert.equal(url.pathname, `/api/library/documents/${DOC_ID}`);
+  assert.equal(fetch.calls[0].options.method, 'GET');
 
-  const fetch2 = recordingFetch(jsonResponse(200, [{ id: 'a' }]));
+  const fetch2 = recordingFetch(jsonResponse(404, { message: 'not found' }));
   const client2 = createMoomoraClient({ baseUrl: BASE, fetch: fetch2 });
-  assert.equal(await client2.getDocument('zzz'), null);
+  assert.equal(await client2.getDocument(DOC_ID), null);
+});
+
+test('getTask fetches by id and returns null on 404', async () => {
+  const TASK_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const fetch = recordingFetch(jsonResponse(200, { id: TASK_ID, title: 'My Task' }));
+  const client = createMoomoraClient({ baseUrl: BASE, fetch });
+  const task = await client.getTask(TASK_ID);
+  assert.deepEqual(task, { id: TASK_ID, title: 'My Task' });
+  const url = new URL(fetch.calls[0].url);
+  assert.equal(url.pathname, `/api/tasks/${TASK_ID}`);
+  assert.equal(fetch.calls[0].options.method, 'GET');
+
+  const fetch2 = recordingFetch(jsonResponse(404, { message: 'not found' }));
+  const client2 = createMoomoraClient({ baseUrl: BASE, fetch: fetch2 });
+  assert.equal(await client2.getTask(TASK_ID), null);
 });
 
 test('updateDocument returns null on 404', async () => {

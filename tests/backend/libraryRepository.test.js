@@ -4,6 +4,7 @@ import {
   buildArchiveDocument,
   buildCreateDocument,
   buildDeleteArchivedDocument,
+  buildGetDocument,
   buildListActiveDocumentsForExport,
   buildRestoreDocument,
   buildUpdateDocument,
@@ -189,6 +190,12 @@ test('buildListActiveDocumentsForExport treats empty-string and null projectId a
     assert.doesNotMatch(query.text, /d\.project_id = \$/);
     assert.deepEqual(query.values, []);
   }
+});
+
+test('buildGetDocument selects a single document by id', () => {
+  const q = buildGetDocument('22222222-2222-4222-8222-222222222222');
+  assert.match(q.text, /select \* from markdown_documents where id = \$1/);
+  assert.deepEqual(q.values, ['22222222-2222-4222-8222-222222222222']);
 });
 
 test('createLibraryRepository.listActiveDocumentsForExport normalizes rows with project_slug', async () => {

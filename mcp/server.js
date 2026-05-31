@@ -10,6 +10,7 @@ import { createTaskTools } from './tools/tasks.js';
 import { createLinkTools } from './tools/links.js';
 import { createChecklistTools } from './tools/checklist.js';
 import { createActivityTools } from './tools/activity.js';
+import { createDocumentLinkTools } from './tools/documentLinks.js';
 
 // Advertise the package version so the MCP serverInfo never drifts from releases.
 const { version: PACKAGE_VERSION } = JSON.parse(
@@ -26,6 +27,7 @@ export function buildServer({ server, client } = {}) {
     ...createLinkTools(apiClient),
     ...createChecklistTools(apiClient),
     ...createActivityTools(apiClient),
+    ...createDocumentLinkTools(apiClient),
   ];
 
   for (const tool of tools) {

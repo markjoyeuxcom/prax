@@ -5,6 +5,7 @@ import { createDocumentTools } from '../../mcp/tools/documents.js';
 import { createLinkTools } from '../../mcp/tools/links.js';
 import { createChecklistTools } from '../../mcp/tools/checklist.js';
 import { createActivityTools } from '../../mcp/tools/activity.js';
+import { createDocumentLinkTools } from '../../mcp/tools/documentLinks.js';
 import { toTaskRef, toDocumentRef, capResults } from '../../mcp/shape.js';
 
 // The current MCP tool surface this regression test locks: tool name -> required + optional input fields.
@@ -25,6 +26,9 @@ const FROZEN_TOOLS = {
   set_checklist_item: { required: ['taskId', 'itemId', 'completed'], optional: [] },
   delete_checklist_item: { required: ['taskId', 'itemId'], optional: [] },
   list_task_activity: { required: ['taskId'], optional: [] },
+  list_document_links: { required: ['documentId'], optional: ['direction'] },
+  link_documents: { required: ['sourceId', 'targetId', 'relation'], optional: [] },
+  unlink_documents: { required: ['sourceId', 'targetId', 'relation'], optional: [] },
 };
 
 function allTools(client = {}) {
@@ -34,6 +38,7 @@ function allTools(client = {}) {
     ...createLinkTools(client),
     ...createChecklistTools(client),
     ...createActivityTools(client),
+    ...createDocumentLinkTools(client),
   ];
 }
 
@@ -80,6 +85,12 @@ test('SHAPE: tool enums expose exactly the documented option sets', () => {
   assertEnum(get('create_task', 'status'), STATUS);
   assertEnum(get('search_documents', 'documentType'), DOCUMENT_TYPE);
   assertEnum(get('create_document', 'documentType'), DOCUMENT_TYPE);
+
+  const RELATION = ['derived-from', 'supersedes'];
+  const DIRECTION = ['outbound', 'inbound', 'both'];
+  assertEnum(get('link_documents', 'relation'), RELATION);
+  assertEnum(get('unlink_documents', 'relation'), RELATION);
+  assertEnum(get('list_document_links', 'direction'), DIRECTION);
 });
 
 test('SHAPE: MCP-owned ref shapes are locked', () => {

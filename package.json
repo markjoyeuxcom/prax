@@ -9,7 +9,7 @@
     "start": "node server/index.js",
     "migrate": "node scripts/migrate.js",
     "test": "node scripts/run-tests.js",
-    "check": "node --check server/index.js && node --check scripts/demo-server.js && node --check public/js/main.js && node --check mcp/server.js && node --check server/migrate.js && node --check scripts/migrate.js"
+    "check": "node --check server/index.js && node --check scripts/demo-server.js && node --check public/js/main.js && node --check mcp/server.js && node --check server/migrate.js && node --check scripts/migrate.js && node --check server/documentLinksRepository.js"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.3",

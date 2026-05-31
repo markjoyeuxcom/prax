@@ -35,6 +35,7 @@ export async function buildApp(options = {}) {
   app.decorate('libraryRepository', options.libraryRepository || null);
   app.decorate('projectsRepository', options.projectsRepository || null);
   app.decorate('checklistRepository', options.checklistRepository || null);
+  app.decorate('documentLinksRepository', options.documentLinksRepository || null);
   await registerTasksRoutes(app, options);
   await registerLibraryRoutes(app, options);
   await registerProjectsRoutes(app, options);

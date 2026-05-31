@@ -1,6 +1,7 @@
 import archiver from 'archiver';
 import { createLibraryRepository } from './libraryRepository.js';
 import { createProjectsRepository } from './projectsRepository.js';
+import { createDocumentLinksRepository, DOCUMENT_LINK_RELATIONS } from './documentLinksRepository.js';
 import {
   documentFilename,
   renderDocumentMarkdown,
@@ -80,6 +81,7 @@ function cleanDocumentPatchPayload(payload) {
 export async function registerLibraryRoutes(app, options = {}) {
   const repository = options.libraryRepository || app.libraryRepository || createLibraryRepository(app.db);
   const projectsRepository = options.projectsRepository || app.projectsRepository || createProjectsRepository(app.db);
+  const documentLinksRepository = options.documentLinksRepository || app.documentLinksRepository || createDocumentLinksRepository(app.db);
 
   async function resolveProjectId(value) {
     if (value === undefined || value === null || value === '') return undefined;
@@ -223,5 +225,44 @@ export async function registerLibraryRoutes(app, options = {}) {
       return { message: 'document not found' };
     }
     return document;
+  });
+
+  app.get('/api/library/documents/:id', async (request, reply) => {
+    if (!isValidUuid(request.params.id)) { reply.code(400); return { message: 'document id is invalid' }; }
+    const document = await repository.getDocument(request.params.id);
+    if (!document) { reply.code(404); return { message: 'document not found' }; }
+    return document;
+  });
+
+  app.get('/api/library/documents/:id/links', async (request, reply) => {
+    if (!isValidUuid(request.params.id)) { reply.code(400); return { message: 'document id is invalid' }; }
+    const direction = request.query.direction || 'both';
+    if (!['outbound', 'inbound', 'both'].includes(direction)) { reply.code(400); return { message: 'direction is invalid' }; }
+    return documentLinksRepository.listDocumentLinks(request.params.id, direction);
+  });
+
+  app.post('/api/library/documents/:id/links', async (request, reply) => {
+    const sourceId = request.params.id;
+    const { targetId, relation } = request.body || {};
+    if (!isValidUuid(sourceId)) { reply.code(400); return { message: 'document id is invalid' }; }
+    if (!isValidUuid(targetId)) { reply.code(400); return { message: 'targetId is invalid' }; }
+    if (!DOCUMENT_LINK_RELATIONS.includes(relation)) { reply.code(400); return { message: 'relation is invalid' }; }
+    if (sourceId === targetId) { reply.code(400); return { message: 'a document cannot link to itself' }; }
+    const result = await documentLinksRepository.linkDocuments(sourceId, targetId, relation);
+    if (!result.linked) { reply.code(404); return { message: 'document not found' }; }
+    reply.code(result.alreadyLinked ? 200 : 201);
+    return documentLinksRepository.listDocumentLinks(sourceId, 'outbound');
+  });
+
+  app.delete('/api/library/documents/:id/links/:targetId', async (request, reply) => {
+    const sourceId = request.params.id;
+    const { targetId } = request.params;
+    const relation = request.query.relation;
+    if (!isValidUuid(sourceId)) { reply.code(400); return { message: 'document id is invalid' }; }
+    if (!isValidUuid(targetId)) { reply.code(400); return { message: 'targetId is invalid' }; }
+    if (!DOCUMENT_LINK_RELATIONS.includes(relation)) { reply.code(400); return { message: 'relation is invalid' }; }
+    const removed = await documentLinksRepository.unlinkDocuments(sourceId, targetId, relation);
+    if (!removed) { reply.code(404); return { message: 'link not found' }; }
+    return documentLinksRepository.listDocumentLinks(sourceId, 'outbound');
   });
 }
