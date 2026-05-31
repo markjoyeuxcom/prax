@@ -1,3 +1,9 @@
+import { createHash } from 'node:crypto';
+
+function hashBody(body) {
+  return createHash('sha256').update(String(body ?? '')).digest('hex');
+}
+
 const CREATE_FIELDS = ['title', 'body', 'documentType', 'projectId', 'tags', 'sourceFilename'];
 const UPDATE_COLUMN_MAP = {
   title: 'title',
@@ -24,6 +30,8 @@ export function normalizeDocumentRow(row) {
     archivedAt: row.archived_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    contentHash: row.content_hash ?? null,
+    updatedBy: row.updated_by,
     ...(row.project_slug !== undefined ? { projectSlug: row.project_slug } : {}),
   };
 }
@@ -31,11 +39,11 @@ export function normalizeDocumentRow(row) {
 export function buildCreateDocument(document) {
   return {
     text: `
-      insert into markdown_documents (title, body, document_type, project_id, tags, source_filename)
-      values ($1, $2, $3, $4, $5, $6)
+      insert into markdown_documents (title, body, document_type, project_id, tags, source_filename, content_hash, updated_by)
+      values ($1, $2, $3, $4, $5, $6, $7, $8)
       returning *
     `,
-    values: valuesFor(CREATE_FIELDS, document),
+    values: [...valuesFor(CREATE_FIELDS, document), hashBody(document.body), document.updatedBy || 'user'],
   };
 }
 
@@ -44,8 +52,17 @@ export function buildUpdateDocument(id, fields) {
   if (entries.length === 0) {
     throw new Error('No document fields provided');
   }
-
+  const values = [id, ...entries.map(([, value]) => value)];
   const assignments = entries.map(([key], index) => `${UPDATE_COLUMN_MAP[key]} = $${index + 2}`);
+
+  values.push(fields.updatedBy || 'user');
+  assignments.push(`updated_by = $${values.length}`);
+
+  if (Object.prototype.hasOwnProperty.call(fields, 'body')) {
+    values.push(hashBody(fields.body));
+    assignments.push(`content_hash = $${values.length}`);
+  }
+
   return {
     text: `
       update markdown_documents
@@ -53,7 +70,7 @@ export function buildUpdateDocument(id, fields) {
       where id = $1 and archived_at is null
       returning *
     `,
-    values: [id, ...entries.map(([, value]) => value)],
+    values,
   };
 }
 
