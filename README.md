@@ -230,6 +230,15 @@ Near-term direction:
 - harden Kubernetes deployment, backup, and restore operations
 - add authentication at the ingress layer for network-exposed deployments
 
+## Security
+
+See [SECURITY.md](SECURITY.md) for the security model (no built-in auth; trusted-network by
+design) and how to report a vulnerability.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for the release history.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
