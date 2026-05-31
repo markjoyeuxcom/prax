@@ -22,6 +22,10 @@ function isValidUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
+function originFrom(request) {
+  return request.headers['x-moomora-origin'] === 'agent' ? 'agent' : 'user';
+}
+
 function isValidTags(value) {
   return value === undefined || (Array.isArray(value) && value.every(tag => typeof tag === 'string' && tag.trim().length > 0));
 }
@@ -155,7 +159,7 @@ export async function registerLibraryRoutes(app, options = {}) {
     request.body.projectId = resolvedId;
 
     reply.code(201);
-    return repository.createDocument(cleanDocumentPayload(request.body));
+    return repository.createDocument({ ...cleanDocumentPayload(request.body), updatedBy: originFrom(request) });
   });
 
   app.patch('/api/library/documents/:id/restore', async (request, reply) => {
@@ -205,6 +209,7 @@ export async function registerLibraryRoutes(app, options = {}) {
       fields.projectId = resolvedId;
     }
 
+    fields.updatedBy = originFrom(request);
     const document = await repository.updateDocument(request.params.id, fields);
     if (!document) {
       reply.code(404);
