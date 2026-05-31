@@ -92,6 +92,10 @@ export function buildDeleteArchivedDocument(id) {
   };
 }
 
+export function buildGetDocument(id) {
+  return { text: 'select * from markdown_documents where id = $1 limit 1', values: [id] };
+}
+
 export function buildListActiveDocumentsForExport({ projectId } = {}) {
   const values = [];
   let where = 'where d.archived_at is null';
@@ -181,6 +185,12 @@ export function createLibraryRepository(db) {
       const query = buildListActiveDocumentsForExport(filters);
       const result = await db.query(query.text, query.values);
       return result.rows.map(normalizeDocumentRow);
+    },
+
+    async getDocument(id) {
+      const query = buildGetDocument(id);
+      const result = await db.query(query.text, query.values);
+      return result.rows[0] ? normalizeDocumentRow(result.rows[0]) : null;
     },
   };
 }
