@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import {
   buildArchiveDocument,
   buildCreateDocument,
@@ -15,6 +16,8 @@ import {
 const DOCUMENT_ID = '11111111-1111-4111-8111-111111111111';
 
 const PROJECT_UUID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+const sha = (s) => createHash('sha256').update(String(s ?? '')).digest('hex');
 
 test('normalizeDocumentRow maps database fields to API document fields', () => {
   const document = normalizeDocumentRow({
@@ -41,6 +44,8 @@ test('normalizeDocumentRow maps database fields to API document fields', () => {
     archivedAt: null,
     createdAt: '2026-05-18T10:00:00.000Z',
     updatedAt: '2026-05-18T10:00:00.000Z',
+    contentHash: null,
+    updatedBy: undefined,
   });
 });
 
@@ -94,6 +99,8 @@ test('buildCreateDocument returns a parameterized insert query', () => {
     PROJECT_UUID,
     ['ingress'],
     'ingress.md',
+    sha('# Ingress Notes'),
+    'user',
   ]);
 });
 
@@ -108,7 +115,7 @@ test('buildUpdateDocument returns only provided document fields', () => {
   assert.match(query.text, /tags = \$3/);
   assert.match(query.text, /updated_at = now\(\)/);
   assert.match(query.text, /where id = \$1 and archived_at is null/);
-  assert.deepEqual(query.values, [DOCUMENT_ID, 'Updated', ['runbook']]);
+  assert.deepEqual(query.values, [DOCUMENT_ID, 'Updated', ['runbook'], 'user']);
 });
 
 test('buildUpdateDocument rejects empty updates', () => {
@@ -196,6 +203,41 @@ test('buildGetDocument selects a single document by id', () => {
   const q = buildGetDocument('22222222-2222-4222-8222-222222222222');
   assert.match(q.text, /select \* from markdown_documents where id = \$1/);
   assert.deepEqual(q.values, ['22222222-2222-4222-8222-222222222222']);
+});
+
+test('buildCreateDocument stamps content_hash(body) and updated_by', () => {
+  const q = buildCreateDocument({ title: 't', body: 'hello', documentType: 'note', projectId: 'p', tags: [], sourceFilename: null, updatedBy: 'agent' });
+  assert.match(q.text, /content_hash/);
+  assert.match(q.text, /updated_by/);
+  assert.equal(q.values[q.values.length - 2], sha('hello'));
+  assert.equal(q.values[q.values.length - 1], 'agent');
+});
+
+test('buildCreateDocument defaults updated_by to user', () => {
+  const q = buildCreateDocument({ title: 't', body: 'x', documentType: 'note', projectId: 'p', tags: [], sourceFilename: null });
+  assert.equal(q.values[q.values.length - 1], 'user');
+});
+
+test('buildUpdateDocument always stamps updated_by and recomputes hash only when body changes', () => {
+  const withBody = buildUpdateDocument('id', { body: 'new body', updatedBy: 'agent' });
+  assert.match(withBody.text, /updated_by = \$/);
+  assert.match(withBody.text, /content_hash = \$/);
+  assert.ok(withBody.values.includes(sha('new body')));
+  assert.ok(withBody.values.includes('agent'));
+
+  const noBody = buildUpdateDocument('id', { title: 'renamed', updatedBy: 'user' });
+  assert.match(noBody.text, /updated_by = \$/);
+  assert.doesNotMatch(noBody.text, /content_hash = \$/);
+});
+
+test('normalizeDocumentRow exposes contentHash and updatedBy', () => {
+  const out = normalizeDocumentRow({
+    id: 'i', title: 't', body: 'b', document_type: 'note', project_id: 'p',
+    tags: [], source_filename: null, archived_at: null, created_at: 'c', updated_at: 'u',
+    content_hash: 'abc', updated_by: 'agent',
+  });
+  assert.equal(out.contentHash, 'abc');
+  assert.equal(out.updatedBy, 'agent');
 });
 
 test('createLibraryRepository.listActiveDocumentsForExport normalizes rows with project_slug', async () => {

@@ -43,7 +43,8 @@ registration with `claude mcp list`. (Confirm the exact `claude mcp add` flag sy
 ## Tools
 
 Reads: `search_documents`, `get_document`, `search_tasks`, `get_task`,
-`list_task_documents`, `list_task_checklist`, `list_task_activity`, `list_document_links`.
+`list_task_documents`, `list_task_checklist`, `list_task_activity`, `list_document_links`,
+`list_stale_documents`, `list_orphan_documents`.
 Writes: `create_document`, `update_document`, `create_task`, `update_task`,
 `link_task_document`, `unlink_task_document`, `add_checklist_item`, `set_checklist_item`,
 `delete_checklist_item`, `link_documents`, `unlink_documents`.
@@ -52,6 +53,8 @@ Document graph tools:
 - `link_documents` — create a typed, directional link (derived-from / supersedes) between two documents.
 - `unlink_documents` — remove a typed link between two documents.
 - `list_document_links` — list a document's links and backlinks (direction: outbound / inbound / both).
+- `list_stale_documents` — list derived documents whose source changed since the last link snapshot (stale = derived doc whose source was updated after it was linked).
+- `list_orphan_documents` — list documents with no inbound or outbound links.
 
 No archive, delete, reorder, or import tools are exposed.
 

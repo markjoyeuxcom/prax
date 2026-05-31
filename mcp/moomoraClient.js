@@ -18,7 +18,7 @@ export function createMoomoraClient({
 
   const root = String(baseUrl).replace(/\/+$/, '');
 
-  async function request(method, path, { query, body } = {}) {
+  async function request(method, path, { query, body, headers: extraHeaders } = {}) {
     const url = new URL(root + path);
     if (query) {
       for (const [key, value] of Object.entries(query)) {
@@ -31,6 +31,7 @@ export function createMoomoraClient({
     const headers = {};
     if (token) headers.authorization = `Bearer ${token}`;
     if (body !== undefined) headers['content-type'] = 'application/json';
+    if (extraHeaders) Object.assign(headers, extraHeaders);
 
     let response;
     try {
@@ -66,9 +67,9 @@ export function createMoomoraClient({
     return payload;
   }
 
-  async function patchOrNull(path, patch) {
+  async function patchOrNull(path, patch, headers) {
     try {
-      return await request('PATCH', path, { body: patch });
+      return await request('PATCH', path, { body: patch, headers });
     } catch (err) {
       if (err instanceof MoomoraApiError && err.status === 404) return null;
       throw err;
@@ -91,10 +92,10 @@ export function createMoomoraClient({
     getDocument: (id) => getOrNull(`/api/library/documents/${id}`),
 
     createDocument: (payload) =>
-      request('POST', '/api/library/documents', { body: payload }),
+      request('POST', '/api/library/documents', { body: payload, headers: { 'x-moomora-origin': 'agent' } }),
 
     updateDocument: (id, patch) =>
-      patchOrNull(`/api/library/documents/${id}`, patch),
+      patchOrNull(`/api/library/documents/${id}`, patch, { 'x-moomora-origin': 'agent' }),
 
     listTasks: ({ q, project, status } = {}) =>
       request('GET', '/api/tasks', { query: { q, project, status } }),
@@ -118,6 +119,12 @@ export function createMoomoraClient({
 
     listDocumentLinks: (documentId, direction) =>
       request('GET', `/api/library/documents/${documentId}/links`, { query: { direction } }),
+
+    listStaleDocuments: (project) =>
+      request('GET', '/api/library/maintenance/stale', { query: { project } }),
+
+    listOrphanDocuments: (project) =>
+      request('GET', '/api/library/maintenance/orphans', { query: { project } }),
 
     linkDocuments: (sourceId, targetId, relation) =>
       request('POST', `/api/library/documents/${sourceId}/links`, { body: { targetId, relation } }),
