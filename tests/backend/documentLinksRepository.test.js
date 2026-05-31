@@ -7,6 +7,9 @@ import {
   buildListDocumentLinks,
   normalizeLinkRow,
   createDocumentLinksRepository,
+  buildListStaleDocuments,
+  buildListOrphanDocuments,
+  normalizeStaleRow,
 } from '../../server/documentLinksRepository.js';
 
 const SRC = '11111111-1111-4111-8111-111111111111';
@@ -16,12 +19,17 @@ test('DOCUMENT_LINK_RELATIONS is the frozen MVP set', () => {
   assert.deepEqual(DOCUMENT_LINK_RELATIONS, ['derived-from', 'supersedes']);
 });
 
-test('buildLinkDocuments guards both endpoints are live and is idempotent', () => {
-  const q = buildLinkDocuments(SRC, TGT, 'derived-from');
-  assert.match(q.text, /insert into document_links/);
-  assert.match(q.text, /archived_at is null/);
-  assert.match(q.text, /on conflict .* do nothing/);
-  assert.deepEqual(q.values, [SRC, TGT, 'derived-from']);
+test('buildLinkDocuments: derived-from upserts target_hash, supersedes stays do-nothing', () => {
+  const derived = buildLinkDocuments(SRC, TGT, 'derived-from');
+  assert.match(derived.text, /insert into document_links/);
+  assert.match(derived.text, /target_hash/);
+  assert.match(derived.text, /do update set target_hash = excluded\.target_hash/);
+  assert.match(derived.text, /xmax = 0/);
+  assert.deepEqual(derived.values, [SRC, TGT, 'derived-from']);
+
+  const sup = buildLinkDocuments(SRC, TGT, 'supersedes');
+  assert.match(sup.text, /on conflict .* do nothing/);
+  assert.doesNotMatch(sup.text, /target_hash/);
 });
 
 test('buildListDocumentLinks selects outbound, inbound, or both', () => {
@@ -39,16 +47,39 @@ test('normalizeLinkRow maps a row to the public link shape', () => {
   });
 });
 
-test('linkDocuments returns linked / alreadyLinked / not-linked', async () => {
-  const inserted = { query: async () => ({ rows: [{ source_document_id: SRC }] }) };
-  assert.deepEqual(await createDocumentLinksRepository(inserted).linkDocuments(SRC, TGT, 'derived-from'), { linked: true });
-
-  let call = 0;
-  const existing = { query: async () => (call++ === 0 ? { rows: [] } : { rows: [{ '?column?': 1 }] }) };
-  assert.deepEqual(await createDocumentLinksRepository(existing).linkDocuments(SRC, TGT, 'derived-from'), { linked: true, alreadyLinked: true });
-
+test('linkDocuments(derived-from) returns linked vs alreadyLinked via the inserted flag', async () => {
+  const fresh = { query: async () => ({ rows: [{ source_document_id: SRC, inserted: true }] }) };
+  assert.deepEqual(await createDocumentLinksRepository(fresh).linkDocuments(SRC, TGT, 'derived-from'), { linked: true });
+  const refreshed = { query: async () => ({ rows: [{ source_document_id: SRC, inserted: false }] }) };
+  assert.deepEqual(await createDocumentLinksRepository(refreshed).linkDocuments(SRC, TGT, 'derived-from'), { linked: true, alreadyLinked: true });
   const missing = { query: async () => ({ rows: [] }) };
   assert.deepEqual(await createDocumentLinksRepository(missing).linkDocuments(SRC, TGT, 'derived-from'), { linked: false });
+});
+
+test('buildListStaleDocuments compares target.content_hash to the edge snapshot, optional project filter', () => {
+  const all = buildListStaleDocuments();
+  assert.match(all.text, /relation = 'derived-from'/);
+  assert.match(all.text, /content_hash is distinct from/);
+  assert.match(all.text, /target_hash is not null/);
+  assert.deepEqual(all.values, []);
+  const scoped = buildListStaleDocuments('pid');
+  assert.match(scoped.text, /project_id = \$1/);
+  assert.deepEqual(scoped.values, ['pid']);
+});
+
+test('buildListOrphanDocuments finds docs with no inbound or outbound links', () => {
+  const q = buildListOrphanDocuments();
+  assert.match(q.text, /not exists/);
+  assert.match(q.text, /source_document_id = d\.id/);
+  assert.match(q.text, /target_document_id = d\.id/);
+});
+
+test('normalizeStaleRow maps the aggregated row', () => {
+  const row = { id: SRC, title: 'Derived', document_type: 'note', project_id: 'p', updated_by: 'user', stale_sources: [{ documentId: TGT, title: 'Source' }] };
+  assert.deepEqual(normalizeStaleRow(row), {
+    documentId: SRC, title: 'Derived', documentType: 'note', projectId: 'p', updatedBy: 'user',
+    staleSources: [{ documentId: TGT, title: 'Source' }],
+  });
 });
 
 test('unlinkDocuments reports whether a row was removed', async () => {
