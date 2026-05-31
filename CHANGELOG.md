@@ -12,6 +12,21 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-05-31
+
+### Added
+
+- Document graph: typed, directional document↔document links (`derived-from`, `supersedes`)
+  with backlink retrieval, plus fetch-by-id routes (`GET /api/library/documents/:id`,
+  `GET /api/tasks/:id`), exposed over the HTTP API and MCP (`link_documents`,
+  `unlink_documents`, `list_document_links`). (#25)
+- Document provenance and a stale/orphan groom loop: per-document content hash and
+  path-stamped edit-origin (`updated_by`, from the `x-moomora-origin` header), a source-hash
+  snapshot on `derived-from` links (refreshed on re-link), and read-only stale/orphan
+  detection (`list_stale_documents`, `list_orphan_documents`, and
+  `GET /api/library/maintenance/stale|orphans`). Documents now expose `contentHash` and
+  `updatedBy`. (#26)
+
 ## [0.8.0] - 2026-05-31
 
 ### Added
@@ -172,7 +187,8 @@ fresh empty `[Unreleased]` section is started.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.7.7...v0.8.0
 [0.7.7]: https://github.com/awaybreaktoday/moomora-console/compare/v0.7.6...v0.7.7
 [0.7.6]: https://github.com/awaybreaktoday/moomora-console/compare/v0.7.5...v0.7.6
