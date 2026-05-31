@@ -75,14 +75,20 @@ export function createMoomoraClient({
     }
   }
 
+  async function getOrNull(path) {
+    try {
+      return await request('GET', path);
+    } catch (err) {
+      if (err instanceof MoomoraApiError && err.status === 404) return null;
+      throw err;
+    }
+  }
+
   return {
     listDocuments: ({ q, project, documentType } = {}) =>
       request('GET', '/api/library/documents', { query: { q, project, documentType } }),
 
-    getDocument: async (id) => {
-      const docs = await request('GET', '/api/library/documents');
-      return (Array.isArray(docs) ? docs : []).find((doc) => doc.id === id) || null;
-    },
+    getDocument: (id) => getOrNull(`/api/library/documents/${id}`),
 
     createDocument: (payload) =>
       request('POST', '/api/library/documents', { body: payload }),
@@ -93,10 +99,7 @@ export function createMoomoraClient({
     listTasks: ({ q, project, status } = {}) =>
       request('GET', '/api/tasks', { query: { q, project, status } }),
 
-    getTask: async (id) => {
-      const tasks = await request('GET', '/api/tasks');
-      return (Array.isArray(tasks) ? tasks : []).find((task) => task.id === id) || null;
-    },
+    getTask: (id) => getOrNull(`/api/tasks/${id}`),
 
     createTask: (payload) =>
       request('POST', '/api/tasks', { body: payload }),
@@ -112,6 +115,15 @@ export function createMoomoraClient({
 
     unlinkTaskDocument: (taskId, documentId) =>
       request('DELETE', `/api/tasks/${taskId}/documents/${documentId}`, {}),
+
+    listDocumentLinks: (documentId, direction) =>
+      request('GET', `/api/library/documents/${documentId}/links`, { query: { direction } }),
+
+    linkDocuments: (sourceId, targetId, relation) =>
+      request('POST', `/api/library/documents/${sourceId}/links`, { body: { targetId, relation } }),
+
+    unlinkDocuments: (sourceId, targetId, relation) =>
+      request('DELETE', `/api/library/documents/${sourceId}/links/${targetId}`, { query: { relation } }),
 
     listChecklist: (taskId) =>
       request('GET', `/api/tasks/${taskId}/checklist`, {}),
