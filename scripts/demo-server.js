@@ -1,5 +1,7 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { loadConfig } from '../server/config.js';
+
+const hashBody = (b) => createHash('sha256').update(String(b ?? '')).digest('hex');
 import { buildApp } from '../server/index.js';
 import { deriveSlug } from '../server/slug.js';
 
@@ -133,10 +135,11 @@ function createTask(seed) {
 }
 
 function createDocument(seed) {
+  const body = seed.body || '';
   return {
     id: randomUUID(),
     title: seed.title,
-    body: seed.body || '',
+    body,
     documentType: seed.documentType || 'note',
     projectId: seed.projectId || PROJECT_ID_HOMELAB,
     tags: seed.tags || [],
@@ -144,6 +147,8 @@ function createDocument(seed) {
     createdAt: seed.createdAt || now,
     updatedAt: seed.updatedAt || now,
     archivedAt: seed.archivedAt || null,
+    contentHash: hashBody(body),
+    updatedBy: seed.updatedBy || 'user',
   };
 }
 
@@ -395,6 +400,8 @@ function createMemoryLibraryRepository(documents) {
     },
     async createDocument(document) {
       const created = createDocument(document);
+      created.contentHash = hashBody(document.body);
+      created.updatedBy = document.updatedBy || 'user';
       documents.push(created);
       return created;
     },
@@ -402,6 +409,10 @@ function createMemoryLibraryRepository(documents) {
       const document = documents.find(item => item.id === id && !item.archivedAt);
       if (!document) return null;
       Object.assign(document, fields, { updatedAt: new Date().toISOString() });
+      document.updatedBy = fields.updatedBy || 'user';
+      if (Object.prototype.hasOwnProperty.call(fields, 'body')) {
+        document.contentHash = hashBody(fields.body);
+      }
       return document;
     },
     async archiveDocument(id) {
@@ -445,7 +456,7 @@ function createMemoryLibraryRepository(documents) {
 }
 
 function createMemoryDocumentLinksRepository(documentsRef) {
-  const links = []; // { sourceId, targetId, relation }
+  const links = []; // { sourceId, targetId, relation, targetHash? }
   const isLive = (id) => documentsRef.some((d) => d.id === id && !d.archivedAt);
   const toRef = (id, relation, direction) => {
     const d = documentsRef.find((doc) => doc.id === id && !doc.archivedAt);
@@ -455,10 +466,18 @@ function createMemoryDocumentLinksRepository(documentsRef) {
   return {
     async linkDocuments(sourceId, targetId, relation) {
       if (!isLive(sourceId) || !isLive(targetId)) return { linked: false };
-      if (links.some((l) => l.sourceId === sourceId && l.targetId === targetId && l.relation === relation)) {
+      const existing = links.find((l) => l.sourceId === sourceId && l.targetId === targetId && l.relation === relation);
+      if (existing) {
+        if (relation === 'derived-from') {
+          existing.targetHash = documentsRef.find((d) => d.id === targetId)?.contentHash;
+        }
         return { linked: true, alreadyLinked: true };
       }
-      links.push({ sourceId, targetId, relation });
+      const link = { sourceId, targetId, relation };
+      if (relation === 'derived-from') {
+        link.targetHash = documentsRef.find((d) => d.id === targetId)?.contentHash;
+      }
+      links.push(link);
       return { linked: true };
     },
     async unlinkDocuments(sourceId, targetId, relation) {
@@ -482,6 +501,50 @@ function createMemoryDocumentLinksRepository(documentsRef) {
         }
       }
       return out;
+    },
+    async listStaleDocuments(projectId) {
+      const results = [];
+      // Group derived-from links where stored targetHash differs from current target contentHash
+      const staleBySource = new Map();
+      for (const l of links) {
+        if (l.relation !== 'derived-from') continue;
+        if (!l.targetHash) continue;
+        const sourceDoc = documentsRef.find((d) => d.id === l.sourceId && !d.archivedAt);
+        const targetDoc = documentsRef.find((d) => d.id === l.targetId && !d.archivedAt);
+        if (!sourceDoc || !targetDoc) continue;
+        if (l.targetHash === targetDoc.contentHash) continue;
+        if (projectId && sourceDoc.projectId !== projectId) continue;
+        if (!staleBySource.has(l.sourceId)) {
+          staleBySource.set(l.sourceId, { doc: sourceDoc, staleSources: [] });
+        }
+        staleBySource.get(l.sourceId).staleSources.push({ documentId: targetDoc.id, title: targetDoc.title });
+      }
+      for (const { doc, staleSources } of staleBySource.values()) {
+        results.push({
+          documentId: doc.id,
+          title: doc.title,
+          documentType: doc.documentType,
+          projectId: doc.projectId,
+          updatedBy: doc.updatedBy || 'user',
+          staleSources,
+        });
+      }
+      return results;
+    },
+    async listOrphanDocuments(projectId) {
+      const linkedIds = new Set();
+      for (const l of links) {
+        linkedIds.add(l.sourceId);
+        linkedIds.add(l.targetId);
+      }
+      return documentsRef
+        .filter((d) => {
+          if (d.archivedAt) return false;
+          if (linkedIds.has(d.id)) return false;
+          if (projectId && d.projectId !== projectId) return false;
+          return true;
+        })
+        .map((d) => ({ documentId: d.id, title: d.title, documentType: d.documentType, projectId: d.projectId }));
     },
   };
 }

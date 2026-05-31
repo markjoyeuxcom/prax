@@ -150,6 +150,8 @@ required/optional status, and enum option sets. Shared enums: `STATUS`
 | `list_document_links` | `documentId`, `direction?:{outbound\|inbound\|both}` | yes |
 | `link_documents` | `sourceId`, `targetId`, `relation:{derived-from\|supersedes}` | — |
 | `unlink_documents` | `sourceId`, `targetId`, `relation:{derived-from\|supersedes}` | — |
+| `list_stale_documents` | `project?` | yes |
+| `list_orphan_documents` | `project?` | yes |
 
 MCP-owned output shapes:
 
@@ -170,6 +172,16 @@ between documents, created/removed/listed via the tools above and the
 `/api/library/documents/:id/links` endpoints. `GET /api/library/documents/:id` and
 `GET /api/tasks/:id` fetch a single record by id (returning archived records too). Link
 serialization into exported `.md` is not yet implemented.
+
+Document provenance: documents expose `contentHash` (SHA-256 of the body) and `updatedBy`
+(`"user"` | `"agent"`). Every document write stamps `updatedBy` from the `x-moomora-origin`
+request header; the MCP client sends `"agent"` automatically. `derived-from` links snapshot
+the target document's `contentHash` at link time and refresh it on re-link. The maintenance
+tools `list_stale_documents` and `list_orphan_documents` drive a client-side groom loop:
+stale documents are derived docs whose source changed since the snapshot (each result includes
+`updatedBy` so a loop can skip hand-edited docs); orphan documents have no inbound or outbound
+links. Both tools are served at `GET /api/library/maintenance/stale` and
+`GET /api/library/maintenance/orphans`.
 
 ## Regression tests
 
