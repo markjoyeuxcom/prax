@@ -56,6 +56,18 @@ test('linkDocuments(derived-from) returns linked vs alreadyLinked via the insert
   assert.deepEqual(await createDocumentLinksRepository(missing).linkDocuments(SRC, TGT, 'derived-from'), { linked: false });
 });
 
+test('linkDocuments(supersedes) returns linked / alreadyLinked / not-linked via the exists probe', async () => {
+  const inserted = { query: async () => ({ rows: [{ source_document_id: SRC }] }) };
+  assert.deepEqual(await createDocumentLinksRepository(inserted).linkDocuments(SRC, TGT, 'supersedes'), { linked: true });
+
+  let call = 0;
+  const existing = { query: async () => (call++ === 0 ? { rows: [] } : { rows: [{ '?column?': 1 }] }) };
+  assert.deepEqual(await createDocumentLinksRepository(existing).linkDocuments(SRC, TGT, 'supersedes'), { linked: true, alreadyLinked: true });
+
+  const missing = { query: async () => ({ rows: [] }) };
+  assert.deepEqual(await createDocumentLinksRepository(missing).linkDocuments(SRC, TGT, 'supersedes'), { linked: false });
+});
+
 test('buildListStaleDocuments compares target.content_hash to the edge snapshot, optional project filter', () => {
   const all = buildListStaleDocuments();
   assert.match(all.text, /relation = 'derived-from'/);
