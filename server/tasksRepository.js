@@ -1,3 +1,5 @@
+import { toIso } from './columnTypes.js';
+
 const ALLOWED_CREATE_FIELDS = ['title', 'description', 'priority', 'status', 'projectId', 'dueDate', 'sortOrder', 'notes'];
 const IMPORT_FIELDS = ['title', 'description', 'priority', 'status', 'projectId', 'dueDate', 'sortOrder', 'archivedAt'];
 const UPDATE_COLUMN_MAP = {
@@ -31,9 +33,9 @@ export function normalizeTaskRow(row) {
     projectId: row.project_id,
     dueDate: toDateOnly(row.due_date),
     sortOrder: row.sort_order,
-    archivedAt: row.archived_at,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    archivedAt: toIso(row.archived_at),
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
   };
 }
 
@@ -215,7 +217,7 @@ export function buildLinkExists(taskId, documentId) {
 }
 
 export function normalizeActivityRow(row) {
-  return { id: row.id, taskId: row.task_id, eventType: row.event_type, message: row.message, createdAt: row.created_at };
+  return { id: row.id, taskId: row.task_id, eventType: row.event_type, message: row.message, createdAt: toIso(row.created_at) };
 }
 
 export function buildRecordActivity(taskId, eventType, message) {

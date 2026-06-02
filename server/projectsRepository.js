@@ -1,4 +1,5 @@
 import { deriveSlug } from './slug.js';
+import { toIso } from './columnTypes.js';
 
 const UPDATE_COLUMN_MAP = {
   name: 'name',
@@ -13,8 +14,8 @@ export function normalizeProjectRow(row) {
     slug: row.slug,
     status: row.status,
     sortOrder: row.sort_order,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
   };
 }
 
