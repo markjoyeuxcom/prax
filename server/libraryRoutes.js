@@ -7,6 +7,7 @@ import {
   renderDocumentMarkdown,
   dedupeFilenames,
   libraryArchiveFilename,
+  computeLinkRef,
 } from './libraryExport.js';
 
 const DOCUMENT_TYPES = new Set(['runbook', 'note']);
@@ -121,6 +122,10 @@ export async function registerLibraryRoutes(app, options = {}) {
     }));
     dedupeFilenames(entries);
 
+    const docIds = entries.map((e) => e.doc.id);
+    const outboundByDocId = await documentLinksRepository.listOutboundLinksForDocuments(docIds);
+    const refScope = isAll ? 'all' : 'single-project';
+
     const filename = libraryArchiveFilename(scope);
     reply.header('Content-Type', 'application/zip');
     reply.header('Content-Disposition', `attachment; filename="${filename}"`);
@@ -131,7 +136,30 @@ export async function registerLibraryRoutes(app, options = {}) {
     });
 
     for (const entry of entries) {
-      const content = renderDocumentMarkdown(entry.doc, entry.doc.projectSlug);
+      const groups = outboundByDocId.get(entry.doc.id) || { 'derived-from': [], supersedes: [] };
+      const links = {
+        'derived-from': groups['derived-from'].map((e) => ({
+          id: e.targetId,
+          ref: computeLinkRef({
+            scope: refScope,
+            currentDocProjectSlug: entry.doc.projectSlug,
+            targetProjectSlug: e.targetProjectSlug,
+            targetSourceFilename: e.targetSourceFilename,
+            targetTitle: e.targetTitle,
+          }),
+        })),
+        supersedes: groups.supersedes.map((e) => ({
+          id: e.targetId,
+          ref: computeLinkRef({
+            scope: refScope,
+            currentDocProjectSlug: entry.doc.projectSlug,
+            targetProjectSlug: e.targetProjectSlug,
+            targetSourceFilename: e.targetSourceFilename,
+            targetTitle: e.targetTitle,
+          }),
+        })),
+      };
+      const content = renderDocumentMarkdown(entry.doc, entry.doc.projectSlug, links);
       archive.append(content, { name: `${entry.path}${entry.filename}` });
     }
     archive.finalize().catch((err) => {
