@@ -10,9 +10,10 @@ import {
 } from './libraryExport.js';
 
 const DOCUMENT_TYPES = new Set(['runbook', 'note']);
+const DOCUMENT_KINDS = new Set(['source', 'synthesized']);
 // 'project' (slug-or-id) is the client-facing field; 'projectId' is resolved
 // server-side and injected into the patch by the handler — never accepted raw.
-const PATCH_FIELDS = ['title', 'body', 'documentType', 'project', 'tags', 'sourceFilename'];
+const PATCH_FIELDS = ['title', 'body', 'documentType', 'project', 'tags', 'sourceFilename', 'kind'];
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -50,6 +51,7 @@ function validateDocumentPayload(payload, { partial = false } = {}) {
   if (payload.sourceFilename !== undefined && payload.sourceFilename !== null && typeof payload.sourceFilename !== 'string') {
     return 'sourceFilename is invalid';
   }
+  if (payload.kind !== undefined && !DOCUMENT_KINDS.has(payload.kind)) return 'kind is invalid';
   if (partial && !PATCH_FIELDS.some(field => payload[field] !== undefined)) return 'document update is empty';
   return null;
 }
@@ -67,6 +69,7 @@ function cleanDocumentPayload(payload) {
     projectId: payload.projectId,
     tags: cleanTags(payload.tags),
     sourceFilename: payload.sourceFilename ? payload.sourceFilename.trim() : null,
+    ...(payload.kind !== undefined ? { kind: payload.kind } : {}),
   };
 }
 
@@ -143,6 +146,10 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (request.query.project && request.query.project !== 'all') {
       projectId = await resolveProjectId(request.query.project);
       if (projectId === null) { reply.code(400); return { message: 'project is invalid' }; }
+    }
+    if (request.query.kind !== undefined && !DOCUMENT_KINDS.has(request.query.kind)) {
+      reply.code(400);
+      return { message: 'kind is invalid' };
     }
     return repository.listDocuments({ ...request.query, projectId });
   });
