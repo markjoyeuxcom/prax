@@ -12,6 +12,18 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-06-02
+
+### Fixed
+
+- Timestamps in HTTP responses and library `.md` exports now emit ISO 8601 strings.
+  Previously the `pg` driver's `Date` objects rendered as
+  `Date.prototype.toString()` form (e.g. `Tue Jun 02 2026 19:47:21 GMT+0000 (Coordinated
+  Universal Time)`) in any string-interpolated touchpoint, contradicting the contract
+  docs. Fixed at the data-layer boundary by wrapping every timestamp in the five
+  normalizers (`normalizeDocumentRow`, `normalizeTaskRow`, `normalizeActivityRow`,
+  `normalizeProjectRow`, `normalizeChecklistRow`) with a `toIso(value)` helper. (#34)
+
 ## [0.11.0] - 2026-06-02
 
 ### Added
@@ -218,7 +230,8 @@ fresh empty `[Unreleased]` section is started.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.11.1...HEAD
+[0.11.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.8.0...v0.9.0
