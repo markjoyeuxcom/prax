@@ -46,6 +46,7 @@ test('normalizeDocumentRow maps database fields to API document fields', () => {
     updatedAt: '2026-05-18T10:00:00.000Z',
     contentHash: null,
     updatedBy: undefined,
+    kind: undefined,
   });
 });
 
@@ -101,6 +102,7 @@ test('buildCreateDocument returns a parameterized insert query', () => {
     'ingress.md',
     sha('# Ingress Notes'),
     'user',
+    'source',
   ]);
 });
 
@@ -209,13 +211,13 @@ test('buildCreateDocument stamps content_hash(body) and updated_by', () => {
   const q = buildCreateDocument({ title: 't', body: 'hello', documentType: 'note', projectId: 'p', tags: [], sourceFilename: null, updatedBy: 'agent' });
   assert.match(q.text, /content_hash/);
   assert.match(q.text, /updated_by/);
-  assert.equal(q.values[q.values.length - 2], sha('hello'));
-  assert.equal(q.values[q.values.length - 1], 'agent');
+  assert.equal(q.values[q.values.length - 3], sha('hello'));
+  assert.equal(q.values[q.values.length - 2], 'agent');
 });
 
 test('buildCreateDocument defaults updated_by to user', () => {
   const q = buildCreateDocument({ title: 't', body: 'x', documentType: 'note', projectId: 'p', tags: [], sourceFilename: null });
-  assert.equal(q.values[q.values.length - 1], 'user');
+  assert.equal(q.values[q.values.length - 2], 'user');
 });
 
 test('buildUpdateDocument always stamps updated_by and recomputes hash only when body changes', () => {

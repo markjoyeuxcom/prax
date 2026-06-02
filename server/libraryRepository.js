@@ -12,6 +12,7 @@ const UPDATE_COLUMN_MAP = {
   projectId: 'project_id',
   tags: 'tags',
   sourceFilename: 'source_filename',
+  kind: 'kind',
 };
 
 function valuesFor(fields, source) {
@@ -32,6 +33,7 @@ export function normalizeDocumentRow(row) {
     updatedAt: row.updated_at,
     contentHash: row.content_hash ?? null,
     updatedBy: row.updated_by,
+    kind: row.kind,
     ...(row.project_slug !== undefined ? { projectSlug: row.project_slug } : {}),
   };
 }
@@ -39,11 +41,11 @@ export function normalizeDocumentRow(row) {
 export function buildCreateDocument(document) {
   return {
     text: `
-      insert into markdown_documents (title, body, document_type, project_id, tags, source_filename, content_hash, updated_by)
-      values ($1, $2, $3, $4, $5, $6, $7, $8)
+      insert into markdown_documents (title, body, document_type, project_id, tags, source_filename, content_hash, updated_by, kind)
+      values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       returning *
     `,
-    values: [...valuesFor(CREATE_FIELDS, document), hashBody(document.body), document.updatedBy || 'user'],
+    values: [...valuesFor(CREATE_FIELDS, document), hashBody(document.body), document.updatedBy || 'user', document.kind || 'source'],
   };
 }
 
@@ -145,6 +147,10 @@ export function createLibraryRepository(db) {
       if (filters.documentType) {
         values.push(filters.documentType);
         clauses.push(`document_type = $${values.length}`);
+      }
+      if (filters.kind) {
+        values.push(filters.kind);
+        clauses.push(`kind = $${values.length}`);
       }
       if (filters.q) {
         const terms = String(filters.q).toLowerCase().match(/[a-z0-9]+/g) || [];

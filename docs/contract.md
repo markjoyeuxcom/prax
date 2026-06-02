@@ -127,7 +127,8 @@ is one-way today. Documents are created/edited via the app, the HTTP API, or the
 The MCP server (`mcp/`) exposes these tools over stdio. Current tool names, input field names,
 required/optional status, and enum option sets. Shared enums: `STATUS`
 (`high-priority`, `in-progress`, `planned`, `completed`, `notes`), `PRIORITY` (`high`,
-`medium`, `low`), `DOCUMENT_TYPE` (`runbook`, `note`).
+`medium`, `low`), `DOCUMENT_TYPE` (`runbook`, `note`),
+`KIND` (`source`, `synthesized`).
 
 | Tool | Inputs | Read-only |
 |------|--------|-----------|
@@ -135,10 +136,10 @@ required/optional status, and enum option sets. Shared enums: `STATUS`
 | `get_task` | `id` | yes |
 | `create_task` | `title`, `project`, `description?`, `priority?:PRIORITY`, `status?:STATUS`, `dueDate?` | — |
 | `update_task` | `id`, `title?`, `description?`, `notes?`, `priority?:PRIORITY`, `status?:STATUS`, `project?`, `dueDate?` | — |
-| `search_documents` | `query?`, `project?`, `documentType?:DOCUMENT_TYPE`, `tags?` | yes |
+| `search_documents` | `query?`, `project?`, `documentType?:DOCUMENT_TYPE`, `tags?`, `kind?:KIND` | yes |
 | `get_document` | `id` | yes |
-| `create_document` | `title`, `body`, `documentType:DOCUMENT_TYPE`, `project`, `tags?` | — |
-| `update_document` | `id`, `title?`, `body?`, `documentType?:DOCUMENT_TYPE`, `project?`, `tags?` | — |
+| `create_document` | `title`, `body`, `documentType:DOCUMENT_TYPE`, `project`, `tags?`, `kind?:KIND` | — |
+| `update_document` | `id`, `title?`, `body?`, `documentType?:DOCUMENT_TYPE`, `project?`, `tags?`, `kind?:KIND` | — |
 | `list_task_documents` | `taskId` | yes |
 | `link_task_document` | `taskId`, `documentId` | — |
 | `unlink_task_document` | `taskId`, `documentId` | — |
@@ -182,6 +183,12 @@ stale documents are derived docs whose source changed since the snapshot (each r
 `updatedBy` so a loop can skip hand-edited docs); orphan documents have no inbound or outbound
 links. Both tools are served at `GET /api/library/maintenance/stale` and
 `GET /api/library/maintenance/orphans`.
+
+Document `kind` distinguishes hand-authored documents (`"source"`) from agent-synthesized
+derivations (`"synthesized"`). It is set explicitly by callers (defaulting to `"source"`),
+mutable via `update_document`, and independent of `derived-from` edges and the
+`x-moomora-origin` edit-origin header. Read paths (`get_document`, search rows, stale/orphan
+rows) include `kind`; the create/update tools accept it as an optional input.
 
 ## Regression tests
 

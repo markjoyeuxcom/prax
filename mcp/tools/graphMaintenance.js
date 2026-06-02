@@ -8,7 +8,7 @@ export function createGraphMaintenanceTools(client) {
       name: 'list_stale_documents',
       title: 'List stale documents',
       description:
-        'List synthesized documents whose derived-from source changed since synthesis. Each result includes updatedBy (skip ones a human hand-edited) and the changed sources.',
+        'List documents whose derived-from source has changed since the link was created. Each result includes kind (so agents can refresh stale synthesized docs aggressively and leave stale source docs for human review) and updatedBy.',
       annotations: { readOnlyHint: true },
       inputSchema: {
         project: z.string().optional().describe('Limit to one project (slug or id); omit for all.'),
