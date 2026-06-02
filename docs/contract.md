@@ -99,6 +99,14 @@ tags:
   - dr
 created_at: 2026-04-12T10:33:21.000Z
 updated_at: 2026-05-20T08:11:09.000Z
+kind: synthesized
+content_hash: 47421290090a9c1fbe1c5d3a7c2f9d8e4b1a6c3e8d5f2a9b7c4e1d8a5b2f9c6e3d
+updated_by: agent
+links:
+  derived-from:
+    - id: c58d3108-4f93-4a50-ac42-0c1d61e61b08
+      ref: homelab/cloudnativepg-restore.md
+  supersedes: []
 ---
 
 # Postgres restore
@@ -110,6 +118,12 @@ Steps...
 - `project` is the project slug, or `"unknown"`.
 - `tags` is `[]` when empty, otherwise a YAML block list.
 - `created_at` / `updated_at` are the raw timestamps (not quoted).
+- `kind` is `source` or `synthesized` (unquoted). `source` is the default and indicates a
+  hand-authored document; `synthesized` indicates an agent-generated derivation.
+- `content_hash` is the SHA-256 hex digest of the document body, lowercase, 64 characters,
+  unquoted. It is recomputed on every write.
+- `updated_by` is `user` or `agent` (unquoted). Set from the `x-moomora-origin` request
+  header on every write; the MCP client sends `agent` automatically.
 - A value is YAML-quoted when it contains `:`, `"`, `\`, a newline, or `#`, or starts with
   `-`, or starts/ends with whitespace; inside quotes, `\` → `\\`, newline → `\n`, `"` → `\"`.
 - **Filenames:** prefer `sourceFilename` (basename only, leading dots stripped, `.md`
@@ -117,6 +131,41 @@ Steps...
   within a folder get a `-2`, `-3`, … suffix.
 - **ZIP layout:** `moomora-console-library-<scope>-<YYYY-MM-DD>.zip`, with entries under
   `<project-slug>/<file>.md` for an all-projects export (flat for a single project).
+
+### `links:` block
+
+The `links:` block is always present, even when a document has no outbound edges — matching
+the `tags: []` convention. It captures outbound edges only; inbound edges are derivable from
+the rest of the export.
+
+Each entry is a `{ id, ref }` pair:
+
+- `id` — the target document UUID. **Authoritative.** Use this for any programmatic
+  resolution (live API lookup, cross-export join).
+- `ref` — a path-style hint. **Not authoritative.** Computed to match where the target
+  lives in the zip when possible, so humans and diff tools can navigate the export without
+  a database. `ref` computation rules, in priority order:
+  1. **All-projects export** (any target project): `<targetProjectSlug>/<targetFilename>`.
+     Resolves to a file in the zip.
+  2. **Single-project export, target in the same project**: bare `<targetFilename>`.
+     Resolves to a file in the zip (the single-project zip is flat, no project-slug folder).
+  3. **Single-project export, target in a different project**: `<targetProjectSlug>/<targetFilename>`.
+     This ref **dangles by design** — the target is not in the zip. The `id` remains
+     authoritative and can resolve the target against the live API or a different export.
+
+  `targetFilename` follows the same logic as the zip-entry filename: `sourceFilename`
+  basename, else slugified title, else `untitled.md`.
+
+Two relation keys are always present under `links:`, in this order: `derived-from` then
+`supersedes`. Empty relations render inline (`derived-from: []`); non-empty render as YAML
+block sequences with `id:` before `ref:` per entry.
+
+### Single-doc export route
+
+`GET /api/library/documents/:id/export` returns a single document rendered as v2 markdown
+(`text/markdown; charset=utf-8`) with `Content-Disposition: attachment; filename="<documentFilename>"`.
+The server fetches the document's outbound links and computes refs in single-project scope
+before rendering. Returns 404 for a missing or archived document, 400 for an invalid UUID.
 
 **Not currently supported:** library `.md` / document **import (round-trip)**. Library export
 is one-way today. Documents are created/edited via the app, the HTTP API, or the MCP
@@ -171,8 +220,8 @@ remain HTTP-only.
 Document graph: `document_links` are directed, typed edges (`derived-from`, `supersedes`)
 between documents, created/removed/listed via the tools above and the
 `/api/library/documents/:id/links` endpoints. `GET /api/library/documents/:id` and
-`GET /api/tasks/:id` fetch a single record by id (returning archived records too). Link
-serialization into exported `.md` is not yet implemented.
+`GET /api/tasks/:id` fetch a single record by id (returning archived records too). Outbound
+links are serialized into the `links:` block of every exported `.md` file (see Format 2).
 
 Document provenance: documents expose `contentHash` (SHA-256 of the body) and `updatedBy`
 (`"user"` | `"agent"`). Every document write stamps `updatedBy` from the `x-moomora-origin`

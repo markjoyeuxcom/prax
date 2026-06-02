@@ -97,6 +97,25 @@ export function buildListStaleDocuments(projectId) {
   };
 }
 
+export function buildListOutboundLinksForDocuments(docIds) {
+  return {
+    text: `
+      select dl.source_document_id,
+             dl.relation,
+             t.id as target_id,
+             p.slug as target_project_slug,
+             t.source_filename as target_source_filename,
+             t.title as target_title
+      from document_links dl
+      join markdown_documents t on t.id = dl.target_document_id and t.archived_at is null
+      join projects p on p.id = t.project_id
+      where dl.source_document_id = any($1)
+      order by dl.source_document_id, dl.relation, t.title
+    `,
+    values: [docIds],
+  };
+}
+
 export function buildListOrphanDocuments(projectId) {
   const filter = projectId ? 'and d.project_id = $1' : '';
   return {
@@ -161,6 +180,28 @@ export function createDocumentLinksRepository(db) {
       return result.rows.map((row) => ({
         documentId: row.id, title: row.title, documentType: row.document_type, projectId: row.project_id, kind: row.kind,
       }));
+    },
+    async listOutboundLinksForDocuments(docIds) {
+      const grouped = new Map();
+      if (!Array.isArray(docIds) || docIds.length === 0) return grouped;
+      const query = buildListOutboundLinksForDocuments(docIds);
+      const result = await db.query(query.text, query.values);
+      for (const row of result.rows) {
+        if (!grouped.has(row.source_document_id)) {
+          grouped.set(row.source_document_id, { 'derived-from': [], supersedes: [] });
+        }
+        const bucket = grouped.get(row.source_document_id);
+        const entry = {
+          targetId: row.target_id,
+          targetProjectSlug: row.target_project_slug,
+          targetSourceFilename: row.target_source_filename,
+          targetTitle: row.target_title,
+        };
+        if (row.relation === 'derived-from' || row.relation === 'supersedes') {
+          bucket[row.relation].push(entry);
+        }
+      }
+      return grouped;
     },
   };
 }
