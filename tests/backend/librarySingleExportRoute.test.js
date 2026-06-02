@@ -81,3 +81,42 @@ test('GET /api/library/documents/:id/export returns 404 for a missing doc', asyn
   assert.equal(res.statusCode, 404);
   await app.close();
 });
+
+test('GET /api/library/documents/:id/export returns 404 for an archived doc', async () => {
+  const ARCHIVED_DOC_ID = '33333333-3333-4333-8333-333333333333';
+  const archivedDoc = { id: ARCHIVED_DOC_ID, title: 'Old note', body: '# Old\n', documentType: 'note', projectId: PROJECT_ID, projectSlug: 'homelab', tags: [], sourceFilename: null, archivedAt: '2026-05-01T00:00:00.000Z', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-02T00:00:00.000Z', kind: 'source', contentHash: 'c'.repeat(64), updatedBy: 'user' };
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: { listTasks: async () => [], getTask: async () => null, createTask: async () => null, updateTask: async () => null, archiveTask: async () => null, restoreTask: async () => null, deleteArchivedTask: async () => null, reorderTasks: async () => [], recordActivity: async () => null, listTaskActivity: async () => [], importTasks: async () => [], replaceProjectTasks: async () => [] },
+    libraryRepository: { ...fakeLibrary(), getDocument: async (id) => (id === ARCHIVED_DOC_ID ? archivedDoc : null) },
+    projectsRepository: fakeProjects(),
+    documentLinksRepository: fakeLinks(),
+  });
+  const res = await app.inject({ method: 'GET', url: `/api/library/documents/${ARCHIVED_DOC_ID}/export` });
+  assert.equal(res.statusCode, 404);
+  await app.close();
+});
+
+test('GET /api/library/documents/:id/export resolves projectSlug via projectsRepository when absent', async () => {
+  const NO_SLUG_DOC_ID = '44444444-4444-4444-8444-444444444444';
+  const docWithoutSlug = { id: NO_SLUG_DOC_ID, title: 'No slug doc', body: '# NS\n', documentType: 'note', projectId: PROJECT_ID, tags: [], sourceFilename: null, archivedAt: null, createdAt: '2026-02-01T00:00:00.000Z', updatedAt: '2026-02-02T00:00:00.000Z', kind: 'source', contentHash: 'd'.repeat(64), updatedBy: 'user' };
+  // Note: no projectSlug field — simulates getDocument not joining projects
+  const resolveProjectCalls = [];
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: { listTasks: async () => [], getTask: async () => null, createTask: async () => null, updateTask: async () => null, archiveTask: async () => null, restoreTask: async () => null, deleteArchivedTask: async () => null, reorderTasks: async () => [], recordActivity: async () => null, listTaskActivity: async () => [], importTasks: async () => [], replaceProjectTasks: async () => [] },
+    libraryRepository: { ...fakeLibrary(), getDocument: async (id) => (id === NO_SLUG_DOC_ID ? docWithoutSlug : null) },
+    projectsRepository: {
+      resolveProject: async (value) => {
+        resolveProjectCalls.push(value);
+        return { id: PROJECT_ID, slug: 'homelab' };
+      },
+    },
+    documentLinksRepository: fakeLinks(),
+  });
+  const res = await app.inject({ method: 'GET', url: `/api/library/documents/${NO_SLUG_DOC_ID}/export` });
+  assert.equal(res.statusCode, 200);
+  assert.ok(resolveProjectCalls.includes(PROJECT_ID), 'resolveProject was called with projectId');
+  assert.match(res.body, /project: homelab/);
+  await app.close();
+});

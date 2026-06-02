@@ -263,7 +263,7 @@ export async function registerLibraryRoutes(app, options = {}) {
   app.get('/api/library/documents/:id/export', async (request, reply) => {
     if (!isValidUuid(request.params.id)) { reply.code(400); return { message: 'document id is invalid' }; }
     const doc = await repository.getDocument(request.params.id);
-    if (!doc) { reply.code(404); return { message: 'document not found' }; }
+    if (!doc || doc.archivedAt) { reply.code(404); return { message: 'document not found' }; }
 
     // The by-id query does not join projects, so projectSlug may be absent.
     // Resolve it from projectId when missing.
