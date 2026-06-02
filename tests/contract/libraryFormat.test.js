@@ -98,6 +98,19 @@ test('SHAPE: browser serializer is byte-identical to server (dual-write invarian
         supersedes: [{ id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', ref: 'c.md' }],
       },
     },
+    // Date-object fixture: locks the dual-write parity for the production data path
+    // (the pg driver returns Date objects). The ISO conversion guarantee itself lives
+    // in tests/backend/normalizers.timestamps.test.js — this fixture only proves the
+    // two formatters AGREE on Date handling.
+    {
+      doc: {
+        ...baseDoc,
+        createdAt: new Date('2026-04-12T10:33:21.000Z'),
+        updatedAt: new Date('2026-05-20T08:11:09.000Z'),
+      },
+      slug: 'homelab',
+      links: EMPTY,
+    },
   ];
   for (const { doc, slug, links } of fixtures) {
     assert.equal(buildExportedMarkdown(doc, slug, links), renderDocumentMarkdown(doc, slug, links));

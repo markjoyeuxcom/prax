@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { toIso } from './columnTypes.js';
 
 function hashBody(body) {
   return createHash('sha256').update(String(body ?? '')).digest('hex');
@@ -28,9 +29,9 @@ export function normalizeDocumentRow(row) {
     projectId: row.project_id,
     tags: row.tags || [],
     sourceFilename: row.source_filename,
-    archivedAt: row.archived_at,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    archivedAt: toIso(row.archived_at),
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
     contentHash: row.content_hash ?? null,
     updatedBy: row.updated_by,
     kind: row.kind,

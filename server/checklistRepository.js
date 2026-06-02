@@ -1,3 +1,5 @@
+import { toIso } from './columnTypes.js';
+
 export function normalizeChecklistRow(row) {
   return {
     id: row.id,
@@ -5,8 +7,8 @@ export function normalizeChecklistRow(row) {
     label: row.label,
     completed: row.completed,
     sortOrder: row.sort_order,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
   };
 }
 
