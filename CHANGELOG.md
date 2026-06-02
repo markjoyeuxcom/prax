@@ -12,6 +12,19 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-06-02
+
+### Added
+
+- Document `kind` (`"source"` / `"synthesized"`) distinguishing hand-authored documents
+  from agent-synthesized derivations. Exposed on reads (`get_document`, search rows,
+  stale/orphan rows), accepted as an optional input on `create_document` / `update_document`
+  (HTTP + MCP), and supported as a `?kind=` filter on `GET /api/library/documents` and
+  `search_documents`. Set explicitly by callers (no inference from `x-moomora-origin`);
+  mutable via `update_document` so a polished synthesized doc can be promoted to source.
+  Stale/orphan grooming rows carry `kind` so agents can refresh stale synthesized docs
+  aggressively and leave stale source docs for human review. (#29)
+
 ## [0.9.0] - 2026-05-31
 
 ### Added
@@ -187,7 +200,8 @@ fresh empty `[Unreleased]` section is started.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.7.7...v0.8.0
 [0.7.7]: https://github.com/awaybreaktoday/moomora-console/compare/v0.7.6...v0.7.7
