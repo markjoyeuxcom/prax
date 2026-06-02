@@ -4,6 +4,7 @@ import {
   buildExportedMarkdown,
   documentFilename,
   triggerDownload,
+  triggerLibraryDocumentDownload,
 } from '../../public/js/libraryExport.js';
 import { renderDocumentMarkdown } from '../../server/libraryExport.js';
 
@@ -78,5 +79,28 @@ test('triggerDownload creates an anchor, clicks it, and revokes the URL', () => 
     'click',
     'remove',
     'revoke:blob:fake',
+  ]);
+});
+
+test('triggerLibraryDocumentDownload navigates to the server export URL', () => {
+  const events = [];
+  const fakeAnchor = {
+    set href(v) { events.push(`href:${v}`); },
+    set download(v) { events.push(`download:${v}`); },
+    style: {},
+    click() { events.push('click'); },
+  };
+  const documentRef = {
+    createElement(tag) { events.push(`create:${tag}`); return fakeAnchor; },
+    body: { appendChild() { events.push('append'); }, removeChild() { events.push('remove'); } },
+  };
+  triggerLibraryDocumentDownload('11111111-1111-4111-8111-111111111111', { documentRef });
+  assert.deepEqual(events, [
+    'create:a',
+    'href:/api/library/documents/11111111-1111-4111-8111-111111111111/export',
+    'download:',
+    'append',
+    'click',
+    'remove',
   ]);
 });

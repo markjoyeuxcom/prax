@@ -7,6 +7,7 @@ import {
   renderDocumentMarkdown,
   dedupeFilenames,
   libraryArchiveFilename,
+  buildLinksFromGroups,
 } from './libraryExport.js';
 
 const DOCUMENT_TYPES = new Set(['runbook', 'note']);
@@ -121,6 +122,10 @@ export async function registerLibraryRoutes(app, options = {}) {
     }));
     dedupeFilenames(entries);
 
+    const docIds = entries.map((e) => e.doc.id);
+    const outboundByDocId = await documentLinksRepository.listOutboundLinksForDocuments(docIds);
+    const refScope = isAll ? 'all' : 'single-project';
+
     const filename = libraryArchiveFilename(scope);
     reply.header('Content-Type', 'application/zip');
     reply.header('Content-Disposition', `attachment; filename="${filename}"`);
@@ -131,7 +136,9 @@ export async function registerLibraryRoutes(app, options = {}) {
     });
 
     for (const entry of entries) {
-      const content = renderDocumentMarkdown(entry.doc, entry.doc.projectSlug);
+      const groups = outboundByDocId.get(entry.doc.id) || { 'derived-from': [], supersedes: [] };
+      const links = buildLinksFromGroups(groups, { scope: refScope, currentDocProjectSlug: entry.doc.projectSlug });
+      const content = renderDocumentMarkdown(entry.doc, entry.doc.projectSlug, links);
       archive.append(content, { name: `${entry.path}${entry.filename}` });
     }
     archive.finalize().catch((err) => {
@@ -251,6 +258,28 @@ export async function registerLibraryRoutes(app, options = {}) {
     const direction = request.query.direction || 'both';
     if (!['outbound', 'inbound', 'both'].includes(direction)) { reply.code(400); return { message: 'direction is invalid' }; }
     return documentLinksRepository.listDocumentLinks(request.params.id, direction);
+  });
+
+  app.get('/api/library/documents/:id/export', async (request, reply) => {
+    if (!isValidUuid(request.params.id)) { reply.code(400); return { message: 'document id is invalid' }; }
+    const doc = await repository.getDocument(request.params.id);
+    if (!doc || doc.archivedAt) { reply.code(404); return { message: 'document not found' }; }
+
+    // The by-id query does not join projects, so projectSlug may be absent.
+    // Resolve it from projectId when missing.
+    if (!doc.projectSlug) {
+      const project = await projectsRepository.resolveProject(doc.projectId);
+      doc.projectSlug = project ? project.slug : 'unknown';
+    }
+
+    const outboundByDocId = await documentLinksRepository.listOutboundLinksForDocuments([doc.id]);
+    const groups = outboundByDocId.get(doc.id) || { 'derived-from': [], supersedes: [] };
+    const links = buildLinksFromGroups(groups, { scope: 'single-project', currentDocProjectSlug: doc.projectSlug });
+    const filename = documentFilename(doc);
+    const content = renderDocumentMarkdown(doc, doc.projectSlug, links);
+    reply.header('Content-Type', 'text/markdown; charset=utf-8');
+    reply.header('Content-Disposition', `attachment; filename="${filename}"`);
+    return content;
   });
 
   app.post('/api/library/documents/:id/links', async (request, reply) => {

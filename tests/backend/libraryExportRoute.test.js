@@ -63,11 +63,23 @@ function createFakeLibrary(docs) {
   };
 }
 
-async function buildTestApp(docs) {
+function createFakeDocumentLinks(outboundMap = new Map()) {
+  return {
+    async listDocumentLinks() { return []; },
+    async linkDocuments() { return { linked: true, alreadyLinked: false }; },
+    async unlinkDocuments() { return true; },
+    async listStaleDocuments() { return []; },
+    async listOrphanDocuments() { return []; },
+    async listOutboundLinksForDocuments() { return outboundMap; },
+  };
+}
+
+async function buildTestApp(docs, outboundMap = new Map()) {
   return buildApp({
     skipDb: true,
     libraryRepository: createFakeLibrary(docs),
     projectsRepository: createFakeProjects(),
+    documentLinksRepository: createFakeDocumentLinks(outboundMap),
   });
 }
 
@@ -166,6 +178,7 @@ test('GET /api/library/export propagates listActiveDocumentsForExport errors as 
     skipDb: true,
     libraryRepository: failingLibrary,
     projectsRepository: createFakeProjects(),
+    documentLinksRepository: createFakeDocumentLinks(),
   });
   const response = await app.inject({ method: 'GET', url: '/api/library/export?project=all' });
   await app.close();
@@ -173,4 +186,72 @@ test('GET /api/library/export propagates listActiveDocumentsForExport errors as 
   assert.equal(response.statusCode, 500);
   // Fastify's default error response is JSON with a `message` field; the body should NOT be a ZIP
   assert.doesNotMatch(response.headers['content-type'] || '', /application\/zip/);
+});
+
+const DOC_A_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const DOC_B_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const LINK_DOCS = [
+  {
+    id: DOC_A_ID,
+    title: 'Cloudflare plan',
+    body: '# Cloudflare plan\n',
+    documentType: 'note',
+    projectId: PROJECT_HOMELAB,
+    projectSlug: 'homelab',
+    tags: [],
+    sourceFilename: null,
+    archivedAt: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-02T00:00:00.000Z',
+    kind: 'source',
+    contentHash: 'a'.repeat(64),
+    updatedBy: 'user',
+  },
+  {
+    id: DOC_B_ID,
+    title: 'Postgres restore',
+    body: '# Postgres restore\n',
+    documentType: 'runbook',
+    projectId: PROJECT_HOMELAB,
+    projectSlug: 'homelab',
+    tags: [],
+    sourceFilename: null,
+    archivedAt: null,
+    createdAt: '2026-01-03T00:00:00.000Z',
+    updatedAt: '2026-01-04T00:00:00.000Z',
+    kind: 'synthesized',
+    contentHash: 'b'.repeat(64),
+    updatedBy: 'agent',
+  },
+];
+
+test('GET /api/library/export emits v2 front-matter with links for linked docs', async () => {
+  const outboundMap = new Map([
+    [DOC_B_ID, {
+      'derived-from': [{
+        targetId: DOC_A_ID,
+        targetProjectSlug: 'homelab',
+        targetSourceFilename: null,
+        targetTitle: 'Cloudflare plan',
+      }],
+      supersedes: [],
+    }],
+  ]);
+  const app = await buildTestApp(LINK_DOCS, outboundMap);
+  const response = await app.inject({ method: 'GET', url: '/api/library/export?project=homelab' });
+  await app.close();
+
+  assert.equal(response.statusCode, 200);
+
+  const entries = readZipEntries(response.rawPayload);
+  const docA = entries.find(e => e.name === 'cloudflare-plan.md');
+  const docB = entries.find(e => e.name === 'postgres-restore.md');
+  assert.ok(docA, 'cloudflare-plan.md should be present in ZIP');
+  assert.ok(docB, 'postgres-restore.md should be present in ZIP');
+
+  // Doc A has no outbound links — must emit the always-empty form
+  assert.match(docA.body, /links:\n  derived-from: \[\]\n  supersedes: \[\]/);
+
+  // Doc B is derived-from A — single-project export → bare filename ref
+  assert.match(docB.body, new RegExp(`- id: ${DOC_A_ID}\\n      ref: cloudflare-plan\\.md`));
 });

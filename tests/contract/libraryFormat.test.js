@@ -22,6 +22,9 @@ const GOLDEN_DOC = {
   tags: ['postgres', 'dr'],
   createdAt: '2026-04-12T10:33:21.000Z',
   updatedAt: '2026-05-20T08:11:09.000Z',
+  kind: 'source',
+  contentHash: '47421290090a9c1fbe1c5d3a7c2f9d8e4b1a6c3e8d5f2a9b7c4e1d8a5b2f9c6e3d',
+  updatedBy: 'user',
 };
 
 const GOLDEN_MARKDOWN = `---
@@ -33,6 +36,12 @@ tags:
   - dr
 created_at: 2026-04-12T10:33:21.000Z
 updated_at: 2026-05-20T08:11:09.000Z
+kind: source
+content_hash: 47421290090a9c1fbe1c5d3a7c2f9d8e4b1a6c3e8d5f2a9b7c4e1d8a5b2f9c6e3d
+updated_by: user
+links:
+  derived-from: []
+  supersedes: []
 ---
 
 # Postgres restore
@@ -65,14 +74,33 @@ test('SHAPE: renderDocumentMarkdown emits the documented front-matter format', (
 });
 
 test('SHAPE: browser serializer is byte-identical to server (dual-write invariant)', () => {
+  const HASH = '47421290090a9c1fbe1c5d3a7c2f9d8e4b1a6c3e8d5f2a9b7c4e1d8a5b2f9c6e3d';
+  const EMPTY = { 'derived-from': [], supersedes: [] };
+  const baseDoc = { ...GOLDEN_DOC, sourceFilename: null };
   const fixtures = [
-    { doc: { ...GOLDEN_DOC, sourceFilename: null }, slug: 'homelab' },
-    { doc: { ...GOLDEN_DOC, title: 'Has: colon', sourceFilename: null }, slug: 'homelab' },
-    { doc: { ...GOLDEN_DOC, title: '#heading', sourceFilename: null }, slug: 'homelab' },
-    { doc: { ...GOLDEN_DOC, tags: [], body: '', sourceFilename: null }, slug: 'homelab' },
+    { doc: baseDoc, slug: 'homelab', links: EMPTY },
+    { doc: { ...baseDoc, title: 'Has: colon' }, slug: 'homelab', links: EMPTY },
+    { doc: { ...baseDoc, tags: [], body: '' }, slug: 'homelab', links: EMPTY },
+    {
+      doc: baseDoc, slug: 'homelab',
+      links: {
+        'derived-from': [{ id: 'c58d3108-4f93-4a50-ac42-0c1d61e61b08', ref: 'homelab/x.md' }],
+        supersedes: [],
+      },
+    },
+    {
+      doc: { ...baseDoc, kind: 'synthesized', updatedBy: 'agent', contentHash: HASH }, slug: 'homelab',
+      links: {
+        'derived-from': [
+          { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', ref: 'homelab/a.md' },
+          { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', ref: 'work/b.md' },
+        ],
+        supersedes: [{ id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', ref: 'c.md' }],
+      },
+    },
   ];
-  for (const { doc, slug } of fixtures) {
-    assert.equal(buildExportedMarkdown(doc, slug), renderDocumentMarkdown(doc, slug));
+  for (const { doc, slug, links } of fixtures) {
+    assert.equal(buildExportedMarkdown(doc, slug, links), renderDocumentMarkdown(doc, slug, links));
   }
 });
 
