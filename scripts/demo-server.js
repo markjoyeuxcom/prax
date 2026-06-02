@@ -553,6 +553,30 @@ function createMemoryDocumentLinksRepository(documentsRef) {
         })
         .map((d) => ({ documentId: d.id, title: d.title, documentType: d.documentType, projectId: d.projectId, kind: d.kind }));
     },
+    async listOutboundLinksForDocuments(docIds) {
+      const grouped = new Map();
+      if (!Array.isArray(docIds) || docIds.length === 0) return grouped;
+      const ids = new Set(docIds);
+      for (const l of links) {
+        if (!ids.has(l.sourceId)) continue;
+        const target = documentsRef.find((d) => d.id === l.targetId && !d.archivedAt);
+        if (!target) continue;
+        const targetProject = sharedProjects.find((p) => p.id === target.projectId);
+        if (!grouped.has(l.sourceId)) {
+          grouped.set(l.sourceId, { 'derived-from': [], supersedes: [] });
+        }
+        const bucket = grouped.get(l.sourceId);
+        if (l.relation === 'derived-from' || l.relation === 'supersedes') {
+          bucket[l.relation].push({
+            targetId: target.id,
+            targetProjectSlug: targetProject ? targetProject.slug : 'unknown',
+            targetSourceFilename: target.sourceFilename,
+            targetTitle: target.title,
+          });
+        }
+      }
+      return grouped;
+    },
   };
 }
 
