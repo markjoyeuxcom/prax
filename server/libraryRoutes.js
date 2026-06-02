@@ -142,14 +142,14 @@ export async function registerLibraryRoutes(app, options = {}) {
   });
 
   app.get('/api/library/documents', async (request, reply) => {
+    if (request.query.kind !== undefined && !DOCUMENT_KINDS.has(request.query.kind)) {
+      reply.code(400);
+      return { message: 'kind is invalid' };
+    }
     let projectId;
     if (request.query.project && request.query.project !== 'all') {
       projectId = await resolveProjectId(request.query.project);
       if (projectId === null) { reply.code(400); return { message: 'project is invalid' }; }
-    }
-    if (request.query.kind !== undefined && !DOCUMENT_KINDS.has(request.query.kind)) {
-      reply.code(400);
-      return { message: 'kind is invalid' };
     }
     return repository.listDocuments({ ...request.query, projectId });
   });
