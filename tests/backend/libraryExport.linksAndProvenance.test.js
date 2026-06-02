@@ -4,6 +4,7 @@ import {
   formatFrontMatter,
   renderDocumentMarkdown,
   computeLinkRef,
+  buildLinksFromGroups,
 } from '../../server/libraryExport.js';
 
 const HASH = '47421290090a9c1fbe1c5d3a7c2f9d8e4b1a6c3e8d5f2a9b7c4e1d8a5b2f9c6e3d';
@@ -137,4 +138,25 @@ test('computeLinkRef: prefers sourceFilename basename when present', () => {
     targetTitle: 'Whatever',
   });
   assert.equal(ref, 'homelab/restore.md');
+});
+
+test('buildLinksFromGroups: happy path maps entries to { id, ref } using computeLinkRef', () => {
+  const groups = {
+    'derived-from': [
+      { targetId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', targetProjectSlug: 'homelab', targetSourceFilename: null, targetTitle: 'Cloudflare plan' },
+    ],
+    supersedes: [
+      { targetId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', targetProjectSlug: 'homelab', targetSourceFilename: null, targetTitle: 'Old plan' },
+    ],
+  };
+  const result = buildLinksFromGroups(groups, { scope: 'single-project', currentDocProjectSlug: 'homelab' });
+  assert.deepEqual(result['derived-from'], [{ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', ref: 'cloudflare-plan.md' }]);
+  assert.deepEqual(result.supersedes, [{ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', ref: 'old-plan.md' }]);
+});
+
+test('buildLinksFromGroups: empty groups return empty arrays for both relations', () => {
+  const groups = { 'derived-from': [], supersedes: [] };
+  const result = buildLinksFromGroups(groups, { scope: 'all', currentDocProjectSlug: 'homelab' });
+  assert.deepEqual(result['derived-from'], []);
+  assert.deepEqual(result.supersedes, []);
 });

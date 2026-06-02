@@ -113,6 +113,23 @@ export function dedupeFilenames(entries) {
   }
 }
 
+export function buildLinksFromGroups(groups, { scope, currentDocProjectSlug }) {
+  const mapEntries = (entries) => (entries || []).map((e) => ({
+    id: e.targetId,
+    ref: computeLinkRef({
+      scope,
+      currentDocProjectSlug,
+      targetProjectSlug: e.targetProjectSlug,
+      targetSourceFilename: e.targetSourceFilename,
+      targetTitle: e.targetTitle,
+    }),
+  }));
+  return {
+    'derived-from': mapEntries(groups['derived-from']),
+    supersedes: mapEntries(groups.supersedes),
+  };
+}
+
 export function libraryArchiveFilename(scope, date = new Date()) {
   const safe = String(scope || 'all')
     .toLowerCase()
