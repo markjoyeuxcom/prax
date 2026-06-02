@@ -81,7 +81,7 @@ export function buildListStaleDocuments(projectId) {
   const filter = projectId ? 'and d.project_id = $1' : '';
   return {
     text: `
-      select d.id, d.title, d.document_type, d.project_id, d.updated_by,
+      select d.id, d.title, d.document_type, d.project_id, d.updated_by, d.kind,
              json_agg(json_build_object('documentId', tgt.id, 'title', tgt.title)) as stale_sources
       from document_links dl
       join markdown_documents d on d.id = dl.source_document_id and d.archived_at is null
@@ -90,7 +90,7 @@ export function buildListStaleDocuments(projectId) {
         and dl.target_hash is not null
         and tgt.content_hash is distinct from dl.target_hash
         ${filter}
-      group by d.id, d.title, d.document_type, d.project_id, d.updated_by
+      group by d.id, d.title, d.document_type, d.project_id, d.updated_by, d.kind
       order by d.title
     `,
     values: projectId ? [projectId] : [],
@@ -101,7 +101,7 @@ export function buildListOrphanDocuments(projectId) {
   const filter = projectId ? 'and d.project_id = $1' : '';
   return {
     text: `
-      select d.id, d.title, d.document_type, d.project_id
+      select d.id, d.title, d.document_type, d.project_id, d.kind
       from markdown_documents d
       where d.archived_at is null
         and not exists (select 1 from document_links dl where dl.source_document_id = d.id)
@@ -120,6 +120,7 @@ export function normalizeStaleRow(row) {
     documentType: row.document_type,
     projectId: row.project_id,
     updatedBy: row.updated_by,
+    kind: row.kind,
     staleSources: row.stale_sources || [],
   };
 }
@@ -158,7 +159,7 @@ export function createDocumentLinksRepository(db) {
       const query = buildListOrphanDocuments(projectId);
       const result = await db.query(query.text, query.values);
       return result.rows.map((row) => ({
-        documentId: row.id, title: row.title, documentType: row.document_type, projectId: row.project_id,
+        documentId: row.id, title: row.title, documentType: row.document_type, projectId: row.project_id, kind: row.kind,
       }));
     },
   };
