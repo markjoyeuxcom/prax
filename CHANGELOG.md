@@ -12,6 +12,24 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-06-02
+
+### Added
+
+- Library `.md` export front-matter v2: outbound document links
+  (`derived-from` / `supersedes`) with a hybrid `{ id, ref }` identifier per
+  target, content hash, edit origin (`updated_by`), and `kind`. New
+  `GET /api/library/documents/:id/export` route renders a single document as
+  v2 markdown server-side (`text/markdown; charset=utf-8`, `Content-Disposition:
+  attachment`). The browser single-doc download now navigates to this route
+  instead of rendering client-side. Export-only — no import path, no YAML
+  version field; v1 readers silently accept v2 since YAML ignores unknown
+  keys. (#32)
+
+### Changed
+
+- Bumped `archiver` to 8.0.0 (ESM-only, named `ZipArchive` export). (#31)
+
 ## [0.10.0] - 2026-06-02
 
 ### Added
@@ -200,7 +218,8 @@ fresh empty `[Unreleased]` section is started.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.7.7...v0.8.0
