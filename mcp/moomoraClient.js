@@ -86,8 +86,8 @@ export function createMoomoraClient({
   }
 
   return {
-    listDocuments: ({ q, project, documentType } = {}) =>
-      request('GET', '/api/library/documents', { query: { q, project, documentType } }),
+    listDocuments: ({ q, project, documentType, kind } = {}) =>
+      request('GET', '/api/library/documents', { query: { q, project, documentType, kind } }),
 
     getDocument: (id) => getOrNull(`/api/library/documents/${id}`),
 

@@ -15,10 +15,10 @@ const FROZEN_TOOLS = {
   get_task: { required: ['id'], optional: [] },
   create_task: { required: ['title', 'project'], optional: ['description', 'priority', 'status', 'dueDate'] },
   update_task: { required: ['id'], optional: ['title', 'description', 'notes', 'priority', 'status', 'project', 'dueDate'] },
-  search_documents: { required: [], optional: ['query', 'project', 'documentType', 'tags'] },
+  search_documents: { required: [], optional: ['query', 'project', 'documentType', 'tags', 'kind'] },
   get_document: { required: ['id'], optional: [] },
-  create_document: { required: ['title', 'body', 'documentType', 'project'], optional: ['tags'] },
-  update_document: { required: ['id'], optional: ['title', 'body', 'documentType', 'project', 'tags'] },
+  create_document: { required: ['title', 'body', 'documentType', 'project'], optional: ['tags', 'kind'] },
+  update_document: { required: ['id'], optional: ['title', 'body', 'documentType', 'project', 'tags', 'kind'] },
   list_task_documents: { required: ['taskId'], optional: [] },
   link_task_document: { required: ['taskId', 'documentId'], optional: [] },
   unlink_task_document: { required: ['taskId', 'documentId'], optional: [] },
@@ -89,6 +89,11 @@ test('SHAPE: tool enums expose exactly the documented option sets', () => {
   assertEnum(get('create_task', 'status'), STATUS);
   assertEnum(get('search_documents', 'documentType'), DOCUMENT_TYPE);
   assertEnum(get('create_document', 'documentType'), DOCUMENT_TYPE);
+
+  const KIND = ['source', 'synthesized'];
+  assertEnum(get('search_documents', 'kind'), KIND);
+  assertEnum(get('create_document', 'kind'), KIND);
+  assertEnum(get('update_document', 'kind'), KIND);
 
   const RELATION = ['derived-from', 'supersedes'];
   const DIRECTION = ['outbound', 'inbound', 'both'];

@@ -29,7 +29,7 @@ test('search_documents maps args to listDocuments and returns refs without bodie
   };
   const tool = byName(createDocumentTools(client), 'search_documents');
   const res = await tool.handler({ query: 'upgrade', project: 'homelab' });
-  assert.deepEqual(received, { q: 'upgrade', project: 'homelab', documentType: undefined });
+  assert.deepEqual(received, { q: 'upgrade', project: 'homelab', documentType: undefined, kind: undefined });
   const data = JSON.parse(res.content[0].text);
   assert.equal(data.length, 1);
   assert.equal('body' in data[0], false);
@@ -41,7 +41,7 @@ test('search_documents allows an omitted query (browse by project/tags)', async 
   const client = { listDocuments: async (filters) => { received = filters; return [SAMPLE_DOC]; } };
   const tool = byName(createDocumentTools(client), 'search_documents');
   const res = await tool.handler({ project: 'homelab' });
-  assert.deepEqual(received, { q: undefined, project: 'homelab', documentType: undefined });
+  assert.deepEqual(received, { q: undefined, project: 'homelab', documentType: undefined, kind: undefined });
   assert.equal(JSON.parse(res.content[0].text).length, 1);
 });
 
