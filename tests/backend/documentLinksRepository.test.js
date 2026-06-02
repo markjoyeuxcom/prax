@@ -87,9 +87,9 @@ test('buildListOrphanDocuments finds docs with no inbound or outbound links', ()
 });
 
 test('normalizeStaleRow maps the aggregated row', () => {
-  const row = { id: SRC, title: 'Derived', document_type: 'note', project_id: 'p', updated_by: 'user', stale_sources: [{ documentId: TGT, title: 'Source' }] };
+  const row = { id: SRC, title: 'Derived', document_type: 'note', project_id: 'p', updated_by: 'user', kind: 'source', stale_sources: [{ documentId: TGT, title: 'Source' }] };
   assert.deepEqual(normalizeStaleRow(row), {
-    documentId: SRC, title: 'Derived', documentType: 'note', projectId: 'p', updatedBy: 'user',
+    documentId: SRC, title: 'Derived', documentType: 'note', projectId: 'p', updatedBy: 'user', kind: 'source',
     staleSources: [{ documentId: TGT, title: 'Source' }],
   });
 });

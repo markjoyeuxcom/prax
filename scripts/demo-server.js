@@ -149,6 +149,7 @@ function createDocument(seed) {
     archivedAt: seed.archivedAt || null,
     contentHash: hashBody(body),
     updatedBy: seed.updatedBy || 'user',
+    kind: seed.kind || 'source',
   };
 }
 
@@ -390,6 +391,7 @@ function createMemoryLibraryRepository(documents) {
       return documents.filter((document) => {
         if (filters.projectId && document.projectId !== filters.projectId) return false;
         if (filters.documentType && document.documentType !== filters.documentType) return false;
+        if (filters.kind && document.kind !== filters.kind) return false;
         if (!matchesArchived(document, filters.archived)) return false;
         if (filters.q) {
           const query = String(filters.q).toLowerCase();
@@ -402,6 +404,7 @@ function createMemoryLibraryRepository(documents) {
       const created = createDocument(document);
       created.contentHash = hashBody(document.body);
       created.updatedBy = document.updatedBy || 'user';
+      created.kind = document.kind || 'source';
       documents.push(created);
       return created;
     },
@@ -412,6 +415,9 @@ function createMemoryLibraryRepository(documents) {
       document.updatedBy = fields.updatedBy || 'user';
       if (Object.prototype.hasOwnProperty.call(fields, 'body')) {
         document.contentHash = hashBody(fields.body);
+      }
+      if (Object.prototype.hasOwnProperty.call(fields, 'kind')) {
+        document.kind = fields.kind;
       }
       return document;
     },
@@ -526,6 +532,7 @@ function createMemoryDocumentLinksRepository(documentsRef) {
           documentType: doc.documentType,
           projectId: doc.projectId,
           updatedBy: doc.updatedBy || 'user',
+          kind: doc.kind,
           staleSources,
         });
       }
@@ -544,7 +551,7 @@ function createMemoryDocumentLinksRepository(documentsRef) {
           if (projectId && d.projectId !== projectId) return false;
           return true;
         })
-        .map((d) => ({ documentId: d.id, title: d.title, documentType: d.documentType, projectId: d.projectId }));
+        .map((d) => ({ documentId: d.id, title: d.title, documentType: d.documentType, projectId: d.projectId, kind: d.kind }));
     },
   };
 }

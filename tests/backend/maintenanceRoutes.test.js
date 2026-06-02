@@ -11,8 +11,8 @@ function build(overrides = {}) {
     libraryRepository: { async getDocument() { return null; } },
     projectsRepository: { async resolveProject(v) { return (v === 'homelab' || v === PROJECT_UUID) ? { id: PROJECT_UUID, slug: 'homelab' } : null; } },
     documentLinksRepository: {
-      async listStaleDocuments(projectId) { return [{ documentId: D, title: 'Derived', documentType: 'note', projectId: projectId || null, updatedBy: 'user', staleSources: [] }]; },
-      async listOrphanDocuments() { return [{ documentId: D, title: 'Lonely', documentType: 'note', projectId: null }]; },
+      async listStaleDocuments(projectId) { return [{ documentId: D, title: 'Derived', documentType: 'note', kind: 'source', projectId: projectId || null, updatedBy: 'user', staleSources: [] }]; },
+      async listOrphanDocuments() { return [{ documentId: D, title: 'Lonely', documentType: 'note', kind: 'source', projectId: null }]; },
       ...overrides,
     },
   });

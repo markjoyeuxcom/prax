@@ -4,6 +4,7 @@ import { okResult, errorResult, withErrorHandling } from '../toolResult.js';
 import { toDocumentRef, capResults } from '../shape.js';
 
 const DOCUMENT_TYPE = z.enum(['runbook', 'note']);
+const DOCUMENT_KIND = z.enum(['source', 'synthesized']);
 
 export function createDocumentTools(client) {
   return [
@@ -18,9 +19,10 @@ export function createDocumentTools(client) {
         project: z.string().optional().describe('Limit to one project (slug or id); omit to search all.'),
         documentType: DOCUMENT_TYPE.optional().describe('Limit to runbooks or notes.'),
         tags: z.array(z.string()).optional().describe('Require all of these tags.'),
+        kind: DOCUMENT_KIND.optional().describe('Limit to hand-authored sources or agent-synthesized derivations.'),
       },
-      handler: withErrorHandling(async ({ query, project, documentType, tags }) => {
-        const docs = await client.listDocuments({ q: query, project, documentType });
+      handler: withErrorHandling(async ({ query, project, documentType, tags, kind }) => {
+        const docs = await client.listDocuments({ q: query, project, documentType, kind });
         let refs = (Array.isArray(docs) ? docs : []).map(toDocumentRef);
         if (Array.isArray(tags) && tags.length > 0) {
           refs = refs.filter((ref) => tags.every((tag) => ref.tags.includes(tag)));
@@ -47,13 +49,14 @@ export function createDocumentTools(client) {
     {
       name: 'create_document',
       title: 'Create document',
-      description: 'Create a new library runbook or note.',
+      description: 'Create a new library runbook or note. Pass kind: "synthesized" for agent-generated derivations.',
       inputSchema: {
         title: z.string().min(1).describe('Document title.'),
         body: z.string().describe('Markdown body.'),
         documentType: DOCUMENT_TYPE,
         project: z.string().describe('Project slug or id.'),
         tags: z.array(z.string()).optional(),
+        kind: DOCUMENT_KIND.optional().describe('"source" (default) for hand-authored, "synthesized" for agent-generated.'),
       },
       handler: withErrorHandling(async (args) => {
         const doc = await client.createDocument(args);
@@ -63,7 +66,7 @@ export function createDocumentTools(client) {
     {
       name: 'update_document',
       title: 'Update document',
-      description: 'Update one or more fields of an existing library document.',
+      description: 'Update one or more fields of an existing library document. Set kind to promote/demote.',
       inputSchema: {
         id: z.string().describe('Document UUID.'),
         title: z.string().min(1).optional(),
@@ -71,6 +74,7 @@ export function createDocumentTools(client) {
         documentType: DOCUMENT_TYPE.optional(),
         project: z.string().optional().describe('Project slug or id.'),
         tags: z.array(z.string()).optional(),
+        kind: DOCUMENT_KIND.optional().describe('Promote synthesized → source or vice versa.'),
       },
       handler: withErrorHandling(async ({ id, ...patch }) => {
         if (!isValidUuid(id)) return errorResult('id must be a valid UUID.');
