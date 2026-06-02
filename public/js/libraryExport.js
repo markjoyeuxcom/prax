@@ -93,3 +93,17 @@ export function triggerDownload(filename, blob, options = {}) {
   documentRef.body.removeChild(anchor);
   URLRef.revokeObjectURL(url);
 }
+
+export function triggerLibraryDocumentDownload(documentId, options = {}) {
+  const documentRef = options.documentRef || document;
+  const url = `/api/library/documents/${documentId}/export`;
+  const anchor = documentRef.createElement('a');
+  anchor.href = url;
+  // Empty download attribute lets the browser honor the server's
+  // Content-Disposition filename header.
+  anchor.download = '';
+  anchor.style.display = 'none';
+  documentRef.body.appendChild(anchor);
+  anchor.click();
+  documentRef.body.removeChild(anchor);
+}

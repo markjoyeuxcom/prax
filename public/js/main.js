@@ -69,7 +69,7 @@ import {
   savedLibraryViewsFromJson,
 } from './librarySavedViews.js';
 import { installKeyboardShortcuts } from './keyboardShortcuts.js';
-import { buildExportedMarkdown, documentFilename as libraryDocumentFilename, triggerDownload as libraryTriggerDownload } from './libraryExport.js';
+import { triggerLibraryDocumentDownload } from './libraryExport.js';
 
 const app = document.getElementById('app');
 const SAVED_LIBRARY_VIEWS_KEY = 'moomora.librarySavedViews.v1';
@@ -1874,13 +1874,8 @@ function bindDocumentFormEvents() {
 }
 
 function exportLibraryDocument(documentId) {
-  const doc = state.documents.find(d => d.id === documentId);
-  if (!doc) return;
-  const project = state.projects.find(p => p.id === doc.projectId);
-  const slug = project?.slug || 'unknown';
-  const markdown = buildExportedMarkdown(doc, slug);
-  const blob = new Blob([markdown], { type: 'text/markdown' });
-  libraryTriggerDownload(libraryDocumentFilename(doc), blob);
+  // Server renders v2 markdown (front-matter v2 + outbound link refs).
+  triggerLibraryDocumentDownload(documentId);
 }
 
 async function exportAdminTasks(project) {
