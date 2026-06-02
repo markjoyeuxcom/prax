@@ -7,12 +7,32 @@ function yamlString(value) {
   return `"${str.replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/"/g, '\\"')}"`;
 }
 
-function formatFrontMatter(doc, projectSlug) {
+function renderLinksBlock(links) {
+  const groups = links || { 'derived-from': [], supersedes: [] };
+  const relationOrder = ['derived-from', 'supersedes'];
+  const lines = ['links:'];
+  for (const relation of relationOrder) {
+    const entries = Array.isArray(groups[relation]) ? groups[relation] : [];
+    if (entries.length === 0) {
+      lines.push(`  ${relation}: []`);
+      continue;
+    }
+    lines.push(`  ${relation}:`);
+    for (const entry of entries) {
+      lines.push(`    - id: ${entry.id}`);
+      lines.push(`      ref: ${yamlString(entry.ref || '')}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+function formatFrontMatter(doc, projectSlug, links) {
   const tags = Array.isArray(doc.tags) ? doc.tags : [];
   const tagsBlock = tags.length === 0
     ? 'tags: []'
     : `tags:\n${tags.map(tag => `  - ${yamlString(tag)}`).join('\n')}`;
   const slug = projectSlug && String(projectSlug).trim() ? String(projectSlug) : 'unknown';
+  const linksBlock = renderLinksBlock(links);
 
   return [
     '---',
@@ -22,13 +42,17 @@ function formatFrontMatter(doc, projectSlug) {
     tagsBlock,
     `created_at: ${doc.createdAt || ''}`,
     `updated_at: ${doc.updatedAt || ''}`,
+    `kind: ${doc.kind || 'source'}`,
+    `content_hash: ${doc.contentHash || ''}`,
+    `updated_by: ${doc.updatedBy || 'user'}`,
+    linksBlock,
     '---',
     '',
   ].join('\n');
 }
 
-export function buildExportedMarkdown(doc, projectSlug) {
-  const frontMatter = formatFrontMatter(doc, projectSlug);
+export function buildExportedMarkdown(doc, projectSlug, links) {
+  const frontMatter = formatFrontMatter(doc, projectSlug, links);
   const body = String(doc?.body ?? '');
   if (body === '') return frontMatter;
   const bodyWithNewline = body.endsWith('\n') ? body : `${body}\n`;
