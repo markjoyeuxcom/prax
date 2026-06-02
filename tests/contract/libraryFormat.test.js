@@ -12,7 +12,7 @@ import { buildExportedMarkdown } from '../../public/js/libraryExport.js';
 // The current library document base field set this regression test locks (order-independent).
 const FROZEN_DOC_KEYS = [
   'archivedAt', 'body', 'contentHash', 'createdAt', 'documentType', 'id',
-  'projectId', 'sourceFilename', 'tags', 'title', 'updatedAt', 'updatedBy',
+  'kind', 'projectId', 'sourceFilename', 'tags', 'title', 'updatedAt', 'updatedBy',
 ].sort();
 
 const GOLDEN_DOC = {
