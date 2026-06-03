@@ -35,6 +35,7 @@ export function renderAdminPanelHtml({
   staleDocs = [],
   orphanDocs = [],
   maintenanceProjectFilter = 'all',
+  semanticStatus = { available: false },
 } = {}) {
   const activeProjectName = activeProject === 'all'
     ? 'all projects'
@@ -162,6 +163,21 @@ export function renderAdminPanelHtml({
                 </li>`).join('')}
               </ul>`}
             </div>
+          </section>
+
+          <section class="admin-section" aria-labelledby="semantic-search-title">
+            <div>
+              <h3 id="semantic-search-title">Semantic Search</h3>
+              ${semanticStatus.available === false
+                ? `<p>Status: unavailable (no backend configured)</p>`
+                : `<p>Backend: ${escapeHtml(semanticStatus.backend || '')} &middot; ${semanticStatus.connected ? 'connected' : 'disconnected'} &middot; ${Number(semanticStatus.embeddedCount) || 0}/${Number(semanticStatus.totalCount) || 0} documents embedded</p>`
+              }
+            </div>
+            ${semanticStatus.available === true ? `
+            <div class="admin-actions">
+              <button class="bracket-button" type="button" data-action="toggle-semantic-search" aria-pressed="${semanticStatus.enabled === true}">${semanticStatus.enabled ? '[x] disable' : '[ ] enable'}</button>
+              <button class="bracket-button bracket-button--quiet" type="button" data-action="reindex-embeddings">[r] reindex</button>
+            </div>` : ''}
           </section>
         </div>
       </section>

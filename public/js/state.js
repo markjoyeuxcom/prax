@@ -72,6 +72,9 @@ export const state = {
   taskBoardExtrasLoading: {},    // { [taskId]: token } requests currently in flight
   listGrouping: 'flat',         // 'flat' | 'swimlanes' (All-projects Tasks view only)
   listLaneCollapsed: {},         // { [projectId]: true } collapsed list lanes (session-only)
+  semanticStatus: { available: false },
+  librarySearchMode: 'keyword',
+  semanticResults: null,
 };
 
 export function setState(patch) {

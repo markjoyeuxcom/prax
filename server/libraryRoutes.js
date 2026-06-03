@@ -9,6 +9,7 @@ import {
   libraryArchiveFilename,
   buildLinksFromGroups,
 } from './libraryExport.js';
+import { toVectorLiteral } from './vectorLiteral.js';
 
 const DOCUMENT_TYPES = new Set(['runbook', 'note']);
 const DOCUMENT_KINDS = new Set(['source', 'synthesized']);
@@ -91,6 +92,30 @@ export async function registerLibraryRoutes(app, options = {}) {
   const projectsRepository = options.projectsRepository || app.projectsRepository || createProjectsRepository(app.db);
   const documentLinksRepository = options.documentLinksRepository || app.documentLinksRepository || createDocumentLinksRepository(app.db);
 
+  const embedder = options.embedder ?? app.embedder ?? null;
+  const embeddingService = options.embeddingService ?? app.embeddingService ?? null;
+  const appSettings = options.appSettingsRepository || app.appSettingsRepository;
+
+  async function semanticActive() {
+    if (!embedder || !appSettings) return false;
+    // Never throw from the gate: it runs on the document write path (the
+    // un-awaited embed trigger), so a transient settings-read failure must not
+    // be able to surface as a 500 on a create/update. Treat a failed read as
+    // "not active" rather than propagating.
+    return Boolean(await appSettings.getSetting('semantic_search_enabled', true).catch(() => false));
+  }
+
+  function toRef(doc) {
+    return {
+      id: doc.id,
+      title: doc.title,
+      documentType: doc.documentType,
+      projectId: doc.projectId,
+      tags: doc.tags || [],
+      snippet: String(doc.body || '').slice(0, 200),
+    };
+  }
+
   async function resolveProjectId(value) {
     if (value === undefined || value === null || value === '') return undefined;
     const project = await projectsRepository.resolveProject(String(value));
@@ -161,6 +186,44 @@ export async function registerLibraryRoutes(app, options = {}) {
     return repository.listDocuments({ ...request.query, projectId });
   });
 
+  app.get('/api/library/documents/semantic-search', async (request, reply) => {
+    if (!(await semanticActive())) {
+      reply.code(409);
+      return { message: 'semantic search is not enabled' };
+    }
+    const q = request.query.q;
+    if (!q || !String(q).trim()) { reply.code(400); return { message: 'q is required' }; }
+
+    let projectId;
+    if (request.query.project && request.query.project !== 'all') {
+      projectId = await resolveProjectId(request.query.project);
+      if (projectId === null) { reply.code(400); return { message: 'project is invalid' }; }
+    }
+
+    let docs;
+    try {
+      const { vector } = await embedder.embed(String(q));
+      docs = await repository.searchDocumentsSemantic(toVectorLiteral(vector), embedder.backend, { projectId, limit: 20 });
+    } catch (err) {
+      // Feature is configured + enabled, but the backend is unreachable or
+      // errored. Degrade cleanly rather than 500 — the rest of the feature
+      // gates the same way. The error message never carries secrets (URLs /
+      // keys are never in the embedder's thrown messages), but we don't echo
+      // it to the client regardless.
+      request.log.error({ err }, 'semantic search embed failed');
+      reply.code(503);
+      return { message: 'semantic search backend is unavailable' };
+    }
+    return docs.map(toRef);
+  });
+
+  app.post('/api/library/embeddings/reindex', async (request, reply) => {
+    if (!embedder) { reply.code(409); return { message: 'semantic search is not configured' }; }
+    if (!embeddingService) { reply.code(409); return { message: 'semantic search is not configured' }; }
+    const result = await embeddingService.reindex();
+    return result;
+  });
+
   app.post('/api/library/documents', async (request, reply) => {
     const validationError = validateDocumentPayload(request.body);
     if (validationError) {
@@ -173,7 +236,11 @@ export async function registerLibraryRoutes(app, options = {}) {
     request.body.projectId = resolvedId;
 
     reply.code(201);
-    return repository.createDocument({ ...cleanDocumentPayload(request.body), updatedBy: originFrom(request) });
+    const created = await repository.createDocument({ ...cleanDocumentPayload(request.body), updatedBy: originFrom(request) });
+    if (embeddingService && embedder && await semanticActive()) {
+      embeddingService.embedDocument(created.id);  // not awaited
+    }
+    return created;
   });
 
   app.patch('/api/library/documents/:id/restore', async (request, reply) => {
@@ -228,6 +295,9 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (!document) {
       reply.code(404);
       return { message: 'document not found' };
+    }
+    if (Object.prototype.hasOwnProperty.call(request.body, 'body') && embeddingService && embedder && await semanticActive()) {
+      embeddingService.embedDocument(document.id);  // not awaited
     }
     return document;
   });

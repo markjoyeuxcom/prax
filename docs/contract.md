@@ -202,6 +202,7 @@ required/optional status, and enum option sets. Shared enums: `STATUS`
 | `unlink_documents` | `sourceId`, `targetId`, `relation:{derived-from\|supersedes}` | — |
 | `list_stale_documents` | `project?` | yes |
 | `list_orphan_documents` | `project?` | yes |
+| `search_documents_semantic` | `query`, `project?` | yes |
 
 MCP-owned output shapes:
 
@@ -238,6 +239,23 @@ derivations (`"synthesized"`). It is set explicitly by callers (defaulting to `"
 mutable via `update_document`, and independent of `derived-from` edges and the
 `x-moomora-origin` edit-origin header. Read paths (`get_document`, search rows, stale/orphan
 rows) include `kind`; the create/update tools accept it as an optional input.
+
+Semantic search ranks documents by embedding similarity (meaning), not keywords, so a
+paraphrased query can find topically-relevant docs that share no words with it. It is
+**retrieval-only** — no text is generated. Availability is **Postgres-only**: it requires the
+pgvector extension and a configured `EMBEDDING_BACKEND` (one of `ollama`, plus the v0.13.1
+`openai`/`gemini`/`voyage` adapters, or the deterministic `fake` test backend). The default
+`EMBEDDING_BACKEND=none` leaves the feature absent. On top of that config gate, a server-side
+runtime toggle (stored in the `app_settings` table, key `semantic_search_enabled`) turns it on
+and off live, consistently across the UI and MCP; all backend config (URLs, models, keys) is
+env-only. `search_documents_semantic` returns the **same ref shape** as keyword `search_documents`
+(`{ id, title, documentType, projectId, tags, snippet }`); the embedding vector is never
+returned. When the feature is disabled or not configured the tool yields a friendly fallback
+message (use `search_documents` instead) rather than an error. The supporting routes —
+`GET /api/library/documents/semantic-search` (cosine-ranked refs; 409 when disabled, 400 on a
+blank query, 503 when a configured backend is unreachable), `POST /api/library/embeddings/reindex`
+(rebuilds/repairs the index), and `GET`/`PUT /api/settings/semantic-search` (read-only status +
+the boolean toggle) — are **HTTP-only** and not part of the MCP surface.
 
 ## Regression tests
 
