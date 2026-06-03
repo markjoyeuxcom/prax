@@ -26,7 +26,10 @@ import {
   archiveDocument,
   createDocument,
   deleteArchivedDocument,
+  fetchDocumentLinks,
   fetchDocuments,
+  fetchOrphanDocuments,
+  fetchStaleDocuments,
   restoreDocument,
   updateDocument,
 } from './libraryApi.js';
@@ -737,6 +740,42 @@ function setupLibraryResizer(workspace, libraryWorkspaceElement) {
   });
 }
 
+async function loadDocumentLinks(documentId) {
+  if (!documentId) {
+    setState({ documentLinks: null });
+    return;
+  }
+  try {
+    const links = await fetchDocumentLinks(documentId, 'both');
+    // Selection-stale guard: only apply if the user hasn't navigated away
+    // (checks both the selected document and the active view).
+    if (state.selectedDocumentId === documentId && state.activeView === 'library') {
+      setState({ documentLinks: links });
+      const workspace = app.querySelector('[data-workspace]');
+      if (workspace) renderLibraryWorkspace(workspace);
+    }
+  } catch (err) {
+    console.error('Failed to load document links', err);
+  }
+}
+
+async function loadMaintenanceLists() {
+  const projectId = state.maintenanceProjectFilter === 'all' ? '' : state.maintenanceProjectFilter;
+  const [staleResult, orphanResult] = await Promise.allSettled([
+    fetchStaleDocuments(projectId),
+    fetchOrphanDocuments(projectId),
+  ]);
+  const patch = {};
+  if (staleResult.status === 'fulfilled') patch.staleDocs = staleResult.value;
+  else console.error('Failed to load stale documents', staleResult.reason);
+  if (orphanResult.status === 'fulfilled') patch.orphanDocs = orphanResult.value;
+  else console.error('Failed to load orphan documents', orphanResult.reason);
+  if (Object.keys(patch).length > 0) {
+    setState(patch);
+    renderApp();
+  }
+}
+
 function renderLibraryWorkspace(workspace) {
   const contextDocuments = state.activeProject === 'all'
     ? state.documents
@@ -766,6 +805,7 @@ function renderLibraryWorkspace(workspace) {
     sortBy: state.librarySortBy,
     groupByType: state.libraryGroupByType,
     libraryView: state.libraryView,
+    documentLinks: state.documentLinks,
   });
 
   const libraryWorkspaceElement = workspace.querySelector('.library-workspace');
@@ -1067,12 +1107,49 @@ function renderLibraryWorkspace(workspace) {
     nextInput?.setSelectionRange?.(nextInput.value.length, nextInput.value.length);
   });
 
+  // Dedicated handler for Links-section [open] buttons in the detail panel.
+  // These carry BOTH data-action="open-library-doc" AND data-library-document-id.
+  // We handle them here first and call stopPropagation so the broad row-click
+  // handler below never fires — which matters because the target doc may not be
+  // visible under the current filters (tag, type, archive, search, project).
+  workspace.querySelectorAll('[data-action="open-library-doc"][data-library-document-id]').forEach((btn) => {
+    btn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+      const documentId = btn.dataset.libraryDocumentId;
+      clearDocumentAutosave();
+      setState({
+        libraryView: 'active',
+        libraryTypeFilter: 'all',
+        activeLibraryTags: [],
+        libraryTagQuery: '',
+        searchQuery: '',
+        selectedDocumentId: documentId,
+        documentLinks: null,
+        isDocumentDirty: false,
+        documentSaveStatus: 'Saved',
+        isDocumentFocusMode: false,
+        isDocumentInfoEditorOpen: false,
+        documentInfoError: '',
+        isLibraryDocOpen: isMobile() ? true : state.isLibraryDocOpen,
+      });
+      try {
+        await loadDocuments({ selectedDocumentId: documentId });
+      } catch (error) {
+        setState({ apiStatus: 'error' });
+        renderError(error.message);
+      }
+      loadDocumentLinks(documentId);
+    });
+  });
+
   workspace.querySelectorAll('[data-library-document-id]').forEach((row) => {
     row.addEventListener('click', () => {
       const nextDocument = state.documents.find(item => item.id === row.dataset.libraryDocumentId);
       clearDocumentAutosave();
       setState({
         selectedDocumentId: row.dataset.libraryDocumentId,
+        documentLinks: null,
         documentDraftId: nextDocument?.id || null,
         documentDraftBody: nextDocument?.body || '',
         isDocumentDirty: false,
@@ -1083,6 +1160,7 @@ function renderLibraryWorkspace(workspace) {
         isLibraryDocOpen: isMobile() ? true : state.isLibraryDocOpen,
       });
       renderWorkspace();
+      loadDocumentLinks(row.dataset.libraryDocumentId);
     });
   });
 
@@ -1188,8 +1266,10 @@ function renderLibraryWorkspace(workspace) {
         isDocumentInfoEditorOpen: false,
         documentInfoError: '',
         isSaving: false,
+        documentLinks: null,
       });
       renderWorkspace();
+      loadDocumentLinks(savedDocument.id);
     } catch {
       setState({
         documentInfoError: 'Moomora Console could not save document info.',
@@ -1532,6 +1612,9 @@ function renderApp() {
       taskCount: state.tasks.length,
       documentCount: state.libraryActiveDocumentCount,
       importMode: state.adminImportMode,
+      staleDocs: state.staleDocs,
+      orphanDocs: state.orphanDocs,
+      maintenanceProjectFilter: state.maintenanceProjectFilter,
     }));
   }
   if (state.isProjectManagerOpen) {
@@ -1610,6 +1693,7 @@ function bindShellEvents() {
         editingDocumentId: null,
       });
       renderApp();
+      loadMaintenanceLists();
     });
   });
 
@@ -2006,6 +2090,57 @@ function bindAdminPanelEvents() {
       setState({ apiStatus: 'error' });
       renderError(error.message);
     }
+  });
+
+  panel.querySelector('[data-maintenance-project-filter]')?.addEventListener('change', (event) => {
+    setState({ maintenanceProjectFilter: event.target.value });
+    loadMaintenanceLists();
+  });
+
+  panel.querySelector('[data-action="refresh-maintenance"]')?.addEventListener('click', () => {
+    loadMaintenanceLists();
+  });
+
+  panel.querySelectorAll('[data-action="open-library-doc"][data-library-document-id]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const docId = button.dataset.libraryDocumentId;
+      const projectId = button.dataset.libraryProjectId || null;
+      clearDocumentAutosave();
+      // Reset all library filters so the target doc is never hidden by an
+      // active archive view, type filter, tag filter, or search query.
+      // Mirrors the open-linked-doc pattern.
+      const patch = {
+        isAdminPanelOpen: false,
+        activeView: 'library',
+        selectedDocumentId: docId,
+        documentLinks: null,
+        libraryView: 'active',
+        libraryTypeFilter: 'all',
+        activeLibraryTags: [],
+        libraryTagQuery: '',
+        searchQuery: '',
+        isDocumentDirty: false,
+        documentSaveStatus: 'Saved',
+        isDocumentFocusMode: false,
+        isDocumentInfoEditorOpen: false,
+        documentInfoError: '',
+        isLibraryDocOpen: isMobile() ? true : state.isLibraryDocOpen,
+      };
+      // Align the project context when the maintenance doc lives in another
+      // project — matches the open-linked-doc pattern at line ~543.
+      if (projectId && state.activeProject !== 'all' && state.activeProject !== projectId) {
+        patch.activeProject = projectId;
+        persistActiveProject(projectId);
+      }
+      setState(patch);
+      try {
+        await loadDocuments({ selectedDocumentId: docId });
+      } catch (error) {
+        setState({ apiStatus: 'error' });
+        renderError(error.message);
+      }
+      loadDocumentLinks(docId);
+    });
   });
 }
 
@@ -2404,12 +2539,14 @@ async function loadDocuments({ selectedDocumentId = state.selectedDocumentId } =
     documentDraftId: selectedDocumentExists ? selectedDocumentId : documents[0]?.id || null,
     documentDraftBody: (selectedDocumentExists ? documents.find(document => document.id === selectedDocumentId) : documents[0])?.body || '',
     isDocumentDirty: false,
+    documentLinks: null,
   };
   if (state.libraryView === 'active') {
     patch.libraryActiveDocumentCount = documents.length;
   }
   setState(patch);
   renderApp();
+  loadDocumentLinks(state.selectedDocumentId);
 }
 
 async function init() {

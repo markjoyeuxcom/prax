@@ -35,6 +35,7 @@ export function normalizeDocumentRow(row) {
     contentHash: row.content_hash ?? null,
     updatedBy: row.updated_by,
     kind: row.kind,
+    stale: row.stale ?? false,
     ...(row.project_slug !== undefined ? { projectSlug: row.project_slug } : {}),
   };
 }
@@ -143,34 +144,46 @@ export function createLibraryRepository(db) {
 
       if (filters.projectId) {
         values.push(filters.projectId);
-        clauses.push(`project_id = $${values.length}`);
+        clauses.push(`d.project_id = $${values.length}`);
       }
       if (filters.documentType) {
         values.push(filters.documentType);
-        clauses.push(`document_type = $${values.length}`);
+        clauses.push(`d.document_type = $${values.length}`);
       }
       if (filters.kind) {
         values.push(filters.kind);
-        clauses.push(`kind = $${values.length}`);
+        clauses.push(`d.kind = $${values.length}`);
       }
       if (filters.q) {
         const terms = String(filters.q).toLowerCase().match(/[a-z0-9]+/g) || [];
         if (terms.length) {
           values.push(terms.map(term => `${term}:*`).join(' & '));
-          clauses.push(`to_tsvector('english', coalesce(title, '') || ' ' || coalesce(body, '')) @@ to_tsquery('english', $${values.length})`);
+          clauses.push(`to_tsvector('english', coalesce(d.title, '') || ' ' || coalesce(d.body, '')) @@ to_tsquery('english', $${values.length})`);
         }
       }
       if (filters.archived === true || filters.archived === 'true') {
-        clauses.push('archived_at is not null');
+        clauses.push('d.archived_at is not null');
       } else if (filters.archived !== 'all') {
-        clauses.push('archived_at is null');
+        clauses.push('d.archived_at is null');
       }
 
       const where = clauses.length ? `where ${clauses.join(' and ')}` : '';
       const result = await db.query(`
-        select * from markdown_documents
+        select d.*, coalesce(s.is_stale, false) as stale
+        from markdown_documents d
+        left join lateral (
+          select true as is_stale
+          from document_links dl
+          join markdown_documents tgt
+            on tgt.id = dl.target_document_id and tgt.archived_at is null
+          where dl.source_document_id = d.id
+            and dl.relation = 'derived-from'
+            and dl.target_hash is not null
+            and tgt.content_hash is distinct from dl.target_hash
+          limit 1
+        ) s on true
         ${where}
-        order by project_id, document_type, updated_at desc, title
+        order by d.project_id, d.document_type, d.updated_at desc, d.title
       `, values);
       return result.rows.map(normalizeDocumentRow);
     },

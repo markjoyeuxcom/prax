@@ -165,10 +165,12 @@ function selectedDocument(documents, selectedDocumentId) {
 function renderDocumentRows(documents, activeDocumentId) {
   return documents.map((document) => {
     const isSelected = document.id === activeDocumentId;
+    const isSynthesized = document.kind === 'synthesized';
+    const isStale = document.stale === true;
     return `
       <button class="document-row${isSelected ? ' is-selected' : ''}" type="button" data-library-document-id="${escapeHtml(document.id)}"${isSelected ? ' aria-current="true"' : ''}>
         <span>
-          <strong>${escapeHtml(document.title || 'Untitled document')}</strong>
+          <strong>${escapeHtml(document.title || 'Untitled document')}${isSynthesized ? ' <span class="chip chip-synth" aria-label="Agent synthesized">SYNTH</span>' : ''}${isStale ? ' <span class="chip chip-stale" aria-label="Derived source has changed">STALE</span>' : ''}</strong>
           <small>${escapeHtml(labelFromValue(document.documentType || 'note'))} &middot; ${escapeHtml(document.sourceFilename || 'Created in Moomora Console')}</small>
         </span>
         <span class="document-tags">${renderTags(document.tags)}</span>
@@ -279,6 +281,45 @@ function renderDocumentInfoForm(document, options = {}) {
     </form>`;
 }
 
+function renderKindBadge(kind) {
+  const safeKind = kind === 'synthesized' ? 'synthesized' : 'source';
+  const label = safeKind === 'synthesized' ? 'SYNTHESIZED' : 'SOURCE';
+  return `<span class="chip chip-kind chip-kind--${safeKind}" aria-label="Document kind: ${safeKind}">${label}</span>`;
+}
+
+function renderDocumentLinks(links) {
+  if (links == null) return ''; // null or undefined → not loaded yet, render nothing
+  const list = Array.isArray(links) ? links : [];
+  if (list.length === 0) {
+    return `<section class="document-links" aria-labelledby="document-links-heading">
+      <h3 id="document-links-heading">Links</h3>
+      <p class="document-links-empty">No links.</p>
+    </section>`;
+  }
+  const outbound = list.filter((l) => l.direction === 'outbound');
+  const inbound = list.filter((l) => l.direction === 'inbound');
+  const derivedFrom = outbound.filter((l) => l.relation === 'derived-from');
+  const supersedes = outbound.filter((l) => l.relation === 'supersedes');
+
+  const groupHtml = (label, entries, showRelation) => entries.length === 0 ? '' : `
+    <div class="document-links-group">
+      <h4>${label}</h4>
+      <ul>${entries.map((e) => `
+        <li>
+          <button class="text-action document-link-open" type="button" data-action="open-library-doc" data-library-document-id="${escapeHtml(e.documentId)}">${escapeHtml(e.title || 'Untitled')}</button>
+          ${showRelation ? `<small>(${escapeHtml(e.relation)})</small>` : ''}
+        </li>`).join('')}
+      </ul>
+    </div>`;
+
+  return `<section class="document-links" aria-labelledby="document-links-heading">
+    <h3 id="document-links-heading">Links</h3>
+    ${groupHtml('Derived from', derivedFrom, false)}
+    ${groupHtml('Supersedes', supersedes, false)}
+    ${groupHtml('Backlinks', inbound, true)}
+  </section>`;
+}
+
 function renderDocumentDetail(document, options = {}) {
   if (!document) {
     return `
@@ -304,8 +345,9 @@ function renderDocumentDetail(document, options = {}) {
       <header class="detail-header">
         ${options.isLibraryDocOpen ? `<button class="detail-back bracket-button bracket-button--quiet" type="button" data-action="close-library-doc" aria-label="Back">← back</button>` : ''}
         <span class="detail-kicker">${escapeHtml(labelFromValue(document.documentType || 'note'))}</span>
-        <h2 id="selected-document-title">${escapeHtml(document.title || 'Untitled document')}</h2>
+        <h2 id="selected-document-title">${escapeHtml(document.title || 'Untitled document')} ${renderKindBadge(document.kind)}</h2>
         <p>${escapeHtml(document.sourceFilename || 'Created in Moomora Console')}</p>
+        <p class="library-detail-meta">Updated by ${escapeHtml(document.updatedBy || 'user')}</p>
         <div class="document-tags">${renderTags(document.tags)}</div>
         <div class="detail-actions">
           ${isArchived ? '' : renderModes(editorMode)}
@@ -319,6 +361,7 @@ function renderDocumentDetail(document, options = {}) {
       ${isInfoEditing ? renderDocumentInfoForm(document, { error: options.infoError, isSaving: options.isSaving }) : `
       <div class="document-workspace document-workspace--${escapeHtml(editorMode)}${isFocusMode ? ' document-workspace--focused' : ''}">${editorVisible ? renderEditorPane(body, { isDirty, saveStatus: options.saveStatus, isFocusMode, documentId: document.id, isArchived }) : ''}${previewVisible ? renderPreviewPane(body) : ''}
       </div>`}
+      ${renderDocumentLinks(options.documentLinks)}
     </aside>`;
 }
 
@@ -351,6 +394,7 @@ export function renderLibraryHtml({
   sortBy = 'updated',
   groupByType = false,
   libraryView = 'active',
+  documentLinks = undefined,
 } = {}) {
   const safeDocuments = Array.isArray(documents) ? documents : [];
   const document = selectedDocument(safeDocuments, selectedDocumentId);
@@ -395,7 +439,7 @@ export function renderLibraryHtml({
         </div>
       </aside>
       <div class="library-resizer" data-library-resizer role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize library browser"></div>
-      <div class="library-document-stage">${renderDocumentDetail(document, { editorMode: activeMode, draftBody, isDirty, isInfoEditing, infoError, isSaving, saveStatus, isFocusMode, isLibraryDocOpen })}
+      <div class="library-document-stage">${renderDocumentDetail(document, { editorMode: activeMode, draftBody, isDirty, isInfoEditing, infoError, isSaving, saveStatus, isFocusMode, isLibraryDocOpen, documentLinks })}
       </div>
     </section>`;
 }

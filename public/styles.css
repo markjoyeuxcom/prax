@@ -1679,6 +1679,145 @@ button.task-row:hover { background: color-mix(in srgb, var(--accent) 4%, transpa
   font-size: 0.7857rem;
 }
 
+/* ============================================================
+   Document graph UI: chip styles, Links section, Maintenance
+   ============================================================ */
+.chip {
+  display: inline-block;
+  margin-left: 0.4em;
+  padding: 0 0.45em;
+  font-size: 0.7em;
+  letter-spacing: 0.05em;
+  border-radius: 2px;
+  border: 1px solid currentColor;
+  vertical-align: 1px;
+  font-weight: normal;   /* chip-kind lives inside <h2> — must not inherit bold */
+}
+
+.chip-synth {
+  color: var(--accent);
+}
+
+.chip-stale {
+  color: var(--accent-amber);
+}
+
+.chip-kind {
+  font-size: 0.6em;
+  letter-spacing: 0.08em;
+}
+
+.chip-kind--source {
+  color: var(--text-dim);
+}
+
+.chip-kind--synthesized {
+  color: var(--accent);
+}
+
+.library-detail-meta {
+  color: var(--text-dim);
+  font-size: 0.85em;
+  margin: 0.2em 0;
+}
+
+.document-links {
+  margin-top: 1.5em;
+  padding-top: 1em;
+  border-top: 1px solid var(--border);
+}
+
+.document-links h3 {
+  margin: 0 0 0.5em 0;
+  font-size: 0.85em;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.document-links-group {
+  margin-bottom: 0.75em;
+}
+
+.document-links-group h4 {
+  margin: 0 0 0.3em 0;
+  font-size: 0.8em;
+  font-weight: normal;
+  color: var(--accent-cyan);
+}
+
+.document-links-group ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.document-links-group li {
+  padding: 0.2em 0;
+}
+
+.document-links-empty {
+  font-size: 0.85em;
+  opacity: 0.7;
+  margin: 0;
+}
+
+.admin-subsection {
+  margin: 1em 0;
+}
+
+.admin-subsection h4 {
+  margin: 0 0 0.3em 0;
+  font-size: 0.9em;
+  font-weight: normal;
+  letter-spacing: 0.05em;
+}
+
+.admin-help {
+  font-size: 0.85em;
+  opacity: 0.7;
+  margin: 0 0 0.5em 0;
+}
+
+.admin-empty {
+  font-style: italic;
+  opacity: 0.6;
+  margin: 0;
+}
+
+.admin-doc-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.admin-doc-list li {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1em;
+  padding: 0.5em 0;
+  border-bottom: 1px dashed var(--border-dim);
+}
+
+.admin-doc-list li:last-child {
+  border-bottom: none;
+}
+
+.admin-doc-list li > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2em;
+}
+
+.admin-doc-list strong {
+  font-weight: normal;
+}
+
+.admin-doc-list small {
+  opacity: 0.7;
+  font-size: 0.8em;
+}
+
 .document-preview { padding: 12px; }
 
 /* ============================================================

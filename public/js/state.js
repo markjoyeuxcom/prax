@@ -37,6 +37,10 @@ export const state = {
   isDocumentFocusMode: false,
   isLibraryTagsDrawerOpen: false,
   isLibraryDocOpen: false,
+  documentLinks: null,       // null = not yet fetched; [] = fetched, empty; [...] = entries
+  staleDocs: [],
+  orphanDocs: [],
+  maintenanceProjectFilter: 'all',  // independent of activeProject; used only in Admin Maintenance
   activeLibraryTags: [],
   libraryTagQuery: '',
   areLibraryTagsExpanded: false,
