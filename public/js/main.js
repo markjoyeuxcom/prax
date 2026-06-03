@@ -745,8 +745,9 @@ async function loadDocumentLinks(documentId) {
   }
   try {
     const links = await fetchDocumentLinks(documentId, 'both');
-    // Selection-stale guard: only apply if the user hasn't navigated away.
-    if (state.selectedDocumentId === documentId) {
+    // Selection-stale guard: only apply if the user hasn't navigated away
+    // (checks both the selected document and the active view).
+    if (state.selectedDocumentId === documentId && state.activeView === 'library') {
       setState({ documentLinks: links });
       const workspace = app.querySelector('[data-workspace]');
       if (workspace) renderLibraryWorkspace(workspace);
@@ -1210,8 +1211,10 @@ function renderLibraryWorkspace(workspace) {
         isDocumentInfoEditorOpen: false,
         documentInfoError: '',
         isSaving: false,
+        documentLinks: null,
       });
       renderWorkspace();
+      loadDocumentLinks(savedDocument.id);
     } catch {
       setState({
         documentInfoError: 'Moomora Console could not save document info.',
