@@ -195,7 +195,7 @@ export function buildCountEmbeddings(backend) {
     text: `
       select
         count(*) filter (where archived_at is null) as total,
-        count(*) filter (where archived_at is null and embedding is not null and embedding_backend = $1 and embedded_hash = content_hash) as embedded
+        count(*) filter (where archived_at is null and embedding is not null and embedding_backend = $1 and embedded_hash is not distinct from content_hash) as embedded
       from markdown_documents
     `,
     values: [backend],
@@ -301,16 +301,19 @@ export function createLibraryRepository(db) {
       const result = await db.query(q.text, q.values);
       return result.rows[0] ? result.rows[0].id : null;
     },
+
     async searchDocumentsSemantic(queryLiteral, backend, opts = {}) {
       const q = buildSearchDocumentsSemantic(queryLiteral, backend, opts);
       const result = await db.query(q.text, q.values);
       return result.rows.map(normalizeDocumentRow);
     },
+
     async listDocumentsNeedingEmbedding(backend) {
       const q = buildListDocumentsNeedingEmbedding(backend);
       const result = await db.query(q.text, q.values);
       return result.rows.map((r) => ({ id: r.id, contentHash: r.content_hash }));
     },
+
     async countEmbeddings(backend) {
       const q = buildCountEmbeddings(backend);
       const result = await db.query(q.text, q.values);
