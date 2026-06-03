@@ -17,7 +17,7 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === '--project') { out.project = argv[++i] || ''; }
-    else if (a === '--limit') { out.limit = Number(argv[++i]) || 5; }
+    else if (a === '--limit') { const n = Number(argv[++i]); out.limit = Number.isFinite(n) && n > 0 ? n : 5; }
     else rest.push(a);
   }
   out.query = rest.join(' ').trim();
@@ -101,4 +101,4 @@ async function main() {
   fail(`Semantic search failed (HTTP ${semRes.status}).`);
 }
 
-main();
+main().catch((err) => fail(`Unexpected error: ${err.message}`));

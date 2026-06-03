@@ -93,4 +93,4 @@ async function main() {
   console.log(`Remembered "${title}" → ${created.id} (created)`);
 }
 
-main();
+main().catch((err) => fail(`Unexpected error: ${err.message}`));
