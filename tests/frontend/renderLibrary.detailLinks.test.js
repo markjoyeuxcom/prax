@@ -58,3 +58,13 @@ test('Links section renders empty state when no links', () => {
   });
   assert.ok(html.includes('No links'));
 });
+
+test('Links section renders nothing when documentLinks is null', () => {
+  const html = renderLibraryHtml({
+    documents: [baseDoc],
+    selectedDocumentId: 'doc-1',
+    documentLinks: null,
+  });
+  assert.equal(html.includes('document-links'), false, 'should not render the Links section for null');
+  assert.equal(html.includes('No links'), false);
+});

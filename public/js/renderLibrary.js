@@ -288,7 +288,7 @@ function renderKindBadge(kind) {
 }
 
 function renderDocumentLinks(links) {
-  if (links === undefined) return ''; // not loaded yet — render nothing
+  if (links == null) return ''; // null or undefined → not loaded yet, render nothing
   const list = Array.isArray(links) ? links : [];
   if (list.length === 0) {
     return `<section class="document-links" aria-labelledby="document-links-heading">
