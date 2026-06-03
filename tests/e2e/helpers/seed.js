@@ -1,9 +1,12 @@
 // API-seeding helpers for e2e specs. Each function takes a Playwright
 // APIRequestContext (page.request) so calls share the configured baseURL.
+// NOTE: there is no teardown — the demo server's in-memory state persists for
+// the whole `npm run test:e2e` run. Specs use unique per-test title prefixes and
+// must assert only against their own seeded rows (never against total counts).
 
 export async function resolveProjectId(request, slug) {
   const res = await request.get('/api/projects');
-  if (!res.ok()) throw new Error(`GET /api/projects failed: ${res.status()}`);
+  if (!res.ok()) throw new Error(`GET /api/projects failed: ${res.status()} ${await res.text()}`);
   const projects = await res.json();
   const project = projects.find((p) => p.slug === slug);
   if (!project) throw new Error(`No project with slug "${slug}"`);
@@ -12,7 +15,7 @@ export async function resolveProjectId(request, slug) {
 
 export async function createDocument(request, doc) {
   const res = await request.post('/api/library/documents', { data: doc });
-  if (!res.ok()) throw new Error(`POST document failed: ${res.status()}`);
+  if (!res.ok()) throw new Error(`POST document failed: ${res.status()} ${await res.text()}`);
   return res.json();
 }
 
@@ -20,13 +23,13 @@ export async function linkDocuments(request, sourceId, targetId, relation) {
   const res = await request.post(`/api/library/documents/${sourceId}/links`, {
     data: { targetId, relation },
   });
-  if (!res.ok()) throw new Error(`POST link failed: ${res.status()}`);
+  if (!res.ok()) throw new Error(`POST link failed: ${res.status()} ${await res.text()}`);
   return res.json();
 }
 
 export async function updateDocument(request, id, patch) {
   const res = await request.patch(`/api/library/documents/${id}`, { data: patch });
-  if (!res.ok()) throw new Error(`PATCH document failed: ${res.status()}`);
+  if (!res.ok()) throw new Error(`PATCH document failed: ${res.status()} ${await res.text()}`);
   return res.json();
 }
 
