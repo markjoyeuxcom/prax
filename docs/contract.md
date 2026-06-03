@@ -257,6 +257,12 @@ blank query, 503 when a configured backend is unreachable), `POST /api/library/e
 (rebuilds/repairs the index), and `GET`/`PUT /api/settings/semantic-search` (read-only status +
 the boolean toggle) — are **HTTP-only** and not part of the MCP surface.
 
+Results are filtered by a gap-based relevance cutoff: only documents scoring within
+`EMBEDDING_SEARCH_TOP_DROP` (default 0.20) of the best match and at least
+`EMBEDDING_SEARCH_MIN_SIMILARITY` (default 0.45) cosine similarity are returned, so an unrelated
+query can return few or no results rather than the whole ranked library. Both thresholds are
+env-tunable (defaults calibrated for `qwen3-embedding:0.6b`).
+
 ## Regression tests
 
 The shapes above are locked by characterization tests under `tests/contract/`, run by
