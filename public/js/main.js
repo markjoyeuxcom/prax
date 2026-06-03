@@ -795,7 +795,14 @@ function renderLibraryWorkspace(workspace) {
     : state.documents.filter(document => document.projectId === state.activeProject);
   const useSemantic = state.librarySearchMode === 'semantic' && Array.isArray(state.semanticResults);
   const visibleDocuments = useSemantic ? state.semanticResults : visibleDocumentsForCurrentView();
-  const document = selectedDocument();
+  // Semantic results are lightweight refs (no body) and may not appear in the
+  // keyword-filtered view, so resolve the selected doc from the full document
+  // set — otherwise selectedDocument() would fall back to the first keyword
+  // match and the editor pane would open the wrong document. Keyword mode is
+  // unchanged.
+  const document = useSemantic
+    ? (state.documents.find(doc => doc.id === state.selectedDocumentId) || null)
+    : selectedDocument();
   workspace.innerHTML = renderLibraryHtml({
     documents: visibleDocuments,
     selectedDocumentId: document?.id || null,
