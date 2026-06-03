@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createEmbeddingService } from '../../server/embeddingService.js';
+import { createEmbeddingService, embeddableText } from '../../server/embeddingService.js';
 import { createFakeEmbedder } from '../../server/embedder/fake.js';
 
 function fakeRepo(docs) {
@@ -70,6 +70,44 @@ test('embedDocument never throws when a dependency rejects, returns false', asyn
   assert.equal(result, false);
   assert.equal(repo.stored.length, 0);
   assert.equal(errors.length, 1);
+});
+
+test('embeddableText joins title + body and tolerates missing parts', () => {
+  assert.equal(embeddableText({ title: 'T', body: 'B' }), 'T\n\nB');
+  assert.equal(embeddableText({ body: 'B' }), 'B');
+  assert.equal(embeddableText({ title: 'T' }), 'T');
+  assert.equal(embeddableText({}), '');
+});
+
+test('embedOne embeds the title + body, not just the body', async () => {
+  const seen = [];
+  const recordingEmbedder = {
+    backend: 'rec',
+    async embed(text) { seen.push(text); return { vector: [0.1], model: 'rec', dim: 1 }; },
+    async isAvailable() { return true; },
+  };
+  const docs = [{ id: 'a', title: 'Postgres restore', body: 'replay WAL', contentHash: 'h1' }];
+  const repo = fakeRepo(docs);
+  const svc = createEmbeddingService({ repository: repo, embedder: recordingEmbedder });
+  await svc.embedDocument('a');
+  assert.equal(seen.length, 1);
+  assert.match(seen[0], /Postgres restore/);
+  assert.match(seen[0], /replay WAL/);
+});
+
+test('reindex force embeds all docs (listDocuments), not just the needs set', async () => {
+  const docs = [
+    { id: 'a', title: 'A', body: 'one', contentHash: 'h1' },
+    { id: 'b', title: 'B', body: 'two', contentHash: 'h2' },
+  ];
+  const repo = {
+    ...fakeRepo(docs),
+    listDocumentsNeedingEmbedding: async () => [],
+    listDocuments: async () => docs,
+  };
+  const svc = createEmbeddingService({ repository: repo, embedder: createFakeEmbedder({ dim: 8 }) });
+  assert.equal((await svc.reindex()).embedded, 0);
+  assert.equal((await svc.reindex({ force: true })).embedded, 2);
 });
 
 test('reindex isolates failures: one bad doc counts as failed, the rest embed', async () => {

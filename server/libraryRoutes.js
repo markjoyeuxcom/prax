@@ -226,7 +226,8 @@ export async function registerLibraryRoutes(app, options = {}) {
   app.post('/api/library/embeddings/reindex', async (request, reply) => {
     if (!embedder) { reply.code(409); return { message: 'semantic search is not configured' }; }
     if (!embeddingService) { reply.code(409); return { message: 'semantic search is not configured' }; }
-    const result = await embeddingService.reindex();
+    const force = request.query.force === 'true' || request.query.force === true;
+    const result = await embeddingService.reindex({ force });
     return result;
   });
 
@@ -302,7 +303,7 @@ export async function registerLibraryRoutes(app, options = {}) {
       reply.code(404);
       return { message: 'document not found' };
     }
-    if (Object.prototype.hasOwnProperty.call(request.body, 'body') && embeddingService && embedder && await semanticActive()) {
+    if ((Object.prototype.hasOwnProperty.call(request.body, 'title') || Object.prototype.hasOwnProperty.call(request.body, 'body')) && embeddingService && embedder && await semanticActive()) {
       embeddingService.embedDocument(document.id);  // not awaited
     }
     return document;

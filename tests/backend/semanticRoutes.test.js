@@ -153,7 +153,7 @@ test('patching without a body change does not fire an embed', async () => {
   const res = await app.inject({
     method: 'PATCH',
     url: `/api/library/documents/${id}`,
-    payload: { title: 'Renamed' },   // no body field
+    payload: { tags: ['x'] },   // neither title nor body -> no embed
   });
   assert.equal(res.statusCode, 200);
   assert.deepEqual(embedded, []);
@@ -185,5 +185,28 @@ test('patching with a body change fires a non-awaited embed', async () => {
   });
   assert.equal(res.statusCode, 200);
   assert.deepEqual(embedded, [id]);   // updateDocument fake echoes the id
+  await app.close();
+});
+
+test('patching the title fires a non-awaited embed', async () => {
+  const embedded = [];
+  const app = await makeApp({ available: true, enabled: true }, (f) => {
+    f.embeddingService.embedDocument = async (docId) => { embedded.push(docId); return true; };
+  });
+  const id = '00000000-0000-4000-8000-0000000000aa';
+  const res = await app.inject({ method: 'PATCH', url: `/api/library/documents/${id}`, payload: { title: 'Renamed' } });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(embedded, [id]);
+  await app.close();
+});
+
+test('reindex?force=true reaches the force path', async () => {
+  let sawForce;
+  const app = await makeApp({ available: true, enabled: true }, (f) => {
+    f.embeddingService.reindex = async (opts) => { sawForce = opts?.force; return { embedded: 9, failed: 0 }; };
+  });
+  const res = await app.inject({ method: 'POST', url: '/api/library/embeddings/reindex?force=true' });
+  assert.equal(res.statusCode, 200);
+  assert.equal(sawForce, true);
   await app.close();
 });

@@ -1,11 +1,21 @@
 import { toVectorLiteral } from './vectorLiteral.js';
 
+// The text we embed for a document: title + body together, so a query matching
+// the title (high-signal, especially for short notes) retrieves it. Trims and
+// drops empty parts.
+export function embeddableText(doc) {
+  return [doc?.title, doc?.body]
+    .map((s) => String(s ?? '').trim())
+    .filter(Boolean)
+    .join('\n\n');
+}
+
 export function createEmbeddingService({ repository, embedder, concurrency = 4, logger = console }) {
   async function embedOne(id, knownContentHash) {
     if (!embedder) return false;
     const doc = await repository.getDocument(id);
     if (!doc) return false;
-    const { vector, model, dim } = await embedder.embed(doc.body || '');
+    const { vector, model, dim } = await embedder.embed(embeddableText(doc));
     await repository.setDocumentEmbedding(id, {
       literal: toVectorLiteral(vector),
       backend: embedder.backend,
@@ -27,9 +37,11 @@ export function createEmbeddingService({ repository, embedder, concurrency = 4, 
         return false;
       }
     },
-    async reindex() {
+    async reindex({ force = false } = {}) {
       if (!embedder) return { embedded: 0, failed: 0 };
-      const pending = await repository.listDocumentsNeedingEmbedding(embedder.backend);
+      const pending = force
+        ? await repository.listDocuments({})
+        : await repository.listDocumentsNeedingEmbedding(embedder.backend);
       let embedded = 0;
       let failed = 0;
       for (let i = 0; i < pending.length; i += concurrency) {
