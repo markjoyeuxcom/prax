@@ -4,7 +4,10 @@ import {
   archiveDocument,
   createDocument,
   deleteArchivedDocument,
+  fetchDocumentLinks,
   fetchDocuments,
+  fetchOrphanDocuments,
+  fetchStaleDocuments,
   restoreDocument,
   updateDocument,
 } from '../../public/js/libraryApi.js';
@@ -88,4 +91,34 @@ test('library API helpers throw when requests fail', async () => {
     () => createDocument({}),
     /Failed to create document/,
   );
+});
+
+test('fetchDocumentLinks calls the links endpoint with direction', async () => {
+  let captured;
+  global.fetch = async (url) => {
+    captured = url;
+    return { ok: true, json: async () => [] };
+  };
+  await fetchDocumentLinks('doc-1', 'both');
+  assert.equal(captured, '/api/library/documents/doc-1/links?direction=both');
+});
+
+test('fetchStaleDocuments calls the maintenance endpoint with project', async () => {
+  let captured;
+  global.fetch = async (url) => {
+    captured = url;
+    return { ok: true, json: async () => [] };
+  };
+  await fetchStaleDocuments('homelab');
+  assert.equal(captured, '/api/library/maintenance/stale?project=homelab');
+});
+
+test('fetchOrphanDocuments omits empty project', async () => {
+  let captured;
+  global.fetch = async (url) => {
+    captured = url;
+    return { ok: true, json: async () => [] };
+  };
+  await fetchOrphanDocuments('');
+  assert.equal(captured, '/api/library/maintenance/orphans');
 });
