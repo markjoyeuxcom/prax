@@ -47,6 +47,7 @@ test('normalizeDocumentRow maps database fields to API document fields', () => {
     contentHash: null,
     updatedBy: undefined,
     kind: undefined,
+    stale: false,
   });
 });
 
@@ -148,7 +149,7 @@ test('listDocuments uses full-text search with prefix terms when q is present', 
   const db = { query: async (text, values) => { captured = { text, values }; return { rows: [] }; } };
   const repo = createLibraryRepository(db);
   await repo.listDocuments({ q: 'cloud tunnel' });
-  assert.match(captured.text, /to_tsvector\('english', coalesce\(title, ''\) \|\| ' ' \|\| coalesce\(body, ''\)\) @@ to_tsquery\('english', \$1\)/);
+  assert.match(captured.text, /to_tsvector\('english', coalesce\(d\.title, ''\) \|\| ' ' \|\| coalesce\(d\.body, ''\)\) @@ to_tsquery\('english', \$1\)/);
   assert.deepEqual(captured.values, ['cloud:* & tunnel:*']);
 });
 

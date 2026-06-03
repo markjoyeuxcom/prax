@@ -51,3 +51,23 @@ export async function deleteArchivedDocument(id) {
   if (!response.ok) throw new Error('Failed to delete archived document');
   return response.json();
 }
+
+export async function fetchDocumentLinks(id, direction = 'both') {
+  const response = await fetch(`/api/library/documents/${id}/links?direction=${encodeURIComponent(direction)}`);
+  if (!response.ok) throw new Error('Failed to load document links');
+  return response.json();
+}
+
+export async function fetchStaleDocuments(project = '') {
+  const qs = project ? `?project=${encodeURIComponent(project)}` : '';
+  const response = await fetch(`/api/library/maintenance/stale${qs}`);
+  if (!response.ok) throw new Error('Failed to load stale documents');
+  return response.json();
+}
+
+export async function fetchOrphanDocuments(project = '') {
+  const qs = project ? `?project=${encodeURIComponent(project)}` : '';
+  const response = await fetch(`/api/library/maintenance/orphans${qs}`);
+  if (!response.ok) throw new Error('Failed to load orphan documents');
+  return response.json();
+}

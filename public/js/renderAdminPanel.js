@@ -32,6 +32,9 @@ export function renderAdminPanelHtml({
   taskCount = 0,
   documentCount = 0,
   importMode = 'skip',
+  staleDocs = [],
+  orphanDocs = [],
+  maintenanceProjectFilter = 'all',
 } = {}) {
   const activeProjectName = activeProject === 'all'
     ? 'all projects'
@@ -110,6 +113,54 @@ export function renderAdminPanelHtml({
             </div>
             <div class="admin-actions">
               <button class="bracket-button" type="button" data-action="open-archive">[a] open archive</button>
+            </div>
+          </section>
+
+          <section class="admin-section" aria-labelledby="library-maintenance-title">
+            <div>
+              <h3 id="library-maintenance-title">Library Maintenance</h3>
+              <p>Stale and orphan documents in the library graph.</p>
+            </div>
+            <div class="admin-actions">
+              <label>
+                <span>Filter</span>
+                <select data-maintenance-project-filter>
+                  <option value="all"${maintenanceProjectFilter === 'all' ? ' selected' : ''}>All projects</option>
+                  ${projects.map(p => `<option value="${escapeHtml(p.id)}"${p.id === maintenanceProjectFilter ? ' selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
+                </select>
+              </label>
+              <button class="bracket-button bracket-button--quiet" type="button" data-action="refresh-maintenance">[r] refresh</button>
+            </div>
+
+            <div class="admin-subsection">
+              <h4>Stale documents</h4>
+              <p class="admin-help">Documents whose derived-from source has changed since the link was created.</p>
+              ${staleDocs.length === 0 ? '<p class="admin-empty">No stale documents.</p>' : `
+              <ul class="admin-doc-list">${staleDocs.map((d) => `
+                <li>
+                  <div>
+                    <strong>${escapeHtml(d.title || 'Untitled')}</strong>
+                    <small>${escapeHtml(labelFromValue(d.documentType || 'note'))} · kind: ${escapeHtml(d.kind || 'source')} · updated by ${escapeHtml(d.updatedBy || 'user')}</small>
+                    ${Array.isArray(d.staleSources) && d.staleSources.length > 0 ? `<small>Stale sources: ${d.staleSources.map((s) => escapeHtml(s.title || '')).join(', ')}</small>` : ''}
+                  </div>
+                  <button class="bracket-button bracket-button--quiet" type="button" data-action="open-library-doc" data-library-document-id="${escapeHtml(d.documentId)}"${d.projectId ? ` data-library-project-id="${escapeHtml(d.projectId)}"` : ''}>[open]</button>
+                </li>`).join('')}
+              </ul>`}
+            </div>
+
+            <div class="admin-subsection">
+              <h4>Orphan documents</h4>
+              <p class="admin-help">Documents with no inbound or outbound links.</p>
+              ${orphanDocs.length === 0 ? '<p class="admin-empty">No orphan documents.</p>' : `
+              <ul class="admin-doc-list">${orphanDocs.map((d) => `
+                <li>
+                  <div>
+                    <strong>${escapeHtml(d.title || 'Untitled')}</strong>
+                    <small>${escapeHtml(labelFromValue(d.documentType || 'note'))} · kind: ${escapeHtml(d.kind || 'source')}</small>
+                  </div>
+                  <button class="bracket-button bracket-button--quiet" type="button" data-action="open-library-doc" data-library-document-id="${escapeHtml(d.documentId)}"${d.projectId ? ` data-library-project-id="${escapeHtml(d.projectId)}"` : ''}>[open]</button>
+                </li>`).join('')}
+              </ul>`}
             </div>
           </section>
         </div>

@@ -385,7 +385,7 @@ function sharedProjectDependentCounter(projectId) {
   return taskCount + docCount;
 }
 
-function createMemoryLibraryRepository(documents) {
+function createMemoryLibraryRepository(documents, linksRef = null) {
   return {
     async listDocuments(filters = {}) {
       return documents.filter((document) => {
@@ -398,6 +398,19 @@ function createMemoryLibraryRepository(documents) {
           return `${document.title} ${document.body}`.toLowerCase().includes(query);
         }
         return true;
+      }).map((doc) => {
+        let stale = false;
+        if (linksRef) {
+          for (const l of linksRef) {
+            if (l.sourceId !== doc.id) continue;
+            if (l.relation !== 'derived-from') continue;
+            if (!l.targetHash) continue;
+            const target = documents.find((d) => d.id === l.targetId && !d.archivedAt);
+            if (!target) continue;
+            if (target.contentHash !== l.targetHash) { stale = true; break; }
+          }
+        }
+        return { ...doc, stale };
       });
     },
     async createDocument(document) {
@@ -577,6 +590,7 @@ function createMemoryDocumentLinksRepository(documentsRef) {
       }
       return grouped;
     },
+    getLinks() { return links; },
   };
 }
 
@@ -626,15 +640,17 @@ const config = loadConfig({
   PORT: process.env.PORT || '3100',
 });
 
+const documentLinksRepository = createMemoryDocumentLinksRepository(sharedDocuments);
+
 const app = await buildApp({
   config,
   logger: true,
   skipDb: true,
   tasksRepository: createMemoryTasksRepository(sharedDocuments, checklistRepository),
-  libraryRepository: createMemoryLibraryRepository(sharedDocuments),
+  libraryRepository: createMemoryLibraryRepository(sharedDocuments, documentLinksRepository.getLinks()),
   projectsRepository: createMemoryProjectsRepository(sharedProjects),
   checklistRepository,
-  documentLinksRepository: createMemoryDocumentLinksRepository(sharedDocuments),
+  documentLinksRepository,
 });
 
 await app.listen({ host: config.host, port: config.port });
