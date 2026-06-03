@@ -203,7 +203,13 @@ export async function registerLibraryRoutes(app, options = {}) {
     let docs;
     try {
       const { vector } = await embedder.embed(String(q));
-      docs = await repository.searchDocumentsSemantic(toVectorLiteral(vector), embedder.backend, { projectId, limit: 20 });
+      const search = app.embeddingSearch || {};
+      docs = await repository.searchDocumentsSemantic(toVectorLiteral(vector), embedder.backend, {
+        projectId,
+        limit: 20,
+        minSimilarity: search.minSimilarity,
+        topDrop: search.topDrop,
+      });
     } catch (err) {
       // Feature is configured + enabled, but the backend is unreachable or
       // errored. Degrade cleanly rather than 500 — the rest of the feature
