@@ -12,6 +12,17 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Changed
+
+- Semantic search now embeds each document's **title + body** together (previously the body only),
+  so a query that matches the title retrieves the document — titles are high-signal, especially for
+  short notes. The on-write trigger re-embeds on a **title or body** change. `embedded_hash` is still
+  the body `content_hash`, so the staleness logic, counts, and the export contract are unchanged.
+  `POST /api/library/embeddings/reindex?force=true` re-embeds **all** active documents (run it once
+  after upgrading, or after changing the embedding model). The `moomora-recall` skill gains a
+  `--recent [n]` mode that lists the latest documents chronologically (a list intent, vs. semantic
+  similarity).
+
 ### Added
 
 - **Kubernetes pgvector deployment support.** A `deploy/postgres/Dockerfile` that adds pgvector to

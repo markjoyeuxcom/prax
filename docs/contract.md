@@ -257,8 +257,10 @@ returned. When the feature is disabled or not configured the tool yields a frien
 message (use `search_documents` instead) rather than an error. The supporting routes —
 `GET /api/library/documents/semantic-search` (cosine-ranked refs; 409 when disabled, 400 on a
 blank query, 503 when a configured backend is unreachable), `POST /api/library/embeddings/reindex`
-(rebuilds/repairs the index), and `GET`/`PUT /api/settings/semantic-search` (read-only status +
-the boolean toggle) — are **HTTP-only** and not part of the MCP surface.
+(rebuilds/repairs the index — add `?force=true` to re-embed **every** active document, e.g. after
+changing the embedding model or upgrading), and `GET`/`PUT /api/settings/semantic-search`
+(read-only status + the boolean toggle) — are **HTTP-only** and not part of the MCP surface. Each
+document is embedded as its **title + body** together (so a query matching the title retrieves it).
 
 Results are filtered by a gap-based relevance cutoff: only documents scoring within
 `EMBEDDING_SEARCH_TOP_DROP` (default 0.20) of the best match and at least

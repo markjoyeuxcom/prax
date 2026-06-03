@@ -12,12 +12,18 @@ const BODY_CHARS = 800;
 const RELATED_MAX = 5;
 
 function parseArgs(argv) {
-  const out = { query: '', project: '', limit: 5 };
+  const out = { query: '', project: '', limit: 5, recent: false };
   const rest = [];
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === '--project') { out.project = argv[++i] || ''; }
     else if (a === '--limit') { const n = Number(argv[++i]); out.limit = Number.isFinite(n) && n > 0 ? n : 5; }
+    else if (a === '--recent') {
+      out.recent = true;
+      // optional inline count: `--recent 10`
+      const n = Number(argv[i + 1]);
+      if (Number.isFinite(n) && n > 0) { out.limit = n; i += 1; }
+    }
     else rest.push(a);
   }
   out.query = rest.join(' ').trim();
@@ -61,9 +67,28 @@ function printResult({ top, related, note }) {
   console.log(lines.join('\n'));
 }
 
+async function recent(project, limit) {
+  // List the most recently-updated docs chronologically — a "what did I note
+  // earlier" need, which is a list, not a semantic-similarity search.
+  const scope = project && project !== 'all' ? `?project=${encodeURIComponent(project)}` : '';
+  const res = await getJson(`/api/library/documents${scope}`);
+  if (!res.ok) fail(`Failed to list documents (HTTP ${res.status}).`);
+  const docs = await res.json();
+  if (!Array.isArray(docs) || docs.length === 0) { console.log('No documents yet.'); return; }
+  const sorted = [...docs].sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))).slice(0, limit);
+  console.log(`Most recent ${sorted.length} document(s)${project ? ` in "${project}"` : ''}:`);
+  for (const d of sorted) {
+    const snip = String(d.body || '').replace(/\s+/g, ' ').trim().slice(0, 100);
+    console.log(`- ${d.title || 'Untitled'} — ${d.id}${snip ? ` — ${snip}` : ''}`);
+  }
+}
+
 async function main() {
-  const { query, project, limit } = parseArgs(process.argv.slice(2));
-  if (!query) fail('Usage: node recall.mjs "<query>" [--project <slug>] [--limit <n>]');
+  const { query, project, limit, recent: isRecent } = parseArgs(process.argv.slice(2));
+
+  if (isRecent) { await recent(project, limit); return; }
+
+  if (!query) fail('Usage: node recall.mjs "<query>" [--project <slug>] [--limit <n>]  |  node recall.mjs --recent [n] [--project <slug>]');
 
   const scope = project && project !== 'all' ? `&project=${encodeURIComponent(project)}` : '';
 

@@ -24,7 +24,8 @@ retrieve  →  work  →  persist  →  supersede
 
 1. **Retrieve-on-start** — before working a task, run `moomora-recall "<what I'm about to do>"` to
    surface prior context. Retrieval is by meaning, so a paraphrase finds the right note even with
-   different words; an honest "no relevant memory" means start fresh.
+   different words; an honest "no relevant memory" means start fresh. For a "what did I note
+   recently" intent (a list, not a similarity search) use `moomora-recall --recent`.
 2. **Work** — using the recalled context as grounding (your documented procedures, not guesses).
 3. **Persist-on-learn** — when something durable is learned or decided, run
    `moomora-remember "<title>" "<body>"`. It writes to the `memory` project, stamped

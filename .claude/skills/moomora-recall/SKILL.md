@@ -24,6 +24,16 @@ node .claude/skills/moomora-recall/recall.mjs "<natural-language query>" [--proj
   `--project memory` to scope to the agent memory namespace, or any project slug.
 - Set `MOOMORA_API_URL` if the app isn't at `http://127.0.0.1:3000` (same var the MCP server uses).
 
+For a "what did I note/do recently" intent — a chronological **list**, not a similarity search —
+use `--recent` instead of a query:
+
+```bash
+node .claude/skills/moomora-recall/recall.mjs --recent [n] [--project <slug>]   # latest n docs (default 5)
+```
+
+(Semantic search matches the *meaning of content*, so it won't answer "show my recent notes" —
+that's what `--recent` is for.)
+
 ## What it returns
 
 A distilled block — the top hit's title, type, id, and a trimmed body (~800 chars), then a short
