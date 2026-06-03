@@ -52,3 +52,51 @@ test('reindex is a no-op without an embedder', async () => {
   const result = await svc.reindex();
   assert.equal(result.embedded, 0);
 });
+
+test('embedDocument never throws when a dependency rejects, returns false', async () => {
+  const repo = fakeRepo([{ id: 'a', body: 'boom', contentHash: 'h1' }]);
+  const throwingEmbedder = {
+    backend: 'fake',
+    async embed() { throw new Error('embed exploded'); },
+    async isAvailable() { return true; },
+  };
+  const errors = [];
+  const svc = createEmbeddingService({
+    repository: repo,
+    embedder: throwingEmbedder,
+    logger: { error: (...args) => errors.push(args) },
+  });
+  const result = await svc.embedDocument('a');
+  assert.equal(result, false);
+  assert.equal(repo.stored.length, 0);
+  assert.equal(errors.length, 1);
+});
+
+test('reindex isolates failures: one bad doc counts as failed, the rest embed', async () => {
+  const docs = [
+    { id: 'a', body: 'one', contentHash: 'h1' },
+    { id: 'b', body: 'two', contentHash: 'h2' },
+  ];
+  const repo = fakeRepo(docs);
+  const fake = createFakeEmbedder({ dim: 8 });
+  const flakyEmbedder = {
+    backend: 'fake',
+    async embed(text) {
+      if (text === 'two') throw new Error('embed exploded');
+      return fake.embed(text);
+    },
+    async isAvailable() { return true; },
+  };
+  const errors = [];
+  const svc = createEmbeddingService({
+    repository: repo,
+    embedder: flakyEmbedder,
+    logger: { error: (...args) => errors.push(args) },
+  });
+  const result = await svc.reindex();
+  assert.equal(result.embedded, 1);
+  assert.equal(result.failed, 1);
+  assert.equal(repo.stored.length, 1);
+  assert.equal(repo.stored[0].id, 'a');
+  assert.equal(errors.length, 1);
+});

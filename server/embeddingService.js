@@ -38,8 +38,14 @@ export function createEmbeddingService({ repository, embedder, concurrency = 4, 
           batch.map((d) => embedOne(d.id, d.contentHash)),
         );
         for (const r of results) {
-          if (r.status === 'fulfilled' && r.value) embedded += 1;
-          else failed += 1;
+          if (r.status === 'fulfilled' && r.value) {
+            embedded += 1;
+          } else {
+            failed += 1;
+            if (r.status === 'rejected') {
+              logger.error('reindex item failed', { err: String(r.reason) });
+            }
+          }
         }
       }
       return { embedded, failed };
