@@ -1571,7 +1571,7 @@ button.task-row:hover { background: color-mix(in srgb, var(--accent) 4%, transpa
 
 .library-detail {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
   height: 100%;
   max-height: none;
   overflow: hidden;
