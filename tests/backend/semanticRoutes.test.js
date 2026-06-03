@@ -1,0 +1,104 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { buildApp } from '../../server/index.js';
+
+const PROJECT_ID = '00000000-0000-4000-8000-000000000001';
+
+function fakes({ available = true, enabled = true } = {}) {
+  return {
+    library: {
+      listDocuments: async () => [],
+      getDocument: async () => null,
+      createDocument: async (d) => ({ id: 'new', ...d }),
+      updateDocument: async (id, f) => ({ id, ...f }),
+      archiveDocument: async () => null,
+      restoreDocument: async () => null,
+      deleteArchivedDocument: async () => null,
+      listActiveDocumentsForExport: async () => [],
+      searchDocumentsSemantic: async () => [
+        { id: 'd1', title: 'Restore', documentType: 'runbook', projectId: PROJECT_ID, tags: [], body: 'b', kind: 'source' },
+      ],
+      countEmbeddings: async () => ({ total: 3, embedded: 2 }),
+    },
+    appSettings: {
+      _enabled: enabled,
+      async getSetting(_k, fb) { return this._enabled ?? fb; },
+      async putSetting(_k, v) { this._enabled = v; return v; },
+    },
+    embedder: available ? { backend: 'fake', async isAvailable() { return true; }, async embed() { return { vector: [0.1], model: 'fake', dim: 1 }; } } : null,
+    embeddingService: { embedDocument: async () => true, reindex: async () => ({ embedded: 3, failed: 0 }) },
+  };
+}
+
+async function makeApp(opts) {
+  const f = fakes(opts);
+  return buildApp({
+    skipDb: true,
+    libraryRepository: f.library,
+    projectsRepository: { resolveProject: async () => ({ id: PROJECT_ID, slug: 'homelab' }) },
+    documentLinksRepository: { listDocumentLinks: async () => [], linkDocuments: async () => ({ linked: true }), unlinkDocuments: async () => true, listStaleDocuments: async () => [], listOrphanDocuments: async () => [], listOutboundLinksForDocuments: async () => new Map() },
+    appSettingsRepository: f.appSettings,
+    embedder: f.embedder,
+    embeddingService: f.embeddingService,
+  });
+}
+
+test('GET /api/settings/semantic-search reports availability + counts', async () => {
+  const app = await makeApp({ available: true, enabled: true });
+  const res = await app.inject({ method: 'GET', url: '/api/settings/semantic-search' });
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+  assert.equal(body.available, true);
+  assert.equal(body.enabled, true);
+  assert.equal(body.backend, 'fake');
+  assert.equal(body.embeddedCount, 2);
+  assert.equal(body.totalCount, 3);
+  await app.close();
+});
+
+test('GET semantic settings shows unavailable when no embedder', async () => {
+  const app = await makeApp({ available: false });
+  const res = await app.inject({ method: 'GET', url: '/api/settings/semantic-search' });
+  assert.equal(res.json().available, false);
+  await app.close();
+});
+
+test('PUT /api/settings/semantic-search flips the toggle', async () => {
+  const app = await makeApp({ available: true, enabled: true });
+  const res = await app.inject({ method: 'PUT', url: '/api/settings/semantic-search', payload: { enabled: false } });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().enabled, false);
+  await app.close();
+});
+
+test('semantic-search returns refs when enabled', async () => {
+  const app = await makeApp({ available: true, enabled: true });
+  const res = await app.inject({ method: 'GET', url: '/api/library/documents/semantic-search?q=restore' });
+  assert.equal(res.statusCode, 200);
+  const refs = res.json();
+  assert.equal(refs[0].title, 'Restore');
+  assert.ok('snippet' in refs[0]);   // ref shape, not full doc
+  await app.close();
+});
+
+test('semantic-search 409s when disabled', async () => {
+  const app = await makeApp({ available: true, enabled: false });
+  const res = await app.inject({ method: 'GET', url: '/api/library/documents/semantic-search?q=x' });
+  assert.equal(res.statusCode, 409);
+  await app.close();
+});
+
+test('semantic-search 409s when unavailable', async () => {
+  const app = await makeApp({ available: false });
+  const res = await app.inject({ method: 'GET', url: '/api/library/documents/semantic-search?q=x' });
+  assert.equal(res.statusCode, 409);
+  await app.close();
+});
+
+test('reindex returns counts when available', async () => {
+  const app = await makeApp({ available: true, enabled: true });
+  const res = await app.inject({ method: 'POST', url: '/api/library/embeddings/reindex' });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().embedded, 3);
+  await app.close();
+});
