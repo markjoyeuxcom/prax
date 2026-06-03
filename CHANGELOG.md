@@ -12,6 +12,20 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.12.2] - 2026-06-03
+
+### Added
+
+- Playwright end-to-end browser test harness (`npm run test:e2e`) driving the
+  in-memory demo server, covering the document-graph UI surface: Links-section
+  visibility on first load and across every detail mode, SYNTH/STALE list
+  chips, and the Admin Library Maintenance panel (stale/orphan tables, `[open]`
+  click-through, project filter). It catches the layout/visibility and
+  stale-DOM bug classes that the string-HTML unit suite cannot — the harness
+  was mutation-tested against the v0.12.1 regressions to prove it is not
+  tautological. Gated in CI via a new `e2e` job; the existing `npm test` unit
+  suite is unchanged. (#40)
+
 ## [0.12.1] - 2026-06-03
 
 ### Fixed
@@ -266,7 +280,8 @@ fresh empty `[Unreleased]` section is started.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.12.1...HEAD
+[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.12.2...HEAD
+[0.12.2]: https://github.com/awaybreaktoday/moomora-console/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.11.0...v0.11.1
