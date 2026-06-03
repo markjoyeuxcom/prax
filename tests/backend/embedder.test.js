@@ -4,8 +4,6 @@ import { createFakeEmbedder } from '../../server/embedder/fake.js';
 import { createOllamaEmbedder } from '../../server/embedder/ollama.js';
 import { createEmbedder } from '../../server/embedder/index.js';
 
-const ISOish = /^\d/;
-
 test('fake embedder is deterministic and fixed-dimension', async () => {
   const e = createFakeEmbedder({ dim: 16 });
   const a = await e.embed('hello world');
@@ -54,4 +52,21 @@ test('createEmbedder resolves backends and null for none', () => {
 
 test('createEmbedder throws on unknown backend', () => {
   assert.throws(() => createEmbedder({ embeddingBackend: 'bogus' }), /unknown embedding backend/i);
+});
+
+test('ollama embed throws on a non-ok response', async () => {
+  const e = createOllamaEmbedder({ url: 'http://x', model: 'm', fetch: async () => ({ ok: false, status: 500 }) });
+  await assert.rejects(e.embed('hi'), /ollama embed failed: 500/);
+});
+
+test('ollama embed throws on a malformed response (no embedding array)', async () => {
+  const e = createOllamaEmbedder({ url: 'http://x', model: 'm', fetch: async () => ({ ok: true, json: async () => ({}) }) });
+  await assert.rejects(e.embed('hi'), /no embedding array/);
+});
+
+test('fake embedder produces the exact dim for non-multiple-of-32 sizes', async () => {
+  const e = createFakeEmbedder({ dim: 100 });
+  const out = await e.embed('boundary');
+  assert.equal(out.vector.length, 100);
+  assert.ok(out.vector.every((n) => n >= -1 && n <= 1));
 });

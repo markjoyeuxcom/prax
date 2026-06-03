@@ -9,7 +9,7 @@ export function createEmbedder(config = {}) {
     case 'none':
       return null;
     case 'fake':
-      return createFakeEmbedder({ dim: config.embeddingDim || 64 });
+      return createFakeEmbedder({ dim: 64 });
     case 'ollama':
       return createOllamaEmbedder({ url: config.ollamaUrl, model: config.embeddingModel });
     default:
