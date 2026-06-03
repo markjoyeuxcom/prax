@@ -1,3 +1,12 @@
+// Parse a numeric env var, falling back to the default for anything that isn't a
+// finite number. A bare Number() would turn garbage ('abc') into NaN, which in the
+// relevance-cutoff math (max(NaN, …) → NaN; x >= NaN → false) would silently make
+// semantic search return zero results for every query — a safe default beats that.
+function numberFromEnv(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) && value !== '' && value != null ? n : fallback;
+}
+
 export function loadConfig(env = process.env) {
   return {
     host: env.HOST || '0.0.0.0',
@@ -7,7 +16,7 @@ export function loadConfig(env = process.env) {
     embeddingBackend: env.EMBEDDING_BACKEND || 'none',
     embeddingModel: env.EMBEDDING_MODEL || '',
     ollamaUrl: env.OLLAMA_URL || 'http://127.0.0.1:11434',
-    embeddingSearchMinSimilarity: env.EMBEDDING_SEARCH_MIN_SIMILARITY ? Number(env.EMBEDDING_SEARCH_MIN_SIMILARITY) : 0.45,
-    embeddingSearchTopDrop: env.EMBEDDING_SEARCH_TOP_DROP ? Number(env.EMBEDDING_SEARCH_TOP_DROP) : 0.20,
+    embeddingSearchMinSimilarity: numberFromEnv(env.EMBEDDING_SEARCH_MIN_SIMILARITY, 0.45),
+    embeddingSearchTopDrop: numberFromEnv(env.EMBEDDING_SEARCH_TOP_DROP, 0.20),
   };
 }
