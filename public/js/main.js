@@ -26,6 +26,7 @@ import {
   archiveDocument,
   createDocument,
   deleteArchivedDocument,
+  fetchDocumentLinks,
   fetchDocuments,
   restoreDocument,
   updateDocument,
@@ -737,6 +738,24 @@ function setupLibraryResizer(workspace, libraryWorkspaceElement) {
   });
 }
 
+async function loadDocumentLinks(documentId) {
+  if (!documentId) {
+    setState({ documentLinks: null });
+    return;
+  }
+  try {
+    const links = await fetchDocumentLinks(documentId, 'both');
+    // Selection-stale guard: only apply if the user hasn't navigated away.
+    if (state.selectedDocumentId === documentId) {
+      setState({ documentLinks: links });
+      const workspace = app.querySelector('[data-workspace]');
+      if (workspace) renderLibraryWorkspace(workspace);
+    }
+  } catch (err) {
+    console.error('Failed to load document links', err);
+  }
+}
+
 function renderLibraryWorkspace(workspace) {
   const contextDocuments = state.activeProject === 'all'
     ? state.documents
@@ -766,6 +785,7 @@ function renderLibraryWorkspace(workspace) {
     sortBy: state.librarySortBy,
     groupByType: state.libraryGroupByType,
     libraryView: state.libraryView,
+    documentLinks: state.documentLinks,
   });
 
   const libraryWorkspaceElement = workspace.querySelector('.library-workspace');
@@ -1073,6 +1093,7 @@ function renderLibraryWorkspace(workspace) {
       clearDocumentAutosave();
       setState({
         selectedDocumentId: row.dataset.libraryDocumentId,
+        documentLinks: null,
         documentDraftId: nextDocument?.id || null,
         documentDraftBody: nextDocument?.body || '',
         isDocumentDirty: false,
@@ -1083,6 +1104,7 @@ function renderLibraryWorkspace(workspace) {
         isLibraryDocOpen: isMobile() ? true : state.isLibraryDocOpen,
       });
       renderWorkspace();
+      loadDocumentLinks(row.dataset.libraryDocumentId);
     });
   });
 
@@ -2404,12 +2426,14 @@ async function loadDocuments({ selectedDocumentId = state.selectedDocumentId } =
     documentDraftId: selectedDocumentExists ? selectedDocumentId : documents[0]?.id || null,
     documentDraftBody: (selectedDocumentExists ? documents.find(document => document.id === selectedDocumentId) : documents[0])?.body || '',
     isDocumentDirty: false,
+    documentLinks: null,
   };
   if (state.libraryView === 'active') {
     patch.libraryActiveDocumentCount = documents.length;
   }
   setState(patch);
   renderApp();
+  loadDocumentLinks(state.selectedDocumentId);
 }
 
 async function init() {
