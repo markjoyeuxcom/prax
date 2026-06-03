@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto';
 import { toIso } from './columnTypes.js';
 
+const DEFAULT_MIN_SIMILARITY = 0.45;
+const DEFAULT_TOP_DROP = 0.20;
+
 function hashBody(body) {
   return createHash('sha256').update(String(body ?? '')).digest('hex');
 }
@@ -163,7 +166,8 @@ export function buildSearchDocumentsSemantic(queryLiteral, backend, { projectId,
   values.push(limit);
   return {
     text: `
-      select id, title, document_type, project_id, tags, body, kind
+      select id, title, document_type, project_id, tags, body, kind,
+             1 - (embedding <=> $1::vector) as similarity
       from markdown_documents
       ${where}
       order by embedding <=> $1::vector
@@ -200,6 +204,16 @@ export function buildCountEmbeddings(backend) {
     `,
     values: [backend],
   };
+}
+
+// Gap-based relevance cutoff: keep rows within DROP of the best similarity, but
+// never below an absolute FLOOR (kills nonsense queries). Rows arrive ordered by
+// similarity desc (the SQL orders by cosine distance asc). Pure + side-effect free.
+export function applyRelevanceCutoff(rows, { minSimilarity = DEFAULT_MIN_SIMILARITY, topDrop = DEFAULT_TOP_DROP } = {}) {
+  if (!Array.isArray(rows) || rows.length === 0) return [];
+  const top = Number(rows[0].similarity);
+  const threshold = Math.max(minSimilarity, top - topDrop);
+  return rows.filter((r) => Number(r.similarity) >= threshold);
 }
 
 export function createLibraryRepository(db) {
@@ -305,7 +319,8 @@ export function createLibraryRepository(db) {
     async searchDocumentsSemantic(queryLiteral, backend, opts = {}) {
       const q = buildSearchDocumentsSemantic(queryLiteral, backend, opts);
       const result = await db.query(q.text, q.values);
-      return result.rows.map(normalizeDocumentRow);
+      const kept = applyRelevanceCutoff(result.rows, { minSimilarity: opts.minSimilarity, topDrop: opts.topDrop });
+      return kept.map(normalizeDocumentRow);
     },
 
     async listDocumentsNeedingEmbedding(backend) {

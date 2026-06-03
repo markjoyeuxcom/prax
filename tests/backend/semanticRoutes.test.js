@@ -160,6 +160,18 @@ test('patching without a body change does not fire an embed', async () => {
   await app.close();
 });
 
+test('semantic-search refs never expose similarity or embedding', async () => {
+  const app = await makeApp({ available: true, enabled: true });
+  const res = await app.inject({ method: 'GET', url: '/api/library/documents/semantic-search?q=restore' });
+  const refs = res.json();
+  assert.ok(refs.length > 0);
+  for (const r of refs) {
+    assert.ok(!('similarity' in r));
+    assert.ok(!('embedding' in r));
+  }
+  await app.close();
+});
+
 test('patching with a body change fires a non-awaited embed', async () => {
   const embedded = [];
   const app = await makeApp({ available: true, enabled: true }, (f) => {

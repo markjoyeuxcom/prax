@@ -49,6 +49,10 @@ export async function buildApp(options = {}) {
   app.decorate('embedder', embedder);
   app.decorate('appSettingsRepository', appSettingsRepository);
   app.decorate('embeddingService', embeddingService);
+  app.decorate('embeddingSearch', {
+    minSimilarity: config.embeddingSearchMinSimilarity,
+    topDrop: config.embeddingSearchTopDrop,
+  });
   await registerTasksRoutes(app, options);
   await registerLibraryRoutes(app, options);
   await registerProjectsRoutes(app, options);

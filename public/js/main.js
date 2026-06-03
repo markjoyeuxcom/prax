@@ -1791,8 +1791,31 @@ function bindShellEvents() {
     if (!q) { setState({ semanticResults: null }); renderWorkspace(); return; }
     try {
       const refs = await semanticSearch(q, state.activeProject);
-      setState({ semanticResults: refs });
+      const patch = { semanticResults: refs };
+      if (refs.length) {
+        const top = state.documents.find((d) => d.id === refs[0].id);
+        clearDocumentAutosave();
+        patch.selectedDocumentId = refs[0].id;
+        patch.documentDraftId = top?.id || null;
+        patch.documentDraftBody = top?.body || '';
+        patch.isDocumentDirty = false;
+        patch.documentLinks = null;
+        // Reset the detail-pane flags the row-click handler also clears, so
+        // focusing the top hit doesn't carry over a stale save banner, focus
+        // mode, or an open info editor from a previously-edited doc.
+        patch.documentSaveStatus = 'Saved';
+        patch.isDocumentFocusMode = false;
+        patch.isDocumentInfoEditorOpen = false;
+        patch.documentInfoError = '';
+        // On mobile the detail pane only slides in when this is set (the
+        // row-click handler does the same), so the focused top hit is visible.
+        patch.isLibraryDocOpen = isMobile() ? true : state.isLibraryDocOpen;
+      } else {
+        patch.selectedDocumentId = null;
+      }
+      setState(patch);
       renderWorkspace();
+      if (refs.length) loadDocumentLinks(refs[0].id);
     } catch (error) {
       console.error('Semantic search failed', error);
       setState({ semanticResults: [] });
