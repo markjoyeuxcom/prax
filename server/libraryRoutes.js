@@ -202,7 +202,7 @@ export async function registerLibraryRoutes(app, options = {}) {
 
     let docs;
     try {
-      const { vector } = await embedder.embed(String(q));
+      const { vector } = await embedder.embed(String(q), { query: true });
       const search = app.embeddingSearch || {};
       docs = await repository.searchDocumentsSemantic(toVectorLiteral(vector), embedder.backend, {
         projectId,
