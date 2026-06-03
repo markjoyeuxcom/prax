@@ -29,3 +29,14 @@ test('embedding search thresholds default and override', () => {
   assert.equal(loadConfig({ EMBEDDING_SEARCH_MIN_SIMILARITY: 'abc' }).embeddingSearchMinSimilarity, 0.45);
   assert.equal(loadConfig({ EMBEDDING_SEARCH_TOP_DROP: 'NaN' }).embeddingSearchTopDrop, 0.20);
 });
+
+test('openai + query-prefix config defaults and overrides', () => {
+  const d = loadConfig({});
+  assert.equal(d.openaiBaseUrl, 'https://api.openai.com/v1');
+  assert.equal(d.openaiApiKey, '');
+  assert.equal(d.embeddingQueryPrefix, '');
+  const o = loadConfig({ OPENAI_BASE_URL: 'http://x/v1', OPENAI_API_KEY: 'sk-1', EMBEDDING_QUERY_PREFIX: 'search_query: ' });
+  assert.equal(o.openaiBaseUrl, 'http://x/v1');
+  assert.equal(o.openaiApiKey, 'sk-1');
+  assert.equal(o.embeddingQueryPrefix, 'search_query: ');
+});

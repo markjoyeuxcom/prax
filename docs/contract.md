@@ -243,12 +243,15 @@ rows) include `kind`; the create/update tools accept it as an optional input.
 Semantic search ranks documents by embedding similarity (meaning), not keywords, so a
 paraphrased query can find topically-relevant docs that share no words with it. It is
 **retrieval-only** — no text is generated. Availability is **Postgres-only**: it requires the
-pgvector extension and a configured `EMBEDDING_BACKEND` (one of `ollama`, plus the v0.13.1
-`openai`/`gemini`/`voyage` adapters, or the deterministic `fake` test backend). The default
-`EMBEDDING_BACKEND=none` leaves the feature absent. On top of that config gate, a server-side
-runtime toggle (stored in the `app_settings` table, key `semantic_search_enabled`) turns it on
-and off live, consistently across the UI and MCP; all backend config (URLs, models, keys) is
-env-only. `search_documents_semantic` returns the **same ref shape** as keyword `search_documents`
+pgvector extension and a configured `EMBEDDING_BACKEND`: `ollama`, `openai` (any
+OpenAI-compatible `/v1/embeddings` server — real OpenAI, llama.cpp, vLLM, LiteLLM, … via
+`OPENAI_BASE_URL` + optional `OPENAI_API_KEY`), or the deterministic `fake` test backend. The
+default `EMBEDDING_BACKEND=none` leaves the feature absent. On top of that config gate, a
+server-side runtime toggle (stored in the `app_settings` table, key `semantic_search_enabled`)
+turns it on and off live, consistently across the UI and MCP; all backend config (URLs, models,
+keys) is env-only. An optional `EMBEDDING_QUERY_PREFIX` is prepended to **search-query** embeddings
+only (never to document embeddings) for instruct-tuned models — e.g. `qwen3-embedding`'s
+`Instruct: …\nQuery:` or `nomic`'s `search_query: ` — so changing it needs no reindex. `search_documents_semantic` returns the **same ref shape** as keyword `search_documents`
 (`{ id, title, documentType, projectId, tags, snippet }`); the embedding vector is never
 returned. When the feature is disabled or not configured the tool yields a friendly fallback
 message (use `search_documents` instead) rather than an error. The supporting routes —
