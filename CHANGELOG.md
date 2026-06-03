@@ -12,6 +12,25 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-06-03
+
+### Fixed
+
+- Library detail Links section now renders on first load and in every view
+  mode (preview / edit / split / info-edit / focus). After v0.12.0 it was
+  hidden until the user manually switched modes, because two compounding
+  regressions left it both layout-clipped and stuck behind a stale-DOM bug
+  in the post-fetch re-render. (#38)
+  - `.library-detail` was a 2-row CSS grid; the renderer appended Links as
+    a 3rd child which was placed in an implicit row but clipped by the
+    aside's `overflow: hidden`. Fix: explicit `auto` third row in
+    `grid-template-rows`.
+  - `loadDocumentLinks` updated `state.documentLinks` correctly but its
+    re-render call used a `[data-workspace]` selector that doesn't exist
+    anywhere in the DOM, so the DOM stayed stale until another interaction
+    triggered a re-render. Fix: call `renderWorkspace()`, the canonical
+    library re-render entry point.
+
 ## [0.12.0] - 2026-06-03
 
 ### Added
@@ -247,7 +266,8 @@ fresh empty `[Unreleased]` section is started.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.12.1...HEAD
+[0.12.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.10.0...v0.11.0
