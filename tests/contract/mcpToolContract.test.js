@@ -7,6 +7,7 @@ import { createChecklistTools } from '../../mcp/tools/checklist.js';
 import { createActivityTools } from '../../mcp/tools/activity.js';
 import { createDocumentLinkTools } from '../../mcp/tools/documentLinks.js';
 import { createGraphMaintenanceTools } from '../../mcp/tools/graphMaintenance.js';
+import { createSemanticSearchTools } from '../../mcp/tools/semanticSearch.js';
 import { toTaskRef, toDocumentRef, capResults } from '../../mcp/shape.js';
 
 // The current MCP tool surface this regression test locks: tool name -> required + optional input fields.
@@ -32,6 +33,7 @@ const FROZEN_TOOLS = {
   unlink_documents: { required: ['sourceId', 'targetId', 'relation'], optional: [] },
   list_stale_documents: { required: [], optional: ['project'] },
   list_orphan_documents: { required: [], optional: ['project'] },
+  search_documents_semantic: { required: ['query'], optional: ['project'] },
 };
 
 function allTools(client = {}) {
@@ -43,6 +45,7 @@ function allTools(client = {}) {
     ...createActivityTools(client),
     ...createDocumentLinkTools(client),
     ...createGraphMaintenanceTools(client),
+    ...createSemanticSearchTools(client),
   ];
 }
 
