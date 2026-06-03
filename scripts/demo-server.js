@@ -624,6 +624,14 @@ function createMemoryChecklistRepository() {
   };
 }
 
+function createMemoryAppSettingsRepository() {
+  const store = new Map();
+  return {
+    async getSetting(key, fallback = null) { return store.has(key) ? store.get(key) : fallback; },
+    async putSetting(key, value) { store.set(key, value); return value; },
+  };
+}
+
 const checklistRepository = createMemoryChecklistRepository();
 
 // Seed checklist items onto the "Back up CNPG" task so the demo detail panel
@@ -651,6 +659,9 @@ const app = await buildApp({
   projectsRepository: createMemoryProjectsRepository(sharedProjects),
   checklistRepository,
   documentLinksRepository,
+  appSettingsRepository: createMemoryAppSettingsRepository(),
+  embedder: null,
+  embeddingService: null,
 });
 
 await app.listen({ host: config.host, port: config.port });

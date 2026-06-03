@@ -395,6 +395,8 @@ export function renderLibraryHtml({
   groupByType = false,
   libraryView = 'active',
   documentLinks = undefined,
+  librarySearchMode = 'keyword',
+  semanticAvailable = false,
 } = {}) {
   const safeDocuments = Array.isArray(documents) ? documents : [];
   const document = selectedDocument(safeDocuments, selectedDocumentId);
@@ -435,6 +437,11 @@ export function renderLibraryHtml({
           </label>
           <button class="bracket-button bracket-button--quiet library-group-toggle" type="button" data-action="toggle-library-group" aria-pressed="${groupByType}">group: ${groupByType ? 'type' : 'off'}</button>
         </div>
+        ${semanticAvailable ? `
+        <div class="library-search-mode" role="group" aria-label="Search mode">
+          <button class="search-mode-btn${librarySearchMode === 'keyword' ? ' is-active' : ''}" type="button" data-action="set-library-search-mode" data-mode="keyword" aria-pressed="${librarySearchMode === 'keyword'}">keyword</button>
+          <button class="search-mode-btn${librarySearchMode === 'semantic' ? ' is-active' : ''}" type="button" data-action="set-library-search-mode" data-mode="semantic" aria-pressed="${librarySearchMode === 'semantic'}">semantic</button>
+        </div>` : ''}
         <div class="document-list">${renderDocumentList(safeDocuments, document?.id, { groupByType, libraryView })}
         </div>
       </aside>

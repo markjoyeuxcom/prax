@@ -29,8 +29,12 @@ import {
   fetchDocumentLinks,
   fetchDocuments,
   fetchOrphanDocuments,
+  fetchSemanticStatus,
   fetchStaleDocuments,
+  reindexEmbeddings,
   restoreDocument,
+  semanticSearch,
+  setSemanticEnabled,
   updateDocument,
 } from './libraryApi.js';
 import { moveTaskOnBoard } from './boardWorkflow.js';
@@ -532,6 +536,7 @@ function renderWorkspace() {
       // selectedDocument() silently falls back to the first visible doc.
       const linkedDoc = state.taskDocuments.find(d => d.id === docId);
       const patch = {
+        ...resetSemanticSearch(),
         activeView: 'library',
         selectedDocumentId: docId,
         libraryTypeFilter: 'all',
@@ -775,12 +780,43 @@ async function loadMaintenanceLists() {
   }
 }
 
+async function loadSemanticStatus() {
+  try {
+    const semanticStatus = await fetchSemanticStatus();
+    setState({ semanticStatus });
+    renderApp();
+  } catch (error) {
+    console.error('Failed to load semantic search status', error);
+  }
+}
+
+// Semantic results are query-, project-, and feature-scoped, so any context
+// change (project/view switch, opening a specific doc, disabling the feature)
+// must drop them and fall back to keyword — otherwise a stale result list
+// renders in a context where it is wrong. Spread into the relevant setState
+// patches so no single handler has to remember both keys.
+function resetSemanticSearch() {
+  return { semanticResults: null, librarySearchMode: 'keyword' };
+}
+
 function renderLibraryWorkspace(workspace) {
   const contextDocuments = state.activeProject === 'all'
     ? state.documents
     : state.documents.filter(document => document.projectId === state.activeProject);
-  const visibleDocuments = visibleDocumentsForCurrentView();
-  const document = selectedDocument();
+  const semanticAvailable = Boolean(state.semanticStatus.available && state.semanticStatus.enabled);
+  // Gate on availability too: if the feature is toggled off (or unavailable)
+  // while results are still in state, fall back to keyword rather than render
+  // stale semantic results the user can no longer dismiss (the switch hides).
+  const useSemantic = semanticAvailable && state.librarySearchMode === 'semantic' && Array.isArray(state.semanticResults);
+  const visibleDocuments = useSemantic ? state.semanticResults : visibleDocumentsForCurrentView();
+  // Semantic results are lightweight refs (no body) and may not appear in the
+  // keyword-filtered view, so resolve the selected doc from the full document
+  // set — otherwise selectedDocument() would fall back to the first keyword
+  // match and the editor pane would open the wrong document. Keyword mode is
+  // unchanged.
+  const document = useSemantic
+    ? (state.documents.find(doc => doc.id === state.selectedDocumentId) || null)
+    : selectedDocument();
   workspace.innerHTML = renderLibraryHtml({
     documents: visibleDocuments,
     selectedDocumentId: document?.id || null,
@@ -805,6 +841,8 @@ function renderLibraryWorkspace(workspace) {
     groupByType: state.libraryGroupByType,
     libraryView: state.libraryView,
     documentLinks: state.documentLinks,
+    librarySearchMode: state.librarySearchMode,
+    semanticAvailable,
   });
 
   const libraryWorkspaceElement = workspace.querySelector('.library-workspace');
@@ -1118,6 +1156,7 @@ function renderLibraryWorkspace(workspace) {
       const documentId = btn.dataset.libraryDocumentId;
       clearDocumentAutosave();
       setState({
+        ...resetSemanticSearch(),
         libraryView: 'active',
         libraryTypeFilter: 'all',
         activeLibraryTags: [],
@@ -1160,6 +1199,14 @@ function renderLibraryWorkspace(workspace) {
       });
       renderWorkspace();
       loadDocumentLinks(row.dataset.libraryDocumentId);
+    });
+  });
+
+  workspace.querySelectorAll('[data-action="set-library-search-mode"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const mode = btn.dataset.mode === 'semantic' ? 'semantic' : 'keyword';
+      setState({ librarySearchMode: mode, semanticResults: null });
+      renderWorkspace();
     });
   });
 
@@ -1614,6 +1661,7 @@ function renderApp() {
       staleDocs: state.staleDocs,
       orphanDocs: state.orphanDocs,
       maintenanceProjectFilter: state.maintenanceProjectFilter,
+      semanticStatus: state.semanticStatus,
     }));
   }
   if (state.isProjectManagerOpen) {
@@ -1693,6 +1741,7 @@ function bindShellEvents() {
       });
       renderApp();
       loadMaintenanceLists();
+      loadSemanticStatus();
     });
   });
 
@@ -1734,12 +1783,30 @@ function bindShellEvents() {
     renderWorkspace();
   });
 
+  app.querySelector('[data-search-input]')?.addEventListener('keydown', async (event) => {
+    if (event.key !== 'Enter') return;
+    if (state.activeView !== 'library' || state.librarySearchMode !== 'semantic') return;
+    event.preventDefault();
+    const q = state.searchQuery.trim();
+    if (!q) { setState({ semanticResults: null }); renderWorkspace(); return; }
+    try {
+      const refs = await semanticSearch(q, state.activeProject);
+      setState({ semanticResults: refs });
+      renderWorkspace();
+    } catch (error) {
+      console.error('Semantic search failed', error);
+      setState({ semanticResults: [] });
+      renderWorkspace();
+    }
+  });
+
   app.querySelectorAll('[data-project]').forEach((button) => {
     button.addEventListener('click', async () => {
       const nextProject = button.dataset.project;
       if (!nextProject || nextProject === state.activeProject) return;
       clearDocumentAutosave();
       setState({
+        ...resetSemanticSearch(),
         activeProject: nextProject,
         selectedTaskId: null,
         selectedDocumentId: null,
@@ -1837,6 +1904,7 @@ function bindShellEvents() {
       const archiveModeChanged = isArchiveView(nextView) !== isArchiveView(state.activeView);
       const libraryModeChanged = nextView === 'library' || state.activeView === 'library';
       setState({
+        ...resetSemanticSearch(),
         activeView: nextView,
         selectedTaskId: null,
         selectedDocumentId: null,
@@ -1937,6 +2005,7 @@ function bindDocumentFormEvents() {
       const nextProject = savedDocument.projectId || state.activeProject;
       persistActiveProject(nextProject);
       setState({
+        ...resetSemanticSearch(),
         activeProject: nextProject,
         selectedDocumentId: savedDocument.id,
         libraryView: 'active',
@@ -2100,6 +2169,30 @@ function bindAdminPanelEvents() {
     loadMaintenanceLists();
   });
 
+  panel.querySelector('[data-action="toggle-semantic-search"]')?.addEventListener('click', async () => {
+    try {
+      const semanticStatus = await setSemanticEnabled(!state.semanticStatus.enabled);
+      // Disabling strips the in-library switch, so drop any results and reset
+      // the mode — otherwise the user is stranded on a stale semantic list.
+      setState({ semanticStatus, ...(semanticStatus.enabled ? {} : resetSemanticSearch()) });
+      renderApp();
+    } catch (error) {
+      console.error('Failed to toggle semantic search', error);
+    }
+  });
+  panel.querySelector('[data-action="reindex-embeddings"]')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      await reindexEmbeddings();
+      await loadSemanticStatus();   // refreshes embedded/total counts in the status line
+    } catch (error) {
+      console.error('Failed to reindex embeddings', error);
+    } finally {
+      button.disabled = false;
+    }
+  });
+
   panel.querySelectorAll('[data-action="open-library-doc"][data-library-document-id]').forEach((button) => {
     button.addEventListener('click', async () => {
       const docId = button.dataset.libraryDocumentId;
@@ -2109,6 +2202,7 @@ function bindAdminPanelEvents() {
       // active archive view, type filter, tag filter, or search query.
       // Mirrors the open-linked-doc pattern.
       const patch = {
+        ...resetSemanticSearch(),
         isAdminPanelOpen: false,
         activeView: 'library',
         selectedDocumentId: docId,
@@ -2468,6 +2562,7 @@ function bindTaskFormEvents() {
       const nextProject = savedTask.projectId || state.activeProject;
       persistActiveProject(nextProject);
       setState({
+        ...resetSemanticSearch(),
         activeProject: nextProject,
         selectedTaskId: savedTask.id,
         isTaskFormOpen: false,
@@ -2563,6 +2658,7 @@ async function init() {
     const valid = stored === 'all' || state.projects.some((p) => p.id === stored);
     setState({ activeProject: valid ? stored : 'all' });
     await loadTasks();
+    loadSemanticStatus();
   } catch (error) {
     setState({ apiStatus: 'error' });
     renderError(error.message);
