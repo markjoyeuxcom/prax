@@ -1807,6 +1807,9 @@ function bindShellEvents() {
         patch.isDocumentFocusMode = false;
         patch.isDocumentInfoEditorOpen = false;
         patch.documentInfoError = '';
+        // On mobile the detail pane only slides in when this is set (the
+        // row-click handler does the same), so the focused top hit is visible.
+        patch.isLibraryDocOpen = isMobile() ? true : state.isLibraryDocOpen;
       } else {
         patch.selectedDocumentId = null;
       }
