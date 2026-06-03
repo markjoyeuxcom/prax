@@ -4,6 +4,7 @@ import {
   buildSearchDocumentsSemantic,
   buildListDocumentsNeedingEmbedding,
   normalizeDocumentRow,
+  applyRelevanceCutoff,
 } from '../../server/libraryRepository.js';
 
 test('buildSearchDocumentsSemantic orders by cosine distance and filters by backend', () => {
@@ -29,6 +30,46 @@ test('buildListDocumentsNeedingEmbedding selects null/stale/mismatched rows', ()
   assert.match(q.text, /embedding_backend is distinct from \$1/);
   assert.match(q.text, /archived_at is null/);
   assert.deepEqual(q.values, ['ollama']);
+});
+
+test('buildSearchDocumentsSemantic selects similarity (a scalar, not the vector)', () => {
+  const q = buildSearchDocumentsSemantic('[0.1]', 'ollama', { limit: 5 });
+  assert.match(q.text, /1 - \(embedding <=> \$1::vector\) as similarity/);
+  assert.match(q.text, /select id, title, document_type, project_id, tags, body, kind,/);
+});
+
+test('applyRelevanceCutoff keeps only the strong hit (calibration: graphics query)', () => {
+  const rows = [
+    { id: 'proxmox', similarity: 0.751 },
+    { id: 'restic', similarity: 0.377 },
+    { id: 'vlan', similarity: 0.376 },
+    { id: 'espresso', similarity: 0.333 },
+  ];
+  const kept = applyRelevanceCutoff(rows, { minSimilarity: 0.45, topDrop: 0.20 });
+  assert.deepEqual(kept.map((r) => r.id), ['proxmox']);
+});
+
+test('applyRelevanceCutoff drops everything for a nonsense query (all below floor)', () => {
+  const rows = [
+    { id: 'a', similarity: 0.283 },
+    { id: 'b', similarity: 0.282 },
+    { id: 'c', similarity: 0.243 },
+  ];
+  assert.deepEqual(applyRelevanceCutoff(rows, { minSimilarity: 0.45, topDrop: 0.20 }), []);
+});
+
+test('applyRelevanceCutoff keeps a close cluster above the floor', () => {
+  const rows = [
+    { id: 'a', similarity: 0.70 },
+    { id: 'b', similarity: 0.62 },
+    { id: 'c', similarity: 0.40 },
+  ];
+  assert.deepEqual(applyRelevanceCutoff(rows, { minSimilarity: 0.45, topDrop: 0.20 }).map((r) => r.id), ['a', 'b']);
+});
+
+test('applyRelevanceCutoff handles empty input', () => {
+  assert.deepEqual(applyRelevanceCutoff([], {}), []);
+  assert.deepEqual(applyRelevanceCutoff(undefined, {}), []);
 });
 
 // Load-bearing security invariant: the embedding vector must NEVER reach a
