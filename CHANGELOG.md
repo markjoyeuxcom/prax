@@ -12,6 +12,45 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-06-03
+
+### Added
+
+- pgvector-backed **semantic (embedding) search** over the Markdown library:
+  paraphrased queries surface topically-relevant documents even when they share
+  no words with the query. It is **retrieval-only** — embeddings rank existing
+  documents, nothing is generated — staying true to the no-embedded-LLM
+  -generation principle. Surfaced as `GET /api/library/documents/semantic-search`
+  (cosine-ranked refs), `POST /api/library/embeddings/reindex`,
+  `GET`/`PUT /api/settings/semantic-search`, a `search_documents_semantic` MCP
+  tool (which falls back with a friendly message when disabled), an Admin
+  "Semantic Search" status/toggle/reindex section, and a keyword/semantic switch
+  in the library search. (#42)
+- **Pluggable embedding backends** behind one interface, resolved from
+  `EMBEDDING_BACKEND`. This release ships the **Ollama** adapter plus a
+  deterministic **`fake`** test backend; OpenAI / Gemini / Voyage adapters are a
+  v0.13.1 follow-up behind the same interface. (Anthropic has no embeddings API,
+  so the "Claude" backend is Voyage, its officially recommended provider.) All
+  backend config — URLs, model names, API keys — is **env-only** and never
+  settable or readable through the no-auth web UI; the UI exposes only read-only
+  status and the on/off toggle. (#42)
+- **Two-level control:** the feature is config-gated (`EMBEDDING_BACKEND=none`,
+  the default, leaves it entirely absent) and, when configured, a server-side
+  runtime toggle (stored in a new `app_settings` table) turns it on and off live,
+  consistently across the UI, MCP, and HTTP. Documents embed asynchronously on
+  write (the write path never fails on an embedding error) with a manual reindex
+  to backfill or repair after edits or a backend switch. (#42)
+
+### Changed
+
+- The Docker Compose PostgreSQL image is now **`pgvector/pgvector:pg18`** (was
+  `postgres:18-alpine`) to provide the `vector` extension. It is volume-compatible
+  with the previous PostgreSQL 18 image (identical data directory layout), so
+  existing local volumes are preserved — no reset required. Migrations `0005`
+  (embedding columns) and `0006` (`app_settings`) apply automatically on startup.
+  **Deployment note:** the published image must run against a pgvector-capable
+  PostgreSQL; the Kubernetes manifests will need a pgvector image (follow-up). (#42)
+
 ## [0.12.2] - 2026-06-03
 
 ### Added
@@ -280,7 +319,8 @@ fresh empty `[Unreleased]` section is started.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.12.2...HEAD
+[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.12.2...v0.13.0
 [0.12.2]: https://github.com/awaybreaktoday/moomora-console/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.11.1...v0.12.0
