@@ -29,8 +29,12 @@ import {
   fetchDocumentLinks,
   fetchDocuments,
   fetchOrphanDocuments,
+  fetchSemanticStatus,
   fetchStaleDocuments,
+  reindexEmbeddings,
   restoreDocument,
+  semanticSearch,
+  setSemanticEnabled,
   updateDocument,
 } from './libraryApi.js';
 import { moveTaskOnBoard } from './boardWorkflow.js';
@@ -775,11 +779,22 @@ async function loadMaintenanceLists() {
   }
 }
 
+async function loadSemanticStatus() {
+  try {
+    const semanticStatus = await fetchSemanticStatus();
+    setState({ semanticStatus });
+    renderApp();
+  } catch (error) {
+    console.error('Failed to load semantic search status', error);
+  }
+}
+
 function renderLibraryWorkspace(workspace) {
   const contextDocuments = state.activeProject === 'all'
     ? state.documents
     : state.documents.filter(document => document.projectId === state.activeProject);
-  const visibleDocuments = visibleDocumentsForCurrentView();
+  const useSemantic = state.librarySearchMode === 'semantic' && Array.isArray(state.semanticResults);
+  const visibleDocuments = useSemantic ? state.semanticResults : visibleDocumentsForCurrentView();
   const document = selectedDocument();
   workspace.innerHTML = renderLibraryHtml({
     documents: visibleDocuments,
@@ -805,6 +820,8 @@ function renderLibraryWorkspace(workspace) {
     groupByType: state.libraryGroupByType,
     libraryView: state.libraryView,
     documentLinks: state.documentLinks,
+    librarySearchMode: state.librarySearchMode,
+    semanticAvailable: Boolean(state.semanticStatus.available && state.semanticStatus.enabled),
   });
 
   const libraryWorkspaceElement = workspace.querySelector('.library-workspace');
@@ -1160,6 +1177,14 @@ function renderLibraryWorkspace(workspace) {
       });
       renderWorkspace();
       loadDocumentLinks(row.dataset.libraryDocumentId);
+    });
+  });
+
+  workspace.querySelectorAll('[data-action="set-library-search-mode"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const mode = btn.dataset.mode === 'semantic' ? 'semantic' : 'keyword';
+      setState({ librarySearchMode: mode, semanticResults: null });
+      renderWorkspace();
     });
   });
 
@@ -1614,6 +1639,7 @@ function renderApp() {
       staleDocs: state.staleDocs,
       orphanDocs: state.orphanDocs,
       maintenanceProjectFilter: state.maintenanceProjectFilter,
+      semanticStatus: state.semanticStatus,
     }));
   }
   if (state.isProjectManagerOpen) {
@@ -1693,6 +1719,7 @@ function bindShellEvents() {
       });
       renderApp();
       loadMaintenanceLists();
+      loadSemanticStatus();
     });
   });
 
@@ -1732,6 +1759,23 @@ function bindShellEvents() {
   app.querySelector('[data-search-input]')?.addEventListener('input', (event) => {
     setState({ searchQuery: event.target.value });
     renderWorkspace();
+  });
+
+  app.querySelector('[data-search-input]')?.addEventListener('keydown', async (event) => {
+    if (event.key !== 'Enter') return;
+    if (state.activeView !== 'library' || state.librarySearchMode !== 'semantic') return;
+    event.preventDefault();
+    const q = state.searchQuery.trim();
+    if (!q) { setState({ semanticResults: null }); renderWorkspace(); return; }
+    try {
+      const refs = await semanticSearch(q, state.activeProject);
+      setState({ semanticResults: refs });
+      renderWorkspace();
+    } catch (error) {
+      console.error('Semantic search failed', error);
+      setState({ semanticResults: [] });
+      renderWorkspace();
+    }
   });
 
   app.querySelectorAll('[data-project]').forEach((button) => {
@@ -2098,6 +2142,28 @@ function bindAdminPanelEvents() {
 
   panel.querySelector('[data-action="refresh-maintenance"]')?.addEventListener('click', () => {
     loadMaintenanceLists();
+  });
+
+  panel.querySelector('[data-action="toggle-semantic-search"]')?.addEventListener('click', async () => {
+    try {
+      const semanticStatus = await setSemanticEnabled(!state.semanticStatus.enabled);
+      setState({ semanticStatus });
+      renderApp();
+    } catch (error) {
+      console.error('Failed to toggle semantic search', error);
+    }
+  });
+  panel.querySelector('[data-action="reindex-embeddings"]')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      await reindexEmbeddings();
+      await loadSemanticStatus();   // refreshes embedded/total counts in the status line
+    } catch (error) {
+      console.error('Failed to reindex embeddings', error);
+    } finally {
+      button.disabled = false;
+    }
   });
 
   panel.querySelectorAll('[data-action="open-library-doc"][data-library-document-id]').forEach((button) => {
@@ -2563,6 +2629,7 @@ async function init() {
     const valid = stored === 'all' || state.projects.some((p) => p.id === stored);
     setState({ activeProject: valid ? stored : 'all' });
     await loadTasks();
+    loadSemanticStatus();
   } catch (error) {
     setState({ apiStatus: 'error' });
     renderError(error.message);

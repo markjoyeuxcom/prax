@@ -71,3 +71,31 @@ export async function fetchOrphanDocuments(project = '') {
   if (!response.ok) throw new Error('Failed to load orphan documents');
   return response.json();
 }
+
+export async function fetchSemanticStatus() {
+  const res = await fetch('/api/settings/semantic-search');
+  if (!res.ok) throw new Error('Failed to load semantic search status');
+  return res.json();
+}
+
+export async function setSemanticEnabled(enabled) {
+  const res = await fetch('/api/settings/semantic-search', {
+    method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled }),
+  });
+  if (!res.ok) throw new Error('Failed to update semantic search');
+  return res.json();
+}
+
+export async function reindexEmbeddings() {
+  const res = await fetch('/api/library/embeddings/reindex', { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to reindex');
+  return res.json();
+}
+
+export async function semanticSearch(query, project) {
+  const params = new URLSearchParams({ q: query });
+  if (project && project !== 'all') params.set('project', project);
+  const res = await fetch(`/api/library/documents/semantic-search?${params.toString()}`);
+  if (!res.ok) throw new Error('Semantic search failed');
+  return res.json();
+}

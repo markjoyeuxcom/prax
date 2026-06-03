@@ -1615,6 +1615,31 @@ button.task-row:hover { background: color-mix(in srgb, var(--accent) 4%, transpa
 /* ============================================================
    Document list + rows + tags
    ============================================================ */
+.library-search-mode {
+  display: flex;
+  gap: 4px;
+  padding: 8px 14px 4px;
+  border-top: 1px solid var(--border);
+}
+
+.search-mode-btn {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.search-mode-btn:hover { border-color: var(--accent); color: var(--text); }
+
+.search-mode-btn.is-active {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .document-list {
   display: grid;
   align-content: start;
