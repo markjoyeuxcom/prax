@@ -34,6 +34,7 @@ export function renderAdminPanelHtml({
   importMode = 'skip',
   staleDocs = [],
   orphanDocs = [],
+  maintenanceProjectFilter = 'all',
 } = {}) {
   const activeProjectName = activeProject === 'all'
     ? 'all projects'
@@ -120,6 +121,16 @@ export function renderAdminPanelHtml({
               <h3 id="library-maintenance-title">Library Maintenance</h3>
               <p>Stale and orphan documents in the library graph.</p>
             </div>
+            <div class="admin-actions">
+              <label>
+                <span>Filter</span>
+                <select data-maintenance-project-filter>
+                  <option value="all"${maintenanceProjectFilter === 'all' ? ' selected' : ''}>All projects</option>
+                  ${projects.map(p => `<option value="${escapeHtml(p.id)}"${p.id === maintenanceProjectFilter ? ' selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
+                </select>
+              </label>
+              <button class="bracket-button bracket-button--quiet" type="button" data-action="refresh-maintenance">[r] refresh</button>
+            </div>
 
             <div class="admin-subsection">
               <h4>Stale documents</h4>
@@ -132,7 +143,7 @@ export function renderAdminPanelHtml({
                     <small>${escapeHtml(labelFromValue(d.documentType || 'note'))} · kind: ${escapeHtml(d.kind || 'source')} · updated by ${escapeHtml(d.updatedBy || 'user')}</small>
                     ${Array.isArray(d.staleSources) && d.staleSources.length > 0 ? `<small>Stale sources: ${d.staleSources.map((s) => escapeHtml(s.title || '')).join(', ')}</small>` : ''}
                   </div>
-                  <button class="bracket-button bracket-button--quiet" type="button" data-action="open-library-doc" data-library-document-id="${escapeHtml(d.documentId)}">[open]</button>
+                  <button class="bracket-button bracket-button--quiet" type="button" data-action="open-library-doc" data-library-document-id="${escapeHtml(d.documentId)}"${d.projectId ? ` data-library-project-id="${escapeHtml(d.projectId)}"` : ''}>[open]</button>
                 </li>`).join('')}
               </ul>`}
             </div>
@@ -147,7 +158,7 @@ export function renderAdminPanelHtml({
                     <strong>${escapeHtml(d.title || 'Untitled')}</strong>
                     <small>${escapeHtml(labelFromValue(d.documentType || 'note'))} · kind: ${escapeHtml(d.kind || 'source')}</small>
                   </div>
-                  <button class="bracket-button bracket-button--quiet" type="button" data-action="open-library-doc" data-library-document-id="${escapeHtml(d.documentId)}">[open]</button>
+                  <button class="bracket-button bracket-button--quiet" type="button" data-action="open-library-doc" data-library-document-id="${escapeHtml(d.documentId)}"${d.projectId ? ` data-library-project-id="${escapeHtml(d.projectId)}"` : ''}>[open]</button>
                 </li>`).join('')}
               </ul>`}
             </div>

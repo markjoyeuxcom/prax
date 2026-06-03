@@ -760,7 +760,7 @@ async function loadDocumentLinks(documentId) {
 }
 
 async function loadMaintenanceLists() {
-  const projectId = state.activeProject === 'all' ? '' : state.activeProject;
+  const projectId = state.maintenanceProjectFilter === 'all' ? '' : state.maintenanceProjectFilter;
   const [staleResult, orphanResult] = await Promise.allSettled([
     fetchStaleDocuments(projectId),
     fetchOrphanDocuments(projectId),
@@ -1105,6 +1105,42 @@ function renderLibraryWorkspace(workspace) {
     const nextInput = workspace.querySelector('[data-library-tag-search]');
     nextInput?.focus();
     nextInput?.setSelectionRange?.(nextInput.value.length, nextInput.value.length);
+  });
+
+  // Dedicated handler for Links-section [open] buttons in the detail panel.
+  // These carry BOTH data-action="open-library-doc" AND data-library-document-id.
+  // We handle them here first and call stopPropagation so the broad row-click
+  // handler below never fires — which matters because the target doc may not be
+  // visible under the current filters (tag, type, archive, search, project).
+  workspace.querySelectorAll('[data-action="open-library-doc"][data-library-document-id]').forEach((btn) => {
+    btn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+      const documentId = btn.dataset.libraryDocumentId;
+      clearDocumentAutosave();
+      setState({
+        libraryView: 'active',
+        libraryTypeFilter: 'all',
+        activeLibraryTags: [],
+        libraryTagQuery: '',
+        searchQuery: '',
+        selectedDocumentId: documentId,
+        documentLinks: null,
+        isDocumentDirty: false,
+        documentSaveStatus: 'Saved',
+        isDocumentFocusMode: false,
+        isDocumentInfoEditorOpen: false,
+        documentInfoError: '',
+        isLibraryDocOpen: isMobile() ? true : state.isLibraryDocOpen,
+      });
+      try {
+        await loadDocuments({ selectedDocumentId: documentId });
+      } catch (error) {
+        setState({ apiStatus: 'error' });
+        renderError(error.message);
+      }
+      loadDocumentLinks(documentId);
+    });
   });
 
   workspace.querySelectorAll('[data-library-document-id]').forEach((row) => {
@@ -1578,6 +1614,7 @@ function renderApp() {
       importMode: state.adminImportMode,
       staleDocs: state.staleDocs,
       orphanDocs: state.orphanDocs,
+      maintenanceProjectFilter: state.maintenanceProjectFilter,
     }));
   }
   if (state.isProjectManagerOpen) {
@@ -2055,14 +2092,24 @@ function bindAdminPanelEvents() {
     }
   });
 
+  panel.querySelector('[data-maintenance-project-filter]')?.addEventListener('change', (event) => {
+    setState({ maintenanceProjectFilter: event.target.value });
+    loadMaintenanceLists();
+  });
+
+  panel.querySelector('[data-action="refresh-maintenance"]')?.addEventListener('click', () => {
+    loadMaintenanceLists();
+  });
+
   panel.querySelectorAll('[data-action="open-library-doc"][data-library-document-id]').forEach((button) => {
     button.addEventListener('click', async () => {
       const docId = button.dataset.libraryDocumentId;
+      const projectId = button.dataset.libraryProjectId || null;
       clearDocumentAutosave();
       // Reset all library filters so the target doc is never hidden by an
       // active archive view, type filter, tag filter, or search query.
       // Mirrors the open-linked-doc pattern.
-      setState({
+      const patch = {
         isAdminPanelOpen: false,
         activeView: 'library',
         selectedDocumentId: docId,
@@ -2078,7 +2125,14 @@ function bindAdminPanelEvents() {
         isDocumentInfoEditorOpen: false,
         documentInfoError: '',
         isLibraryDocOpen: isMobile() ? true : state.isLibraryDocOpen,
-      });
+      };
+      // Align the project context when the maintenance doc lives in another
+      // project — matches the open-linked-doc pattern at line ~543.
+      if (projectId && state.activeProject !== 'all' && state.activeProject !== projectId) {
+        patch.activeProject = projectId;
+        persistActiveProject(projectId);
+      }
+      setState(patch);
       try {
         await loadDocuments({ selectedDocumentId: docId });
       } catch (error) {
