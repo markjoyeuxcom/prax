@@ -98,7 +98,11 @@ export async function registerLibraryRoutes(app, options = {}) {
 
   async function semanticActive() {
     if (!embedder || !appSettings) return false;
-    return Boolean(await appSettings.getSetting('semantic_search_enabled', true));
+    // Never throw from the gate: it runs on the document write path (the
+    // un-awaited embed trigger), so a transient settings-read failure must not
+    // be able to surface as a 500 on a create/update. Treat a failed read as
+    // "not active" rather than propagating.
+    return Boolean(await appSettings.getSetting('semantic_search_enabled', true).catch(() => false));
   }
 
   function toRef(doc) {

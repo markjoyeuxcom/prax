@@ -34,10 +34,4 @@ export async function registerSettingsRoutes(app, options = {}) {
     await appSettings.putSetting(SETTING_KEY, enabled);
     return semanticStatus();
   });
-
-  // Expose for other routes to gate on.
-  app.decorate('semanticEnabled', async () => {
-    if (!embedder) return false;
-    return Boolean(await appSettings.getSetting(SETTING_KEY, true));
-  });
 }
