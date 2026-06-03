@@ -1794,11 +1794,19 @@ function bindShellEvents() {
       const patch = { semanticResults: refs };
       if (refs.length) {
         const top = state.documents.find((d) => d.id === refs[0].id);
+        clearDocumentAutosave();
         patch.selectedDocumentId = refs[0].id;
         patch.documentDraftId = top?.id || null;
         patch.documentDraftBody = top?.body || '';
         patch.isDocumentDirty = false;
         patch.documentLinks = null;
+        // Reset the detail-pane flags the row-click handler also clears, so
+        // focusing the top hit doesn't carry over a stale save banner, focus
+        // mode, or an open info editor from a previously-edited doc.
+        patch.documentSaveStatus = 'Saved';
+        patch.isDocumentFocusMode = false;
+        patch.isDocumentInfoEditorOpen = false;
+        patch.documentInfoError = '';
       } else {
         patch.selectedDocumentId = null;
       }
