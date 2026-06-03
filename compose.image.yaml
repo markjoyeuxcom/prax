@@ -1,4 +1,4 @@
 services:
   app:
-    image: ghcr.io/awaybreaktoday/moomora-console:v0.12.0
+    image: ghcr.io/awaybreaktoday/moomora-console:v0.12.1
     build: !reset null
