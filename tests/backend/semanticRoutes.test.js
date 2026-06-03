@@ -30,8 +30,9 @@ function fakes({ available = true, enabled = true } = {}) {
   };
 }
 
-async function makeApp(opts) {
+async function makeApp(opts, mutate) {
   const f = fakes(opts);
+  if (mutate) mutate(f);
   return buildApp({
     skipDb: true,
     libraryRepository: f.library,
@@ -100,5 +101,77 @@ test('reindex returns counts when available', async () => {
   const res = await app.inject({ method: 'POST', url: '/api/library/embeddings/reindex' });
   assert.equal(res.statusCode, 200);
   assert.equal(res.json().embedded, 3);
+  await app.close();
+});
+
+test('semantic-search 503s when a configured backend errors', async () => {
+  const app = await makeApp({ available: true, enabled: true }, (f) => {
+    f.embedder.embed = async () => { throw new Error('backend down'); };
+  });
+  const res = await app.inject({ method: 'GET', url: '/api/library/documents/semantic-search?q=restore' });
+  assert.equal(res.statusCode, 503);
+  // The raw error is never echoed to the client.
+  assert.doesNotMatch(JSON.stringify(res.json()), /backend down/);
+  await app.close();
+});
+
+test('semantic-search 400s when q is blank', async () => {
+  const app = await makeApp({ available: true, enabled: true });
+  const res = await app.inject({ method: 'GET', url: '/api/library/documents/semantic-search?q=%20%20' });
+  assert.equal(res.statusCode, 400);
+  await app.close();
+});
+
+test('PUT semantic settings 409s when not configured', async () => {
+  const app = await makeApp({ available: false });
+  const res = await app.inject({ method: 'PUT', url: '/api/settings/semantic-search', payload: { enabled: true } });
+  assert.equal(res.statusCode, 409);
+  await app.close();
+});
+
+test('creating a document fires a non-awaited embed when active', async () => {
+  const embedded = [];
+  const app = await makeApp({ available: true, enabled: true }, (f) => {
+    f.embeddingService.embedDocument = async (id) => { embedded.push(id); return true; };
+  });
+  const res = await app.inject({
+    method: 'POST',
+    url: '/api/library/documents',
+    payload: { title: 'T', body: 'hello', documentType: 'note', project: 'homelab' },
+  });
+  assert.equal(res.statusCode, 201);
+  assert.deepEqual(embedded, ['new']);   // createDocument fake returns id 'new'
+  await app.close();
+});
+
+test('patching without a body change does not fire an embed', async () => {
+  const embedded = [];
+  const app = await makeApp({ available: true, enabled: true }, (f) => {
+    f.embeddingService.embedDocument = async (id) => { embedded.push(id); return true; };
+  });
+  const id = '00000000-0000-4000-8000-0000000000aa';
+  const res = await app.inject({
+    method: 'PATCH',
+    url: `/api/library/documents/${id}`,
+    payload: { title: 'Renamed' },   // no body field
+  });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(embedded, []);
+  await app.close();
+});
+
+test('patching with a body change fires a non-awaited embed', async () => {
+  const embedded = [];
+  const app = await makeApp({ available: true, enabled: true }, (f) => {
+    f.embeddingService.embedDocument = async (docId) => { embedded.push(docId); return true; };
+  });
+  const id = '00000000-0000-4000-8000-0000000000aa';
+  const res = await app.inject({
+    method: 'PATCH',
+    url: `/api/library/documents/${id}`,
+    payload: { body: 'new content' },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(embedded, [id]);   // updateDocument fake echoes the id
   await app.close();
 });

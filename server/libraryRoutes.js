@@ -196,8 +196,20 @@ export async function registerLibraryRoutes(app, options = {}) {
       if (projectId === null) { reply.code(400); return { message: 'project is invalid' }; }
     }
 
-    const { vector } = await embedder.embed(String(q));
-    const docs = await repository.searchDocumentsSemantic(toVectorLiteral(vector), embedder.backend, { projectId, limit: 20 });
+    let docs;
+    try {
+      const { vector } = await embedder.embed(String(q));
+      docs = await repository.searchDocumentsSemantic(toVectorLiteral(vector), embedder.backend, { projectId, limit: 20 });
+    } catch (err) {
+      // Feature is configured + enabled, but the backend is unreachable or
+      // errored. Degrade cleanly rather than 500 — the rest of the feature
+      // gates the same way. The error message never carries secrets (URLs /
+      // keys are never in the embedder's thrown messages), but we don't echo
+      // it to the client regardless.
+      request.log.error({ err }, 'semantic search embed failed');
+      reply.code(503);
+      return { message: 'semantic search backend is unavailable' };
+    }
     return docs.map(toRef);
   });
 

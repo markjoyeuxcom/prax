@@ -7,7 +7,9 @@ export async function registerSettingsRoutes(app, options = {}) {
 
   async function semanticStatus() {
     const available = Boolean(embedder);
-    const enabled = available ? Boolean(await appSettings.getSetting(SETTING_KEY, true)) : false;
+    const enabled = available
+      ? Boolean(await appSettings.getSetting(SETTING_KEY, true).catch(() => false))
+      : false;
     let connected = false;
     let counts = { total: 0, embedded: 0 };
     if (available) {
