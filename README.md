@@ -236,7 +236,10 @@ moomora-console-db-app
 
 The app reads the secret's `uri` key as `DATABASE_URL`.
 
-See [docs/deployment.md](docs/deployment.md) for the current deployment notes.
+Optional **semantic search** needs a `pgvector`-capable Postgres cluster — build the image from
+`deploy/postgres/Dockerfile` and provision `deploy/k8s/postgres-cluster.example.yaml` (which
+pre-creates the `vector` extension). See [docs/deployment.md](docs/deployment.md) for the full
+deployment notes, including enabling embeddings via env/secret.
 
 ## Health Checks
 
