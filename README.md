@@ -141,6 +141,29 @@ By default the app listens on `0.0.0.0:3000`. Override with:
 HOST=127.0.0.1 PORT=3100 DATABASE_URL="postgresql://user:password@host:5432/database" npm start
 ```
 
+## Semantic Search (optional)
+
+Semantic (embedding-based) library search is **off by default** and configured entirely via
+environment variables (never the UI — the web UI exposes only a read-only status and an on/off
+toggle). It requires PostgreSQL with the `pgvector` extension.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `EMBEDDING_BACKEND` | `none` | `none` (off), `ollama`, `openai`, or `fake` (deterministic test backend) |
+| `EMBEDDING_MODEL` | — | model name for the chosen backend (e.g. `qwen3-embedding:0.6b`, `text-embedding-3-small`) |
+| `OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama base URL (when `EMBEDDING_BACKEND=ollama`) |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible base URL incl. `/v1` — real OpenAI, llama.cpp, vLLM, LiteLLM, … |
+| `OPENAI_API_KEY` | — | bearer key for `openai`; omit for keyless local servers |
+| `EMBEDDING_QUERY_PREFIX` | — | prepended to **search-query** embeddings only (instruct-tuned models); e.g. `nomic`'s `search_query: ` |
+| `EMBEDDING_SEARCH_MIN_SIMILARITY` | `0.45` | relevance-cutoff floor (cosine similarity) |
+| `EMBEDDING_SEARCH_TOP_DROP` | `0.20` | keep results within this of the best match |
+
+Example (OpenAI-compatible server, e.g. a local llama.cpp started with `--embeddings`):
+
+```bash
+EMBEDDING_BACKEND=openai OPENAI_BASE_URL=http://127.0.0.1:8001/v1 EMBEDDING_MODEL=nomic-embed-text npm start
+```
+
 ## Scripts
 
 ```bash
