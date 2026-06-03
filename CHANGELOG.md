@@ -12,6 +12,16 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Added
+
+- **Agent-memory skills + convention** for using Moomora as long-term memory for an AI agent
+  (e.g. Claude Code). Two repo-committed Claude Code skills — `moomora-recall` (retrieve relevant
+  context by meaning, returning a distilled summary) and `moomora-remember` (persist durable
+  findings to a dedicated `memory` project, de-duped by title, stamped with agent provenance) —
+  plus `docs/agent-memory.md` and a `CLAUDE.md` block describing the retrieve → persist →
+  supersede loop. The skills wrap the existing HTTP API (no server change) and are token-cheaper
+  than the MCP tools for the retrieve/persist paths, which they complement rather than replace.
+
 ## [0.13.1] - 2026-06-03
 
 ### Changed
