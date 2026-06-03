@@ -94,31 +94,40 @@ test('library API helpers throw when requests fail', async () => {
 });
 
 test('fetchDocumentLinks calls the links endpoint with direction', async () => {
-  let captured;
-  global.fetch = async (url) => {
-    captured = url;
-    return { ok: true, json: async () => [] };
-  };
+  let capturedUrl, capturedOpts;
+  globalThis.fetch = async (url, opts) => { capturedUrl = url; capturedOpts = opts; return { ok: true, json: async () => [] }; };
   await fetchDocumentLinks('doc-1', 'both');
-  assert.equal(captured, '/api/library/documents/doc-1/links?direction=both');
+  assert.equal(capturedUrl, '/api/library/documents/doc-1/links?direction=both');
+  assert.equal(capturedOpts, undefined);
 });
 
 test('fetchStaleDocuments calls the maintenance endpoint with project', async () => {
-  let captured;
-  global.fetch = async (url) => {
-    captured = url;
-    return { ok: true, json: async () => [] };
-  };
+  let capturedUrl, capturedOpts;
+  globalThis.fetch = async (url, opts) => { capturedUrl = url; capturedOpts = opts; return { ok: true, json: async () => [] }; };
   await fetchStaleDocuments('homelab');
-  assert.equal(captured, '/api/library/maintenance/stale?project=homelab');
+  assert.equal(capturedUrl, '/api/library/maintenance/stale?project=homelab');
+  assert.equal(capturedOpts, undefined);
 });
 
 test('fetchOrphanDocuments omits empty project', async () => {
-  let captured;
-  global.fetch = async (url) => {
-    captured = url;
-    return { ok: true, json: async () => [] };
-  };
+  let capturedUrl, capturedOpts;
+  globalThis.fetch = async (url, opts) => { capturedUrl = url; capturedOpts = opts; return { ok: true, json: async () => [] }; };
   await fetchOrphanDocuments('');
-  assert.equal(captured, '/api/library/maintenance/orphans');
+  assert.equal(capturedUrl, '/api/library/maintenance/orphans');
+  assert.equal(capturedOpts, undefined);
+});
+
+test('fetchDocumentLinks defaults to direction=both when no direction given', async () => {
+  let capturedUrl, capturedOpts;
+  globalThis.fetch = async (url, opts) => { capturedUrl = url; capturedOpts = opts; return { ok: true, json: async () => [] }; };
+  await fetchDocumentLinks('doc-1');
+  assert.ok(capturedUrl.endsWith('?direction=both'), `expected URL to end with ?direction=both, got: ${capturedUrl}`);
+  assert.equal(capturedOpts, undefined);
+});
+
+test('new library API helpers throw when requests fail', async () => {
+  globalThis.fetch = async () => ({ ok: false });
+  await assert.rejects(fetchDocumentLinks('x', 'both'), /Failed to load document links/);
+  await assert.rejects(fetchStaleDocuments('homelab'), /Failed to load stale documents/);
+  await assert.rejects(fetchOrphanDocuments(''), /Failed to load orphan documents/);
 });
