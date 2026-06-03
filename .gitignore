@@ -1,3 +1,9 @@
 .worktrees/
 node_modules/
 .superpowers/
+
+# Playwright
+test-results/
+playwright-report/
+/blob-report/
+/playwright/.cache/

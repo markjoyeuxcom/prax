@@ -9,6 +9,7 @@
     "start": "node server/index.js",
     "migrate": "node scripts/migrate.js",
     "test": "node scripts/run-tests.js",
+    "test:e2e": "playwright test",
     "check": "node --check server/index.js && node --check scripts/demo-server.js && node --check public/js/main.js && node --check mcp/server.js && node --check server/migrate.js && node --check scripts/migrate.js && node --check server/documentLinksRepository.js"
   },
   "dependencies": {
@@ -24,5 +25,8 @@
     "fastify": "^5.6.1",
     "pg": "^8.21.0",
     "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0"
   }
 }
