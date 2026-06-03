@@ -12,6 +12,16 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Added
+
+- **Kubernetes pgvector deployment support.** A `deploy/postgres/Dockerfile` that adds pgvector to
+  the official CloudNativePG PostgreSQL base image, and `deploy/k8s/postgres-cluster.example.yaml`,
+  an example CloudNativePG `Cluster` that wires that image and pre-creates the `vector` extension at
+  bootstrap (`postInitApplicationSQL`) — necessary because pgvector is not a "trusted" extension and
+  the app's non-superuser migration role cannot `CREATE` it. `docs/deployment.md` gains a Postgres
+  cluster (pgvector) section and a "Semantic search (optional)" section covering enabling embeddings
+  via the ConfigMap + an API-key Secret.
+
 ## [0.13.1] - 2026-06-03
 
 ### Changed
