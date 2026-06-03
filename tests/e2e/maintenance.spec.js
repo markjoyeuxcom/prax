@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { seedStalePair, seedOrphan } from './helpers/seed.js';
+import { seedStalePair, seedOrphan, resolveProjectId } from './helpers/seed.js';
 
 async function openMaintenance(page) {
   await page.goto('/');
@@ -53,11 +53,7 @@ test('Maintenance project filter scopes the lists', async ({ page }) => {
   await openMaintenance(page);
 
   // Switch the maintenance filter to the homelab project, then refresh.
-  const homelabId = await page.evaluate(async () => {
-    const res = await fetch('/api/projects');
-    const projects = await res.json();
-    return projects.find((p) => p.slug === 'homelab').id;
-  });
+  const homelabId = await resolveProjectId(page.request, 'homelab');
   await page.locator('[data-maintenance-project-filter]').selectOption(homelabId);
   await page.locator('[data-action="refresh-maintenance"]').click();
 
