@@ -12,6 +12,32 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-06-03
+
+### Changed
+
+- Semantic search now applies a **gap-based relevance cutoff** instead of returning the whole
+  library re-ranked. Only documents scoring within `EMBEDDING_SEARCH_TOP_DROP` (default 0.20) of
+  the best match **and** at least `EMBEDDING_SEARCH_MIN_SIMILARITY` (default 0.45) cosine
+  similarity are returned, so an unrelated query returns few or no results rather than every
+  document. Both thresholds are env-tunable; the defaults are calibrated for the recommended
+  `qwen3-embedding:0.6b` model. The filter is computed from a similarity scalar — the embedding
+  vector is still never selected or returned. Applies to both the HTTP route and the
+  `search_documents_semantic` MCP tool. (#44)
+
+### Fixed
+
+- The library **keyword/semantic switch** rendered as two oversized full-height boxes. The
+  library browser was a fixed four-row CSS grid and the switch (added in v0.13.0) displaced the
+  scrolling list from its `1fr` row; it is now a flex column with the document list as the sole
+  growing child, so the switch renders as small inline pills. (#44)
+- After an Enter-triggered semantic search, the top-ranked result now **opens in the detail
+  pane** (mirroring a row click, including the mobile slide-in); previously the matching document
+  appeared at the top of the list but the detail pane kept showing the previously-selected doc.
+  A query with no relevant matches clears the selection and shows the empty state. (#44)
+- A non-numeric `EMBEDDING_SEARCH_*` env value no longer silently disables all search results
+  (it now falls back to the default instead of producing `NaN`). (#44)
+
 ## [0.13.0] - 2026-06-03
 
 ### Added
@@ -319,7 +345,8 @@ fresh empty `[Unreleased]` section is started.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.13.1...HEAD
+[0.13.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.12.2...v0.13.0
 [0.12.2]: https://github.com/awaybreaktoday/moomora-console/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.12.0...v0.12.1
