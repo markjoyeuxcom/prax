@@ -43,7 +43,6 @@ fresh empty `[Unreleased]` section is started.
   plus `docs/agent-memory.md` and a `CLAUDE.md` block describing the retrieve → persist →
   supersede loop. The skills wrap the existing HTTP API (no server change) and are token-cheaper
   than the MCP tools for the retrieve/persist paths, which they complement rather than replace.
->>>>>>> origin/main
 
 ## [0.13.1] - 2026-06-03
 
