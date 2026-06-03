@@ -347,7 +347,7 @@ function renderDocumentDetail(document, options = {}) {
         <span class="detail-kicker">${escapeHtml(labelFromValue(document.documentType || 'note'))}</span>
         <h2 id="selected-document-title">${escapeHtml(document.title || 'Untitled document')} ${renderKindBadge(document.kind)}</h2>
         <p>${escapeHtml(document.sourceFilename || 'Created in Moomora Console')}</p>
-        <p class="detail-meta">Updated by ${escapeHtml(document.updatedBy || 'user')}</p>
+        <p class="library-detail-meta">Updated by ${escapeHtml(document.updatedBy || 'user')}</p>
         <div class="document-tags">${renderTags(document.tags)}</div>
         <div class="detail-actions">
           ${isArchived ? '' : renderModes(editorMode)}

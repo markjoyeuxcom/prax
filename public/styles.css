@@ -1708,25 +1708,23 @@ button.task-row:hover { background: color-mix(in srgb, var(--accent) 4%, transpa
 }
 
 .chip-kind--source {
-  color: var(--muted, var(--accent-cyan));
+  color: var(--text-dim);
 }
 
 .chip-kind--synthesized {
   color: var(--accent);
 }
 
-.library-detail .detail-meta {
-  color: var(--muted, var(--accent-cyan));
+.library-detail-meta {
+  color: var(--text-dim);
   font-size: 0.85em;
   margin: 0.2em 0;
-  display: block; /* override the task-panel grid layout */
 }
 
 .document-links {
   margin-top: 1.5em;
   padding-top: 1em;
-  border-top: 1px solid currentColor;
-  opacity: 0.95;
+  border-top: 1px solid var(--border);
 }
 
 .document-links h3 {
@@ -1798,7 +1796,7 @@ button.task-row:hover { background: color-mix(in srgb, var(--accent) 4%, transpa
   justify-content: space-between;
   gap: 1em;
   padding: 0.5em 0;
-  border-bottom: 1px dashed currentColor;
+  border-bottom: 1px dashed var(--border-dim);
 }
 
 .admin-doc-list li:last-child {
