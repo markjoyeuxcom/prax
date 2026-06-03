@@ -1168,8 +1168,8 @@ button.task-row:hover { background: color-mix(in srgb, var(--accent) 4%, transpa
 }
 
 .library-browser {
-  display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   border-right: 0;
 }
@@ -1620,6 +1620,8 @@ button.task-row:hover { background: color-mix(in srgb, var(--accent) 4%, transpa
   gap: 4px;
   padding: 8px 14px 4px;
   border-top: 1px solid var(--border);
+  flex: 0 0 auto;
+  align-items: center;
 }
 
 .search-mode-btn {
@@ -1644,6 +1646,8 @@ button.task-row:hover { background: color-mix(in srgb, var(--accent) 4%, transpa
   display: grid;
   align-content: start;
   overflow: auto;
+  flex: 1;
+  min-height: 0;
 }
 
 .document-row {

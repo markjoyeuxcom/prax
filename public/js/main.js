@@ -1791,8 +1791,20 @@ function bindShellEvents() {
     if (!q) { setState({ semanticResults: null }); renderWorkspace(); return; }
     try {
       const refs = await semanticSearch(q, state.activeProject);
-      setState({ semanticResults: refs });
+      const patch = { semanticResults: refs };
+      if (refs.length) {
+        const top = state.documents.find((d) => d.id === refs[0].id);
+        patch.selectedDocumentId = refs[0].id;
+        patch.documentDraftId = top?.id || null;
+        patch.documentDraftBody = top?.body || '';
+        patch.isDocumentDirty = false;
+        patch.documentLinks = null;
+      } else {
+        patch.selectedDocumentId = null;
+      }
+      setState(patch);
       renderWorkspace();
+      if (refs.length) loadDocumentLinks(refs[0].id);
     } catch (error) {
       console.error('Semantic search failed', error);
       setState({ semanticResults: [] });
