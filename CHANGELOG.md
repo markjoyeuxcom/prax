@@ -22,6 +22,29 @@ fresh empty `[Unreleased]` section is started.
   cluster (pgvector) section and a "Semantic search (optional)" section covering enabling embeddings
   via the ConfigMap + an API-key Secret.
 
+## [0.14.0] - 2026-06-03
+
+### Added
+
+- **OpenAI-compatible embedding backend** (`EMBEDDING_BACKEND=openai`). One adapter covers real
+  OpenAI, local llama.cpp, vLLM, LiteLLM, and any other OpenAI-compatible `/v1/embeddings` server
+  via `OPENAI_BASE_URL` (default `https://api.openai.com/v1`) and an optional `OPENAI_API_KEY` (the
+  `Authorization` header is omitted when the key is empty, so keyless local servers work). Keys are
+  env-only and never exposed through the no-auth UI. (#47)
+- **Configurable query-instruction prefix** (`EMBEDDING_QUERY_PREFIX`), prepended to **search-query**
+  embeddings only — never to document embeddings — so instruct-tuned models (e.g. `qwen3-embedding`
+  with `Instruct: …\nQuery:`, or `nomic` with `search_query: `) reach peak retrieval quality.
+  Because documents always embed raw, changing the prefix needs no reindex. Default empty preserves
+  prior behavior. (#47)
+- **Agent-memory skills + convention** for using Moomora as long-term memory for an AI agent
+  (e.g. Claude Code). Two repo-committed Claude Code skills — `moomora-recall` (retrieve relevant
+  context by meaning, returning a distilled summary) and `moomora-remember` (persist durable
+  findings to a dedicated `memory` project, de-duped by title, stamped with agent provenance) —
+  plus `docs/agent-memory.md` and a `CLAUDE.md` block describing the retrieve → persist →
+  supersede loop. The skills wrap the existing HTTP API (no server change) and are token-cheaper
+  than the MCP tools for the retrieve/persist paths, which they complement rather than replace.
+>>>>>>> origin/main
+
 ## [0.13.1] - 2026-06-03
 
 ### Changed
@@ -355,7 +378,8 @@ fresh empty `[Unreleased]` section is started.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.13.1...HEAD
+[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.13.1...v0.14.0
 [0.13.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.12.2...v0.13.0
 [0.12.2]: https://github.com/awaybreaktoday/moomora-console/compare/v0.12.1...v0.12.2

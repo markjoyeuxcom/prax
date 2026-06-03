@@ -16,6 +16,9 @@ export function loadConfig(env = process.env) {
     embeddingBackend: env.EMBEDDING_BACKEND || 'none',
     embeddingModel: env.EMBEDDING_MODEL || '',
     ollamaUrl: env.OLLAMA_URL || 'http://127.0.0.1:11434',
+    openaiBaseUrl: env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
+    openaiApiKey: env.OPENAI_API_KEY || '',
+    embeddingQueryPrefix: env.EMBEDDING_QUERY_PREFIX || '',
     embeddingSearchMinSimilarity: numberFromEnv(env.EMBEDDING_SEARCH_MIN_SIMILARITY, 0.45),
     embeddingSearchTopDrop: numberFromEnv(env.EMBEDDING_SEARCH_TOP_DROP, 0.20),
   };
