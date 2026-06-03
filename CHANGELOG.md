@@ -12,6 +12,23 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-06-03
+
+### Added
+
+- Document graph UI surface. The library list now shows inline `SYNTH` chips
+  on synthesized documents and `STALE` pills on documents whose `derived-from`
+  source has changed since the link was created. The detail panel gains a
+  `SOURCE` / `SYNTHESIZED` kind badge, an "Updated by" metadata line, and a
+  read-only Links section below the body (Derived from / Supersedes outbound,
+  Backlinks inbound) with click-through to navigate the graph. Admin gains a
+  new "Library Maintenance" section listing stale and orphan documents with
+  a project filter, a refresh button, and `[open]` click-through that resets
+  filters and realigns the active project as needed. Backend adds one
+  additive contract field — `stale: boolean` on the document list response —
+  computed via a `left join lateral` over the existing `derived-from` snapshot.
+  No new HTTP endpoints, no new MCP tools, no migration. (#36)
+
 ## [0.11.1] - 2026-06-02
 
 ### Fixed
@@ -230,7 +247,8 @@ fresh empty `[Unreleased]` section is started.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.11.1...HEAD
+[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.9.0...v0.10.0
