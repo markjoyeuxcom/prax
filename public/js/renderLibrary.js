@@ -165,10 +165,12 @@ function selectedDocument(documents, selectedDocumentId) {
 function renderDocumentRows(documents, activeDocumentId) {
   return documents.map((document) => {
     const isSelected = document.id === activeDocumentId;
+    const isSynthesized = document.kind === 'synthesized';
+    const isStale = document.stale === true;
     return `
       <button class="document-row${isSelected ? ' is-selected' : ''}" type="button" data-library-document-id="${escapeHtml(document.id)}"${isSelected ? ' aria-current="true"' : ''}>
         <span>
-          <strong>${escapeHtml(document.title || 'Untitled document')}</strong>
+          <strong>${escapeHtml(document.title || 'Untitled document')}${isSynthesized ? ' <span class="chip chip-synth" aria-label="Agent synthesized">SYNTH</span>' : ''}${isStale ? ' <span class="chip chip-stale" aria-label="Derived source has changed">STALE</span>' : ''}</strong>
           <small>${escapeHtml(labelFromValue(document.documentType || 'note'))} &middot; ${escapeHtml(document.sourceFilename || 'Created in Moomora Console')}</small>
         </span>
         <span class="document-tags">${renderTags(document.tags)}</span>
