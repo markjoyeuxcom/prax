@@ -751,8 +751,7 @@ async function loadDocumentLinks(documentId) {
     // (checks both the selected document and the active view).
     if (state.selectedDocumentId === documentId && state.activeView === 'library') {
       setState({ documentLinks: links });
-      const workspace = app.querySelector('[data-workspace]');
-      if (workspace) renderLibraryWorkspace(workspace);
+      renderWorkspace();
     }
   } catch (err) {
     console.error('Failed to load document links', err);
