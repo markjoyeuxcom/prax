@@ -67,18 +67,21 @@ kubectl apply -f deploy/k8s/ingress.yaml
 
 Semantic search is off by default (`EMBEDDING_BACKEND=none`). To enable it in-cluster, set the embedding env vars on the app — non-secret values in the ConfigMap, the API key (if any) in a Secret:
 
-1. Add non-secret config to `deploy/k8s/configmap.yaml`, e.g. for an OpenAI-compatible endpoint:
+1. Add non-secret config to `deploy/k8s/configmap.yaml`. For an **Ollama** endpoint:
 
    ```yaml
-   EMBEDDING_BACKEND: "openai"
-   EMBEDDING_MODEL: "text-embedding-3-small"
-   OPENAI_BASE_URL: "https://api.openai.com/v1"
-   # EMBEDDING_QUERY_PREFIX: "search_query: "   # for instruct-tuned models
+   EMBEDDING_BACKEND: "ollama"
+   OLLAMA_URL: "http://<ollama-host>:11434"
+   EMBEDDING_MODEL: "qwen3-embedding:0.6b"
    ```
 
-   (For Ollama: `EMBEDDING_BACKEND: "ollama"`, `OLLAMA_URL: "http://<ollama-host>:11434"`, `EMBEDDING_MODEL: "qwen3-embedding:0.6b"`.) The app already loads the ConfigMap via `envFrom`.
+   The app already loads the ConfigMap via `envFrom`. (The `ollama` and `fake` backends are
+   available today; the **OpenAI-compatible** backend — `EMBEDDING_BACKEND: "openai"` with
+   `OPENAI_BASE_URL`/`OPENAI_API_KEY` — lands in v0.14.0.)
 
-2. Put the API key in a Secret and reference it in `deploy/k8s/deployment.yaml`'s `env:` — never in the ConfigMap:
+2. **OpenAI-compatible backend (v0.14.0+):** set `EMBEDDING_BACKEND: "openai"`, `EMBEDDING_MODEL`,
+   and `OPENAI_BASE_URL` in the ConfigMap, and put the API key in a Secret referenced from
+   `deploy/k8s/deployment.yaml`'s `env:` — never in the ConfigMap:
 
    ```bash
    kubectl create secret generic moomora-embedding --from-literal=OPENAI_API_KEY=sk-...
