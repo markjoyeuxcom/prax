@@ -761,15 +761,18 @@ async function loadDocumentLinks(documentId) {
 
 async function loadMaintenanceLists() {
   const projectId = state.activeProject === 'all' ? '' : state.activeProject;
-  try {
-    const [stale, orphans] = await Promise.all([
-      fetchStaleDocuments(projectId),
-      fetchOrphanDocuments(projectId),
-    ]);
-    setState({ staleDocs: stale, orphanDocs: orphans });
+  const [staleResult, orphanResult] = await Promise.allSettled([
+    fetchStaleDocuments(projectId),
+    fetchOrphanDocuments(projectId),
+  ]);
+  const patch = {};
+  if (staleResult.status === 'fulfilled') patch.staleDocs = staleResult.value;
+  else console.error('Failed to load stale documents', staleResult.reason);
+  if (orphanResult.status === 'fulfilled') patch.orphanDocs = orphanResult.value;
+  else console.error('Failed to load orphan documents', orphanResult.reason);
+  if (Object.keys(patch).length > 0) {
+    setState(patch);
     renderApp();
-  } catch (err) {
-    console.error('Failed to load maintenance lists', err);
   }
 }
 
@@ -2053,17 +2056,22 @@ function bindAdminPanelEvents() {
   });
 
   panel.querySelectorAll('[data-action="open-library-doc"][data-library-document-id]').forEach((button) => {
-    button.addEventListener('click', () => {
+    button.addEventListener('click', async () => {
       const docId = button.dataset.libraryDocumentId;
-      const nextDocument = state.documents.find(item => item.id === docId);
       clearDocumentAutosave();
+      // Reset all library filters so the target doc is never hidden by an
+      // active archive view, type filter, tag filter, or search query.
+      // Mirrors the open-linked-doc pattern.
       setState({
         isAdminPanelOpen: false,
         activeView: 'library',
         selectedDocumentId: docId,
         documentLinks: null,
-        documentDraftId: nextDocument?.id || null,
-        documentDraftBody: nextDocument?.body || '',
+        libraryView: 'active',
+        libraryTypeFilter: 'all',
+        activeLibraryTags: [],
+        libraryTagQuery: '',
+        searchQuery: '',
         isDocumentDirty: false,
         documentSaveStatus: 'Saved',
         isDocumentFocusMode: false,
@@ -2071,7 +2079,12 @@ function bindAdminPanelEvents() {
         documentInfoError: '',
         isLibraryDocOpen: isMobile() ? true : state.isLibraryDocOpen,
       });
-      renderApp();
+      try {
+        await loadDocuments({ selectedDocumentId: docId });
+      } catch (error) {
+        setState({ apiStatus: 'error' });
+        renderError(error.message);
+      }
       loadDocumentLinks(docId);
     });
   });
