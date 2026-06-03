@@ -28,6 +28,8 @@ import {
   deleteArchivedDocument,
   fetchDocumentLinks,
   fetchDocuments,
+  fetchOrphanDocuments,
+  fetchStaleDocuments,
   restoreDocument,
   updateDocument,
 } from './libraryApi.js';
@@ -754,6 +756,20 @@ async function loadDocumentLinks(documentId) {
     }
   } catch (err) {
     console.error('Failed to load document links', err);
+  }
+}
+
+async function loadMaintenanceLists() {
+  const projectId = state.activeProject === 'all' ? '' : state.activeProject;
+  try {
+    const [stale, orphans] = await Promise.all([
+      fetchStaleDocuments(projectId),
+      fetchOrphanDocuments(projectId),
+    ]);
+    setState({ staleDocs: stale, orphanDocs: orphans });
+    renderApp();
+  } catch (err) {
+    console.error('Failed to load maintenance lists', err);
   }
 }
 
@@ -1557,6 +1573,8 @@ function renderApp() {
       taskCount: state.tasks.length,
       documentCount: state.libraryActiveDocumentCount,
       importMode: state.adminImportMode,
+      staleDocs: state.staleDocs,
+      orphanDocs: state.orphanDocs,
     }));
   }
   if (state.isProjectManagerOpen) {
@@ -1635,6 +1653,7 @@ function bindShellEvents() {
         editingDocumentId: null,
       });
       renderApp();
+      loadMaintenanceLists();
     });
   });
 
@@ -2031,6 +2050,30 @@ function bindAdminPanelEvents() {
       setState({ apiStatus: 'error' });
       renderError(error.message);
     }
+  });
+
+  panel.querySelectorAll('[data-action="open-library-doc"][data-library-document-id]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const docId = button.dataset.libraryDocumentId;
+      const nextDocument = state.documents.find(item => item.id === docId);
+      clearDocumentAutosave();
+      setState({
+        isAdminPanelOpen: false,
+        activeView: 'library',
+        selectedDocumentId: docId,
+        documentLinks: null,
+        documentDraftId: nextDocument?.id || null,
+        documentDraftBody: nextDocument?.body || '',
+        isDocumentDirty: false,
+        documentSaveStatus: 'Saved',
+        isDocumentFocusMode: false,
+        isDocumentInfoEditorOpen: false,
+        documentInfoError: '',
+        isLibraryDocOpen: isMobile() ? true : state.isLibraryDocOpen,
+      });
+      renderApp();
+      loadDocumentLinks(docId);
+    });
   });
 }
 

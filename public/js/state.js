@@ -38,6 +38,8 @@ export const state = {
   isLibraryTagsDrawerOpen: false,
   isLibraryDocOpen: false,
   documentLinks: null,       // null = not yet fetched; [] = fetched, empty; [...] = entries
+  staleDocs: [],
+  orphanDocs: [],
   activeLibraryTags: [],
   libraryTagQuery: '',
   areLibraryTagsExpanded: false,
