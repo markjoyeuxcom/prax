@@ -22,4 +22,14 @@ test('handler surfaces the not-enabled message gracefully', async () => {
   const tool = createSemanticSearchTools(client).find((t) => t.name === 'search_documents_semantic');
   const res = await tool.handler({ query: 'x' });
   assert.match(res.content[0].text, /not enabled/i);
+  // The 409 fallback is the whole point of this tool: a friendly result, NOT
+  // an error — so the agent transparently falls back to keyword search.
+  assert.ok(!res.isError);
+});
+
+test('handler propagates a non-409 failure as an error result', async () => {
+  const client = { searchDocumentsSemantic: async () => { const e = new Error('semantic search backend is unavailable'); e.status = 503; throw e; } };
+  const tool = createSemanticSearchTools(client).find((t) => t.name === 'search_documents_semantic');
+  const res = await tool.handler({ query: 'x' });
+  assert.equal(res.isError, true);
 });
