@@ -5,6 +5,8 @@ const PORT = process.env.MOOMORA_E2E_PORT || '3199';
 export default defineConfig({
   testDir: 'tests/e2e',
   testMatch: '**/*.spec.js',
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 1 : 0,
   workers: 1,
   fullyParallel: false,
   reporter: process.env.CI ? [['html'], ['list']] : 'list',
