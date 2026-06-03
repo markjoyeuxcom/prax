@@ -136,6 +136,72 @@ export function buildListActiveDocumentsForExport({ projectId } = {}) {
   };
 }
 
+export function buildSetDocumentEmbedding(id, { literal, backend, model, dim, contentHash }) {
+  return {
+    text: `
+      update markdown_documents
+      set embedding = $2::vector,
+          embedding_backend = $3,
+          embedding_model = $4,
+          embedding_dim = $5,
+          embedded_hash = $6,
+          embedded_at = now()
+      where id = $1
+      returning id
+    `,
+    values: [id, literal, backend, model, dim, contentHash],
+  };
+}
+
+export function buildSearchDocumentsSemantic(queryLiteral, backend, { projectId, limit = 20 } = {}) {
+  const values = [queryLiteral, backend];
+  let where = `where archived_at is null and embedding is not null and embedding_backend = $2`;
+  if (projectId) {
+    values.push(projectId);
+    where += ` and project_id = $${values.length}`;
+  }
+  values.push(limit);
+  return {
+    text: `
+      select id, title, document_type, project_id, tags, body, kind
+      from markdown_documents
+      ${where}
+      order by embedding <=> $1::vector
+      limit $${values.length}
+    `,
+    values,
+  };
+}
+
+export function buildListDocumentsNeedingEmbedding(backend) {
+  return {
+    text: `
+      select id, content_hash
+      from markdown_documents
+      where archived_at is null
+        and (
+          embedding is null
+          or embedded_hash is distinct from content_hash
+          or embedding_backend is distinct from $1
+        )
+      order by updated_at desc
+    `,
+    values: [backend],
+  };
+}
+
+export function buildCountEmbeddings(backend) {
+  return {
+    text: `
+      select
+        count(*) filter (where archived_at is null) as total,
+        count(*) filter (where archived_at is null and embedding is not null and embedding_backend = $1 and embedded_hash = content_hash) as embedded
+      from markdown_documents
+    `,
+    values: [backend],
+  };
+}
+
 export function createLibraryRepository(db) {
   return {
     async listDocuments(filters = {}) {
@@ -228,6 +294,28 @@ export function createLibraryRepository(db) {
       const query = buildGetDocument(id);
       const result = await db.query(query.text, query.values);
       return result.rows[0] ? normalizeDocumentRow(result.rows[0]) : null;
+    },
+
+    async setDocumentEmbedding(id, payload) {
+      const q = buildSetDocumentEmbedding(id, payload);
+      const result = await db.query(q.text, q.values);
+      return result.rows[0] ? result.rows[0].id : null;
+    },
+    async searchDocumentsSemantic(queryLiteral, backend, opts = {}) {
+      const q = buildSearchDocumentsSemantic(queryLiteral, backend, opts);
+      const result = await db.query(q.text, q.values);
+      return result.rows.map(normalizeDocumentRow);
+    },
+    async listDocumentsNeedingEmbedding(backend) {
+      const q = buildListDocumentsNeedingEmbedding(backend);
+      const result = await db.query(q.text, q.values);
+      return result.rows.map((r) => ({ id: r.id, contentHash: r.content_hash }));
+    },
+    async countEmbeddings(backend) {
+      const q = buildCountEmbeddings(backend);
+      const result = await db.query(q.text, q.values);
+      const row = result.rows[0] || {};
+      return { total: Number(row.total || 0), embedded: Number(row.embedded || 0) };
     },
   };
 }
