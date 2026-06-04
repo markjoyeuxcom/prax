@@ -240,6 +240,56 @@ mutable via `update_document`, and independent of `derived-from` edges and the
 `x-moomora-origin` edit-origin header. Read paths (`get_document`, search rows, stale/orphan
 rows) include `kind`; the create/update tools accept it as an optional input.
 
+### Trust fields
+
+Documents carry four runtime trust/workflow fields. These are **not** part of the portable
+`.md` export front-matter — the export shape is unchanged. Importing a `.md` file back into
+the library always produces an unverified document; trust state is managed via the
+`verify`/`supersede` endpoints below.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `verified` | boolean | `true` when a human has blessed the document. Agent writes (MCP `create_document` / `update_document`, CLI `remember`) land `false` by default; the `0007` migration backfills existing rows: `updated_by = 'user'` → `true`, `updated_by = 'agent'` → `false`. |
+| `verifiedAt` | ISO-8601 timestamp \| `null` | When the document was last verified (or unverified). `null` when `verified` is `false` and has never been set. |
+| `verifiedBy` | string \| `null` | Who verified the document (a name, `"cli"`, `"user"`, etc.). `null` when unverified. |
+| `status` | `"active"` \| `"superseded"` \| `"deprecated"` | Lifecycle state. New documents are `"active"`. `POST .../supersede` sets the old document to `"superseded"`. `"deprecated"` is reserved for manual use (stale, no replacement). |
+
+All read paths that return document records (`get_document`, search rows, stale/orphan rows,
+context-pack items) include these four fields. Retrieval is **active-only** by default: only
+documents with `status = 'active'` appear in search and the context-pack.
+
+**Trust under no-auth:** `verified` is a workflow signal, not access control. Under the
+trusted-network model anyone on the network can call the verify endpoint. See
+[SECURITY.md](../SECURITY.md).
+
+### Trust endpoints (HTTP-only)
+
+These endpoints manage the trust/lifecycle state of library documents. They are **HTTP-only**
+and not exposed as MCP tools.
+
+`POST /api/library/documents/:id/verify`
+
+Body: `{ "verified": <boolean>, "as": "<name>" }` (`as` is optional; defaults to `"user"`
+when `verified: true`). Sets `verified`, `verifiedAt`, and `verifiedBy`. Returns the full
+updated document record (404 if not found, 400 if `verified` is not a boolean).
+
+`POST /api/library/documents/:id/supersede`
+
+Body: `{ "supersededBy": "<newDocumentId>" }`. Records a `supersedes` link from `newDocumentId`
+to the old document, then sets the old document's `status` to `"superseded"`. Returns the
+full updated old-document record (400 on invalid UUIDs or self-supersede, 404 if either
+document is not found).
+
+`GET /api/projects/:idOrSlug/context-pack`
+
+Query parameters: `query` (optional, used for semantic ranking when embeddings are on),
+`limit` (default `12`, max `50`), `format` (`md` or `json`, default `md`). Returns a
+bounded, trust-aware context briefing for the project: verified documents by section, with
+unverified documents quarantined in a `⚠ Unverified — pending human review` section. When
+`format=md` the response is `text/markdown`; when `format=json` it is a JSON object with a
+`sections` array. Semantic ranking is used when a `query` is given and embeddings are on;
+falls back to recency otherwise.
+
 Semantic search ranks documents by embedding similarity (meaning), not keywords, so a
 paraphrased query can find topically-relevant docs that share no words with it. It is
 **retrieval-only** — no text is generated. Availability is **Postgres-only**: it requires the

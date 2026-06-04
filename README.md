@@ -186,6 +186,21 @@ An optional local MCP server lives in `mcp/` — it exposes the Moomora API to C
 you can query and edit tasks and documents interactively on a Claude subscription. See
 [mcp/README.md](mcp/README.md).
 
+## Shared Memory CLI
+
+The `moomora` CLI lets any shell-capable AI tool or human pull a bounded, trust-aware context
+pack from project memory, search and read documents, write new memory, and verify or supersede
+it. `npm link` in the repo gives a global `moomora` command. See [docs/cli.md](docs/cli.md)
+for the full guide.
+
+```bash
+moomora context "how do we restore postgres"
+```
+
+Documents written by agents (via the CLI or MCP) are **unverified** by default. A human runs
+`moomora verify <id>` to bless them. Retrieval is active-only and keeps unverified memory in a
+clearly-labelled section so AI tools can see it while treating it with appropriate caution.
+
 ## Backup & Restore
 
 See [docs/backup-restore.md](docs/backup-restore.md) for backup, restore, and upgrade procedures.
