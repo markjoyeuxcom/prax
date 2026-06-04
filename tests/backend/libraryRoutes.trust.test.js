@@ -75,3 +75,31 @@ test('DELETE supersedes link reverts the target status', async () => {
   assert.deepEqual(app._calls.reverted, [ID]);
   await app.close();
 });
+
+test('POST verify rejects a non-boolean verified', async () => {
+  const app = await build();
+  const res = await app.inject({ method: 'POST', url: `/api/library/documents/${ID}/verify`, payload: { verified: 'yes' } });
+  assert.equal(res.statusCode, 400);
+  await app.close();
+});
+
+test('POST verify 404s when the document is missing', async () => {
+  const app = await build({ library: { async verifyDocument() { return null; } } });
+  const res = await app.inject({ method: 'POST', url: `/api/library/documents/${ID}/verify`, payload: { verified: true } });
+  assert.equal(res.statusCode, 404);
+  await app.close();
+});
+
+test('POST supersede rejects an invalid supersededBy', async () => {
+  const app = await build();
+  const res = await app.inject({ method: 'POST', url: `/api/library/documents/${ID}/supersede`, payload: { supersededBy: 'not-a-uuid' } });
+  assert.equal(res.statusCode, 400);
+  await app.close();
+});
+
+test('POST supersede rejects superseding itself', async () => {
+  const app = await build();
+  const res = await app.inject({ method: 'POST', url: `/api/library/documents/${ID}/supersede`, payload: { supersededBy: ID } });
+  assert.equal(res.statusCode, 400);
+  await app.close();
+});
