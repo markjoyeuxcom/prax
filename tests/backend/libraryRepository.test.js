@@ -47,6 +47,10 @@ test('normalizeDocumentRow maps database fields to API document fields', () => {
     contentHash: null,
     updatedBy: undefined,
     kind: undefined,
+    verified: false,
+    verifiedAt: null,
+    verifiedBy: null,
+    status: 'active',
     stale: false,
   });
 });
@@ -104,6 +108,7 @@ test('buildCreateDocument returns a parameterized insert query', () => {
     sha('# Ingress Notes'),
     'user',
     'source',
+    true,
   ]);
 });
 
@@ -212,13 +217,25 @@ test('buildCreateDocument stamps content_hash(body) and updated_by', () => {
   const q = buildCreateDocument({ title: 't', body: 'hello', documentType: 'note', projectId: 'p', tags: [], sourceFilename: null, updatedBy: 'agent' });
   assert.match(q.text, /content_hash/);
   assert.match(q.text, /updated_by/);
-  assert.equal(q.values[q.values.length - 3], sha('hello'));
-  assert.equal(q.values[q.values.length - 2], 'agent');
+  assert.equal(q.values[q.values.length - 4], sha('hello'));
+  assert.equal(q.values[q.values.length - 3], 'agent');
+  assert.equal(q.values[q.values.length - 1], false);
 });
 
 test('buildCreateDocument defaults updated_by to user', () => {
   const q = buildCreateDocument({ title: 't', body: 'x', documentType: 'note', projectId: 'p', tags: [], sourceFilename: null });
-  assert.equal(q.values[q.values.length - 2], 'user');
+  assert.equal(q.values[q.values.length - 3], 'user');
+});
+
+test('buildCreateDocument sets verified by origin (agent=false, human=true, default=true)', () => {
+  const base = { title: 't', body: 'b', documentType: 'note', projectId: 'p', tags: [], sourceFilename: null };
+  const human = buildCreateDocument({ ...base, updatedBy: 'user' });
+  const agent = buildCreateDocument({ ...base, updatedBy: 'agent' });
+  const dflt = buildCreateDocument({ ...base });
+  assert.match(human.text, /, verified\)/);
+  assert.equal(human.values[human.values.length - 1], true);
+  assert.equal(agent.values[agent.values.length - 1], false);
+  assert.equal(dflt.values[dflt.values.length - 1], true);
 });
 
 test('buildUpdateDocument always stamps updated_by and recomputes hash only when body changes', () => {
@@ -241,6 +258,27 @@ test('normalizeDocumentRow exposes contentHash and updatedBy', () => {
   });
   assert.equal(out.contentHash, 'abc');
   assert.equal(out.updatedBy, 'agent');
+});
+
+test('normalizeDocumentRow exposes trust fields with safe defaults', () => {
+  const missing = normalizeDocumentRow({
+    id: 'i', title: 't', body: 'b', document_type: 'note', project_id: 'p',
+    tags: [], source_filename: null, archived_at: null, created_at: 'c', updated_at: 'u',
+  });
+  assert.equal(missing.verified, false);
+  assert.equal(missing.verifiedAt, null);
+  assert.equal(missing.verifiedBy, null);
+  assert.equal(missing.status, 'active');
+
+  const present = normalizeDocumentRow({
+    id: 'i', title: 't', body: 'b', document_type: 'note', project_id: 'p',
+    tags: [], source_filename: null, archived_at: null, created_at: 'c', updated_at: 'u',
+    verified: true, verified_at: '2026-06-04T10:00:00.000Z', verified_by: 'mark', status: 'superseded',
+  });
+  assert.equal(present.verified, true);
+  assert.equal(present.verifiedAt, '2026-06-04T10:00:00.000Z');
+  assert.equal(present.verifiedBy, 'mark');
+  assert.equal(present.status, 'superseded');
 });
 
 test('createLibraryRepository.listActiveDocumentsForExport normalizes rows with project_slug', async () => {
