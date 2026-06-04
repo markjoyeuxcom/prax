@@ -359,6 +359,28 @@ export async function registerLibraryRoutes(app, options = {}) {
     return content;
   });
 
+  app.post('/api/library/documents/:id/verify', async (request, reply) => {
+    if (!isValidUuid(request.params.id)) { reply.code(400); return { message: 'document id is invalid' }; }
+    const body = isPlainObject(request.body) ? request.body : {};
+    if (typeof body.verified !== 'boolean') { reply.code(400); return { message: 'verified must be a boolean' }; }
+    const verifiedBy = body.verified ? (typeof body.as === 'string' && body.as.trim() ? body.as.trim() : 'user') : null;
+    const document = await repository.verifyDocument(request.params.id, { verified: body.verified, verifiedBy });
+    if (!document) { reply.code(404); return { message: 'document not found' }; }
+    return document;
+  });
+
+  app.post('/api/library/documents/:id/supersede', async (request, reply) => {
+    const oldId = request.params.id;
+    const newId = isPlainObject(request.body) ? request.body.supersededBy : undefined;
+    if (!isValidUuid(oldId)) { reply.code(400); return { message: 'document id is invalid' }; }
+    if (!isValidUuid(newId)) { reply.code(400); return { message: 'supersededBy is invalid' }; }
+    if (oldId === newId) { reply.code(400); return { message: 'a document cannot supersede itself' }; }
+    const link = await documentLinksRepository.linkDocuments(newId, oldId, 'supersedes');
+    if (!link.linked) { reply.code(404); return { message: 'document not found' }; }
+    await repository.markDocumentSuperseded(oldId);
+    return repository.getDocument(oldId);
+  });
+
   app.post('/api/library/documents/:id/links', async (request, reply) => {
     const sourceId = request.params.id;
     const { targetId, relation } = request.body || {};
@@ -381,6 +403,9 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (!DOCUMENT_LINK_RELATIONS.includes(relation)) { reply.code(400); return { message: 'relation is invalid' }; }
     const removed = await documentLinksRepository.unlinkDocuments(sourceId, targetId, relation);
     if (!removed) { reply.code(404); return { message: 'link not found' }; }
+    if (relation === 'supersedes') {
+      await repository.revertSupersededIfOrphan(targetId);
+    }
     return documentLinksRepository.listDocumentLinks(sourceId, 'outbound');
   });
 
