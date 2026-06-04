@@ -103,3 +103,47 @@ test('POST supersede rejects superseding itself', async () => {
   assert.equal(res.statusCode, 400);
   await app.close();
 });
+
+function buildPack(overrides = {}) {
+  return buildApp({
+    skipDb: true,
+    libraryRepository: {
+      async listDocuments(filters) {
+        buildPack._lastFilters = filters;
+        return [
+          { id: 'm', title: 'Decision', body: 'chose X', documentType: 'note', tags: [], verified: true, status: 'active' },
+          { id: 'u', title: 'Agent note', body: 'maybe Y', documentType: 'note', tags: [], verified: false, status: 'active' },
+        ];
+      },
+      ...overrides.library,
+    },
+    projectsRepository: { async resolveProject(v) { return v === 'demo' ? { id: 'p1', slug: 'demo', name: 'Demo', status: 'active' } : null; } },
+    embedder: null,
+  });
+}
+
+test('GET context-pack returns markdown by default', async () => {
+  const app = await buildPack();
+  const res = await app.inject({ method: 'GET', url: '/api/projects/demo/context-pack' });
+  assert.equal(res.statusCode, 200);
+  assert.match(res.headers['content-type'], /text\/markdown/);
+  assert.match(res.body, /# Context: Demo/);
+  assert.match(res.body, /## ⚠ Unverified/);
+  assert.deepEqual(buildPack._lastFilters, { projectId: 'p1', status: 'active' });
+  await app.close();
+});
+
+test('GET context-pack returns json when asked', async () => {
+  const app = await buildPack();
+  const res = await app.inject({ method: 'GET', url: '/api/projects/demo/context-pack?format=json' });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().project.slug, 'demo');
+  await app.close();
+});
+
+test('GET context-pack 404s on unknown project', async () => {
+  const app = await buildPack();
+  const res = await app.inject({ method: 'GET', url: '/api/projects/nope/context-pack' });
+  assert.equal(res.statusCode, 404);
+  await app.close();
+});

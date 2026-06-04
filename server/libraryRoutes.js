@@ -10,6 +10,7 @@ import {
   buildLinksFromGroups,
 } from './libraryExport.js';
 import { toVectorLiteral } from './vectorLiteral.js';
+import { buildContextPack, renderContextPackMarkdown } from './contextPack.js';
 
 const DOCUMENT_TYPES = new Set(['runbook', 'note']);
 const DOCUMENT_KINDS = new Set(['source', 'synthesized']);
@@ -379,6 +380,41 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (!link.linked) { reply.code(404); return { message: 'document not found' }; }
     await repository.markDocumentSuperseded(oldId);
     return repository.getDocument(oldId);
+  });
+
+  app.get('/api/projects/:idOrSlug/context-pack', async (request, reply) => {
+    const project = await projectsRepository.resolveProject(String(request.params.idOrSlug));
+    if (!project) { reply.code(404); return { message: 'project not found' }; }
+
+    const rawLimit = Number(request.query.limit);
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 50) : 12;
+    const query = request.query.query ? String(request.query.query) : '';
+
+    let docs = [];
+    if (query && embedder && await semanticActive()) {
+      try {
+        const { vector } = await embedder.embed(query, { query: true });
+        const search = app.embeddingSearch || {};
+        docs = await repository.searchDocumentsSemantic(toVectorLiteral(vector), embedder.backend, {
+          projectId: project.id,
+          limit: 50,
+          minSimilarity: search.minSimilarity,
+          topDrop: search.topDrop,
+        });
+      } catch (err) {
+        // Degrade to recency rather than fail — keyword/recency always works.
+        request.log.error({ err }, 'context-pack semantic embed failed');
+        docs = [];
+      }
+    }
+    if (docs.length === 0) {
+      docs = await repository.listDocuments({ projectId: project.id, status: 'active' });
+    }
+
+    const pack = buildContextPack(docs, { project, query, limit });
+    if (request.query.format === 'json') return pack;
+    reply.header('Content-Type', 'text/markdown; charset=utf-8');
+    return renderContextPackMarkdown(pack);
   });
 
   app.post('/api/library/documents/:id/links', async (request, reply) => {
