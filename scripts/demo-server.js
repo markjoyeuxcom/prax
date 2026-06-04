@@ -150,6 +150,10 @@ function createDocument(seed) {
     contentHash: hashBody(body),
     updatedBy: seed.updatedBy || 'user',
     kind: seed.kind || 'source',
+    verified: seed.verified ?? ((seed.updatedBy || 'user') === 'agent' ? false : true),
+    verifiedAt: seed.verifiedAt ?? null,
+    verifiedBy: seed.verifiedBy ?? null,
+    status: seed.docStatus || 'active',
   };
 }
 
@@ -392,6 +396,7 @@ function createMemoryLibraryRepository(documents, linksRef = null) {
         if (filters.projectId && document.projectId !== filters.projectId) return false;
         if (filters.documentType && document.documentType !== filters.documentType) return false;
         if (filters.kind && document.kind !== filters.kind) return false;
+        if (filters.status && document.status && document.status !== filters.status) return false;
         if (!matchesArchived(document, filters.archived)) return false;
         if (filters.q) {
           const query = String(filters.q).toLowerCase();
@@ -418,6 +423,10 @@ function createMemoryLibraryRepository(documents, linksRef = null) {
       created.contentHash = hashBody(document.body);
       created.updatedBy = document.updatedBy || 'user';
       created.kind = document.kind || 'source';
+      created.verified = (document.updatedBy || 'user') === 'agent' ? false : true;
+      created.verifiedAt = null;
+      created.verifiedBy = null;
+      created.status = 'active';
       documents.push(created);
       return created;
     },
@@ -454,6 +463,27 @@ function createMemoryLibraryRepository(documents, linksRef = null) {
     async getDocument(id) {
       const doc = documents.find((d) => d.id === id);
       return doc ? { ...doc } : null;
+    },
+    async verifyDocument(id, { verified, verifiedBy = null } = {}) {
+      const document = documents.find((d) => d.id === id && !d.archivedAt);
+      if (!document) return null;
+      document.verified = Boolean(verified);
+      document.verifiedAt = verified ? new Date().toISOString() : null;
+      document.verifiedBy = verified ? verifiedBy : null;
+      return document;
+    },
+    async markDocumentSuperseded(id) {
+      const document = documents.find((d) => d.id === id && !d.archivedAt);
+      if (!document || document.status !== 'active') return document || null;
+      document.status = 'superseded';
+      return document;
+    },
+    async revertSupersededIfOrphan(id) {
+      const document = documents.find((d) => d.id === id && !d.archivedAt);
+      if (!document || document.status !== 'superseded') return document || null;
+      const stillSuperseded = linksRef && linksRef.some((l) => l.targetId === id && l.relation === 'supersedes');
+      if (!stillSuperseded) document.status = 'active';
+      return document;
     },
     async listActiveDocumentsForExport(filters = {}) {
       const filtered = documents.filter((document) => {

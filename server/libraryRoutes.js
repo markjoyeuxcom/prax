@@ -113,6 +113,8 @@ export async function registerLibraryRoutes(app, options = {}) {
       documentType: doc.documentType,
       projectId: doc.projectId,
       tags: doc.tags || [],
+      verified: Boolean(doc.verified),
+      status: doc.status || 'active',
       snippet: String(doc.body || '').slice(0, 200),
     };
   }
