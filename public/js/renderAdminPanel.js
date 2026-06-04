@@ -177,6 +177,7 @@ export function renderAdminPanelHtml({
             <div class="admin-actions">
               <button class="bracket-button" type="button" data-action="toggle-semantic-search" aria-pressed="${semanticStatus.enabled === true}">${semanticStatus.enabled ? '[x] disable' : '[ ] enable'}</button>
               <button class="bracket-button bracket-button--quiet" type="button" data-action="reindex-embeddings">[r] reindex</button>
+              <button class="bracket-button bracket-button--quiet" type="button" data-action="force-reindex-embeddings">[R] rebuild all</button>
             </div>` : ''}
           </section>
         </div>

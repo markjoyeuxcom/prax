@@ -17,4 +17,5 @@ test('semantic section shows backend + counts + toggle + reindex when available'
   assert.ok(html.includes('10'));
   assert.ok(html.match(/data-action="toggle-semantic-search"/));
   assert.ok(html.match(/data-action="reindex-embeddings"/));
+  assert.ok(html.match(/data-action="force-reindex-embeddings"/));
 });
