@@ -86,8 +86,8 @@ export async function setSemanticEnabled(enabled) {
   return res.json();
 }
 
-export async function reindexEmbeddings() {
-  const res = await fetch('/api/library/embeddings/reindex', { method: 'POST' });
+export async function reindexEmbeddings(force = false) {
+  const res = await fetch(`/api/library/embeddings/reindex${force ? '?force=true' : ''}`, { method: 'POST' });
   if (!res.ok) throw new Error('Failed to reindex');
   return res.json();
 }
