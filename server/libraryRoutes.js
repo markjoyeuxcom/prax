@@ -203,6 +203,7 @@ export async function registerLibraryRoutes(app, options = {}) {
       if (projectId === null) { reply.code(400); return { message: 'project is invalid' }; }
     }
 
+    const includeRetired = request.query.all === 'true';
     let docs;
     try {
       const { vector } = await embedder.embed(String(q), { query: true });
@@ -212,6 +213,7 @@ export async function registerLibraryRoutes(app, options = {}) {
         limit: 20,
         minSimilarity: search.minSimilarity,
         topDrop: search.topDrop,
+        includeRetired,
       });
     } catch (err) {
       // Feature is configured + enabled, but the backend is unreachable or

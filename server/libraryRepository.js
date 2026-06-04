@@ -48,13 +48,14 @@ export function normalizeDocumentRow(row) {
 }
 
 export function buildCreateDocument(document) {
+  const verified = (document.updatedBy || 'user') !== 'agent';
   return {
     text: `
-      insert into markdown_documents (title, body, document_type, project_id, tags, source_filename, content_hash, updated_by, kind)
-      values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      insert into markdown_documents (title, body, document_type, project_id, tags, source_filename, content_hash, updated_by, kind, verified)
+      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       returning *
     `,
-    values: [...valuesFor(CREATE_FIELDS, document), hashBody(document.body), document.updatedBy || 'user', document.kind || 'source'],
+    values: [...valuesFor(CREATE_FIELDS, document), hashBody(document.body), document.updatedBy || 'user', document.kind || 'source', verified],
   };
 }
 
