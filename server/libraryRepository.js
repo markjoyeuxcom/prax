@@ -124,6 +124,57 @@ export function buildGetDocument(id) {
   return { text: 'select * from markdown_documents where id = $1 limit 1', values: [id] };
 }
 
+export function buildVerifyDocument(id, { verified, verifiedBy = null } = {}) {
+  if (verified) {
+    return {
+      text: `
+        update markdown_documents
+        set verified = true, verified_at = now(), verified_by = $2
+        where id = $1 and archived_at is null
+        returning *
+      `,
+      values: [id, verifiedBy],
+    };
+  }
+  return {
+    text: `
+      update markdown_documents
+      set verified = false, verified_at = null, verified_by = null
+      where id = $1 and archived_at is null
+      returning *
+    `,
+    values: [id],
+  };
+}
+
+export function buildMarkSuperseded(id) {
+  return {
+    text: `
+      update markdown_documents
+      set status = 'superseded', updated_at = now()
+      where id = $1 and status = 'active'
+      returning *
+    `,
+    values: [id],
+  };
+}
+
+export function buildRevertSupersededIfOrphan(id) {
+  return {
+    text: `
+      update markdown_documents
+      set status = 'active', updated_at = now()
+      where id = $1 and status = 'superseded'
+        and not exists (
+          select 1 from document_links
+          where target_document_id = $1 and relation = 'supersedes'
+        )
+      returning *
+    `,
+    values: [id],
+  };
+}
+
 export function buildListActiveDocumentsForExport({ projectId } = {}) {
   const values = [];
   let where = 'where d.archived_at is null';
@@ -160,9 +211,12 @@ export function buildSetDocumentEmbedding(id, { literal, backend, model, dim, co
   };
 }
 
-export function buildSearchDocumentsSemantic(queryLiteral, backend, { projectId, limit = 20 } = {}) {
+export function buildSearchDocumentsSemantic(queryLiteral, backend, { projectId, limit = 20, includeRetired = false } = {}) {
   const values = [queryLiteral, backend];
   let where = `where archived_at is null and embedding is not null and embedding_backend = $2`;
+  if (!includeRetired) {
+    where += ` and status = 'active'`;
+  }
   if (projectId) {
     values.push(projectId);
     where += ` and project_id = $${values.length}`;
@@ -170,7 +224,7 @@ export function buildSearchDocumentsSemantic(queryLiteral, backend, { projectId,
   values.push(limit);
   return {
     text: `
-      select id, title, document_type, project_id, tags, body, kind,
+      select id, title, document_type, project_id, tags, body, kind, verified, status,
              1 - (embedding <=> $1::vector) as similarity
       from markdown_documents
       ${where}
@@ -237,6 +291,10 @@ export function createLibraryRepository(db) {
       if (filters.kind) {
         values.push(filters.kind);
         clauses.push(`d.kind = $${values.length}`);
+      }
+      if (filters.status && ['active', 'superseded', 'deprecated'].includes(filters.status)) {
+        values.push(filters.status);
+        clauses.push(`d.status = $${values.length}`);
       }
       if (filters.q) {
         const terms = String(filters.q).toLowerCase().match(/[a-z0-9]+/g) || [];
@@ -311,6 +369,24 @@ export function createLibraryRepository(db) {
     async getDocument(id) {
       const query = buildGetDocument(id);
       const result = await db.query(query.text, query.values);
+      return result.rows[0] ? normalizeDocumentRow(result.rows[0]) : null;
+    },
+
+    async verifyDocument(id, payload) {
+      const q = buildVerifyDocument(id, payload);
+      const result = await db.query(q.text, q.values);
+      return result.rows[0] ? normalizeDocumentRow(result.rows[0]) : null;
+    },
+
+    async markDocumentSuperseded(id) {
+      const q = buildMarkSuperseded(id);
+      const result = await db.query(q.text, q.values);
+      return result.rows[0] ? normalizeDocumentRow(result.rows[0]) : null;
+    },
+
+    async revertSupersededIfOrphan(id) {
+      const q = buildRevertSupersededIfOrphan(id);
+      const result = await db.query(q.text, q.values);
       return result.rows[0] ? normalizeDocumentRow(result.rows[0]) : null;
     },
 
