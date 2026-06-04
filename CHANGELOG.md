@@ -12,6 +12,8 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.14.2] - 2026-06-04
+
 ### Added
 
 - A **"rebuild all"** button in the Admin → Semantic Search section that force-reindexes every
@@ -398,7 +400,8 @@ fresh empty `[Unreleased]` section is started.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.14.1...HEAD
+[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.14.2...HEAD
+[0.14.2]: https://github.com/awaybreaktoday/moomora-console/compare/v0.14.1...v0.14.2
 [0.14.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.13.1...v0.14.0
 [0.13.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.13.0...v0.13.1
