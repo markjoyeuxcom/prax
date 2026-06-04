@@ -38,6 +38,10 @@ export function normalizeDocumentRow(row) {
     contentHash: row.content_hash ?? null,
     updatedBy: row.updated_by,
     kind: row.kind,
+    verified: row.verified ?? false,
+    verifiedAt: toIso(row.verified_at) ?? null,
+    verifiedBy: row.verified_by ?? null,
+    status: row.status ?? 'active',
     stale: row.stale ?? false,
     ...(row.project_slug !== undefined ? { projectSlug: row.project_slug } : {}),
   };

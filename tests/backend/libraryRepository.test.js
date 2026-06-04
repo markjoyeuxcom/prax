@@ -47,6 +47,10 @@ test('normalizeDocumentRow maps database fields to API document fields', () => {
     contentHash: null,
     updatedBy: undefined,
     kind: undefined,
+    verified: false,
+    verifiedAt: null,
+    verifiedBy: null,
+    status: 'active',
     stale: false,
   });
 });
@@ -241,6 +245,27 @@ test('normalizeDocumentRow exposes contentHash and updatedBy', () => {
   });
   assert.equal(out.contentHash, 'abc');
   assert.equal(out.updatedBy, 'agent');
+});
+
+test('normalizeDocumentRow exposes trust fields with safe defaults', () => {
+  const missing = normalizeDocumentRow({
+    id: 'i', title: 't', body: 'b', document_type: 'note', project_id: 'p',
+    tags: [], source_filename: null, archived_at: null, created_at: 'c', updated_at: 'u',
+  });
+  assert.equal(missing.verified, false);
+  assert.equal(missing.verifiedAt, null);
+  assert.equal(missing.verifiedBy, null);
+  assert.equal(missing.status, 'active');
+
+  const present = normalizeDocumentRow({
+    id: 'i', title: 't', body: 'b', document_type: 'note', project_id: 'p',
+    tags: [], source_filename: null, archived_at: null, created_at: 'c', updated_at: 'u',
+    verified: true, verified_at: '2026-06-04T10:00:00.000Z', verified_by: 'mark', status: 'superseded',
+  });
+  assert.equal(present.verified, true);
+  assert.equal(present.verifiedAt, '2026-06-04T10:00:00.000Z');
+  assert.equal(present.verifiedBy, 'mark');
+  assert.equal(present.status, 'superseded');
 });
 
 test('createLibraryRepository.listActiveDocumentsForExport normalizes rows with project_slug', async () => {
