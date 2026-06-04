@@ -2216,6 +2216,22 @@ function bindAdminPanelEvents() {
     }
   });
 
+  panel.querySelector('[data-action="force-reindex-embeddings"]')?.addEventListener('click', async (event) => {
+    // Force re-embeds EVERY document (e.g. after changing the embedding model
+    // or upgrading) — potentially slow on a large library, so confirm first.
+    if (!globalThis.confirm('Re-embed every document? This re-runs the embedding backend on all documents and can take a while.')) return;
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      await reindexEmbeddings(true);
+      await loadSemanticStatus();
+    } catch (error) {
+      console.error('Failed to rebuild embeddings', error);
+    } finally {
+      button.disabled = false;
+    }
+  });
+
   panel.querySelectorAll('[data-action="open-library-doc"][data-library-document-id]').forEach((button) => {
     button.addEventListener('click', async () => {
       const docId = button.dataset.libraryDocumentId;

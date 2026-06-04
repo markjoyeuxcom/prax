@@ -12,6 +12,14 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Added
+
+- A **"rebuild all"** button in the Admin → Semantic Search section that force-reindexes every
+  document (`POST /api/library/embeddings/reindex?force=true`), so the title+body migration (and any
+  full rebuild after changing the embedding model) is one click instead of an API call. It confirms
+  first, since it re-runs the embedding backend over the whole library; the existing **reindex**
+  button stays staleness-based.
+
 ## [0.14.1] - 2026-06-04
 
 ### Changed
