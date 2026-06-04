@@ -12,6 +12,24 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Added
+
+- Shared memory trust model: documents now carry `verified` / `status`
+  (`active` / `superseded` / `deprecated`). Agent-written memory is unverified by default;
+  humans verify or supersede it. Retrieval is active-only and quarantines unverified memory
+  in a clearly-labelled section. Migration `0007` backfills existing rows conservatively
+  (`updated_by = 'user'` → verified, `updated_by = 'agent'` → unverified) and marks
+  documents that are already targets of a `supersedes` link as `superseded`.
+- `GET /api/projects/:id/context-pack` — a bounded, trust-aware Markdown (or JSON) briefing
+  assembled from project memory, with semantic ranking when embeddings are on and a recency
+  fallback otherwise. Unverified documents appear in a `⚠ Unverified — pending human review`
+  section.
+- `POST /api/library/documents/:id/verify` (body `{verified: boolean, as?: string}`) and
+  `POST /api/library/documents/:id/supersede` (body `{supersededBy: <id>}`).
+- A thin `moomora` CLI (`cli/`) so any shell-capable agent or human can pull a context pack
+  and read/write/verify project memory without opening a browser. See `docs/cli.md`.
+- Read-only trust display (VERIFIED / SUPERSEDED) in the Library UI.
+
 ## [0.14.2] - 2026-06-04
 
 ### Added

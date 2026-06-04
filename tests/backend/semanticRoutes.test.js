@@ -210,3 +210,21 @@ test('reindex?force=true reaches the force path', async () => {
   assert.equal(sawForce, true);
   await app.close();
 });
+
+test('semantic-search threads includeRetired from ?all=true', async () => {
+  let capturedOpts;
+  const appWithAll = await makeApp({ available: true, enabled: true }, (f) => {
+    f.library.searchDocumentsSemantic = async (_vec, _backend, opts) => { capturedOpts = opts; return []; };
+  });
+  await appWithAll.inject({ method: 'GET', url: '/api/library/documents/semantic-search?q=restore&all=true' });
+  assert.equal(capturedOpts.includeRetired, true);
+  await appWithAll.close();
+
+  let capturedOptsNoAll;
+  const appNoAll = await makeApp({ available: true, enabled: true }, (f) => {
+    f.library.searchDocumentsSemantic = async (_vec, _backend, opts) => { capturedOptsNoAll = opts; return []; };
+  });
+  await appNoAll.inject({ method: 'GET', url: '/api/library/documents/semantic-search?q=restore' });
+  assert.ok(!capturedOptsNoAll.includeRetired);
+  await appNoAll.close();
+});

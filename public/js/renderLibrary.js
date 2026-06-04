@@ -167,10 +167,11 @@ function renderDocumentRows(documents, activeDocumentId) {
     const isSelected = document.id === activeDocumentId;
     const isSynthesized = document.kind === 'synthesized';
     const isStale = document.stale === true;
+    const isSuperseded = document.status === 'superseded';
     return `
-      <button class="document-row${isSelected ? ' is-selected' : ''}" type="button" data-library-document-id="${escapeHtml(document.id)}"${isSelected ? ' aria-current="true"' : ''}>
+      <button class="document-row${isSelected ? ' is-selected' : ''}${isSuperseded ? ' is-superseded' : ''}" type="button" data-library-document-id="${escapeHtml(document.id)}"${isSelected ? ' aria-current="true"' : ''}>
         <span>
-          <strong>${escapeHtml(document.title || 'Untitled document')}${isSynthesized ? ' <span class="chip chip-synth" aria-label="Agent synthesized">SYNTH</span>' : ''}${isStale ? ' <span class="chip chip-stale" aria-label="Derived source has changed">STALE</span>' : ''}</strong>
+          <strong>${escapeHtml(document.title || 'Untitled document')}${isSynthesized ? ' <span class="chip chip-synth" aria-label="Agent synthesized">SYNTH</span>' : ''}${isStale ? ' <span class="chip chip-stale" aria-label="Derived source has changed">STALE</span>' : ''}${renderTrustChips(document)}</strong>
           <small>${escapeHtml(labelFromValue(document.documentType || 'note'))} &middot; ${escapeHtml(document.sourceFilename || 'Created in Moomora Console')}</small>
         </span>
         <span class="document-tags">${renderTags(document.tags)}</span>
@@ -287,6 +288,17 @@ function renderKindBadge(kind) {
   return `<span class="chip chip-kind chip-kind--${safeKind}" aria-label="Document kind: ${safeKind}">${label}</span>`;
 }
 
+function renderTrustChips(document) {
+  const chips = [];
+  if (document.verified === true) {
+    chips.push('<span class="chip chip-verified" aria-label="Verified by a human">VERIFIED</span>');
+  }
+  if (document.status === 'superseded') {
+    chips.push('<span class="chip chip-superseded" aria-label="Superseded by a newer document">SUPERSEDED</span>');
+  }
+  return chips.join('');
+}
+
 function renderDocumentLinks(links) {
   if (links == null) return ''; // null or undefined → not loaded yet, render nothing
   const list = Array.isArray(links) ? links : [];
@@ -345,9 +357,9 @@ function renderDocumentDetail(document, options = {}) {
       <header class="detail-header">
         ${options.isLibraryDocOpen ? `<button class="detail-back bracket-button bracket-button--quiet" type="button" data-action="close-library-doc" aria-label="Back">← back</button>` : ''}
         <span class="detail-kicker">${escapeHtml(labelFromValue(document.documentType || 'note'))}</span>
-        <h2 id="selected-document-title">${escapeHtml(document.title || 'Untitled document')} ${renderKindBadge(document.kind)}</h2>
+        <h2 id="selected-document-title">${escapeHtml(document.title || 'Untitled document')} ${renderKindBadge(document.kind)}${renderTrustChips(document)}</h2>
         <p>${escapeHtml(document.sourceFilename || 'Created in Moomora Console')}</p>
-        <p class="library-detail-meta">Updated by ${escapeHtml(document.updatedBy || 'user')}</p>
+        <p class="library-detail-meta">Updated by ${escapeHtml(document.updatedBy || 'user')}${document.verified ? ` · verified${document.verifiedBy ? ` by ${escapeHtml(document.verifiedBy)}` : ''}` : ' · unverified'}</p>
         <div class="document-tags">${renderTags(document.tags)}</div>
         <div class="detail-actions">
           ${isArchived ? '' : renderModes(editorMode)}
