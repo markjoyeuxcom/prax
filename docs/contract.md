@@ -243,9 +243,9 @@ rows) include `kind`; the create/update tools accept it as an optional input.
 ### Trust fields
 
 Documents carry four runtime trust/workflow fields. These are **not** part of the portable
-`.md` export front-matter — the export shape is unchanged. Importing a `.md` file back into
-the library always produces an unverified document; trust state is managed via the
-`verify`/`supersede` endpoints below.
+`.md` export front-matter — the export shape is unchanged (trust state is not carried in the
+export). If `.md` import is added in the future, an imported document would start unverified;
+trust state is managed via the `verify`/`supersede` endpoints below.
 
 | Field | Type | Description |
 |-------|------|-------------|
