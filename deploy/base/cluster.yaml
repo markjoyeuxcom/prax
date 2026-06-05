@@ -8,7 +8,11 @@ metadata:
     argocd.argoproj.io/sync-wave: "0"
 spec:
   instances: 1
-  imageName: ghcr.io/cloudnative-pg/pgvector:0.8.2-18-trixie
+  imageCatalogRef:
+    apiGroup: postgresql.cnpg.io
+    kind: ImageCatalog
+    name: moomora-console-pg
+    major: 18
   storage:
     size: 5Gi
   bootstrap:
