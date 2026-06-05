@@ -34,7 +34,7 @@ Run it locally with Docker Compose or deploy it to Kubernetes (with CloudNativeP
 - PostgreSQL via `pg`
 - Static frontend with plain JavaScript modules
 - CodeMirror for Markdown editing
-- Kubernetes manifests under `deploy/k8s`
+- Kubernetes manifests under `deploy/` (Kustomize base + overlays)
 
 ## Requirements
 
@@ -237,24 +237,32 @@ or the MCP server.
 
 ## Kubernetes Deployment
 
-Kubernetes manifests live in:
+Deployment manifests use a Kustomize **base + overlays** layout under `deploy/`, designed for GitOps
+with Argo CD:
 
 ```text
-deploy/k8s
+deploy/base/                          # env-agnostic manifests (no namespace)
+deploy/overlays/{dev,staging,prod}/   # per-env image tag + hostname
 ```
 
-The manifests expect a CloudNativePG application secret named:
+A homelab Argo CD ApplicationSet auto-discovers this repo and creates one Application per
+environment, deploying `deploy/overlays/<env>` into namespace `moomora-console-<env>` (the namespace
+is injected by Argo — no manifest sets one).
 
-```text
-moomora-console-db-app
+Each environment provisions its own CloudNativePG `Cluster` (`moomora-console-db`) on the public
+pgvector image `ghcr.io/cloudnative-pg/pgvector`, which generates the `moomora-console-db-app`
+secret; the app reads its `uri` key as `DATABASE_URL`. Semantic search is enabled through the
+ConfigMap (`EMBEDDING_BACKEND=ollama`, `OLLAMA_URL`, `EMBEDDING_MODEL`), and the app is exposed via a
+Gateway API `HTTPRoute` attached to the cluster's external gateway.
+
+Render any environment locally (no cluster needed):
+
+```bash
+kubectl kustomize deploy/overlays/dev
 ```
 
-The app reads the secret's `uri` key as `DATABASE_URL`.
-
-Optional **semantic search** needs a `pgvector`-capable Postgres cluster — build the image from
-`deploy/postgres/Dockerfile` and provision `deploy/k8s/postgres-cluster.example.yaml` (which
-pre-creates the `vector` extension). See [docs/deployment.md](docs/deployment.md) for the full
-deployment notes, including enabling embeddings via env/secret.
+See [docs/deployment.md](docs/deployment.md) for the full notes, including the cluster-side
+prerequisites (Gateway `allowedRoutes`/TLS, DNS, Ollama reachability).
 
 ## Health Checks
 

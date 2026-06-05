@@ -1,112 +1,152 @@
 # Moomora Console Kubernetes Deployment
 
-Moomora Console runs as one Node container that serves the frontend and API. It expects a CloudNativePG application secret and uses the secret's `uri` key as `DATABASE_URL`.
+Moomora Console runs as one Node container that serves the frontend and API. Kubernetes manifests
+use a Kustomize **base + overlays** layout under `deploy/`, designed for GitOps with Argo CD.
 
-## Requirements
+## Layout
 
-- Kubernetes cluster
-- Ingress controller
-- CloudNativePG Postgres cluster
-- CloudNativePG app secret named `moomora-console-db-app` in the same namespace
-- Container image available to the cluster as `moomora-console:latest`, or an edited image name in `deploy/k8s/deployment.yaml`
+```text
+deploy/base/                          # env-agnostic manifests (no namespace field)
+deploy/overlays/dev/                  # dev: image tag + hostname patch
+deploy/overlays/staging/              # staging: image tag + hostname patch
+deploy/overlays/prod/                 # prod: image tag + hostname patch
+```
 
-CloudNativePG app secrets include connection fields such as `username`, `password`, `host`, `port`, `dbname`, and `uri`. The manifests use `uri` directly to avoid constructing a connection string in Kubernetes YAML.
+`deploy/base/` contains:
 
-## Postgres cluster (pgvector for semantic search)
+- `cluster.yaml` — CloudNativePG `Cluster` resource (`moomora-console-db`)
+- `configmap.yaml` — non-secret app env vars (host, port, embedding config)
+- `deployment.yaml` — app `Deployment`
+- `service.yaml` — `ClusterIP` `Service`
+- `httproute.yaml` — Gateway API `HTTPRoute` (placeholder hostname; patched by each overlay)
+- `kustomization.yaml`
 
-The repo's `deploy/k8s/` manifests deploy the **app**, not the database — you provision a CloudNativePG `Cluster` that produces the `moomora-console-db-app` secret. The core schema works on any PostgreSQL 16+ cluster, but the **optional semantic search** feature requires the `pgvector` extension (migration `0005` runs `CREATE EXTENSION vector`), and the stock CloudNativePG images do **not** ship pgvector.
+No manifest in `deploy/base/` sets a `namespace:` field. The namespace is injected by Argo CD at
+sync time.
 
-To enable it:
+## Argo CD ApplicationSet
 
-1. **Build a pgvector image** from the bundled Dockerfile (it adds the `postgresql-18-pgvector` package to the official CloudNativePG base, keeping the operator entrypoint and the postgres UID 26 intact). Pin the base tag to a current published tag from `ghcr.io/cloudnative-pg/postgresql`:
+A homelab Argo CD ApplicationSet auto-discovers this repo and creates one `Application` per
+environment. Each Application:
 
-   ```bash
-   docker build -t <your-registry>/moomora-pgvector:18 deploy/postgres
-   docker push   <your-registry>/moomora-pgvector:18
-   ```
+- Points at `deploy/overlays/<env>` as its source path.
+- Deploys into namespace `moomora-console-<env>` (e.g. `moomora-console-dev`), with
+  `CreateNamespace=true` so the namespace is created automatically.
+- Injects the namespace into all resources at sync time — no manifest hard-codes one.
 
-2. **Provision the cluster** from the example (adapt instances/storage/registry):
+## Per-environment overlays
 
-   ```bash
-   kubectl apply -f deploy/k8s/postgres-cluster.example.yaml
-   ```
+Each overlay pins the image tag and patches the `HTTPRoute` hostname:
 
-   The example sets `imageName` to your pgvector image and **pre-creates the extension** at bootstrap via `postInitApplicationSQL: ["CREATE EXTENSION IF NOT EXISTS vector"]`. This matters because pgvector is **not** a "trusted" extension, so the non-superuser application role the app runs migrations as cannot `CREATE EXTENSION` it — it must be created by a superuser at bootstrap. Migration `0005`'s `CREATE EXTENSION IF NOT EXISTS vector` then becomes a harmless no-op.
+| Environment | Namespace                   | Hostname                              |
+|-------------|----------------------------|---------------------------------------|
+| dev         | `moomora-console-dev`      | `moomora-console-dev.markjoyeux.uk`   |
+| staging     | `moomora-console-staging`  | `moomora-console-staging.markjoyeux.uk` |
+| prod        | `moomora-console-prod`     | `moomora-console.markjoyeux.uk`       |
 
-If you don't use semantic search, any PostgreSQL cluster that produces the `moomora-console-db-app` secret works — no pgvector image needed.
+Overlays are currently pinned to `v0.15.0`. CI-driven `newTag` bumping on release is planned as
+future work.
+
+## CloudNativePG Cluster
+
+Each environment provisions its own CNPG `Cluster` resource named `moomora-console-db`. It uses
+the public pgvector image:
+
+```text
+ghcr.io/cloudnative-pg/pgvector:0.8.2-18-trixie
+```
+
+This image ships `pgvector` pre-installed. At bootstrap, the cluster runs:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vector
+```
+
+This is required because `vector` is not a trusted extension — the non-superuser app role the
+app runs migrations as cannot `CREATE EXTENSION` it. Migration `0005`'s
+`CREATE EXTENSION IF NOT EXISTS vector` then becomes a no-op.
+
+CNPG generates the `moomora-console-db-app` secret automatically. The app reads its `uri` key as
+`DATABASE_URL`.
+
+**Custom builds:** `deploy/postgres/Dockerfile` (adds `postgresql-18-pgvector` to the official
+CNPG base) is kept as an alternative for environments where the public pgvector image is not
+suitable. Building and pushing a custom image is no longer required for the standard deployment.
 
 ## Database Schema
 
-The app applies database migrations automatically on startup, so deploying the container is sufficient to initialise or upgrade the schema. To apply migrations explicitly — for example from a pre-deploy Job — run the bundled script against the database:
+The app applies database migrations automatically on startup, so deploying the container is
+sufficient to initialise or upgrade the schema. To apply migrations explicitly:
 
 ```bash
-DATABASE_URL=$(kubectl get secret moomora-console-db-app -o jsonpath='{.data.uri}' | base64 -d)
+DATABASE_URL=$(kubectl get secret moomora-console-db-app -n moomora-console-<env> \
+  -o jsonpath='{.data.uri}' | base64 -d)
 DATABASE_URL="$DATABASE_URL" npm run migrate
 ```
 
-Migrations are forward-only and tracked in a `schema_migrations` table; re-running is safe (already-applied migrations are skipped).
+Migrations are forward-only and tracked in a `schema_migrations` table; re-running is safe.
 
-## Build Image
-
-```bash
-docker build -f deploy/Dockerfile -t moomora-console:latest .
-```
-
-For a multi-node cluster, push the image to a registry your nodes can pull from and update `image` in `deploy/k8s/deployment.yaml`.
-
-## Apply Manifests
+## Build and Publish Image
 
 ```bash
-kubectl apply -f deploy/k8s/configmap.yaml
-kubectl apply -f deploy/k8s/deployment.yaml
-kubectl apply -f deploy/k8s/service.yaml
-kubectl apply -f deploy/k8s/ingress.yaml
+docker build -f deploy/Dockerfile -t ghcr.io/awaybreaktoday/moomora-console:<tag> .
+docker push ghcr.io/awaybreaktoday/moomora-console:<tag>
 ```
 
-## Semantic search (optional)
+Update the `newTag` in each overlay's `kustomization.yaml` to deploy a new version.
 
-Semantic search is off by default (`EMBEDDING_BACKEND=none`). To enable it in-cluster, set the embedding env vars on the app — non-secret values in the ConfigMap, the API key (if any) in a Secret:
+## Semantic Search
 
-1. Add non-secret config to `deploy/k8s/configmap.yaml`. For an **Ollama** endpoint:
+Semantic search is enabled in the base ConfigMap with these values:
 
-   ```yaml
-   EMBEDDING_BACKEND: "ollama"
-   OLLAMA_URL: "http://<ollama-host>:11434"
-   EMBEDDING_MODEL: "qwen3-embedding:0.6b"
-   ```
+```yaml
+EMBEDDING_BACKEND: "ollama"
+OLLAMA_URL: "http://ollama.example.internal:11434"
+EMBEDDING_MODEL: "qwen3-embedding:0.6b"
+```
 
-   The app already loads the ConfigMap via `envFrom`. (The `ollama` and `fake` backends are
-   available today; the **OpenAI-compatible** backend — `EMBEDDING_BACKEND: "openai"` with
-   `OPENAI_BASE_URL`/`OPENAI_API_KEY` — lands in v0.14.0.)
+All three environments inherit this config. The pgvector CNPG image ensures the `vector` extension
+is available. Pods must be able to reach `ollama.example.internal:11434` (the cluster-local Ollama host).
 
-2. **OpenAI-compatible backend (v0.14.0+):** set `EMBEDDING_BACKEND: "openai"`, `EMBEDDING_MODEL`,
-   and `OPENAI_BASE_URL` in the ConfigMap, and put the API key in a Secret referenced from
-   `deploy/k8s/deployment.yaml`'s `env:` — never in the ConfigMap:
+To use a different embedding backend, patch the ConfigMap in the relevant overlay.
 
-   ```bash
-   kubectl create secret generic moomora-embedding --from-literal=OPENAI_API_KEY=sk-...
-   ```
+## Exposure: Gateway API HTTPRoute
 
-   ```yaml
-   env:
-     - name: OPENAI_API_KEY
-       valueFrom:
-         secretKeyRef:
-           name: moomora-embedding
-           key: OPENAI_API_KEY
-   ```
+The app is exposed via a Gateway API `HTTPRoute` attached to the `external-gateway` in the
+`envoy-gateway-system` namespace. TLS is terminated at the gateway — no TLS config lives in the
+app manifests.
 
-The Postgres cluster must be pgvector-capable (see "Postgres cluster" above). All embedding config is env-only and never exposed through the no-auth web UI — it shows only a read-only status and an on/off toggle.
+Each overlay patches the `HTTPRoute` hostname (see the table above).
+
+## Cluster-side Prerequisites
+
+These must be in place before syncing — they are the cluster operator's responsibility:
+
+1. **CNPG operator** installed in the cluster.
+2. **`external-gateway`** in `envoy-gateway-system` must:
+   - Have `allowedRoutes` configured to permit routes from `moomora-console-*` namespaces.
+   - Terminate TLS for `*.markjoyeux.uk`.
+3. **DNS** records for all three hostnames pointing at the gateway's external IP/hostname.
+4. **Ollama reachability**: pods in `moomora-console-*` namespaces must reach
+   `ollama.example.internal:11434` for semantic search to function.
+
+## Local Render Check
+
+No cluster needed — render any overlay with:
+
+```bash
+kubectl kustomize deploy/overlays/dev
+kubectl kustomize deploy/overlays/staging
+kubectl kustomize deploy/overlays/prod
+```
 
 ## Health Checks
 
-- `/healthz` checks that the Node process is alive.
-- `/readyz` checks database connectivity through `DATABASE_URL`.
-
-## Ingress
-
-The default host is `console.example.internal`. Change it in `deploy/k8s/ingress.yaml` to match your cluster's DNS and put authentication at the ingress layer.
+- `/healthz` — confirms the Node process is alive.
+- `/readyz` — confirms database connectivity through `DATABASE_URL`.
 
 ## Data Movement
 
-Moomora Console exports backups with the `moomora.tasks` format. Import accepts current Moomora Console envelopes or raw task arrays, with append, skip duplicates, and replace-context modes available from the Admin panel.
+Moomora Console exports backups with the `moomora.tasks` format. Import accepts current Moomora
+Console envelopes or raw task arrays, with append, skip duplicates, and replace-context modes
+available from the Admin panel.

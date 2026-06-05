@@ -9,5 +9,5 @@ spec:
     app.kubernetes.io/name: moomora-console
   ports:
     - name: http
-      port: 80
+      port: 3000
       targetPort: http
