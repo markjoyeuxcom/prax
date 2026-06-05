@@ -4,10 +4,13 @@ metadata:
   name: moomora-console
   labels:
     app.kubernetes.io/name: moomora-console
+  annotations:
+    external-dns.alpha.kubernetes.io/target: "true"
 spec:
   parentRefs:
     - name: external-gateway
       namespace: envoy-gateway-system
+      sectionName: https
   hostnames:
     - moomora-console.invalid
   rules:
