@@ -1,0 +1,16 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: moomora-console
+  labels:
+    app.kubernetes.io/name: moomora-console
+spec:
+  parentRefs:
+    - name: external-gateway
+      namespace: envoy-gateway-system
+  hostnames:
+    - moomora-console.invalid
+  rules:
+    - backendRefs:
+        - name: moomora-console
+          port: 3000
