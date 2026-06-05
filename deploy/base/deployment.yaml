@@ -4,6 +4,8 @@ metadata:
   name: moomora-console
   labels:
     app.kubernetes.io/name: moomora-console
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
 spec:
   replicas: 1
   strategy:
@@ -21,9 +23,12 @@ spec:
         runAsUser: 1000
         runAsGroup: 1000
         fsGroup: 1000
+      volumes:
+        - name: tmp
+          emptyDir: {}
       containers:
         - name: moomora-console
-          image: moomora-console:latest
+          image: ghcr.io/awaybreaktoday/moomora-console:v0.15.0
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
@@ -43,18 +48,25 @@ spec:
           ports:
             - containerPort: 3000
               name: http
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
           livenessProbe:
             httpGet:
               path: /healthz
               port: http
-            initialDelaySeconds: 10
             periodSeconds: 20
           readinessProbe:
             httpGet:
               path: /readyz
               port: http
-            initialDelaySeconds: 5
             periodSeconds: 10
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           resources:
             requests:
               cpu: 50m
