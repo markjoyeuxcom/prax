@@ -12,6 +12,25 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-06-05
+
+### Added
+
+- Kubernetes deployment manifests: a Kustomize `deploy/base` + `deploy/overlays/{dev,staging,prod}`
+  layout for a GitOps Argo CD workloads ApplicationSet (one Application per environment; the
+  destination namespace is injected by Argo). Each environment runs its own CloudNativePG
+  `Cluster` on a stock PostgreSQL 18 operand with `pgvector` mounted as a Kubernetes ImageVolume
+  extension, exposed via a Gateway API `HTTPRoute`, with semantic search configured through the
+  ConfigMap.
+- `AGENTS.md` — a tool-agnostic agent-memory convention (Codex, Cursor, aider, and any
+  shell-capable agent) mirroring the Claude Code `CLAUDE.md` guidance, so Moomora memory is shared
+  across tools.
+
+### Changed
+
+- Replaced the legacy flat `deploy/k8s/` manifests with the Kustomize base/overlays layout and
+  reconciled `README.md` and `docs/deployment.md`.
+
 ## [0.15.0] - 2026-06-04
 
 ### Added
@@ -420,7 +439,8 @@ fresh empty `[Unreleased]` section is started.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.15.1...HEAD
+[0.15.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.14.2...v0.15.0
 [0.14.2]: https://github.com/awaybreaktoday/moomora-console/compare/v0.14.1...v0.14.2
 [0.14.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.14.0...v0.14.1
