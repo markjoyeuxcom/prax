@@ -49,14 +49,27 @@ future work.
 
 ## CloudNativePG Cluster
 
-Each environment provisions its own CNPG `Cluster` resource named `moomora-console-db`. It uses
-the public pgvector image:
+Each environment provisions its own CNPG `Cluster` resource named `moomora-console-db`. It runs the
+stock CNPG **operand** image `ghcr.io/cloudnative-pg/postgresql:18-minimal-trixie` and mounts
+`pgvector` from the public **extension** image as a Kubernetes ImageVolume (CNPG ≥ 1.27, PostgreSQL
+18's `extension_control_path`):
 
-```text
-ghcr.io/cloudnative-pg/pgvector:0.8.2-18-trixie
+```yaml
+spec:
+  imageName: ghcr.io/cloudnative-pg/postgresql:18-minimal-trixie
+  postgresql:
+    extensions:
+      - name: pgvector
+        image:
+          reference: ghcr.io/cloudnative-pg/pgvector:0.8.2-18-trixie
 ```
 
-This image ships `pgvector` pre-installed. At bootstrap, the cluster runs:
+> Note: `ghcr.io/cloudnative-pg/pgvector:*` is an **extension-only** image (it has no Postgres
+> binaries) — it must be mounted via `postgresql.extensions`, not used as the cluster `imageName`.
+> Alternatively, build a baked operand image from `deploy/postgres/Dockerfile` and set it as
+> `imageName` instead.
+
+At bootstrap, the cluster runs:
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS vector

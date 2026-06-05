@@ -249,9 +249,10 @@ A homelab Argo CD ApplicationSet auto-discovers this repo and creates one Applic
 environment, deploying `deploy/overlays/<env>` into namespace `moomora-console-<env>` (the namespace
 is injected by Argo — no manifest sets one).
 
-Each environment provisions its own CloudNativePG `Cluster` (`moomora-console-db`) on the public
-pgvector image `ghcr.io/cloudnative-pg/pgvector`, which generates the `moomora-console-db-app`
-secret; the app reads its `uri` key as `DATABASE_URL`. Semantic search is enabled through the
+Each environment provisions its own CloudNativePG `Cluster` (`moomora-console-db`) running the
+stock PostgreSQL 18 operand image with `pgvector` mounted from the public
+`ghcr.io/cloudnative-pg/pgvector` image as an ImageVolume extension. CNPG generates the
+`moomora-console-db-app` secret; the app reads its `uri` key as `DATABASE_URL`. Semantic search is enabled through the
 ConfigMap (`EMBEDDING_BACKEND=ollama`, `OLLAMA_URL`, `EMBEDDING_MODEL`), and the app is exposed via a
 Gateway API `HTTPRoute` attached to the cluster's external gateway.
 
