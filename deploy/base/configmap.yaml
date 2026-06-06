@@ -9,5 +9,5 @@ data:
   PORT: "3000"
   PUBLIC_DIR: "/app/public"
   EMBEDDING_BACKEND: "ollama"
-  OLLAMA_URL: "http://ollama.example.internal:11434"
+  OLLAMA_URL: "http://ollama.internal:11434"
   EMBEDDING_MODEL: "qwen3-embedding:0.6b"

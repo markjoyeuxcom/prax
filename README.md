@@ -34,7 +34,7 @@ Run it locally with Docker Compose or deploy it to Kubernetes (with CloudNativeP
 - PostgreSQL via `pg`
 - Static frontend with plain JavaScript modules
 - CodeMirror for Markdown editing
-- Kubernetes manifests under `deploy/` (Kustomize base + overlays)
+- Example Kubernetes manifests under `deploy/` (Kustomize base + overlays)
 
 ## Requirements
 
@@ -245,9 +245,10 @@ deploy/base/                          # env-agnostic manifests (no namespace)
 deploy/overlays/{dev,staging,prod}/   # per-env image tag + hostname
 ```
 
-A homelab Argo CD ApplicationSet auto-discovers this repo and creates one Application per
-environment, deploying `deploy/overlays/<env>` into namespace `moomora-console-<env>` (the namespace
-is injected by Argo — no manifest sets one).
+These are **sanitized example manifests** — the hostnames (`*.example.com`), the Ollama endpoint,
+and the gateway are placeholders to adapt to your own cluster (the maintainer's live config is kept
+in a separate private GitOps repo). A GitOps tool such as Argo CD renders `deploy/overlays/<env>`
+into a namespace like `moomora-console-<env>`; no manifest hard-codes a namespace.
 
 Each environment provisions its own CloudNativePG `Cluster` (`moomora-console-db`) running the
 stock PostgreSQL 18 operand image with `pgvector` mounted from the public
