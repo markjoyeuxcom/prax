@@ -12,4 +12,4 @@ patches:
     patch: |
       - op: replace
         path: /spec/hostnames/0
-        value: moomora-console-staging.markjoyeux.uk
+        value: moomora-console-staging.example.com

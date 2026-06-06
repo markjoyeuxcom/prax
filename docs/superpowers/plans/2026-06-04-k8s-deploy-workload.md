@@ -59,7 +59,7 @@ data:
   PORT: "3000"
   PUBLIC_DIR: "/app/public"
   EMBEDDING_BACKEND: "ollama"
-  OLLAMA_URL: "http://172.16.16.10:11434"
+  OLLAMA_URL: "http://ollama.internal:11434"
   EMBEDDING_MODEL: "qwen3-embedding:0.6b"
 ```
 
@@ -174,7 +174,7 @@ metadata:
 spec:
   parentRefs:
     - name: external-gateway
-      namespace: envoy-gateway-system
+      namespace: gateway-system
   hostnames:
     - moomora-console.invalid
   rules:
@@ -228,7 +228,7 @@ Expected: renders five documents (ConfigMap, Cluster, Deployment, Service, HTTPR
 - [ ] **Step 8: Verify no resource pins its own namespace**
 
 Run: `kubectl kustomize deploy/base | grep -n "namespace:"`
-Expected: exactly ONE match — `namespace: envoy-gateway-system` (the HTTPRoute `parentRefs`). No `namespace:` under any resource's `metadata`. (If any other `namespace:` appears, a manifest wrongly sets one — remove it.)
+Expected: exactly ONE match — `namespace: gateway-system` (the HTTPRoute `parentRefs`). No `namespace:` under any resource's `metadata`. (If any other `namespace:` appears, a manifest wrongly sets one — remove it.)
 
 - [ ] **Step 9: Verify the key wiring is present**
 
@@ -269,7 +269,7 @@ patches:
     patch: |
       - op: replace
         path: /spec/hostnames/0
-        value: moomora-console-dev.markjoyeux.uk
+        value: moomora-console-dev.example.com
 ```
 
 - [ ] **Step 2: Create `deploy/overlays/staging/kustomization.yaml`**
@@ -289,7 +289,7 @@ patches:
     patch: |
       - op: replace
         path: /spec/hostnames/0
-        value: moomora-console-staging.markjoyeux.uk
+        value: moomora-console-staging.example.com
 ```
 
 - [ ] **Step 3: Create `deploy/overlays/prod/kustomization.yaml`**
@@ -309,7 +309,7 @@ patches:
     patch: |
       - op: replace
         path: /spec/hostnames/0
-        value: moomora-console.markjoyeux.uk
+        value: moomora-console.example.com
 ```
 
 - [ ] **Step 4: Verify each overlay renders with the right host + image**
@@ -318,13 +318,13 @@ Run:
 ```bash
 for env in dev staging prod; do
   echo "== $env =="
-  kubectl kustomize deploy/overlays/$env | grep -E "image: ghcr.io/awaybreaktoday/moomora-console:v0.15.0|- moomora-console.*markjoyeux.uk"
+  kubectl kustomize deploy/overlays/$env | grep -E "image: ghcr.io/awaybreaktoday/moomora-console:v0.15.0|- moomora-console.*example.com"
 done
 ```
 Expected:
-- dev → `- moomora-console-dev.markjoyeux.uk`
-- staging → `- moomora-console-staging.markjoyeux.uk`
-- prod → `- moomora-console.markjoyeux.uk`
+- dev → `- moomora-console-dev.example.com`
+- staging → `- moomora-console-staging.example.com`
+- prod → `- moomora-console.example.com`
 - every env shows `image: ghcr.io/awaybreaktoday/moomora-console:v0.15.0`.
 
 - [ ] **Step 5: Verify the placeholder host is gone and no own-namespace leaked**
@@ -334,10 +334,10 @@ Run:
 for env in dev staging prod; do
   echo "== $env =="
   kubectl kustomize deploy/overlays/$env | grep -c "moomora-console.invalid"   # expect 0
-  kubectl kustomize deploy/overlays/$env | grep "namespace:"                    # expect only envoy-gateway-system
+  kubectl kustomize deploy/overlays/$env | grep "namespace:"                    # expect only gateway-system
 done
 ```
-Expected: `moomora-console.invalid` count is `0` for every env; the only `namespace:` line is `namespace: envoy-gateway-system`.
+Expected: `moomora-console.invalid` count is `0` for every env; the only `namespace:` line is `namespace: gateway-system`.
 
 If `moomora-console.invalid` still appears, the JSON6902 patch didn't apply — confirm `path: /spec/hostnames/0` matches the single placeholder entry in `base/httproute.yaml`.
 
@@ -403,8 +403,8 @@ prerequisites (Gateway `allowedRoutes`/TLS, DNS, Ollama reachability).
 Read `docs/deployment.md`, then update it so it accurately describes the new layout. It MUST:
 - Replace every reference to `deploy/k8s/...` with the `deploy/base` + `deploy/overlays/<env>` layout and the Argo CD ApplicationSet flow (one Application per env, namespace `moomora-console-<env>`, `CreateNamespace=true`, no `namespace:` in manifests).
 - State that the CNPG `Cluster` now uses the **public** image `ghcr.io/cloudnative-pg/pgvector:0.8.2-18-trixie` (building from `deploy/postgres/Dockerfile` is no longer required; keep it only as an alternative for custom builds).
-- Document that semantic search is enabled via the ConfigMap env (`EMBEDDING_BACKEND=ollama`, `OLLAMA_URL=http://172.16.16.10:11434`, `EMBEDDING_MODEL=qwen3-embedding:0.6b`).
-- List the cluster-side prerequisites: CNPG operator installed; `external-gateway` (in `envoy-gateway-system`) must `allowedRoutes` from `moomora-console-*` namespaces and terminate TLS for `*.markjoyeux.uk`; DNS for the three hosts; pod → `172.16.16.10:11434` reachability.
+- Document that semantic search is enabled via the ConfigMap env (`EMBEDDING_BACKEND=ollama`, `OLLAMA_URL=http://ollama.internal:11434`, `EMBEDDING_MODEL=qwen3-embedding:0.6b`).
+- List the cluster-side prerequisites: CNPG operator installed; `external-gateway` (in `gateway-system`) must `allowedRoutes` from `moomora-console-*` namespaces and terminate TLS for `*.example.com`; DNS for the three hosts; pod → `ollama.internal:11434` reachability.
 - Document the per-env hostnames (dev/staging/prod) and that overlays are pinned to `v0.15.0` (CI-driven `newTag` bumping is a future addition).
 - Show the local render check: `kubectl kustomize deploy/overlays/<env>`.
 
@@ -433,7 +433,7 @@ git commit -m "chore(deploy): remove legacy deploy/k8s; reconcile README + deplo
 ## Self-Review Checklist (run before opening the PR)
 
 - **Spec coverage:** base manifests (T1), overlays with per-env host + pinned image (T2), legacy removal + doc reconcile (T3), `kubectl kustomize` verification (every task). ✓
-- **No `namespace:` contract:** asserted in T1 Step 8 and T2 Step 5 — the only `namespace:` is the HTTPRoute `parentRefs` to `envoy-gateway-system`. ✓
+- **No `namespace:` contract:** asserted in T1 Step 8 and T2 Step 5 — the only `namespace:` is the HTTPRoute `parentRefs` to `gateway-system`. ✓
 - **Name consistency:** `moomora-console` (Deployment/Service/HTTPRoute/ConfigMap base name), `moomora-console-config`, `moomora-console-db` (Cluster), `moomora-console-db-app` (secret), image `ghcr.io/awaybreaktoday/moomora-console:v0.15.0`, pgvector `ghcr.io/cloudnative-pg/pgvector:0.8.2-18-trixie`, port `3000`/`http` — used identically across all tasks. ✓
 - **Secret/DB wiring:** `DATABASE_URL` ← `moomora-console-db-app` key `uri`; the Cluster name `moomora-console-db` is what generates that secret. ✓
 - **Deferred scope honored:** no CI workflow, no prod HA, no backups — all noted as future work in the spec/README. ✓
