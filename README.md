@@ -272,13 +272,12 @@ prerequisites (Gateway `allowedRoutes`/TLS, DNS, Ollama reachability).
 
 ## Project Direction
 
-Near-term direction:
+The detailed, living backlog lives in [docs/ROADMAP.md](docs/ROADMAP.md). At a glance:
 
+- finish the shared-memory trust loop across all surfaces (verify/supersede in the UI + MCP)
+- a retrieval eval harness to guard recall quality
+- external references, repo-URL project detection, and an optional "Ask Project" RAG layer
 - tighten the Markdown workspace into a stronger knowledge base
-- improve tag-driven retrieval and saved views
-- prepare document and task context for future AI/MCP workflows
-- harden Kubernetes deployment, backup, and restore operations
-- add authentication at the ingress layer for network-exposed deployments
 
 ## Security
 
