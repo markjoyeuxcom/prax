@@ -81,8 +81,10 @@ In the `detail-actions` row, shown only when the document is **not archived**:
 - **Supersede:** `[s] supersede…` — `data-action="supersede-document"`, shown only when
   `document.status !== 'superseded'`.
 - When `document.status === 'superseded'`, the `library-detail-meta` line gains a note
-  (e.g. `· superseded`) — the replacement is visible in the existing **Links → Supersedes/Backlinks**
-  section the detail panel already renders, so no new lookup is needed.
+  (e.g. `· superseded`). The replacement appears in the existing **Links** section under
+  **Backlinks** (inbound): the supersede route creates the link `source = new → target = old`, so on
+  the superseded (old) doc the replacement is an *inbound* supersedes, not an outbound one. No new
+  lookup is needed.
 
 ### `public/js/state.js`
 - Add `pickerMode: 'link'` (default). The supersede flow sets it to `'supersede'` and reuses the
@@ -91,15 +93,23 @@ In the `detail-actions` row, shown only when the document is **not archived**:
 ### `public/js/main.js`
 - **`toggle-verify`** handler: `await verifyDocument(id, !document.verified)`, then reload the
   document list and keep the doc selected so the chip + meta refresh.
-- **`supersede-document`** handler: load the active, non-self documents for the current project
-  (via `fetchDocuments({ project, archived: false })`, filter out the current id and any
-  `status === 'superseded'`), set `pickerMode='supersede'`, open the picker.
-- The picker's existing select handler branches on `state.pickerMode`:
+- **`supersede-document`** handler: load candidate replacements via
+  `fetchDocuments({ project, archived: false })`, then filter to
+  `doc.id !== currentDocId && doc.status !== 'superseded'` → **same project, active, non-self,
+  non-superseded**. Set `pickerMode='supersede'` and open the picker.
+- The picker's select handler branches on `state.pickerMode`:
   - `'link'` → current task↔document link behaviour (unchanged).
-  - `'supersede'` → `await supersedeDocument(currentDocId, pickedId)`, close the picker, reset
-    `pickerMode='link'`, reload the list, and re-fetch the selected doc's links so the new
-    `supersedes` backlink appears.
-- On close/cancel, `pickerMode` resets to `'link'`.
+  - `'supersede'` → wrap the call in **`try/finally`**: `await supersedeDocument(currentDocId,
+    pickedId)`; in `finally`, close the picker and **always reset `pickerMode='link'`** so a *failed*
+    supersede can never leave the next normal link action stuck in supersede mode. On success only,
+    reload the list, keep the current doc selected, and re-fetch its links.
+- **Selection survives the reload:** the web Library list (`fetchDocuments` with no `status`
+  filter) returns documents of *all* statuses — active-only retrieval is a CLI/context-pack
+  behaviour, not the UI list — so the now-`superseded` doc stays in the rendered list (dimmed +
+  chip) and remains the selection. Sequence is **reload list → keep/re-select the current id →
+  re-fetch its links** so the inbound replacement link shows.
+- `pickerMode` also resets to `'link'` on picker cancel/close (the `finally` covers the supersede
+  path; the cancel handler covers the rest).
 
 ## Section 2 — MCP `supersede_document`
 
@@ -154,12 +164,18 @@ No change. The in-memory repo already implements `markDocumentSuperseded` and `l
   (`tests/mcp/moomoraClient.test.js`): `supersedeDocument` POSTs the right path/body with the
   `x-moomora-origin: agent` header.
 - **UI render** (`tests/frontend/renderLibrary.test.js`): the detail panel emits the `toggle-verify`
-  button (label flips on `verified`) and the `supersede-document` button (hidden when
-  `status === 'superseded'`). **API client** (`tests/frontend/libraryApi.test.js`):
-  `verifyDocument` / `supersedeDocument` hit the right URLs/bodies.
+  button (label flips `verify` ⇄ `unverify` on `verified`); the `supersede-document` button is hidden
+  when `status === 'superseded'`; and **both buttons are hidden when the document is archived**
+  (`archivedAt` set) — detail actions are active-doc only.
+- **API client** (`tests/frontend/libraryApi.test.js`): `verifyDocument(id, true)` **and**
+  `verifyDocument(id, false)` (the unverify path — catches body-shape mistakes), plus
+  `supersedeDocument(id, newId)`, hit the right URLs and bodies.
 - **E2E** (`tests/e2e/`, Playwright, against the demo): one flow — select a doc, click verify
-  (assert `VERIFIED` chip appears + meta shows "verified"), then supersede it with another doc
-  (assert `SUPERSEDED` chip + dim + the `Supersedes`/backlink in the Links section).
+  (assert `VERIFIED` chip + "verified" meta), then supersede it with another doc (assert
+  `SUPERSEDED` chip + dimmed row). Assert the replacement against the label the UI **actually
+  renders**: since the link is `new → old`, on the old doc the replacement shows under
+  **Backlinks** (inbound), while the new doc shows it under **Supersedes** (outbound) — test the
+  one the flow lands on, not the conceptual wording.
 
 > The slice-1 supersede route already rejects self-supersede (`server/libraryRoutes.js`), so the
 > MCP tool's `documentId === supersededBy` guard is a belt-and-suspenders early error, not the only
