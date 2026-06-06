@@ -9,7 +9,7 @@ metadata:
 spec:
   parentRefs:
     - name: external-gateway
-      namespace: envoy-gateway-system
+      namespace: gateway-system
       sectionName: https
   hostnames:
     - moomora-console.invalid

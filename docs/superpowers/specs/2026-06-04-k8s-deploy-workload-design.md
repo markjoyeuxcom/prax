@@ -39,9 +39,9 @@ search enabled against the homelab Ollama.
 | Database | Per-env **CloudNativePG `Cluster`** shipped in `deploy/base` (operator already installed). Generates the `moomora-console-db-app` secret in-namespace. |
 | pgvector image | Public CNPG operand image **`ghcr.io/cloudnative-pg/pgvector:0.8.2-18-trixie`** (pgvector 0.8.2 on PG 18). No custom image to build. Extension created via `postInitApplicationSQL`. |
 | App image | `ghcr.io/awaybreaktoday/moomora-console`, pinned **`v0.15.0`** in all three overlays for this first cut. |
-| Exposure | **HTTPRoute** (Gateway API) → `parentRefs: external-gateway` in `envoy-gateway-system`. TLS assumed terminated at the gateway (`*.markjoyeux.uk`); the route carries only the hostname. |
-| Hostnames | dev `moomora-console-dev.markjoyeux.uk`, staging `moomora-console-staging.markjoyeux.uk`, prod `moomora-console.markjoyeux.uk`. |
-| Embeddings | **On** — `EMBEDDING_BACKEND=ollama`, `OLLAMA_URL=http://172.16.16.10:11434`, `EMBEDDING_MODEL=qwen3-embedding:0.6b`. |
+| Exposure | **HTTPRoute** (Gateway API) → `parentRefs: external-gateway` in `gateway-system`. TLS assumed terminated at the gateway (`*.example.com`); the route carries only the hostname. |
+| Hostnames | dev `moomora-console-dev.example.com`, staging `moomora-console-staging.example.com`, prod `moomora-console.example.com`. |
+| Embeddings | **On** — `EMBEDDING_BACKEND=ollama`, `OLLAMA_URL=http://ollama.internal:11434`, `EMBEDDING_MODEL=qwen3-embedding:0.6b`. |
 | CI | **Out of scope** for this cut. Overlays are pinned to `v0.15.0`; the image-build + `newTag`-bump CI (so dev tracks `main` and staging/prod move with tags) is a documented fast-follow. |
 | Scale | 1 app replica + 1 DB instance per env for the first cut. Prod HA is a later overlay tweak. |
 
@@ -117,7 +117,7 @@ prerequisites below.
 HOST: "0.0.0.0"
 PORT: "3000"
 EMBEDDING_BACKEND: "ollama"
-OLLAMA_URL: "http://172.16.16.10:11434"
+OLLAMA_URL: "http://ollama.internal:11434"
 EMBEDDING_MODEL: "qwen3-embedding:0.6b"
 ```
 (No secret needed beyond the DB secret — Ollama is keyless.)
@@ -127,7 +127,7 @@ EMBEDDING_MODEL: "qwen3-embedding:0.6b"
 
 ### `base/httproute.yaml`
 - `gateway.networking.k8s.io/v1` HTTPRoute named `moomora-console`.
-- `parentRefs: [{ name: external-gateway, namespace: envoy-gateway-system }]`.
+- `parentRefs: [{ name: external-gateway, namespace: gateway-system }]`.
 - Placeholder `hostnames: ["moomora-console.invalid"]` (every overlay replaces it).
 - `rules: [{ backendRefs: [{ name: moomora-console, port: 3000 }] }]`.
 
@@ -164,7 +164,7 @@ patches:
         name: moomora-console
       spec:
         hostnames:
-          - moomora-console-<env>.markjoyeux.uk   # prod: moomora-console.markjoyeux.uk
+          - moomora-console-<env>.example.com   # prod: moomora-console.example.com
 ```
 No `namespace:` field. Strategic-merge patch replaces the placeholder hostname.
 
@@ -181,10 +181,10 @@ No `namespace:` field. Strategic-merge patch replaces the placeholder hostname.
 ## Cluster-side prerequisites (operator's responsibility — documented, not set by this repo)
 
 1. **CloudNativePG operator** installed (confirmed).
-2. **`external-gateway`** (in `envoy-gateway-system`) must `allowedRoutes` from the
-   `moomora-console-*` namespaces and have a `*.markjoyeux.uk` TLS listener.
+2. **`external-gateway`** (in `gateway-system`) must `allowedRoutes` from the
+   `moomora-console-*` namespaces and have a `*.example.com` TLS listener.
 3. **DNS** for the three hostnames resolves to the gateway address.
-4. **Network reachability** from pods to `172.16.16.10:11434` (Ollama).
+4. **Network reachability** from pods to `ollama.internal:11434` (Ollama).
 5. The **workloads ApplicationSet** discovers the repo once `deploy/overlays/*` is on `main`.
 
 ## Verification (no cluster required)
@@ -194,7 +194,7 @@ For each env: `kubectl kustomize deploy/overlays/<env>` renders without error, a
 - sets the HTTPRoute `hostnames` to the env's host;
 - sets the Deployment image to `ghcr.io/awaybreaktoday/moomora-console:v0.15.0`;
 - includes the CNPG `Cluster` with the pgvector `imageName`;
-- HTTPRoute `parentRefs` → `external-gateway` / `envoy-gateway-system`;
+- HTTPRoute `parentRefs` → `external-gateway` / `gateway-system`;
 - Deployment `DATABASE_URL` sourced from `moomora-console-db-app` secret key `uri`.
 
 ## Success criteria
