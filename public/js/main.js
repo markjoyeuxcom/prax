@@ -35,7 +35,9 @@ import {
   restoreDocument,
   semanticSearch,
   setSemanticEnabled,
+  supersedeDocument,
   updateDocument,
+  verifyDocument,
 } from './libraryApi.js';
 import { moveTaskOnBoard } from './boardWorkflow.js';
 import {
@@ -1325,6 +1327,42 @@ function renderLibraryWorkspace(workspace) {
     }
   });
 
+  workspace.querySelector('[data-action="toggle-verify"]')?.addEventListener('click', async () => {
+    const doc = selectedDocument();
+    if (!doc) return;
+    try {
+      await verifyDocument(doc.id, !doc.verified);
+      await loadDocuments({ selectedDocumentId: doc.id });
+    } catch {
+      window.alert('Moomora Console could not update verification.');
+    }
+  });
+
+  workspace.querySelector('[data-action="supersede-document"]')?.addEventListener('click', async () => {
+    const current = selectedDocument();
+    if (!current) return;
+    try {
+      const docs = await fetchDocuments({
+        project: state.activeProject === 'all' ? undefined : state.activeProject,
+        archived: false,
+      });
+      const candidates = docs.filter(
+        candidate => candidate.id !== current.id
+          && candidate.status !== 'superseded'
+          && candidate.projectId === current.projectId,
+      );
+      setState({
+        linkPickerDocuments: candidates,
+        linkPickerQuery: '',
+        isLinkPickerOpen: true,
+        pickerMode: 'supersede',
+      });
+      renderApp();
+    } catch {
+      window.alert('Moomora Console could not load documents to supersede.');
+    }
+  });
+
   workspace.querySelector('[data-action="archive-document"]')?.addEventListener('click', async () => {
     const documentToArchive = selectedDocument();
     if (!documentToArchive) return;
@@ -1691,6 +1729,7 @@ function renderApp() {
       documents: state.linkPickerDocuments,
       linkedIds: state.taskDocuments.map(d => d.id),
       query: state.linkPickerQuery,
+      mode: state.pickerMode,
     }));
   }
   bindShellEvents();
@@ -2511,14 +2550,14 @@ function bindLinkPickerEvents() {
 
   backdrop.querySelectorAll('[data-action="close-link-picker"]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      setState({ isLinkPickerOpen: false });
+      setState({ isLinkPickerOpen: false, pickerMode: 'link' });
       renderApp();
     });
   });
 
   backdrop.addEventListener('click', (event) => {
     if (event.target === backdrop) {
-      setState({ isLinkPickerOpen: false });
+      setState({ isLinkPickerOpen: false, pickerMode: 'link' });
       renderApp();
     }
   });
@@ -2536,9 +2575,25 @@ function bindLinkPickerEvents() {
 
   backdrop.querySelectorAll('[data-link-picker-doc]').forEach((btn) => {
     btn.addEventListener('click', async () => {
+      const docId = btn.dataset.linkPickerDoc;
+
+      if (state.pickerMode === 'supersede') {
+        const current = selectedDocument();
+        if (!current) return;
+        try {
+          await supersedeDocument(current.id, docId);
+          await loadDocuments({ selectedDocumentId: current.id });
+        } catch {
+          window.alert('Moomora Console could not supersede the document.');
+        } finally {
+          setState({ isLinkPickerOpen: false, pickerMode: 'link' });
+          renderApp();
+        }
+        return;
+      }
+
       const taskId = state.selectedTaskId;
       if (!taskId) return;
-      const docId = btn.dataset.linkPickerDoc;
       const isLinked = state.taskDocuments.some(d => d.id === docId);
       try {
         const updated = isLinked
