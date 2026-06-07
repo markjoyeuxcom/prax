@@ -4,7 +4,7 @@ A living backlog of planned and deferred work. This is **direction, not a commit
 catalogue of candidate next steps kept honest. Substantial items go through the repo's
 spec → plan → review workflow under [`docs/superpowers/`](superpowers/) before implementation.
 
-**Current release:** `v0.15.1`.
+**Current release:** `v0.16.0`.
 
 ## Recently shipped
 
@@ -18,18 +18,20 @@ spec → plan → review workflow under [`docs/superpowers/`](superpowers/) befo
   mounted as an ImageVolume extension, Gateway API `HTTPRoute`, and `AGENTS.md` (a tool-agnostic
   agent-memory convention so Codex/Cursor/aider share the same memory as Claude Code). See
   [`specs/2026-06-04-k8s-deploy-workload-design.md`](superpowers/specs/2026-06-04-k8s-deploy-workload-design.md).
+- **v0.16.0 — Shared AI memory, slice 2 (trust actions).** Verify / supersede from the Library
+  UI (detail-panel `[v] verify` / `[s] supersede…` buttons reusing the link-picker to choose a
+  replacement) and a `supersede_document` MCP tool, both thin clients over the slice-1 routes.
+  Verification stays a human-only action (no MCP verify tool) by design. See
+  [`specs/2026-06-06-memory-slice2-trust-actions-design.md`](superpowers/specs/2026-06-06-memory-slice2-trust-actions-design.md).
 
 ---
 
-## Next: Memory slice 2 — finish the trust loop across all surfaces
+## Next: converge the memory skills onto the CLI
 
-The trust model is live via the API and CLI; slice 2 brings it to the remaining surfaces so
-every consumer can both read **and** change trust.
+The trust loop is now complete across every surface (v0.16.0 — verify/supersede in the web UI,
+`supersede_document` via MCP; verify stays human-only by design). The remaining
+slice-2-adjacent item:
 
-- [ ] **Verify / supersede actions in the web UI.** Slice 1 shipped read-only chips; add the
-  buttons to verify and supersede from the Library detail panel. *(medium · UI)*
-- [ ] **MCP tools for verify / supersede.** `verify_document` / `supersede_document` so agents
-  on MCP can change trust, not just read it (today that's CLI/API only). *(small–medium)*
 - [ ] **Converge the `moomora-recall` / `moomora-remember` skills onto the CLI.** One code path
   instead of the skills hitting the API directly alongside a parallel CLI; add a cross-project
   `moomora recall` and reconcile the `memory`-project vs current-project scoping. *(small)*
