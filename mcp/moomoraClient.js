@@ -135,6 +135,12 @@ export function createMoomoraClient({
     unlinkDocuments: (sourceId, targetId, relation) =>
       request('DELETE', `/api/library/documents/${sourceId}/links/${targetId}`, { query: { relation } }),
 
+    supersedeDocument: (id, supersededBy) =>
+      request('POST', `/api/library/documents/${id}/supersede`, {
+        body: { supersededBy },
+        headers: { 'x-moomora-origin': 'agent' },
+      }),
+
     listChecklist: (taskId) =>
       request('GET', `/api/tasks/${taskId}/checklist`, {}),
 

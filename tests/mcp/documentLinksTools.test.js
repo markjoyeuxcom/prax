@@ -11,9 +11,9 @@ function byName(tools, name) {
 const SRC = '11111111-1111-4111-8111-111111111111';
 const TGT = '22222222-2222-4222-8222-222222222222';
 
-test('exposes the three document-link tools', () => {
+test('exposes the four document-link tools', () => {
   const names = createDocumentLinkTools({}).map((t) => t.name).sort();
-  assert.deepEqual(names, ['link_documents', 'list_document_links', 'unlink_documents']);
+  assert.deepEqual(names, ['link_documents', 'list_document_links', 'supersede_document', 'unlink_documents']);
 });
 
 test('list_document_links validates uuid, passes direction, caps at 20', async () => {
@@ -47,4 +47,21 @@ test('unlink_documents validates uuids and reports success', async () => {
   const res = await tool.handler({ sourceId: SRC, targetId: TGT, relation: 'supersedes' });
   assert.deepEqual(received, [SRC, TGT, 'supersedes']);
   assert.deepEqual(JSON.parse(res.content[0].text), { unlinked: true, sourceId: SRC, targetId: TGT, relation: 'supersedes' });
+});
+
+test('supersede_document validates uuids, rejects self-supersede, maps not-found, calls client', async () => {
+  let received;
+  const client = { supersedeDocument: async (id, by) => { received = [id, by]; return { id, status: 'superseded' }; } };
+  const tool = byName(createDocumentLinkTools(client), 'supersede_document');
+
+  assert.equal((await tool.handler({ documentId: 'bad', supersededBy: TGT })).isError, true);
+  assert.equal((await tool.handler({ documentId: SRC, supersededBy: 'bad' })).isError, true);
+  assert.equal((await tool.handler({ documentId: SRC, supersededBy: SRC })).isError, true);
+
+  const res = await tool.handler({ documentId: SRC, supersededBy: TGT });
+  assert.deepEqual(received, [SRC, TGT]);
+  assert.deepEqual(JSON.parse(res.content[0].text), { id: SRC, status: 'superseded' });
+
+  const nf = byName(createDocumentLinkTools({ supersedeDocument: async () => null }), 'supersede_document');
+  assert.equal((await nf.handler({ documentId: SRC, supersededBy: TGT })).isError, true);
 });
