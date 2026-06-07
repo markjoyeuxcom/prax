@@ -523,7 +523,7 @@ function renderWorkspace() {
   workspace.querySelector('[data-action="open-link-picker"]')?.addEventListener('click', async () => {
     try {
       const docs = await fetchDocuments({ archived: false });
-      setState({ linkPickerDocuments: docs, linkPickerQuery: '', isLinkPickerOpen: true });
+      setState({ linkPickerDocuments: docs, linkPickerQuery: '', isLinkPickerOpen: true, pickerMode: 'link' });
       renderApp();
     } catch {
       window.alert('Moomora Console could not load documents to link.');
