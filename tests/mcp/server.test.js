@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildServer } from '../../mcp/server.js';
 
-const EXPECTED_TOOL_COUNT = 22; // 4 document + 4 task + 3 link + 4 checklist + 1 activity + 3 document-link + 2 graph-maintenance + 1 semantic-search tools
+const EXPECTED_TOOL_COUNT = 23; // 4 document + 4 task + 3 link + 4 checklist + 1 activity + 4 document-link + 2 graph-maintenance + 1 semantic-search tools
 
-test('registers all 22 tools with unique names', () => {
+test('registers all 23 tools with unique names', () => {
   const registered = [];
   const fakeServer = {
     registerTool: (name, config, handler) => {
@@ -22,7 +22,7 @@ test('registers all 22 tools with unique names', () => {
     'list_task_documents', 'link_task_document', 'unlink_task_document',
     'list_task_checklist', 'add_checklist_item', 'set_checklist_item', 'delete_checklist_item',
     'list_task_activity',
-    'list_document_links', 'link_documents', 'unlink_documents',
+    'list_document_links', 'link_documents', 'unlink_documents', 'supersede_document',
     'list_stale_documents', 'list_orphan_documents',
     'search_documents_semantic',
   ]) {

@@ -99,3 +99,23 @@ export async function semanticSearch(query, project) {
   if (!res.ok) throw new Error('Semantic search failed');
   return res.json();
 }
+
+export async function verifyDocument(id, verified, as = 'user') {
+  const response = await fetch(`/api/library/documents/${id}/verify`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ verified, as }),
+  });
+  if (!response.ok) throw new Error('Failed to update verification');
+  return response.json();
+}
+
+export async function supersedeDocument(id, supersededBy) {
+  const response = await fetch(`/api/library/documents/${id}/supersede`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ supersededBy }),
+  });
+  if (!response.ok) throw new Error('Failed to supersede document');
+  return response.json();
+}
