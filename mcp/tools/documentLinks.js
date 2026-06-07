@@ -79,9 +79,7 @@ export function createDocumentLinkTools(client) {
         if (!isValidUuid(documentId)) return errorResult('documentId must be a valid UUID.');
         if (!isValidUuid(supersededBy)) return errorResult('supersededBy must be a valid UUID.');
         if (documentId === supersededBy) return errorResult('a document cannot supersede itself.');
-        const doc = await client.supersedeDocument(documentId, supersededBy);
-        if (!doc) return errorResult('document not found.');
-        return okResult(doc);
+        return okResult(await client.supersedeDocument(documentId, supersededBy));
       }),
     },
   ];
