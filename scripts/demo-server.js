@@ -423,7 +423,9 @@ function createMemoryLibraryRepository(documents, linksRef = null) {
       created.contentHash = hashBody(document.body);
       created.updatedBy = document.updatedBy || 'user';
       created.kind = document.kind || 'source';
-      created.verified = (document.updatedBy || 'user') === 'agent' ? false : true;
+      created.verified = Object.prototype.hasOwnProperty.call(document, 'verified')
+        ? Boolean(document.verified)
+        : (document.updatedBy || 'user') === 'agent' ? false : true;
       created.verifiedAt = null;
       created.verifiedBy = null;
       created.status = 'active';

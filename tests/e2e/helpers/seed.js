@@ -78,3 +78,24 @@ export async function seedOrphan(request, prefix) {
   });
   return { projectId, orphan };
 }
+
+export async function seedTrustPair(request, prefix) {
+  const projectId = await resolveProjectId(request, 'homelab');
+  const primary = await createDocument(request, {
+    title: `${prefix} primary`,
+    body: '# primary\n\noriginal\n',
+    documentType: 'runbook',
+    project: projectId,
+    tags: ['e2e'],
+    verified: false,
+  });
+  const replacement = await createDocument(request, {
+    title: `${prefix} replacement`,
+    body: '# replacement\n\nnewer\n',
+    documentType: 'runbook',
+    project: projectId,
+    tags: ['e2e'],
+    verified: false,
+  });
+  return { projectId, primary, replacement };
+}
