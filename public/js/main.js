@@ -1348,7 +1348,7 @@ function renderLibraryWorkspace(workspace) {
       });
       const candidates = docs.filter(
         candidate => candidate.id !== current.id
-          && candidate.status !== 'superseded'
+          && candidate.status === 'active'
           && candidate.projectId === current.projectId,
       );
       setState({
@@ -1894,6 +1894,7 @@ function bindShellEvents() {
         taskDetailOpen: false,
         isLibraryDocOpen: false,
         isLinkPickerOpen: false,
+        pickerMode: 'link',
       });
       persistActiveProject(nextProject);
       try {
@@ -1992,6 +1993,7 @@ function bindShellEvents() {
         taskDetailOpen: false,
         isLibraryDocOpen: false,
         isLinkPickerOpen: false,
+        pickerMode: 'link',
       });
       if (nextView === 'library') {
         try {
