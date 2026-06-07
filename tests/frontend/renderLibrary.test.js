@@ -429,6 +429,39 @@ const ACTIVE_DOC = {
 };
 const ARCHIVED_DOC = { ...ACTIVE_DOC, id: 'd2', title: 'Old runbook', archivedAt: '2026-05-01T00:00:00.000Z' };
 
+test('renderLibraryHtml detail panel shows [v] verify for an unverified active doc', () => {
+  const html = renderLibraryHtml({ documents: [ACTIVE_DOC], selectedDocumentId: 'd1', libraryView: 'active' });
+  assert.match(html, /data-action="toggle-verify"[^>]*>\[v\] verify/);
+});
+
+test('renderLibraryHtml detail panel shows [v] unverify when the doc is verified', () => {
+  const html = renderLibraryHtml({
+    documents: [{ ...ACTIVE_DOC, verified: true, verifiedBy: 'user' }],
+    selectedDocumentId: 'd1', libraryView: 'active',
+  });
+  assert.match(html, /data-action="toggle-verify"[^>]*>\[v\] unverify/);
+});
+
+test('renderLibraryHtml detail panel shows [s] supersede for an active doc and hides it once superseded', () => {
+  const active = renderLibraryHtml({ documents: [ACTIVE_DOC], selectedDocumentId: 'd1', libraryView: 'active' });
+  assert.match(active, /data-action="supersede-document"/);
+
+  const superseded = renderLibraryHtml({
+    documents: [{ ...ACTIVE_DOC, status: 'superseded' }],
+    selectedDocumentId: 'd1', libraryView: 'active',
+  });
+  assert.doesNotMatch(superseded, /data-action="supersede-document"/);
+  assert.match(superseded, /library-detail-meta[^>]*>[^<]*· superseded/);
+});
+
+test('renderLibraryHtml hides verify and supersede actions when the document is archived', () => {
+  const html = renderLibraryHtml({
+    documents: [ARCHIVED_DOC], selectedDocumentId: 'd2', libraryView: 'archive',
+  });
+  assert.doesNotMatch(html, /data-action="toggle-verify"/);
+  assert.doesNotMatch(html, /data-action="supersede-document"/);
+});
+
 test('renderLibraryHtml active view shows [a] archive toggle and plain document count', () => {
   const html = renderLibraryHtml({ documents: [ACTIVE_DOC], selectedDocumentId: 'd1', libraryView: 'active' });
   assert.match(html, /data-action="toggle-library-view"[^>]*>\[a\] archive/);
