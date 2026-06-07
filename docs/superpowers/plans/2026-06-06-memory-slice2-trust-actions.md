@@ -387,6 +387,74 @@ git commit -m "feat(library): verify/supersede detail buttons + superseded meta 
 
 ---
 
+## Task 3b: Mode-aware link-picker heading
+
+The shared picker modal currently hardcodes task-link copy ("Link a document" / "Attach a runbook or note to this task." / mobile "link doc"). In supersede mode that copy is wrong. Add an optional `mode` argument (defaulting to `'link'`, so all existing callers and tests are unaffected) that swaps the heading/subtext.
+
+**Files:**
+- Modify: `public/js/renderLinkPicker.js`
+- Test: `tests/frontend/renderLinkPicker.test.js`
+
+- [ ] **Step 1: Write the failing test**
+
+In `tests/frontend/renderLinkPicker.test.js`, add at the end of the file:
+
+```javascript
+test('link picker keeps task-link copy by default', () => {
+  const html = renderLinkPickerHtml({ documents: sampleDocuments });
+  assert.match(html, /<h2 id="link-picker-title">Link a document<\/h2>/);
+  assert.match(html, /Attach a runbook or note to this task\./);
+});
+
+test('link picker shows supersede copy in supersede mode', () => {
+  const html = renderLinkPickerHtml({ documents: sampleDocuments, mode: 'supersede' });
+  assert.match(html, /<h2 id="link-picker-title">Supersede with…<\/h2>/);
+  assert.match(html, /Pick the document that replaces this one\./);
+  assert.doesNotMatch(html, /Attach a runbook or note to this task\./);
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `node --test tests/frontend/renderLinkPicker.test.js`
+Expected: FAIL — supersede mode still renders the task-link heading.
+
+- [ ] **Step 3: Add the `mode` argument and branch the copy**
+
+In `public/js/renderLinkPicker.js`, change the function signature:
+
+```javascript
+export function renderLinkPickerHtml({ documents = [], linkedIds = [], query = '', mode = 'link' } = {}) {
+```
+
+Immediately after the `const filtered = …` line (before `const rows = …`), add:
+
+```javascript
+  const isSupersede = mode === 'supersede';
+  const heading = isSupersede ? 'Supersede with…' : 'Link a document';
+  const subtext = isSupersede ? 'Pick the document that replaces this one.' : 'Attach a runbook or note to this task.';
+  const mobileTitle = isSupersede ? 'supersede' : 'link doc';
+```
+
+Then in the returned template, replace the three hardcoded strings:
+- `<h2 id="link-picker-title">Link a document</h2>` → `<h2 id="link-picker-title">${heading}</h2>`
+- `<p>Attach a runbook or note to this task.</p>` → `<p>${subtext}</p>`
+- `<h2 class="modal-header__title">link doc</h2>` → `<h2 class="modal-header__title">${mobileTitle}</h2>`
+
+- [ ] **Step 4: Run the test to verify it passes**
+
+Run: `node --test tests/frontend/renderLinkPicker.test.js`
+Expected: PASS (existing picker tests stay green — default mode is unchanged).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add public/js/renderLinkPicker.js tests/frontend/renderLinkPicker.test.js
+git commit -m "feat(library): mode-aware link-picker heading for supersede"
+```
+
+---
+
 ## Task 4: Wire the handlers (verify, supersede, picker branch)
 
 **Files:**
@@ -520,17 +588,32 @@ In `public/js/main.js`, in `bindLinkPickerEvents`, replace the `[data-link-picke
   });
 ```
 
-- [ ] **Step 5: Syntax-check main.js**
+- [ ] **Step 5: Pass `mode` to the picker at the render call site**
+
+In `public/js/main.js`, in `renderApp` where the picker is rendered (the `if (state.isLinkPickerOpen)` block, ~line 1690), add `mode: state.pickerMode` to the call:
+
+```javascript
+  if (state.isLinkPickerOpen) {
+    app.insertAdjacentHTML('beforeend', renderLinkPickerHtml({
+      documents: state.linkPickerDocuments,
+      linkedIds: state.taskDocuments.map(d => d.id),
+      query: state.linkPickerQuery,
+      mode: state.pickerMode,
+    }));
+  }
+```
+
+- [ ] **Step 6: Syntax-check main.js**
 
 Run: `node --check public/js/main.js`
 Expected: no output (exit 0).
 
-- [ ] **Step 6: Run the full unit suite**
+- [ ] **Step 7: Run the full unit suite**
 
 Run: `npm test`
 Expected: all green (the new fetcher/render/MCP tests included).
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add public/js/main.js
@@ -616,6 +699,7 @@ test('a human can supersede a document by picking a replacement', async ({ page 
   await page.locator('[data-action="supersede-document"]').click();
   const picker = page.locator('[data-link-picker]');
   await expect(picker).toBeVisible();
+  await expect(picker.locator('#link-picker-title')).toContainText('Supersede');
   await picker.locator('[data-link-picker-doc]', { hasText: `${prefix} replacement` }).click();
 
   // The old (still-selected) doc flips to superseded: chip + meta + dimmed row.
@@ -726,3 +810,9 @@ git commit -m "docs: document supersede_document MCP tool + UI trust actions"
 **Type/name consistency** — `pickerMode` (string `'link'`/`'supersede'`), `verifyDocument(id, verified, as)`, `supersedeDocument(id, supersededBy)`, client `supersedeDocument(id, supersededBy)`, tool `supersede_document` with `documentId`/`supersededBy`, data-actions `toggle-verify` / `supersede-document`, and the existing `data-link-picker-doc` / `selectedDocument()` / `loadDocuments({selectedDocumentId})` anchors are used identically across tasks and tests.
 
 **Note on same-project scoping:** the supersede candidate filter (Task 4 Step 2) adds `candidate.projectId === current.projectId` so candidates stay same-project even when the Library is in the "all projects" view — a faithful tightening of the spec's "same project, active, non-self, non-superseded" intent.
+
+**Verified against the code before handoff (review pushback resolved):**
+- *Selection survives the post-supersede reload.* Both `listDocuments` implementations only apply a `status` filter when one is passed: the real repo (`server/libraryRepository.js:280`, `if (filters.status && [...].includes(filters.status))`) and the demo server (`scripts/demo-server.js:399`, `if (filters.status && document.status && …)`). The web list route (`server/libraryRoutes.js:189`) passes **no** status, so the now-`superseded` doc stays in the list and `loadDocuments({ selectedDocumentId: current.id })` re-selects it. No `includeSelected` flag or fetch-by-id is needed — the spec's "selection survives" claim holds as written.
+- *Picker candidates include superseded docs, then we filter them out.* `fetchDocuments({ project, archived: false })` returns all statuses (same routes as above), which is exactly why the candidate filter explicitly drops `status === 'superseded'`.
+- *E2E DOM hooks are real, not invented.* `renderLinkPicker.js` emits `data-link-picker` (backdrop), `data-link-picker-doc` (rows), `data-link-picker-search` (search), and `#link-picker-title` (heading) — every locator in Task 5 maps to existing markup.
+- *Mode-aware heading (Task 3b)* was added after discovering the picker hardcoded "Link a document / Attach a runbook or note to this task" — wrong copy in supersede mode. The change is backward-compatible (`mode` defaults to `'link'`).
