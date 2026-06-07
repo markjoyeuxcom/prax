@@ -9,7 +9,9 @@ import {
   fetchOrphanDocuments,
   fetchStaleDocuments,
   restoreDocument,
+  supersedeDocument,
   updateDocument,
+  verifyDocument,
 } from '../../public/js/libraryApi.js';
 
 function jsonResponse(body, ok = true) {
@@ -130,4 +132,37 @@ test('new library API helpers throw when requests fail', async () => {
   await assert.rejects(fetchDocumentLinks('x', 'both'), /Failed to load document links/);
   await assert.rejects(fetchStaleDocuments('homelab'), /Failed to load stale documents/);
   await assert.rejects(fetchOrphanDocuments(''), /Failed to load orphan documents/);
+});
+
+test('verifyDocument posts verified:true with as:user to the verify route', async () => {
+  const calls = [];
+  globalThis.fetch = async (...args) => { calls.push(args); return jsonResponse({ id: 'doc-1', verified: true }); };
+
+  const result = await verifyDocument('doc-1', true);
+
+  assert.deepEqual(result, { id: 'doc-1', verified: true });
+  assert.equal(calls[0][0], '/api/library/documents/doc-1/verify');
+  assert.equal(calls[0][1].method, 'POST');
+  assert.deepEqual(JSON.parse(calls[0][1].body), { verified: true, as: 'user' });
+});
+
+test('verifyDocument posts verified:false on the unverify path', async () => {
+  const calls = [];
+  globalThis.fetch = async (...args) => { calls.push(args); return jsonResponse({ id: 'doc-1', verified: false }); };
+
+  await verifyDocument('doc-1', false);
+
+  assert.deepEqual(JSON.parse(calls[0][1].body), { verified: false, as: 'user' });
+});
+
+test('supersedeDocument posts supersededBy to the supersede route', async () => {
+  const calls = [];
+  globalThis.fetch = async (...args) => { calls.push(args); return jsonResponse({ id: 'old', status: 'superseded' }); };
+
+  const result = await supersedeDocument('old', 'new');
+
+  assert.deepEqual(result, { id: 'old', status: 'superseded' });
+  assert.equal(calls[0][0], '/api/library/documents/old/supersede');
+  assert.equal(calls[0][1].method, 'POST');
+  assert.deepEqual(JSON.parse(calls[0][1].body), { supersededBy: 'new' });
 });
