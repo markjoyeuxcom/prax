@@ -13,8 +13,11 @@ export async function resolveProjectId(request, slug) {
   return project.id;
 }
 
-export async function createDocument(request, doc) {
-  const res = await request.post('/api/library/documents', { data: doc });
+export async function createDocument(request, doc, { origin } = {}) {
+  const res = await request.post('/api/library/documents', {
+    data: doc,
+    ...(origin ? { headers: { 'x-moomora-origin': origin } } : {}),
+  });
   if (!res.ok()) throw new Error(`POST document failed: ${res.status()} ${await res.text()}`);
   return res.json();
 }
@@ -81,21 +84,20 @@ export async function seedOrphan(request, prefix) {
 
 export async function seedTrustPair(request, prefix) {
   const projectId = await resolveProjectId(request, 'homelab');
+  // Seed as agent-written so the docs start unverified (agents write unverified; humans verify).
   const primary = await createDocument(request, {
     title: `${prefix} primary`,
     body: '# primary\n\noriginal\n',
     documentType: 'runbook',
     project: projectId,
     tags: ['e2e'],
-    verified: false,
-  });
+  }, { origin: 'agent' });
   const replacement = await createDocument(request, {
     title: `${prefix} replacement`,
     body: '# replacement\n\nnewer\n',
     documentType: 'runbook',
     project: projectId,
     tags: ['e2e'],
-    verified: false,
-  });
+  }, { origin: 'agent' });
   return { projectId, primary, replacement };
 }
