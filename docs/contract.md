@@ -200,6 +200,7 @@ required/optional status, and enum option sets. Shared enums: `STATUS`
 | `list_document_links` | `documentId`, `direction?:{outbound\|inbound\|both}` | yes |
 | `link_documents` | `sourceId`, `targetId`, `relation:{derived-from\|supersedes}` | — |
 | `unlink_documents` | `sourceId`, `targetId`, `relation:{derived-from\|supersedes}` | — |
+| `supersede_document` | `documentId`, `supersededBy` | — |
 | `list_stale_documents` | `project?` | yes |
 | `list_orphan_documents` | `project?` | yes |
 | `search_documents_semantic` | `query`, `project?` | yes |
@@ -262,10 +263,13 @@ documents with `status = 'active'` appear in search and the context-pack.
 trusted-network model anyone on the network can call the verify endpoint. See
 [SECURITY.md](../SECURITY.md).
 
-### Trust endpoints (HTTP-only)
+### Trust endpoints
 
-These endpoints manage the trust/lifecycle state of library documents. They are **HTTP-only**
-and not exposed as MCP tools.
+These endpoints manage the trust/lifecycle state of library documents. `verify` is
+deliberately **not** exposed as an MCP tool — verification is a human act (Library UI button
+or `moomora verify --as`), so `verified` keeps meaning "a human blessed it." `supersede` **is**
+available to agents via the `supersede_document` MCP tool (content lifecycle, not self-blessing),
+in addition to the HTTP route below.
 
 `POST /api/library/documents/:id/verify`
 

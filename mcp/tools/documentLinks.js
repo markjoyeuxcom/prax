@@ -63,5 +63,24 @@ export function createDocumentLinkTools(client) {
         return okResult({ unlinked: true, sourceId, targetId, relation });
       }),
     },
+    {
+      name: 'supersede_document',
+      title: 'Supersede a document',
+      description:
+        'Retire a document in favour of a replacement: creates a supersedes link (new → old) AND ' +
+        'sets the old document\'s status to "superseded" so it drops out of default retrieval. Use ' +
+        'this instead of link_documents when replacing a doc. Note: verifying a document is a human ' +
+        'action and is intentionally not available via MCP.',
+      inputSchema: {
+        documentId: z.string().describe('UUID of the document being retired (superseded).'),
+        supersededBy: z.string().describe('UUID of the newer document that replaces it.'),
+      },
+      handler: withErrorHandling(async ({ documentId, supersededBy }) => {
+        if (!isValidUuid(documentId)) return errorResult('documentId must be a valid UUID.');
+        if (!isValidUuid(supersededBy)) return errorResult('supersededBy must be a valid UUID.');
+        if (documentId === supersededBy) return errorResult('a document cannot supersede itself.');
+        return okResult(await client.supersedeDocument(documentId, supersededBy));
+      }),
+    },
   ];
 }

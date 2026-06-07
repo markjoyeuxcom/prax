@@ -93,3 +93,16 @@ test('link picker handles missing fields gracefully', () => {
   assert.match(html, /Untitled document/);
   assert.match(html, /data-link-picker-doc="doc-x"/);
 });
+
+test('link picker keeps task-link copy by default', () => {
+  const html = renderLinkPickerHtml({ documents: sampleDocuments });
+  assert.match(html, /<h2 id="link-picker-title">Link a document<\/h2>/);
+  assert.match(html, /Attach a runbook or note to this task\./);
+});
+
+test('link picker shows supersede copy in supersede mode', () => {
+  const html = renderLinkPickerHtml({ documents: sampleDocuments, mode: 'supersede' });
+  assert.match(html, /<h2 id="link-picker-title">Supersede with…<\/h2>/);
+  assert.match(html, /Pick the document that replaces this one\./);
+  assert.doesNotMatch(html, /Attach a runbook or note to this task\./);
+});

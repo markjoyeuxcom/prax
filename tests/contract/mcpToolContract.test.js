@@ -31,6 +31,7 @@ const FROZEN_TOOLS = {
   list_document_links: { required: ['documentId'], optional: ['direction'] },
   link_documents: { required: ['sourceId', 'targetId', 'relation'], optional: [] },
   unlink_documents: { required: ['sourceId', 'targetId', 'relation'], optional: [] },
+  supersede_document: { required: ['documentId', 'supersededBy'], optional: [] },
   list_stale_documents: { required: [], optional: ['project'] },
   list_orphan_documents: { required: [], optional: ['project'] },
   search_documents_semantic: { required: ['query'], optional: ['project'] },

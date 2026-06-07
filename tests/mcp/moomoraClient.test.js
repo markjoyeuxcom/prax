@@ -160,3 +160,15 @@ test('rejects an invalid timeoutMs as a configuration error', () => {
     );
   }
 });
+
+test('supersedeDocument POSTs supersededBy with x-moomora-origin: agent header', async () => {
+  const fetch = recordingFetch(jsonResponse(200, { id: 'old', status: 'superseded' }));
+  const client = createMoomoraClient({ baseUrl: BASE, fetch });
+  const doc = await client.supersedeDocument('old-id', 'new-id');
+  assert.deepEqual(doc, { id: 'old', status: 'superseded' });
+  const call = fetch.calls[0];
+  assert.equal(new URL(call.url).pathname, '/api/library/documents/old-id/supersede');
+  assert.equal(call.options.method, 'POST');
+  assert.deepEqual(JSON.parse(call.options.body), { supersededBy: 'new-id' });
+  assert.equal(call.options.headers['x-moomora-origin'], 'agent');
+});

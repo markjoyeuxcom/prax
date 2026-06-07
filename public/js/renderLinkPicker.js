@@ -15,11 +15,16 @@ function labelFromValue(value) {
     .join(' ');
 }
 
-export function renderLinkPickerHtml({ documents = [], linkedIds = [], query = '' } = {}) {
+export function renderLinkPickerHtml({ documents = [], linkedIds = [], query = '', mode = 'link' } = {}) {
   const linked = new Set(linkedIds);
   const q = String(query).trim().toLowerCase();
   const filtered = !q ? documents : documents.filter(d =>
     [d.title, d.documentType, ...(d.tags || [])].some(v => String(v || '').toLowerCase().includes(q)));
+
+  const isSupersede = mode === 'supersede';
+  const heading = isSupersede ? 'Supersede with…' : 'Link a document';
+  const subtext = isSupersede ? 'Pick the document that replaces this one.' : 'Attach a runbook or note to this task.';
+  const mobileTitle = isSupersede ? 'supersede' : 'link doc';
 
   const rows = filtered.length
     ? filtered.map(d => {
@@ -42,14 +47,14 @@ export function renderLinkPickerHtml({ documents = [], linkedIds = [], query = '
           <div class="modal-header--desktop">
             <div class="modal-header__heading">
               <span class="detail-kicker">Library</span>
-              <h2 id="link-picker-title">Link a document</h2>
-              <p>Attach a runbook or note to this task.</p>
+              <h2 id="link-picker-title">${heading}</h2>
+              <p>${subtext}</p>
             </div>
             <button class="modal-header__close bracket-button bracket-button--quiet" type="button" data-action="close-link-picker" aria-label="Close">[x] close</button>
           </div>
           <div class="modal-header--mobile">
             <button class="modal-header__cancel bracket-button bracket-button--quiet" type="button" data-action="close-link-picker">cancel</button>
-            <h2 class="modal-header__title">link doc</h2>
+            <h2 class="modal-header__title">${mobileTitle}</h2>
             <span></span>
           </div>
         </header>

@@ -61,6 +61,7 @@ export const state = {
   taskNotesSavedAt: '',
   taskDetailOpen: false,          // unified detail drawer open state (Tasks/Board/Backlog/Archive)
   isLinkPickerOpen: false,
+  pickerMode: 'link',             // 'link' (task↔doc) | 'supersede' (pick a replacement)
   linkPickerDocuments: [],
   linkPickerQuery: '',
   preferences: { ...DEFAULT_PREFERENCES },

@@ -12,6 +12,15 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Added
+
+- **Trust actions on every surface (memory slice 2).** The Library detail panel gains
+  `[v] verify` / `[v] unverify` and `[s] supersede…` buttons, so a human can change a document's
+  trust state from the web UI (previously read-only chips). Supersede reuses the link-picker
+  modal to choose a same-project replacement. Agents gain a `supersede_document` MCP tool
+  (with a matching `supersedeDocument` client method); verifying stays a human-only action and is
+  intentionally not exposed via MCP.
+
 ## [0.15.1] - 2026-06-05
 
 ### Added

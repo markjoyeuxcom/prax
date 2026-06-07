@@ -359,11 +359,13 @@ function renderDocumentDetail(document, options = {}) {
         <span class="detail-kicker">${escapeHtml(labelFromValue(document.documentType || 'note'))}</span>
         <h2 id="selected-document-title">${escapeHtml(document.title || 'Untitled document')} ${renderKindBadge(document.kind)}${renderTrustChips(document)}</h2>
         <p>${escapeHtml(document.sourceFilename || 'Created in Moomora Console')}</p>
-        <p class="library-detail-meta">Updated by ${escapeHtml(document.updatedBy || 'user')}${document.verified ? ` · verified${document.verifiedBy ? ` by ${escapeHtml(document.verifiedBy)}` : ''}` : ' · unverified'}</p>
+        <p class="library-detail-meta">Updated by ${escapeHtml(document.updatedBy || 'user')}${document.verified ? ` · verified${document.verifiedBy ? ` by ${escapeHtml(document.verifiedBy)}` : ''}` : ' · unverified'}${document.status === 'superseded' ? ' · superseded' : ''}</p>
         <div class="document-tags">${renderTags(document.tags)}</div>
         <div class="detail-actions">
           ${isArchived ? '' : renderModes(editorMode)}
           ${isArchived ? '' : '<button class="bracket-button" type="button" data-action="edit-document-info">[i] info</button>'}
+          ${isArchived ? '' : `<button class="bracket-button" type="button" data-action="toggle-verify">[v] ${document.verified ? 'unverify' : 'verify'}</button>`}
+          ${isArchived || document.status === 'superseded' ? '' : '<button class="bracket-button" type="button" data-action="supersede-document">[s] supersede…</button>'}
           ${isArchived ? `
           <button class="bracket-button" type="button" data-action="restore-document">[r] restore</button>
           <button class="bracket-button bracket-button--danger" type="button" data-action="delete-archived-document">[!] delete</button>` : `
