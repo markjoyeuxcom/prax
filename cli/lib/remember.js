@@ -8,7 +8,10 @@ export async function remember(client, { title, body, project, type = 'note', ta
   const documentType = type === 'runbook' ? 'runbook' : 'note';
   const allTags = Array.from(new Set(tags));
 
-  const existing = (await client.findByTitle(slug, title)).find((d) => d.title === title);
+  // Dedup by EXACT title: list the project's docs and match exactly, rather than a
+  // full-text title search — a title of only stop-words ("how to do it") yields an
+  // empty tsquery and would otherwise create a duplicate instead of updating in place.
+  const existing = (await client.listDocuments(slug)).find((d) => d.title === title);
   if (existing) {
     const doc = await client.updateMemory(existing.id, { title, body, tags: allTags });
     return { doc, action: 'updated' };

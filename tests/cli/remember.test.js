@@ -4,7 +4,7 @@ import { remember } from '../../cli/lib/remember.js';
 
 const fakeClient = (overrides = {}) => ({
   ensureProject: async (p) => p,
-  findByTitle: async () => [],
+  listDocuments: async () => [],
   createMemory: async (doc) => ({ id: 'new', ...doc }),
   updateMemory: async (id, patch) => ({ id, ...patch }),
   ...overrides,
@@ -28,7 +28,7 @@ test('remember ensures the target project and creates without a kind field by de
 test('remember updates in place when an exact title already exists', async () => {
   let updatedId;
   const client = fakeClient({
-    findByTitle: async () => [{ id: 'dup', title: 'T' }],
+    listDocuments: async () => [{ id: 'dup', title: 'T' }],
     updateMemory: async (id, patch) => { updatedId = id; return { id, ...patch }; },
   });
   const { action } = await remember(client, { title: 'T', body: 'B2', project: 'memory', tags: [] });
@@ -39,12 +39,25 @@ test('remember updates in place when an exact title already exists', async () =>
 test('remember does not treat a substring title match as a duplicate', async () => {
   let created = false;
   const client = fakeClient({
-    findByTitle: async () => [{ id: 'other', title: 'T extended' }],
+    listDocuments: async () => [{ id: 'other', title: 'T extended' }],
     createMemory: async (doc) => { created = true; return { id: 'new', ...doc }; },
   });
   const { action } = await remember(client, { title: 'T', body: 'B', project: 'memory', tags: [] });
   assert.equal(action, 'created');
   assert.ok(created);
+});
+
+test('remember dedups an exact stop-word-only title (listDocuments, not full-text search)', async () => {
+  let updatedId; let createCalled = false;
+  const client = fakeClient({
+    listDocuments: async () => [{ id: 'sw', title: 'how to do it' }],
+    updateMemory: async (id, patch) => { updatedId = id; return { id, ...patch }; },
+    createMemory: async (doc) => { createCalled = true; return { id: 'new', ...doc }; },
+  });
+  const { action } = await remember(client, { title: 'how to do it', body: 'B', project: 'memory', tags: [] });
+  assert.equal(action, 'updated');
+  assert.equal(updatedId, 'sw');
+  assert.equal(createCalled, false);
 });
 
 test('remember forwards kind:synthesized into the create body when the caller passes it', async () => {
