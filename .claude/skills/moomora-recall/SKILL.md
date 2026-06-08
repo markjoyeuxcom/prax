@@ -34,6 +34,10 @@ node .claude/skills/moomora-recall/recall.mjs --recent [n] [--project <slug>]   
 (Semantic search matches the *meaning of content*, so it won't answer "show my recent notes" —
 that's what `--recent` is for.)
 
+> Implementation note: this script is a thin wrapper over `cli/lib/recall.js` — the same
+> operation behind `moomora recall`. The `node …/recall.mjs` invocation is unchanged and needs
+> no global `moomora` install.
+
 ## What it returns
 
 A distilled block — the top hit's title, type, id, and a trimmed body (~800 chars), then a short
