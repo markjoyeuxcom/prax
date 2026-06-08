@@ -4,7 +4,7 @@ A living backlog of planned and deferred work. This is **direction, not a commit
 catalogue of candidate next steps kept honest. Substantial items go through the repo's
 spec → plan → review workflow under [`docs/superpowers/`](superpowers/) before implementation.
 
-**Current release:** `v0.16.0`.
+**Current release:** `v0.17.0`.
 
 ## Recently shipped
 
@@ -23,18 +23,16 @@ spec → plan → review workflow under [`docs/superpowers/`](superpowers/) befo
   replacement) and a `supersede_document` MCP tool, both thin clients over the slice-1 routes.
   Verification stays a human-only action (no MCP verify tool) by design. See
   [`specs/2026-06-06-memory-slice2-trust-actions-design.md`](superpowers/specs/2026-06-06-memory-slice2-trust-actions-design.md).
+- **v0.17.0 — Memory skills converged onto the CLI.** `moomora-recall` / `moomora-remember` are
+  now thin wrappers over shared `cli/lib/recall.js` + `cli/lib/remember.js` — one implementation
+  behind both the skills and the `moomora` CLI. Adds cross-project `moomora recall` (distilled,
+  `--recent`) and `moomora remember --memory`; skills stay zero-install. See
+  [`specs/2026-06-07-memory-skills-cli-convergence-design.md`](superpowers/specs/2026-06-07-memory-skills-cli-convergence-design.md).
 
 ---
 
-## Next: converge the memory skills onto the CLI
-
-The trust loop is now complete across every surface (v0.16.0 — verify/supersede in the web UI,
-`supersede_document` via MCP; verify stays human-only by design). The remaining
-slice-2-adjacent item:
-
-- [ ] **Converge the `moomora-recall` / `moomora-remember` skills onto the CLI.** One code path
-  instead of the skills hitting the API directly alongside a parallel CLI; add a cross-project
-  `moomora recall` and reconcile the `memory`-project vs current-project scoping. *(small)*
+The shared-memory direction (slice 1 → slice 2 → skills/CLI convergence) is now complete. Candidate
+next steps, by value:
 
 ## High-value, low-cost
 
