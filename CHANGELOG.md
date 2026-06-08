@@ -12,6 +12,14 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Changed
+
+- **Memory skills converged onto the CLI.** `moomora-recall` / `moomora-remember` are now thin
+  wrappers over shared `cli/lib/recall.js` and `cli/lib/remember.js` — one implementation behind
+  both the skills and the `moomora` CLI. New `moomora recall` (cross-project, distilled, with
+  `--recent`) and `moomora remember --memory` (write to the global `memory` namespace). The skill
+  invocation and output are unchanged, and skills remain zero-install (no global `moomora`).
+
 ## [0.16.0] - 2026-06-07
 
 ### Added
