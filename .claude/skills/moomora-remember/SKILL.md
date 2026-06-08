@@ -30,6 +30,10 @@ node .claude/skills/moomora-remember/remember.mjs "<title>" "<body>" [--tags a,b
   always added).
 - Set `MOOMORA_API_URL` if the app isn't at `http://127.0.0.1:3000`.
 
+> Implementation note: this script is a thin wrapper over `cli/lib/remember.js` — the same
+> operation behind `moomora remember`. The `node …/remember.mjs` invocation is unchanged and
+> needs no global `moomora` install.
+
 ## Behaviour notes
 
 - **De-dup by title:** if a document with the same title already exists in the target project it is

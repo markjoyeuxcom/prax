@@ -52,6 +52,16 @@ always-on MCP tool schemas), and they do the search/fetch/filter in a script, re
 distilled block instead of raw ref lists + full documents in context. Use both — skills for the
 retrieve/persist loop, MCP for interactive linking and edits.
 
+### Human CLI equivalents
+
+The skills now share one code path with the `moomora` CLI (`cli/lib/recall.js`,
+`cli/lib/remember.js`). The human-facing commands:
+
+- `moomora recall "<query>"` — cross-project, active-only, distilled recall (`--recent [n]` for a
+  chronological list; `--project <slug>` to scope).
+- `moomora remember "<title>" --body "<text>"` — writes to the **current** project; add `--memory`
+  to write to the global `memory` namespace (what the `moomora-remember` skill does).
+
 ## Setup
 
 The skills call the HTTP API at `MOOMORA_API_URL` (default `http://127.0.0.1:3000`) — the same
