@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { detectProject } from './lib/detectProject.js';
 import { createClient } from './lib/apiClient.js';
 import { formatSearchResults, formatDocument } from './lib/format.js';
+import { recall, formatRecall } from './lib/recall.js';
+import { remember } from './lib/remember.js';
 
 function parseArgs(argv) {
   const positionals = [];
@@ -40,8 +42,9 @@ Usage:
   moomora init [--project <slug>]
   moomora context [query...] [--json] [--limit <n>]
   moomora search <query> [--all] [--json]
+  moomora recall [query...] [--project <slug>] [--limit <n>] [--recent [n]] [--json]
   moomora get <id> [--json]
-  moomora remember <title> [--body <text>] [--type runbook|note] [--tag <t>]
+  moomora remember <title> [--body <text>] [--memory] [--type runbook|note] [--tag a,b]
   moomora verify <id> [--as <name>]
   moomora unverify <id>
   moomora supersede <oldId> --with <newId>
@@ -89,6 +92,21 @@ async function main(argv) {
     return;
   }
 
+  if (command === 'recall') {
+    const project = flags.project;
+    const recent = flags.recent !== undefined && flags.recent !== false;
+    let limit = flags.limit ? Number(flags.limit) : 5;
+    if (recent && typeof flags.recent === 'string') {
+      const n = Number(flags.recent);
+      if (Number.isFinite(n) && n > 0) limit = n;
+    }
+    const query = positionals.slice(1).join(' ');
+    if (!recent && !query) throw new Error('recall requires a query (or use --recent).');
+    const result = await recall(client, { query, project, limit, recent });
+    out(flags.json ? result : formatRecall(result));
+    return;
+  }
+
   if (command === 'get') {
     const id = positionals[1];
     if (!id) throw new Error('get requires a document id.');
@@ -98,17 +116,15 @@ async function main(argv) {
   }
 
   if (command === 'remember') {
-    const { project } = resolveProjectName(flags);
     const title = positionals[1];
     if (!title) throw new Error('remember requires a title.');
     const body = flags.body !== undefined && flags.body !== true ? String(flags.body) : '';
-    const documentType = flags.type === 'runbook' ? 'runbook' : 'note';
-    const tags = flags.tag ? [String(flags.tag)] : [];
-    const existing = (await client.findByTitle(project, title)).find((d) => d.title === title);
-    const saved = existing
-      ? await client.updateMemory(existing.id, { title, body, documentType, tags })
-      : await client.createMemory({ title, body, documentType, project, tags });
-    out(flags.json ? saved : `${existing ? 'Updated' : 'Remembered'} "${saved.title}" (${saved.id}) — unverified.`);
+    const type = flags.type === 'runbook' ? 'runbook' : 'note';
+    const project = flags.memory ? 'memory' : resolveProjectName(flags).project;
+    const userTags = flags.tag ? String(flags.tag).split(',').map((t) => t.trim()).filter(Boolean) : [];
+    const tags = [...userTags, ...(flags.memory ? ['memory'] : [])];
+    const { doc, action } = await remember(client, { title, body, project, type, tags });
+    out(flags.json ? doc : `${action === 'updated' ? 'Updated' : 'Remembered'} "${doc.title}" (${doc.id}) — unverified.`);
     return;
   }
 
