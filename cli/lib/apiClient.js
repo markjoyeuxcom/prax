@@ -9,16 +9,23 @@ export function createClient({ baseUrl, token } = {}) {
     if (agent) headers['x-moomora-origin'] = 'agent';
     if (accept) headers['accept'] = accept;
     if (token) headers['authorization'] = `Bearer ${token}`;
-    const res = await fetch(`${base}${path}`, {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
+    let res;
+    try {
+      res = await fetch(`${base}${path}`, {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    } catch (err) {
+      throw new Error(`Moomora not reachable at ${base} — is the app running? (${err.message})`);
+    }
     const ct = res.headers.get('content-type') || '';
     const payload = ct.includes('application/json') ? await res.json() : await res.text();
     if (!res.ok) {
       const message = payload && payload.message ? payload.message : `HTTP ${res.status}`;
-      throw new Error(message);
+      const error = new Error(message);
+      error.status = res.status;
+      throw error;
     }
     return payload;
   }
@@ -65,6 +72,19 @@ export function createClient({ baseUrl, token } = {}) {
     },
     supersede(oldId, newId) {
       return request('POST', `/api/library/documents/${encodeURIComponent(oldId)}/supersede`, { body: { supersededBy: newId } });
+    },
+    async ensureProject(target) {
+      const projects = await request('GET', '/api/projects');
+      const match = (Array.isArray(projects) ? projects : []).find(
+        (p) => p.slug === target || (p.name && p.name.toLowerCase() === String(target).toLowerCase()),
+      );
+      if (match) return match.slug;
+      const created = await request('POST', '/api/projects', { body: { name: target } });
+      return created.slug;
+    },
+    listDocuments(project) {
+      const qs = project && project !== 'all' ? `?project=${encodeURIComponent(project)}` : '';
+      return request('GET', `/api/library/documents${qs}`);
     },
   };
 }
