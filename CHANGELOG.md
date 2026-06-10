@@ -12,6 +12,13 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Fixed
+
+- Library list rows no longer clip the trust chips (`SYNTH` / `STALE` / `VERIFIED` /
+  `SUPERSEDED`) on long titles: the title now ellipsizes in its own span while chips stay
+  pinned and visible. Also removes the sideways scroll the list panel developed with
+  long-titled documents (grid items now allowed to shrink below content width).
+
 ## [0.17.0] - 2026-06-08
 
 ### Changed
