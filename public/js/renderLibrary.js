@@ -162,24 +162,29 @@ function selectedDocument(documents, selectedDocumentId) {
   return documents.find(document => document.id === selectedDocumentId) || documents[0] || null;
 }
 
-function renderDocumentRows(documents, activeDocumentId) {
+function renderDocumentRows(documents, activeDocumentId, projectNames = {}) {
   return documents.map((document) => {
     const isSelected = document.id === activeDocumentId;
     const isSynthesized = document.kind === 'synthesized';
     const isStale = document.stale === true;
     const isSuperseded = document.status === 'superseded';
+    const metaParts = [
+      labelFromValue(document.documentType || 'note'),
+      projectNames[document.projectId],
+      `updated by ${document.updatedBy || 'user'}`,
+    ].filter(Boolean);
     return `
       <button class="document-row${isSelected ? ' is-selected' : ''}${isSuperseded ? ' is-superseded' : ''}" type="button" data-library-document-id="${escapeHtml(document.id)}"${isSelected ? ' aria-current="true"' : ''}>
         <span>
           <strong><span class="document-row-title">${escapeHtml(document.title || 'Untitled document')}</span>${isSynthesized ? '<span class="chip chip-synth" aria-label="Agent synthesized">SYNTH</span>' : ''}${isStale ? '<span class="chip chip-stale" aria-label="Derived source has changed">STALE</span>' : ''}${renderTrustChips(document)}</strong>
-          <small>${escapeHtml(labelFromValue(document.documentType || 'note'))} &middot; ${escapeHtml(document.sourceFilename || 'Created in Moomora Console')}</small>
+          <small>${metaParts.map(escapeHtml).join(' &middot; ')}</small>
         </span>
         <span class="document-tags">${renderTags(document.tags)}</span>
       </button>`;
   }).join('');
 }
 
-function renderDocumentList(documents, activeDocumentId, { groupByType = false, libraryView = 'active' } = {}) {
+function renderDocumentList(documents, activeDocumentId, { groupByType = false, libraryView = 'active', projectNames = {} } = {}) {
   if (!documents.length) {
     if (libraryView === 'archive') {
       return `
@@ -197,10 +202,10 @@ function renderDocumentList(documents, activeDocumentId, { groupByType = false, 
   if (groupByType) {
     const groups = groupDocumentsByType(documents);
     return groups.map(({ label, docs }) => `
-      <div class="document-group-header">${escapeHtml(label)} <span>${docs.length}</span></div>${renderDocumentRows(docs, activeDocumentId)}`).join('');
+      <div class="document-group-header">${escapeHtml(label)} <span>${docs.length}</span></div>${renderDocumentRows(docs, activeDocumentId, projectNames)}`).join('');
   }
 
-  return renderDocumentRows(documents, activeDocumentId);
+  return renderDocumentRows(documents, activeDocumentId, projectNames);
 }
 
 function renderModes(editorMode, modes = ['edit', 'preview', 'split']) {
@@ -363,13 +368,13 @@ function renderDocumentDetail(document, options = {}) {
         <div class="document-tags">${renderTags(document.tags)}</div>
         <div class="detail-actions">
           ${isArchived ? '' : renderModes(editorMode)}
-          ${isArchived ? '' : '<button class="bracket-button" type="button" data-action="edit-document-info">[i] info</button>'}
-          ${isArchived ? '' : `<button class="bracket-button" type="button" data-action="toggle-verify">[v] ${document.verified ? 'unverify' : 'verify'}</button>`}
-          ${isArchived || document.status === 'superseded' ? '' : '<button class="bracket-button" type="button" data-action="supersede-document">[s] supersede…</button>'}
+          ${isArchived ? '' : '<button class="bracket-button" type="button" data-action="edit-document-info"><kbd>i</kbd> info</button>'}
+          ${isArchived ? '' : `<button class="bracket-button" type="button" data-action="toggle-verify"><kbd>v</kbd> ${document.verified ? 'unverify' : 'verify'}</button>`}
+          ${isArchived || document.status === 'superseded' ? '' : '<button class="bracket-button" type="button" data-action="supersede-document"><kbd>s</kbd> supersede…</button>'}
           ${isArchived ? `
-          <button class="bracket-button" type="button" data-action="restore-document">[r] restore</button>
-          <button class="bracket-button bracket-button--danger" type="button" data-action="delete-archived-document">[!] delete</button>` : `
-          <button class="bracket-button bracket-button--danger" type="button" data-action="archive-document">[d] archive</button>`}
+          <button class="bracket-button" type="button" data-action="restore-document"><kbd>r</kbd> restore</button>
+          <button class="bracket-button bracket-button--danger" type="button" data-action="delete-archived-document"><kbd>!</kbd> delete</button>` : `
+          <button class="bracket-button bracket-button--danger" type="button" data-action="archive-document"><kbd>d</kbd> archive</button>`}
         </div>
       </header>
       ${isInfoEditing ? renderDocumentInfoForm(document, { error: options.infoError, isSaving: options.isSaving }) : `
@@ -411,8 +416,14 @@ export function renderLibraryHtml({
   documentLinks = undefined,
   librarySearchMode = 'keyword',
   semanticAvailable = false,
+  projects = [],
 } = {}) {
   const safeDocuments = Array.isArray(documents) ? documents : [];
+  const projectNames = Object.fromEntries(
+    (Array.isArray(projects) ? projects : [])
+      .filter((p) => p && p.id)
+      .map((p) => [p.id, p.name || p.slug]),
+  );
   const document = selectedDocument(safeDocuments, selectedDocumentId);
   const activeMode = editorMode || (previewMode === 'raw' ? 'edit' : previewMode) || 'preview';
   const isArchiveView = libraryView === 'archive';
@@ -428,7 +439,7 @@ export function renderLibraryHtml({
           </div>
           <span class="sync-pill">Markdown</span>
           <button class="bracket-button bracket-button--quiet" type="button" data-action="toggle-library-view">${isArchiveView ? '[←] active' : '[a] archive'}</button>
-          <button class="bracket-button bracket-button--quiet library-tags-toggle" type="button" data-action="toggle-library-tags-drawer" aria-expanded="${isLibraryTagsDrawerOpen}">tags ↕</button>
+          <button class="bracket-button bracket-button--quiet library-tags-toggle" type="button" data-action="toggle-library-tags-drawer" aria-expanded="${isLibraryTagsDrawerOpen}">filters ↕</button>
         </header>
         <div class="library-tag-filter__drawer${isLibraryTagsDrawerOpen ? ' is-open' : ''}">
           ${renderSmartViews({ savedViews, activeSavedViewId, activeTags })}
@@ -456,7 +467,7 @@ export function renderLibraryHtml({
           <button class="search-mode-btn${librarySearchMode === 'keyword' ? ' is-active' : ''}" type="button" data-action="set-library-search-mode" data-mode="keyword" aria-pressed="${librarySearchMode === 'keyword'}">keyword</button>
           <button class="search-mode-btn${librarySearchMode === 'semantic' ? ' is-active' : ''}" type="button" data-action="set-library-search-mode" data-mode="semantic" aria-pressed="${librarySearchMode === 'semantic'}">semantic</button>
         </div>` : ''}
-        <div class="document-list">${renderDocumentList(safeDocuments, document?.id, { groupByType, libraryView })}
+        <div class="document-list">${renderDocumentList(safeDocuments, document?.id, { groupByType, libraryView, projectNames })}
         </div>
       </aside>
       <div class="library-resizer" data-library-resizer role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize library browser"></div>

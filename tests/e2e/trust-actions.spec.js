@@ -19,8 +19,9 @@ test('a human can verify an unverified document from the detail panel', async ({
   const detail = page.locator('.library-detail');
   const verifyBtn = detail.locator('[data-action="toggle-verify"]');
 
-  // The seeded (agent-written) doc starts unverified — exact text, no substring coincidence.
-  await expect(verifyBtn).toHaveText('[v] verify');
+  // The seeded (agent-written) doc starts unverified — exact text (kbd chip + label),
+  // no substring coincidence.
+  await expect(verifyBtn).toHaveText('v verify');
   await expect(detail.locator('.chip-verified')).toHaveCount(0);
   await expect(detail.locator('.library-detail-meta')).toContainText('unverified');
 
@@ -29,7 +30,7 @@ test('a human can verify an unverified document from the detail panel', async ({
   await verifyBtn.click();
 
   // Verifying flips the button label (this gates on the reload), shows the chip, updates meta.
-  await expect(verifyBtn).toHaveText('[v] unverify');
+  await expect(verifyBtn).toHaveText('v unverify');
   await expect(detail.locator('.chip-verified')).toBeVisible();
   await expect(detail.locator('.library-detail-meta')).toContainText('verified by');
 });
