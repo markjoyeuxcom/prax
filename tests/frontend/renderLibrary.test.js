@@ -508,3 +508,16 @@ test('renderLibraryHtml active view detail panel keeps editor tabs, archive acti
   assert.match(html, /data-action="archive-document"/);
   assert.match(html, /data-action="export-document"/);
 });
+
+test('renderLibraryHtml list row keeps trust chips outside the truncating title span', () => {
+  const longTitle = 'A very long agent-written memory title that will certainly truncate in the list panel';
+  const html = renderLibraryHtml({
+    documents: [{ ...ACTIVE_DOC, title: longTitle, kind: 'synthesized' }],
+    selectedDocumentId: 'd1', libraryView: 'active',
+  });
+  // The title is wrapped in its own span and the chips are siblings AFTER it,
+  // so CSS can ellipsize the title without clipping the chips off the row.
+  assert.match(html, new RegExp(`<span class="document-row-title">${longTitle}</span>`));
+  const fromTitle = html.slice(html.indexOf('document-row-title'));
+  assert.match(fromTitle, /<\/span>\s*<span class="chip chip-synth"/);
+});
