@@ -186,8 +186,8 @@ test('library actions use bracket buttons', () => {
     activeSavedViewId: null, isInfoEditing: false, infoError: '',
     isSaving: false, saveStatus: 'Saved', isFocusMode: false,
   });
-  assert.match(html, /data-action="archive-document"[^>]*>\[d\] archive/);
-  assert.match(html, /data-action="edit-document-info"[^>]*>\[i\] info/);
+  assert.match(html, /data-action="archive-document"[^>]*><kbd>d<\/kbd> archive/);
+  assert.match(html, /data-action="edit-document-info"[^>]*><kbd>i<\/kbd> info/);
 });
 
 test('renderLibraryHtml renders split mode with editor and escaped preview', () => {
@@ -224,20 +224,37 @@ test('renderLibraryHtml renders empty state', () => {
   assert.match(html, /Create or import Markdown/);
 });
 
-test('renderLibraryHtml uses Moomora Console as the fallback document source label', () => {
+test('renderLibraryHtml list row meta shows type, project, and updater', () => {
   const html = renderLibraryHtml({
     documents: [{
       id: 'doc-moomora',
       title: 'Scratch note',
       body: '# Scratch',
       documentType: 'note',
-      context: 'homelab',
+      projectId: 'p9',
+      updatedBy: 'agent',
+      tags: [],
+    }],
+    projects: [{ id: 'p9', name: 'Homelab', slug: 'homelab', status: 'active' }],
+    selectedDocumentId: 'doc-moomora',
+  });
+
+  assert.match(html, /<small>Note &middot; Homelab &middot; updated by agent<\/small>/);
+});
+
+test('renderLibraryHtml list row meta omits the project when unknown and defaults the updater', () => {
+  const html = renderLibraryHtml({
+    documents: [{
+      id: 'doc-moomora',
+      title: 'Scratch note',
+      body: '# Scratch',
+      documentType: 'note',
       tags: [],
     }],
     selectedDocumentId: 'doc-moomora',
   });
 
-  assert.match(html, /Created in Moomora Console/);
+  assert.match(html, /<small>Note &middot; updated by user<\/small>/);
 });
 
 test('library renders a tags drawer toggle in the docs header', () => {
@@ -429,17 +446,17 @@ const ACTIVE_DOC = {
 };
 const ARCHIVED_DOC = { ...ACTIVE_DOC, id: 'd2', title: 'Old runbook', archivedAt: '2026-05-01T00:00:00.000Z' };
 
-test('renderLibraryHtml detail panel shows [v] verify for an unverified active doc', () => {
+test('renderLibraryHtml detail panel shows the verify action for an unverified active doc', () => {
   const html = renderLibraryHtml({ documents: [ACTIVE_DOC], selectedDocumentId: 'd1', libraryView: 'active' });
-  assert.match(html, /data-action="toggle-verify"[^>]*>\[v\] verify/);
+  assert.match(html, /data-action="toggle-verify"[^>]*><kbd>v<\/kbd> verify/);
 });
 
-test('renderLibraryHtml detail panel shows [v] unverify when the doc is verified', () => {
+test('renderLibraryHtml detail panel shows unverify when the doc is verified', () => {
   const html = renderLibraryHtml({
     documents: [{ ...ACTIVE_DOC, verified: true, verifiedBy: 'user' }],
     selectedDocumentId: 'd1', libraryView: 'active',
   });
-  assert.match(html, /data-action="toggle-verify"[^>]*>\[v\] unverify/);
+  assert.match(html, /data-action="toggle-verify"[^>]*><kbd>v<\/kbd> unverify/);
 });
 
 test('renderLibraryHtml detail panel shows [s] supersede for an active doc and hides it once superseded', () => {
