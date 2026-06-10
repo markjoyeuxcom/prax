@@ -1667,12 +1667,16 @@ button.task-row:hover { background: color-mix(in srgb, var(--accent) 4%, transpa
 
 .document-row:hover { background: color-mix(in srgb, var(--accent) 4%, transparent); }
 
+/* Grid items default to min-width:auto and refuse to shrink below content
+   width — which let long titles force the whole list panel to scroll
+   sideways. Allow the row's children to shrink so truncation can engage. */
+.document-row > span { min-width: 0; }
+
 .document-row.is-selected {
   background: color-mix(in srgb, var(--accent-amber) 7%, transparent);
   border-left-color: var(--accent-amber);
 }
 
-.document-row strong,
 .document-row small {
   display: block;
   overflow: hidden;
@@ -1680,10 +1684,29 @@ button.task-row:hover { background: color-mix(in srgb, var(--accent) 4%, transpa
   white-space: nowrap;
 }
 
+/* Flex row: the title span ellipsizes; trust chips never shrink, so a long
+   title can no longer push them past the overflow clip. */
 .document-row strong {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  min-width: 0;
   color: var(--text);
   font-size: 0.9286rem;
   font-weight: 700;
+}
+
+.document-row .document-row-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.document-row strong .chip {
+  flex: 0 0 auto;
+  margin-left: 0; /* gap on the flex row replaces the inline chip margin */
 }
 
 .document-row small {
