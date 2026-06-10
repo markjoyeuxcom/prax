@@ -224,20 +224,37 @@ test('renderLibraryHtml renders empty state', () => {
   assert.match(html, /Create or import Markdown/);
 });
 
-test('renderLibraryHtml uses Moomora Console as the fallback document source label', () => {
+test('renderLibraryHtml list row meta shows type, project, and updater', () => {
   const html = renderLibraryHtml({
     documents: [{
       id: 'doc-moomora',
       title: 'Scratch note',
       body: '# Scratch',
       documentType: 'note',
-      context: 'homelab',
+      projectId: 'p9',
+      updatedBy: 'agent',
+      tags: [],
+    }],
+    projects: [{ id: 'p9', name: 'Homelab', slug: 'homelab', status: 'active' }],
+    selectedDocumentId: 'doc-moomora',
+  });
+
+  assert.match(html, /<small>Note &middot; Homelab &middot; updated by agent<\/small>/);
+});
+
+test('renderLibraryHtml list row meta omits the project when unknown and defaults the updater', () => {
+  const html = renderLibraryHtml({
+    documents: [{
+      id: 'doc-moomora',
+      title: 'Scratch note',
+      body: '# Scratch',
+      documentType: 'note',
       tags: [],
     }],
     selectedDocumentId: 'doc-moomora',
   });
 
-  assert.match(html, /Created in Moomora Console/);
+  assert.match(html, /<small>Note &middot; updated by user<\/small>/);
 });
 
 test('library renders a tags drawer toggle in the docs header', () => {

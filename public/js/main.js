@@ -821,6 +821,7 @@ function renderLibraryWorkspace(workspace) {
     : selectedDocument();
   workspace.innerHTML = renderLibraryHtml({
     documents: visibleDocuments,
+    projects: state.projects,
     selectedDocumentId: document?.id || null,
     editorMode: state.documentEditorMode,
     draftBody: draftBodyForDocument(document),

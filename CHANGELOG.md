@@ -12,6 +12,14 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Changed
+
+- **Library design polish** (from the macOS-mockup review): controls, inputs, and chips gain a
+  gentle 6px radius (panels stay square); the Console palette's surface tones are separated so
+  the sidebar / list / detail panes read as distinct layers; the markdown preview is capped at a
+  readable ~74ch measure; list-row meta now reads `type · project · updated by <who>` instead of
+  the source-filename fallback; cluster status dots are round.
+
 ## [0.17.1] - 2026-06-10
 
 ### Fixed

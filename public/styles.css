@@ -10,8 +10,8 @@
 :root {
   --bg: #0d0e0f;
   --bg-deep: #08090a;
-  --surface: #11140f;
-  --surface-warm: #14140f;
+  --surface: #151a12;
+  --surface-warm: #17180f;
   --border: #1f2021;
   --border-dim: #2a2b2c;
   --text: #e7f2d8;
@@ -26,6 +26,8 @@
   --modal-backdrop: rgba(4, 6, 8, 0.76);
   --font-sans: "Mona Sans", "Mona Sans VF", -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  /* Controls (buttons, inputs, chips) get a gentle radius; panels stay square. */
+  --radius-control: 6px;
   font-size: 14px;
 }
 
@@ -112,7 +114,7 @@ button, input, textarea, select {
   color: inherit;
   background: transparent;
   border: 1px solid var(--border-dim);
-  border-radius: 0;
+  border-radius: var(--radius-control);
 }
 
 button { cursor: pointer; }
@@ -178,7 +180,7 @@ html {
   background: var(--border-dim);
   background-clip: padding-box;
   border: 3px solid transparent;
-  border-radius: 0;
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
@@ -280,7 +282,7 @@ html {
   min-height: 30px;
   padding: 6px 12px;
   border: 0;
-  border-radius: 0;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--text-dim);
   cursor: pointer;
@@ -401,7 +403,7 @@ html {
 .status-dot {
   width: 8px;
   height: 8px;
-  border-radius: 0;
+  border-radius: 50%;
   background: var(--accent);
 }
 
@@ -1740,7 +1742,7 @@ button.task-row:hover { background: color-mix(in srgb, var(--accent) 4%, transpa
   padding: 0 0.45em;
   font-size: 0.7em;
   letter-spacing: 0.05em;
-  border-radius: 2px;
+  border-radius: 4px;
   border: 1px solid currentColor;
   vertical-align: 1px;
   font-weight: normal;   /* chip-kind lives inside <h2> — must not inherit bold */
@@ -2142,7 +2144,8 @@ button.task-row:hover { background: color-mix(in srgb, var(--accent) 4%, transpa
   display: grid;
   gap: 10px;
   align-content: start;
-  max-width: 980px;
+  /* Readable prose measure — long lines were the detail pane's worst habit. */
+  max-width: 74ch;
   min-height: 100%;
   padding: 20px;
   background: var(--surface-warm);
@@ -2716,7 +2719,7 @@ button.task-row:hover { background: color-mix(in srgb, var(--accent) 4%, transpa
   min-height: 32px;
   padding: 7px 16px;
   border: 0;
-  border-radius: 0;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--text-dim);
   cursor: pointer;
