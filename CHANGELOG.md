@@ -12,6 +12,8 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-06-10
+
 ### Fixed
 
 - Library list rows no longer clip the trust chips (`SYNTH` / `STALE` / `VERIFIED` /
@@ -467,7 +469,8 @@ fresh empty `[Unreleased]` section is started.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.17.1...HEAD
+[0.17.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.15.1...v0.16.0
 [0.15.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.15.0...v0.15.1
