@@ -1400,7 +1400,7 @@ button.task-row:hover { background: color-mix(in srgb, var(--accent) 4%, transpa
 }
 
 .library-tags-toggle {
-  display: none; /* shown on tablet via media query */
+  display: inline-flex; /* the filters drawer is collapsed by default everywhere */
   cursor: pointer;
   color: var(--accent-amber);
   font-size: 0.7857rem;
@@ -3377,15 +3377,12 @@ button.task-row:hover { background: color-mix(in srgb, var(--accent) 4%, transpa
   .bottom-nav { display: none; }
   .modal-header--mobile  { display: none; }
   .modal-header--desktop { display: flex; }
-  .library-tags-toggle   { display: none; }
   .detail-back           { display: none; }
 
-  /* Tags drawer is always expanded inline on desktop (no collapse).
-     Capped height with internal scroll so many saved views / tags
-     don't push the document list off-screen. */
-  .library-tag-filter__drawer {
-    display: grid;
-    gap: 8px;
+  /* Filters drawer is collapsed by default on desktop too — the toggle in
+     the panel header opens it. Capped height with internal scroll so many
+     saved views / tags don't push the document list off-screen. */
+  .library-tag-filter__drawer.is-open {
     max-height: 45vh;
     overflow-y: auto;
   }
@@ -3852,3 +3849,36 @@ button.task-row:hover { background: color-mix(in srgb, var(--accent) 4%, transpa
    palettes. Invert it on dark themes; leave it dark on the light Daylight palette. */
 input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.85); opacity: 0.85; cursor: pointer; }
 :root[data-palette="daylight"] input[type="date"]::-webkit-calendar-picker-indicator { filter: none; opacity: 1; }
+
+/* ============================================================
+   GUI polish phase 2 — quieter chrome (mockup-derived)
+   ============================================================ */
+.bracket-button kbd {
+  font: inherit;
+  font-size: 0.82em;
+  line-height: 1;
+  padding: 2px 5px;
+  margin-right: 2px;
+  border: 1px solid color-mix(in srgb, currentColor 45%, transparent);
+  border-radius: 4px;
+  opacity: 0.85;
+}
+
+.library-browser .panel-header h2 { font-size: 0.95rem; }
+.library-browser .panel-header p { font-size: 0.75rem; }
+.library-browser .sync-pill { display: none; }
+.library-controls { padding-top: 6px; padding-bottom: 6px; }
+.library-search-mode { padding-top: 4px; padding-bottom: 8px; }
+
+.document-tag {
+  padding: 1px 0;
+  border-color: transparent;
+  color: var(--text-dimmer);
+}
+.document-tag::before { content: "#"; opacity: 0.6; }
+
+.detail-kicker { text-transform: lowercase; }
+
+/* Preview mode reads as one continuous warm pane down to the Links section
+   instead of a content card floating over a dark void. */
+.document-workspace--preview { background: var(--surface-warm); }

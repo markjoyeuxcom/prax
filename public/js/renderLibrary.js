@@ -368,13 +368,13 @@ function renderDocumentDetail(document, options = {}) {
         <div class="document-tags">${renderTags(document.tags)}</div>
         <div class="detail-actions">
           ${isArchived ? '' : renderModes(editorMode)}
-          ${isArchived ? '' : '<button class="bracket-button" type="button" data-action="edit-document-info">[i] info</button>'}
-          ${isArchived ? '' : `<button class="bracket-button" type="button" data-action="toggle-verify">[v] ${document.verified ? 'unverify' : 'verify'}</button>`}
-          ${isArchived || document.status === 'superseded' ? '' : '<button class="bracket-button" type="button" data-action="supersede-document">[s] supersede…</button>'}
+          ${isArchived ? '' : '<button class="bracket-button" type="button" data-action="edit-document-info"><kbd>i</kbd> info</button>'}
+          ${isArchived ? '' : `<button class="bracket-button" type="button" data-action="toggle-verify"><kbd>v</kbd> ${document.verified ? 'unverify' : 'verify'}</button>`}
+          ${isArchived || document.status === 'superseded' ? '' : '<button class="bracket-button" type="button" data-action="supersede-document"><kbd>s</kbd> supersede…</button>'}
           ${isArchived ? `
-          <button class="bracket-button" type="button" data-action="restore-document">[r] restore</button>
-          <button class="bracket-button bracket-button--danger" type="button" data-action="delete-archived-document">[!] delete</button>` : `
-          <button class="bracket-button bracket-button--danger" type="button" data-action="archive-document">[d] archive</button>`}
+          <button class="bracket-button" type="button" data-action="restore-document"><kbd>r</kbd> restore</button>
+          <button class="bracket-button bracket-button--danger" type="button" data-action="delete-archived-document"><kbd>!</kbd> delete</button>` : `
+          <button class="bracket-button bracket-button--danger" type="button" data-action="archive-document"><kbd>d</kbd> archive</button>`}
         </div>
       </header>
       ${isInfoEditing ? renderDocumentInfoForm(document, { error: options.infoError, isSaving: options.isSaving }) : `
@@ -439,7 +439,7 @@ export function renderLibraryHtml({
           </div>
           <span class="sync-pill">Markdown</span>
           <button class="bracket-button bracket-button--quiet" type="button" data-action="toggle-library-view">${isArchiveView ? '[←] active' : '[a] archive'}</button>
-          <button class="bracket-button bracket-button--quiet library-tags-toggle" type="button" data-action="toggle-library-tags-drawer" aria-expanded="${isLibraryTagsDrawerOpen}">tags ↕</button>
+          <button class="bracket-button bracket-button--quiet library-tags-toggle" type="button" data-action="toggle-library-tags-drawer" aria-expanded="${isLibraryTagsDrawerOpen}">filters ↕</button>
         </header>
         <div class="library-tag-filter__drawer${isLibraryTagsDrawerOpen ? ' is-open' : ''}">
           ${renderSmartViews({ savedViews, activeSavedViewId, activeTags })}
