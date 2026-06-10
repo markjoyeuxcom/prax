@@ -31,8 +31,8 @@ retrieve  →  work  →  persist  →  supersede
    `moomora-remember "<title>" "<body>"`. It writes to the `memory` project, stamped
    `updatedBy: agent` + `kind: synthesized`.
 4. **Supersede** — re-`remember`-ing an existing title updates it in place (no duplicate). When one
-   memory replaces another distinct one, link them with the MCP `link_documents` tool using the
-   `supersedes` relation, and let the stale/maintenance tooling flag what's outdated.
+   memory replaces another distinct one, run `moomora supersede <oldId> --with <newId>` — it records
+   the `supersedes` link and retires the old document from default retrieval.
 
 ## Namespace & provenance
 
@@ -44,13 +44,18 @@ retrieve  →  work  →  persist  →  supersede
 - **`kind: synthesized`** — marks memory as machine-generated, which the maintenance tooling treats
   as safe to refresh aggressively (vs. `source` docs left for human review).
 
-## Why the skills (vs. the MCP tools alone)
+## Why skills + CLI (and where the MCP server fits)
 
-The MCP server exposes the same data and is ideal for interactive, model-driven edits. The skills
-exist for **token efficiency**: they load lazily (only a one-line description until invoked, vs. the
-always-on MCP tool schemas), and they do the search/fetch/filter in a script, returning one
-distilled block instead of raw ref lists + full documents in context. Use both — skills for the
-retrieve/persist loop, MCP for interactive linking and edits.
+The skills + `moomora` CLI are the **canonical agent path** — they cover the whole memory loop
+(recall, remember, get, search, context-pack, supersede) over one shared code path (`cli/lib/`),
+and they exist for **token efficiency**: they load lazily (only a one-line description until
+invoked, vs. always-on MCP tool schemas), and they do the search/fetch/filter in a script,
+returning one distilled block instead of raw ref lists + full documents in context.
+
+The MCP server (`mcp/server.js`) remains a supported product surface over the same API — it adds
+the tasks/checklist suite and `derived-from` document linking, which the CLI does not cover. It is
+**not enabled by default** for agent sessions in this repo; re-add it on demand
+(`claude mcp add moomora -- node mcp/server.js`) for a heavy task-curation session.
 
 ### Human CLI equivalents
 
@@ -64,7 +69,7 @@ The skills now share one code path with the `moomora` CLI (`cli/lib/recall.js`,
 
 ## Setup
 
-The skills call the HTTP API at `MOOMORA_API_URL` (default `http://127.0.0.1:3000`) — the same
-variable the MCP server uses. The app must be running with semantic search enabled
+The skills and CLI call the HTTP API at `MOOMORA_API_URL` (default `http://127.0.0.1:3000`) — the
+same variable the optional MCP server uses. The app must be running with semantic search enabled
 (`EMBEDDING_BACKEND` set to a working backend) for meaning-based recall; otherwise recall falls back
 to keyword search.
