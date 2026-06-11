@@ -12,6 +12,16 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Changed
+
+- **Library/shell mockup parity (design polish, phase 3).** Sidebar navigation swaps the
+  bracket glyphs for small inline SVG icons with sentence-case section labels; topbar buttons
+  adopt the `kbd`-chip grammar and the primary action becomes a filled accent button
+  (`+ new doc`); the type/sort/group controls move into the collapsed filters drawer so the
+  document list starts immediately under one slim row; the detail header drops the
+  source-filename line; and the Console palette is aligned to the design-mockup values
+  (`#7ee787` accent, neutral-green surfaces, `#232b23` hairlines). Other palettes unchanged.
+
 ## [0.18.0] - 2026-06-10
 
 ### Changed

@@ -96,7 +96,7 @@ test('renderShellHtml derives Library heading and document action', () => {
   assert.match(html, /console-main console-main--library/);
   assert.match(html, /class="topbar-title"[^>]*>Library</);
   assert.match(html, /data-action="new-document"/);
-  assert.match(html, /\[\+\] new doc/);
+  assert.match(html, /\+ new doc/);
   assert.doesNotMatch(html, /class="metric-strip"/);
 });
 
@@ -156,8 +156,8 @@ test('shell topbar renders bracket-style Admin and primary action buttons', () =
     searchQuery: '',
     metrics: { dueToday: 0, overdue: 0, inProgress: 0, completedThisWeek: 0 },
   });
-  assert.match(html, /data-action="open-admin"[^>]*class="bracket-button[^"]*"[^>]*>\[a\] admin/);
-  assert.match(html, /data-action="new-task"[^>]*class="bracket-button bracket-button--primary"[^>]*>\[\+\] new/);
+  assert.match(html, /data-action="open-admin"[^>]*class="bracket-button[^"]*"[^>]*><kbd>a<\/kbd> admin/);
+  assert.match(html, /data-action="new-task"[^>]*class="bracket-button bracket-button--primary"[^>]*>\+ new/);
 });
 
 test('shell topbar primary action becomes new-document on library view', () => {
@@ -169,7 +169,7 @@ test('shell topbar primary action becomes new-document on library view', () => {
     searchQuery: '',
     metrics: { dueToday: 0, overdue: 0, inProgress: 0, completedThisWeek: 0 },
   });
-  assert.match(html, /data-action="new-document"[^>]*>\[\+\] new doc/);
+  assert.match(html, /data-action="new-document"[^>]*>\+ new doc/);
 });
 
 test('shell renders bottom nav with 5 slots and active state', () => {
@@ -259,7 +259,7 @@ test('shell renders hamburger trigger button', () => {
 
 test('topbar shows [↑] import only on the library view', () => {
   const lib = renderShellHtml({ activeProject: 'all', projects: [], activeView: 'library', apiStatus: 'connected', searchQuery: '', metrics: {} });
-  assert.match(lib, /data-action="import-document"[^>]*>\[↑\] import/);
+  assert.match(lib, /data-action="import-document"[^>]*><kbd>↑<\/kbd> import/);
   const today = renderShellHtml({ activeProject: 'all', projects: [], activeView: 'list', apiStatus: 'connected', searchQuery: '', metrics: {} });
   assert.doesNotMatch(today, /data-action="import-document"/);
 });
