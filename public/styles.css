@@ -8,17 +8,17 @@
    :root — 14-token palette
    ============================================================ */
 :root {
-  --bg: #0d0e0f;
-  --bg-deep: #08090a;
-  --surface: #151a12;
-  --surface-warm: #17180f;
-  --border: #1f2021;
-  --border-dim: #2a2b2c;
-  --text: #e7f2d8;
-  --text-body: #c8c8c8;
-  --text-dim: #7a7d80;
-  --text-dimmer: #5a5d60;
-  --accent: #87d75f;
+  --bg: #101410;
+  --bg-deep: #0c0e0c;
+  --surface: #161b16;
+  --surface-warm: #191f17;
+  --border: #232b23;
+  --border-dim: #2c352c;
+  --text: #e6eee6;
+  --text-body: #c2ccc2;
+  --text-dim: #8b968b;
+  --text-dimmer: #5f6a5f;
+  --accent: #7ee787;
   --accent-amber: #d7af5f;
   --accent-cyan: #87afff;
   --danger: #ff5f5f;
@@ -263,8 +263,7 @@ html {
   color: var(--text-dimmer);
   font-size: 0.7857rem;
   font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: 0.02em;
 }
 .nav-heading {
   display: flex;
@@ -552,8 +551,9 @@ html {
 
 .bracket-button--primary {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-  color: var(--accent);
+  background: var(--accent);
+  color: var(--bg-deep);
+  font-weight: 700;
 }
 
 .bracket-button--danger {
@@ -3882,3 +3882,14 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.85); op
 /* Preview mode reads as one continuous warm pane down to the Links section
    instead of a content card floating over a dark void. */
 .document-workspace--preview { background: var(--surface-warm); }
+
+/* ── GUI phase 3: mockup parity ── */
+.nav-button__icon {
+  display: inline-flex;
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  opacity: 0.8;
+}
+.nav-button__icon svg { width: 100%; height: 100%; }
+.nav-button__main { display: inline-flex; align-items: center; gap: 8px; }

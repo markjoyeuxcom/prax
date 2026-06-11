@@ -37,6 +37,16 @@ const navGroups = [
 ];
 const viewKeyGlyph = { list: 't', board: 'b', library: 'l', backlog: 'k', archive: 'r' };
 
+// Small inline nav icons (stroke = currentColor) — self-hosted, no icon font.
+const NAV_ICON_SVG = (paths) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+const viewIcon = {
+  list: NAV_ICON_SVG('<path d="M10 6h10M10 12h10M10 18h10"/><path d="M4 6l1.2 1.2L7.5 4.9M4 12l1.2 1.2 2.3-2.3M4 18l1.2 1.2 2.3-2.3"/>'),
+  board: NAV_ICON_SVG('<rect x="4" y="5" width="6" height="14" rx="1"/><rect x="14" y="5" width="6" height="9" rx="1"/>'),
+  library: NAV_ICON_SVG('<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>'),
+  backlog: NAV_ICON_SVG('<path d="M12 3l8 4.5-8 4.5-8-4.5L12 3z"/><path d="M4 12.5L12 17l8-4.5"/><path d="M4 17l8 4.5L20 17"/>'),
+  archive: NAV_ICON_SVG('<rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9"/><path d="M10 13.5h4"/>'),
+};
+
 
 const metricCards = [
   { key: 'dueToday', label: 'Due today' },
@@ -148,7 +158,7 @@ function renderSidebarNavGroups(activeView) {
       const isActive = id === activeView;
       return `
           <button class="nav-button${isActive ? ' is-active' : ''}" type="button" aria-pressed="${isActive}" data-view="${id}">
-            <span class="nav-button__main"><span class="nav-button__key">[${viewKeyGlyph[id]}]</span><span>${view.label}</span></span>
+            <span class="nav-button__main"><span class="nav-button__icon">${viewIcon[id]}</span><span>${view.label}</span></span>
           </button>`;
     }).join('');
     return `
@@ -180,9 +190,9 @@ function renderProjectToolsMenu() {
           <details class="project-tools-menu">
             <summary class="project-tools-menu__summary" aria-label="Project tools" title="Project tools">[...]</summary>
             <div class="project-tools-menu__items">
-              <button class="nav-button nav-button--accent" type="button" data-action="new-project"><span>[+] new project</span></button>
-              <button class="nav-button nav-button--accent" type="button" data-action="open-project-manager"><span>[≡] manage</span></button>
-              <button class="nav-button nav-button--accent" type="button" data-action="open-archived-projects"><span>[▤] archived</span></button>
+              <button class="nav-button nav-button--accent" type="button" data-action="new-project"><span>+ new project</span></button>
+              <button class="nav-button nav-button--accent" type="button" data-action="open-project-manager"><span>≡ manage</span></button>
+              <button class="nav-button nav-button--accent" type="button" data-action="open-archived-projects"><span>▤ archived</span></button>
             </div>
           </details>`;
 }
@@ -268,10 +278,10 @@ export function renderShellHtml({
             <input type="search" placeholder="${isLibraryView ? 'Search documents' : 'Search tasks'}" autocomplete="off" value="${escapeHtml(searchQuery)}" data-search-input>
           </label>
           <div class="topbar-actions">
-            <button type="button" data-action="open-settings" class="bracket-button">[~] settings</button>
-            <button type="button" data-action="open-admin" class="bracket-button">[a] admin</button>
-            ${isLibraryView ? '<button type="button" data-action="import-document" class="bracket-button">[↑] import</button>' : ''}
-            <button type="button" data-action="${primaryAction.action}" class="bracket-button bracket-button--primary">[+] ${primaryAction.label === 'New Document' ? 'new doc' : 'new'}</button>
+            <button type="button" data-action="open-settings" class="bracket-button"><kbd>~</kbd> settings</button>
+            <button type="button" data-action="open-admin" class="bracket-button"><kbd>a</kbd> admin</button>
+            ${isLibraryView ? '<button type="button" data-action="import-document" class="bracket-button"><kbd>↑</kbd> import</button>' : ''}
+            <button type="button" data-action="${primaryAction.action}" class="bracket-button bracket-button--primary">+ ${primaryAction.label === 'New Document' ? 'new doc' : 'new'}</button>
           </div>
         </header>
         ${metricsHtml}

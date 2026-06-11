@@ -363,7 +363,6 @@ function renderDocumentDetail(document, options = {}) {
         ${options.isLibraryDocOpen ? `<button class="detail-back bracket-button bracket-button--quiet" type="button" data-action="close-library-doc" aria-label="Back">← back</button>` : ''}
         <span class="detail-kicker">${escapeHtml(labelFromValue(document.documentType || 'note'))}</span>
         <h2 id="selected-document-title">${escapeHtml(document.title || 'Untitled document')} ${renderKindBadge(document.kind)}${renderTrustChips(document)}</h2>
-        <p>${escapeHtml(document.sourceFilename || 'Created in Moomora Console')}</p>
         <p class="library-detail-meta">Updated by ${escapeHtml(document.updatedBy || 'user')}${document.verified ? ` · verified${document.verifiedBy ? ` by ${escapeHtml(document.verifiedBy)}` : ''}` : ' · unverified'}${document.status === 'superseded' ? ' · superseded' : ''}</p>
         <div class="document-tags">${renderTags(document.tags)}</div>
         <div class="detail-actions">
@@ -442,25 +441,25 @@ export function renderLibraryHtml({
           <button class="bracket-button bracket-button--quiet library-tags-toggle" type="button" data-action="toggle-library-tags-drawer" aria-expanded="${isLibraryTagsDrawerOpen}">filters ↕</button>
         </header>
         <div class="library-tag-filter__drawer${isLibraryTagsDrawerOpen ? ' is-open' : ''}">
+          <div class="library-controls">
+            <div class="modes library-type-filter" role="tablist" aria-label="Document type">
+              <button class="${typeFilter === 'all' ? 'on' : ''}" type="button" role="tab" data-library-type="all" aria-selected="${typeFilter === 'all'}">all</button>
+              <button class="${typeFilter === 'runbook' ? 'on' : ''}" type="button" role="tab" data-library-type="runbook" aria-selected="${typeFilter === 'runbook'}">runbook</button>
+              <button class="${typeFilter === 'note' ? 'on' : ''}" type="button" role="tab" data-library-type="note" aria-selected="${typeFilter === 'note'}">note</button>
+            </div>
+            <label class="library-sort-label">sort
+              <select class="library-sort" data-library-sort>
+                <option value="updated"${sortBy === 'updated' ? ' selected' : ''}>updated</option>
+                <option value="created"${sortBy === 'created' ? ' selected' : ''}>created</option>
+                <option value="title"${sortBy === 'title' ? ' selected' : ''}>title</option>
+                <option value="type"${sortBy === 'type' ? ' selected' : ''}>type</option>
+              </select>
+            </label>
+            <button class="bracket-button bracket-button--quiet library-group-toggle" type="button" data-action="toggle-library-group" aria-pressed="${groupByType}">group: ${groupByType ? 'type' : 'off'}</button>
+          </div>
           ${renderSmartViews({ savedViews, activeSavedViewId, activeTags })}
           ${renderTagFilters({ availableTags, activeTags, tagQuery, areTagsExpanded })}
           ${renderActiveFilters({ activeTags, activeSavedViewId, savedViews, documentCount: safeDocuments.length })}
-        </div>
-        <div class="library-controls">
-          <div class="modes library-type-filter" role="tablist" aria-label="Document type">
-            <button class="${typeFilter === 'all' ? 'on' : ''}" type="button" role="tab" data-library-type="all" aria-selected="${typeFilter === 'all'}">all</button>
-            <button class="${typeFilter === 'runbook' ? 'on' : ''}" type="button" role="tab" data-library-type="runbook" aria-selected="${typeFilter === 'runbook'}">runbook</button>
-            <button class="${typeFilter === 'note' ? 'on' : ''}" type="button" role="tab" data-library-type="note" aria-selected="${typeFilter === 'note'}">note</button>
-          </div>
-          <label class="library-sort-label">sort
-            <select class="library-sort" data-library-sort>
-              <option value="updated"${sortBy === 'updated' ? ' selected' : ''}>updated</option>
-              <option value="created"${sortBy === 'created' ? ' selected' : ''}>created</option>
-              <option value="title"${sortBy === 'title' ? ' selected' : ''}>title</option>
-              <option value="type"${sortBy === 'type' ? ' selected' : ''}>type</option>
-            </select>
-          </label>
-          <button class="bracket-button bracket-button--quiet library-group-toggle" type="button" data-action="toggle-library-group" aria-pressed="${groupByType}">group: ${groupByType ? 'type' : 'off'}</button>
         </div>
         ${semanticAvailable ? `
         <div class="library-search-mode" role="group" aria-label="Search mode">
