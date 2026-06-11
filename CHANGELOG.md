@@ -12,16 +12,22 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-06-11
+
+### Changed
+
+- **`search_documents` (MCP) is active-only by default**, matching the documented
+  "retrieval is active-only" contract — agents no longer receive superseded/deprecated
+  memory from full-text search unless they ask. A new optional `status` parameter
+  (`active` / `superseded` / `deprecated` / `all`) lifts the filter for curation. The raw
+  `GET /api/library/documents` route keeps returning all non-archived statuses (the web UI
+  lists superseded documents with chips) — this exception is now documented in the contract.
+
 ### Fixed
 
 - **Context-pack `limit` is now a pack-wide budget** (was per-section, so a pack could
   exceed the requested size). The budget is spent in section order — overview → relevant →
   runbooks → unverified — and the pack never contains more than `limit` documents.
-- **`search_documents` (MCP) is active-only by default**, matching the documented
-  "retrieval is active-only" contract. A new optional `status` parameter
-  (`active` / `superseded` / `deprecated` / `all`) lifts the filter for curation. The raw
-  `GET /api/library/documents` route keeps returning all non-archived statuses (the web UI
-  lists superseded documents with chips) — this exception is now documented in the contract.
 - **Orphan-revert now ignores supersedes links from archived documents**: a superseded
   document whose only remaining superseder is archived reverts to `active` on unlink,
   in the demo server as well as Postgres.
@@ -534,7 +540,8 @@ fresh empty `[Unreleased]` section is started.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.19.2...HEAD
+[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.20.0...HEAD
+[0.20.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.19.2...v0.20.0
 [0.19.2]: https://github.com/awaybreaktoday/moomora-console/compare/v0.19.1...v0.19.2
 [0.19.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.19.0...v0.19.1
 [0.19.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.18.0...v0.19.0
