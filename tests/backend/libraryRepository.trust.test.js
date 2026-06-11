@@ -31,12 +31,15 @@ test('buildMarkSuperseded only flips an active doc', () => {
   assert.deepEqual(q.values, [ID]);
 });
 
-test('buildRevertSupersededIfOrphan reverts only when no supersedes link remains', () => {
+test('buildRevertSupersededIfOrphan reverts only when no live supersedes link remains', () => {
   const q = buildRevertSupersededIfOrphan(ID);
   assert.match(q.text, /set status = 'active'/);
   assert.match(q.text, /status = 'superseded'/);
   assert.match(q.text, /not exists/);
   assert.match(q.text, /relation = 'supersedes'/);
+  // Links from archived documents must not hold the target superseded.
+  assert.match(q.text, /join markdown_documents src on src\.id = dl\.source_document_id/);
+  assert.match(q.text, /src\.archived_at is null/);
   assert.deepEqual(q.values, [ID]);
 });
 

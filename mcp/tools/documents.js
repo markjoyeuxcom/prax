@@ -12,7 +12,7 @@ export function createDocumentTools(client) {
       name: 'search_documents',
       title: 'Search documents',
       description:
-        'Full-text search the Moomora library. Returns lightweight references (id, title, type, projectId, tags, snippet) without bodies. Call get_document to read a full document.',
+        'Full-text search the Moomora library. Returns lightweight references (id, title, type, projectId, tags, snippet) without bodies. Active documents only by default — pass status to see superseded/deprecated memory. Call get_document to read a full document.',
       annotations: { readOnlyHint: true },
       inputSchema: {
         query: z.string().optional().describe('Search text matched against title, body, and tags. Omit to browse by project/tags alone.'),
@@ -20,9 +20,18 @@ export function createDocumentTools(client) {
         documentType: DOCUMENT_TYPE.optional().describe('Limit to runbooks or notes.'),
         tags: z.array(z.string()).optional().describe('Require all of these tags.'),
         kind: DOCUMENT_KIND.optional().describe('Limit to hand-authored sources or agent-synthesized derivations.'),
+        status: z.enum(['active', 'superseded', 'deprecated', 'all']).optional()
+          .describe("Trust-status filter. Defaults to 'active' (retrieval is active-only); pass 'all' to include superseded/deprecated memory, e.g. for curation."),
       },
-      handler: withErrorHandling(async ({ query, project, documentType, tags, kind }) => {
-        const docs = await client.listDocuments({ q: query, project, documentType, kind });
+      handler: withErrorHandling(async ({ query, project, documentType, tags, kind, status }) => {
+        const effectiveStatus = status || 'active';
+        const docs = await client.listDocuments({
+          q: query,
+          project,
+          documentType,
+          kind,
+          ...(effectiveStatus === 'all' ? {} : { status: effectiveStatus }),
+        });
         let refs = (Array.isArray(docs) ? docs : []).map(toDocumentRef);
         if (Array.isArray(tags) && tags.length > 0) {
           refs = refs.filter((ref) => tags.every((tag) => ref.tags.includes(tag)));
