@@ -12,6 +12,8 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.19.2] - 2026-06-11
+
 ### Fixed
 
 - **Selected board card joins the de-glow.** It drew a full amber outline plus an inset
@@ -518,7 +520,8 @@ fresh empty `[Unreleased]` section is started.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.19.1...HEAD
+[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.19.2...HEAD
+[0.19.2]: https://github.com/awaybreaktoday/moomora-console/compare/v0.19.1...v0.19.2
 [0.19.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.19.0...v0.19.1
 [0.19.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.17.1...v0.18.0
