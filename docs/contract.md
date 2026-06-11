@@ -185,7 +185,7 @@ required/optional status, and enum option sets. Shared enums: `STATUS`
 | `get_task` | `id` | yes |
 | `create_task` | `title`, `project`, `description?`, `priority?:PRIORITY`, `status?:STATUS`, `dueDate?` | — |
 | `update_task` | `id`, `title?`, `description?`, `notes?`, `priority?:PRIORITY`, `status?:STATUS`, `project?`, `dueDate?` | — |
-| `search_documents` | `query?`, `project?`, `documentType?:DOCUMENT_TYPE`, `tags?`, `kind?:KIND` | yes |
+| `search_documents` | `query?`, `project?`, `documentType?:DOCUMENT_TYPE`, `tags?`, `kind?:KIND`, `status?:{active\|superseded\|deprecated\|all}` | yes |
 | `get_document` | `id` | yes |
 | `create_document` | `title`, `body`, `documentType:DOCUMENT_TYPE`, `project`, `tags?`, `kind?:KIND` | — |
 | `update_document` | `id`, `title?`, `body?`, `documentType?:DOCUMENT_TYPE`, `project?`, `tags?`, `kind?:KIND` | — |
@@ -257,7 +257,12 @@ trust state is managed via the `verify`/`supersede` endpoints below.
 
 All read paths that return document records (`get_document`, search rows, stale/orphan rows,
 context-pack items) include these four fields. Retrieval is **active-only** by default: only
-documents with `status = 'active'` appear in search and the context-pack.
+documents with `status = 'active'` appear in semantic search, the context-pack, the
+`search_documents` MCP tool, and CLI recall (each accepts an explicit status/`--all` override
+for curation). The raw `GET /api/library/documents` route is the exception: it returns **all
+non-archived statuses** unless `?status=active|superseded|deprecated` is passed, because the
+web UI lists superseded documents with their trust chips. Raw HTTP callers doing retrieval
+should pass `status=active`.
 
 **Trust under no-auth:** `verified` is a workflow signal, not access control. Under the
 trusted-network model anyone on the network can call the verify endpoint. See
@@ -287,7 +292,9 @@ document is not found).
 `GET /api/projects/:idOrSlug/context-pack`
 
 Query parameters: `query` (optional, used for semantic ranking when embeddings are on),
-`limit` (default `12`, max `50`), `format` (`md` or `json`, default `md`). Returns a
+`limit` (default `12`, max `50`), `format` (`md` or `json`, default `md`). `limit` is a
+single **pack-wide** document budget, spent in section order (overview → relevant →
+runbooks → unverified) — the pack never contains more than `limit` documents. Returns a
 bounded, trust-aware context briefing for the project: verified documents by section, with
 unverified documents quarantined in a `⚠ Unverified — pending human review` section. When
 `format=md` the response is `text/markdown`; when `format=json` it is a JSON object with a

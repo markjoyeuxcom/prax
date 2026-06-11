@@ -24,6 +24,23 @@ test('buildContextPack quarantines unverified, excludes superseded, sorts sectio
   assert.ok(!allIds.includes('s'));
 });
 
+test('buildContextPack limit is a pack-wide budget, not per-section', () => {
+  const many = [
+    { id: 'c1', title: 'Card', body: 'b', documentType: 'note', tags: ['project-card'], verified: true, status: 'active' },
+    { id: 'm1', title: 'm1', body: 'b', documentType: 'note', tags: [], verified: true, status: 'active' },
+    { id: 'm2', title: 'm2', body: 'b', documentType: 'note', tags: [], verified: true, status: 'active' },
+    { id: 'r1', title: 'r1', body: 'b', documentType: 'runbook', tags: [], verified: true, status: 'active' },
+    { id: 'u1', title: 'u1', body: 'b', documentType: 'note', tags: [], verified: false, status: 'active' },
+    { id: 'u2', title: 'u2', body: 'b', documentType: 'note', tags: [], verified: false, status: 'active' },
+  ];
+  const pack = buildContextPack(many, { project, query: 'x', limit: 4 });
+  const allIds = pack.sections.flatMap((s) => s.items.map((i) => i.id));
+  assert.equal(allIds.length, 4);
+  // Budget spends in section order: overview → relevant → runbooks → unverified.
+  assert.deepEqual(allIds, ['c1', 'm1', 'm2', 'r1']);
+  assert.ok(!pack.sections.some((s) => s.kind === 'unverified'));
+});
+
 test('buildContextPack omits empty sections and respects limit', () => {
   const pack = buildContextPack(
     [{ id: 'm1', title: 'm1', body: 'b', documentType: 'note', tags: [], verified: true, status: 'active' },

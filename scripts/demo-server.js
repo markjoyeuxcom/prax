@@ -481,7 +481,10 @@ function createMemoryLibraryRepository(documents, linksRef = null) {
     async revertSupersededIfOrphan(id) {
       const document = documents.find((d) => d.id === id && !d.archivedAt);
       if (!document || document.status !== 'superseded') return document || null;
-      const stillSuperseded = linksRef && linksRef.some((l) => l.targetId === id && l.relation === 'supersedes');
+      // Mirrors the SQL: supersedes links from archived sources don't hold the target superseded.
+      const stillSuperseded = linksRef && linksRef.some((l) =>
+        l.targetId === id && l.relation === 'supersedes' &&
+        documents.some((d) => d.id === l.sourceId && !d.archivedAt));
       if (!stillSuperseded) document.status = 'active';
       return document;
     },

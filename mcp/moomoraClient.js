@@ -86,8 +86,8 @@ export function createMoomoraClient({
   }
 
   return {
-    listDocuments: ({ q, project, documentType, kind } = {}) =>
-      request('GET', '/api/library/documents', { query: { q, project, documentType, kind } }),
+    listDocuments: ({ q, project, documentType, kind, status } = {}) =>
+      request('GET', '/api/library/documents', { query: { q, project, documentType, kind, status } }),
 
     searchDocumentsSemantic: (query, project) =>
       request('GET', '/api/library/documents/semantic-search', { query: { q: query, project } }),

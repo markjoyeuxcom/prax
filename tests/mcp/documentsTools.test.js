@@ -29,7 +29,7 @@ test('search_documents maps args to listDocuments and returns refs without bodie
   };
   const tool = byName(createDocumentTools(client), 'search_documents');
   const res = await tool.handler({ query: 'upgrade', project: 'homelab' });
-  assert.deepEqual(received, { q: 'upgrade', project: 'homelab', documentType: undefined, kind: undefined });
+  assert.deepEqual(received, { q: 'upgrade', project: 'homelab', documentType: undefined, kind: undefined, status: 'active' });
   const data = JSON.parse(res.content[0].text);
   assert.equal(data.length, 1);
   assert.equal('body' in data[0], false);
@@ -41,8 +41,23 @@ test('search_documents allows an omitted query (browse by project/tags)', async 
   const client = { listDocuments: async (filters) => { received = filters; return [SAMPLE_DOC]; } };
   const tool = byName(createDocumentTools(client), 'search_documents');
   const res = await tool.handler({ project: 'homelab' });
-  assert.deepEqual(received, { q: undefined, project: 'homelab', documentType: undefined, kind: undefined });
+  assert.deepEqual(received, { q: undefined, project: 'homelab', documentType: undefined, kind: undefined, status: 'active' });
   assert.equal(JSON.parse(res.content[0].text).length, 1);
+});
+
+test('search_documents is active-only by default and status=all lifts the filter', async () => {
+  let received;
+  const client = { listDocuments: async (filters) => { received = filters; return [SAMPLE_DOC]; } };
+  const tool = byName(createDocumentTools(client), 'search_documents');
+
+  await tool.handler({ query: 'x' });
+  assert.equal(received.status, 'active');
+
+  await tool.handler({ query: 'x', status: 'superseded' });
+  assert.equal(received.status, 'superseded');
+
+  await tool.handler({ query: 'x', status: 'all' });
+  assert.equal('status' in received, false);
 });
 
 test('search_documents filters by tags client-side', async () => {

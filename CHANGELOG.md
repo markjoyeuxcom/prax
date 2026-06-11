@@ -12,6 +12,20 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Context-pack `limit` is now a pack-wide budget** (was per-section, so a pack could
+  exceed the requested size). The budget is spent in section order — overview → relevant →
+  runbooks → unverified — and the pack never contains more than `limit` documents.
+- **`search_documents` (MCP) is active-only by default**, matching the documented
+  "retrieval is active-only" contract. A new optional `status` parameter
+  (`active` / `superseded` / `deprecated` / `all`) lifts the filter for curation. The raw
+  `GET /api/library/documents` route keeps returning all non-archived statuses (the web UI
+  lists superseded documents with chips) — this exception is now documented in the contract.
+- **Orphan-revert now ignores supersedes links from archived documents**: a superseded
+  document whose only remaining superseder is archived reverts to `active` on unlink,
+  in the demo server as well as Postgres.
+
 ## [0.19.2] - 2026-06-11
 
 ### Fixed
