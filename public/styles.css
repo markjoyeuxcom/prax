@@ -365,9 +365,10 @@ html {
 }
 
 .nav-button.is-active {
-  background: var(--surface);
-  color: var(--accent);
-  box-shadow: inset 3px 0 0 var(--accent);
+  /* Muted pill (mockup treatment) — no accent stripe; the tinted background
+     carries the state so the accent colour stays an accent, not a floodlight. */
+  background: color-mix(in srgb, var(--accent) 13%, var(--bg-deep));
+  color: color-mix(in srgb, var(--accent) 82%, var(--text));
 }
 
 .nav-button.is-active .nav-button__count {
