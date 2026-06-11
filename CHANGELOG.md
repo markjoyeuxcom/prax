@@ -12,6 +12,8 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.19.1] - 2026-06-11
+
 ### Fixed
 
 - **Task/library rows and the task drawer join the de-glow.** The task detail drawer's
@@ -510,7 +512,8 @@ fresh empty `[Unreleased]` section is started.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.19.0...HEAD
+[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.19.1...HEAD
+[0.19.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.19.0...v0.19.1
 [0.19.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.17.1...v0.18.0
 [0.17.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.17.0...v0.17.1
