@@ -78,7 +78,7 @@ moomora context --json
 Flags:
 
 - `--json` — emit the raw JSON context-pack object instead of Markdown
-- `--limit <n>` — cap the number of items per section (server default: 12, max: 50)
+- `--limit <n>` — cap the total number of documents in the pack (server default: 12, max: 50)
 
 The Markdown output groups documents into labelled sections — see [Output shape](#context-output-shape) below.
 
@@ -185,7 +185,9 @@ human from memory that hasn't — not for preventing unauthorized writes. See
 
 Below is an example of the Markdown emitted by `moomora context "restore postgres"`. The
 structure is: a top-level header naming the project, an optional query line, then one or more
-`##` sections. Unverified documents always appear last under a clearly-labelled warning header.
+`##` sections. Unverified documents always appear last under a clearly-labelled warning header;
+with a small `--limit` they may be dropped entirely once the budget is spent on
+higher-priority sections.
 
 ```markdown
 # Context: Homelab (active)

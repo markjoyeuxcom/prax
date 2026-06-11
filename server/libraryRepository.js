@@ -161,14 +161,20 @@ export function buildMarkSuperseded(id) {
 }
 
 export function buildRevertSupersededIfOrphan(id) {
+  // A supersedes link whose source document is archived no longer "holds"
+  // the target superseded — only links from live documents count.
   return {
     text: `
       update markdown_documents
       set status = 'active', updated_at = now()
       where id = $1 and status = 'superseded'
         and not exists (
-          select 1 from document_links
-          where target_document_id = $1 and relation = 'supersedes'
+          select 1
+          from document_links dl
+          join markdown_documents src on src.id = dl.source_document_id
+          where dl.target_document_id = $1
+            and dl.relation = 'supersedes'
+            and src.archived_at is null
         )
       returning *
     `,
