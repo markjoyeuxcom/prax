@@ -4,7 +4,7 @@ A living backlog of planned and deferred work. This is **direction, not a commit
 catalogue of candidate next steps kept honest. Substantial items go through the repo's
 spec → plan → review workflow under [`docs/superpowers/`](superpowers/) before implementation.
 
-**Current release:** `v0.19.2`.
+**Current release:** `v0.20.0`.
 
 ## Recently shipped
 
@@ -39,15 +39,6 @@ next steps, by value:
 - [ ] **Retrieval eval harness.** A fixed set of `query → expected-doc` pairs run in CI to catch
   recall regressions (e.g. the title-vs-body miss fixed in v0.14.1). For a product whose whole
   value is retrieval, this earns its keep. *(small–medium)*
-
-## Minor follow-ups (from code review)
-
-- [ ] **Context-pack `limit` is per-section, not a global cap** — make it a single doc/token
-  budget so a pack can't exceed the requested limit.
-- [ ] **`GET /api/library/documents` is not active-only server-side** — only the CLI filters to
-  active; document the behaviour or add a server default so MCP/raw callers aren't surprised.
-- [ ] **`buildRevertSupersededIfOrphan` doesn't exclude archived link sources** — tiny latent
-  edge case in the supersede-revert query.
 
 ## Bigger product bets (shared-memory direction)
 
