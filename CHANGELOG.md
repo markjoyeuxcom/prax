@@ -12,6 +12,16 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Task/library rows and the task drawer join the de-glow.** The task detail drawer's
+  left border was a full-height accent line — now a normal hairline seam. The selected
+  task row drops its full amber outline (selection is the amber edge + tint, like library
+  rows). List rows (`task-row` / `document-row` / `task-card`) are square again — the 6px
+  control radius was curving their colored edges and hover tints into capsules. Detail
+  section tabs, mobile tabs, and the list/board toolbar toggles adopt the same muted-pill
+  active treatment as the sidebar nav.
+
 ## [0.19.0] - 2026-06-11
 
 ### Changed

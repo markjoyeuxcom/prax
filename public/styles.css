@@ -686,7 +686,7 @@ html {
   width: var(--task-detail-width, 380px);
   display: flex;
   background: var(--surface);
-  border-left: 1px solid var(--accent);
+  border-left: 1px solid var(--border);
   box-shadow: -10px 0 24px rgba(0, 0, 0, 0.5);
   z-index: 5;
 }
@@ -699,7 +699,7 @@ html {
 }
 .task-detail-resizer:hover,
 .task-detail-resizer:focus-visible,
-.task-detail-resizer.is-dragging { background: var(--border-dim); border-right-color: var(--accent); }
+.task-detail-resizer.is-dragging { background: var(--border-dim); border-right-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
 .task-detail-drawer .detail-panel { flex: 1; min-width: 0; border: none; overflow-y: auto; }
 
 @media (max-width: 767px) {
@@ -770,6 +770,7 @@ html {
   border: 0;
   border-top: 1px solid var(--border);
   border-left: 3px solid var(--accent-cyan);
+  border-radius: 0;
   background: var(--surface);
   color: var(--text-body);
   text-align: left;
@@ -783,7 +784,8 @@ html {
 .task-card--lo { border-left-color: var(--accent-cyan); }
 
 .task-card.is-selected {
-  border-color: var(--accent-amber);
+  /* Selection lives in the amber edge + tint (mockup row language) — no
+     full amber outline, which read as a glowing capsule on rounded rows. */
   border-left-color: var(--accent-amber);
   background: color-mix(in srgb, var(--accent-amber) 8%, transparent);
 }
@@ -828,6 +830,9 @@ html {
   padding: 10px 14px;
   border: 0;
   border-top: 1px solid var(--border);
+  /* Full-width list rows are square — the control radius would curve the
+     selection edge and hover tint into capsules. */
+  border-radius: 0;
   background: transparent;
   color: var(--text-body);
   text-align: left;
@@ -1650,6 +1655,7 @@ button.task-row:hover { background: color-mix(in srgb, var(--accent) 4%, transpa
   border: 0;
   border-top: 1px solid var(--border);
   border-left: 3px solid transparent;
+  border-radius: 0;
   background: transparent;
   color: var(--text);
   text-align: left;
@@ -3440,8 +3446,8 @@ button.task-row:hover { background: color-mix(in srgb, var(--accent) 4%, transpa
 }
 
 .detail-section-rail__item[aria-pressed="true"] {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: color-mix(in srgb, var(--accent) 82%, var(--text));
+  background: color-mix(in srgb, var(--accent) 13%, var(--bg-deep));
 }
 
 .detail-panel[data-active-detail-section="summary"] .detail-body [data-detail-section]:not([data-detail-section="summary"]),
@@ -3472,8 +3478,8 @@ button.task-row:hover { background: color-mix(in srgb, var(--accent) 4%, transpa
 }
 
 .detail-mobile-tabs__tab[aria-pressed="true"] {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: color-mix(in srgb, var(--accent) 82%, var(--text));
+  background: color-mix(in srgb, var(--accent) 13%, var(--bg-deep));
 }
 
 .linked-docs {
@@ -3765,7 +3771,7 @@ button.task-row:hover { background: color-mix(in srgb, var(--accent) 4%, transpa
 .board-toolbar__option { font-family: var(--font-mono); font-size: 0.7857rem; padding: 4px 12px; background: transparent; color: var(--text-dim); border: 0; border-right: 1px solid var(--border); cursor: pointer; }
 .board-toolbar__option:last-child { border-right: 0; }
 .board-toolbar__option:hover { color: var(--text); }
-.board-toolbar__option[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+.board-toolbar__option[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 13%, var(--bg-deep)); color: color-mix(in srgb, var(--accent) 82%, var(--text)); }
 
 .board-filterbar {
   display: flex;
@@ -3819,7 +3825,7 @@ button.task-row:hover { background: color-mix(in srgb, var(--accent) 4%, transpa
 .list-toolbar__option { font-family: var(--font-mono); font-size: 0.7857rem; padding: 4px 12px; background: transparent; color: var(--text-dim); border: 0; border-right: 1px solid var(--border); cursor: pointer; }
 .list-toolbar__option:last-child { border-right: 0; }
 .list-toolbar__option:hover { color: var(--text); }
-.list-toolbar__option[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+.list-toolbar__option[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 13%, var(--bg-deep)); color: color-mix(in srgb, var(--accent) 82%, var(--text)); }
 
 .task-lanes { display: flex; flex-direction: column; }
 .task-lane { border-bottom: 1px solid var(--border); }
