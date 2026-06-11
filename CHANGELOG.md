@@ -12,6 +12,8 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-06-11
+
 ### Changed
 
 - **Library/shell mockup parity (design polish, phase 3).** Sidebar navigation swaps the
@@ -21,6 +23,11 @@ fresh empty `[Unreleased]` section is started.
   document list starts immediately under one slim row; the detail header drops the
   source-filename line; and the Console palette is aligned to the design-mockup values
   (`#7ee787` accent, neutral-green surfaces, `#232b23` hairlines). Other palettes unchanged.
+- **Active states de-glowed.** The sidebar nav, settings nav, edit/preview/split mode tabs,
+  and the mobile drawer no longer mark the active item with an inset accent stripe and
+  full-accent text (which read as a glowing capsule once controls gained radii); active state
+  is now a muted tinted pill, per the design mockups. The library resizer's hover/drag fill is
+  softened from full accent to a mix.
 
 ## [0.18.0] - 2026-06-10
 
@@ -493,7 +500,8 @@ fresh empty `[Unreleased]` section is started.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.18.0...HEAD
+[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.19.0...HEAD
+[0.19.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.17.1...v0.18.0
 [0.17.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.16.0...v0.17.0
