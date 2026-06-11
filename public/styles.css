@@ -989,9 +989,9 @@ button.task-row:hover { background: color-mix(in srgb, var(--accent) 4%, transpa
 .board-card.is-dragging { opacity: 0.5; }
 
 .board-card.is-selected {
-  border-color: var(--accent-amber);
+  /* Same selection grammar as list rows: amber edge + tint. The full amber
+     outline + inset stripe combo read as a glowing capsule. */
   border-left-color: var(--accent-amber);
-  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent-amber) 75%, transparent);
   background: color-mix(in srgb, var(--accent-amber) 8%, transparent);
 }
 

@@ -12,6 +12,12 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Selected board card joins the de-glow.** It drew a full amber outline plus an inset
+  amber stripe on top of the tint — selection is now the amber left edge + tint, same as
+  the task and library list rows.
+
 ## [0.19.1] - 2026-06-11
 
 ### Fixed
