@@ -528,6 +528,8 @@ function mountEditorIfNeeded() {
     documentEditorController = mountCodeMirrorEditor({
       host,
       value: state.documentDraftBody,
+      lineNumbers: Boolean(state.preferences.lineNumbers),
+      cursorToEnd: true,
       onChange: (value) => {
         if (fallback) fallback.value = value;
         handleDocumentDraftBodyChange(value);
@@ -553,7 +555,13 @@ function focusEditor() {
     documentEditorController.focus();
     return;
   }
-  appRoot.querySelector('[data-document-editor]:not([hidden])')?.focus();
+  const textarea = appRoot.querySelector('[data-document-editor]:not([hidden])');
+  if (textarea) {
+    textarea.focus();
+    // Continue the document rather than typing above the heading.
+    const end = textarea.value.length;
+    textarea.setSelectionRange(end, end);
+  }
 }
 
 function applyEditorFormat(action) {
@@ -771,6 +779,7 @@ function goSettings() {
 }
 
 function escapeCascade() {
+  if (state.docMenuOpen) { setState({ docMenuOpen: false }); renderApp(); return; }
   if (state.paletteOpen) { setState({ paletteOpen: false }); renderApp(); return; }
   if (state.captureOpen) { setState({ captureOpen: false }); renderApp(); return; }
   if (state.isLinkPickerOpen) { setState({ isLinkPickerOpen: false }); renderApp(); return; }
@@ -1273,7 +1282,8 @@ async function handleAction(action, el, event) {
       break;
     }
     case 'toggle-md-check': toggleMarkdownCheck(Number(el.dataset.line)); break;
-    case 'edit-document-info': setState({ isDocumentInfoEditorOpen: true, documentInfoError: '' }); renderApp(); break;
+    case 'toggle-doc-menu': setState({ docMenuOpen: !state.docMenuOpen }); renderApp(); break;
+    case 'edit-document-info': setState({ isDocumentInfoEditorOpen: true, documentInfoError: '', docMenuOpen: false }); renderApp(); break;
     case 'cancel-document-info': setState({ isDocumentInfoEditorOpen: false, documentInfoError: '' }); renderApp(); break;
     case 'save-document-info': {
       const title = appRoot.querySelector('[data-doc-info-title]')?.value?.trim();
@@ -1294,6 +1304,7 @@ async function handleAction(action, el, event) {
     }
     case 'toggle-verify': {
       const doc = currentDocument();
+      setState({ docMenuOpen: false });
       if (!doc) break;
       try {
         await verifyDocument(doc.id, !doc.verified);
@@ -1304,6 +1315,7 @@ async function handleAction(action, el, event) {
     }
     case 'supersede-document': {
       const doc = currentDocument();
+      setState({ docMenuOpen: false });
       if (!doc) break;
       try {
         const documents = await fetchDocuments({ archived: false });
@@ -1319,6 +1331,7 @@ async function handleAction(action, el, event) {
     }
     case 'archive-document': {
       const doc = currentDocument();
+      setState({ docMenuOpen: false });
       if (!doc || !window.confirm(`Archive "${doc.title}"?`)) break;
       try {
         await archiveDocument(doc.id);
@@ -1380,6 +1393,12 @@ async function handleAction(action, el, event) {
       renderApp();
       break;
     }
+    case 'toggle-line-numbers': {
+      const preferences = savePreferences({ ...state.preferences, lineNumbers: !state.preferences.lineNumbers });
+      setState({ preferences });
+      renderApp();
+      break;
+    }
     case 'reset-preferences': {
       const preferences = resetPreferences();
       setState({ preferences });
@@ -1428,6 +1447,11 @@ async function handleAction(action, el, event) {
 
 function bindEvents() {
   appRoot.addEventListener('click', (event) => {
+    if (state.docMenuOpen && !event.target.closest?.('.menu')) {
+      setState({ docMenuOpen: false });
+      renderApp();
+      return;
+    }
     const picker = event.target.closest?.('[data-link-picker-doc]');
     if (picker && appRoot.contains(picker)) {
       handleLinkPickerPick(picker.dataset.documentId);

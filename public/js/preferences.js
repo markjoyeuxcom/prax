@@ -9,6 +9,7 @@ export const DEFAULT_PREFERENCES = Object.freeze({
   accent: 'fern',
   chromeOS: 'mac',
   readingScale: 1,
+  lineNumbers: false,
 });
 
 export const THEME_OPTIONS = Object.freeze(['light', 'dark']);
@@ -52,6 +53,7 @@ export function normalizePreferences(value = {}) {
     accent: isAllowed(source.accent, ACCENT_OPTIONS) ? source.accent : DEFAULT_PREFERENCES.accent,
     chromeOS: isAllowed(source.chromeOS, CHROME_OPTIONS) ? source.chromeOS : DEFAULT_PREFERENCES.chromeOS,
     readingScale: clampReadingScale(source.readingScale),
+    lineNumbers: source.lineNumbers === true,
   };
 }
 

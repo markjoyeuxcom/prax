@@ -78,6 +78,7 @@ export const state = {
   documentSaveStatus: 'Saved',  // 'Saved' | 'Unsaved changes' | 'Saving...' | 'Autosaving...' | 'Save failed'
   isDocumentInfoEditorOpen: false,
   documentInfoError: '',
+  docMenuOpen: false,           // editor ••• actions dropdown
 
   // ---- settings ----
   preferences: { ...DEFAULT_PREFERENCES },

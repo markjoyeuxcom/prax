@@ -268,3 +268,11 @@ test('escapes backend name, doc titles, sources, and project names', () => {
   assert.match(html, /&lt;script&gt;orphan&lt;\/script&gt;/);
   assert.match(html, /&lt;script&gt;active&lt;\/script&gt;/);
 });
+
+test('appearance offers the editor line-numbers switch reflecting the preference', () => {
+  const off = renderSettingsHtml(baseState(), baseModel());
+  assert.match(off, /data-action="toggle-line-numbers"/);
+  assert.doesNotMatch(off, /toggle-line-numbers"[^>]*aria-checked="true"/);
+  const on = renderSettingsHtml(baseState({ preferences: { ...baseState().preferences, lineNumbers: true } }), baseModel());
+  assert.match(on, /class="switch is-on"[^>]*data-action="toggle-line-numbers"/);
+});

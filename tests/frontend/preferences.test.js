@@ -65,7 +65,7 @@ test('normalizePreferences returns defaults for empty or invalid input', () => {
 test('normalizePreferences preserves valid theme, accent, and chrome values', () => {
   assert.deepEqual(
     normalizePreferences({ theme: 'dark', accent: 'indigo', chromeOS: 'win', readingScale: 1.1 }),
-    { theme: 'dark', accent: 'indigo', chromeOS: 'win', readingScale: 1.1 },
+    { theme: 'dark', accent: 'indigo', chromeOS: 'win', readingScale: 1.1, lineNumbers: false },
   );
 });
 
@@ -95,7 +95,7 @@ test('loadPreferences parses saved localStorage JSON', () => {
     [LOCAL_STORAGE_KEY]: JSON.stringify({ theme: 'dark', accent: 'moss' }),
   });
 
-  assert.deepEqual(loadPreferences(storage), { theme: 'dark', accent: 'moss', chromeOS: 'mac', readingScale: 1 });
+  assert.deepEqual(loadPreferences(storage), { theme: 'dark', accent: 'moss', chromeOS: 'mac', readingScale: 1, lineNumbers: false });
 });
 
 test('loadPreferences returns defaults for malformed saved JSON', () => {
@@ -109,7 +109,7 @@ test('savePreferences stores normalized preferences', () => {
 
   const saved = savePreferences({ theme: 'dark', accent: 'clay', readingScale: 1.25 }, storage);
 
-  assert.deepEqual(saved, { theme: 'dark', accent: 'clay', chromeOS: 'mac', readingScale: 1.25 });
+  assert.deepEqual(saved, { theme: 'dark', accent: 'clay', chromeOS: 'mac', readingScale: 1.25, lineNumbers: false });
   assert.equal(storage.getItem(LOCAL_STORAGE_KEY), JSON.stringify(saved));
 });
 
@@ -141,4 +141,10 @@ test('applyPreferences clears the accent override for the default fern accent', 
   applyPreferences({ theme: 'light', accent: 'fern' }, body);
 
   assert.equal(body.style.getPropertyValue('--accent'), undefined);
+});
+
+test('line numbers preference is a strict boolean, default off', () => {
+  assert.equal(normalizePreferences({}).lineNumbers, false);
+  assert.equal(normalizePreferences({ lineNumbers: true }).lineNumbers, true);
+  assert.equal(normalizePreferences({ lineNumbers: 'yes' }).lineNumbers, false);
 });
