@@ -35,7 +35,7 @@ test('buildAddChecklistItem appends with max\+1 sort_order', () => {
 test('buildSetChecklistItemCompleted scopes the update to task and item', () => {
   const q = buildSetChecklistItemCompleted(TASK, 'item1', true);
   assert.match(q.text, /update task_checklist_items/);
-  assert.match(q.text, /set completed = \$3, updated_at = now\(\)/);
+  assert.match(q.text, /set completed = \$3, updated_at = strftime/);
   assert.match(q.text, /where id = \$2 and task_id = \$1/);
   assert.deepEqual(q.values, [TASK, 'item1', true]);
 });

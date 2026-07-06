@@ -19,8 +19,21 @@ const UPDATE_COLUMN_MAP = {
   kind: 'kind',
 };
 
-function valuesFor(fields, source) {
-  return fields.map(field => source[field] ?? null);
+// tags live in a TEXT column as a JSON array (pg's text[] auto-parsed on
+// read; SQLite hands back the raw text). Malformed text degrades to [].
+function parseJsonArray(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string' || value === '') return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function serializeTags(tags) {
+  return JSON.stringify(Array.isArray(tags) ? tags : []);
 }
 
 export function normalizeDocumentRow(row) {
@@ -30,7 +43,7 @@ export function normalizeDocumentRow(row) {
     body: row.body,
     documentType: row.document_type,
     projectId: row.project_id,
-    tags: row.tags || [],
+    tags: parseJsonArray(row.tags),
     sourceFilename: row.source_filename,
     archivedAt: toIso(row.archived_at),
     createdAt: toIso(row.created_at),
@@ -38,11 +51,12 @@ export function normalizeDocumentRow(row) {
     contentHash: row.content_hash ?? null,
     updatedBy: row.updated_by,
     kind: row.kind,
-    verified: row.verified ?? false,
+    // SQLite stores booleans as 0/1; pg returned real booleans — normalize.
+    verified: Boolean(row.verified ?? false),
     verifiedAt: toIso(row.verified_at) ?? null,
     verifiedBy: row.verified_by ?? null,
     status: row.status ?? 'active',
-    stale: row.stale ?? false,
+    stale: Boolean(row.stale ?? false),
     ...(row.project_slug !== undefined ? { projectSlug: row.project_slug } : {}),
   };
 }
@@ -55,7 +69,10 @@ export function buildCreateDocument(document) {
       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       returning *
     `,
-    values: [...valuesFor(CREATE_FIELDS, document), hashBody(document.body), document.updatedBy || 'user', document.kind || 'source', verified],
+    values: [
+      ...CREATE_FIELDS.map((field) => (field === 'tags' ? serializeTags(document.tags) : (document[field] ?? null))),
+      hashBody(document.body), document.updatedBy || 'user', document.kind || 'source', verified,
+    ],
   };
 }
 
@@ -64,7 +81,7 @@ export function buildUpdateDocument(id, fields) {
   if (entries.length === 0) {
     throw new Error('No document fields provided');
   }
-  const values = [id, ...entries.map(([, value]) => value)];
+  const values = [id, ...entries.map(([key, value]) => (key === 'tags' ? serializeTags(value) : value))];
   const assignments = entries.map(([key], index) => `${UPDATE_COLUMN_MAP[key]} = $${index + 2}`);
 
   values.push(fields.updatedBy || 'user');
@@ -78,7 +95,7 @@ export function buildUpdateDocument(id, fields) {
   return {
     text: `
       update markdown_documents
-      set ${assignments.join(', ')}, updated_at = now()
+      set ${assignments.join(', ')}, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
       where id = $1 and archived_at is null
       returning *
     `,
@@ -90,7 +107,7 @@ export function buildArchiveDocument(id) {
   return {
     text: `
       update markdown_documents
-      set archived_at = now(), updated_at = now()
+      set archived_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
       where id = $1 and archived_at is null
       returning *
     `,
@@ -102,7 +119,7 @@ export function buildRestoreDocument(id) {
   return {
     text: `
       update markdown_documents
-      set archived_at = null, updated_at = now()
+      set archived_at = null, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
       where id = $1 and archived_at is not null
       returning *
     `,
@@ -130,7 +147,7 @@ export function buildVerifyDocument(id, { verified, verifiedBy = null } = {}) {
     return {
       text: `
         update markdown_documents
-        set verified = true, verified_at = now(), verified_by = $2
+        set verified = 1, verified_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), verified_by = $2
         where id = $1 and archived_at is null
         returning *
       `,
@@ -140,7 +157,7 @@ export function buildVerifyDocument(id, { verified, verifiedBy = null } = {}) {
   return {
     text: `
       update markdown_documents
-      set verified = false, verified_at = null, verified_by = null
+      set verified = 0, verified_at = null, verified_by = null
       where id = $1 and archived_at is null
       returning *
     `,
@@ -152,7 +169,7 @@ export function buildMarkSuperseded(id) {
   return {
     text: `
       update markdown_documents
-      set status = 'superseded', updated_at = now()
+      set status = 'superseded', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
       where id = $1 and status = 'active'
       returning *
     `,
@@ -166,7 +183,7 @@ export function buildRevertSupersededIfOrphan(id) {
   return {
     text: `
       update markdown_documents
-      set status = 'active', updated_at = now()
+      set status = 'active', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
       where id = $1 and status = 'superseded'
         and not exists (
           select 1
@@ -202,15 +219,18 @@ export function buildListActiveDocumentsForExport({ projectId } = {}) {
 }
 
 export function buildSetDocumentEmbedding(id, { literal, backend, model, dim, contentHash }) {
+  // Embedding STORAGE keeps working on SQLite: the vector is plain text in a
+  // TEXT column (pg's ::vector cast is gone), ready for the sqlite-vec
+  // follow-up. Only the similarity-search path below is disabled.
   return {
     text: `
       update markdown_documents
-      set embedding = $2::vector,
+      set embedding = $2,
           embedding_backend = $3,
           embedding_model = $4,
           embedding_dim = $5,
           embedded_hash = $6,
-          embedded_at = now()
+          embedded_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
       where id = $1
       returning id
     `,
@@ -218,28 +238,14 @@ export function buildSetDocumentEmbedding(id, { literal, backend, model, dim, co
   };
 }
 
-export function buildSearchDocumentsSemantic(queryLiteral, backend, { projectId, limit = 20, includeRetired = false } = {}) {
-  const values = [queryLiteral, backend];
-  let where = `where archived_at is null and embedding is not null and embedding_backend = $2`;
-  if (!includeRetired) {
-    where += ` and status = 'active'`;
-  }
-  if (projectId) {
-    values.push(projectId);
-    where += ` and project_id = $${values.length}`;
-  }
-  values.push(limit);
-  return {
-    text: `
-      select id, title, document_type, project_id, tags, body, kind, verified, status,
-             1 - (embedding <=> $1::vector) as similarity
-      from markdown_documents
-      ${where}
-      order by embedding <=> $1::vector
-      limit $${values.length}
-    `,
-    values,
-  };
+// STUB — semantic search is unavailable in the embedded-SQLite build.
+// pgvector's `embedding <=> query` cosine-distance operator has no SQLite
+// equivalent until the sqlite-vec follow-up, so this must never emit vector
+// SQL. It throws instead; the routes already wrap the call and map failures
+// to their 409/503 "not configured / backend unavailable" responses (and with
+// the shipped EMBEDDING_BACKEND=none the routes gate before ever calling it).
+export function buildSearchDocumentsSemantic() {
+  throw new Error('semantic search requires a vector backend');
 }
 
 export function buildListDocumentsNeedingEmbedding(backend) {
@@ -303,11 +309,20 @@ export function createLibraryRepository(db) {
         values.push(filters.status);
         clauses.push(`d.status = $${values.length}`);
       }
+      // Full-text search via the external-content FTS5 table (replaces pg's
+      // to_tsvector/to_tsquery). The sanitizer keeps only lowercase [a-z0-9]+
+      // runs, so every token is a safe FTS5 bareword; `term*` keeps the old
+      // prefix-match behavior and whitespace joins as implicit AND. A query
+      // with no alphanumeric terms adds no clause at all (same as before).
+      // No alias on the FTS join: MATCH resolves its LHS as the hidden column
+      // named after the table, so it must read `markdown_documents_fts match`.
+      let ftsJoin = '';
       if (filters.q) {
         const terms = String(filters.q).toLowerCase().match(/[a-z0-9]+/g) || [];
         if (terms.length) {
-          values.push(terms.map(term => `${term}:*`).join(' & '));
-          clauses.push(`to_tsvector('english', coalesce(d.title, '') || ' ' || coalesce(d.body, '')) @@ to_tsquery('english', $${values.length})`);
+          values.push(terms.map(term => `${term}*`).join(' '));
+          ftsJoin = 'join markdown_documents_fts on markdown_documents_fts.rowid = d.rowid';
+          clauses.push(`markdown_documents_fts match $${values.length}`);
         }
       }
       if (filters.archived === true || filters.archived === 'true') {
@@ -317,11 +332,11 @@ export function createLibraryRepository(db) {
       }
 
       const where = clauses.length ? `where ${clauses.join(' and ')}` : '';
+      // stale: pg used a LEFT JOIN LATERAL (... limit 1); SQLite ports it to a
+      // scalar EXISTS subquery in the select list (0/1, normalized to boolean).
       const result = await db.query(`
-        select d.*, coalesce(s.is_stale, false) as stale
-        from markdown_documents d
-        left join lateral (
-          select true as is_stale
+        select d.*, exists (
+          select 1
           from document_links dl
           join markdown_documents tgt
             on tgt.id = dl.target_document_id and tgt.archived_at is null
@@ -329,8 +344,9 @@ export function createLibraryRepository(db) {
             and dl.relation = 'derived-from'
             and dl.target_hash is not null
             and tgt.content_hash is distinct from dl.target_hash
-          limit 1
-        ) s on true
+        ) as stale
+        from markdown_documents d
+        ${ftsJoin}
         ${where}
         order by d.project_id, d.document_type, d.updated_at desc, d.title
       `, values);

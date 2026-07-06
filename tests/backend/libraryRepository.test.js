@@ -103,7 +103,7 @@ test('buildCreateDocument returns a parameterized insert query', () => {
     '# Ingress Notes',
     'note',
     PROJECT_UUID,
-    ['ingress'],
+    '["ingress"]',
     'ingress.md',
     sha('# Ingress Notes'),
     'user',
@@ -121,9 +121,9 @@ test('buildUpdateDocument returns only provided document fields', () => {
   assert.match(query.text, /update markdown_documents/);
   assert.match(query.text, /title = \$2/);
   assert.match(query.text, /tags = \$3/);
-  assert.match(query.text, /updated_at = now\(\)/);
+  assert.match(query.text, /updated_at = strftime\('%Y-%m-%dT%H:%M:%fZ','now'\)/);
   assert.match(query.text, /where id = \$1 and archived_at is null/);
-  assert.deepEqual(query.values, [DOCUMENT_ID, 'Updated', ['runbook'], 'user']);
+  assert.deepEqual(query.values, [DOCUMENT_ID, 'Updated', '["runbook"]', 'user']);
 });
 
 test('buildUpdateDocument rejects empty updates', () => {
@@ -138,7 +138,7 @@ test('archive restore and permanent delete are archived-state scoped', () => {
   const restore = buildRestoreDocument(DOCUMENT_ID);
   const remove = buildDeleteArchivedDocument(DOCUMENT_ID);
 
-  assert.match(archive.text, /set archived_at = now\(\)/);
+  assert.match(archive.text, /set archived_at = strftime\('%Y-%m-%dT%H:%M:%fZ','now'\)/);
   assert.match(archive.text, /where id = \$1 and archived_at is null/);
   assert.match(restore.text, /set archived_at = null/);
   assert.match(restore.text, /where id = \$1 and archived_at is not null/);
@@ -149,13 +149,14 @@ test('archive restore and permanent delete are archived-state scoped', () => {
   assert.deepEqual(remove.values, [DOCUMENT_ID]);
 });
 
-test('listDocuments uses full-text search with prefix terms when q is present', async () => {
+test('listDocuments uses FTS5 full-text search with prefix terms when q is present', async () => {
   let captured;
   const db = { query: async (text, values) => { captured = { text, values }; return { rows: [] }; } };
   const repo = createLibraryRepository(db);
   await repo.listDocuments({ q: 'cloud tunnel' });
-  assert.match(captured.text, /to_tsvector\('english', coalesce\(d\.title, ''\) \|\| ' ' \|\| coalesce\(d\.body, ''\)\) @@ to_tsquery\('english', \$1\)/);
-  assert.deepEqual(captured.values, ['cloud:* & tunnel:*']);
+  assert.match(captured.text, /join markdown_documents_fts on markdown_documents_fts\.rowid = d\.rowid/);
+  assert.match(captured.text, /markdown_documents_fts match \$1/);
+  assert.deepEqual(captured.values, ['cloud* tunnel*']);
 });
 
 test('listDocuments sanitizes q to alphanumeric prefix terms (injection-safe)', async () => {
@@ -163,7 +164,7 @@ test('listDocuments sanitizes q to alphanumeric prefix terms (injection-safe)', 
   const db = { query: async (text, values) => { captured = { text, values }; return { rows: [] }; } };
   const repo = createLibraryRepository(db);
   await repo.listDocuments({ q: 'post; drop table--' });
-  assert.deepEqual(captured.values, ['post:* & drop:* & table:*']);
+  assert.deepEqual(captured.values, ['post* drop* table*']);
 });
 
 test('listDocuments adds no FTS clause when q has no alphanumeric terms', async () => {
@@ -171,7 +172,8 @@ test('listDocuments adds no FTS clause when q has no alphanumeric terms', async 
   const db = { query: async (text, values) => { captured = { text, values }; return { rows: [] }; } };
   const repo = createLibraryRepository(db);
   await repo.listDocuments({ q: '!!!' });
-  assert.doesNotMatch(captured.text, /to_tsquery/);
+  assert.doesNotMatch(captured.text, /markdown_documents_fts/);
+  assert.doesNotMatch(captured.text, /match \$/);
 });
 
 test('listDocuments combines projectId and full-text search', async () => {
@@ -180,8 +182,8 @@ test('listDocuments combines projectId and full-text search', async () => {
   const repo = createLibraryRepository(db);
   await repo.listDocuments({ projectId: PROJECT_UUID, q: 'restore' });
   assert.match(captured.text, /project_id = \$1/);
-  assert.match(captured.text, /to_tsquery\('english', \$2\)/);
-  assert.deepEqual(captured.values, [PROJECT_UUID, 'restore:*']);
+  assert.match(captured.text, /markdown_documents_fts match \$2/);
+  assert.deepEqual(captured.values, [PROJECT_UUID, 'restore*']);
 });
 
 test('buildListActiveDocumentsForExport joins projects and filters archived', () => {

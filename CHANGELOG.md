@@ -14,6 +14,27 @@ fresh empty `[Unreleased]` section is started.
 
 ### Changed
 
+- **PostgreSQL is replaced by an embedded SQLite database** (Node's built-in
+  `node:sqlite` — no native modules, no database server, no Docker requirement).
+  One file (`PRAX_DB_FILE`, default `./prax.db`; `DATABASE_URL` is still read as
+  a plain file path) holds everything, in WAL mode with foreign keys on. The
+  seven Postgres migrations are consolidated into one SQLite schema; migrations
+  still run automatically at startup. Full-text library search now runs on FTS5
+  (external-content table + sync triggers). The HTTP API, export/import formats,
+  and MCP tool surface are byte-for-byte unchanged; constraint errors keep their
+  pg SQLSTATE codes (23505/23503) via the adapter, so existing error handling
+  behaves identically. A new real-engine integration suite drives the whole HTTP
+  API against actual SQLite.
+- **Semantic search is temporarily unavailable** on the embedded engine
+  (`EMBEDDING_BACKEND=none`): the settings endpoint reports it unavailable and
+  the semantic routes return 409, exactly as before when unconfigured. It
+  returns with the `sqlite-vec` follow-up; FTS5 keyword search covers the
+  library meanwhile.
+- Docker Compose no longer runs a database container — just the app plus a
+  named volume. The Kubernetes manifests swap the CloudNativePG cluster for a
+  PersistentVolumeClaim (`Recreate` strategy, single replica — SQLite is
+  single-writer). Backup/restore is now file-based; see docs/backup-restore.md.
+
 - **The Prax desktop design replaces the terminal-inspired UI.** The frontend is
   rebuilt to the Prax design system (light "Porcelain" / dark "Deep Fern" themes,
   Instrument Sans + Source Serif 4 bundled locally, oklch accent system with four

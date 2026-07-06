@@ -1,12 +1,14 @@
 # Prax Kubernetes Deployment
 
-Prax runs as one Node container that serves the frontend and API. Kubernetes manifests
-use a Kustomize **base + overlays** layout under `deploy/`, designed for GitOps with Argo CD.
+Prax runs as one Node container that serves the frontend and API, with all data in a single
+embedded SQLite file on a persistent volume — there is no separate database server. Kubernetes
+manifests use a Kustomize **base + overlays** layout under `deploy/`, designed for GitOps with
+Argo CD.
 
-> **These are sanitized example manifests** for self-hosters — the hostnames (`example.com`), the
-> Ollama endpoint (`ollama.internal`), and the gateway are placeholders to adapt to your own
-> cluster, not a turnkey config. The maintainer's live deployment config is kept in a separate
-> private GitOps repo; this `deploy/` tree is a reference example.
+> **These are sanitized example manifests** for self-hosters — the hostnames (`example.com`) and
+> the gateway are placeholders to adapt to your own cluster, not a turnkey config. The
+> maintainer's live deployment config is kept in a separate private GitOps repo; this `deploy/`
+> tree is a reference example.
 
 ## Layout
 
@@ -19,8 +21,8 @@ deploy/overlays/prod/                 # prod: image tag + hostname patch
 
 `deploy/base/` contains:
 
-- `cluster.yaml` — CloudNativePG `Cluster` resource (`prax-db`)
 - `configmap.yaml` — non-secret app env vars (host, port, embedding config)
+- `pvc.yaml` — `prax-data` PersistentVolumeClaim for the SQLite file
 - `deployment.yaml` — app `Deployment`
 - `service.yaml` — `ClusterIP` `Service`
 - `httproute.yaml` — Gateway API `HTTPRoute` (placeholder hostname; patched by each overlay)
@@ -52,51 +54,48 @@ Each overlay pins the image tag and patches the `HTTPRoute` hostname:
 Overlays are currently pinned to `v0.15.0`. CI-driven `newTag` bumping on release is planned as
 future work.
 
-## CloudNativePG Cluster
+## Data Volume
 
-Each environment provisions its own CNPG `Cluster` resource named `prax-db`. It runs the
-stock CNPG **operand** image `ghcr.io/cloudnative-pg/postgresql:18-minimal-trixie` and mounts
-`pgvector` from the public **extension** image as a Kubernetes ImageVolume (CNPG ≥ 1.27, PostgreSQL
-18's `extension_control_path`):
+All application data lives in one SQLite database file. The `Deployment` sets:
 
 ```yaml
-spec:
-  imageName: ghcr.io/cloudnative-pg/postgresql:18-minimal-trixie
-  postgresql:
-    extensions:
-      - name: pgvector
-        image:
-          reference: ghcr.io/cloudnative-pg/pgvector:0.8.2-18-trixie
+env:
+  - name: PRAX_DB_FILE
+    value: /data/prax.db
 ```
 
-> Note: `ghcr.io/cloudnative-pg/pgvector:*` is an **extension-only** image (it has no Postgres
-> binaries) — it must be mounted via `postgresql.extensions`, not used as the cluster `imageName`.
+and mounts the `prax-data` PVC (`pvc.yaml`, 1Gi, `ReadWriteOnce`) at `/data`. `PRAX_DB_FILE` is
+the canonical setting; `DATABASE_URL` is still read as a plain file path for back-compat with
+pre-rename setups. The database runs in WAL mode, so `-wal`/`-shm` sibling files may appear next
+to `prax.db` on the volume.
 
-At bootstrap, the cluster runs:
+SQLite is embedded and single-writer, which shapes the Deployment:
 
-```sql
-CREATE EXTENSION IF NOT EXISTS vector
-```
+- **`replicas: 1`** — two pods cannot share the database file, so the app does not scale
+  horizontally. Scale vertically via the resource limits instead.
+- **`strategy: Recreate`** — a rolling update would briefly run old and new pods at once, both
+  wanting the file and the `ReadWriteOnce` volume. Recreate stops the old pod (releasing the
+  volume and the SQLite lock) before starting the new one, at the cost of a short gap during
+  upgrades.
 
-This is required because `vector` is not a trusted extension — the non-superuser app role the
-app runs migrations as cannot `CREATE EXTENSION` it. Migration `0005`'s
-`CREATE EXTENSION IF NOT EXISTS vector` then becomes a no-op.
-
-CNPG generates the `prax-db-app` secret automatically. The app reads its `uri` key as
-`DATABASE_URL`.
+The container runs with `readOnlyRootFilesystem: true`; the only writable paths are `/data` (the
+PVC) and `/tmp` (an `emptyDir`). `fsGroup: 1000` makes the volume writable by the non-root app
+user.
 
 ## Database Schema
 
-The app applies database migrations automatically on startup, so deploying the container is
-sufficient to initialise or upgrade the schema. To apply migrations explicitly:
+The app applies database migrations automatically at boot, directly against the SQLite file, so
+deploying the container is sufficient to initialise or upgrade the schema. Each pending `.sql`
+file runs in its own transaction opened with `BEGIN IMMEDIATE` (taking SQLite's write lock up
+front) and is recorded in a `schema_migrations` table. Migrations are forward-only; re-running is
+safe.
+
+There is no separate database to reach from outside the pod. To apply migrations explicitly
+against a local file (e.g. when developing):
 
 ```bash
-DATABASE_URL=$(kubectl get secret prax-db-app -n prax-<env> \
-  -o jsonpath='{.data.uri}' | base64 -d)
-DATABASE_URL="$DATABASE_URL" npm run migrate
+PRAX_DB_FILE=./prax.db npm run migrate
 ```
-
-Migrations are forward-only and tracked in a `schema_migrations` table; re-running is safe.
 
 ## Build and Publish Image
 
@@ -109,18 +108,16 @@ Update the `newTag` in each overlay's `kustomization.yaml` to deploy a new versi
 
 ## Semantic Search
 
-Semantic search is enabled in the base ConfigMap with these values:
+Semantic search is currently unavailable on the embedded SQLite engine. The base ConfigMap
+disables it:
 
 ```yaml
-EMBEDDING_BACKEND: "ollama"
-OLLAMA_URL: "http://ollama.internal:11434"
-EMBEDDING_MODEL: "qwen3-embedding:0.6b"
+# Semantic search returns with the sqlite-vec follow-up (Phase 5).
+EMBEDDING_BACKEND: "none"
 ```
 
-All three environments inherit this config. The pgvector CNPG image ensures the `vector` extension
-is available. Pods must be able to reach `ollama.internal:11434` (the cluster-local Ollama host).
-
-To use a different embedding backend, patch the ConfigMap in the relevant overlay.
+All three environments inherit this. It returns with the sqlite-vec follow-up (Phase 5); until
+then, leave `EMBEDDING_BACKEND` at `none`.
 
 ## Exposure: Gateway API HTTPRoute
 
@@ -134,13 +131,12 @@ Each overlay patches the `HTTPRoute` hostname (see the table above).
 
 These must be in place before syncing — they are the cluster operator's responsibility:
 
-1. **CNPG operator** installed in the cluster.
+1. **Default StorageClass** (or one the cluster binds automatically) so the `prax-data`
+   PVC provisions — the manifest does not name a `storageClassName`.
 2. **`external-gateway`** in `gateway-system` must:
    - Have `allowedRoutes` configured to permit routes from `prax-*` namespaces.
    - Terminate TLS for `*.example.com`.
 3. **DNS** records for all three hostnames pointing at the gateway's external IP/hostname.
-4. **Ollama reachability**: pods in `prax-*` namespaces must reach
-   `ollama.internal:11434` for semantic search to function.
 
 ## Local Render Check
 
@@ -154,11 +150,17 @@ kubectl kustomize deploy/overlays/prod
 
 ## Health Checks
 
-- `/healthz` — confirms the Node process is alive.
-- `/readyz` — confirms database connectivity through `DATABASE_URL`.
+- `/healthz` — confirms the Node process is alive (startup and liveness probes).
+- `/readyz` — confirms the embedded database answers a query; returns `503 not-ready` otherwise
+  (readiness probe).
 
 ## Data Movement
 
-Prax exports backups with the `moomora.tasks` format. Import accepts current Prax
-Console envelopes or raw task arrays, with append, skip duplicates, and replace-context modes
-available from the Admin panel.
+The authoritative backup is a copy of the database file — see
+[backup-restore.md](backup-restore.md) for taking one with `sqlite3 .backup` against the live
+file (or a plain file copy while stopped), the Kubernetes `kubectl exec`/`kubectl cp` recipe,
+and the restore procedure.
+
+For portability rather than backup, the Admin panel exports tasks as a `moomora.tasks` JSON
+envelope and library documents as a ZIP of `.md` files. Import accepts current Prax Console
+envelopes or raw task arrays, with append, skip duplicates, and replace-context modes.

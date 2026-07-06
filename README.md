@@ -1,8 +1,8 @@
 # Prax
 
-Prax is a self-hosted console for tasks, runbooks, and Markdown notes, wrapped in a quiet, terminal-inspired UI. It pairs a project-scoped task queue and board with a full-text Markdown library — import, export, tags, and archive — all backed by PostgreSQL. An optional local MCP server exposes the same data to Claude Code, turning your tasks and notes into working context for AI-assisted work.
+Prax (by Moomora) is a local-first app for tasks, runbooks, and Markdown notes, wearing a calm, native-feeling desktop design. It pairs a project-scoped task list and board with a full-text Markdown library — import, export, tags, and archive — all backed by a single embedded SQLite file. An optional local MCP server exposes the same data to Claude Code, turning your tasks and notes into working context for AI-assisted work.
 
-Run it locally with Docker Compose or deploy it to Kubernetes (with CloudNativePG for PostgreSQL), or try it instantly with the in-memory demo server.
+Run it with plain Node (zero external dependencies — the database is an embedded file), with Docker Compose, or on Kubernetes; or try it instantly with the in-memory demo server.
 
 ## What It Does
 
@@ -15,7 +15,7 @@ Run it locally with Docker Compose or deploy it to Kubernetes (with CloudNativeP
 - Adapts across desktop, tablet, and mobile, with browser-local appearance preferences (Console, Graphite, Daylight, and Midnight palettes plus a font-scale control) and keyboard shortcuts.
 - Offers an Admin panel for backup and JSON task import/export with append, skip duplicates, and replace-project modes.
 - Exposes the API to Claude Code through an optional local MCP server for interactive, subscription-backed task and document workflows.
-- Runs locally via Docker Compose or deploys to Kubernetes, backed by CloudNativePG/PostgreSQL.
+- Runs locally with plain Node or Docker Compose, or deploys to Kubernetes — the embedded SQLite database needs no separate server.
 
 ## Screenshots
 
@@ -31,7 +31,7 @@ Run it locally with Docker Compose or deploy it to Kubernetes (with CloudNativeP
 
 - Node.js
 - Fastify
-- PostgreSQL via `pg`
+- Embedded SQLite via `node:sqlite` (no native modules, no database server)
 - Static frontend with plain JavaScript modules
 - CodeMirror for Markdown editing
 - Example Kubernetes manifests under `deploy/` (Kustomize base + overlays)
@@ -40,7 +40,6 @@ Run it locally with Docker Compose or deploy it to Kubernetes (with CloudNativeP
 
 - Node.js 20 or newer
 - npm
-- PostgreSQL only if you want persistent local data
 
 ## Local Install
 
@@ -73,31 +72,23 @@ Demo mode is for local UI testing. Data resets when the process restarts.
 
 ## Local Persistent Install
 
-Use Docker Compose when you want the app and PostgreSQL together with a persistent local database:
+Use Docker Compose when you want the app containerised with a persistent data volume:
 
 ```bash
 docker compose up --build
 ```
 
-Open:
+then open http://localhost:3100. Compose provides:
 
-```text
-http://127.0.0.1:3100/
-```
+- `app`: the Prax server on host port `3100`
+- `prax-data`: named volume holding `prax.db` (plus its WAL files)
 
-The compose stack starts:
-
-- `app`: Prax on host port `3100`
-- `postgres`: PostgreSQL 18 on host port `54320`
-- `postgres-data`: named volume for database persistence
-
-The app applies database migrations automatically on startup, so a fresh Postgres volume is initialised on first run. To reset local data:
+The app applies database migrations automatically on startup, so a fresh volume is
+initialised on first run. To reset local data:
 
 ```bash
 docker compose down -v
 ```
-
-PostgreSQL 18 uses the official image's version-aware data directory layout. If you previously ran this project with the older PostgreSQL 17 Compose volume, reset local development data with `docker compose down -v` before starting the PostgreSQL 18 stack, or migrate the database with a dump/restore flow.
 
 ## Run The Published Image
 
@@ -115,37 +106,35 @@ ghcr.io/awaybreaktoday/prax:v0.20.0
 
 Use source-build Compose for development, and use the published image path when you want to test the same artifact Kubernetes will run.
 
-## Run With PostgreSQL
+## Run With Persistence
 
-Set `DATABASE_URL` in your shell:
-
-```bash
-export DATABASE_URL="postgresql://user:password@host:5432/database"
-```
-
-The app applies migrations automatically on startup. To apply them explicitly (e.g. before first boot or from CI):
+Prax stores everything in one SQLite file. Choose where it lives (defaults to
+`./prax.db` in the working directory):
 
 ```bash
-DATABASE_URL="postgresql://user:password@host:5432/database" npm run migrate
+export PRAX_DB_FILE="$HOME/.local/share/prax/prax.db"
 ```
 
-Start the production-style server:
+Migrations run automatically on startup; run them manually with:
 
 ```bash
-npm start
+PRAX_DB_FILE="$HOME/.local/share/prax/prax.db" npm run migrate
 ```
 
-By default the app listens on `0.0.0.0:3000`. Override with:
+Start the server:
 
 ```bash
-HOST=127.0.0.1 PORT=3100 DATABASE_URL="postgresql://user:password@host:5432/database" npm start
+HOST=127.0.0.1 PORT=3100 PRAX_DB_FILE="$HOME/.local/share/prax/prax.db" npm start
 ```
+
+Back up by copying the database file (plus `-wal`/`-shm` siblings) or using the
+JSON/Markdown exports in Settings — see [docs/backup-restore.md](docs/backup-restore.md).
 
 ## Semantic Search (optional)
 
 Semantic (embedding-based) library search is **off by default** and configured entirely via
 environment variables (never the UI — the web UI exposes only a read-only status and an on/off
-toggle). It requires PostgreSQL with the `pgvector` extension.
+toggle). Vector-backed semantic search is temporarily unavailable on the embedded database — it returns with the `sqlite-vec` follow-up; keyword full-text search (FTS5) covers the library meanwhile.
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
@@ -176,7 +165,7 @@ npm run build:codemirror
 ```
 
 - `npm run demo` starts the in-memory local demo server.
-- `npm start` starts the PostgreSQL-backed server.
+- `npm start` starts the SQLite-backed server.
 - `npm test` runs backend and frontend unit tests.
 - `npm run check` syntax-checks key server and browser entry points.
 - `npm run migrate` applies pending database migrations.
@@ -250,12 +239,10 @@ and the gateway are placeholders to adapt to your own cluster (the maintainer's 
 in a separate private GitOps repo). A GitOps tool such as Argo CD renders `deploy/overlays/<env>`
 into a namespace like `prax-<env>`; no manifest hard-codes a namespace.
 
-Each environment provisions its own CloudNativePG `Cluster` (`prax-db`) running the
-stock PostgreSQL 18 operand image with `pgvector` mounted from the public
-`ghcr.io/cloudnative-pg/pgvector` image as an ImageVolume extension. CNPG generates the
-`prax-db-app` secret; the app reads its `uri` key as `DATABASE_URL`. Semantic search is enabled through the
-ConfigMap (`EMBEDDING_BACKEND=ollama`, `OLLAMA_URL`, `EMBEDDING_MODEL`), and the app is exposed via a
-Gateway API `HTTPRoute` attached to the cluster's external gateway.
+Each environment provisions a `PersistentVolumeClaim` (`prax-data`) that holds the embedded
+SQLite database at `/data/prax.db` (`PRAX_DB_FILE`); the Deployment uses a `Recreate` strategy
+and a single replica because SQLite is single-writer. The app is exposed via a Gateway API
+`HTTPRoute` attached to the cluster's external gateway.
 
 Render any environment locally (no cluster needed):
 
@@ -264,12 +251,12 @@ kubectl kustomize deploy/overlays/dev
 ```
 
 See [docs/deployment.md](docs/deployment.md) for the full notes, including the cluster-side
-prerequisites (Gateway `allowedRoutes`/TLS, DNS, Ollama reachability).
+prerequisites (a default StorageClass, Gateway `allowedRoutes`/TLS, DNS).
 
 ## Health Checks
 
 - `GET /healthz` confirms the Node process is alive.
-- `GET /readyz` confirms database connectivity when running with PostgreSQL.
+- `GET /readyz` confirms the embedded database answers queries.
 
 ## Project Direction
 

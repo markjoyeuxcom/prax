@@ -5,7 +5,8 @@ export function normalizeChecklistRow(row) {
     id: row.id,
     taskId: row.task_id,
     label: row.label,
-    completed: row.completed,
+    // SQLite stores booleans as 0/1; pg returned real booleans — normalize here.
+    completed: Boolean(row.completed),
     sortOrder: row.sort_order,
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
@@ -36,7 +37,7 @@ export function buildAddChecklistItem(taskId, label) {
 
 export function buildSetChecklistItemCompleted(taskId, itemId, completed) {
   return {
-    text: `update task_checklist_items set completed = $3, updated_at = now() where id = $2 and task_id = $1 returning *`,
+    text: `update task_checklist_items set completed = $3, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') where id = $2 and task_id = $1 returning *`,
     values: [taskId, itemId, completed],
   };
 }

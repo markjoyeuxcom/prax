@@ -6,8 +6,8 @@ export function buildPutSetting(key, value) {
   return {
     text: `
       insert into app_settings (key, value, updated_at)
-      values ($1, $2::jsonb, now())
-      on conflict (key) do update set value = excluded.value, updated_at = now()
+      values ($1, $2, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+      on conflict (key) do update set value = excluded.value, updated_at = excluded.updated_at
     `,
     values: [key, JSON.stringify(value)],
   };
@@ -19,7 +19,13 @@ export function createAppSettingsRepository(db) {
       const q = buildGetSetting(key);
       const result = await db.query(q.text, q.values);
       if (result.rows.length === 0) return fallback;
-      return result.rows[0].value;
+      // Settings are stored as JSON text (pg's jsonb auto-parsed on read;
+      // SQLite hands back the text).
+      try {
+        return JSON.parse(result.rows[0].value);
+      } catch {
+        return fallback;
+      }
     },
     async putSetting(key, value) {
       const q = buildPutSetting(key, value);

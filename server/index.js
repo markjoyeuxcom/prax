@@ -16,7 +16,7 @@ import { registerSettingsRoutes } from './settingsRoutes.js';
 export async function buildApp(options = {}) {
   const config = options.config || loadConfig();
   const app = Fastify({ logger: options.logger || false });
-  const db = options.db || (options.skipDb ? null : createDb(config.databaseUrl));
+  const db = options.db || (options.skipDb ? null : createDb(config.databaseFile));
 
   if (db && !options.skipDb && !options.db) {
     await runMigrations(db, { logger: app.log });
