@@ -12,6 +12,19 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Added
+
+- **Prax is now a double-click desktop app** (Tauri 2 shell under `src-tauri/`).
+  The bundled Node runtime runs the Fastify server as a sidecar on a free
+  localhost port; the native window opens on a Prax splash and hands over once
+  `/readyz` answers. User data lives in the OS app-data directory
+  (`com.moomora.prax/` — `prax.db` plus `logs/server.log`), a second launch
+  focuses the existing window instead of double-opening the database, and the
+  sidecar is stopped when the app exits (the server also shuts down cleanly on
+  SIGTERM/SIGINT everywhere). `npm run desktop:dev` / `desktop:build`;
+  see docs/desktop/BUILD.md. The web-server workflow is unchanged — the
+  desktop wrapper is additive.
+
 ### Changed
 
 - **PostgreSQL is replaced by an embedded SQLite database** (Node's built-in

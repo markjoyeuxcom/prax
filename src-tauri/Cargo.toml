@@ -1,0 +1,26 @@
+[package]
+name = "prax"
+version = "0.20.0"
+description = "Prax — tasks, notes, and runbooks in a calm desktop app"
+authors = ["Mark Joyeux"]
+license = "MIT"
+edition = "2021"
+
+# The webview shell around the Node/Fastify sidecar (docs/desktop/ Phase 3).
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+tauri-plugin-single-instance = "2"
+
+[lib]
+name = "prax_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true
