@@ -18,6 +18,7 @@ export const state = {
   groupBy: 'due',               // list grouping cycler: 'due' | 'priority' | 'status'
 
   // ---- chrome / status ----
+  desktopShell: false,          // true when served inside the Tauri shell (?shell=desktop)
   apiStatus: 'unknown',         // 'unknown' | 'loading' | 'connected' | 'error'
   winW: 1400,                   // window width for the sidebar→rail switch (<940)
 

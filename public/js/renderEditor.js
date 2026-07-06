@@ -304,7 +304,7 @@ export function renderEditorHtml(state, doc, model = {}) {
     <div class="editor-body">${outlineHtml}${panesHtml}
     </div>
     <footer class="editor-foot">
-      <span>${words} words · ${body.length} characters · ${readTime} min read</span>
+      <span data-editor-counts>${words} words · ${body.length} characters · ${readTime} min read</span>
       <span>Markdown · <span data-document-save-status>${escapeHtml(saveStatus)}</span></span>
     </footer>
   </div>`;

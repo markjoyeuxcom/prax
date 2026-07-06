@@ -158,7 +158,7 @@ pub fn run() {
 
             std::thread::spawn(move || {
                 if wait_until_ready(port, Duration::from_secs(30)) {
-                    let url = format!("http://127.0.0.1:{port}/")
+                    let url = format!("http://127.0.0.1:{port}/?shell=desktop")
                         .parse()
                         .expect("port url always parses");
                     open_window(&handle, WebviewUrl::External(url), None);

@@ -453,6 +453,11 @@ function handleDocumentDraftBodyChange(value) {
   const dirty = Boolean(doc) && value !== (doc.body || '');
   setState({ documentDraftBody: value, isDocumentDirty: dirty });
   setSaveStatusInPlace(dirty ? 'Unsaved changes' : 'Saved');
+  const counts = appRoot?.querySelector('[data-editor-counts]');
+  if (counts) {
+    const words = value.split(/\s+/).filter(Boolean).length;
+    counts.textContent = `${words} words · ${value.length} characters · ${Math.max(1, Math.round(words / 200))} min read`;
+  }
   updateDocumentLivePreview(appRoot, value);
   scheduleDocumentAutosave();
 }
@@ -470,22 +475,38 @@ function scheduleDocumentAutosave() {
 async function saveDocumentDraft() {
   const draftId = state.documentDraftId;
   if (!draftId || !state.isDocumentDirty) return;
+  const sentBody = state.documentDraftBody;
   try {
-    const saved = await updateDocument(draftId, { body: state.documentDraftBody });
-    const patch = documentDraftSavedPatch(state, saved);
-    if (patch) setState(patch);
-    setSaveStatusInPlace('Saved');
+    const saved = await updateDocument(draftId, { body: sentBody });
+    const patch = documentDraftSavedPatch({ documents: state.documents, savedDocument: saved });
+    if (state.documentDraftBody !== sentBody) {
+      // The user kept typing while the PATCH was in flight — keep the newer
+      // draft, stay dirty, and let the debounce save it next.
+      patch.documentDraftBody = state.documentDraftBody;
+      patch.isDocumentDirty = true;
+      patch.documentSaveStatus = 'Unsaved changes';
+      scheduleDocumentAutosave();
+    }
+    setState(patch);
+    setSaveStatusInPlace(patch.documentSaveStatus);
+    // The fallback textarea preserves the caret exactly like CodeMirror does —
+    // either way, re-rendering mid-typing would destroy the edit surface and
+    // leak keystrokes to the global shortcuts.
+    const editSurface = Boolean(documentEditorController)
+      || Boolean(appRoot.querySelector('[data-document-editor]:not([hidden])'));
     if (!canPreserveEditorAfterDraftSave({
-      hasEditorController: Boolean(documentEditorController),
+      editorExists: editSurface,
       savedDocumentId: saved.id,
       selectedDocumentId: state.editorDocId,
-      draftDocumentId: state.documentDraftId,
+      documentDraftId: state.documentDraftId,
     })) {
       renderApp();
     }
   } catch {
+    // Never window.alert from the autosave path — it would block the page on
+    // every debounce tick. The footer status plus a toast is enough.
     setSaveStatusInPlace('Save failed');
-    alertError('save this document');
+    showToast('Prax could not save this document — it will retry as you type.');
   }
 }
 
@@ -503,21 +524,36 @@ function mountEditorIfNeeded() {
   const fallback = appRoot.querySelector('[data-document-editor]');
   if (!host) { destroyEditorController(); return; }
   if (documentEditorController) return;
-  documentEditorController = mountCodeMirrorEditor({
-    host,
-    value: state.documentDraftBody,
-    onChange: (value) => {
-      if (fallback) fallback.value = value;
-      handleDocumentDraftBodyChange(value);
-    },
-    onSave: () => saveDocumentDraft(),
-  });
+  try {
+    documentEditorController = mountCodeMirrorEditor({
+      host,
+      value: state.documentDraftBody,
+      onChange: (value) => {
+        if (fallback) fallback.value = value;
+        handleDocumentDraftBodyChange(value);
+      },
+      onSave: () => saveDocumentDraft(),
+    });
+  } catch (err) {
+    // A CodeMirror failure must never break the app — the plain textarea
+    // fallback keeps editing working.
+    console.warn('CodeMirror failed to mount; using the textarea fallback', err);
+    documentEditorController = null;
+  }
   if (documentEditorController) {
     host.hidden = false;
     if (fallback) fallback.hidden = true;
   } else if (fallback) {
     fallback.hidden = false;
   }
+}
+
+function focusEditor() {
+  if (documentEditorController?.focus) {
+    documentEditorController.focus();
+    return;
+  }
+  appRoot.querySelector('[data-document-editor]:not([hidden])')?.focus();
 }
 
 function applyEditorFormat(action) {
@@ -897,6 +933,11 @@ function renderOverlaysHtml() {
 
 function renderApp() {
   if (!appRoot) return;
+  // Rebuilding innerHTML destroys any mounted CodeMirror DOM — drop the
+  // controller so afterRender mounts a fresh instance instead of skipping on
+  // a stale handle. (Saves that should keep the caret avoid renderApp
+  // entirely via canPreserveEditorAfterDraftSave.)
+  destroyEditorController();
   const narrow = state.winW < 940;
   const chrome = !state.editorFocus;
   const counts = sidebarCounts();
@@ -924,8 +965,14 @@ function afterRender() {
     const input = appRoot.querySelector('[data-palette-input]');
     input?.focus();
     input?.setSelectionRange?.(input.value.length, input.value.length);
+  } else if (state.captureOpen) {
+    appRoot.querySelector('[data-capture-input]')?.focus();
+  } else if (state.navType === 'editor' && !state.drawerTaskId && !state.isDocumentInfoEditorOpen) {
+    // Keep the caret in the document: an unfocused editor screen would let
+    // plain letters fall through to the global shortcuts (n = capture…).
+    const active = document.activeElement;
+    if (!active || active === document.body || active === appRoot) focusEditor();
   }
-  if (state.captureOpen) appRoot.querySelector('[data-capture-input]')?.focus();
   if (state.navType === 'project' && (state.tab === 'board' || state.tab === 'list')) {
     ensureBoardExtras(projectTasks().filter(t => !t.archivedAt));
   }
@@ -1387,8 +1434,14 @@ function bindEvents() {
       return;
     }
     const el = event.target.closest?.('[data-action]');
-    if (!el || !appRoot.contains(el)) return;
-    handleAction(el.dataset.action, el, event);
+    if (el && appRoot.contains(el)) {
+      handleAction(el.dataset.action, el, event);
+      return;
+    }
+    // Clicking the blank page-sheet around the editor means "start typing".
+    if (state.navType === 'editor' && event.target.closest?.('.pane, .sheet')) {
+      focusEditor();
+    }
   });
 
   appRoot.addEventListener('input', (event) => {
@@ -1644,7 +1697,11 @@ function loadSavedViews() {
 async function init() {
   appRoot = document.getElementById('app');
   const preferences = loadPreferences();
-  setState({ preferences, librarySavedViews: loadSavedViews(), winW: window.innerWidth });
+  // The Tauri shell serves the app with ?shell=desktop — the OS window chrome
+  // is real there, so the in-app fake chrome is suppressed.
+  const desktopShell = new URLSearchParams(window.location.search).get('shell') === 'desktop';
+  document.body.classList.toggle('is-desktop', desktopShell);
+  setState({ preferences, librarySavedViews: loadSavedViews(), winW: window.innerWidth, desktopShell });
   applyPreferences(preferences);
   appRoot.innerHTML = '<main class="empty" style="height:100vh"><p class="empty__sub">Loading Prax…</p></main>';
   try {

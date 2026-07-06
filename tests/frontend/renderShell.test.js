@@ -257,3 +257,13 @@ test('projectColor is deterministic per id and varies across ids', () => {
   for (const color of colors) assert.match(color, /^oklch\(/);
   assert.ok(new Set(colors).size > 1, 'different ids should not all share one color');
 });
+
+test('desktop shell suppresses the fake window chrome (the OS provides it)', () => {
+  const desktopMac = renderTitlebarHtml(makeState({ desktopShell: true, preferences: { chromeOS: 'mac' } }));
+  assert.doesNotMatch(desktopMac, /class="traffic"/);
+  const desktopWin = renderTitlebarHtml(makeState({ desktopShell: true, preferences: { chromeOS: 'win' } }));
+  assert.doesNotMatch(desktopWin, /class="winctl"/);
+  // the app toolbar itself stays
+  assert.match(desktopMac, /data-action="open-palette"/);
+  assert.match(desktopMac, /data-action="open-capture"/);
+});

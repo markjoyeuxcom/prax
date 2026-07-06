@@ -1695,3 +1695,16 @@ a { color: var(--accent); }
   }
   .board { min-width: 720px; }
 }
+
+/* ---- Desktop shell (?shell=desktop): the OS window provides the chrome ---- */
+
+body.is-desktop .desk {
+  padding: 0;
+  background: var(--surface);
+}
+body.is-desktop .window {
+  max-width: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}

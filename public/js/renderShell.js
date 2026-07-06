@@ -77,7 +77,9 @@ const WIN_CONTROLS = '<div class="winctl">'
 
 export function renderTitlebarHtml(state) {
   const isMac = state.preferences?.chromeOS === 'mac';
-  const left = isMac ? TRAFFIC_LIGHTS : logo(15);
+  // Inside the desktop shell the OS provides the real window chrome — the
+  // prototype's fake traffic lights / Windows controls would double it.
+  const left = state.desktopShell ? logo(15) : (isMac ? TRAFFIC_LIGHTS : logo(15));
 
   // In editor focus mode the right-hand chrome (incl. Windows controls,
   // matching the prototype) is hidden; traffic lights / logo + crumb stay.
@@ -85,7 +87,7 @@ export function renderTitlebarHtml(state) {
     + `<button type="button" class="searchpill" data-action="open-palette">${icon('search', 13)}<span>Search or jump to…</span><span class="kbd">⌘K</span></button>`
     + `<button type="button" class="btn-primary" data-action="open-capture" title="Quick capture (N)">${icon('plus', 12)}<span>New task</span></button>`
     + '<button type="button" class="btn-icon" data-action="toggle-theme" title="Toggle theme (⌘J)">◐</button>'
-    + (isMac ? '' : WIN_CONTROLS)
+    + (isMac || state.desktopShell ? '' : WIN_CONTROLS)
     + '</div>';
 
   return '<div class="titlebar">'
