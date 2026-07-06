@@ -9,8 +9,8 @@ test('app shell loads without console errors', async ({ page }) => {
 
   await page.goto('/');
 
-  // The shell renders the primary nav with a Library view button.
-  await expect(page.locator('[data-view="library"]').first()).toBeVisible();
+  // The shell renders the sidebar with a Library nav entry.
+  await expect(page.locator('[data-action="nav-library"]').first()).toBeVisible();
 
   // No uncaught console errors during initial load.
   expect(errors, `console errors: ${errors.join('\n')}`).toEqual([]);

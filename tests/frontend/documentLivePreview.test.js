@@ -7,7 +7,7 @@ test('updateDocumentLivePreview renders Markdown into an open split preview', ()
   const previewNode = { innerHTML: '' };
   const workspace = {
     querySelector(selector) {
-      return selector === '.markdown-preview' ? previewNode : null;
+      return selector === '[data-markdown-preview]' ? previewNode : null;
     },
   };
 
@@ -15,7 +15,7 @@ test('updateDocumentLivePreview renders Markdown into an open split preview', ()
 
   assert.equal(didUpdate, true);
   assert.match(previewNode.innerHTML, /<h1>Live Draft<\/h1>/);
-  assert.match(previewNode.innerHTML, /<input type="checkbox" disabled>/);
+  assert.match(previewNode.innerHTML, /data-md-check/);
 });
 
 test('updateDocumentLivePreview is a no-op when preview is not mounted', () => {

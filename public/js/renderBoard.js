@@ -1,222 +1,155 @@
-import { boardFilterOptions } from './boardFilters.js';
+// Prax board view (design-handoff §Screen 2) — four fixed kanban columns with
+// drag-position indicators. Pure render module: `buildBoardColumns` derives the
+// column model from state + tasks, `renderBoardHtml` turns it into an HTML
+// string. Drag & drop is bound in main.js on [data-board-card] /
+// [data-board-column]; persistence goes through boardWorkflow.moveTaskOnBoard.
+// Tasks keep API field names (status/priority/dueDate/archivedAt) — the
+// design↔API translation happens via statusMap/dueFlags at render time.
 
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+import { BOARD_COLUMNS, designStatus, isBoardable } from './statusMap.js';
+import { chip, escapeHtml, prioDotClass } from './renderHelpers.js';
+import { dueFlag } from './dueFlags.js';
+import { icon } from './icons.js';
+
+// Column labels + dot tones in design vocabulary (Prax.dc.html colDefs).
+const COLUMN_META = {
+  priority: { label: 'Priority', tone: 'hi' },
+  inprogress: { label: 'In progress', tone: 'accent' },
+  planned: { label: 'Planned', tone: 'lo' },
+  completed: { label: 'Completed', tone: 'muted' },
+};
+
+const TONE_VARS = {
+  hi: 'var(--hi)',
+  accent: 'var(--accent)',
+  lo: 'var(--lo)',
+  muted: 'var(--ink3)',
+};
+
+function sortCards(cards) {
+  return [...cards].sort((a, b) => {
+    const orderDelta = (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+    if (orderDelta !== 0) return orderDelta;
+    return String(a.title || '').localeCompare(String(b.title || ''));
+  });
 }
 
-const COLUMNS = [
-  { id: 'high-priority', label: 'HIGH PRIORITY' },
-  { id: 'in-progress',   label: 'IN PROGRESS' },
-  { id: 'planned',       label: 'PLANNED' },
-  { id: 'completed',     label: 'COMPLETED' },
-  { id: 'notes',         label: 'NOTES' },
-];
+// Pure column model: membership by designStatus, board order by sortOrder,
+// drop-indicator flags derived from the drag state (state.dragPos = the
+// { col, beforeId } slot the pointer hovers; beforeId null = end of column).
+export function buildBoardColumns(state = {}, tasks = []) {
+  const safeTasks = Array.isArray(tasks) ? tasks : [];
+  const boardable = safeTasks.filter(task => isBoardable(task));
+  const dragPos = state.dragPos || null;
 
-function priorityClass(priority) {
-  const p = String(priority || 'medium').toLowerCase();
-  if (p === 'high') return 'hi';
-  if (p === 'low') return 'lo';
-  return 'md';
+  return BOARD_COLUMNS.map((key) => {
+    const meta = COLUMN_META[key];
+    const cards = sortCards(boardable.filter(task => designStatus(task.status) === key))
+      .map(task => ({
+        ...task,
+        showInd: !!(dragPos && dragPos.col === key
+          && dragPos.beforeId === task.id
+          && dragPos.beforeId !== state.dragTaskId),
+      }));
+
+    return {
+      key,
+      label: meta.label,
+      tone: meta.tone,
+      cards,
+      isOver: state.dragOverColumn === key,
+      endInd: !!(dragPos && dragPos.col === key && dragPos.beforeId === null),
+    };
+  });
 }
 
-function localToday() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+// projectsById may be a plain object or a Map keyed by project id.
+function lookupProject(projectsById, projectId) {
+  if (!projectsById || !projectId) return null;
+  if (typeof projectsById.get === 'function') return projectsById.get(projectId) || null;
+  return projectsById[projectId] || null;
 }
 
-// Classify a due date relative to today so the card can flag overdue/soon work.
-// Returns { cls, full, label, flag } — `label` is the compact MM-DD shown on the
-// card (narrow columns), `full` is the ISO date kept as a tooltip. cls is one of
-// none|over|soon|ok.
-function shortDate(dueDate) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(dueDate) ? dueDate.slice(5) : dueDate;
+function signalSpan(iconName, text) {
+  return `<span style="display:inline-flex; align-items:center; gap:3px;">${icon(iconName, 11)}${escapeHtml(text)}</span>`;
 }
 
-function dueState(dueDate, today) {
-  if (!dueDate) return { cls: 'none', full: '', label: '—', flag: '' };
-  const short = shortDate(dueDate);
-  const due = new Date(`${dueDate}T00:00:00`);
-  const ref = new Date(`${today}T00:00:00`);
-  const days = Math.round((due.getTime() - ref.getTime()) / 86400000);
-  if (!Number.isFinite(days)) return { cls: 'ok', full: dueDate, label: short, flag: '' };
-  if (days < 0) return { cls: 'over', full: dueDate, label: short, flag: ' ⚠' };
-  if (days <= 2) return { cls: 'soon', full: dueDate, label: short, flag: '' };
-  return { cls: 'ok', full: dueDate, label: short, flag: '' };
-}
+function renderCard(state, task, projectsById, now) {
+  const isDone = designStatus(task.status) === 'completed';
+  const isDragging = task.id === state.dragTaskId;
+  const isSelected = task.id === state.selectedTaskId;
+  const extras = (state.taskBoardExtras || {})[task.id] || null;
 
-function extrasFor(ctx, taskId) {
-  return ctx.taskBoardExtras?.[taskId] || {};
-}
+  const chips = [];
+  const project = lookupProject(projectsById, task.projectId);
+  if (project && project.name) {
+    const color = escapeHtml(project.color || 'var(--accent)');
+    chips.push(chip(
+      project.name,
+      'project',
+      `style="background: color-mix(in oklab, ${color} 13%, transparent); color: ${color};"`,
+    ));
+  }
+  const due = dueFlag(task.dueDate, { done: isDone, now });
+  if (due) chips.push(chip(due.label, `due-${due.bucket}`));
 
-function renderSignals(task, extras) {
   const signals = [];
-  const checklistTotal = Number(extras.checklistTotal || 0);
-  const checklistDone = Number(extras.checklistDone || 0);
-  const docsCount = Number(extras.docsCount || 0);
-  if (checklistTotal > 0) signals.push(`checklist ${checklistDone}/${checklistTotal}`);
-  else signals.push('no checklist');
-  if (docsCount > 0) signals.push(`docs ${docsCount}`);
-  if (String(task.notes || '').trim()) signals.push('notes');
-  return `<span class="board-card__signals">${signals.map(signal => `<span>${escapeHtml(signal)}</span>`).join('')}</span>`;
-}
-
-function renderLatestActivity(extras) {
-  const activity = String(extras.latestActivity || '').trim();
-  if (!activity) return '';
-  return `<span class="board-card__activity">${escapeHtml(activity)}</span>`;
-}
-
-function renderCard(task, selectedTaskId, ctx) {
-  const pClass = priorityClass(task.priority);
-  const isSel = task.id === selectedTaskId;
-  const due = dueState(task.dueDate, ctx.today);
-  const projectName = ctx.showProjectChips ? ctx.projectName(task.projectId) : '';
-  const extras = extrasFor(ctx, task.id);
-  const chip = projectName
-    ? `<span class="board-card__chip">${escapeHtml(projectName)}</span>`
-    : '';
-  return `
-        <button class="board-card board-card--${pClass}${isSel ? ' is-selected' : ''}" type="button" data-board-card="true" data-task-id="${escapeHtml(task.id)}" draggable="true"${isSel ? ' aria-current="true"' : ''}>
-          <span class="board-card__row">
-            <span class="board-card__id"><span class="board-card__dot board-card__dot--${pClass}" aria-hidden="true"></span><strong class="board-card__title">${escapeHtml(task.title || 'Untitled task')}</strong></span>
-            <span class="board-card__due board-card__due--${due.cls}"${due.full ? ` title="${escapeHtml(due.full)}"` : ''}>${escapeHtml(due.label)}${due.flag}</span>
-          </span>${chip}${renderSignals(task, extras)}${renderLatestActivity(extras)}
-        </button>`;
-}
-
-function renderColumnCards(tasks, columnId, selectedTaskId, ctx) {
-  const columnTasks = tasks
-    .filter(t => (t.status || t.column || 'planned') === columnId)
-    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-  if (!columnTasks.length) return '<div class="board-empty">[ no cards ]</div>';
-  return columnTasks.map(t => renderCard(t, selectedTaskId, ctx)).join('');
-}
-
-export function renderBoardHtml(tasks = [], selectedTaskId = null, options = {}) {
-  const safe = Array.isArray(tasks) ? tasks : [];
-  const openSections = options.boardOpenSections || {};
-  const projectsById = new Map(
-    (Array.isArray(options.projects) ? options.projects : []).map(p => [p.id, p.name]),
-  );
-  const ctx = {
-    today: options.today || localToday(),
-    showProjectChips: Boolean(options.showProjectChips),
-    taskBoardExtras: options.taskBoardExtras || {},
-    projectName: (id) => projectsById.get(id) || '',
-  };
-  return `
-    <section class="board-panel" aria-label="Task board">
-      ${COLUMNS.map(col => {
-        const isOpen = openSections[col.id] !== false;
-        const cards = renderColumnCards(safe, col.id, selectedTaskId, ctx);
-        const count = safe.filter(t => (t.status || t.column || 'planned') === col.id).length;
-        return `
-        <section class="board-column board-column--${isOpen ? 'open' : 'closed'}" aria-label="${col.label}" data-board-column="${col.id}">
-          <header class="board-column__header">
-            <button class="board-column__toggle" type="button" data-action="toggle-board-section" data-section="${col.id}" aria-label="Toggle ${col.label}" aria-expanded="${isOpen}" aria-controls="board-cards-${col.id}">
-              <span class="board-column__glyph">${isOpen ? '▾' : '▸'}</span>
-              <span class="board-column__title">[ ${col.label} ]</span>
-              <span class="board-column__count">${count}</span>
-            </button>
-          </header>
-          <div class="board-cards" id="board-cards-${col.id}" data-board-column="${col.id}"${isOpen ? '' : ' hidden'}>${cards}
-          </div>
-        </section>`;
-      }).join('')}
-    </section>`;
-}
-
-function renderLaneColumns(laneTasks, selectedTaskId, ctx) {
-  return COLUMNS.map(col => {
-    const cards = renderColumnCards(laneTasks, col.id, selectedTaskId, ctx);
-    const count = laneTasks.filter(t => (t.status || t.column || 'planned') === col.id).length;
-    return `
-        <section class="board-column board-column--open" aria-label="${col.label}" data-board-column="${col.id}">
-          <header class="board-column__header">
-            <span class="board-column__title">[ ${col.label} ]</span>
-            <span class="board-column__count">${count}</span>
-          </header>
-          <div class="board-cards" data-board-column="${col.id}">${cards}
-          </div>
-        </section>`;
-  }).join('');
-}
-
-function laneHealth(tasks, today) {
-  const active = tasks.filter(task => (task.status || task.column || 'planned') !== 'completed').length;
-  const overdue = tasks.filter(task => task.dueDate && task.dueDate < today && (task.status || task.column || 'planned') !== 'completed').length;
-  const inProgress = tasks.filter(task => (task.status || task.column || 'planned') === 'in-progress').length;
-  const parts = [`${active} active`];
-  if (overdue) parts.push(`${overdue} overdue`);
-  if (inProgress) parts.push(`${inProgress} in progress`);
-  return parts.join(' · ');
-}
-
-export function renderSwimlaneBoardHtml(tasks = [], selectedTaskId = null, options = {}) {
-  const safe = Array.isArray(tasks) ? tasks : [];
-  const projects = Array.isArray(options.projects) ? options.projects : [];
-  const collapsed = options.boardLaneCollapsed || {};
-  const ctx = {
-    today: options.today || localToday(),
-    showProjectChips: false,
-    taskBoardExtras: options.taskBoardExtras || {},
-    projectName: () => '',
-  };
-
-  const lanes = projects
-    .map(project => ({ project, tasks: safe.filter(t => t.projectId === project.id) }))
-    .filter(lane => lane.tasks.length > 0);
-
-  const known = new Set(projects.map(p => p.id));
-  const orphans = safe.filter(t => !known.has(t.projectId));
-  if (orphans.length) lanes.push({ project: { id: '__none__', name: 'No project' }, tasks: orphans });
-
-  if (!lanes.length) {
-    return `<section class="board-swimlanes" aria-label="Task board"><p class="board-empty">[ no tasks ]</p></section>`;
+  if (extras && extras.checklistTotal > 0) {
+    signals.push(signalSpan('check', `${extras.checklistDone ?? 0}/${extras.checklistTotal}`));
+  }
+  if (extras && extras.docsCount > 0) {
+    signals.push(signalSpan('doc', `${extras.docsCount}`));
   }
 
-  return `
-    <section class="board-swimlanes" aria-label="Task board">
-      ${lanes.map(({ project, tasks: laneTasks }) => {
-        const isCollapsed = collapsed[project.id] === true;
-        return `
-        <section class="board-lane${isCollapsed ? ' board-lane--collapsed' : ''}" data-board-lane="${escapeHtml(project.id)}">
-          <header class="board-lane__header">
-            <button class="board-lane__toggle" type="button" data-action="toggle-board-lane" data-project-id="${escapeHtml(project.id)}" aria-label="Toggle ${escapeHtml(project.name)}" aria-expanded="${!isCollapsed}">
-              <span class="board-lane__glyph">${isCollapsed ? '▸' : '▾'}</span>
-              <span class="board-lane__name">${escapeHtml(project.name)}</span>
-              <span class="board-lane__summary">${escapeHtml(laneHealth(laneTasks, ctx.today))}</span>
-            </button>
-          </header>
-          ${isCollapsed ? '' : `<div class="board-panel">${renderLaneColumns(laneTasks, selectedTaskId, ctx)}</div>`}
-        </section>`;
-      }).join('')}
-    </section>`;
+  const metaParts = [...chips];
+  if (signals.length) metaParts.push('<span style="flex:1;"></span>', ...signals);
+  const meta = metaParts.length
+    ? `<div class="board-card__meta">${metaParts.join('')}</div>`
+    : '';
+
+  const activity = extras && extras.latestActivity
+    ? `<div class="board-card__activity">${escapeHtml(extras.latestActivity)}</div>`
+    : '';
+
+  const classes = ['board-card'];
+  if (isDone) classes.push('is-done');
+  if (isDragging) classes.push('is-dragging');
+
+  return `${task.showInd ? '<div class="drop-ind"></div>' : ''}`
+    + `<div class="${classes.join(' ')}" draggable="true" data-board-card="true"`
+    + ` data-action="open-task" data-task-id="${escapeHtml(task.id)}"`
+    + `${isSelected ? ' aria-current="true"' : ''}>`
+    + '<div class="board-card__title">'
+    + `<span class="${prioDotClass(task.priority)}"></span>`
+    + `<span>${escapeHtml(task.title || 'Untitled task')}</span>`
+    + '</div>'
+    + meta
+    + activity
+    + '</div>';
 }
 
-export function renderBoardFilters(activeFilters = []) {
-  const active = new Set(Array.isArray(activeFilters) ? activeFilters : []);
-  return `
-    <div class="board-filterbar" aria-label="Board filters">
-      <span class="board-filterbar__label">Focus</span>
-      <div class="board-filterbar__chips">
-        ${boardFilterOptions().map(filter => `
-        <button class="board-filterbar__chip" type="button" data-action="toggle-board-filter" data-filter="${filter.id}" aria-pressed="${active.has(filter.id)}">${escapeHtml(filter.label)}</button>`).join('')}
-      </div>
-    </div>`;
+function renderColumn(state, column, projectsById, now) {
+  const dot = TONE_VARS[column.tone] || TONE_VARS.muted;
+  const head = '<div class="board-col__head">'
+    + `<span class="board-col__dot" style="--dot: ${dot};"></span>`
+    + `<span>${escapeHtml(column.label)}</span>`
+    + `<span class="board-col__count">${column.cards.length}</span>`
+    + '</div>';
+
+  const cards = column.cards.map(task => renderCard(state, task, projectsById, now)).join('');
+  const endInd = column.endInd ? '<div class="drop-ind"></div>' : '';
+  const emptySlot = column.cards.length === 0
+    ? '<div class="empty-slot">Drop cards here</div>'
+    : '';
+
+  return `<div class="board-col${column.isOver ? ' is-over' : ''}" data-board-column="${escapeHtml(column.key)}">`
+    + head + cards + endInd + emptySlot
+    + '</div>';
 }
 
-export function renderBoardToolbar(grouping = 'flat') {
-  const option = (value, label) =>
-    `<button class="board-toolbar__option" type="button" data-action="set-board-grouping" data-grouping="${value}" aria-pressed="${grouping === value}">${label}</button>`;
-  return `
-    <div class="board-toolbar">
-      <span class="board-toolbar__label">Group</span>
-      <div class="board-toolbar__group">${option('flat', 'flat')}${option('swimlanes', 'swimlanes')}</div>
-    </div>`;
+// `now` is injectable (options bag) so due chips are deterministic in tests.
+export function renderBoardHtml(state = {}, columns = [], projectsById = null, { now = new Date() } = {}) {
+  const safeColumns = Array.isArray(columns) ? columns : [];
+  const cols = safeColumns.map(column => renderColumn(state, column, projectsById, now)).join('');
+  return `<div class="board-wrap"><div class="board">${cols}</div></div>`;
 }
