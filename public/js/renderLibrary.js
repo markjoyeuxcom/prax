@@ -1,551 +1,239 @@
-import { renderMarkdownHtml } from './markdownPreview.js';
-import { groupDocumentsByType, visibleTagsForFilter } from './libraryFilters.js';
+import { escapeHtml, chip } from './renderHelpers.js';
+import { icon } from './icons.js';
+import {
+  filterDocumentsByTags,
+  sortDocuments,
+  groupDocumentsByType,
+  tagsForDocuments,
+} from './libraryFilters.js';
 
-const DOCUMENT_TYPES = [
-  { value: 'runbook', label: 'Runbook' },
-  { value: 'note', label: 'Note' },
-];
+// Library page (Prax design): header actions, keyword/semantic search row,
+// tag-pill filters, Runbooks/Notes card grid, semantic idle/result states and
+// the flat archive list. Pure state → HTML; events delegate via data-action.
+//
+// Semantic results deliberately show *rank + snippet only* — the semantic
+// search API returns no similarity score and we never fabricate one.
 
-const MARKDOWN_TOOLS = [
-  { action: 'heading', label: 'H2', title: 'Heading' },
-  { action: 'bold', label: 'B', title: 'Bold' },
-  { action: 'italic', label: 'I', title: 'Italic' },
-  { action: 'bullet-list', label: 'List', title: 'Bullet list' },
-  { action: 'numbered-list', label: '1.', title: 'Numbered list' },
-  { action: 'checklist', label: 'Check', title: 'Checklist' },
-  { action: 'quote', label: 'Quote', title: 'Quote' },
-  { action: 'code', label: 'Code', title: 'Inline code' },
-  { action: 'code-block', label: 'Block', title: 'Code block' },
-  { action: 'link', label: 'Link', title: 'Link' },
-];
+const KEYWORD_PLACEHOLDER = 'Search titles, text, and tags…';
+const SEMANTIC_PLACEHOLDER = 'Ask in plain language — e.g. "what do I do when the database dies"';
 
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+function normalizedTag(value) {
+  return String(value || '').trim().toLowerCase();
 }
 
-function labelFromValue(value) {
-  return String(value ?? '')
-    .split('-')
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
+function docTypeKey(doc) {
+  return (doc?.documentType || 'note') === 'runbook' ? 'runbook' : 'note';
 }
 
-function renderTags(tags = []) {
-  if (!tags.length) return '<span class="document-tag">untagged</span>';
-  return tags.map(tag => `<span class="document-tag">${escapeHtml(tag)}</span>`).join('');
+function typeChip(doc) {
+  const key = docTypeKey(doc);
+  return chip(key.toUpperCase(), `type-${key}`);
 }
 
-function normalizedTags(tags = []) {
-  return tags.map(tag => String(tag || '').trim().toLowerCase()).filter(Boolean);
-}
-
-function renderTagFilters({
-  availableTags = [],
-  activeTags = [],
-  tagQuery = '',
-  areTagsExpanded = false,
-} = {}) {
-  const activeTagSet = new Set(normalizedTags(activeTags));
-  const allActive = activeTagSet.size === 0;
-  const { visibleTags, hiddenCount } = visibleTagsForFilter(availableTags, activeTags, tagQuery, {
-    isExpanded: areTagsExpanded,
-  });
-
-  if (!availableTags.length) {
-    return `
-      <section class="library-tag-filter" aria-label="Library tag filters">
-        <div class="library-tag-filter__header">
-          <span>Tags</span>
-        </div>
-        <p class="library-tag-filter__empty">No tags yet</p>
-      </section>`;
-  }
-
-  return `
-    <section class="library-tag-filter" aria-label="Library tag filters">
-      <div class="library-tag-filter__header">
-        <span>Tags</span>
-        <button class="tag-filter-chip${allActive ? ' is-active' : ''}" type="button" data-action="clear-library-tags" aria-pressed="${allActive}">All</button>
-      </div>
-      <label class="tag-search-field">
-        <span class="sr-only">Search tags</span>
-        <input type="search" placeholder="Search tags" autocomplete="off" value="${escapeHtml(tagQuery)}" data-library-tag-search>
-      </label>
-      <div class="tag-filter-list">${visibleTags.map(({ tag, count, isPinned }) => {
-        const normalized = String(tag || '').trim().toLowerCase();
-        const isActive = activeTagSet.has(normalized);
-        return `<button class="tag-filter-chip${isActive ? ' is-active' : ''}${isPinned ? ' is-pinned' : ''}" type="button" data-library-tag="${escapeHtml(normalized)}" aria-pressed="${isActive}">${escapeHtml(normalized)} <span>${Number(count) || 0}</span></button>`;
-      }).join('')}
-      </div>
-      ${hiddenCount ? `<button class="tag-filter-toggle" type="button" data-action="toggle-library-tags">Show ${hiddenCount} more</button>` : ''}
-    </section>`;
-}
-
-function renderSmartViews({
-  savedViews = [],
-  activeSavedViewId = null,
-  activeTags = [],
-} = {}) {
-  const canSaveView = normalizedTags(activeTags).length > 0;
-
-  return `
-    <section class="library-smart-views" aria-label="Library smart views">
-      <div class="library-smart-views__header">
-        <span>Smart views</span>
-      </div>
-      <div class="saved-view-list">${savedViews.length ? savedViews.map((view) => {
-        const isActive = view.id === activeSavedViewId;
-        return `
-        <article class="saved-view${isActive ? ' is-active' : ''}">
-          <button class="saved-view__select" type="button" data-library-saved-view-id="${escapeHtml(view.id)}" aria-pressed="${isActive}">
-            <strong>${escapeHtml(view.label)}</strong>
-            <span>${normalizedTags(view.tags).join(' + ')}</span>
-          </button>
-          <button class="saved-view__rename" type="button" data-action="rename-library-saved-view" data-library-saved-view-id="${escapeHtml(view.id)}" aria-label="Rename ${escapeHtml(view.label)}">Rename</button>
-          <button class="saved-view__delete" type="button" data-action="delete-library-saved-view" data-library-saved-view-id="${escapeHtml(view.id)}" aria-label="Delete ${escapeHtml(view.label)}">x</button>
-        </article>`;
-      }).join('') : '<p class="library-smart-views__empty">Save a tag set to create a smart view.</p>'}
-      </div>
-      <div class="saved-view-form">
-        <label class="sr-only" for="library-saved-view-name">Saved view name</label>
-        <input id="library-saved-view-name" type="text" placeholder="Name current tags optional" autocomplete="off" data-library-saved-view-name${canSaveView ? '' : ' disabled'}>
-        <button class="secondary-action" type="button" data-action="save-library-view"${canSaveView ? '' : ' disabled'}>Save view</button>
-      </div>
-    </section>`;
-}
-
-function documentCountLabel(count) {
-  return `${count} ${count === 1 ? 'document' : 'documents'} shown`;
-}
-
-function renderActiveFilters({
-  activeTags = [],
-  activeSavedViewId = null,
-  savedViews = [],
-  documentCount = 0,
-} = {}) {
-  const tags = normalizedTags(activeTags);
-  const savedView = savedViews.find(view => view.id === activeSavedViewId);
-
-  if (!tags.length) {
-    return `
-      <section class="library-active-filters" aria-label="Active library filters">
-        <div>
-          <span>Active filters</span>
-          <strong>All documents</strong>
-        </div>
-        <small>${documentCountLabel(documentCount)}</small>
-      </section>`;
-  }
-
-  return `
-    <section class="library-active-filters" aria-label="Active library filters">
-      <div>
-        <span>Active filters</span>
-        <strong>${escapeHtml(savedView?.label || tags.join(' + '))}</strong>
-      </div>
-      <div class="active-filter-chips">
-        ${tags.map(tag => `<button class="active-filter-chip" type="button" data-library-active-filter="${escapeHtml(tag)}" aria-label="Remove ${escapeHtml(tag)} filter">${escapeHtml(tag)} <span>x</span></button>`).join('')}
-      </div>
-      <button class="text-action" type="button" data-action="clear-library-tags">Clear</button>
-      <small>${documentCountLabel(documentCount)}</small>
-    </section>`;
-}
-
-function selectedDocument(documents, selectedDocumentId) {
-  return documents.find(document => document.id === selectedDocumentId) || documents[0] || null;
-}
-
-function renderDocumentRows(documents, activeDocumentId, projectNames = {}) {
-  return documents.map((document) => {
-    const isSelected = document.id === activeDocumentId;
-    const isSynthesized = document.kind === 'synthesized';
-    const isStale = document.stale === true;
-    const isSuperseded = document.status === 'superseded';
-    const metaParts = [
-      labelFromValue(document.documentType || 'note'),
-      projectNames[document.projectId],
-      `updated by ${document.updatedBy || 'user'}`,
-    ].filter(Boolean);
-    return `
-      <button class="document-row${isSelected ? ' is-selected' : ''}${isSuperseded ? ' is-superseded' : ''}" type="button" data-library-document-id="${escapeHtml(document.id)}"${isSelected ? ' aria-current="true"' : ''}>
-        <span>
-          <strong><span class="document-row-title">${escapeHtml(document.title || 'Untitled document')}</span>${isSynthesized ? '<span class="chip chip-synth" aria-label="Agent synthesized">SYNTH</span>' : ''}${isStale ? '<span class="chip chip-stale" aria-label="Derived source has changed">STALE</span>' : ''}${renderTrustChips(document)}</strong>
-          <small>${metaParts.map(escapeHtml).join(' &middot; ')}</small>
-        </span>
-        <span class="document-tags">${renderTags(document.tags)}</span>
-      </button>`;
-  }).join('');
-}
-
-function renderDocumentList(documents, activeDocumentId, { groupByType = false, libraryView = 'active', projectNames = {} } = {}) {
-  if (!documents.length) {
-    if (libraryView === 'archive') {
-      return `
-      <div class="task-empty" role="status">
-        <strong>No archived documents</strong>
-      </div>`;
-    }
-    return `
-      <div class="task-empty" role="status">
-        <strong>No Markdown documents</strong>
-        <span>Create or import Markdown to build your runbook and notes library.</span>
-      </div>`;
-  }
-
-  if (groupByType) {
-    const groups = groupDocumentsByType(documents);
-    return groups.map(({ label, docs }) => `
-      <div class="document-group-header">${escapeHtml(label)} <span>${docs.length}</span></div>${renderDocumentRows(docs, activeDocumentId, projectNames)}`).join('');
-  }
-
-  return renderDocumentRows(documents, activeDocumentId, projectNames);
-}
-
-function renderModes(editorMode, modes = ['edit', 'preview', 'split']) {
-  return `
-        <div class="modes" role="tablist" aria-label="Editor mode">
-          ${modes.map(mode => `<button class="${mode === editorMode ? 'on' : ''}" role="tab" type="button" data-library-mode="${mode}" aria-selected="${mode === editorMode}">${mode}</button>`).join('')}
-        </div>`;
-}
-
-function renderMarkdownToolbar() {
-  return `
-        <div class="markdown-toolbar" aria-label="Markdown formatting tools">
-          ${MARKDOWN_TOOLS.map(tool => `<button class="markdown-tool-button" type="button" data-markdown-action="${escapeHtml(tool.action)}" title="${escapeHtml(tool.title)}" aria-label="${escapeHtml(tool.title)}">${escapeHtml(tool.label)}</button>`).join('')}
-        </div>`;
-}
-
-function renderEditorPane(body, options = {}) {
-  const status = options.saveStatus || (options.isDirty ? 'Unsaved changes' : 'Saved');
-
-  return `
-    <section class="document-editor-pane" aria-label="Markdown editor">
-      <header class="document-pane-header">
-        <span data-document-save-status>${escapeHtml(status)}</span>
-        <div class="document-pane-actions">
-          <button class="bracket-button" type="button" data-action="toggle-document-focus" aria-label="Focus writing mode" aria-pressed="${Boolean(options.isFocusMode)}">[f] focus</button>
-          ${options.isArchived ? '' : `<button class="bracket-button" type="button" data-action="export-document" data-document-id="${escapeHtml(options.documentId || '')}" aria-label="Export document as Markdown">[x] export</button>`}
-          <button class="bracket-button bracket-button--primary" type="button" data-action="save-document-draft"${options.isDirty ? '' : ' disabled'}>[s] save</button>
-        </div>
-      </header>
-      ${renderMarkdownToolbar()}
-      <div class="document-editor-shell">
-        <textarea class="document-editor document-editor--fallback" data-document-editor spellcheck="false">${escapeHtml(body)}</textarea>
-        <div class="code-editor" data-code-editor hidden></div>
-      </div>
-    </section>`;
-}
-
-function renderPreviewPane(body) {
-  return `
-    <section class="document-preview-pane" aria-label="Markdown preview">
-      <div class="markdown-preview">${renderMarkdownHtml(body)}</div>
-    </section>`;
-}
-
-function renderDocumentInfoForm(document, options = {}) {
-  const values = {
-    title: document?.title || '',
-    documentType: document?.documentType || 'note',
-    tags: Array.isArray(document?.tags) ? document.tags.join(', ') : '',
-    sourceFilename: document?.sourceFilename || '',
-  };
-
-  return `
-    <form class="document-info-form" data-document-info-form>
-      ${options.error ? `<div class="form-error" role="alert">${escapeHtml(options.error)}</div>` : ''}
-      <label>
-        <span>Title</span>
-        <input name="title" type="text" value="${escapeHtml(values.title)}" autocomplete="off" required>
-      </label>
-      <div class="form-grid">
-        <label>
-          <span>Type</span>
-          <select name="documentType">${renderOptions(DOCUMENT_TYPES, values.documentType)}
-          </select>
-        </label>
-        <label>
-          <span>Source File</span>
-          <input name="sourceFilename" type="text" value="${escapeHtml(values.sourceFilename)}">
-        </label>
-      </div>
-      <label>
-        <span>Tags</span>
-        <input name="tags" type="text" value="${escapeHtml(values.tags)}" placeholder="postgres, backup">
-      </label>
-      <footer class="document-info-actions">
-        <button class="bracket-button bracket-button--quiet" type="button" data-action="cancel-document-info">cancel</button>
-        <button class="bracket-button bracket-button--primary" type="submit"${options.isSaving ? ' disabled' : ''}>${options.isSaving ? '[s] saving...' : '[s] save'}</button>
-      </footer>
-    </form>`;
-}
-
-function renderKindBadge(kind) {
-  const safeKind = kind === 'synthesized' ? 'synthesized' : 'source';
-  const label = safeKind === 'synthesized' ? 'SYNTHESIZED' : 'SOURCE';
-  return `<span class="chip chip-kind chip-kind--${safeKind}" aria-label="Document kind: ${safeKind}">${label}</span>`;
-}
-
-function renderTrustChips(document) {
+// Trust chips survive the redesign: SYNTH / STALE / VERIFIED / SUPERSEDED.
+function trustChips(doc) {
   const chips = [];
-  if (document.verified === true) {
-    chips.push('<span class="chip chip-verified" aria-label="Verified by a human">VERIFIED</span>');
-  }
-  if (document.status === 'superseded') {
-    chips.push('<span class="chip chip-superseded" aria-label="Superseded by a newer document">SUPERSEDED</span>');
-  }
+  if (doc.kind === 'synthesized') chips.push(chip('SYNTH', 'synth'));
+  if (doc.stale === true) chips.push(chip('STALE', 'stale'));
+  if (doc.verified === true) chips.push(chip('VERIFIED', 'verified'));
+  if (doc.status === 'superseded') chips.push(chip('SUPERSEDED', 'superseded'));
   return chips.join('');
 }
 
-function renderDocumentLinks(links) {
-  if (links == null) return ''; // null or undefined → not loaded yet, render nothing
-  const list = Array.isArray(links) ? links : [];
-  if (list.length === 0) {
-    return `<section class="document-links" aria-labelledby="document-links-heading">
-      <h3 id="document-links-heading">Links</h3>
-      <p class="document-links-empty">No links.</p>
-    </section>`;
+// First non-empty, non-heading body line — the card's 2-line serif excerpt.
+function excerptFor(body) {
+  for (const line of String(body || '').split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed && !trimmed.startsWith('#')) return trimmed;
   }
-  const outbound = list.filter((l) => l.direction === 'outbound');
-  const inbound = list.filter((l) => l.direction === 'inbound');
-  const derivedFrom = outbound.filter((l) => l.relation === 'derived-from');
-  const supersedes = outbound.filter((l) => l.relation === 'supersedes');
-
-  const groupHtml = (label, entries, showRelation) => entries.length === 0 ? '' : `
-    <div class="document-links-group">
-      <h4>${label}</h4>
-      <ul>${entries.map((e) => `
-        <li>
-          <button class="text-action document-link-open" type="button" data-action="open-library-doc" data-library-document-id="${escapeHtml(e.documentId)}">${escapeHtml(e.title || 'Untitled')}</button>
-          ${showRelation ? `<small>(${escapeHtml(e.relation)})</small>` : ''}
-        </li>`).join('')}
-      </ul>
-    </div>`;
-
-  return `<section class="document-links" aria-labelledby="document-links-heading">
-    <h3 id="document-links-heading">Links</h3>
-    ${groupHtml('Derived from', derivedFrom, false)}
-    ${groupHtml('Supersedes', supersedes, false)}
-    ${groupHtml('Backlinks', inbound, true)}
-  </section>`;
+  return '';
 }
 
-function renderDocumentDetail(document, options = {}) {
-  if (!document) {
-    return `
-      <aside class="detail-panel detail-panel--empty" aria-label="Document detail">
-        <div class="detail-empty">
-          <h2>No document selected</h2>
-          <p>Select a Markdown document to preview or edit it.</p>
-        </div>
-      </aside>`;
-  }
-
-  const isArchived = Boolean(document.archivedAt);
-  const editorMode = isArchived ? 'preview' : (options.editorMode || 'preview');
-  const body = options.draftBody ?? document.body ?? '';
-  const isDirty = Boolean(options.isDirty);
-  const isInfoEditing = Boolean(options.isInfoEditing);
-  const isFocusMode = Boolean(options.isFocusMode);
-  const editorVisible = editorMode === 'edit' || editorMode === 'split';
-  const previewVisible = editorMode === 'preview' || editorMode === 'split';
-
-  return `
-    <aside class="detail-panel library-detail${isFocusMode ? ' is-focus-mode' : ''}" aria-labelledby="selected-document-title">
-      <header class="detail-header">
-        ${options.isLibraryDocOpen ? `<button class="detail-back bracket-button bracket-button--quiet" type="button" data-action="close-library-doc" aria-label="Back">← back</button>` : ''}
-        <span class="detail-kicker">${escapeHtml(labelFromValue(document.documentType || 'note'))}</span>
-        <h2 id="selected-document-title">${escapeHtml(document.title || 'Untitled document')} ${renderKindBadge(document.kind)}${renderTrustChips(document)}</h2>
-        <p class="library-detail-meta">Updated by ${escapeHtml(document.updatedBy || 'user')}${document.verified ? ` · verified${document.verifiedBy ? ` by ${escapeHtml(document.verifiedBy)}` : ''}` : ' · unverified'}${document.status === 'superseded' ? ' · superseded' : ''}</p>
-        <div class="document-tags">${renderTags(document.tags)}</div>
-        <div class="detail-actions">
-          ${isArchived ? '' : renderModes(editorMode)}
-          ${isArchived ? '' : '<button class="bracket-button" type="button" data-action="edit-document-info"><kbd>i</kbd> info</button>'}
-          ${isArchived ? '' : `<button class="bracket-button" type="button" data-action="toggle-verify"><kbd>v</kbd> ${document.verified ? 'unverify' : 'verify'}</button>`}
-          ${isArchived || document.status === 'superseded' ? '' : '<button class="bracket-button" type="button" data-action="supersede-document"><kbd>s</kbd> supersede…</button>'}
-          ${isArchived ? `
-          <button class="bracket-button" type="button" data-action="restore-document"><kbd>r</kbd> restore</button>
-          <button class="bracket-button bracket-button--danger" type="button" data-action="delete-archived-document"><kbd>!</kbd> delete</button>` : `
-          <button class="bracket-button bracket-button--danger" type="button" data-action="archive-document"><kbd>d</kbd> archive</button>`}
-        </div>
-      </header>
-      ${isInfoEditing ? renderDocumentInfoForm(document, { error: options.infoError, isSaving: options.isSaving }) : `
-      <div class="document-workspace document-workspace--${escapeHtml(editorMode)}${isFocusMode ? ' document-workspace--focused' : ''}">${editorVisible ? renderEditorPane(body, { isDirty, saveStatus: options.saveStatus, isFocusMode, documentId: document.id, isArchived }) : ''}${previewVisible ? renderPreviewPane(body) : ''}
-      </div>`}
-      ${renderDocumentLinks(options.documentLinks)}
-    </aside>`;
+// Short date label (YYYY-MM-DD) from an ISO timestamp.
+function updatedLabel(updatedAt) {
+  const value = String(updatedAt || '');
+  return /^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10) : '';
 }
 
-function renderOptions(options, selectedValue) {
-  return options.map(option => `
-            <option value="${option.value}"${option.value === selectedValue ? ' selected' : ''}>${option.label}</option>`).join('');
+function matchesQuery(doc, query) {
+  return [doc.title, doc.body, doc.documentType, ...(doc.tags || [])]
+    .map((part) => String(part ?? '').toLowerCase())
+    .join(' ')
+    .includes(query);
 }
 
-export function renderLibraryHtml({
-  documents = [],
-  selectedDocumentId = null,
-  previewMode = null,
-  editorMode = null,
-  draftBody = null,
-  isDirty = false,
-  availableTags = [],
-  activeTags = [],
-  tagQuery = '',
-  areTagsExpanded = false,
-  savedViews = [],
-  activeSavedViewId = null,
-  isInfoEditing = false,
-  infoError = '',
-  isSaving = false,
-  saveStatus = '',
-  isFocusMode = false,
-  isLibraryTagsDrawerOpen = false,
-  isLibraryDocOpen = false,
-  typeFilter = 'all',
-  sortBy = 'updated',
-  groupByType = false,
-  libraryView = 'active',
-  documentLinks = undefined,
-  librarySearchMode = 'keyword',
-  semanticAvailable = false,
-  projects = [],
-} = {}) {
-  const safeDocuments = Array.isArray(documents) ? documents : [];
-  const projectNames = Object.fromEntries(
-    (Array.isArray(projects) ? projects : [])
-      .filter((p) => p && p.id)
-      .map((p) => [p.id, p.name || p.slug]),
-  );
-  const document = selectedDocument(safeDocuments, selectedDocumentId);
-  const activeMode = editorMode || (previewMode === 'raw' ? 'edit' : previewMode) || 'preview';
-  const isArchiveView = libraryView === 'archive';
+// Pure derivation of everything the library page renders from state.
+// The `{ now }` options bag is part of the shared build* signature; the
+// library shows absolute short dates, so it is currently unused.
+export function buildLibraryModel(state, _options = {}) {
+  const documents = Array.isArray(state.documents) ? state.documents : [];
+  const activeTags = Array.isArray(state.activeLibraryTags) ? state.activeLibraryTags : [];
+  const query = String(state.libraryQuery || '').trim().toLowerCase();
+  const semantic = Boolean(state.librarySemantic);
 
-  return `
-    <section class="library-workspace${isFocusMode ? ' is-focus-mode' : ''}" aria-label="Knowledge Library workspace">
-      <aside class="library-browser" aria-labelledby="library-title">
-        <header class="panel-header">
-          <div>
-            ${isArchiveView ? '<span class="detail-kicker">ARCHIVE</span>' : ''}
-            <h2 id="library-title">Knowledge Library</h2>
-            <p>${safeDocuments.length} ${isArchiveView ? 'archived documents' : 'documents'}</p>
-          </div>
-          <span class="sync-pill">Markdown</span>
-          <button class="bracket-button bracket-button--quiet" type="button" data-action="toggle-library-view">${isArchiveView ? '[←] active' : '[a] archive'}</button>
-          <button class="bracket-button bracket-button--quiet library-tags-toggle" type="button" data-action="toggle-library-tags-drawer" aria-expanded="${isLibraryTagsDrawerOpen}">filters ↕</button>
-        </header>
-        <div class="library-tag-filter__drawer${isLibraryTagsDrawerOpen ? ' is-open' : ''}">
-          <div class="library-controls">
-            <div class="modes library-type-filter" role="tablist" aria-label="Document type">
-              <button class="${typeFilter === 'all' ? 'on' : ''}" type="button" role="tab" data-library-type="all" aria-selected="${typeFilter === 'all'}">all</button>
-              <button class="${typeFilter === 'runbook' ? 'on' : ''}" type="button" role="tab" data-library-type="runbook" aria-selected="${typeFilter === 'runbook'}">runbook</button>
-              <button class="${typeFilter === 'note' ? 'on' : ''}" type="button" role="tab" data-library-type="note" aria-selected="${typeFilter === 'note'}">note</button>
-            </div>
-            <label class="library-sort-label">sort
-              <select class="library-sort" data-library-sort>
-                <option value="updated"${sortBy === 'updated' ? ' selected' : ''}>updated</option>
-                <option value="created"${sortBy === 'created' ? ' selected' : ''}>created</option>
-                <option value="title"${sortBy === 'title' ? ' selected' : ''}>title</option>
-                <option value="type"${sortBy === 'type' ? ' selected' : ''}>type</option>
-              </select>
-            </label>
-            <button class="bracket-button bracket-button--quiet library-group-toggle" type="button" data-action="toggle-library-group" aria-pressed="${groupByType}">group: ${groupByType ? 'type' : 'off'}</button>
-          </div>
-          ${renderSmartViews({ savedViews, activeSavedViewId, activeTags })}
-          ${renderTagFilters({ availableTags, activeTags, tagQuery, areTagsExpanded })}
-          ${renderActiveFilters({ activeTags, activeSavedViewId, savedViews, documentCount: safeDocuments.length })}
-        </div>
-        ${semanticAvailable ? `
-        <div class="library-search-mode" role="group" aria-label="Search mode">
-          <button class="search-mode-btn${librarySearchMode === 'keyword' ? ' is-active' : ''}" type="button" data-action="set-library-search-mode" data-mode="keyword" aria-pressed="${librarySearchMode === 'keyword'}">keyword</button>
-          <button class="search-mode-btn${librarySearchMode === 'semantic' ? ' is-active' : ''}" type="button" data-action="set-library-search-mode" data-mode="semantic" aria-pressed="${librarySearchMode === 'semantic'}">semantic</button>
-        </div>` : ''}
-        <div class="document-list">${renderDocumentList(safeDocuments, document?.id, { groupByType, libraryView, projectNames })}
-        </div>
-      </aside>
-      <div class="library-resizer" data-library-resizer role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize library browser"></div>
-      <div class="library-document-stage">${renderDocumentDetail(document, { editorMode: activeMode, draftBody, isDirty, isInfoEditing, infoError, isSaving, saveStatus, isFocusMode, isLibraryDocOpen, documentLinks })}
-      </div>
-    </section>`;
-}
+  // Tag chips come from the pre-filter set so narrowing never hides pills.
+  const tagChips = tagsForDocuments(documents);
 
-export function renderDocumentFormHtml({
-  document = null,
-  projects = [],
-  values: valuesOverride = {},
-  error = '',
-  isSaving = false,
-} = {}) {
-  const isEditing = Boolean(document);
-  const values = {
-    title: document?.title || '',
-    body: document?.body || '',
-    documentType: document?.documentType || 'note',
-    project: valuesOverride.project || '',
-    tags: Array.isArray(document?.tags) ? document.tags.join(', ') : '',
-    sourceFilename: document?.sourceFilename || '',
+  let filtered = filterDocumentsByTags(documents, activeTags);
+  if (query && !semantic) filtered = filtered.filter((doc) => matchesQuery(doc, query));
+  filtered = sortDocuments(filtered, state.librarySortBy);
+
+  return {
+    groups: groupDocumentsByType(filtered),
+    tagChips,
+    semanticIdle: semantic && !query,
+    semanticActive: semantic && Boolean(query) && state.semanticResults !== null
+      && state.semanticResults !== undefined,
+    semanticResults: state.semanticResults ?? null,
+    archive: state.libraryView === 'archive',
+    visibleCount: filtered.length,
   };
+}
 
+function renderPageHead(model) {
   return `
-    <div class="modal-backdrop" data-modal="document-form">
-      <section class="task-form-modal" role="dialog" aria-modal="true" aria-labelledby="document-form-title">
-        <header class="modal-header">
-          <div class="modal-header--desktop">
-            <div class="modal-header__heading">
-              <h2 id="document-form-title">${isEditing ? 'edit document' : 'new document'}</h2>
-              <p>${isEditing ? 'Update this Markdown runbook or note.' : 'Create a Markdown runbook or note.'}</p>
-            </div>
-            <button class="modal-header__close bracket-button bracket-button--quiet" type="button" data-action="close-document-form" aria-label="Close document form">[x] close</button>
-          </div>
-          <div class="modal-header--mobile">
-            <button class="modal-header__cancel bracket-button bracket-button--quiet" type="button" data-action="close-document-form">cancel</button>
-            <h2 class="modal-header__title">${isEditing ? 'edit document' : 'new document'}</h2>
-            <button class="modal-header__save bracket-button bracket-button--primary" type="submit" form="document-form" data-action="submit-from-header"${isSaving ? ' disabled' : ''}>${isSaving ? '[s] saving...' : '[s] save'}</button>
-          </div>
-        </header>
+    <header class="page-head">
+      <h1 class="page-head__title">Library</h1>
+      <div class="page-head__actions">
+        <button class="btn-ghost" type="button" data-action="import-documents">Import .md</button>
+        <button class="btn-ghost" type="button" data-action="export-library">Export all</button>
+        <button class="btn-ghost" type="button" data-action="toggle-library-view" aria-pressed="${model.archive}">${model.archive ? 'Active' : 'Archive'}</button>
+        <button class="btn-primary" type="button" data-action="new-document">＋ New doc</button>
+      </div>
+    </header>`;
+}
 
-        <form class="task-form" id="document-form" data-document-form>
-          ${error ? `<div class="form-error" role="alert">${escapeHtml(error)}</div>` : ''}
-          <label>
-            <span>Title</span>
-            <input name="title" type="text" value="${escapeHtml(values.title)}" autocomplete="off" required>
-          </label>
-          <label>
-            <span>Body</span>
-            <textarea name="body" rows="12">${escapeHtml(values.body)}</textarea>
-          </label>
-          <div class="form-grid">
-            <label>
-              <span>Type</span>
-              <select name="documentType">${renderOptions(DOCUMENT_TYPES, values.documentType)}
-              </select>
-            </label>
-            <label>
-              <span>Project</span>
-              <select name="project">${projects.map(project =>
-    `<option value="${escapeHtml(project.id)}"${project.id === values.project ? ' selected' : ''}>${escapeHtml(project.name)}</option>`
-  ).join('')}</select>
-            </label>
-            <label>
-              <span>Tags</span>
-              <input name="tags" type="text" value="${escapeHtml(values.tags)}" placeholder="postgres, backup">
-            </label>
-            <label>
-              <span>Source File</span>
-              <input name="sourceFilename" type="text" value="${escapeHtml(values.sourceFilename)}">
-            </label>
-          </div>
-          <footer class="task-form-actions">
-            <button class="bracket-button bracket-button--quiet" type="button" data-action="close-document-form">cancel</button>
-            <button class="bracket-button bracket-button--primary" type="submit"${isSaving ? ' disabled' : ''}>${isSaving ? '[s] saving...' : '[s] save'}</button>
-          </footer>
-        </form>
-      </section>
+function renderSearchRow(state, semanticVisible) {
+  const isSemantic = Boolean(state.librarySemantic);
+  const placeholder = isSemantic ? SEMANTIC_PLACEHOLDER : KEYWORD_PLACEHOLDER;
+  const semanticButton = semanticVisible
+    ? `<button class="btn-ghost${isSemantic ? ' is-on' : ''}" type="button" data-action="toggle-semantic" aria-pressed="${isSemantic}">${icon('spark', 13)}<span>Semantic</span></button>`
+    : '';
+  return `
+    <div class="lib-search${isSemantic ? ' is-semantic' : ''}">
+      <input class="lib-search__input" type="search" data-library-search placeholder="${escapeHtml(placeholder)}" value="${escapeHtml(state.libraryQuery || '')}" autocomplete="off" aria-label="Search library">
+      ${semanticButton}
+      <button class="btn-ghost" type="button" data-action="cycle-lib-sort">Sort: ${state.librarySortBy === 'title' ? 'Title' : 'Updated'}</button>
     </div>`;
+}
+
+function renderTagRow(state, model) {
+  const active = new Set((state.activeLibraryTags || []).map(normalizedTag).filter(Boolean));
+  const pills = model.tagChips.map(({ tag, count }) => {
+    const isActive = active.has(tag);
+    return `<button class="tag-pill${isActive ? ' is-active' : ''}" type="button" data-action="toggle-lib-tag" data-tag="${escapeHtml(tag)}" aria-pressed="${isActive}">#${escapeHtml(tag)} <span class="tag-pill__count">${Number(count) || 0}</span></button>`;
+  });
+  if (active.size) {
+    pills.push('<button class="tag-pill tag-pill--save" type="button" data-action="save-library-view">＋ Save view</button>');
+  }
+  return pills.length ? `<div class="tag-row">${pills.join('')}</div>` : '';
+}
+
+function renderDocCard(doc) {
+  const tags = (doc.tags || []).map(normalizedTag).filter(Boolean);
+  return `
+    <button class="doc-card" type="button" data-action="open-doc" data-document-id="${escapeHtml(doc.id)}">
+      <div class="doc-card__head">
+        <span class="doc-card__title">${escapeHtml(doc.title || 'Untitled')}</span>
+        <span class="doc-card__badges">${typeChip(doc)}${trustChips(doc)}</span>
+      </div>
+      <p class="doc-card__excerpt">${escapeHtml(excerptFor(doc.body))}</p>
+      <div class="doc-card__foot">
+        ${tags.map((tag) => chip(`#${tag}`, 'tag')).join('')}
+        <span class="doc-card__updated">${escapeHtml(updatedLabel(doc.updatedAt))}</span>
+      </div>
+    </button>`;
+}
+
+function renderGroups(groups) {
+  return groups.map(({ label, docs }) => `
+    <div class="group-label">${escapeHtml(label)} <span class="group-label__count">${docs.length}</span></div>
+    <div class="doc-grid">${docs.map(renderDocCard).join('')}</div>`).join('');
+}
+
+function renderNoResults(semanticVisible) {
+  const hint = semanticVisible
+    ? 'Try fewer tags, or flip on Semantic to search by meaning.'
+    : 'Try fewer tags or a shorter search.';
+  return `
+    <div class="empty" role="status">
+      <h2 class="empty__title">No documents match</h2>
+      <p class="empty__sub">${hint}</p>
+      <button class="btn-ghost" type="button" data-action="clear-lib-filters">Clear filters</button>
+    </div>`;
+}
+
+function renderSemanticIdle() {
+  return `
+    <div class="empty" role="status">
+      ${icon('spark', 24)}
+      <h2 class="empty__title">Ask your library a question</h2>
+      <p class="empty__sub">Semantic search runs against your local index — results are ranked by meaning.</p>
+    </div>`;
+}
+
+function renderSemCard(result, index) {
+  // Rank + mini bar scaled by inverse rank (px against the 44px score block).
+  // No percentage: the API returns no similarity score.
+  const rank = index + 1;
+  const barWidth = Math.max(4, Math.round(44 / rank));
+  return `
+    <button class="sem-card" type="button" data-action="open-doc" data-document-id="${escapeHtml(result.id)}">
+      <div class="sem-card__score" aria-label="Ranked ${rank}">
+        <div class="sem-card__pct">#${rank}</div>
+        <div class="sem-card__bar"><span style="width:${barWidth}px"></span></div>
+      </div>
+      <div class="sem-card__body" style="flex:1;min-width:0">
+        <div class="sem-card__head"><span class="sem-card__title" style="font-weight:600">${escapeHtml(result.title || 'Untitled')}</span> ${typeChip(result)}</div>
+        <p class="sem-card__reason">${escapeHtml(result.snippet || '')}</p>
+      </div>
+    </button>`;
+}
+
+function renderSemanticResults(results) {
+  const list = Array.isArray(results) ? results : [];
+  return `
+    <p class="sem-note">${list.length} ${list.length === 1 ? 'document' : 'documents'} matched by meaning.</p>
+    <div class="sem-list">${list.map(renderSemCard).join('')}</div>`;
+}
+
+function renderArchiveRows(model) {
+  const docs = model.groups.flatMap((group) => group.docs);
+  if (!docs.length) {
+    return `
+    <div class="empty" role="status">
+      <h2 class="empty__title">No archived documents</h2>
+      <p class="empty__sub">Documents you archive land here — restore them or delete them for good.</p>
+    </div>`;
+  }
+  return `
+    <div class="rows">${docs.map((doc) => `
+      <div class="plain-row is-dim" data-action="open-doc" data-document-id="${escapeHtml(doc.id)}">
+        <span class="plain-row__title">${escapeHtml(doc.title || 'Untitled')}</span>
+        ${typeChip(doc)}${trustChips(doc)}
+        <button class="btn-outline" type="button" data-action="restore-document" data-document-id="${escapeHtml(doc.id)}">Restore</button>
+        <button class="btn-outline btn-outline--danger" type="button" data-action="delete-archived-document" data-document-id="${escapeHtml(doc.id)}">Delete</button>
+      </div>`).join('')}
+    </div>`;
+}
+
+function renderBody(state, model, semanticVisible) {
+  if (model.archive) return renderArchiveRows(model);
+  if (state.librarySemantic) {
+    // Idle covers both "no query yet" and "results not back yet".
+    return model.semanticActive ? renderSemanticResults(model.semanticResults) : renderSemanticIdle();
+  }
+  if (!model.visibleCount) return renderNoResults(semanticVisible);
+  return renderGroups(model.groups);
+}
+
+export function renderLibraryHtml(state, model) {
+  const semanticVisible = Boolean(state.semanticStatus?.available && state.semanticStatus?.enabled);
+  return `
+  <section class="page" aria-label="Library">
+    ${renderPageHead(model)}
+    ${renderSearchRow(state, semanticVisible)}
+    ${renderTagRow(state, model)}
+    ${renderBody(state, model, semanticVisible)}
+  </section>`;
 }

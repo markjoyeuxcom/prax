@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  ACCENT_CSS,
+  ACCENT_OPTIONS,
+  CHROME_OPTIONS,
   DEFAULT_PREFERENCES,
   LOCAL_STORAGE_KEY,
-  PALETTE_OPTIONS,
-  BOARD_DENSITY_OPTIONS,
+  THEME_OPTIONS,
   applyPreferences,
   loadPreferences,
   normalizePreferences,
@@ -28,8 +30,9 @@ function storageWith(initial = {}) {
   };
 }
 
-function rootStub() {
+function bodyStub() {
   const attributes = new Map();
+  const properties = new Map();
   return {
     setAttribute(name, value) {
       attributes.set(name, value);
@@ -37,38 +40,62 @@ function rootStub() {
     getAttribute(name) {
       return attributes.get(name);
     },
+    style: {
+      setProperty(name, value) {
+        properties.set(name, value);
+      },
+      removeProperty(name) {
+        properties.delete(name);
+      },
+      getPropertyValue(name) {
+        return properties.get(name);
+      },
+    },
   };
 }
 
 test('normalizePreferences returns defaults for empty or invalid input', () => {
   assert.deepEqual(normalizePreferences(null), DEFAULT_PREFERENCES);
-  assert.deepEqual(normalizePreferences({ fontScale: 'giant', palette: 'rainbow' }), DEFAULT_PREFERENCES);
-});
-
-test('normalizePreferences preserves valid font scale and palette values', () => {
   assert.deepEqual(
-    normalizePreferences({ fontScale: 'large', palette: 'daylight' }),
-    { fontScale: 'large', palette: 'daylight', boardDensity: 'comfortable' },
+    normalizePreferences({ theme: 'sepia', accent: 'rainbow', chromeOS: 'beos', readingScale: 'huge' }),
+    DEFAULT_PREFERENCES,
   );
 });
 
-test('PALETTE_OPTIONS includes the midnight palette', () => {
-  assert.ok(PALETTE_OPTIONS.includes('midnight'));
+test('normalizePreferences preserves valid theme, accent, and chrome values', () => {
+  assert.deepEqual(
+    normalizePreferences({ theme: 'dark', accent: 'indigo', chromeOS: 'win', readingScale: 1.1 }),
+    { theme: 'dark', accent: 'indigo', chromeOS: 'win', readingScale: 1.1 },
+  );
 });
 
-test('normalizePreferences preserves the midnight palette', () => {
-  assert.deepEqual(
-    normalizePreferences({ fontScale: 'comfortable', palette: 'midnight' }),
-    { fontScale: 'comfortable', palette: 'midnight', boardDensity: 'comfortable' },
-  );
+test('the option sets are the design set', () => {
+  assert.deepEqual([...THEME_OPTIONS], ['light', 'dark']);
+  assert.deepEqual([...ACCENT_OPTIONS], ['fern', 'indigo', 'clay', 'moss']);
+  assert.deepEqual([...CHROME_OPTIONS], ['mac', 'win']);
+});
+
+test('reading scale clamps to the 0.85–1.25 design range', () => {
+  assert.equal(normalizePreferences({ readingScale: 0.5 }).readingScale, 0.85);
+  assert.equal(normalizePreferences({ readingScale: 2 }).readingScale, 1.25);
+  assert.equal(normalizePreferences({ readingScale: NaN }).readingScale, 1);
+});
+
+test('legacy palettes migrate to the nearest theme', () => {
+  assert.equal(normalizePreferences({ palette: 'console' }).theme, 'dark');
+  assert.equal(normalizePreferences({ palette: 'graphite' }).theme, 'dark');
+  assert.equal(normalizePreferences({ palette: 'midnight' }).theme, 'dark');
+  assert.equal(normalizePreferences({ palette: 'daylight' }).theme, 'light');
+  // an explicit new-shape theme wins over a stale legacy palette field
+  assert.equal(normalizePreferences({ theme: 'light', palette: 'console' }).theme, 'light');
 });
 
 test('loadPreferences parses saved localStorage JSON', () => {
   const storage = storageWith({
-    [LOCAL_STORAGE_KEY]: JSON.stringify({ fontScale: 'compact', palette: 'graphite' }),
+    [LOCAL_STORAGE_KEY]: JSON.stringify({ theme: 'dark', accent: 'moss' }),
   });
 
-  assert.deepEqual(loadPreferences(storage), { fontScale: 'compact', palette: 'graphite', boardDensity: 'comfortable' });
+  assert.deepEqual(loadPreferences(storage), { theme: 'dark', accent: 'moss', chromeOS: 'mac', readingScale: 1 });
 });
 
 test('loadPreferences returns defaults for malformed saved JSON', () => {
@@ -80,15 +107,15 @@ test('loadPreferences returns defaults for malformed saved JSON', () => {
 test('savePreferences stores normalized preferences', () => {
   const storage = storageWith();
 
-  const saved = savePreferences({ fontScale: 'large', palette: 'daylight' }, storage);
+  const saved = savePreferences({ theme: 'dark', accent: 'clay', readingScale: 1.25 }, storage);
 
-  assert.deepEqual(saved, { fontScale: 'large', palette: 'daylight', boardDensity: 'comfortable' });
+  assert.deepEqual(saved, { theme: 'dark', accent: 'clay', chromeOS: 'mac', readingScale: 1.25 });
   assert.equal(storage.getItem(LOCAL_STORAGE_KEY), JSON.stringify(saved));
 });
 
 test('resetPreferences clears storage and returns defaults', () => {
   const storage = storageWith({
-    [LOCAL_STORAGE_KEY]: JSON.stringify({ fontScale: 'large', palette: 'daylight' }),
+    [LOCAL_STORAGE_KEY]: JSON.stringify({ theme: 'dark' }),
   });
 
   const reset = resetPreferences(storage);
@@ -97,21 +124,21 @@ test('resetPreferences clears storage and returns defaults', () => {
   assert.equal(storage.getItem(LOCAL_STORAGE_KEY), null);
 });
 
-test('applyPreferences writes root attributes', () => {
-  const root = rootStub();
+test('applyPreferences writes the theme attribute and property overrides', () => {
+  const body = bodyStub();
 
-  applyPreferences({ fontScale: 'large', palette: 'graphite', boardDensity: 'compact' }, root);
+  applyPreferences({ theme: 'dark', accent: 'indigo', readingScale: 1.1 }, body);
 
-  assert.equal(root.getAttribute('data-font-scale'), 'large');
-  assert.equal(root.getAttribute('data-palette'), 'graphite');
-  assert.equal(root.getAttribute('data-board-density'), 'compact');
+  assert.equal(body.getAttribute('data-theme'), 'dark');
+  assert.equal(body.style.getPropertyValue('--accent'), ACCENT_CSS.indigo);
+  assert.equal(body.style.getPropertyValue('--reading-scale'), '1.1');
 });
 
-test('BOARD_DENSITY_OPTIONS includes comfortable and compact', () => {
-  assert.deepEqual([...BOARD_DENSITY_OPTIONS], ['comfortable', 'compact']);
-});
+test('applyPreferences clears the accent override for the default fern accent', () => {
+  const body = bodyStub();
 
-test('normalizePreferences keeps a valid board density and rejects an invalid one', () => {
-  assert.equal(normalizePreferences({ boardDensity: 'compact' }).boardDensity, 'compact');
-  assert.equal(normalizePreferences({ boardDensity: 'cozy' }).boardDensity, 'comfortable');
+  applyPreferences({ theme: 'light', accent: 'indigo' }, body);
+  applyPreferences({ theme: 'light', accent: 'fern' }, body);
+
+  assert.equal(body.style.getPropertyValue('--accent'), undefined);
 });

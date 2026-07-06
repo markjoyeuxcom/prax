@@ -1,297 +1,213 @@
-const viewButtons = [
-  {
-    id: 'list',
-    label: 'Tasks',
-    heading: 'Tasks',
-    description: 'Coordinate urgent work, homelab maintenance, and operational follow-through from one calm queue.',
-  },
-  {
-    id: 'board',
-    label: 'Board',
-    heading: 'Board',
-    description: 'Track active work by status when a column view gives the clearest picture.',
-  },
-  {
-    id: 'backlog',
-    label: 'Backlog',
-    heading: 'Backlog',
-    description: 'Review planned work that is not demanding immediate operational attention.',
-  },
-  {
-    id: 'archive',
-    label: 'Archive',
-    heading: 'Archive',
-    description: 'Inspect completed or archived work without cluttering the active queue.',
-  },
-  {
-    id: 'library',
-    label: 'Library',
-    heading: 'Library',
-    description: 'Markdown runbooks and notes across your projects.',
-  },
-];
+// Prax application shell — titlebar, sidebar, icon rail, statusbar.
+// Pure `state → HTML string` renderers (no DOM access, no main.js import);
+// events are delegated in main.js via data-action attributes
+// (docs/desktop/phase1-actions.md). Classes come from public/prax.css.
 
-const navGroups = [
-  { label: 'Work', ids: ['list', 'board', 'library'] },
-  { label: 'Views', ids: ['backlog', 'archive'] },
-];
-const viewKeyGlyph = { list: 't', board: 'b', library: 'l', backlog: 'k', archive: 'r' };
+import { escapeHtml } from './renderHelpers.js';
+import { icon, logo } from './icons.js';
 
-// Small inline nav icons (stroke = currentColor) — self-hosted, no icon font.
-const NAV_ICON_SVG = (paths) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
-const viewIcon = {
-  list: NAV_ICON_SVG('<path d="M10 6h10M10 12h10M10 18h10"/><path d="M4 6l1.2 1.2L7.5 4.9M4 12l1.2 1.2 2.3-2.3M4 18l1.2 1.2 2.3-2.3"/>'),
-  board: NAV_ICON_SVG('<rect x="4" y="5" width="6" height="14" rx="1"/><rect x="14" y="5" width="6" height="9" rx="1"/>'),
-  library: NAV_ICON_SVG('<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>'),
-  backlog: NAV_ICON_SVG('<path d="M12 3l8 4.5-8 4.5-8-4.5L12 3z"/><path d="M4 12.5L12 17l8-4.5"/><path d="M4 17l8 4.5L20 17"/>'),
-  archive: NAV_ICON_SVG('<rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9"/><path d="M10 13.5h4"/>'),
-};
+// ---------------------------------------------------------------------------
+// Project colors
+// ---------------------------------------------------------------------------
 
+// Stable per-project dot color: hash the id onto one of 8 pleasant oklch hues
+// so a project keeps its color across sessions/machines with no stored state.
+const PROJECT_HUES = [172, 265, 45, 135, 220, 310, 80, 20];
 
-const metricCards = [
-  { key: 'dueToday', label: 'Due today' },
-  { key: 'overdue', label: 'Overdue' },
-  { key: 'inProgress', label: 'In progress' },
-  { key: 'completedThisWeek', label: 'Completed this week' },
-];
-
-function metricValue(metrics, key) {
-  const value = Number(metrics?.[key]);
-  return Number.isFinite(value) ? value : 0;
+export function projectColor(project) {
+  const id = String(project?.id ?? '');
+  let hash = 0;
+  for (let i = 0; i < id.length; i += 1) {
+    hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+  }
+  return `oklch(0.62 0.11 ${PROJECT_HUES[hash % PROJECT_HUES.length]})`;
 }
 
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+// ---------------------------------------------------------------------------
+// Shared derivations
+// ---------------------------------------------------------------------------
+
+// Sidebar/rail show only active + on-hold projects (API `status` field).
+function sidebarProjects(state) {
+  return (state.projects || []).filter(
+    (project) => project?.status === 'active' || project?.status === 'on-hold',
+  );
 }
 
-function viewFor(activeView) {
-  return viewButtons.find((view) => view.id === activeView) || viewButtons[0];
+function findProject(state, projectId) {
+  return (state.projects || []).find((project) => project?.id === projectId)
+    || (state.managedProjects || []).find((project) => project?.id === projectId)
+    || null;
 }
 
-function modeTagFor(activeView) {
-  const tags = {
-    list: 'TASKS',
-    board: 'BOARD',
-    backlog: 'BACKLOG',
-    archive: 'ARCHIVE',
-    library: 'LIBRARY',
-  };
-  return tags[activeView] || activeView.toUpperCase();
+// Library nav entries stay active while reading a document in the editor.
+function isLibraryNav(state) {
+  return state.navType === 'library' || state.navType === 'editor';
 }
 
-function syncLabelFor(apiStatus) {
-  if (apiStatus === 'error') return '<span class="sync-dots sync-dots--off">●○○</span> offline';
-  if (apiStatus === 'loading') return '<span class="sync-dots sync-dots--pending">●●○</span> syncing';
-  return '<span class="sync-dots sync-dots--ok">●●●</span> ok';
+function isCurrentProject(state, projectId) {
+  return state.navType === 'project' && state.navId === projectId;
 }
 
-function renderHamburgerDrawer({ activeProject, projects, isDrawerOpen, apiStatus }) {
-  const allActive = activeProject === 'all';
-  return `
-       <aside class="hamburger-drawer${isDrawerOpen ? ' is-open' : ''}" aria-label="Secondary navigation"${isDrawerOpen ? '' : ' aria-hidden="true" inert'}>
-         <header class="hamburger-drawer__header">
-           <span class="hamburger-drawer__title">// MENU</span>
-           <button class="hamburger-drawer__close" type="button" data-action="toggle-drawer" aria-label="Close menu">×</button>
-         </header>
-         <div class="hamburger-drawer__group">
-           <p class="hamburger-drawer__label">// VIEWS</p>
-           <button class="hamburger-drawer__item" type="button" data-view="backlog">backlog</button>
-         </div>
-         <div class="hamburger-drawer__group">
-           <p class="hamburger-drawer__label">// PROJECTS</p>
-           <button class="hamburger-drawer__item${allActive ? ' is-active' : ''}" type="button" data-project="all">all projects</button>
-           ${projects.map(p => `<button class="hamburger-drawer__item${p.id === activeProject ? ' is-active' : ''}" type="button" data-project="${escapeHtml(p.id)}">${escapeHtml(p.name)}</button>`).join('')}
-           <button class="hamburger-drawer__item" type="button" data-action="new-project">[+] new project</button>
-           <button class="hamburger-drawer__item hamburger-drawer__item--manage" type="button" data-action="open-project-manager">[≡] manage projects</button>
-           <button class="hamburger-drawer__item" type="button" data-action="open-archived-projects">[▤] archived projects</button>
-         </div>
-         <div class="hamburger-drawer__group">
-           <p class="hamburger-drawer__label">// ADMIN</p>
-           <button class="hamburger-drawer__item" type="button" data-action="open-admin">[a] open admin</button>
-           <button class="hamburger-drawer__item" type="button" data-action="open-settings">[~] settings</button>
-         </div>
-         <div class="hamburger-drawer__group">
-           <p class="hamburger-drawer__label">// CLUSTER</p>
-           <dl class="hamburger-drawer__status">
-             <div><dt>api</dt><dd>${apiStatus === 'connected' ? 'ok' : apiStatus === 'loading' ? 'syncing' : 'offline'}</dd></div>
-             <div><dt>db</dt><dd>ok</dd></div>
-             <div><dt>backup</dt><dd>ready</dd></div>
-           </dl>
-         </div>
-       </aside>`;
+// ---------------------------------------------------------------------------
+// Titlebar
+// ---------------------------------------------------------------------------
+
+function crumbContext(state) {
+  if (state.navType === 'project') return findProject(state, state.navId)?.name || '';
+  if (state.navType === 'editor') {
+    const doc = (state.documents || []).find((d) => d?.id === state.editorDocId);
+    return `Library / ${doc?.title || ''}`;
+  }
+  const fixed = { today: 'Today', all: 'All projects', library: 'Library', settings: 'Settings' };
+  return fixed[state.navType] || '';
 }
 
-function renderBottomNav(activeView) {
-  const newAction = activeView === 'library' ? 'new-document' : 'new-task';
-  const slots = [
-    { key: 'list',    glyph: 'T', label: 'tasks',   view: 'list',    action: null },
-    { key: 'board',   glyph: 'B', label: 'board',   view: 'board',   action: null },
-    { key: 'new',     glyph: '+', label: '',        view: null,      action: newAction },
-    { key: 'library', glyph: 'L', label: 'library', view: 'library', action: null },
-    { key: 'archive', glyph: 'A', label: 'arch',    view: 'archive', action: null },
-  ];
-  return `
-        <nav class="bottom-nav" aria-label="Primary">
-          ${slots.map(slot => {
-            const isActive = slot.view && slot.view === activeView;
-            const attrs = slot.action ? `data-action="${slot.action}"` : `data-view="${slot.view}"`;
-            const slotClasses = ['bottom-nav__slot'];
-            if (isActive) slotClasses.push('is-active');
-            if (slot.key === 'new') slotClasses.push('bottom-nav__slot--add');
-            return `<button data-bottom-nav="${slot.key}" class="${slotClasses.join(' ')}" type="button" ${attrs}>
-              <span class="bottom-nav__glyph">${slot.glyph}</span>
-              <span class="bottom-nav__label">${slot.label}</span>
-            </button>`;
-          }).join('')}
-        </nav>`;
+const TRAFFIC_LIGHTS = '<div class="traffic" aria-hidden="true">'
+  + '<span class="traffic__close"></span>'
+  + '<span class="traffic__min"></span>'
+  + '<span class="traffic__max"></span>'
+  + '</div>';
+
+const WIN_CONTROLS = '<div class="winctl">'
+  + '<button type="button" title="Minimize" aria-label="Minimize">─</button>'
+  + '<button type="button" title="Maximize" aria-label="Maximize">▢</button>'
+  + '<button type="button" class="winctl__close" title="Close" aria-label="Close">✕</button>'
+  + '</div>';
+
+export function renderTitlebarHtml(state) {
+  const isMac = state.preferences?.chromeOS === 'mac';
+  const left = isMac ? TRAFFIC_LIGHTS : logo(15);
+
+  // In editor focus mode the right-hand chrome (incl. Windows controls,
+  // matching the prototype) is hidden; traffic lights / logo + crumb stay.
+  const actions = state.editorFocus ? '' : '<div class="titlebar__actions">'
+    + `<button type="button" class="searchpill" data-action="open-palette">${icon('search', 13)}<span>Search or jump to…</span><span class="kbd">⌘K</span></button>`
+    + `<button type="button" class="btn-primary" data-action="open-capture" title="Quick capture (N)">${icon('plus', 12)}<span>New task</span></button>`
+    + '<button type="button" class="btn-icon" data-action="toggle-theme" title="Toggle theme (⌘J)">◐</button>'
+    + (isMac ? '' : WIN_CONTROLS)
+    + '</div>';
+
+  return '<div class="titlebar">'
+    + left
+    + `<div class="titlebar__crumb-wrap"><div class="titlebar__crumb">prax — ${escapeHtml(crumbContext(state))}</div></div>`
+    + actions
+    + '</div>';
 }
 
-function renderSidebarNavGroups(activeView) {
-  return navGroups.map((group) => {
-    const buttons = group.ids.map((id) => {
-      const view = viewButtons.find(v => v.id === id);
-      const isActive = id === activeView;
-      return `
-          <button class="nav-button${isActive ? ' is-active' : ''}" type="button" aria-pressed="${isActive}" data-view="${id}">
-            <span class="nav-button__main"><span class="nav-button__icon">${viewIcon[id]}</span><span>${view.label}</span></span>
-          </button>`;
-    }).join('');
-    return `
-        <nav class="side-nav" aria-label="${group.label}">
-          <p class="nav-label">${group.label}</p>
-          ${buttons}
-        </nav>`;
+// ---------------------------------------------------------------------------
+// Sidebar
+// ---------------------------------------------------------------------------
+
+function sideNavItem({ label, iconName, action, active, badge = 0 }) {
+  const classes = `side-item${active ? ' is-active is-active--nav' : ''}`;
+  return `<button type="button" class="${classes}" data-action="${action}"${active ? ' aria-current="true"' : ''}>`
+    + icon(iconName)
+    + `<span class="side-item__label">${escapeHtml(label)}</span>`
+    + (badge > 0 ? `<span class="badge">${badge}</span>` : '')
+    + '</button>';
+}
+
+function sidebarProjectItem(state, project, counts) {
+  const active = isCurrentProject(state, project.id);
+  const openCount = counts?.projectOpen?.[project.id] || 0;
+  const dotClass = `proj-dot${project.status === 'on-hold' ? ' is-onhold' : ''}`;
+  return `<button type="button" class="side-item${active ? ' is-active' : ''}" data-action="nav-project" data-project-id="${escapeHtml(project.id)}"${active ? ' aria-current="true"' : ''}>`
+    + `<span class="${dotClass}" style="--dot: ${projectColor(project)}"></span>`
+    + `<span class="side-item__label">${escapeHtml(project.name)}</span>`
+    + `<span class="side-item__count">${openCount || ''}</span>`
+    + '</button>';
+}
+
+function sidebarSavedViews(state) {
+  const views = state.librarySavedViews || [];
+  if (!views.length) return '';
+  const items = views.map((view, index) => {
+    const active = state.navType === 'library'
+      && (state.activeLibraryTags || []).join() === (view?.tags || []).join();
+    return `<button type="button" class="side-item${active ? ' is-active' : ''}" data-action="select-saved-view" data-view-index="${index}"${active ? ' aria-current="true"' : ''}>`
+      + icon('tag')
+      + `<span class="side-item__label">${escapeHtml(view?.label)}</span>`
+      + '</button>';
   }).join('');
+  return `<div class="side-section"><span>Saved views</span></div>${items}`;
 }
 
-function renderProjectButtons(activeProject, projects) {
-  const allActive = activeProject === 'all';
-  const allBtn = `
-          <button class="nav-button${allActive ? ' is-active' : ''}" type="button" aria-pressed="${allActive}" data-project="all">
-            <span>All projects</span>
-          </button>`;
-  const projectBtns = projects.map((project) => {
-    const isActive = project.id === activeProject;
-    return `
-          <button class="nav-button${isActive ? ' is-active' : ''}" type="button" aria-pressed="${isActive}" data-project="${escapeHtml(project.id)}">
-            <span>${escapeHtml(project.name)}</span>
-          </button>`;
+export function renderSidebarHtml(state, counts = {}) {
+  const brand = '<div class="sidebar__brand">'
+    + logo(25)
+    + '<span class="sidebar__wordmark">prax</span>'
+    + '<span class="sidebar__byline">by moomora</span>'
+    + '</div>';
+
+  const nav = [
+    sideNavItem({ label: 'Today', iconName: 'check', action: 'nav-today', active: state.navType === 'today', badge: counts.todayBadge }),
+    sideNavItem({ label: 'All projects', iconName: 'grid', action: 'nav-all', active: state.navType === 'all' }),
+    sideNavItem({ label: 'Library', iconName: 'book', action: 'nav-library', active: isLibraryNav(state) }),
+  ].join('');
+
+  const projectsSection = '<div class="side-section">'
+    + '<span>Projects</span>'
+    + '<button type="button" data-action="manage-projects" title="Manage projects" aria-label="Manage projects">＋</button>'
+    + '</div>'
+    + sidebarProjects(state).map((project) => sidebarProjectItem(state, project, counts)).join('');
+
+  const settingsActive = state.navType === 'settings';
+  const settings = '<div class="sidebar__settings">'
+    + `<button type="button" class="side-item${settingsActive ? ' is-active' : ''}" data-action="nav-settings"${settingsActive ? ' aria-current="true"' : ''}>`
+    + icon('sliders')
+    + '<span class="side-item__label">Settings</span>'
+    + '</button>'
+    + '</div>';
+
+  return '<aside class="sidebar" aria-label="Navigation">'
+    + brand
+    + `<div class="sidebar__scroll">${nav}${projectsSection}${sidebarSavedViews(state)}</div>`
+    + settings
+    + '</aside>';
+}
+
+// ---------------------------------------------------------------------------
+// Icon rail (narrow windows, < 940px)
+// ---------------------------------------------------------------------------
+
+export function renderRailHtml(state) {
+  const navs = [
+    { title: 'Today', iconName: 'check', action: 'nav-today', active: state.navType === 'today' },
+    { title: 'All projects', iconName: 'grid', action: 'nav-all', active: state.navType === 'all' },
+    { title: 'Library', iconName: 'book', action: 'nav-library', active: isLibraryNav(state) },
+    { title: 'Settings', iconName: 'sliders', action: 'nav-settings', active: state.navType === 'settings' },
+  ].map(({ title, iconName, action, active }) => (
+    `<button type="button" class="rail__btn${active ? ' is-active' : ''}" title="${title}" data-action="${action}"${active ? ' aria-current="true"' : ''}>${icon(iconName, 16)}</button>`
+  )).join('');
+
+  const projects = sidebarProjects(state).map((project) => {
+    const active = isCurrentProject(state, project.id);
+    return `<button type="button" class="rail__proj${active ? ' is-active' : ''}" title="${escapeHtml(project.name)}" data-action="nav-project" data-project-id="${escapeHtml(project.id)}"${active ? ' aria-current="true"' : ''}>`
+      + `<span style="--dot: ${projectColor(project)}"></span>`
+      + '</button>';
   }).join('');
-  return allBtn + projectBtns;
+
+  return '<aside class="rail" aria-label="Navigation">'
+    + logo(25)
+    + navs
+    + '<div class="rail__divider"></div>'
+    + projects
+    + '</aside>';
 }
 
-function renderProjectToolsMenu() {
-  return `
-          <details class="project-tools-menu">
-            <summary class="project-tools-menu__summary" aria-label="Project tools" title="Project tools">[...]</summary>
-            <div class="project-tools-menu__items">
-              <button class="nav-button nav-button--accent" type="button" data-action="new-project"><span>+ new project</span></button>
-              <button class="nav-button nav-button--accent" type="button" data-action="open-project-manager"><span>≡ manage</span></button>
-              <button class="nav-button nav-button--accent" type="button" data-action="open-archived-projects"><span>▤ archived</span></button>
-            </div>
-          </details>`;
-}
+// ---------------------------------------------------------------------------
+// Statusbar
+// ---------------------------------------------------------------------------
 
-function renderMetricStrip(metrics) {
-  const items = metricCards.map(m => `<span class="metric-strip__item">${m.label.toLowerCase()} <b>${metricValue(metrics, m.key)}</b></span>`);
-  return `<section class="metric-strip" aria-label="Task metrics">${items.join('<span class="metric-strip__sep">·</span>')}</section>`;
-}
-
-function apiStatusLabel(apiStatus) {
-  if (apiStatus === 'error') return 'Offline';
-  if (apiStatus === 'loading') return 'Checking';
-  return 'Online';
-}
-
-export function renderShellHtml({
-  activeProject = 'all',
-  projects = [],
-  activeView = 'list',
-  apiStatus = 'connected',
-  searchQuery = '',
-  metrics = {},
-  isDrawerOpen = false,
-} = {}) {
-  const activeViewConfig = viewFor(activeView);
-  const isLibraryView = activeViewConfig.id === 'library';
-  const primaryAction = activeViewConfig.id === 'library'
-    ? { action: 'new-document', label: 'New Document' }
-    : { action: 'new-task', label: 'New Task' };
-  const showMetrics = activeViewConfig.id !== 'library' && activeViewConfig.id !== 'board';
-  const metricsHtml = showMetrics ? renderMetricStrip(metrics) : '';
-  const workspaceClass = ['workspace'];
-  if (isLibraryView) workspaceClass.push('workspace--library');
-  if (activeViewConfig.id === 'board') workspaceClass.push('workspace--board');
-
-  return `
-    <div class="app-shell">
-      ${renderHamburgerDrawer({ activeProject, projects, isDrawerOpen, apiStatus })}
-      <aside class="sidebar" aria-label="Prax navigation">
-        <div class="brand">
-          <span class="brand-mark" aria-hidden="true">M</span>
-          <span class="brand-name">Prax</span>
-        </div>
-
-        ${renderSidebarNavGroups(activeViewConfig.id)}
-
-        <nav class="side-nav" aria-label="Projects">
-          <div class="nav-heading">
-            <p class="nav-label">Projects</p>
-            ${renderProjectToolsMenu()}
-          </div>
-          ${renderProjectButtons(activeProject, projects)}
-        </nav>
-
-        <section class="cluster-card" aria-label="Cluster status">
-          <div class="cluster-card__header">
-            <span>Cluster</span>
-            <span class="status-dot" aria-hidden="true"></span>
-          </div>
-          <dl class="status-list">
-            <div>
-              <dt>API</dt>
-              <dd>${apiStatusLabel(apiStatus)}</dd>
-            </div>
-            <div>
-              <dt>Postgres</dt>
-              <dd>Synced</dd>
-            </div>
-            <div>
-              <dt>Backup</dt>
-              <dd>Ready</dd>
-            </div>
-          </dl>
-        </section>
-      </aside>
-
-      <main class="console-main${isLibraryView ? ' console-main--library' : ''}">
-        <header class="topbar">
-          <button class="hamburger-trigger" type="button" data-action="toggle-drawer" aria-label="Menu">≡</button>
-          <h1 class="topbar-title">${escapeHtml(activeViewConfig.label)}</h1>
-          <label class="search-field">
-            <span class="sr-only">${isLibraryView ? 'Search documents' : 'Search tasks'}</span>
-            <input type="search" placeholder="${isLibraryView ? 'Search documents' : 'Search tasks'}" autocomplete="off" value="${escapeHtml(searchQuery)}" data-search-input>
-          </label>
-          <div class="topbar-actions">
-            <button type="button" data-action="open-settings" class="bracket-button"><kbd>~</kbd> settings</button>
-            <button type="button" data-action="open-admin" class="bracket-button"><kbd>a</kbd> admin</button>
-            ${isLibraryView ? '<button type="button" data-action="import-document" class="bracket-button"><kbd>↑</kbd> import</button>' : ''}
-            <button type="button" data-action="${primaryAction.action}" class="bracket-button bracket-button--primary">+ ${primaryAction.label === 'New Document' ? 'new doc' : 'new'}</button>
-          </div>
-        </header>
-        ${metricsHtml}
-        <div id="workspace" class="${workspaceClass.join(' ')}"></div>
-        <footer class="status-footer" aria-label="Console status">
-          <span class="status-footer__breadcrumb">prax <span class="status-footer__slash">/</span> ${escapeHtml(activeViewConfig.label)} <span class="status-footer__slash">/</span> <strong>${escapeHtml(activeProject === 'all' ? 'all projects' : (projects.find(p => p.id === activeProject)?.name || 'all projects'))}</strong></span>
-          <span class="status-footer__sync">${syncLabelFor(apiStatus)}</span>
-          <span class="status-footer__mode">&lt;${escapeHtml(modeTagFor(activeView))}&gt;</span>
-        </footer>
-      </main>
-      ${renderBottomNav(activeView)}
-    </div>`;
+export function renderStatusbarHtml(state) { // eslint-disable-line no-unused-vars
+  return '<footer class="statusbar">'
+    + '<span class="statusbar__saved">All changes saved locally</span>'
+    + '<span class="statusbar__hints">'
+    + '<span><span class="kbd">⌘K</span> command</span>'
+    + '<span><span class="kbd">N</span> new task</span>'
+    + '<span><span class="kbd">↑↓</span> navigate · <span class="kbd">E</span> done</span>'
+    + '<span><span class="kbd">⌘J</span> theme</span>'
+    + '</span>'
+    + '</footer>';
 }

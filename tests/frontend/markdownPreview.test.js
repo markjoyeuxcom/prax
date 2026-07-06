@@ -54,8 +54,10 @@ cloudflared tunnel list
   assert.match(html, /<a href="https:\/\/dash.cloudflare.com" rel="noreferrer">Cloudflare<\/a>/);
   assert.match(html, /<ol>/);
   assert.match(html, /<li>First step<\/li>/);
-  assert.match(html, /type="checkbox" disabled/);
-  assert.match(html, /checked/);
+  // Prax renders task items as clickable rows (main.js rewrites the source
+  // line via data-line) instead of the old disabled checkboxes.
+  assert.match(html, /class="task-item is-done" data-md-check data-line="\d+"/);
+  assert.match(html, /task-item__box">✓</);
   assert.match(html, /<table>/);
   assert.match(html, /<th>Name<\/th>/);
   assert.match(html, /<td>Enabled<\/td>/);

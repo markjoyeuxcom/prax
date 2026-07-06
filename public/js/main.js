@@ -1,2807 +1,1673 @@
-import { state, setState, loadActiveProject, persistActiveProject, loadBoardGrouping, persistBoardGrouping, loadListGrouping, persistListGrouping } from './state.js';
-import { fetchProjects, createProject, updateProject, archiveProject, deleteProjectPermanent } from './projectApi.js';
-import { renderProjectManagerHtml } from './renderProjectManager.js';
-import { renderProjectArchiveHtml } from './renderProjectArchive.js';
+// Prax — application orchestrator.
+// Render modules are pure state → HTML string functions; this file owns data
+// loading, event delegation (single delegated click/input/change listeners
+// reading data-action attributes), API translation via statusMap, and the
+// post-render lifecycle (CodeMirror mount, drag indicator, autosave timers).
+
+import { state, setState, loadActiveProject, persistActiveProject } from './state.js';
 import {
-  addChecklistItem,
-  archiveTask,
-  createTask,
-  deleteArchivedTask,
-  deleteChecklistItem,
-  exportTasks,
-  fetchTaskActivity,
-  fetchTaskBoardExtras,
-  fetchTaskChecklist,
-  fetchTaskDocuments,
-  fetchTasks,
-  importTasks,
-  linkTaskDocument,
-  reorderTasks,
-  restoreTask,
-  setChecklistItem,
-  unlinkTaskDocument,
-  updateTask,
+  applyPreferences, loadPreferences, savePreferences, resetPreferences,
+} from './preferences.js';
+import {
+  fetchTasks, createTask, updateTask, reorderTasks, archiveTask, restoreTask,
+  deleteArchivedTask, exportTasks, importTasks, fetchTaskDocuments,
+  linkTaskDocument, unlinkTaskDocument, fetchTaskChecklist, addChecklistItem,
+  setChecklistItem, deleteChecklistItem, fetchTaskActivity, fetchTaskBoardExtras,
 } from './taskApi.js';
 import {
-  archiveDocument,
-  createDocument,
-  deleteArchivedDocument,
-  fetchDocumentLinks,
-  fetchDocuments,
-  fetchOrphanDocuments,
-  fetchSemanticStatus,
-  fetchStaleDocuments,
-  reindexEmbeddings,
-  restoreDocument,
-  semanticSearch,
-  setSemanticEnabled,
+  fetchProjects, createProject, updateProject, deleteProjectPermanent,
+} from './projectApi.js';
+import {
+  fetchDocuments, createDocument, updateDocument, archiveDocument,
+  restoreDocument, deleteArchivedDocument, fetchDocumentLinks,
+  fetchStaleDocuments, fetchOrphanDocuments, fetchSemanticStatus,
+  setSemanticEnabled, reindexEmbeddings, semanticSearch, verifyDocument,
   supersedeDocument,
-  updateDocument,
-  verifyDocument,
 } from './libraryApi.js';
+import { normalizeTask } from './taskModel.js';
+import { apiStatus, designStatus, isOpen } from './statusMap.js';
 import { moveTaskOnBoard } from './boardWorkflow.js';
-import {
-  exportFilename,
-  normalizeImportMode,
-  tasksFromImportPayload,
-} from './importExport.js';
-import { filterTasks } from './taskFilters.js';
-import { buildMetrics, normalizeTask } from './taskModel.js';
-import { isArchiveView, tasksForView } from './taskViews.js';
-import { renderShellHtml } from './renderShell.js';
-import { renderListHtml, renderSwimlaneListHtml, renderListToolbar } from './renderList.js';
-import {
-  renderBoardFilters,
-  renderBoardHtml,
-  renderBoardToolbar,
-  renderSwimlaneBoardHtml,
-} from './renderBoard.js';
-import { applyBoardFilters } from './boardFilters.js';
-import { renderTaskDetailHtml } from './renderTaskDetail.js';
-import { renderTaskFormHtml } from './renderTaskForm.js';
-import { renderAdminPanelHtml } from './renderAdminPanel.js';
-import { renderSettingsPanelHtml } from './renderSettingsPanel.js';
-import { renderDocumentFormHtml, renderLibraryHtml } from './renderLibrary.js';
-import { renderLinkPickerHtml } from './renderLinkPicker.js';
-import { titleFromMarkdown } from './markdownPreview.js';
-import { applyMarkdownFormat } from './markdownEditor.js';
-import { canPreserveEditorAfterDraftSave, documentDraftSavedPatch } from './documentDraftSave.js';
-import { updateDocumentLivePreview } from './documentLivePreview.js';
-import { mountCodeMirrorEditor } from '../vendor/codemirror-editor.js';
-import { filterDocumentsByTags, filterDocumentsByType, sortDocuments, tagsForDocuments } from './libraryFilters.js';
-import { applyPreferences, loadPreferences, resetPreferences, savePreferences } from './preferences.js';
-import { isMobile } from './breakpoints.js';
-import {
-  areSameTags,
-  createSavedLibraryView,
-  renameSavedLibraryView,
-  savedLibraryViewsFromJson,
-} from './librarySavedViews.js';
+import { pendingExtraIds, batchIds, clearTaskBoardExtra } from './boardExtras.js';
 import { installKeyboardShortcuts } from './keyboardShortcuts.js';
+import { applyMarkdownFormat } from './markdownEditor.js';
+import { renderMarkdownHtml, titleFromMarkdown } from './markdownPreview.js';
+import { updateDocumentLivePreview } from './documentLivePreview.js';
+import {
+  canPreserveEditorAfterDraftSave, documentDraftSavedPatch,
+} from './documentDraftSave.js';
 import { triggerLibraryDocumentDownload } from './libraryExport.js';
+import { tasksFromImportPayload, exportFilename, normalizeImportMode } from './importExport.js';
+import { createSavedLibraryView, savedLibraryViewsFromJson } from './librarySavedViews.js';
+import { mountCodeMirrorEditor } from '../vendor/codemirror-editor.js';
 
-const app = document.getElementById('app');
+import {
+  renderTitlebarHtml, renderSidebarHtml, renderRailHtml, renderStatusbarHtml,
+  projectColor,
+} from './renderShell.js';
+import { renderListHtml, renderBulkBarHtml, buildListGroups } from './renderList.js';
+import { renderTodayHtml, buildTodayGroups } from './renderToday.js';
+import { renderBoardHtml, buildBoardColumns } from './renderBoard.js';
+import { renderBacklogHtml, renderArchiveHtml } from './renderBacklog.js';
+import { renderTaskDrawerHtml } from './renderTaskDetail.js';
+import { renderLinkPickerHtml } from './renderLinkPicker.js';
+import { renderLibraryHtml, buildLibraryModel } from './renderLibrary.js';
+import { renderEditorHtml, buildOutline, buildBacklinks } from './renderEditor.js';
+import { renderAllProjectsHtml, buildProjectGroups } from './renderAllProjects.js';
+import { renderPaletteHtml, buildPaletteGroups } from './renderPalette.js';
+import { renderCaptureHtml } from './renderCapture.js';
+import { renderToastHtml } from './renderToast.js';
+import { renderSettingsHtml } from './renderSettings.js';
+import { escapeHtml } from './renderHelpers.js';
+
 const SAVED_LIBRARY_VIEWS_KEY = 'moomora.librarySavedViews.v1';
-const LIBRARY_BROWSER_WIDTH_KEY = 'moomora.libraryBrowserWidth.v1';
-const LIBRARY_CONTROLS_KEY = 'moomora.libraryControls.v1';
 const DOCUMENT_AUTOSAVE_DELAY_MS = 1200;
-const BOARD_EXTRA_FETCH_BATCH_SIZE = 50;
+const NOTES_AUTOSAVE_DELAY_MS = 1200;
+const TITLE_SAVE_DELAY_MS = 600;
+
+// ---- module runtime (not state: timers, controllers, transient DOM) --------
+let appRoot = null;
+let flatIds = [];                 // keyboard-navigation order of the visible list
+let paletteFlat = [];             // flattened palette items for Enter/arrows
+let documentEditorController = null;
 let documentAutosaveTimer = null;
-let isSavingDocumentDraft = false;
-let boardExtraRequestSequence = 0;
+let notesAutosaveTimer = null;
+let descriptionSaveTimer = null;
+let titleSaveTimer = null;        // editor document title
+let taskTitleSaveTimer = null;    // drawer task title
+let toastTimer = null;
+let dragIndicator = null;
 
-function today() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+function alertError(message) {
+  window.alert(`Prax could not ${message}.`);
 }
 
-function shortTime(date = new Date()) {
-  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+// ---------------------------------------------------------------------------
+// Data loading
+// ---------------------------------------------------------------------------
+
+async function loadProjects() {
+  const all = await fetchProjects('all');
+  const sidebar = all.filter(p => p.status === 'active' || p.status === 'on-hold');
+  setState({ projects: sidebar, managedProjects: all });
 }
 
-function taskNotesDraftFor(task) {
-  if (!task) return '';
-  return state.taskNotesDraftId === task.id ? state.taskNotesDraft : (task.notes || '');
+async function loadTasks() {
+  const tasks = await fetchTasks({});
+  setState({ tasks: tasks.map(normalizeTask), apiStatus: 'connected' });
 }
 
-function renderLoading() {
-  app.innerHTML = '<main class="loading">Loading Prax...</main>';
-}
-
-function renderError(message) {
-  const error = document.createElement('main');
-  error.className = 'loading';
-  error.textContent = `Prax could not load: ${message}`;
-  app.replaceChildren(error);
-}
-
-function downloadJsonFile(filename, payload) {
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = filename;
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
-}
-
-function selectedTask() {
-  const visibleTasks = visibleTasksForCurrentView();
-  if (!visibleTasks.length) return null;
-  return visibleTasks.find((task) => task.id === state.selectedTaskId) || visibleTasks[0];
-}
-
-function editingTask() {
-  if (!state.editingTaskId) return null;
-  return state.tasks.find((task) => task.id === state.editingTaskId) || null;
-}
-
-function visibleDocumentsForCurrentView() {
-  const query = state.searchQuery.trim().toLowerCase();
-  const contextDocuments = state.activeProject === 'all'
-    ? state.documents
-    : state.documents.filter(document => document.projectId === state.activeProject);
-  const taggedDocuments = filterDocumentsByTags(contextDocuments, state.activeLibraryTags);
-  const typeFilteredDocuments = filterDocumentsByType(taggedDocuments, state.libraryTypeFilter);
-  const searchedDocuments = query
-    ? typeFilteredDocuments.filter((document) => [
-        document.title,
-        document.body,
-        document.documentType,
-        document.sourceFilename,
-        ...(document.tags || []),
-      ].some(value => String(value || '').toLowerCase().includes(query)))
-    : typeFilteredDocuments;
-  return sortDocuments(searchedDocuments, state.librarySortBy);
-}
-
-function selectedDocument() {
-  const visibleDocuments = visibleDocumentsForCurrentView();
-  if (!visibleDocuments.length) return null;
-  return visibleDocuments.find(document => document.id === state.selectedDocumentId) || visibleDocuments[0];
-}
-
-function editingDocument() {
-  if (!state.editingDocumentId) return null;
-  return state.documents.find(document => document.id === state.editingDocumentId) || null;
-}
-
-function draftBodyForDocument(document) {
-  if (!document) return '';
-  return state.documentDraftId === document.id ? state.documentDraftBody : document.body || '';
-}
-
-function persistSavedLibraryViews() {
-  try {
-    window.localStorage?.setItem(SAVED_LIBRARY_VIEWS_KEY, JSON.stringify(state.librarySavedViews));
-  } catch {
-    // Local persistence is a convenience; the Library still works without it.
-  }
-}
-
-function persistLibraryControls() {
-  try {
-    window.localStorage?.setItem(LIBRARY_CONTROLS_KEY, JSON.stringify({
-      typeFilter: state.libraryTypeFilter,
-      sortBy: state.librarySortBy,
-      groupByType: state.libraryGroupByType,
-    }));
-  } catch {
-    // Local persistence is a convenience; controls still work without it.
-  }
-}
-
-function loadLibraryControls() {
-  try {
-    const parsed = JSON.parse(window.localStorage?.getItem(LIBRARY_CONTROLS_KEY) || 'null');
-    if (!parsed || typeof parsed !== 'object') return {};
-    const patch = {};
-    if (['all', 'runbook', 'note'].includes(parsed.typeFilter)) patch.libraryTypeFilter = parsed.typeFilter;
-    if (['updated', 'created', 'title', 'type'].includes(parsed.sortBy)) patch.librarySortBy = parsed.sortBy;
-    if (typeof parsed.groupByType === 'boolean') patch.libraryGroupByType = parsed.groupByType;
-    return patch;
-  } catch {
-    return {};
-  }
-}
-
-function activeSavedLibraryViewId() {
-  const matchingView = state.librarySavedViews.find(view => areSameTags(view.tags, state.activeLibraryTags));
-  return matchingView?.id || null;
-}
-
-function clearDocumentAutosave() {
-  if (!documentAutosaveTimer) return;
-  window.clearTimeout(documentAutosaveTimer);
-  documentAutosaveTimer = null;
-}
-
-function updateDocumentSaveControls(workspace, status) {
-  const statusNode = workspace.querySelector('[data-document-save-status]');
-  const saveButton = workspace.querySelector('[data-action="save-document-draft"]');
-  if (statusNode) statusNode.textContent = status;
-  if (saveButton) saveButton.disabled = !state.isDocumentDirty || isSavingDocumentDraft;
-}
-
-function applyMarkdownToolbarAction(textarea, action) {
-  const result = applyMarkdownFormat(
-    textarea.value,
-    textarea.selectionStart,
-    textarea.selectionEnd,
-    action,
-  );
-  textarea.value = result.value;
-  textarea.focus();
-  textarea.setSelectionRange(result.selectionStart, result.selectionEnd);
-  textarea.dispatchEvent(new Event('input', { bubbles: true }));
-}
-
-async function loadTaskDocuments(taskId) {
-  if (!taskId) { setState({ taskDocuments: [] }); return; }
-  const requestedTaskId = taskId;
-  try {
-    const docs = await fetchTaskDocuments(taskId);
-    if (state.selectedTaskId === requestedTaskId) setState({ taskDocuments: docs });
-  } catch {
-    if (state.selectedTaskId === requestedTaskId) setState({ taskDocuments: [] });
-  }
-}
-
-async function loadTaskChecklist(taskId) {
-  if (!taskId) { setState({ taskChecklist: [] }); return; }
-  const requestedTaskId = taskId;
-  try {
-    const items = await fetchTaskChecklist(taskId);
-    if (state.selectedTaskId === requestedTaskId) setState({ taskChecklist: items });
-  } catch {
-    if (state.selectedTaskId === requestedTaskId) setState({ taskChecklist: [] });
-  }
-}
-
-async function loadTaskActivity(taskId) {
-  if (!taskId) { setState({ taskActivity: [] }); return; }
-  const requestedTaskId = taskId;
-  try {
-    const events = await fetchTaskActivity(taskId);
-    if (state.selectedTaskId === requestedTaskId) setState({ taskActivity: events });
-  } catch {
-    if (state.selectedTaskId === requestedTaskId) setState({ taskActivity: [] });
-  }
-}
-
-function emptyBoardExtra() {
-  return {
-    docsCount: 0,
-    checklistDone: 0,
-    checklistTotal: 0,
-    nextChecklistItem: '',
-    latestActivity: '',
-  };
-}
-
-function normalizeBoardExtra(extra) {
-  return {
-    ...emptyBoardExtra(),
-    ...(extra || {}),
-  };
-}
-
-function nextBoardExtraRequestToken(taskId) {
-  boardExtraRequestSequence += 1;
-  return `${taskId}:${boardExtraRequestSequence}`;
-}
-
-async function fetchTaskBoardExtraEntries(taskIds, tokens) {
-  const entries = [];
-  for (let index = 0; index < taskIds.length; index += BOARD_EXTRA_FETCH_BATCH_SIZE) {
-    const batch = taskIds.slice(index, index + BOARD_EXTRA_FETCH_BATCH_SIZE);
-    try {
-      const extras = await fetchTaskBoardExtras(batch);
-      const extrasByTask = new Map(extras.map(extra => [extra.taskId, normalizeBoardExtra(extra)]));
-      entries.push(...batch.map(id => [id, tokens[id], extrasByTask.get(id) || emptyBoardExtra()]));
-    } catch {
-      entries.push(...batch.map(id => [id, tokens[id], null]));
-    }
-  }
-  return entries;
-}
-
-function clearTaskBoardExtra(taskId) {
-  if (!taskId) return;
-  const nextExtras = { ...state.taskBoardExtras };
-  const nextLoading = { ...state.taskBoardExtrasLoading };
-  delete nextExtras[taskId];
-  delete nextLoading[taskId];
-  setState({ taskBoardExtras: nextExtras, taskBoardExtrasLoading: nextLoading });
-}
-
-async function ensureBoardExtras(tasks) {
-  if (state.activeView !== 'board') return;
-  const ids = [...new Set((Array.isArray(tasks) ? tasks : []).map(task => task.id).filter(Boolean))];
-  const needed = ids.filter(id => !state.taskBoardExtras?.[id] && !state.taskBoardExtrasLoading?.[id]);
-  if (!needed.length) return;
-  const tokens = Object.fromEntries(needed.map(id => [id, nextBoardExtraRequestToken(id)]));
-
-  setState({
-    taskBoardExtrasLoading: {
-      ...state.taskBoardExtrasLoading,
-      ...tokens,
-    },
-  });
-
-  const entries = await fetchTaskBoardExtraEntries(needed, tokens);
-  const loading = { ...state.taskBoardExtrasLoading };
-  const extras = { ...state.taskBoardExtras };
-  for (const [id, token, extra] of entries) {
-    if (loading[id] !== token) continue;
-    if (extra) extras[id] = extra;
-    delete loading[id];
-  }
-  setState({
-    taskBoardExtras: extras,
-    taskBoardExtrasLoading: loading,
-  });
-  if (state.activeView === 'board') renderWorkspace();
-}
-
-function renderWorkspace() {
-  const workspace = document.getElementById('workspace');
-  if (!workspace) return;
-
-  if (state.activeView === 'library') {
-    renderLibraryWorkspace(workspace);
+async function loadArchivedTasks() {
+  if (state.navType !== 'project' || !state.navId) {
+    setState({ archivedTasks: [] });
     return;
   }
-
-  const visibleTasks = visibleTasksForCurrentView();
-  const task = selectedTask();
-  const selectedTaskId = task?.id || null;
-  const readOnly = isArchiveView(state.activeView);
-  const isBoardView = state.activeView === 'board';
-  // Only render the drawer for the task the user actually selected. selectedTask()
-  // falls back to visibleTasks[0] when the selected id is no longer visible (search
-  // filtered it out, or it was archived/deleted) — rendering that fallback would show
-  // the WRONG task in an open drawer, so gate on an exact id match.
-  const shouldRenderTaskDetail = state.taskDetailOpen && Boolean(task) && task.id === state.selectedTaskId;
-  const taskDetailHtml = shouldRenderTaskDetail
-    ? `<div class="task-detail-drawer" data-task-detail-drawer>
-         <div class="task-detail-resizer" data-task-detail-resizer role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize detail"></div>
-         ${renderTaskDetailHtml(task, {
-           readOnly,
-           restoreAction: readOnly,
-           deleteAction: readOnly,
-           mobileDetailOpen: state.mobileDetailOpen,
-           linkedDocuments: state.taskDocuments,
-           checklistItems: state.taskChecklist,
-           activityEvents: state.taskActivity,
-           activeTaskDetailTab: state.activeTaskDetailTab,
-           activeTaskDetailSection: state.activeTaskDetailSection,
-           taskNotesDraft: taskNotesDraftFor(task),
-           isTaskNotesDirty: Boolean(task && state.taskNotesDraftId === task.id && state.isTaskNotesDirty),
-           taskNotesSavedAt: task && state.taskNotesDraftId === task.id ? state.taskNotesSavedAt : '',
-           closeAction: 'close-task-detail',
-         })}
-       </div>`
-    : '';
-
-  workspace.innerHTML = [
-    renderWorkspacePrimary(visibleTasks, selectedTaskId),
-    taskDetailHtml,
-  ].join('');
-
-  workspace.classList.toggle('is-mobile-detail-open', Boolean(state.mobileDetailOpen));
-  workspace.classList.toggle('is-task-detail-open', Boolean(state.taskDetailOpen));
-
-  if (state.taskDetailOpen) {
-    setupPaneResizer({
-      resizer: workspace.querySelector('[data-task-detail-resizer]'),
-      pane: workspace.querySelector('[data-task-detail-drawer]'),
-      target: workspace,
-      cssVar: '--task-detail-width',
-      storageKey: 'moomora.taskDetailWidth.v1',
-      min: 300,
-      max: 640,
-      edge: 'left',
-    });
-  }
-
-  workspace.querySelectorAll('[data-task-id]').forEach((row) => {
-    row.addEventListener('click', async () => {
-      const nextTask = state.tasks.find((item) => item.id === row.dataset.taskId);
-      const keepDraft = state.taskNotesDraftId === row.dataset.taskId && state.isTaskNotesDirty;
-      setState({
-        selectedTaskId: row.dataset.taskId,
-        taskDetailOpen: true,
-        mobileDetailOpen: isMobile() ? true : state.mobileDetailOpen,
-        activeTaskDetailTab: isMobile() ? 'work' : state.activeTaskDetailTab,
-        activeTaskDetailSection: 'docs',
-        taskNotesDraftId: row.dataset.taskId,
-        taskNotesDraft: keepDraft ? state.taskNotesDraft : (nextTask?.notes || ''),
-        isTaskNotesDirty: keepDraft,
-        taskNotesSavedAt: keepDraft ? state.taskNotesSavedAt : '',
-      });
-      await loadTaskDocuments(row.dataset.taskId);
-      await loadTaskChecklist(row.dataset.taskId);
-      await loadTaskActivity(row.dataset.taskId);
-      renderWorkspace();
-    });
-  });
-
-  workspace.querySelector('[data-action="close-task-detail"]')?.addEventListener('click', () => {
-    setState({ taskDetailOpen: false, mobileDetailOpen: false });
-    renderWorkspace();
-  });
-
-  workspace.querySelectorAll('[data-action="set-task-detail-tab"]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      setState({ activeTaskDetailTab: btn.dataset.tab || 'work' });
-      renderWorkspace();
-    });
-  });
-
-  workspace.querySelectorAll('[data-action="set-task-detail-section"]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      setState({ activeTaskDetailSection: btn.dataset.section || 'docs' });
-      renderWorkspace();
-    });
-  });
-
-  workspace.querySelectorAll('[data-action="close-mobile-detail"]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      setState({ taskDetailOpen: false, mobileDetailOpen: false });
-      renderWorkspace();
-    });
-  });
-
-  bindBoardEvents(workspace);
-  bindListGroupingEvents(workspace);
-  ensureBoardExtras(visibleTasks);
-
-  const editButton = workspace.querySelector('[data-action="edit-task"]');
-  editButton?.addEventListener('click', () => {
-    const taskToEdit = selectedTask();
-    if (!taskToEdit) return;
-    setState({
-      isTaskFormOpen: true,
-      editingTaskId: taskToEdit.id,
-      formError: '',
-    });
-    renderApp();
-  });
-
-  const archiveButton = workspace.querySelector('[data-action="archive-task"]');
-  archiveButton?.addEventListener('click', async () => {
-    const taskToArchive = selectedTask();
-    if (!taskToArchive) return;
-    const confirmed = window.confirm(`Archive "${taskToArchive.title}"?`);
-    if (!confirmed) return;
-
-    try {
-      await archiveTask(taskToArchive.id);
-      await loadTasks({ selectedTaskId: null });
-    } catch {
-      window.alert('Prax could not archive the selected task.');
-    }
-  });
-
-  const restoreButton = workspace.querySelector('[data-action="restore-task"]');
-  restoreButton?.addEventListener('click', async () => {
-    const taskToRestore = selectedTask();
-    if (!taskToRestore) return;
-    const confirmed = window.confirm(`Restore "${taskToRestore.title}"?`);
-    if (!confirmed) return;
-
-    try {
-      await restoreTask(taskToRestore.id);
-      await loadTasks({ selectedTaskId: null });
-    } catch {
-      window.alert('Prax could not restore the selected task.');
-      await loadTasks({ selectedTaskId: null });
-    }
-  });
-
-  const deleteArchivedButton = workspace.querySelector('[data-action="delete-archived-task"]');
-  deleteArchivedButton?.addEventListener('click', async () => {
-    const taskToDelete = selectedTask();
-    if (!taskToDelete) return;
-    const confirmed = window.confirm(`Permanently delete "${taskToDelete.title}"? This cannot be undone.`);
-    if (!confirmed) return;
-
-    try {
-      await deleteArchivedTask(taskToDelete.id);
-      await loadTasks({ selectedTaskId: null });
-    } catch {
-      window.alert('Prax could not delete the archived task.');
-    }
-  });
-
-  workspace.querySelector('[data-action="open-link-picker"]')?.addEventListener('click', async () => {
-    try {
-      const docs = await fetchDocuments({ archived: false });
-      setState({ linkPickerDocuments: docs, linkPickerQuery: '', isLinkPickerOpen: true, pickerMode: 'link' });
-      renderApp();
-    } catch {
-      window.alert('Prax could not load documents to link.');
-    }
-  });
-
-  workspace.querySelectorAll('[data-action="open-linked-doc"]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const docId = btn.dataset.documentId;
-      // Clear Library filters so the linked document is always the one shown.
-      // Otherwise an active type/tag/search filter can hide it and
-      // selectedDocument() silently falls back to the first visible doc.
-      const linkedDoc = state.taskDocuments.find(d => d.id === docId);
-      const patch = {
-        ...resetSemanticSearch(),
-        activeView: 'library',
-        selectedDocumentId: docId,
-        libraryTypeFilter: 'all',
-        activeLibraryTags: [],
-        searchQuery: '',
-        mobileDetailOpen: false,
-      };
-      // Align the project context when the linked doc lives in another project.
-      if (linkedDoc?.projectId && state.activeProject !== 'all' && state.activeProject !== linkedDoc.projectId) {
-        patch.activeProject = linkedDoc.projectId;
-        persistActiveProject(linkedDoc.projectId);
-      }
-      setState(patch);
-      try {
-        await loadDocuments({ selectedDocumentId: docId });
-      } catch (error) {
-        setState({ apiStatus: 'error' });
-        renderError(error.message);
-      }
-    });
-  });
-
-  workspace.querySelectorAll('[data-action="unlink-document"]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const taskId = state.selectedTaskId;
-      if (!taskId) return;
-      try {
-        const updated = await unlinkTaskDocument(taskId, btn.dataset.documentId);
-        setState({ taskDocuments: updated });
-        clearTaskBoardExtra(taskId);
-        renderWorkspace();
-      } catch {
-        window.alert('Prax could not unlink the document.');
-      }
-    });
-  });
-
-  workspace.querySelector('[data-action="save-task-notes"]')?.addEventListener('click', async () => {
-    const textarea = workspace.querySelector('[data-task-notes]');
-    if (!textarea) return;
-    const taskToSave = selectedTask();
-    if (!taskToSave) return;
-    try {
-      const notes = state.taskNotesDraftId === taskToSave.id ? state.taskNotesDraft : textarea.value;
-      const updated = normalizeTask(await updateTask(taskToSave.id, { notes }));
-      setState({ tasks: state.tasks.map((t) => (t.id === updated.id ? updated : t)) });
-      setState({
-        taskNotesDraftId: updated.id,
-        taskNotesDraft: updated.notes || '',
-        isTaskNotesDirty: false,
-        taskNotesSavedAt: shortTime(),
-      });
-      clearTaskBoardExtra(updated.id);
-      renderWorkspace();
-    } catch {
-      window.alert('Prax could not save notes.');
-    }
-  });
-
-  workspace.querySelector('[data-action="discard-task-notes"]')?.addEventListener('click', () => {
-    const taskToReset = selectedTask();
-    if (!taskToReset) return;
-    setState({
-      taskNotesDraftId: taskToReset.id,
-      taskNotesDraft: taskToReset.notes || '',
-      isTaskNotesDirty: false,
-    });
-    renderWorkspace();
-  });
-
-  workspace.querySelector('[data-task-notes]')?.addEventListener('input', (event) => {
-    const taskToEdit = selectedTask();
-    if (!taskToEdit) return;
-    const value = event.target.value;
-    const isDirty = value !== (taskToEdit.notes || '');
-    setState({
-      taskNotesDraftId: taskToEdit.id,
-      taskNotesDraft: value,
-      isTaskNotesDirty: isDirty,
-    });
-    const status = workspace.querySelector('[data-task-notes-status]');
-    const saveButton = workspace.querySelector('[data-action="save-task-notes"]');
-    if (status) status.textContent = isDirty ? 'dirty · local edit' : 'saved';
-    if (saveButton) saveButton.disabled = !isDirty;
-  });
-
-  async function submitNewChecklistItem(input) {
-    const taskId = state.selectedTaskId;
-    const label = input?.value.trim();
-    if (!label || !taskId) return;
-    try {
-      await addChecklistItem(taskId, label);
-      await loadTaskChecklist(taskId);
-      clearTaskBoardExtra(taskId);
-      renderWorkspace();
-    } catch {
-      window.alert('Prax could not add the checklist item.');
-    }
-  }
-
-  workspace.querySelector('[data-action="add-checklist-item"]')?.addEventListener('click', () => {
-    submitNewChecklistItem(workspace.querySelector('[data-checklist-new]'));
-  });
-
-  workspace.querySelector('[data-checklist-new]')?.addEventListener('keydown', (event) => {
-    if (event.key !== 'Enter') return;
-    event.preventDefault();
-    submitNewChecklistItem(event.target);
-  });
-
-  workspace.querySelectorAll('[data-action="toggle-checklist-item"]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const taskId = state.selectedTaskId;
-      if (!taskId) return;
-      try {
-        await setChecklistItem(taskId, btn.dataset.itemId, btn.dataset.completed !== 'true');
-        await loadTaskChecklist(taskId);
-        clearTaskBoardExtra(taskId);
-        renderWorkspace();
-      } catch {
-        window.alert('Prax could not update the checklist item.');
-      }
-    });
-  });
-
-  workspace.querySelectorAll('[data-action="delete-checklist-item"]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const taskId = state.selectedTaskId;
-      if (!taskId) return;
-      try {
-        await deleteChecklistItem(taskId, btn.dataset.itemId);
-        await loadTaskChecklist(taskId);
-        clearTaskBoardExtra(taskId);
-        renderWorkspace();
-      } catch {
-        window.alert('Prax could not delete the checklist item.');
-      }
-    });
-  });
+  const tasks = await fetchTasks({ project: state.navId, archived: true });
+  setState({ archivedTasks: tasks.map(normalizeTask) });
 }
 
-// Generic drag-to-resize for a pane. edge:'right' grows the pane as the pointer
-// moves right (left-docked browser); edge:'left' grows it as the pointer moves
-// left (right-docked drawer). Width is applied to `target` as `cssVar` and
-// persisted under `storageKey`.
-function setupPaneResizer({ resizer, pane, target, cssVar, storageKey, min, max, edge = 'right' }) {
-  if (!resizer || !pane || !target) return;
-  const applyWidth = (width) => {
-    const clamped = Math.min(max, Math.max(min, width));
-    target.style.setProperty(cssVar, `${clamped}px`);
-    return clamped;
-  };
-  let saved = null;
-  try { saved = window.localStorage?.getItem(storageKey); } catch { saved = null; }
-  if (saved) applyWidth(parseInt(saved, 10) || min);
-
-  const persist = () => {
-    try {
-      const current = target.style.getPropertyValue(cssVar);
-      if (current) window.localStorage?.setItem(storageKey, current.trim());
-    } catch { /* convenience only */ }
-  };
-
-  resizer.addEventListener('pointerdown', (event) => {
-    event.preventDefault();
-    const startX = event.clientX;
-    const startWidth = pane.getBoundingClientRect().width;
-    resizer.classList.add('is-dragging');
-    resizer.setPointerCapture?.(event.pointerId);
-    const sign = edge === 'left' ? -1 : 1;
-    const onMove = (m) => applyWidth(startWidth + sign * (m.clientX - startX));
-    const onEnd = () => {
-      resizer.classList.remove('is-dragging');
-      resizer.releasePointerCapture?.(event.pointerId);
-      resizer.removeEventListener('pointermove', onMove);
-      resizer.removeEventListener('pointerup', onEnd);
-      resizer.removeEventListener('pointercancel', onEnd);
-      persist();
-    };
-    resizer.addEventListener('pointermove', onMove);
-    resizer.addEventListener('pointerup', onEnd);
-    resizer.addEventListener('pointercancel', onEnd);
-  });
-
-  resizer.addEventListener('keydown', (event) => {
-    const step = (event.shiftKey ? 32 : 16) * (edge === 'left' ? -1 : 1);
-    if (event.key === 'ArrowLeft') { event.preventDefault(); applyWidth(pane.getBoundingClientRect().width - step); }
-    else if (event.key === 'ArrowRight') { event.preventDefault(); applyWidth(pane.getBoundingClientRect().width + step); }
-    else { return; }
-    persist();
-  });
-}
-
-function setupLibraryResizer(workspace, libraryWorkspaceElement) {
-  const resizer = workspace.querySelector('[data-library-resizer]');
-  const browser = workspace.querySelector('.library-browser');
-  setupPaneResizer({
-    resizer,
-    pane: browser,
-    target: libraryWorkspaceElement,
-    cssVar: '--library-browser-width',
-    storageKey: LIBRARY_BROWSER_WIDTH_KEY,
-    min: 220,
-    max: 560,
-    edge: 'right',
-  });
-}
-
-async function loadDocumentLinks(documentId) {
-  if (!documentId) {
-    setState({ documentLinks: null });
-    return;
-  }
-  try {
-    const links = await fetchDocumentLinks(documentId, 'both');
-    // Selection-stale guard: only apply if the user hasn't navigated away
-    // (checks both the selected document and the active view).
-    if (state.selectedDocumentId === documentId && state.activeView === 'library') {
-      setState({ documentLinks: links });
-      renderWorkspace();
-    }
-  } catch (err) {
-    console.error('Failed to load document links', err);
-  }
-}
-
-async function loadMaintenanceLists() {
-  const projectId = state.maintenanceProjectFilter === 'all' ? '' : state.maintenanceProjectFilter;
-  const [staleResult, orphanResult] = await Promise.allSettled([
-    fetchStaleDocuments(projectId),
-    fetchOrphanDocuments(projectId),
-  ]);
-  const patch = {};
-  if (staleResult.status === 'fulfilled') patch.staleDocs = staleResult.value;
-  else console.error('Failed to load stale documents', staleResult.reason);
-  if (orphanResult.status === 'fulfilled') patch.orphanDocs = orphanResult.value;
-  else console.error('Failed to load orphan documents', orphanResult.reason);
-  if (Object.keys(patch).length > 0) {
-    setState(patch);
-    renderApp();
-  }
+async function loadDocuments() {
+  const documents = await fetchDocuments(state.libraryView === 'archive' ? { archived: true } : {});
+  setState({ documents });
 }
 
 async function loadSemanticStatus() {
   try {
-    const semanticStatus = await fetchSemanticStatus();
-    setState({ semanticStatus });
-    renderApp();
-  } catch (error) {
-    console.error('Failed to load semantic search status', error);
+    setState({ semanticStatus: await fetchSemanticStatus() });
+  } catch {
+    setState({ semanticStatus: { available: false } });
   }
 }
 
-// Semantic results are query-, project-, and feature-scoped, so any context
-// change (project/view switch, opening a specific doc, disabling the feature)
-// must drop them and fall back to keyword — otherwise a stale result list
-// renders in a context where it is wrong. Spread into the relevant setState
-// patches so no single handler has to remember both keys.
-function resetSemanticSearch() {
-  return { semanticResults: null, librarySearchMode: 'keyword' };
-}
-
-function renderLibraryWorkspace(workspace) {
-  const contextDocuments = state.activeProject === 'all'
-    ? state.documents
-    : state.documents.filter(document => document.projectId === state.activeProject);
-  const semanticAvailable = Boolean(state.semanticStatus.available && state.semanticStatus.enabled);
-  // Gate on availability too: if the feature is toggled off (or unavailable)
-  // while results are still in state, fall back to keyword rather than render
-  // stale semantic results the user can no longer dismiss (the switch hides).
-  const useSemantic = semanticAvailable && state.librarySearchMode === 'semantic' && Array.isArray(state.semanticResults);
-  const visibleDocuments = useSemantic ? state.semanticResults : visibleDocumentsForCurrentView();
-  // Semantic results are lightweight refs (no body) and may not appear in the
-  // keyword-filtered view, so resolve the selected doc from the full document
-  // set — otherwise selectedDocument() would fall back to the first keyword
-  // match and the editor pane would open the wrong document. Keyword mode is
-  // unchanged.
-  const document = useSemantic
-    ? (state.documents.find(doc => doc.id === state.selectedDocumentId) || null)
-    : selectedDocument();
-  workspace.innerHTML = renderLibraryHtml({
-    documents: visibleDocuments,
-    projects: state.projects,
-    selectedDocumentId: document?.id || null,
-    editorMode: state.documentEditorMode,
-    draftBody: draftBodyForDocument(document),
-    isDirty: state.isDocumentDirty && state.documentDraftId === document?.id,
-    availableTags: tagsForDocuments(contextDocuments),
-    activeTags: state.activeLibraryTags,
-    tagQuery: state.libraryTagQuery,
-    areTagsExpanded: state.areLibraryTagsExpanded,
-    savedViews: state.librarySavedViews,
-    activeSavedViewId: activeSavedLibraryViewId(),
-    isInfoEditing: state.isDocumentInfoEditorOpen,
-    infoError: state.documentInfoError,
-    isSaving: state.isSaving,
-    saveStatus: state.documentSaveStatus,
-    isFocusMode: state.isDocumentFocusMode,
-    isLibraryTagsDrawerOpen: state.isLibraryTagsDrawerOpen,
-    isLibraryDocOpen: state.isLibraryDocOpen,
-    typeFilter: state.libraryTypeFilter,
-    sortBy: state.librarySortBy,
-    groupByType: state.libraryGroupByType,
-    libraryView: state.libraryView,
-    documentLinks: state.documentLinks,
-    librarySearchMode: state.librarySearchMode,
-    semanticAvailable,
-  });
-
-  const libraryWorkspaceElement = workspace.querySelector('.library-workspace');
-  if (libraryWorkspaceElement) {
-    libraryWorkspaceElement.classList.toggle('is-library-doc-open', Boolean(state.isLibraryDocOpen));
-    setupLibraryResizer(workspace, libraryWorkspaceElement);
-  }
-
-  workspace.querySelector('[data-action="toggle-library-tags-drawer"]')?.addEventListener('click', () => {
-    setState({ isLibraryTagsDrawerOpen: !state.isLibraryTagsDrawerOpen });
-    renderWorkspace();
-  });
-
-  workspace.querySelector('[data-action="toggle-library-view"]')?.addEventListener('click', async () => {
-    clearDocumentAutosave();
-    setState({
-      libraryView: state.libraryView === 'archive' ? 'active' : 'archive',
-      selectedDocumentId: null,
-      documentDraftId: null,
-      documentDraftBody: '',
-      isDocumentDirty: false,
-      isDocumentFocusMode: false,
-    });
-    try {
-      await loadDocuments({ selectedDocumentId: null });
-    } catch (error) {
-      setState({ apiStatus: 'error' });
-      renderError(error.message);
-    }
-  });
-
-  workspace.querySelector('[data-action="close-library-doc"]')?.addEventListener('click', () => {
-    setState({ isLibraryDocOpen: false });
-    renderWorkspace();
-  });
-
-  workspace.querySelectorAll('[data-library-type]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      setState({ libraryTypeFilter: btn.dataset.libraryType });
-      persistLibraryControls();
-      renderWorkspace();
-    });
-  });
-
-  workspace.querySelector('[data-library-sort]')?.addEventListener('change', (event) => {
-    setState({ librarySortBy: event.target.value });
-    persistLibraryControls();
-    renderWorkspace();
-  });
-
-  workspace.querySelector('[data-action="toggle-library-group"]')?.addEventListener('click', () => {
-    setState({ libraryGroupByType: !state.libraryGroupByType });
-    persistLibraryControls();
-    renderWorkspace();
-  });
-
-  function resetDocumentDraft() {
-    clearDocumentAutosave();
-    return {
-      selectedDocumentId: null,
-      documentDraftId: null,
-      documentDraftBody: '',
-      isDocumentDirty: false,
-      documentSaveStatus: 'Saved',
-      isDocumentFocusMode: false,
-      isDocumentInfoEditorOpen: false,
-      documentInfoError: '',
-    };
-  }
-
-  let documentEditorController = null;
-
-  async function saveDocumentDraftFromWorkspace() {
-    const documentToSave = selectedDocument();
-    if (!documentToSave || !state.isDocumentDirty || isSavingDocumentDraft) return;
-
-    clearDocumentAutosave();
-    isSavingDocumentDraft = true;
-    const savingStatus = state.documentSaveStatus === 'Autosaving...' ? 'Autosaving...' : 'Saving...';
-    setState({ documentSaveStatus: savingStatus });
-    updateDocumentSaveControls(workspace, savingStatus);
-
-    try {
-      const savedDocument = await updateDocument(documentToSave.id, { body: state.documentDraftBody });
-      const patch = documentDraftSavedPatch({ documents: state.documents, savedDocument });
-      const shouldPreserveEditor = canPreserveEditorAfterDraftSave({
-        editorExists: Boolean(documentEditorController || workspace.querySelector('[data-document-editor]')),
-        savedDocumentId: savedDocument.id,
-        selectedDocumentId: state.selectedDocumentId || documentToSave.id,
-        documentDraftId: state.documentDraftId,
-      });
-      setState(patch);
-      isSavingDocumentDraft = false;
-      if (shouldPreserveEditor) {
-        updateDocumentSaveControls(workspace, 'Saved');
-      } else {
-        renderWorkspace();
-      }
-    } catch {
-      isSavingDocumentDraft = false;
-      setState({ documentSaveStatus: 'Save failed' });
-      updateDocumentSaveControls(workspace, 'Save failed');
-      window.alert('Prax could not save this document.');
-    }
-  }
-
-  function handleDocumentDraftBodyChange(value) {
-    const documentToEdit = selectedDocument();
-    if (!documentToEdit) return;
-
-    const nextBody = String(value ?? '');
-    const isDirty = nextBody !== (documentToEdit.body || '');
-    setState({
-      documentDraftId: documentToEdit.id,
-      documentDraftBody: nextBody,
-      isDocumentDirty: isDirty,
-      documentSaveStatus: isDirty ? 'Unsaved changes' : 'Saved',
-    });
-    updateDocumentLivePreview(workspace, nextBody);
-    updateDocumentSaveControls(workspace, state.documentSaveStatus);
-    if (state.isDocumentDirty) {
-      scheduleDocumentAutosave();
-    } else {
-      clearDocumentAutosave();
-    }
-  }
-
-  function scheduleDocumentAutosave() {
-    clearDocumentAutosave();
-    documentAutosaveTimer = window.setTimeout(() => {
-      if (!state.isDocumentDirty) return;
-      setState({ documentSaveStatus: 'Autosaving...' });
-      updateDocumentSaveControls(workspace, 'Autosaving...');
-      saveDocumentDraftFromWorkspace();
-    }, DOCUMENT_AUTOSAVE_DELAY_MS);
-  }
-
-  const fallbackEditor = workspace.querySelector('[data-document-editor]');
-  const codeEditorHost = workspace.querySelector('[data-code-editor]');
-  if (fallbackEditor && codeEditorHost) {
-    documentEditorController = mountCodeMirrorEditor({
-      host: codeEditorHost,
-      value: fallbackEditor.value,
-      onChange(value) {
-        fallbackEditor.value = value;
-        handleDocumentDraftBodyChange(value);
-      },
-      onSave: saveDocumentDraftFromWorkspace,
-    });
-
-    if (documentEditorController) {
-      fallbackEditor.hidden = true;
-      codeEditorHost.hidden = false;
-    }
-  }
-
-  const libraryWorkspace = workspace.querySelector('.library-workspace');
-  libraryWorkspace?.addEventListener('click', (event) => {
-    const tagButton = event.target.closest('[data-library-tag]');
-    if (tagButton && libraryWorkspace.contains(tagButton)) {
-      event.preventDefault();
-      event.stopPropagation();
-      const tag = String(tagButton.dataset.libraryTag || '').trim().toLowerCase();
-      if (!tag) return;
-      const currentTags = Array.isArray(state.activeLibraryTags) ? state.activeLibraryTags : [];
-      const activeTags = currentTags.includes(tag)
-        ? currentTags.filter(activeTag => activeTag !== tag)
-        : [...currentTags, tag];
-      setState({
-        activeLibraryTags: activeTags,
-        libraryTagQuery: '',
-        ...resetDocumentDraft(),
-      });
-      renderWorkspace();
-      return;
-    }
-
-    const savedViewButton = event.target.closest('[data-library-saved-view-id]');
-    if (
-      savedViewButton
-      && libraryWorkspace.contains(savedViewButton)
-      && savedViewButton.dataset.action !== 'delete-library-saved-view'
-      && savedViewButton.dataset.action !== 'rename-library-saved-view'
-      && savedViewButton.getAttribute('data-action') !== 'delete-library-saved-view'
-      && savedViewButton.getAttribute('data-action') !== 'rename-library-saved-view'
-    ) {
-      event.preventDefault();
-      event.stopPropagation();
-      const view = state.librarySavedViews.find(item => item.id === savedViewButton.dataset.librarySavedViewId);
-      if (!view) return;
-      setState({
-        activeLibraryTags: view.tags,
-        libraryTagQuery: '',
-        areLibraryTagsExpanded: false,
-        ...resetDocumentDraft(),
-      });
-      renderWorkspace();
-      return;
-    }
-
-    const activeFilterButton = event.target.closest('[data-library-active-filter]');
-    if (activeFilterButton && libraryWorkspace.contains(activeFilterButton)) {
-      event.preventDefault();
-      event.stopPropagation();
-      const tag = String(activeFilterButton.dataset.libraryActiveFilter || '').trim().toLowerCase();
-      if (!tag) return;
-      setState({
-        activeLibraryTags: state.activeLibraryTags.filter(activeTag => activeTag !== tag),
-        libraryTagQuery: '',
-        ...resetDocumentDraft(),
-      });
-      renderWorkspace();
-      return;
-    }
-
-    const renameSavedViewButton = event.target.closest('[data-action="rename-library-saved-view"]');
-    if (renameSavedViewButton && libraryWorkspace.contains(renameSavedViewButton)) {
-      event.preventDefault();
-      event.stopPropagation();
-      const view = state.librarySavedViews.find(item => item.id === renameSavedViewButton.dataset.librarySavedViewId);
-      if (!view) return;
-      const nextLabel = window.prompt('Rename saved view', view.label);
-      if (nextLabel === null) return;
-      const renamedView = renameSavedLibraryView(view, nextLabel);
-      if (!renamedView) return;
-      setState({
-        librarySavedViews: [
-          ...state.librarySavedViews.filter(item => item.id !== view.id && item.id !== renamedView.id),
-          renamedView,
-        ],
-      });
-      persistSavedLibraryViews();
-      renderWorkspace();
-      return;
-    }
-
-    const deleteSavedViewButton = event.target.closest('[data-action="delete-library-saved-view"]');
-    if (deleteSavedViewButton && libraryWorkspace.contains(deleteSavedViewButton)) {
-      event.preventDefault();
-      event.stopPropagation();
-      setState({
-        librarySavedViews: state.librarySavedViews.filter(view => view.id !== deleteSavedViewButton.dataset.librarySavedViewId),
-      });
-      persistSavedLibraryViews();
-      renderWorkspace();
-      return;
-    }
-
-    const saveViewButton = event.target.closest('[data-action="save-library-view"]');
-    if (saveViewButton && libraryWorkspace.contains(saveViewButton)) {
-      event.preventDefault();
-      event.stopPropagation();
-      const input = workspace.querySelector('[data-library-saved-view-name]');
-      const fallbackName = state.activeLibraryTags.join(' + ');
-      const view = createSavedLibraryView(input?.value || fallbackName, state.activeLibraryTags);
-      if (!view) return;
-      setState({
-        librarySavedViews: [
-          ...state.librarySavedViews.filter(item => item.id !== view.id),
-          view,
-        ],
-      });
-      persistSavedLibraryViews();
-      renderWorkspace();
-      return;
-    }
-
-    const clearTagsButton = event.target.closest('[data-action="clear-library-tags"]');
-    if (clearTagsButton && libraryWorkspace.contains(clearTagsButton)) {
-      event.preventDefault();
-      event.stopPropagation();
-      setState({
-        activeLibraryTags: [],
-        libraryTagQuery: '',
-        areLibraryTagsExpanded: false,
-        ...resetDocumentDraft(),
-      });
-      renderWorkspace();
-      return;
-    }
-
-    const toggleTagsButton = event.target.closest('[data-action="toggle-library-tags"]');
-    if (toggleTagsButton && libraryWorkspace.contains(toggleTagsButton)) {
-      event.preventDefault();
-      event.stopPropagation();
-      setState({ areLibraryTagsExpanded: !state.areLibraryTagsExpanded });
-      renderWorkspace();
-    }
-  });
-
-  workspace.querySelector('[data-library-tag-search]')?.addEventListener('input', (event) => {
-    setState({
-      libraryTagQuery: event.target.value,
-      areLibraryTagsExpanded: false,
-    });
-    renderWorkspace();
-    const nextInput = workspace.querySelector('[data-library-tag-search]');
-    nextInput?.focus();
-    nextInput?.setSelectionRange?.(nextInput.value.length, nextInput.value.length);
-  });
-
-  // Dedicated handler for Links-section [open] buttons in the detail panel.
-  // These carry BOTH data-action="open-library-doc" AND data-library-document-id.
-  // We handle them here first and call stopPropagation so the broad row-click
-  // handler below never fires — which matters because the target doc may not be
-  // visible under the current filters (tag, type, archive, search, project).
-  workspace.querySelectorAll('[data-action="open-library-doc"][data-library-document-id]').forEach((btn) => {
-    btn.addEventListener('click', async (event) => {
-      event.stopPropagation();
-      event.preventDefault();
-      const documentId = btn.dataset.libraryDocumentId;
-      clearDocumentAutosave();
-      setState({
-        ...resetSemanticSearch(),
-        libraryView: 'active',
-        libraryTypeFilter: 'all',
-        activeLibraryTags: [],
-        libraryTagQuery: '',
-        searchQuery: '',
-        selectedDocumentId: documentId,
-        documentLinks: null,
-        isDocumentDirty: false,
-        documentSaveStatus: 'Saved',
-        isDocumentFocusMode: false,
-        isDocumentInfoEditorOpen: false,
-        documentInfoError: '',
-        isLibraryDocOpen: isMobile() ? true : state.isLibraryDocOpen,
-      });
-      try {
-        await loadDocuments({ selectedDocumentId: documentId });
-      } catch (error) {
-        setState({ apiStatus: 'error' });
-        renderError(error.message);
-      }
-      loadDocumentLinks(documentId);
-    });
-  });
-
-  workspace.querySelectorAll('[data-library-document-id]').forEach((row) => {
-    row.addEventListener('click', () => {
-      const nextDocument = state.documents.find(item => item.id === row.dataset.libraryDocumentId);
-      clearDocumentAutosave();
-      setState({
-        selectedDocumentId: row.dataset.libraryDocumentId,
-        documentLinks: null,
-        documentDraftId: nextDocument?.id || null,
-        documentDraftBody: nextDocument?.body || '',
-        isDocumentDirty: false,
-        documentSaveStatus: 'Saved',
-        isDocumentFocusMode: false,
-        isDocumentInfoEditorOpen: false,
-        documentInfoError: '',
-        isLibraryDocOpen: isMobile() ? true : state.isLibraryDocOpen,
-      });
-      renderWorkspace();
-      loadDocumentLinks(row.dataset.libraryDocumentId);
-    });
-  });
-
-  workspace.querySelectorAll('[data-action="set-library-search-mode"]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const mode = btn.dataset.mode === 'semantic' ? 'semantic' : 'keyword';
-      setState({ librarySearchMode: mode, semanticResults: null });
-      renderWorkspace();
-    });
-  });
-
-  workspace.querySelectorAll('[data-library-mode]').forEach((button) => {
-    button.addEventListener('click', () => {
-      setState({ documentEditorMode: button.dataset.libraryMode || 'preview' });
-      renderWorkspace();
-    });
-  });
-
-  workspace.querySelector('[data-document-editor]')?.addEventListener('input', (event) => {
-    handleDocumentDraftBodyChange(event.target.value);
-  });
-
-  workspace.querySelector('[data-document-editor]')?.addEventListener('keydown', (event) => {
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
-      event.preventDefault();
-      saveDocumentDraftFromWorkspace();
-    }
-  });
-
-  workspace.querySelectorAll('[data-markdown-action]').forEach((button) => {
-    button.addEventListener('click', () => {
-      if (documentEditorController) {
-        documentEditorController.applyFormat(button.dataset.markdownAction);
-        return;
-      }
-
-      const textarea = workspace.querySelector('[data-document-editor]');
-      if (!textarea) return;
-      applyMarkdownToolbarAction(textarea, button.dataset.markdownAction);
-    });
-  });
-
-  workspace.querySelector('[data-action="save-document-draft"]')?.addEventListener('click', () => {
-    saveDocumentDraftFromWorkspace();
-  });
-
-  workspace.querySelector('[data-action="toggle-document-focus"]')?.addEventListener('click', () => {
-    setState({ isDocumentFocusMode: !state.isDocumentFocusMode });
-    renderWorkspace();
-  });
-
-  workspace.querySelector('[data-action="export-document"]')?.addEventListener('click', (event) => {
-    const id = event.currentTarget.getAttribute('data-document-id');
-    if (id) exportLibraryDocument(id);
-  });
-
-  workspace.querySelector('[data-action="edit-document"]')?.addEventListener('click', () => {
-    setState({ documentEditorMode: 'edit' });
-    renderWorkspace();
-  });
-
-  workspace.querySelector('[data-action="edit-document-info"]')?.addEventListener('click', () => {
-    setState({
-      isDocumentInfoEditorOpen: true,
-      documentInfoError: '',
-      isSaving: false,
-    });
-    renderWorkspace();
-  });
-
-  workspace.querySelector('[data-action="cancel-document-info"]')?.addEventListener('click', () => {
-    setState({
-      isDocumentInfoEditorOpen: false,
-      documentInfoError: '',
-      isSaving: false,
-    });
-    renderWorkspace();
-  });
-
-  workspace.querySelector('[data-document-info-form]')?.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const documentToSave = selectedDocument();
-    if (!documentToSave) return;
-
-    const data = new FormData(event.currentTarget);
-    const title = String(data.get('title') || '').trim();
-    if (!title) {
-      setState({ documentInfoError: 'Title is required.' });
-      renderWorkspace();
-      return;
-    }
-
-    const payload = {
-      title,
-      documentType: String(data.get('documentType') || 'note'),
-      tags: tagsFromFormValue(data.get('tags')),
-      sourceFilename: String(data.get('sourceFilename') || '').trim() || null,
-    };
-
-    setState({ isSaving: true, documentInfoError: '' });
-    renderWorkspace();
-
-    try {
-      const savedDocument = await updateDocument(documentToSave.id, payload);
-      setState({
-        documents: state.documents.map(document => document.id === savedDocument.id ? savedDocument : document),
-        selectedDocumentId: savedDocument.id,
-        documentDraftId: savedDocument.id,
-        documentDraftBody: savedDocument.body || '',
-        isDocumentDirty: false,
-        isDocumentInfoEditorOpen: false,
-        documentInfoError: '',
-        isSaving: false,
-        documentLinks: null,
-      });
-      renderWorkspace();
-      loadDocumentLinks(savedDocument.id);
-    } catch {
-      setState({
-        documentInfoError: 'Prax could not save document info.',
-        isSaving: false,
-      });
-      renderWorkspace();
-    }
-  });
-
-  workspace.querySelector('[data-action="toggle-verify"]')?.addEventListener('click', async () => {
-    const doc = selectedDocument();
-    if (!doc) return;
-    try {
-      await verifyDocument(doc.id, !doc.verified);
-      await loadDocuments({ selectedDocumentId: doc.id });
-    } catch {
-      window.alert('Prax could not update verification.');
-    }
-  });
-
-  workspace.querySelector('[data-action="supersede-document"]')?.addEventListener('click', async () => {
-    const current = selectedDocument();
-    if (!current) return;
-    try {
-      const docs = await fetchDocuments({
-        project: state.activeProject === 'all' ? undefined : state.activeProject,
-        archived: false,
-      });
-      const candidates = docs.filter(
-        candidate => candidate.id !== current.id
-          && candidate.status === 'active'
-          && candidate.projectId === current.projectId,
-      );
-      setState({
-        linkPickerDocuments: candidates,
-        linkPickerQuery: '',
-        isLinkPickerOpen: true,
-        pickerMode: 'supersede',
-      });
-      renderApp();
-    } catch {
-      window.alert('Prax could not load documents to supersede.');
-    }
-  });
-
-  workspace.querySelector('[data-action="archive-document"]')?.addEventListener('click', async () => {
-    const documentToArchive = selectedDocument();
-    if (!documentToArchive) return;
-    const confirmed = window.confirm(`Archive "${documentToArchive.title}"?`);
-    if (!confirmed) return;
-
-    try {
-      await archiveDocument(documentToArchive.id);
-      await loadDocuments({ selectedDocumentId: null });
-    } catch {
-      window.alert('Prax could not archive the selected document.');
-    }
-  });
-
-  workspace.querySelector('[data-action="restore-document"]')?.addEventListener('click', async () => {
-    const documentToRestore = selectedDocument();
-    if (!documentToRestore) return;
-    const confirmed = window.confirm(`Restore "${documentToRestore.title}"?`);
-    if (!confirmed) return;
-
-    try {
-      await restoreDocument(documentToRestore.id);
-      await loadDocuments({ selectedDocumentId: documentToRestore.id });
-    } catch {
-      window.alert('Prax could not restore the selected document.');
-    }
-  });
-
-  workspace.querySelector('[data-action="delete-archived-document"]')?.addEventListener('click', async () => {
-    const documentToDelete = selectedDocument();
-    if (!documentToDelete) return;
-    const confirmed = window.confirm(`Permanently delete "${documentToDelete.title}"? This cannot be undone.`);
-    if (!confirmed) return;
-
-    try {
-      await deleteArchivedDocument(documentToDelete.id);
-      await loadDocuments({ selectedDocumentId: null });
-    } catch {
-      window.alert('Prax could not delete the archived document.');
-    }
-  });
-}
-
-function openTouchMoveMenu(taskId, _anchorElement) {
-  const STATUSES = ['high-priority', 'in-progress', 'planned', 'completed', 'notes'];
-  const choice = window.prompt(`move to which column?\n${STATUSES.map((s, i) => `${i + 1}. ${s}`).join('\n')}`);
-  if (!choice) return;
-  const idx = Number(choice) - 1;
-  if (!Number.isInteger(idx) || idx < 0 || idx >= STATUSES.length) return;
-  const targetStatus = STATUSES[idx];
-  handleBoardDrop({ taskId, targetStatus, beforeTaskId: null });
-}
-
-function bindBoardEvents(workspace) {
-  if (state.activeView !== 'board') return;
-
-  workspace.querySelectorAll('[data-board-card]').forEach((card) => {
-    card.addEventListener('dragstart', (event) => {
-      if (event.dataTransfer) {
-        event.dataTransfer.setData('text/task-id', card.dataset.taskId);
-        event.dataTransfer.setData('text/plain', card.dataset.taskId);
-        event.dataTransfer.setDragImage?.(card, 16, 16);
-        event.dataTransfer.effectAllowed = 'move';
-      }
-      card.classList.add('is-dragging');
-    });
-
-    card.addEventListener('dragend', () => {
-      card.classList.remove('is-dragging');
-      workspace.querySelectorAll('.is-drop-target').forEach((target) => {
-        target.classList.remove('is-drop-target');
-      });
-    });
-  });
-
-  const LONG_PRESS_MS = 480;
-
-  workspace.querySelectorAll('[data-board-card]').forEach((card) => {
-    let pressTimer = null;
-    let pressed = false;
-
-    const cancelPress = () => {
-      pressed = false;
-      if (pressTimer) {
-        window.clearTimeout(pressTimer);
-        pressTimer = null;
-      }
-    };
-
-    card.addEventListener('pointerdown', (event) => {
-      if (event.pointerType !== 'touch') return;
-      pressed = true;
-      pressTimer = window.setTimeout(() => {
-        if (!pressed) return;
-        cancelPress();
-        openTouchMoveMenu(card.dataset.taskId, card);
-      }, LONG_PRESS_MS);
-    });
-
-    card.addEventListener('pointerup', cancelPress);
-    card.addEventListener('pointercancel', cancelPress);
-    card.addEventListener('pointerleave', cancelPress);
-  });
-
-  workspace.querySelectorAll('.board-cards[data-board-column]').forEach((column) => {
-    column.addEventListener('dragover', (event) => {
-      event.preventDefault();
-      if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
-      column.classList.add('is-drop-target');
-    });
-
-    column.addEventListener('dragleave', (event) => {
-      if (!column.contains(event.relatedTarget)) {
-        column.classList.remove('is-drop-target');
-      }
-    });
-
-    column.addEventListener('drop', async (event) => {
-      event.preventDefault();
-      column.classList.remove('is-drop-target');
-      const taskId = event.dataTransfer?.getData('text/task-id') || event.dataTransfer?.getData('text/plain');
-      const targetCard = event.target.closest('[data-board-card]');
-      await handleBoardDrop({
-        taskId,
-        targetStatus: column.dataset.boardColumn,
-        beforeTaskId: targetCard?.dataset.taskId === taskId ? null : targetCard?.dataset.taskId,
-      });
-    });
-  });
-
-  workspace.querySelectorAll('[data-action="toggle-board-section"]').forEach((btn) => {
-    btn.addEventListener('click', (event) => {
-      event.preventDefault();
-      const section = btn.dataset.section;
-      if (!section) return;
-      setState({
-        boardOpenSections: { ...state.boardOpenSections, [section]: state.boardOpenSections[section] === false },
-      });
-      renderWorkspace();
-    });
-  });
-
-  workspace.querySelectorAll('[data-action="toggle-board-filter"]').forEach((btn) => {
-    btn.addEventListener('click', (event) => {
-      event.preventDefault();
-      const filter = btn.dataset.filter;
-      if (!filter) return;
-      const active = new Set(state.boardFilters);
-      if (active.has(filter)) active.delete(filter);
-      else active.add(filter);
-      setState({ boardFilters: [...active] });
-      renderWorkspace();
-    });
-  });
-
-  workspace.querySelectorAll('[data-action="set-board-grouping"]').forEach((btn) => {
-    btn.addEventListener('click', (event) => {
-      event.preventDefault();
-      const grouping = btn.dataset.grouping === 'swimlanes' ? 'swimlanes' : 'flat';
-      persistBoardGrouping(grouping);
-      setState({ boardGrouping: grouping });
-      renderWorkspace();
-    });
-  });
-
-  workspace.querySelectorAll('[data-action="toggle-board-lane"]').forEach((btn) => {
-    btn.addEventListener('click', (event) => {
-      event.preventDefault();
-      const id = btn.dataset.projectId;
-      if (!id) return;
-      setState({ boardLaneCollapsed: { ...state.boardLaneCollapsed, [id]: state.boardLaneCollapsed[id] !== true } });
-      renderWorkspace();
-    });
-  });
-}
-
-function bindListGroupingEvents(workspace) {
-  workspace.querySelectorAll('[data-action="set-list-grouping"]').forEach((btn) => {
-    btn.addEventListener('click', (event) => {
-      event.preventDefault();
-      const grouping = btn.dataset.grouping === 'swimlanes' ? 'swimlanes' : 'flat';
-      persistListGrouping(grouping);
-      setState({ listGrouping: grouping });
-      renderWorkspace();
-    });
-  });
-
-  workspace.querySelectorAll('[data-action="toggle-list-lane"]').forEach((btn) => {
-    btn.addEventListener('click', (event) => {
-      event.preventDefault();
-      const id = btn.dataset.projectId;
-      if (!id) return;
-      setState({ listLaneCollapsed: { ...state.listLaneCollapsed, [id]: state.listLaneCollapsed[id] !== true } });
-      renderWorkspace();
-    });
-  });
-}
-
-async function handleBoardDrop({ taskId, targetStatus, beforeTaskId }) {
-  if (!taskId || !targetStatus) return;
-
-  const boardTasks = tasksForView(state.tasks, 'board');
-  const result = moveTaskOnBoard(boardTasks, { taskId, targetStatus, beforeTaskId });
-  if (!result.updates.length) return;
-
-  const movedTaskIds = new Set(result.tasks.map(task => task.id));
+async function loadMaintenance() {
+  const project = state.maintenanceProjectFilter === 'all' ? '' : state.maintenanceProjectFilter;
+  const [stale, orphans] = await Promise.allSettled([
+    fetchStaleDocuments(project),
+    fetchOrphanDocuments(project),
+  ]);
   setState({
-    tasks: [
-      ...result.tasks,
-      ...state.tasks.filter(task => !movedTaskIds.has(task.id)),
-    ],
-    selectedTaskId: taskId,
+    staleDocs: stale.status === 'fulfilled' ? stale.value : [],
+    orphanDocs: orphans.status === 'fulfilled' ? orphans.value : [],
   });
-  clearTaskBoardExtra(taskId);
-  renderWorkspace();
+}
 
+async function loadDrawerContext(taskId) {
+  const guard = () => state.drawerTaskId === taskId;
   try {
-    await reorderTasks(result.updates);
-    await loadTasks({ selectedTaskId: taskId });
+    const documents = await fetchTaskDocuments(taskId);
+    if (guard()) setState({ taskDocuments: documents });
+    const checklist = await fetchTaskChecklist(taskId);
+    if (guard()) setState({ taskChecklist: checklist });
+    const activity = await fetchTaskActivity(taskId);
+    if (guard()) setState({ taskActivity: activity });
   } catch {
-    window.alert('Prax could not save the board move.');
-    await loadTasks({ selectedTaskId: taskId });
+    /* drawer sections degrade to empty */
+  }
+  if (guard()) renderApp();
+}
+
+async function loadDocumentLinks(documentId) {
+  try {
+    const links = await fetchDocumentLinks(documentId, 'both');
+    if (state.editorDocId === documentId) {
+      setState({ documentLinks: links });
+      renderApp();
+    }
+  } catch {
+    /* links section stays unfetched */
   }
 }
 
-function visibleTasksForCurrentView() {
-  return filterTasks(tasksForView(state.tasks, state.activeView), state.searchQuery);
-}
-
-function listOptionsForView(activeView) {
-  if (activeView === 'backlog') {
-    return {
-      title: 'Backlog',
-      countLabel: 'planned tasks',
-      emptyTitle: 'No backlog tasks',
-      emptyDescription: 'Planned work without a due date will appear here.',
-    };
-  }
-  if (activeView === 'archive') {
-    return {
-      title: 'Archived Tasks',
-      countLabel: 'archived tasks',
-      emptyTitle: 'No archived tasks',
-      emptyDescription: 'Archived work will appear here.',
-    };
-  }
-  return {
-    title: 'Task Queue',
-    countLabel: 'active tasks',
-    emptyTitle: 'No tasks in this queue',
-    emptyDescription: 'New operational work will appear here when it is added.',
-  };
-}
-
-function renderWorkspacePrimary(visibleTasks, selectedTaskId) {
-  if (state.activeView === 'board') {
-    const isAllProjects = state.activeProject === 'all';
-    const useSwimlanes = state.boardGrouping === 'swimlanes' && isAllProjects;
-    const boardTasks = applyBoardFilters(visibleTasks, state.boardFilters, state.taskBoardExtras, today());
-    const board = useSwimlanes
-      ? renderSwimlaneBoardHtml(boardTasks, selectedTaskId, {
-          today: today(),
-          projects: state.projects,
-          boardLaneCollapsed: state.boardLaneCollapsed,
-          taskBoardExtras: state.taskBoardExtras,
-        })
-      : renderBoardHtml(boardTasks, selectedTaskId, {
-          boardOpenSections: state.boardOpenSections,
-          today: today(),
-          showProjectChips: isAllProjects,
-          projects: state.projects,
-          taskBoardExtras: state.taskBoardExtras,
-        });
-    const toolbar = isAllProjects ? renderBoardToolbar(state.boardGrouping) : '';
-    const filters = renderBoardFilters(state.boardFilters);
-    // Wrap in one element so the .workspace grid treats the board as a single
-    // primary cell — otherwise the prepended toolbar becomes a second grid item
-    // and the board spills into the detail column.
-    return `<div class="board-view">${toolbar}${filters}${board}</div>`;
-  }
-
-  const listOptions = listOptionsForView(state.activeView);
-  const showListToolbar = state.activeProject === 'all' && state.activeView === 'list';
-  const useSwimlanes = showListToolbar && state.listGrouping === 'swimlanes';
-  const toolbar = showListToolbar ? renderListToolbar(state.listGrouping) : '';
-  return useSwimlanes
-    ? renderSwimlaneListHtml(visibleTasks, selectedTaskId, {
-        ...listOptions,
-        toolbar,
-        projects: state.projects,
-        listLaneCollapsed: state.listLaneCollapsed,
-        today: today(),
-      })
-    : renderListHtml(visibleTasks, selectedTaskId, { ...listOptions, toolbar });
-}
-
-function renderApp() {
-  const metrics = buildMetrics(state.tasks, today());
-  app.innerHTML = renderShellHtml({
-    activeProject: state.activeProject,
-    projects: state.projects,
-    activeView: state.activeView,
-    apiStatus: state.apiStatus,
-    searchQuery: state.searchQuery,
-    metrics,
-    isDrawerOpen: state.isDrawerOpen,
-  });
-  renderWorkspace();
-  if (state.isTaskFormOpen) {
-    app.insertAdjacentHTML('beforeend', renderTaskFormHtml({
-      task: editingTask(),
-      projects: state.projects,
-      values: { project: editingTask()?.projectId || defaultProjectId() },
-      error: state.formError,
-      isSaving: state.isSaving,
-    }));
-  }
-  if (state.isDocumentFormOpen) {
-    app.insertAdjacentHTML('beforeend', renderDocumentFormHtml({
-      document: editingDocument(),
-      projects: state.projects,
-      values: { project: editingDocument()?.projectId || defaultProjectId() },
-      error: state.documentFormError,
-      isSaving: state.isSaving,
-    }));
-  }
-  if (state.isAdminPanelOpen) {
-    app.insertAdjacentHTML('beforeend', renderAdminPanelHtml({
-      activeProject: state.activeProject,
-      projects: state.projects,
-      taskCount: state.tasks.length,
-      documentCount: state.libraryActiveDocumentCount,
-      importMode: state.adminImportMode,
-      staleDocs: state.staleDocs,
-      orphanDocs: state.orphanDocs,
-      maintenanceProjectFilter: state.maintenanceProjectFilter,
-      semanticStatus: state.semanticStatus,
-    }));
-  }
-  if (state.isProjectManagerOpen) {
-    const liveProjects = state.managedProjects.filter((p) => p.status !== 'archived');
-    const archivedCount = state.managedProjects.length - liveProjects.length;
-    app.insertAdjacentHTML('beforeend', renderProjectManagerHtml({
-      projects: liveProjects,
-      archivedCount,
-      error: state.projectManagerError,
-    }));
-  }
-  if (state.isProjectArchiveOpen) {
-    const archivedProjects = state.managedProjects.filter((p) => p.status === 'archived');
-    app.insertAdjacentHTML('beforeend', renderProjectArchiveHtml({
-      projects: archivedProjects,
-      error: state.projectManagerError,
-    }));
-  }
-  if (state.isSettingsPanelOpen) {
-    app.insertAdjacentHTML('beforeend', renderSettingsPanelHtml({
-      activeSection: state.settingsSection,
-      preferences: state.preferences,
-    }));
-  }
-  if (state.isLinkPickerOpen) {
-    app.insertAdjacentHTML('beforeend', renderLinkPickerHtml({
-      documents: state.linkPickerDocuments,
-      linkedIds: state.taskDocuments.map(d => d.id),
-      query: state.linkPickerQuery,
-      mode: state.pickerMode,
-    }));
-  }
-  bindShellEvents();
-  bindTaskFormEvents();
-  bindDocumentFormEvents();
-  bindAdminPanelEvents();
-  bindProjectManagerEvents();
-  bindProjectArchiveEvents();
-  bindSettingsPanelEvents();
-  bindLinkPickerEvents();
-}
-
-function bindShellEvents() {
-  app.querySelectorAll('[data-action="new-task"]').forEach((button) => {
-    button.addEventListener('click', () => {
-      setState({
-        isTaskFormOpen: true,
-        editingTaskId: null,
-        formError: '',
-        isDrawerOpen: false,
-      });
-      renderApp();
-    });
-  });
-
-  app.querySelectorAll('[data-action="new-document"]').forEach((button) => {
-    button.addEventListener('click', () => {
-      setState({
-        isDocumentFormOpen: true,
-        editingDocumentId: null,
-        documentFormError: '',
-        isDrawerOpen: false,
-      });
-      renderApp();
-    });
-  });
-
-  app.querySelectorAll('[data-action="open-admin"]').forEach((button) => {
-    button.addEventListener('click', () => {
-      setState({
-        isAdminPanelOpen: true,
-        isSettingsPanelOpen: false,
-        isTaskFormOpen: false,
-        isDocumentFormOpen: false,
-        isDrawerOpen: false,
-        editingTaskId: null,
-        editingDocumentId: null,
-      });
-      renderApp();
-      loadMaintenanceLists();
-      loadSemanticStatus();
-    });
-  });
-
-  app.querySelectorAll('[data-action="open-settings"]').forEach((button) => {
-    button.addEventListener('click', () => {
-      setState({
-        isSettingsPanelOpen: true,
-        isAdminPanelOpen: false,
-        isTaskFormOpen: false,
-        isDocumentFormOpen: false,
-        isDrawerOpen: false,
-        editingTaskId: null,
-        editingDocumentId: null,
-      });
-      renderApp();
-    });
-  });
-
-  app.querySelectorAll('[data-action="toggle-drawer"]').forEach((button) => {
-    button.addEventListener('click', () => {
-      setState({ isDrawerOpen: !state.isDrawerOpen });
-      renderApp();
-    });
-  });
-
-  app.querySelector('[data-action="import-document"]')?.addEventListener('click', () => {
-    const input = globalThis.document.createElement('input');
-    input.type = 'file';
-    input.accept = 'text/markdown,.md,.markdown';
-    input.addEventListener('change', () => {
-      const file = input.files?.[0];
-      if (file) importLibraryMarkdownFile(file);
-    });
-    input.click();
-  });
-
-  app.querySelector('[data-search-input]')?.addEventListener('input', (event) => {
-    setState({ searchQuery: event.target.value });
-    renderWorkspace();
-  });
-
-  app.querySelector('[data-search-input]')?.addEventListener('keydown', async (event) => {
-    if (event.key !== 'Enter') return;
-    if (state.activeView !== 'library' || state.librarySearchMode !== 'semantic') return;
-    event.preventDefault();
-    const q = state.searchQuery.trim();
-    if (!q) { setState({ semanticResults: null }); renderWorkspace(); return; }
-    try {
-      const refs = await semanticSearch(q, state.activeProject);
-      const patch = { semanticResults: refs };
-      if (refs.length) {
-        const top = state.documents.find((d) => d.id === refs[0].id);
-        clearDocumentAutosave();
-        patch.selectedDocumentId = refs[0].id;
-        patch.documentDraftId = top?.id || null;
-        patch.documentDraftBody = top?.body || '';
-        patch.isDocumentDirty = false;
-        patch.documentLinks = null;
-        // Reset the detail-pane flags the row-click handler also clears, so
-        // focusing the top hit doesn't carry over a stale save banner, focus
-        // mode, or an open info editor from a previously-edited doc.
-        patch.documentSaveStatus = 'Saved';
-        patch.isDocumentFocusMode = false;
-        patch.isDocumentInfoEditorOpen = false;
-        patch.documentInfoError = '';
-        // On mobile the detail pane only slides in when this is set (the
-        // row-click handler does the same), so the focused top hit is visible.
-        patch.isLibraryDocOpen = isMobile() ? true : state.isLibraryDocOpen;
-      } else {
-        patch.selectedDocumentId = null;
+async function ensureBoardExtras(tasks) {
+  const missing = pendingExtraIds(tasks.map(t => t.id), state.taskBoardExtras, state.taskBoardExtrasLoading);
+  if (!missing.length) return;
+  const token = Date.now();
+  const loading = { ...state.taskBoardExtrasLoading };
+  for (const id of missing) loading[id] = token;
+  setState({ taskBoardExtrasLoading: loading });
+  try {
+    for (const batch of batchIds(missing)) {
+      const extras = await fetchTaskBoardExtras(batch);
+      const merged = { ...state.taskBoardExtras };
+      for (const extra of extras) merged[extra.taskId] = extra;
+      // ids the server omitted still count as fetched (empty extras)
+      for (const id of batch) {
+        if (merged[id] === undefined) {
+          merged[id] = { docsCount: 0, checklistDone: 0, checklistTotal: 0, latestActivity: '' };
+        }
       }
-      setState(patch);
-      renderWorkspace();
-      if (refs.length) loadDocumentLinks(refs[0].id);
-    } catch (error) {
-      console.error('Semantic search failed', error);
-      setState({ semanticResults: [] });
-      renderWorkspace();
+      setState({ taskBoardExtras: merged });
+    }
+    renderApp();
+  } catch {
+    /* signals degrade silently; a later render retries */
+  } finally {
+    const done = { ...state.taskBoardExtrasLoading };
+    for (const id of missing) if (done[id] === token) delete done[id];
+    setState({ taskBoardExtrasLoading: done });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Toasts & undo
+// ---------------------------------------------------------------------------
+
+function showToast(message, undo = null) {
+  clearTimeout(toastTimer);
+  setState({ toast: { message, undo } });
+  toastTimer = setTimeout(() => {
+    setState({ toast: null });
+    renderApp();
+  }, undo ? 5000 : 2400);
+  renderApp();
+}
+
+function dismissToast() {
+  clearTimeout(toastTimer);
+  setState({ toast: null });
+}
+
+// ---------------------------------------------------------------------------
+// Task mutations
+// ---------------------------------------------------------------------------
+
+function taskById(id) {
+  return state.tasks.find(t => t.id === id) || state.archivedTasks.find(t => t.id === id) || null;
+}
+
+function applyTaskPatchLocal(id, patch) {
+  setState({ tasks: state.tasks.map(t => (t.id === id ? { ...t, ...patch } : t)) });
+}
+
+async function patchTask(id, apiPatch, { failure = 'update this task' } = {}) {
+  if (!id) return null;
+  try {
+    const updated = await updateTask(id, apiPatch);
+    const normalized = normalizeTask(updated);
+    applyTaskPatchLocal(id, normalized);
+    return normalized;
+  } catch {
+    alertError(failure);
+    await loadTasks();
+    return null;
+  } finally {
+    renderApp();
+  }
+}
+
+async function toggleTaskDone(id) {
+  const task = taskById(id);
+  if (!task || task.archivedAt) return;
+  const prior = task.status;
+  const done = designStatus(prior) === 'completed';
+  const next = done ? apiStatus('planned') : apiStatus('completed');
+  applyTaskPatchLocal(id, { status: next });
+  renderApp();
+  const saved = await patchTask(id, { status: next });
+  if (saved) {
+    showToast(done ? 'Reopened' : 'Completed — nice.', async () => {
+      dismissToast();
+      await patchTask(id, { status: prior });
+    });
+  }
+}
+
+async function bulkSetStatus(designKey, label) {
+  const ids = [...state.multiSelectIds];
+  if (!ids.length) return;
+  const prior = ids.map(id => ({ id, status: taskById(id)?.status }));
+  setState({ multiSelectIds: [] });
+  try {
+    await Promise.all(ids.map(id => updateTask(id, { status: apiStatus(designKey) })));
+    await loadTasks();
+    showToast(`${ids.length} task${ids.length > 1 ? 's' : ''} → ${label}`, async () => {
+      dismissToast();
+      await Promise.all(prior.filter(p => p.status).map(p => updateTask(p.id, { status: p.status })));
+      await loadTasks();
+      renderApp();
+    });
+  } catch {
+    alertError('apply the bulk change');
+    await loadTasks();
+  }
+  renderApp();
+}
+
+async function bulkArchive() {
+  const ids = [...state.multiSelectIds];
+  if (!ids.length) return;
+  setState({ multiSelectIds: [] });
+  try {
+    await Promise.all(ids.map(id => archiveTask(id)));
+    await loadTasks();
+    showToast(`${ids.length} task${ids.length > 1 ? 's' : ''} archived`, async () => {
+      dismissToast();
+      await Promise.all(ids.map(id => restoreTask(id)));
+      await loadTasks();
+      renderApp();
+    });
+  } catch {
+    alertError('archive the selection');
+    await loadTasks();
+  }
+  renderApp();
+}
+
+async function archiveTaskWithUndo(id) {
+  const task = taskById(id);
+  if (!task) return;
+  setState({ drawerTaskId: null });
+  try {
+    await archiveTask(id);
+    await loadTasks();
+    if (state.tab === 'archive') await loadArchivedTasks();
+    showToast('Task archived', async () => {
+      dismissToast();
+      await restoreTask(id);
+      await loadTasks();
+      if (state.tab === 'archive') await loadArchivedTasks();
+      renderApp();
+    });
+  } catch {
+    alertError('archive the selected task');
+  }
+  renderApp();
+}
+
+async function saveTaskNotes(taskId, notes) {
+  try {
+    const updated = await updateTask(taskId, { notes });
+    applyTaskPatchLocal(taskId, normalizeTask(updated));
+    setState({ isTaskNotesDirty: false, ...clearTaskBoardExtra(state, taskId) });
+  } catch {
+    alertError('save notes');
+  }
+}
+
+function scheduleNotesAutosave(taskId) {
+  clearTimeout(notesAutosaveTimer);
+  notesAutosaveTimer = setTimeout(() => {
+    if (state.taskNotesDraftId === taskId && state.isTaskNotesDirty) {
+      saveTaskNotes(taskId, state.taskNotesDraft);
+    }
+  }, NOTES_AUTOSAVE_DELAY_MS);
+}
+
+// ---------------------------------------------------------------------------
+// Board drag & drop (imperative during drag; full render only on drop)
+// ---------------------------------------------------------------------------
+
+function ensureDragIndicator() {
+  if (!dragIndicator) {
+    dragIndicator = document.createElement('div');
+    dragIndicator.className = 'drop-ind';
+  }
+  return dragIndicator;
+}
+
+function clearDragChrome() {
+  dragIndicator?.remove();
+  appRoot?.querySelectorAll('.board-col.is-over').forEach(el => el.classList.remove('is-over'));
+  appRoot?.querySelectorAll('.board-card.is-dragging').forEach(el => el.classList.remove('is-dragging'));
+  setState({ dragTaskId: null, dragOverColumn: null, dragPos: null });
+}
+
+async function finishBoardDrop(designColumn, beforeTaskId, label) {
+  const taskId = state.dragTaskId;
+  clearDragChrome();
+  if (!taskId) return;
+  const { tasks: moved, updates } = moveTaskOnBoard(state.tasks, {
+    taskId,
+    targetStatus: apiStatus(designColumn),
+    beforeTaskId,
+  });
+  if (!updates.length) { renderApp(); return; }
+  setState({ tasks: moved, selectedTaskId: taskId, ...clearTaskBoardExtra(state, taskId) });
+  renderApp();
+  try {
+    await reorderTasks(updates);
+    showToast(`Moved to ${label}`);
+  } catch {
+    alertError('save the board move');
+    await loadTasks();
+    renderApp();
+  }
+}
+
+function bindDragEvents() {
+  appRoot.addEventListener('dragstart', (event) => {
+    const card = event.target.closest?.('[data-board-card]');
+    if (!card) return;
+    setState({ dragTaskId: card.dataset.taskId });
+    card.classList.add('is-dragging');
+    try {
+      event.dataTransfer.setData('text/plain', card.dataset.taskId);
+      event.dataTransfer.effectAllowed = 'move';
+    } catch { /* non-browser environments */ }
+  });
+
+  appRoot.addEventListener('dragover', (event) => {
+    if (!state.dragTaskId) return;
+    const column = event.target.closest?.('[data-board-column]');
+    if (!column) return;
+    event.preventDefault();
+    appRoot.querySelectorAll('.board-col.is-over').forEach(el => el.classList.remove('is-over'));
+    column.classList.add('is-over');
+    const indicator = ensureDragIndicator();
+    const card = event.target.closest('[data-board-card]');
+    if (card && card.dataset.taskId !== state.dragTaskId) {
+      const rect = card.getBoundingClientRect();
+      const before = (event.clientY - rect.top) < rect.height / 2;
+      if (before) card.parentNode.insertBefore(indicator, card);
+      else card.parentNode.insertBefore(indicator, card.nextSibling);
+      indicator.dataset.beforeId = before
+        ? card.dataset.taskId
+        : (card.nextElementSibling?.dataset?.taskId || '');
+    } else if (!card) {
+      column.appendChild(indicator);
+      indicator.dataset.beforeId = '';
     }
   });
 
-  app.querySelectorAll('[data-project]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      const nextProject = button.dataset.project;
-      if (!nextProject || nextProject === state.activeProject) return;
-      clearDocumentAutosave();
-      setState({
-        ...resetSemanticSearch(),
-        activeProject: nextProject,
-        selectedTaskId: null,
-        selectedDocumentId: null,
-        libraryView: 'active',
-        activeLibraryTags: [],
-        libraryTagQuery: '',
-        areLibraryTagsExpanded: false,
-        documentDraftId: null,
-        documentDraftBody: '',
-        isDocumentDirty: false,
-        documentSaveStatus: 'Saved',
-        isDocumentFocusMode: false,
-        isTaskFormOpen: false,
-        isAdminPanelOpen: false,
-        isDocumentFormOpen: false,
-        isDocumentInfoEditorOpen: false,
-        editingTaskId: null,
-        editingDocumentId: null,
-        formError: '',
-        documentInfoError: '',
-        isDrawerOpen: false,
-        mobileDetailOpen: false,
-        taskDetailOpen: false,
-        isLibraryDocOpen: false,
-        isLinkPickerOpen: false,
-        pickerMode: 'link',
-      });
-      persistActiveProject(nextProject);
-      try {
-        if (state.activeView === 'library') {
-          await loadDocuments({ selectedDocumentId: null });
-        } else {
-          await loadTasks({ selectedTaskId: null });
-        }
-      } catch (error) {
-        setState({ apiStatus: 'error' });
-        renderError(error.message);
-      }
-    });
-  });
-
-  app.querySelectorAll('[data-action="new-project"]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      const name = window.prompt('New project name');
-      if (!name || !name.trim()) return;
-      try {
-        const project = await createProject(name.trim());
-        await loadProjects();
-        setState({ activeProject: project.id });
-        persistActiveProject(project.id);
-        if (state.activeView === 'library') await loadDocuments({ selectedDocumentId: null });
-        else await loadTasks({ selectedTaskId: null });
-      } catch {
-        window.alert('Prax could not create that project.');
-      }
-    });
-  });
-
-  app.querySelectorAll('[data-action="open-project-manager"]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      try {
-        const managed = await fetchProjects('all');
-        setState({ isProjectManagerOpen: true, managedProjects: managed, projectManagerError: '', isDrawerOpen: false });
-        renderApp();
-      } catch {
-        window.alert('Prax could not load projects.');
-      }
-    });
-  });
-
-  app.querySelectorAll('[data-action="open-archived-projects"]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      try {
-        const managed = await fetchProjects('all');
-        // Open the archive directly, with the manager layered underneath so the
-        // dialog's [<] back returns to Manage rather than the bare app.
-        setState({
-          isProjectManagerOpen: true,
-          isProjectArchiveOpen: true,
-          managedProjects: managed,
-          projectManagerError: '',
-          isDrawerOpen: false,
-        });
-        renderApp();
-      } catch {
-        window.alert('Prax could not load projects.');
-      }
-    });
-  });
-
-  app.querySelectorAll('[data-view]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      const nextView = button.dataset.view;
-      if (!nextView || nextView === state.activeView) return;
-      clearDocumentAutosave();
-      const archiveModeChanged = isArchiveView(nextView) !== isArchiveView(state.activeView);
-      const libraryModeChanged = nextView === 'library' || state.activeView === 'library';
-      setState({
-        ...resetSemanticSearch(),
-        activeView: nextView,
-        selectedTaskId: null,
-        selectedDocumentId: null,
-        libraryView: 'active',
-        activeLibraryTags: [],
-        libraryTagQuery: '',
-        areLibraryTagsExpanded: false,
-        documentDraftId: null,
-        documentDraftBody: '',
-        isDocumentDirty: false,
-        documentSaveStatus: 'Saved',
-        isDocumentFocusMode: false,
-        isTaskFormOpen: false,
-        isAdminPanelOpen: false,
-        isDocumentFormOpen: false,
-        isDocumentInfoEditorOpen: false,
-        editingTaskId: null,
-        editingDocumentId: null,
-        formError: '',
-        documentInfoError: '',
-        isDrawerOpen: false,
-        mobileDetailOpen: false,
-        taskDetailOpen: false,
-        isLibraryDocOpen: false,
-        isLinkPickerOpen: false,
-        pickerMode: 'link',
-      });
-      if (nextView === 'library') {
-        try {
-          await loadDocuments({ selectedDocumentId: null });
-        } catch (error) {
-          setState({ apiStatus: 'error' });
-          renderError(error.message);
-        }
-      } else if (archiveModeChanged || libraryModeChanged) {
-        try {
-          await loadTasks({ selectedTaskId: null });
-        } catch (error) {
-          setState({ apiStatus: 'error' });
-          renderError(error.message);
-        }
-      } else {
-        renderApp();
-      }
-    });
-  });
-}
-
-function tagsFromFormValue(value) {
-  return String(value || '')
-    .split(',')
-    .map(tag => tag.trim())
-    .filter(Boolean);
-}
-
-function bindDocumentFormEvents() {
-  const form = app.querySelector('[data-document-form]');
-  if (!form) return;
-
-  app.querySelectorAll('[data-action="close-document-form"]').forEach((button) => {
-    button.addEventListener('click', () => {
-      setState({
-        isDocumentFormOpen: false,
-        editingDocumentId: null,
-        documentFormError: '',
-        isSaving: false,
-      });
-      renderApp();
-    });
-  });
-
-  form.addEventListener('submit', async (event) => {
+  appRoot.addEventListener('drop', (event) => {
+    const column = event.target.closest?.('[data-board-column]');
+    if (!column || !state.dragTaskId) return;
     event.preventDefault();
-    const data = new FormData(form);
-    const title = String(data.get('title') || '').trim();
-    if (!title) {
-      setState({ documentFormError: 'Title is required.' });
+    const key = column.dataset.boardColumn;
+    const beforeId = dragIndicator?.dataset?.beforeId || null;
+    const label = column.querySelector('.board-col__head')?.textContent?.trim().replace(/\d+$/, '').trim() || key;
+    finishBoardDrop(key, beforeId || null, label);
+  });
+
+  appRoot.addEventListener('dragend', () => clearDragChrome());
+}
+
+// ---------------------------------------------------------------------------
+// Editor: draft lifecycle + CodeMirror
+// ---------------------------------------------------------------------------
+
+function currentDocument() {
+  return state.documents.find(d => d.id === state.editorDocId) || null;
+}
+
+function seedEditorDraft(doc) {
+  setState({
+    editorDocId: doc.id,
+    documentDraftId: doc.id,
+    documentDraftBody: doc.body || '',
+    isDocumentDirty: false,
+    documentSaveStatus: 'Saved',
+    documentLinks: null,
+    isDocumentInfoEditorOpen: false,
+    documentInfoError: '',
+  });
+}
+
+function setSaveStatusInPlace(status) {
+  setState({ documentSaveStatus: status });
+  const el = appRoot?.querySelector('[data-document-save-status]');
+  if (el) el.textContent = status;
+}
+
+function handleDocumentDraftBodyChange(value) {
+  const doc = currentDocument();
+  const dirty = Boolean(doc) && value !== (doc.body || '');
+  setState({ documentDraftBody: value, isDocumentDirty: dirty });
+  setSaveStatusInPlace(dirty ? 'Unsaved changes' : 'Saved');
+  updateDocumentLivePreview(appRoot, value);
+  scheduleDocumentAutosave();
+}
+
+function scheduleDocumentAutosave() {
+  clearTimeout(documentAutosaveTimer);
+  documentAutosaveTimer = setTimeout(() => {
+    if (state.isDocumentDirty) {
+      setSaveStatusInPlace('Autosaving...');
+      saveDocumentDraft();
+    }
+  }, DOCUMENT_AUTOSAVE_DELAY_MS);
+}
+
+async function saveDocumentDraft() {
+  const draftId = state.documentDraftId;
+  if (!draftId || !state.isDocumentDirty) return;
+  try {
+    const saved = await updateDocument(draftId, { body: state.documentDraftBody });
+    const patch = documentDraftSavedPatch(state, saved);
+    if (patch) setState(patch);
+    setSaveStatusInPlace('Saved');
+    if (!canPreserveEditorAfterDraftSave({
+      hasEditorController: Boolean(documentEditorController),
+      savedDocumentId: saved.id,
+      selectedDocumentId: state.editorDocId,
+      draftDocumentId: state.documentDraftId,
+    })) {
       renderApp();
+    }
+  } catch {
+    setSaveStatusInPlace('Save failed');
+    alertError('save this document');
+  }
+}
+
+function destroyEditorController() {
+  documentEditorController?.destroy?.();
+  documentEditorController = null;
+}
+
+function mountEditorIfNeeded() {
+  if (state.navType !== 'editor') {
+    destroyEditorController();
+    return;
+  }
+  const host = appRoot.querySelector('[data-code-editor]');
+  const fallback = appRoot.querySelector('[data-document-editor]');
+  if (!host) { destroyEditorController(); return; }
+  if (documentEditorController) return;
+  documentEditorController = mountCodeMirrorEditor({
+    host,
+    value: state.documentDraftBody,
+    onChange: (value) => {
+      if (fallback) fallback.value = value;
+      handleDocumentDraftBodyChange(value);
+    },
+    onSave: () => saveDocumentDraft(),
+  });
+  if (documentEditorController) {
+    host.hidden = false;
+    if (fallback) fallback.hidden = true;
+  } else if (fallback) {
+    fallback.hidden = false;
+  }
+}
+
+function applyEditorFormat(action) {
+  if (documentEditorController) {
+    documentEditorController.applyFormat(action);
+    return;
+  }
+  const textarea = appRoot.querySelector('[data-document-editor]');
+  if (!textarea) return;
+  const result = applyMarkdownFormat(textarea.value, textarea.selectionStart, textarea.selectionEnd, action);
+  textarea.value = result.value;
+  textarea.setSelectionRange(result.selectionStart, result.selectionEnd);
+  textarea.focus();
+  handleDocumentDraftBodyChange(result.value);
+}
+
+function toggleMarkdownCheck(line) {
+  const lines = state.documentDraftBody.split('\n');
+  const current = lines[line] || '';
+  if (/^(\s*[-*]\s+)\[ \]/.test(current)) lines[line] = current.replace('[ ]', '[x]');
+  else if (/^(\s*[-*]\s+)\[[xX]\]/.test(current)) lines[line] = current.replace(/\[[xX]\]/, '[ ]');
+  else return;
+  const value = lines.join('\n');
+  destroyEditorController();
+  handleDocumentDraftBodyChange(value);
+  renderApp();
+}
+
+async function openDocumentInEditor(documentId) {
+  clearTimeout(documentAutosaveTimer);
+  destroyEditorController();
+  let doc = state.documents.find(d => d.id === documentId);
+  if (!doc) {
+    setState({ libraryView: 'active' });
+    await loadDocuments();
+    doc = state.documents.find(d => d.id === documentId);
+  }
+  if (!doc) { alertError('open that document'); return; }
+  seedEditorDraft(doc);
+  setState({ navType: 'editor', editorFocus: false });
+  renderApp();
+  loadDocumentLinks(doc.id);
+}
+
+// ---------------------------------------------------------------------------
+// Library helpers
+// ---------------------------------------------------------------------------
+
+function defaultProjectId() {
+  if (state.navType === 'project' && state.navId) return state.navId;
+  return state.projects[0]?.id || null;
+}
+
+async function createNewDocument() {
+  const project = defaultProjectId();
+  if (!project) { window.alert('Create a project first.'); return; }
+  try {
+    const doc = await createDocument({
+      title: 'Untitled', body: '# Untitled\n\n', documentType: 'note', project, tags: [],
+    });
+    await loadDocuments();
+    seedEditorDraft(state.documents.find(d => d.id === doc.id) || doc);
+    setState({ navType: 'editor', editorMode: 'edit', editorFocus: false });
+    renderApp();
+    showToast('New document — rename it in the title bar');
+  } catch {
+    alertError('create a document');
+  }
+}
+
+function importDocumentFiles() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'text/markdown,.md,.markdown,.txt';
+  input.multiple = true;
+  input.addEventListener('change', async () => {
+    const files = [...(input.files || [])];
+    if (!files.length) return;
+    const project = defaultProjectId();
+    if (!project) { window.alert('Create a project first.'); return; }
+    let imported = 0;
+    for (const file of files) {
+      try {
+        const body = await file.text();
+        await createDocument({
+          title: titleFromMarkdown(body, file.name),
+          body,
+          documentType: 'note',
+          project,
+          tags: ['imported'],
+          sourceFilename: file.name || null,
+        });
+        imported += 1;
+      } catch {
+        /* keep importing the rest */
+      }
+    }
+    await loadDocuments();
+    renderApp();
+    showToast(`Imported ${imported} document${imported === 1 ? '' : 's'}`);
+  });
+  input.click();
+}
+
+function persistSavedViews() {
+  try {
+    localStorage.setItem(SAVED_LIBRARY_VIEWS_KEY, JSON.stringify(state.librarySavedViews));
+  } catch { /* non-critical */ }
+}
+
+async function runSemanticSearch() {
+  const query = state.libraryQuery.trim();
+  if (!query) { setState({ semanticResults: null }); renderApp(); return; }
+  try {
+    const results = await semanticSearch(query, undefined);
+    setState({ semanticResults: results });
+  } catch {
+    setState({ semanticResults: [] });
+  }
+  renderApp();
+}
+
+// ---------------------------------------------------------------------------
+// Settings / data-admin flows
+// ---------------------------------------------------------------------------
+
+function downloadJsonFile(filename, payload) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const anchor = document.createElement('a');
+  anchor.href = URL.createObjectURL(blob);
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(anchor.href), 3000);
+}
+
+async function exportTasksScoped(all) {
+  try {
+    const project = all ? 'all' : (state.navId || 'all');
+    const payload = await exportTasks({ project });
+    const context = all ? 'all-projects' : (state.projects.find(p => p.id === state.navId)?.name || 'project');
+    downloadJsonFile(exportFilename(context, new Date()), payload);
+  } catch {
+    alertError(all ? 'export all projects' : 'export this project');
+  }
+}
+
+async function importTasksFromSettings() {
+  const modeInput = appRoot.querySelector('[name="import-mode"]:checked');
+  let mode;
+  try {
+    mode = normalizeImportMode(modeInput?.value || 'skip');
+  } catch {
+    mode = 'skip';
+  }
+  if (mode === 'replace') {
+    const confirmBox = appRoot.querySelector('[data-replace-confirm]');
+    if ((confirmBox?.value || '') !== 'REPLACE') {
+      window.alert('Type REPLACE to confirm a replace import.');
       return;
     }
-
-    const payload = {
-      title,
-      body: String(data.get('body') || ''),
-      documentType: String(data.get('documentType') || 'note'),
-      project: String(data.get('project') || defaultProjectId()),
-      tags: tagsFromFormValue(data.get('tags')),
-      sourceFilename: String(data.get('sourceFilename') || '').trim() || null,
-    };
-
-    setState({ isSaving: true, documentFormError: '' });
-    renderApp();
-
-    try {
-      const savedDocument = state.editingDocumentId
-        ? await updateDocument(state.editingDocumentId, payload)
-        : await createDocument(payload);
-
-      const nextProject = savedDocument.projectId || state.activeProject;
-      persistActiveProject(nextProject);
-      setState({
-        ...resetSemanticSearch(),
-        activeProject: nextProject,
-        selectedDocumentId: savedDocument.id,
-        libraryView: 'active',
-        isDocumentFormOpen: false,
-        editingDocumentId: null,
-        isSaving: false,
-        documentFormError: '',
-      });
-      await loadDocuments({ selectedDocumentId: savedDocument.id });
-    } catch {
-      setState({
-        isSaving: false,
-        documentFormError: state.editingDocumentId ? 'Prax could not update this document.' : 'Prax could not create this document.',
-      });
-      renderApp();
-    }
-  });
-}
-
-function exportLibraryDocument(documentId) {
-  // Server renders v2 markdown (front-matter v2 + outbound link refs).
-  triggerLibraryDocumentDownload(documentId);
-}
-
-async function exportAdminTasks(project) {
-  try {
-    const exported = await exportTasks({ project });
-    downloadJsonFile(exportFilename(project), exported);
-  } catch {
-    window.alert(project === 'all'
-      ? 'Prax could not export all projects.'
-      : 'Prax could not export this project.');
   }
-}
-
-function selectedAdminImportMode(panel) {
-  const checked = panel.querySelector('[name="admin-import-mode"]:checked');
-  try {
-    return normalizeImportMode(checked?.value || state.adminImportMode);
-  } catch {
-    return 'skip';
-  }
-}
-
-async function importAdminFile(file, panel) {
-  const mode = selectedAdminImportMode(panel);
-  const replaceConfirmation = panel.querySelector('[data-admin-replace-confirm]')?.value || '';
-  if (mode === 'replace' && replaceConfirmation !== 'REPLACE') {
-    window.alert('Type REPLACE before importing in replace mode.');
-    return;
-  }
-
-  const importTarget = state.activeProject === 'all' ? state.projects[0]?.id : state.activeProject;
-  if (!importTarget) {
-    window.alert('Create a project before importing tasks.');
-    return;
-  }
-
+  const fileInput = appRoot.querySelector('[data-import-file]');
+  const file = fileInput?.files?.[0];
+  if (!file) { window.alert('Choose a JSON export file first.'); return; }
+  const project = defaultProjectId();
+  if (!project) { window.alert('Create a project first.'); return; }
   try {
     const payload = JSON.parse(await file.text());
     const tasks = tasksFromImportPayload(payload);
-    const result = await importTasks({ project: importTarget, mode, tasks });
-    const skipped = result.skipped ? ` Skipped ${result.skipped}.` : '';
-    window.alert(`Imported ${result.imported} ${result.imported === 1 ? 'task' : 'tasks'}.${skipped}`);
-    setState({ isAdminPanelOpen: false });
-    await loadTasks({ selectedTaskId: null });
-  } catch {
-    window.alert('Prax could not import that file.');
+    const result = await importTasks({ project, mode, tasks });
+    window.alert(`Imported ${result.imported} task(s). Skipped ${result.skipped ?? 0}.`);
+    await loadTasks();
+    renderApp();
+  } catch (err) {
+    window.alert(`Prax could not import that file. ${err?.message || ''}`.trim());
   }
 }
 
-async function importLibraryMarkdownFile(file) {
-  const projectId = defaultProjectId();
-  if (!projectId) {
-    window.alert('Create a project before importing documents.');
+// ---------------------------------------------------------------------------
+// Navigation
+// ---------------------------------------------------------------------------
+
+function resetLibraryFilters() {
+  return {
+    libraryQuery: '', librarySemantic: false, activeLibraryTags: [],
+    semanticResults: null, libraryView: 'active',
+  };
+}
+
+function goProject(projectId, tab = 'list') {
+  if (!projectId) { setState({ navType: 'all' }); renderApp(); return; }
+  setState({
+    navType: 'project', navId: projectId, tab,
+    selectedTaskId: null, multiSelectIds: [], drawerTaskId: null,
+  });
+  persistActiveProject(projectId);
+  if (tab === 'archive') loadArchivedTasks().then(renderApp);
+  renderApp();
+}
+
+function goLibrary(extra = {}) {
+  destroyEditorController();
+  setState({ navType: 'library', ...resetLibraryFilters(), ...extra });
+  loadDocuments().then(renderApp);
+  renderApp();
+}
+
+function goSettings() {
+  setState({ navType: 'settings' });
+  loadSemanticStatus().then(renderApp);
+  loadMaintenance().then(renderApp);
+  renderApp();
+}
+
+function escapeCascade() {
+  if (state.paletteOpen) { setState({ paletteOpen: false }); renderApp(); return; }
+  if (state.captureOpen) { setState({ captureOpen: false }); renderApp(); return; }
+  if (state.isLinkPickerOpen) { setState({ isLinkPickerOpen: false }); renderApp(); return; }
+  if (state.isDocumentInfoEditorOpen) { setState({ isDocumentInfoEditorOpen: false }); renderApp(); return; }
+  if (state.drawerTaskId) { setState({ drawerTaskId: null }); renderApp(); return; }
+  if (state.multiSelectIds.length || state.selectedTaskId) {
+    setState({ multiSelectIds: [], selectedTaskId: null });
+    renderApp();
+    return;
+  }
+  if (state.editorFocus) {
+    destroyEditorController();
+    setState({ editorFocus: false });
+    renderApp();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Render
+// ---------------------------------------------------------------------------
+
+function projectsById() {
+  const map = {};
+  for (const project of (state.managedProjects.length ? state.managedProjects : state.projects)) {
+    map[project.id] = project;
+  }
+  return map;
+}
+
+function sidebarCounts() {
+  const projectOpen = {};
+  for (const task of state.tasks) {
+    if (!isOpen(task)) continue;
+    projectOpen[task.projectId] = (projectOpen[task.projectId] || 0) + 1;
+  }
+  const { badge } = buildTodayGroups(state.tasks, state.projects, { now: new Date() });
+  return { todayBadge: badge, projectOpen };
+}
+
+function projectTasks() {
+  return state.tasks.filter(t => t.projectId === state.navId);
+}
+
+function renderMainHtml() {
+  const now = new Date();
+  switch (state.navType) {
+    case 'today': {
+      const { groups, flatIds: ids } = buildTodayGroups(state.tasks, state.projects, { now });
+      flatIds = ids;
+      return renderTodayHtml(state, groups, { now });
+    }
+    case 'all': {
+      const groups = buildProjectGroups(state.managedProjects, state.tasks);
+      return renderAllProjectsHtml(state, groups, projectColor);
+    }
+    case 'library': {
+      const model = buildLibraryModel(state, { now });
+      return renderLibraryHtml(state, model);
+    }
+    case 'editor': {
+      const doc = currentDocument();
+      if (!doc) return '<div class="page"><p class="view-hint">Document not found.</p></div>';
+      const text = state.documentDraftBody;
+      const model = {
+        outline: buildOutline(text),
+        backlinks: buildBacklinks([], state.projects, doc.id),
+        previewHtml: renderMarkdownHtml(text),
+      };
+      return renderEditorHtml(state, doc, model);
+    }
+    case 'settings': {
+      const model = {
+        stats: {
+          tasks: state.tasks.length,
+          projects: (state.managedProjects.length ? state.managedProjects : state.projects).length,
+          documents: state.documents.length,
+        },
+        activeProjectName: state.projects.find(p => p.id === state.navId)?.name || 'All projects',
+        activeDocumentCount: state.documents.length,
+      };
+      return renderSettingsHtml(state, model);
+    }
+    case 'project':
+    default: {
+      const tasks = projectTasks();
+      const project = projectsById()[state.navId];
+      const chipClass = `chip--state-${project?.status || 'active'}`;
+      const backlogCount = tasks.filter(t => designStatus(t.status) === 'backlog' && !t.archivedAt).length;
+      const archiveCount = state.tab === 'archive' ? state.archivedTasks.length : 0;
+      const tabs = [['list', 'List'], ['board', 'Board'], ['backlog', 'Backlog'], ['archive', 'Archive']]
+        .map(([key, label]) => {
+          const count = key === 'backlog' ? backlogCount : (key === 'archive' ? archiveCount : 0);
+          const suffix = count ? ` · ${count}` : '';
+          return `<button class="tabs__tab${state.tab === key ? ' is-active' : ''}" type="button" data-action="set-tab" data-tab="${key}">${label}${suffix}</button>`;
+        }).join('');
+      const groupLabel = { due: 'Due date', priority: 'Priority', status: 'Status' }[state.groupBy];
+      const right = state.tab === 'list'
+        ? `<div class="tabs__right"><button class="btn-ghost" type="button" data-action="cycle-group">Group: ${groupLabel}</button></div>`
+        : '';
+      let body = '';
+      if (state.tab === 'board') {
+        const columns = buildBoardColumns(state, tasks);
+        flatIds = columns.flatMap(c => c.cards.map(card => card.id));
+        body = renderBoardHtml(state, columns, projectsById());
+      } else if (state.tab === 'backlog') {
+        body = renderBacklogHtml(state, tasks.filter(t => designStatus(t.status) === 'backlog' && !t.archivedAt));
+      } else if (state.tab === 'archive') {
+        body = renderArchiveHtml(state, state.archivedTasks);
+      } else {
+        const built = buildListGroups(state, tasks, { now });
+        flatIds = built.flatIds;
+        body = renderListHtml(state, built.groups) + renderBulkBarHtml(state);
+      }
+      return `<div class="page">
+        <header class="page-head">
+          <span class="page-head__dot" style="--dot:${project ? projectColor(project) : 'var(--accent)'}"></span>
+          <h1 class="page-head__title">${escapeHtml(project?.name || 'Tasks')}</h1>
+          <span class="chip ${chipClass}">${escapeHtml((project?.status || 'active').replace('-', ' '))}</span>
+        </header>
+        <nav class="tabs">${tabs}${right}</nav>
+        ${body}
+      </div>`;
+    }
+  }
+}
+
+function renderOverlaysHtml() {
+  let html = '';
+  if (state.drawerTaskId) {
+    const task = taskById(state.drawerTaskId);
+    if (task) {
+      const project = projectsById()[task.projectId];
+      html += renderTaskDrawerHtml(state, task, {
+        project: project ? { ...project, color: projectColor(project) } : null,
+        documents: state.taskDocuments,
+        checklist: state.taskChecklist,
+        activity: state.taskActivity,
+        readOnly: Boolean(task.archivedAt),
+      });
+    }
+  }
+  if (state.isLinkPickerOpen) html += renderLinkPickerHtml(state);
+  if (state.paletteOpen) {
+    const built = buildPaletteGroups(state, {
+      tasks: state.tasks, documents: state.documents, projects: state.projects,
+    });
+    paletteFlat = built.flat;
+    html += renderPaletteHtml(state, built);
+  }
+  if (state.captureOpen) {
+    const project = state.navType === 'project' ? projectsById()[state.navId] : state.projects[0];
+    html += renderCaptureHtml(
+      state,
+      project ? { ...project, color: projectColor(project) } : { name: 'No project', color: 'var(--ink3)' },
+    );
+  }
+  html += renderToastHtml(state);
+  return html;
+}
+
+function renderApp() {
+  if (!appRoot) return;
+  const narrow = state.winW < 940;
+  const chrome = !state.editorFocus;
+  const counts = sidebarCounts();
+  const nav = chrome
+    ? (narrow ? renderRailHtml(state) : renderSidebarHtml(state, counts))
+    : '';
+  appRoot.innerHTML = `
+    <div class="desk">
+      <div class="window">
+        ${chrome ? renderTitlebarHtml(state) : ''}
+        <div class="window__body">
+          ${nav}
+          <main class="main"><div class="main__scroll">${renderMainHtml()}</div></main>
+        </div>
+        ${chrome ? renderStatusbarHtml(state) : ''}
+      </div>
+    </div>
+    ${renderOverlaysHtml()}`;
+  afterRender();
+}
+
+function afterRender() {
+  mountEditorIfNeeded();
+  if (state.paletteOpen) {
+    const input = appRoot.querySelector('[data-palette-input]');
+    input?.focus();
+    input?.setSelectionRange?.(input.value.length, input.value.length);
+  }
+  if (state.captureOpen) appRoot.querySelector('[data-capture-input]')?.focus();
+  if (state.navType === 'project' && (state.tab === 'board' || state.tab === 'list')) {
+    ensureBoardExtras(projectTasks().filter(t => !t.archivedAt));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Palette commands
+// ---------------------------------------------------------------------------
+
+const paletteCommands = {
+  'new-task': () => { setState({ paletteOpen: false, captureOpen: true, captureQuery: '' }); renderApp(); },
+  'new-document': () => { setState({ paletteOpen: false }); createNewDocument(); },
+  'toggle-theme': () => { setState({ paletteOpen: false }); toggleTheme(); },
+  'go-board': () => {
+    setState({ paletteOpen: false });
+    goProject(state.navType === 'project' ? state.navId : state.projects[0]?.id, 'board');
+  },
+  'go-library': () => { setState({ paletteOpen: false }); goLibrary(); },
+  'go-all': () => { setState({ paletteOpen: false, navType: 'all' }); renderApp(); },
+  'focus-writing': () => {
+    setState({ paletteOpen: false });
+    const target = state.editorDocId || state.documents[0]?.id;
+    if (!target) { renderApp(); return; }
+    openDocumentInEditor(target).then(() => {
+      destroyEditorController();
+      setState({ editorFocus: true, editorMode: 'edit' });
+      renderApp();
+    });
+  },
+  'go-settings': () => { setState({ paletteOpen: false }); goSettings(); },
+};
+
+function runPaletteItem(item) {
+  if (!item) return;
+  if (item.action === 'open-task') {
+    const task = taskById(item.id);
+    setState({ paletteOpen: false });
+    if (task) {
+      goProject(task.projectId, 'list');
+      openTaskDrawer(task.id);
+    }
+    return;
+  }
+  if (item.action === 'open-doc') {
+    setState({ paletteOpen: false });
+    openDocumentInEditor(item.id);
+    return;
+  }
+  const command = paletteCommands[item.action];
+  if (command) command();
+}
+
+function toggleTheme() {
+  const preferences = savePreferences({
+    ...state.preferences,
+    theme: state.preferences.theme === 'dark' ? 'light' : 'dark',
+  });
+  setState({ preferences });
+  applyPreferences(preferences);
+  renderApp();
+}
+
+async function openTaskDrawer(taskId, { multi = false } = {}) {
+  if (multi) {
+    const next = state.multiSelectIds.includes(taskId)
+      ? state.multiSelectIds.filter(id => id !== taskId)
+      : [...state.multiSelectIds, taskId];
+    setState({ multiSelectIds: next });
+    renderApp();
+    return;
+  }
+  const task = taskById(taskId);
+  setState({
+    drawerTaskId: taskId,
+    selectedTaskId: taskId,
+    taskDocuments: [],
+    taskChecklist: [],
+    taskActivity: [],
+    taskNotesDraftId: taskId,
+    taskNotesDraft: task?.notes || '',
+    isTaskNotesDirty: false,
+  });
+  renderApp();
+  loadDrawerContext(taskId);
+}
+
+// ---------------------------------------------------------------------------
+// Actions
+// ---------------------------------------------------------------------------
+
+async function handleAction(action, el, event) {
+  switch (action) {
+    // ---- navigation ----
+    case 'nav-today': setState({ navType: 'today', selectedTaskId: null, multiSelectIds: [] }); renderApp(); break;
+    case 'nav-all': case 'manage-projects': setState({ navType: 'all' }); renderApp(); break;
+    case 'nav-library': goLibrary(); break;
+    case 'nav-settings': goSettings(); break;
+    case 'nav-project': goProject(el.dataset.projectId); break;
+    case 'set-tab': {
+      const tab = el.dataset.tab;
+      setState({ tab, selectedTaskId: null, multiSelectIds: [] });
+      if (tab === 'archive') await loadArchivedTasks();
+      renderApp();
+      break;
+    }
+    case 'cycle-group':
+      setState({ groupBy: { due: 'priority', priority: 'status', status: 'due' }[state.groupBy] });
+      renderApp();
+      break;
+    case 'select-saved-view': {
+      const view = state.librarySavedViews[Number(el.dataset.viewIndex)];
+      if (view) goLibrary({ activeLibraryTags: [...view.tags] });
+      break;
+    }
+    case 'open-palette': setState({ paletteOpen: true, paletteQuery: '', paletteSelection: 0, captureOpen: false }); renderApp(); break;
+    case 'open-capture': setState({ captureOpen: true, captureQuery: '', paletteOpen: false }); renderApp(); break;
+    case 'toggle-theme': toggleTheme(); break;
+
+    // ---- tasks ----
+    case 'open-task': openTaskDrawer(el.dataset.taskId, { multi: event.metaKey || event.shiftKey || event.ctrlKey }); break;
+    case 'toggle-task-done': event.stopPropagation(); toggleTaskDone(el.dataset.taskId); break;
+    case 'promote-task':
+      event.stopPropagation();
+      await patchTask(el.dataset.taskId, { status: apiStatus('planned') });
+      showToast('Promoted to board');
+      break;
+    case 'restore-task': {
+      event.stopPropagation();
+      const id = el.dataset.taskId || state.drawerTaskId;
+      try {
+        await restoreTask(id);
+        setState({ drawerTaskId: null });
+        await loadTasks();
+        await loadArchivedTasks();
+        showToast('Restored');
+      } catch { alertError('restore the selected task'); }
+      renderApp();
+      break;
+    }
+    case 'delete-archived-task': {
+      event.stopPropagation();
+      const id = el.dataset.taskId || state.drawerTaskId;
+      const task = taskById(id);
+      if (!window.confirm(`Permanently delete "${task?.title || 'this task'}"? This cannot be undone.`)) break;
+      try {
+        await deleteArchivedTask(id);
+        setState({ drawerTaskId: null });
+        await loadArchivedTasks();
+      } catch { alertError('delete the archived task'); }
+      renderApp();
+      break;
+    }
+    case 'bulk-complete': bulkSetStatus('completed', 'Completed'); break;
+    case 'bulk-backlog': bulkSetStatus('backlog', 'Backlog'); break;
+    case 'bulk-archive': bulkArchive(); break;
+    case 'clear-selection': setState({ multiSelectIds: [], selectedTaskId: null }); renderApp(); break;
+
+    // ---- drawer ----
+    case 'close-drawer': setState({ drawerTaskId: null }); renderApp(); break;
+    case 'set-task-status': await patchTask(state.drawerTaskId, { status: el.dataset.status }); break;
+    case 'set-task-priority': await patchTask(state.drawerTaskId, { priority: el.dataset.priority }); break;
+    case 'clear-task-due': await patchTask(state.drawerTaskId, { dueDate: null }); break;
+    case 'add-checklist-item': {
+      const input = appRoot.querySelector('[data-checklist-new]');
+      const label = (input?.value || '').trim();
+      if (!label) break;
+      try {
+        await addChecklistItem(state.drawerTaskId, label);
+        setState({
+          taskChecklist: await fetchTaskChecklist(state.drawerTaskId),
+          ...clearTaskBoardExtra(state, state.drawerTaskId),
+        });
+      } catch { alertError('add the checklist item'); }
+      renderApp();
+      break;
+    }
+    case 'toggle-checklist-item': {
+      event.stopPropagation();
+      const completed = el.dataset.completed !== 'true';
+      try {
+        await setChecklistItem(state.drawerTaskId, el.dataset.itemId, completed);
+        setState({
+          taskChecklist: await fetchTaskChecklist(state.drawerTaskId),
+          ...clearTaskBoardExtra(state, state.drawerTaskId),
+        });
+      } catch { alertError('update the checklist item'); }
+      renderApp();
+      break;
+    }
+    case 'delete-checklist-item': {
+      event.stopPropagation();
+      try {
+        await deleteChecklistItem(state.drawerTaskId, el.dataset.itemId);
+        setState({
+          taskChecklist: await fetchTaskChecklist(state.drawerTaskId),
+          ...clearTaskBoardExtra(state, state.drawerTaskId),
+        });
+      } catch { alertError('delete the checklist item'); }
+      renderApp();
+      break;
+    }
+    case 'open-linked-doc': event.stopPropagation(); setState({ drawerTaskId: null }); openDocumentInEditor(el.dataset.documentId); break;
+    case 'unlink-task-document': {
+      event.stopPropagation();
+      try {
+        const documents = await unlinkTaskDocument(state.drawerTaskId, el.dataset.documentId);
+        setState({ taskDocuments: documents, ...clearTaskBoardExtra(state, state.drawerTaskId) });
+      } catch { alertError('unlink the document'); }
+      renderApp();
+      break;
+    }
+    case 'open-link-picker': {
+      try {
+        const documents = await fetchDocuments({ archived: false });
+        setState({ isLinkPickerOpen: true, pickerMode: 'link', linkPickerDocuments: documents, linkPickerQuery: '' });
+      } catch { alertError('load documents to link'); }
+      renderApp();
+      break;
+    }
+    case 'close-link-picker': setState({ isLinkPickerOpen: false }); renderApp(); break;
+    case 'archive-task': archiveTaskWithUndo(state.drawerTaskId); break;
+
+    // ---- library ----
+    case 'open-doc': openDocumentInEditor(el.dataset.documentId); break;
+    case 'toggle-semantic': setState({ librarySemantic: !state.librarySemantic, semanticResults: null }); renderApp(); break;
+    case 'cycle-lib-sort': setState({ librarySortBy: state.librarySortBy === 'updated' ? 'title' : 'updated' }); renderApp(); break;
+    case 'toggle-lib-tag': {
+      const tag = el.dataset.tag;
+      const active = state.activeLibraryTags.includes(tag);
+      setState({
+        activeLibraryTags: active
+          ? state.activeLibraryTags.filter(t => t !== tag)
+          : [...state.activeLibraryTags, tag],
+      });
+      renderApp();
+      break;
+    }
+    case 'clear-lib-filters': setState({ libraryQuery: '', activeLibraryTags: [], semanticResults: null }); renderApp(); break;
+    case 'new-document': createNewDocument(); break;
+    case 'import-documents': importDocumentFiles(); break;
+    case 'export-library': window.location.href = '/api/library/export?project=all'; break;
+    case 'save-library-view': {
+      const name = window.prompt('Name this view', state.activeLibraryTags.join(' + '));
+      if (!name) break;
+      const view = createSavedLibraryView(name, state.activeLibraryTags);
+      if (view) {
+        setState({ librarySavedViews: [...state.librarySavedViews.filter(v => v.id !== view.id), view] });
+        persistSavedViews();
+        renderApp();
+      }
+      break;
+    }
+    case 'delete-library-view': {
+      const index = Number(el.dataset.viewIndex);
+      setState({ librarySavedViews: state.librarySavedViews.filter((_, i) => i !== index) });
+      persistSavedViews();
+      renderApp();
+      break;
+    }
+    case 'toggle-library-view': {
+      setState({ libraryView: state.libraryView === 'archive' ? 'active' : 'archive', semanticResults: null });
+      await loadDocuments();
+      renderApp();
+      break;
+    }
+    case 'restore-document': {
+      try {
+        await restoreDocument(el.dataset.documentId || state.editorDocId);
+        await loadDocuments();
+      } catch { alertError('restore the selected document'); }
+      renderApp();
+      break;
+    }
+    case 'delete-archived-document': {
+      const id = el.dataset.documentId || state.editorDocId;
+      if (!window.confirm('Permanently delete this document? This cannot be undone.')) break;
+      try {
+        await deleteArchivedDocument(id);
+        if (state.editorDocId === id) setState({ navType: 'library', editorDocId: null });
+        await loadDocuments();
+      } catch { alertError('delete the archived document'); }
+      renderApp();
+      break;
+    }
+
+    // ---- editor ----
+    case 'back-to-library': goLibrary(); break;
+    case 'set-editor-mode': destroyEditorController(); setState({ editorMode: el.dataset.mode }); renderApp(); break;
+    case 'toggle-outline': setState({ outlineOpen: !state.outlineOpen }); renderApp(); break;
+    case 'toggle-focus': destroyEditorController(); setState({ editorFocus: !state.editorFocus }); renderApp(); break;
+    case 'export-doc': triggerLibraryDocumentDownload(state.editorDocId); break;
+    case 'md-format': applyEditorFormat(el.dataset.mdAction); break;
+    case 'outline-jump': {
+      const index = Number(el.dataset.headingIndex);
+      const preview = appRoot.querySelector('[data-markdown-preview]');
+      const heading = preview?.querySelectorAll('h1, h2, h3')?.[index];
+      heading?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      break;
+    }
+    case 'toggle-md-check': toggleMarkdownCheck(Number(el.dataset.line)); break;
+    case 'edit-document-info': setState({ isDocumentInfoEditorOpen: true, documentInfoError: '' }); renderApp(); break;
+    case 'cancel-document-info': setState({ isDocumentInfoEditorOpen: false, documentInfoError: '' }); renderApp(); break;
+    case 'save-document-info': {
+      const title = appRoot.querySelector('[data-doc-info-title]')?.value?.trim();
+      const documentType = appRoot.querySelector('[data-doc-info-type]')?.value;
+      const tags = (appRoot.querySelector('[data-doc-info-tags]')?.value || '')
+        .split(',').map(t => t.trim()).filter(Boolean);
+      const sourceFilename = appRoot.querySelector('[data-doc-info-source]')?.value?.trim() || null;
+      if (!title) { setState({ documentInfoError: 'Title is required.' }); renderApp(); break; }
+      try {
+        await updateDocument(state.editorDocId, { title, documentType, tags, sourceFilename });
+        await loadDocuments();
+        setState({ isDocumentInfoEditorOpen: false });
+      } catch {
+        setState({ documentInfoError: 'Prax could not save document info.' });
+      }
+      renderApp();
+      break;
+    }
+    case 'toggle-verify': {
+      const doc = currentDocument();
+      if (!doc) break;
+      try {
+        await verifyDocument(doc.id, !doc.verified);
+        await loadDocuments();
+      } catch { alertError('update verification'); }
+      renderApp();
+      break;
+    }
+    case 'supersede-document': {
+      const doc = currentDocument();
+      if (!doc) break;
+      try {
+        const documents = await fetchDocuments({ archived: false });
+        setState({
+          isLinkPickerOpen: true,
+          pickerMode: 'supersede',
+          linkPickerDocuments: documents.filter(d => d.projectId === doc.projectId && d.status === 'active' && d.id !== doc.id),
+          linkPickerQuery: '',
+        });
+      } catch { alertError('load documents to supersede'); }
+      renderApp();
+      break;
+    }
+    case 'archive-document': {
+      const doc = currentDocument();
+      if (!doc || !window.confirm(`Archive "${doc.title}"?`)) break;
+      try {
+        await archiveDocument(doc.id);
+        goLibrary();
+      } catch { alertError('archive the selected document'); }
+      break;
+    }
+
+    // ---- all projects ----
+    case 'open-project': goProject(el.dataset.projectId); break;
+    case 'set-project-state': {
+      event.stopPropagation();
+      try {
+        await updateProject(el.dataset.projectId, { status: el.dataset.state });
+        await loadProjects();
+        showToast(`Project set to ${el.dataset.state.replace('-', ' ')}`);
+      } catch { alertError('update the project'); }
+      renderApp();
+      break;
+    }
+    case 'create-project': {
+      const input = appRoot.querySelector('[data-new-project-name]');
+      const name = (input?.value || '').trim();
+      if (!name) break;
+      try {
+        const project = await createProject(name);
+        await loadProjects();
+        goProject(project.id);
+      } catch { alertError('create that project'); }
+      break;
+    }
+    case 'delete-project': {
+      event.stopPropagation();
+      if (!window.confirm('Permanently delete this project? Only empty projects (no tasks or documents) can be deleted.')) break;
+      try {
+        await deleteProjectPermanent(el.dataset.projectId);
+        await loadProjects();
+      } catch {
+        window.alert('Could not delete: the project still has tasks or documents.');
+      }
+      renderApp();
+      break;
+    }
+
+    // ---- palette / capture / toast ----
+    case 'palette-run': runPaletteItem(paletteFlat[Number(el.dataset.paletteIndex)]); break;
+    case 'close-palette': setState({ paletteOpen: false }); renderApp(); break;
+    case 'close-capture': setState({ captureOpen: false }); renderApp(); break;
+    case 'toast-undo': state.toast?.undo?.(); break;
+
+    // ---- settings ----
+    case 'set-theme': case 'set-accent': case 'set-chrome': {
+      const patch = action === 'set-theme'
+        ? { theme: el.dataset.theme }
+        : action === 'set-accent' ? { accent: el.dataset.accent } : { chromeOS: el.dataset.chrome };
+      const preferences = savePreferences({ ...state.preferences, ...patch });
+      setState({ preferences });
+      applyPreferences(preferences);
+      renderApp();
+      break;
+    }
+    case 'reset-preferences': {
+      const preferences = resetPreferences();
+      setState({ preferences });
+      applyPreferences(preferences);
+      renderApp();
+      break;
+    }
+    case 'toggle-semantic-search': {
+      try {
+        const status = await setSemanticEnabled(!state.semanticStatus.enabled);
+        setState({ semanticStatus: status, librarySemantic: false, semanticResults: null });
+      } catch { alertError('update semantic search'); }
+      renderApp();
+      break;
+    }
+    case 'reindex-embeddings': case 'force-reindex-embeddings': {
+      const force = action === 'force-reindex-embeddings';
+      if (force && !window.confirm('Rebuild embeddings for every document?')) break;
+      el.disabled = true;
+      try {
+        await reindexEmbeddings(force);
+        await loadSemanticStatus();
+      } catch { alertError('reindex embeddings'); }
+      renderApp();
+      break;
+    }
+    case 'export-project-tasks': exportTasksScoped(false); break;
+    case 'export-all-tasks': exportTasksScoped(true); break;
+    case 'import-tasks': importTasksFromSettings(); break;
+    case 'export-library-project': {
+      const slug = state.managedProjects.find(p => p.id === state.navId)?.slug || 'all';
+      window.location.href = `/api/library/export?project=${encodeURIComponent(slug)}`;
+      break;
+    }
+    case 'export-library-all': window.location.href = '/api/library/export?project=all'; break;
+    case 'refresh-maintenance': await loadMaintenance(); renderApp(); break;
+    case 'open-library-doc': openDocumentInEditor(el.dataset.libraryDocumentId); break;
+
+    default: break;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Event wiring
+// ---------------------------------------------------------------------------
+
+function bindEvents() {
+  appRoot.addEventListener('click', (event) => {
+    const picker = event.target.closest?.('[data-link-picker-doc]');
+    if (picker && appRoot.contains(picker)) {
+      handleLinkPickerPick(picker.dataset.documentId);
+      return;
+    }
+    const el = event.target.closest?.('[data-action]');
+    if (!el || !appRoot.contains(el)) return;
+    handleAction(el.dataset.action, el, event);
+  });
+
+  appRoot.addEventListener('input', (event) => {
+    const target = event.target;
+    if (target.matches?.('[data-palette-input]')) {
+      setState({ paletteQuery: target.value, paletteSelection: 0 });
+      renderApp();
+      return;
+    }
+    if (target.matches?.('[data-capture-input]')) {
+      setState({ captureQuery: target.value });
+      return;
+    }
+    if (target.matches?.('[data-library-search]')) {
+      setState({ libraryQuery: target.value });
+      if (!state.librarySemantic) renderApp();
+      return;
+    }
+    if (target.matches?.('[data-task-notes]')) {
+      setState({
+        taskNotesDraftId: state.drawerTaskId,
+        taskNotesDraft: target.value,
+        isTaskNotesDirty: true,
+      });
+      scheduleNotesAutosave(state.drawerTaskId);
+      return;
+    }
+    if (target.matches?.('[data-task-title]')) {
+      // The drawer is the only task-title editor; debounce a PATCH.
+      clearTimeout(taskTitleSaveTimer);
+      const id = state.drawerTaskId;
+      const value = target.value;
+      taskTitleSaveTimer = setTimeout(async () => {
+        const title = value.trim();
+        if (!id || !title) return;
+        try {
+          const updated = await updateTask(id, { title });
+          applyTaskPatchLocal(id, normalizeTask(updated));
+        } catch { /* a later keystroke retries */ }
+      }, TITLE_SAVE_DELAY_MS);
+      return;
+    }
+    if (target.matches?.('[data-task-description]')) {
+      clearTimeout(descriptionSaveTimer);
+      const id = state.drawerTaskId;
+      const value = target.value;
+      descriptionSaveTimer = setTimeout(async () => {
+        if (!id) return;
+        try {
+          const updated = await updateTask(id, { description: value });
+          applyTaskPatchLocal(id, normalizeTask(updated));
+        } catch { /* a later keystroke retries */ }
+      }, NOTES_AUTOSAVE_DELAY_MS);
+      return;
+    }
+    if (target.matches?.('[data-document-editor]')) {
+      handleDocumentDraftBodyChange(target.value);
+      return;
+    }
+    if (target.matches?.('[data-doc-title]')) {
+      clearTimeout(titleSaveTimer);
+      const value = target.value;
+      titleSaveTimer = setTimeout(async () => {
+        const id = state.editorDocId;
+        if (!id) return;
+        try {
+          const saved = await updateDocument(id, { title: value.trim() || 'Untitled' });
+          setState({ documents: state.documents.map(d => (d.id === id ? saved : d)) });
+        } catch { /* keep typing; a later save retries */ }
+      }, TITLE_SAVE_DELAY_MS);
+      return;
+    }
+    if (target.matches?.('[data-link-picker-search]')) {
+      setState({ linkPickerQuery: target.value });
+      renderApp();
+    }
+  });
+
+  appRoot.addEventListener('change', (event) => {
+    const target = event.target;
+    if (target.matches?.('[data-task-due]')) {
+      patchTask(state.drawerTaskId, { dueDate: target.value || null });
+      return;
+    }
+    if (target.matches?.('[data-reading-scale]')) {
+      const preferences = savePreferences({ ...state.preferences, readingScale: Number(target.value) });
+      setState({ preferences });
+      applyPreferences(preferences);
+      renderApp();
+      return;
+    }
+    if (target.matches?.('[data-maintenance-project-filter]')) {
+      setState({ maintenanceProjectFilter: target.value });
+      loadMaintenance().then(renderApp);
+      return;
+    }
+    if (target.matches?.('[name="import-mode"]')) {
+      setState({ adminImportMode: target.value });
+      renderApp();
+    }
+  });
+
+  appRoot.addEventListener('keydown', (event) => {
+    const target = event.target;
+    if (target.matches?.('[data-palette-input]')) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        setState({ paletteSelection: Math.min(Math.max(0, paletteFlat.length - 1), state.paletteSelection + 1) });
+        renderApp();
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        setState({ paletteSelection: Math.max(0, state.paletteSelection - 1) });
+        renderApp();
+      } else if (event.key === 'Enter') {
+        event.preventDefault();
+        runPaletteItem(paletteFlat[Math.min(state.paletteSelection, Math.max(0, paletteFlat.length - 1))]);
+      }
+      return;
+    }
+    if (target.matches?.('[data-capture-input]') && event.key === 'Enter') {
+      event.preventDefault();
+      addQuickTask(state.captureQuery.trim());
+      return;
+    }
+    if (target.matches?.('[data-checklist-new]') && event.key === 'Enter') {
+      event.preventDefault();
+      handleAction('add-checklist-item', target, event);
+      return;
+    }
+    if (target.matches?.('[data-library-search]') && event.key === 'Enter' && state.librarySemantic) {
+      event.preventDefault();
+      runSemanticSearch();
+      return;
+    }
+    if (target.matches?.('[data-document-editor]') && (event.metaKey || event.ctrlKey)) {
+      const key = event.key.toLowerCase();
+      if (key === 's') { event.preventDefault(); saveDocumentDraft(); }
+      else if (key === 'b') { event.preventDefault(); applyEditorFormat('bold'); }
+      else if (key === 'i') { event.preventDefault(); applyEditorFormat('italic'); }
+      else if (key === 'e') { event.preventDefault(); applyEditorFormat('code'); }
+    }
+  });
+
+  bindDragEvents();
+
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      const wasNarrow = state.winW < 940;
+      setState({ winW: window.innerWidth });
+      if ((window.innerWidth < 940) !== wasNarrow) renderApp();
+    }, 150);
+  });
+}
+
+async function handleLinkPickerPick(documentId) {
+  if (state.pickerMode === 'supersede') {
+    try {
+      await supersedeDocument(state.editorDocId, documentId);
+      setState({ isLinkPickerOpen: false });
+      await loadDocuments();
+      loadDocumentLinks(state.editorDocId);
+    } catch { alertError('supersede the document'); }
+    renderApp();
     return;
   }
   try {
-    const body = await file.text();
-    const doc = await createDocument({
-      title: titleFromMarkdown(body, file.name),
-      body,
-      documentType: 'note',
-      project: projectId,
-      tags: [],
-      sourceFilename: file.name || null,
+    const alreadyLinked = state.taskDocuments.some(d => d.id === documentId);
+    const documents = alreadyLinked
+      ? await unlinkTaskDocument(state.drawerTaskId, documentId)
+      : await linkTaskDocument(state.drawerTaskId, documentId);
+    setState({ taskDocuments: documents, ...clearTaskBoardExtra(state, state.drawerTaskId) });
+  } catch { alertError('update the document link'); }
+  renderApp();
+}
+
+async function addQuickTask(title) {
+  if (!title) return;
+  const project = defaultProjectId();
+  if (!project) { window.alert('Create a project first.'); return; }
+  try {
+    await createTask({
+      title, description: '', notes: '', priority: 'medium',
+      status: 'planned', project, dueDate: null, sortOrder: state.tasks.length,
     });
-    window.alert(`Imported "${doc.title}" into the Library.`);
-    await loadDocuments({ selectedDocumentId: doc.id });
+    setState({ captureOpen: false, captureQuery: '' });
+    await loadTasks();
+    const name = state.projects.find(p => p.id === project)?.name || 'project';
+    showToast(`Added to ${name}`);
   } catch {
-    window.alert('Prax could not import that Markdown file.');
+    alertError('create this task');
   }
-}
-
-function bindAdminPanelEvents() {
-  const panel = app.querySelector('[data-admin-panel]');
-  if (!panel) return;
-
-  panel.querySelectorAll('[data-action="close-admin"]').forEach((button) => {
-    button.addEventListener('click', () => {
-      setState({ isAdminPanelOpen: false });
-      renderApp();
-    });
-  });
-
-  panel.querySelector('[data-action="export-project"]')?.addEventListener('click', () => {
-    exportAdminTasks(state.activeProject);
-  });
-
-  panel.querySelector('[data-action="export-all"]')?.addEventListener('click', () => {
-    exportAdminTasks('all');
-  });
-
-  panel.querySelector('[data-action="export-library-project"]')?.addEventListener('click', () => {
-    const scope = state.activeProject === 'all'
-      ? 'all'
-      : (state.projects.find(p => p.id === state.activeProject)?.slug || 'all');
-    window.location.href = `/api/library/export?project=${encodeURIComponent(scope)}`;
-  });
-
-  panel.querySelector('[data-action="export-library-all"]')?.addEventListener('click', () => {
-    window.location.href = '/api/library/export?project=all';
-  });
-
-  panel.querySelectorAll('[data-admin-import-mode]').forEach((control) => {
-    control.addEventListener('change', () => {
-      setState({ adminImportMode: control.value });
-    });
-  });
-
-  panel.querySelector('[data-admin-import-file]')?.addEventListener('change', async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    await importAdminFile(file, panel);
-    event.target.value = '';
-  });
-
-  panel.querySelector('[data-action="open-archive"]')?.addEventListener('click', async () => {
-    setState({
-      activeView: 'archive',
-      isAdminPanelOpen: false,
-      isTaskFormOpen: false,
-      selectedTaskId: null,
-      editingTaskId: null,
-      formError: '',
-    });
-    try {
-      await loadTasks({ selectedTaskId: null });
-    } catch (error) {
-      setState({ apiStatus: 'error' });
-      renderError(error.message);
-    }
-  });
-
-  panel.querySelector('[data-maintenance-project-filter]')?.addEventListener('change', (event) => {
-    setState({ maintenanceProjectFilter: event.target.value });
-    loadMaintenanceLists();
-  });
-
-  panel.querySelector('[data-action="refresh-maintenance"]')?.addEventListener('click', () => {
-    loadMaintenanceLists();
-  });
-
-  panel.querySelector('[data-action="toggle-semantic-search"]')?.addEventListener('click', async () => {
-    try {
-      const semanticStatus = await setSemanticEnabled(!state.semanticStatus.enabled);
-      // Disabling strips the in-library switch, so drop any results and reset
-      // the mode — otherwise the user is stranded on a stale semantic list.
-      setState({ semanticStatus, ...(semanticStatus.enabled ? {} : resetSemanticSearch()) });
-      renderApp();
-    } catch (error) {
-      console.error('Failed to toggle semantic search', error);
-    }
-  });
-  panel.querySelector('[data-action="reindex-embeddings"]')?.addEventListener('click', async (event) => {
-    const button = event.currentTarget;
-    button.disabled = true;
-    try {
-      await reindexEmbeddings();
-      await loadSemanticStatus();   // refreshes embedded/total counts in the status line
-    } catch (error) {
-      console.error('Failed to reindex embeddings', error);
-    } finally {
-      button.disabled = false;
-    }
-  });
-
-  panel.querySelector('[data-action="force-reindex-embeddings"]')?.addEventListener('click', async (event) => {
-    // Force re-embeds EVERY document (e.g. after changing the embedding model
-    // or upgrading) — potentially slow on a large library, so confirm first.
-    if (!globalThis.confirm('Re-embed every document? This re-runs the embedding backend on all documents and can take a while.')) return;
-    const button = event.currentTarget;
-    button.disabled = true;
-    try {
-      await reindexEmbeddings(true);
-      await loadSemanticStatus();
-    } catch (error) {
-      console.error('Failed to rebuild embeddings', error);
-    } finally {
-      button.disabled = false;
-    }
-  });
-
-  panel.querySelectorAll('[data-action="open-library-doc"][data-library-document-id]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      const docId = button.dataset.libraryDocumentId;
-      const projectId = button.dataset.libraryProjectId || null;
-      clearDocumentAutosave();
-      // Reset all library filters so the target doc is never hidden by an
-      // active archive view, type filter, tag filter, or search query.
-      // Mirrors the open-linked-doc pattern.
-      const patch = {
-        ...resetSemanticSearch(),
-        isAdminPanelOpen: false,
-        activeView: 'library',
-        selectedDocumentId: docId,
-        documentLinks: null,
-        libraryView: 'active',
-        libraryTypeFilter: 'all',
-        activeLibraryTags: [],
-        libraryTagQuery: '',
-        searchQuery: '',
-        isDocumentDirty: false,
-        documentSaveStatus: 'Saved',
-        isDocumentFocusMode: false,
-        isDocumentInfoEditorOpen: false,
-        documentInfoError: '',
-        isLibraryDocOpen: isMobile() ? true : state.isLibraryDocOpen,
-      };
-      // Align the project context when the maintenance doc lives in another
-      // project — matches the open-linked-doc pattern at line ~543.
-      if (projectId && state.activeProject !== 'all' && state.activeProject !== projectId) {
-        patch.activeProject = projectId;
-        persistActiveProject(projectId);
-      }
-      setState(patch);
-      try {
-        await loadDocuments({ selectedDocumentId: docId });
-      } catch (error) {
-        setState({ apiStatus: 'error' });
-        renderError(error.message);
-      }
-      loadDocumentLinks(docId);
-    });
-  });
-}
-
-async function refreshProjectManager() {
-  const managed = await fetchProjects('all');
-  await loadProjects();
-  // The nav only shows active projects, so if the selected project is no
-  // longer active (archived, on-hold, completed, or deleted) it can't be the
-  // highlighted selection — reset to 'all' to keep nav and breadcrumb honest.
-  if (state.activeProject !== 'all' && !state.projects.some((p) => p.id === state.activeProject)) {
-    setState({ activeProject: 'all' });
-    persistActiveProject('all');
-  }
-  setState({ managedProjects: managed });
   renderApp();
 }
 
-function bindProjectManagerEvents() {
-  const panel = app.querySelector('[data-project-manager]');
-  if (!panel) return;
-
-  panel.querySelectorAll('[data-action="close-project-manager"]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      setState({ isProjectManagerOpen: false, projectManagerError: '' });
-      try {
-        if (state.activeView === 'library') await loadDocuments({ selectedDocumentId: null });
-        else await loadTasks({ selectedTaskId: null });
-      } catch (error) {
-        setState({ apiStatus: 'error' });
-        renderError(error.message);
-      }
-    });
-  });
-
-  panel.querySelector('[data-action="manager-create"]')?.addEventListener('click', async () => {
-    const name = panel.querySelector('[data-project-new-name]')?.value?.trim();
-    if (!name) {
-      setState({ projectManagerError: 'Project name is required.' });
-      renderApp();
-      return;
-    }
-    try {
-      await createProject(name);
-      await refreshProjectManager();
-    } catch {
-      setState({ projectManagerError: 'Could not create that project.' });
-      renderApp();
-    }
-  });
-
-  panel.querySelectorAll('[data-action="manager-save"]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      const id = button.dataset.projectId;
-      const name = panel.querySelector(`[data-project-name="${id}"]`)?.value?.trim();
-      const status = panel.querySelector(`[data-project-status="${id}"]`)?.value;
-      if (!name) {
-        setState({ projectManagerError: 'Project name is required.' });
+function installShortcuts() {
+  installKeyboardShortcuts({
+    handlers: {
+      switchView(view) {
+        if (view === 'library') { goLibrary(); return; }
+        const projectId = state.navType === 'project' ? state.navId : (state.projects[0]?.id || null);
+        if (projectId) goProject(projectId, view);
+      },
+      openPalette() {
+        setState({ paletteOpen: true, paletteQuery: '', paletteSelection: 0, captureOpen: false });
         renderApp();
-        return;
-      }
-      try {
-        await updateProject(id, { name, status });
-        await refreshProjectManager();
-      } catch {
-        setState({ projectManagerError: 'Could not save that project.' });
+      },
+      toggleTheme,
+      openCapture() {
+        setState({ captureOpen: true, captureQuery: '', paletteOpen: false });
         renderApp();
-      }
-    });
-  });
-
-  panel.querySelectorAll('[data-action="manager-delete"]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      const id = button.dataset.projectId;
-      if (!window.confirm('Permanently delete this project? Only empty projects (no tasks or documents) can be deleted.')) return;
-      try {
-        await deleteProjectPermanent(id);
-        await refreshProjectManager();
-      } catch {
-        setState({ projectManagerError: 'Could not delete: the project still has tasks or documents.' });
-        renderApp();
-      }
-    });
-  });
-
-  const move = async (id, direction) => {
-    // Only live projects are shown in the manager, so reorder must ignore
-    // archived rows — otherwise move up/down can swap with a hidden project.
-    const ordered = state.managedProjects
-      .filter((p) => p.status !== 'archived')
-      .sort((a, b) => a.sortOrder - b.sortOrder);
-    const index = ordered.findIndex((p) => p.id === id);
-    const swapIndex = direction === 'up' ? index - 1 : index + 1;
-    if (index < 0 || swapIndex < 0 || swapIndex >= ordered.length) return;
-    const current = ordered[index];
-    const neighbor = ordered[swapIndex];
-    try {
-      await updateProject(current.id, { sortOrder: neighbor.sortOrder });
-      await updateProject(neighbor.id, { sortOrder: current.sortOrder });
-      await refreshProjectManager();
-    } catch {
-      setState({ projectManagerError: 'Could not reorder projects.' });
-      renderApp();
-    }
-  };
-  panel.querySelectorAll('[data-action="manager-move-up"]').forEach((button) => {
-    button.addEventListener('click', () => move(button.dataset.projectId, 'up'));
-  });
-  panel.querySelectorAll('[data-action="manager-move-down"]').forEach((button) => {
-    button.addEventListener('click', () => move(button.dataset.projectId, 'down'));
-  });
-
-  panel.querySelectorAll('[data-action="manager-archive"]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      try {
-        await archiveProject(button.dataset.projectId);
-        await refreshProjectManager();
-      } catch {
-        setState({ projectManagerError: 'Could not archive that project.' });
-        renderApp();
-      }
-    });
-  });
-
-  panel.querySelector('[data-action="open-project-archive"]')?.addEventListener('click', () => {
-    setState({ isProjectArchiveOpen: true, projectManagerError: '' });
-    renderApp();
-  });
-}
-
-function bindProjectArchiveEvents() {
-  const panel = app.querySelector('[data-project-archive]');
-  if (!panel) return;
-
-  panel.querySelectorAll('[data-action="back-to-manager"]').forEach((button) => {
-    button.addEventListener('click', () => {
-      setState({ isProjectArchiveOpen: false, projectManagerError: '' });
-      renderApp();
-    });
-  });
-  panel.querySelector('[data-action="close-project-archive"]')?.addEventListener('click', () => {
-    setState({ isProjectArchiveOpen: false, isProjectManagerOpen: false, projectManagerError: '' });
-    renderApp();
-  });
-
-  panel.querySelectorAll('[data-action="archive-restore"]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      try {
-        await updateProject(button.dataset.projectId, { status: 'active' });
-        await refreshProjectManager();
-      } catch {
-        setState({ projectManagerError: 'Could not restore that project.' });
-        renderApp();
-      }
-    });
-  });
-
-  panel.querySelectorAll('[data-action="archive-delete"]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      if (!window.confirm('Permanently delete this archived project? Only empty projects can be deleted.')) return;
-      try {
-        await deleteProjectPermanent(button.dataset.projectId);
-        await refreshProjectManager();
-      } catch {
-        setState({ projectManagerError: 'Could not delete: the project still has tasks or documents.' });
-        renderApp();
-      }
-    });
-  });
-}
-
-function updatePreferences(nextPreferences) {
-  const preferences = savePreferences(nextPreferences);
-  applyPreferences(preferences);
-  setState({ preferences });
-}
-
-function bindSettingsPanelEvents() {
-  const panel = app.querySelector('[data-settings-panel]');
-  if (!panel) return;
-
-  panel.querySelectorAll('[data-action="close-settings"]').forEach((button) => {
-    button.addEventListener('click', () => {
-      setState({ isSettingsPanelOpen: false });
-      renderApp();
-    });
-  });
-
-  panel.querySelectorAll('[data-settings-section]').forEach((button) => {
-    button.addEventListener('click', () => {
-      setState({ settingsSection: button.dataset.settingsSection || 'appearance' });
-      renderApp();
-    });
-  });
-
-  panel.querySelectorAll('[data-settings-font-scale]').forEach((button) => {
-    button.addEventListener('click', () => {
-      updatePreferences({
-        ...state.preferences,
-        fontScale: button.dataset.settingsFontScale,
-      });
-      renderApp();
-    });
-  });
-
-  panel.querySelectorAll('[data-settings-palette]').forEach((button) => {
-    button.addEventListener('click', () => {
-      updatePreferences({
-        ...state.preferences,
-        palette: button.dataset.settingsPalette,
-      });
-      renderApp();
-    });
-  });
-
-  panel.querySelectorAll('[data-settings-board-density]').forEach((button) => {
-    button.addEventListener('click', () => {
-      updatePreferences({
-        ...state.preferences,
-        boardDensity: button.dataset.settingsBoardDensity,
-      });
-      renderApp();
-    });
-  });
-
-  panel.querySelector('[data-action="reset-preferences"]')?.addEventListener('click', () => {
-    const preferences = resetPreferences();
-    applyPreferences(preferences);
-    setState({ preferences, settingsSection: 'appearance' });
-    renderApp();
-  });
-}
-
-function bindLinkPickerEvents() {
-  const backdrop = app.querySelector('[data-link-picker]');
-  if (!backdrop) return;
-
-  backdrop.querySelectorAll('[data-action="close-link-picker"]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      setState({ isLinkPickerOpen: false, pickerMode: 'link' });
-      renderApp();
-    });
-  });
-
-  backdrop.addEventListener('click', (event) => {
-    if (event.target === backdrop) {
-      setState({ isLinkPickerOpen: false, pickerMode: 'link' });
-      renderApp();
-    }
-  });
-
-  const searchInput = backdrop.querySelector('[data-link-picker-search]');
-  searchInput?.addEventListener('input', (event) => {
-    setState({ linkPickerQuery: event.target.value });
-    renderApp();
-    const nextInput = app.querySelector('[data-link-picker-search]');
-    if (nextInput) {
-      nextInput.focus();
-      nextInput.setSelectionRange?.(nextInput.value.length, nextInput.value.length);
-    }
-  });
-
-  backdrop.querySelectorAll('[data-link-picker-doc]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const docId = btn.dataset.linkPickerDoc;
-
-      if (state.pickerMode === 'supersede') {
-        const current = selectedDocument();
-        if (!current) return;
-        try {
-          await supersedeDocument(current.id, docId);
-          await loadDocuments({ selectedDocumentId: current.id });
-        } catch {
-          window.alert('Prax could not supersede the document.');
-        } finally {
-          setState({ isLinkPickerOpen: false, pickerMode: 'link' });
-          renderApp();
+      },
+      toggleDoneSelected() {
+        if (state.selectedTaskId && !state.paletteOpen && !state.captureOpen && !state.drawerTaskId) {
+          toggleTaskDone(state.selectedTaskId);
         }
-        return;
-      }
-
-      const taskId = state.selectedTaskId;
-      if (!taskId) return;
-      const isLinked = state.taskDocuments.some(d => d.id === docId);
-      try {
-        const updated = isLinked
-          ? await unlinkTaskDocument(taskId, docId)
-          : await linkTaskDocument(taskId, docId);
-        setState({ taskDocuments: updated });
-        clearTaskBoardExtra(taskId);
+      },
+      navigate(direction) {
+        const listContext = (state.navType === 'project' && (state.tab === 'list' || state.tab === 'board'))
+          || state.navType === 'today';
+        if (!listContext || state.paletteOpen || state.captureOpen || state.drawerTaskId) return;
+        if (!flatIds.length) return;
+        const current = flatIds.indexOf(state.selectedTaskId);
+        const next = direction > 0
+          ? Math.min(flatIds.length - 1, current + 1)
+          : Math.max(0, current < 0 ? 0 : current - 1);
+        setState({ selectedTaskId: flatIds[next] });
         renderApp();
-      } catch {
-        window.alert('Prax could not update the document link.');
-      }
-    });
+      },
+      openSelected() {
+        if (state.selectedTaskId && !state.paletteOpen && !state.captureOpen && !state.drawerTaskId) {
+          openTaskDrawer(state.selectedTaskId);
+        }
+      },
+      escape: escapeCascade,
+    },
   });
 }
 
-function bindTaskFormEvents() {
-  const form = app.querySelector('[data-task-form]');
-  if (!form) return;
+// ---------------------------------------------------------------------------
+// Boot
+// ---------------------------------------------------------------------------
 
-  app.querySelectorAll('[data-action="close-task-form"]').forEach((button) => {
-    button.addEventListener('click', () => {
-      setState({
-        isTaskFormOpen: false,
-        editingTaskId: null,
-        formError: '',
-        isSaving: false,
-      });
-      renderApp();
-    });
-  });
-
-  form.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const data = new FormData(form);
-    const title = String(data.get('title') || '').trim();
-    if (!title) {
-      setState({ formError: 'Title is required.' });
-      renderApp();
-      return;
-    }
-
-    const payload = {
-      title,
-      description: String(data.get('description') || '').trim(),
-      notes: String(data.get('notes') || '').trim(),
-      priority: String(data.get('priority') || 'medium'),
-      status: String(data.get('status') || 'planned'),
-      project: String(data.get('project') || defaultProjectId()),
-      dueDate: String(data.get('dueDate') || '') || null,
-    };
-
-    setState({ isSaving: true, formError: '' });
-    renderApp();
-
-    try {
-      const savedTask = state.editingTaskId
-        ? await updateTask(state.editingTaskId, payload)
-        : await createTask({ ...payload, sortOrder: state.tasks.length });
-
-      const nextProject = savedTask.projectId || state.activeProject;
-      persistActiveProject(nextProject);
-      setState({
-        ...resetSemanticSearch(),
-        activeProject: nextProject,
-        selectedTaskId: savedTask.id,
-        isTaskFormOpen: false,
-        editingTaskId: null,
-        isSaving: false,
-        formError: '',
-      });
-      await loadTasks({ selectedTaskId: savedTask.id });
-      await loadTaskActivity(state.selectedTaskId);
-    } catch {
-      setState({
-        isSaving: false,
-        formError: state.editingTaskId ? 'Prax could not update this task.' : 'Prax could not create this task.',
-      });
-      renderApp();
-    }
-  });
-}
-
-async function loadProjects() {
-  const projects = await fetchProjects('active');
-  setState({ projects });
-  return projects;
-}
-
-function defaultProjectId() {
-  return state.activeProject !== 'all' ? state.activeProject : (state.projects[0]?.id || '');
-}
-
-async function loadTasks({ selectedTaskId = state.selectedTaskId } = {}) {
-  setState({ apiStatus: 'loading' });
-  renderLoading();
-  const tasks = await fetchTasks({
-    project: state.activeProject === 'all' ? undefined : state.activeProject,
-    archived: isArchiveView(state.activeView) ? true : undefined,
-  });
-  const normalizedTasks = tasks.map(normalizeTask);
-  const selectedTaskExists = normalizedTasks.some((task) => task.id === selectedTaskId);
-  const resolvedTaskId = selectedTaskExists ? selectedTaskId : normalizedTasks[0]?.id || null;
-  const resolvedTask = normalizedTasks.find((task) => task.id === resolvedTaskId) || null;
-  setState({
-    tasks: normalizedTasks,
-    apiStatus: 'connected',
-    selectedTaskId: resolvedTaskId,
-    taskNotesDraftId: resolvedTaskId,
-    taskNotesDraft: resolvedTask?.notes || '',
-    isTaskNotesDirty: false,
-    taskNotesSavedAt: '',
-  });
-  await loadTaskDocuments(resolvedTaskId);
-  await loadTaskChecklist(resolvedTaskId);
-  await loadTaskActivity(resolvedTaskId);
-  renderApp();
-}
-
-async function loadDocuments({ selectedDocumentId = state.selectedDocumentId } = {}) {
-  setState({ apiStatus: 'loading' });
-  renderLoading();
-  const documents = await fetchDocuments({
-    project: state.activeProject === 'all' ? undefined : state.activeProject,
-    archived: state.libraryView === 'archive' ? true : undefined,
-  });
-  const selectedDocumentExists = documents.some(document => document.id === selectedDocumentId);
-  const patch = {
-    documents,
-    apiStatus: 'connected',
-    selectedDocumentId: selectedDocumentExists ? selectedDocumentId : documents[0]?.id || null,
-    documentDraftId: selectedDocumentExists ? selectedDocumentId : documents[0]?.id || null,
-    documentDraftBody: (selectedDocumentExists ? documents.find(document => document.id === selectedDocumentId) : documents[0])?.body || '',
-    isDocumentDirty: false,
-    documentLinks: null,
-  };
-  if (state.libraryView === 'active') {
-    patch.libraryActiveDocumentCount = documents.length;
+function loadSavedViews() {
+  try {
+    return savedLibraryViewsFromJson(localStorage.getItem(SAVED_LIBRARY_VIEWS_KEY));
+  } catch {
+    return [];
   }
-  setState(patch);
-  renderApp();
-  loadDocumentLinks(state.selectedDocumentId);
 }
 
 async function init() {
+  appRoot = document.getElementById('app');
+  const preferences = loadPreferences();
+  setState({ preferences, librarySavedViews: loadSavedViews(), winW: window.innerWidth });
+  applyPreferences(preferences);
+  appRoot.innerHTML = '<main class="empty" style="height:100vh"><p class="empty__sub">Loading Prax…</p></main>';
   try {
-    const preferences = applyPreferences(loadPreferences());
-    setState({
-      preferences,
-      boardGrouping: loadBoardGrouping(),
-      listGrouping: loadListGrouping(),
-      librarySavedViews: savedLibraryViewsFromJson(window.localStorage?.getItem(SAVED_LIBRARY_VIEWS_KEY)),
-      ...loadLibraryControls(),
-    });
     await loadProjects();
-    const stored = loadActiveProject();
-    const valid = stored === 'all' || state.projects.some((p) => p.id === stored);
-    setState({ activeProject: valid ? stored : 'all' });
+    const persisted = loadActiveProject();
+    const valid = persisted !== 'all' && state.projects.some(p => p.id === persisted);
+    if (valid) {
+      setState({ navType: 'project', navId: persisted });
+    } else if (state.projects[0]) {
+      setState({ navType: 'project', navId: state.projects[0].id });
+    } else {
+      setState({ navType: 'all', navId: null });
+    }
     await loadTasks();
-    loadSemanticStatus();
-  } catch (error) {
+    await loadDocuments();
+    loadSemanticStatus().then(renderApp);
+    bindEvents();
+    installShortcuts();
+    renderApp();
+  } catch (err) {
+    appRoot.innerHTML = `<main class="empty" style="height:100vh"><h2 class="empty__title">Prax could not load</h2><p class="empty__sub">${escapeHtml(err?.message || 'Unknown error')}</p></main>`;
     setState({ apiStatus: 'error' });
-    renderError(error.message);
   }
-
-  installKeyboardShortcuts({
-    getState: () => state,
-    handlers: {
-      focusSearch() {
-        const input = app.querySelector('[data-search-input]');
-        if (input) { input.focus(); input.select?.(); }
-      },
-      newItem() {
-        app.querySelector('.topbar [data-action="new-task"], .topbar [data-action="new-document"]')?.click();
-      },
-      switchView(view) {
-        const el = app.querySelector(`.side-nav [data-view="${view}"]`) || app.querySelector(`[data-view="${view}"]`);
-        el?.click();
-      },
-      editSelected() {
-        if (state.activeView === 'library') {
-          app.querySelector('[data-library-mode="edit"]')?.click();
-        } else {
-          app.querySelector('[data-action="edit-task"]')?.click();
-        }
-      },
-      archiveSelected() {
-        if (state.activeView === 'library') {
-          app.querySelector('[data-action="archive-document"]')?.click();
-        } else {
-          app.querySelector('[data-action="archive-task"]')?.click();
-        }
-      },
-      escape() {
-        // The archive dialog mounts on top of the manager, so handle it first:
-        // Escape backs out of the archive before closing the manager beneath it.
-        if (state.isProjectArchiveOpen) { app.querySelector('[data-action="back-to-manager"]')?.click(); return; }
-        const closer = app.querySelector('[data-action="close-task-form"], [data-action="close-document-form"], [data-action="close-admin"], [data-action="close-settings"], [data-action="close-link-picker"], [data-action="close-project-manager"]');
-        if (closer) { closer.click(); return; }
-        if (state.isDrawerOpen) { app.querySelector('[data-action="toggle-drawer"]')?.click(); return; }
-        if (state.taskDetailOpen) { setState({ taskDetailOpen: false, mobileDetailOpen: false }); renderWorkspace(); return; }
-        if (state.mobileDetailOpen) { app.querySelector('[data-action="close-mobile-detail"]')?.click(); return; }
-        if (state.isLibraryDocOpen) { app.querySelector('[data-action="close-library-doc"]')?.click(); return; }
-      },
-    },
-  });
 }
 
 init();

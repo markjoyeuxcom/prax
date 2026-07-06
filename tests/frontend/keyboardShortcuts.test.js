@@ -2,31 +2,42 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { matchShortcut } from '../../public/js/keyboardShortcuts.js';
 
-test('plain keys map to actions', () => {
-  assert.equal(matchShortcut({ key: '/', hasModifier: false }).action, 'focus-search');
-  assert.equal(matchShortcut({ key: 'n', hasModifier: false }).action, 'new');
-  assert.equal(matchShortcut({ key: 'e', hasModifier: false }).action, 'edit');
-  assert.equal(matchShortcut({ key: 'd', hasModifier: false }).action, 'archive');
-  assert.equal(matchShortcut({ key: 'Escape', hasModifier: false }).action, 'escape');
+// The Prax keymap (docs/desktop/design-handoff.md §Interactions): ⌘K palette,
+// ⌘J theme, N capture, E done, ↑↓/↵ list navigation, Esc cascade, '/' palette,
+// plus the legacy g-chord view navigation.
+
+test('cmd/ctrl+K opens the palette and cmd/ctrl+J toggles the theme', () => {
+  assert.equal(matchShortcut({ key: 'k', metaOrCtrl: true }).action, 'palette');
+  assert.equal(matchShortcut({ key: 'K', metaOrCtrl: true }).action, 'palette');
+  assert.equal(matchShortcut({ key: 'j', metaOrCtrl: true }).action, 'theme');
 });
 
-test('modifier keys never trigger app shortcuts', () => {
-  assert.equal(matchShortcut({ key: 'n', hasModifier: true }).action, null);
+test('other modified keys never trigger shortcuts', () => {
+  assert.equal(matchShortcut({ key: 'n', metaOrCtrl: true }).action, null);
+  assert.equal(matchShortcut({ key: 'e', alt: true }).action, null);
+  assert.equal(matchShortcut({ key: 'k', alt: true }).action, null);
 });
 
-test('g chord then view letter resolves a view and clears pending', () => {
-  const first = matchShortcut({ key: 'g', hasModifier: false }, '');
+test('plain keys map to the design actions', () => {
+  assert.equal(matchShortcut({ key: 'n' }).action, 'capture');
+  assert.equal(matchShortcut({ key: 'e' }).action, 'toggle-done');
+  assert.equal(matchShortcut({ key: '/' }).action, 'palette');
+  assert.equal(matchShortcut({ key: 'Escape' }).action, 'escape');
+  assert.equal(matchShortcut({ key: 'ArrowDown' }).action, 'nav-down');
+  assert.equal(matchShortcut({ key: 'ArrowUp' }).action, 'nav-up');
+  assert.equal(matchShortcut({ key: 'Enter' }).action, 'open-selected');
+  assert.equal(matchShortcut({ key: 'x' }).action, null);
+});
+
+test('g chord navigates views and clears its pending state', () => {
+  const first = matchShortcut({ key: 'g' });
   assert.equal(first.pending, 'g');
   assert.equal(first.action, null);
-  const second = matchShortcut({ key: 't', hasModifier: false }, 'g');
-  assert.equal(second.view, 'list');
-  assert.equal(second.pending, '');
-});
 
-test('g chord with unknown letter yields no view', () => {
-  assert.equal(matchShortcut({ key: 'z', hasModifier: false }, 'g').view, null);
-});
-
-test('unmapped key yields no action', () => {
-  assert.equal(matchShortcut({ key: 'q', hasModifier: false }).action, null);
+  assert.deepEqual(matchShortcut({ key: 't' }, 'g'), { action: null, view: 'list', pending: '' });
+  assert.equal(matchShortcut({ key: 'b' }, 'g').view, 'board');
+  assert.equal(matchShortcut({ key: 'k' }, 'g').view, 'backlog');
+  assert.equal(matchShortcut({ key: 'a' }, 'g').view, 'archive');
+  assert.equal(matchShortcut({ key: 'l' }, 'g').view, 'library');
+  assert.deepEqual(matchShortcut({ key: 'z' }, 'g'), { action: null, view: null, pending: '' });
 });

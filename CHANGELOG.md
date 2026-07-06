@@ -14,6 +14,29 @@ fresh empty `[Unreleased]` section is started.
 
 ### Changed
 
+- **The Prax desktop design replaces the terminal-inspired UI.** The frontend is
+  rebuilt to the Prax design system (light "Porcelain" / dark "Deep Fern" themes,
+  Instrument Sans + Source Serif 4 bundled locally, oklch accent system with four
+  user-selectable accents): floating-window shell with titlebar/sidebar/statusbar,
+  a cross-project **Today** view, grouped task lists with multi-select and undo
+  toasts, a four-column board with drop-position indicators, Backlog and Archive
+  tabs, a floating task drawer (status/priority pills, due date, autosaving notes,
+  checklist, linked docs, activity), an **⌘K command palette**, **quick capture
+  (N)**, an **All projects** screen (replaces the project manager/archive dialogs),
+  a card-grid Library with semantic mode, and a page-sheet editor with outline
+  rail, focus mode, and clickable Markdown task items. Settings absorbs the old
+  admin panel (backup/import/export, maintenance, semantic index) and adds theme/
+  accent/window-chrome/reading-size preferences.
+- **Backlog is now a real status**: the design's Backlog maps onto the API's
+  spare `notes` status (previously a fifth "NOTES" board column). Tasks in the
+  old NOTES column appear under Backlog; the old derived backlog (planned +
+  no due date) now shows only under Planned. The HTTP API is unchanged.
+- The task detail drawer is now the task editor (title, description, notes all
+  autosave); the separate task edit form is gone. Documents open directly in the
+  editor; new documents are created untitled and named in place.
+- Browser-local keys for the retired swimlane groupings are no longer read;
+  active-project, saved-views, and preference keys keep working (legacy palettes
+  map onto the nearest theme).
 - **Moomora Console is now Prax** (by Moomora). The product, package (`prax`), CLI
   (`prax`, with `moomora` kept as an alias), MCP server name, Docker/Kubernetes
   manifests, skills (`prax-recall` / `prax-remember`), and docs are renamed.

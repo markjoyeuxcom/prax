@@ -37,7 +37,11 @@ function flushList(output, listItems) {
   const tag = type === 'ordered' ? 'ol' : 'ul';
   output.push(`<${tag}>${listItems.map((item) => {
     if (item.type === 'task') {
-      return `<li><input type="checkbox" disabled${item.checked ? ' checked' : ''}> ${renderInline(item.text)}</li>`;
+      // Task items are clickable in Prax: main.js listens on [data-md-check]
+      // and rewrites `- [ ]`/`- [x]` at data-line in the markdown source.
+      return `<li class="task-item${item.checked ? ' is-done' : ''}" data-md-check data-line="${item.line}" title="Click to toggle">`
+        + `<span class="task-item__box">${item.checked ? '✓' : ''}</span> `
+        + `<span class="task-item__label">${renderInline(item.text)}</span></li>`;
     }
     return `<li>${renderInline(item.text)}</li>`;
   }).join('')}</${tag}>`);
@@ -70,7 +74,7 @@ export function renderMarkdownHtml(markdown = '') {
   let codeLines = null;
   let codeLanguage = '';
 
-  lines.forEach((line) => {
+  lines.forEach((line, lineIndex) => {
     if (line.trim().startsWith('```')) {
       if (codeLines) {
         flushParagraph(output, paragraph);
@@ -146,7 +150,7 @@ export function renderMarkdownHtml(markdown = '') {
     const taskItem = /^[-*]\s+\[([ xX])\]\s+(.+)$/.exec(trimmed);
     if (taskItem) {
       flushParagraph(output, paragraph);
-      listItems.push({ type: 'task', checked: taskItem[1].toLowerCase() === 'x', text: taskItem[2] });
+      listItems.push({ type: 'task', checked: taskItem[1].toLowerCase() === 'x', text: taskItem[2], line: lineIndex });
       return;
     }
 
