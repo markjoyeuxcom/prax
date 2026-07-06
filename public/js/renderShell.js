@@ -78,8 +78,12 @@ const WIN_CONTROLS = '<div class="winctl">'
 export function renderTitlebarHtml(state) {
   const isMac = state.preferences?.chromeOS === 'mac';
   // Inside the desktop shell the OS provides the real window chrome — the
-  // prototype's fake traffic lights / Windows controls would double it.
-  const left = state.desktopShell ? logo(15) : (isMac ? TRAFFIC_LIGHTS : logo(15));
+  // prototype's fake traffic lights / Windows controls would double it. On
+  // macOS the native titlebar is merged into this bar (overlay style), so it
+  // renders no left ornament at all: the real traffic lights occupy that
+  // space and the bar itself is the drag region.
+  const left = state.desktopShell ? '' : (isMac ? TRAFFIC_LIGHTS : logo(15));
+  const drag = state.desktopShell ? ' data-tauri-drag-region' : '';
 
   // In editor focus mode the right-hand chrome (incl. Windows controls,
   // matching the prototype) is hidden; traffic lights / logo + crumb stay.
@@ -90,9 +94,9 @@ export function renderTitlebarHtml(state) {
     + (isMac || state.desktopShell ? '' : WIN_CONTROLS)
     + '</div>';
 
-  return '<div class="titlebar">'
+  return `<div class="titlebar"${drag}>`
     + left
-    + `<div class="titlebar__crumb-wrap"><div class="titlebar__crumb">prax — ${escapeHtml(crumbContext(state))}</div></div>`
+    + `<div class="titlebar__crumb-wrap"${drag}><div class="titlebar__crumb"${drag}>prax — ${escapeHtml(crumbContext(state))}</div></div>`
     + actions
     + '</div>';
 }

@@ -121,12 +121,19 @@ fn kill_server(app: &AppHandle) {
 fn open_window(handle: &AppHandle, url: WebviewUrl, error_detail: Option<String>) {
     let handle = handle.clone();
     let _ = handle.clone().run_on_main_thread(move || {
-        let window = WebviewWindowBuilder::new(&handle, "main", url)
+        let builder = WebviewWindowBuilder::new(&handle, "main", url)
             .title("Prax")
             .inner_size(1280.0, 800.0)
             .min_inner_size(700.0, 520.0)
-            .center()
-            .build();
+            .center();
+        // macOS: merge the native titlebar into the app's top bar — traffic
+        // lights overlay the webview and the toolbar strip becomes draggable
+        // (data-tauri-drag-region in the frontend).
+        #[cfg(target_os = "macos")]
+        let builder = builder
+            .title_bar_style(tauri::TitleBarStyle::Overlay)
+            .hidden_title(true);
+        let window = builder.build();
         if let (Ok(window), Some(detail)) = (window, error_detail) {
             let _ = window.eval(&format!(
                 "addEventListener('DOMContentLoaded',()=>{{document.body.dataset.state='error';document.getElementById('detail').textContent={detail:?};}});"
@@ -158,7 +165,14 @@ pub fn run() {
 
             std::thread::spawn(move || {
                 if wait_until_ready(port, Duration::from_secs(30)) {
-                    let url = format!("http://127.0.0.1:{port}/?shell=desktop")
+                    let platform = if cfg!(target_os = "macos") {
+                        "macos"
+                    } else if cfg!(target_os = "windows") {
+                        "windows"
+                    } else {
+                        "linux"
+                    };
+                    let url = format!("http://127.0.0.1:{port}/?shell=desktop&platform={platform}")
                         .parse()
                         .expect("port url always parses");
                     open_window(&handle, WebviewUrl::External(url), None);

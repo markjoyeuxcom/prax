@@ -1762,3 +1762,7 @@ body.is-desktop .window {
 }
 .menu__item:hover { background: var(--accent-soft); }
 .menu__item--danger:hover { background: var(--hi-soft); color: var(--hi); }
+
+/* macOS overlay titlebar: the native traffic lights render inside this bar —
+   inset the content to clear them. The bar is the window drag region. */
+body.is-desktop-mac .titlebar { padding-left: 84px; }
