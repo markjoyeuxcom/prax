@@ -18,7 +18,8 @@
     "prepare:sidecar": "node scripts/prepare-sidecar.mjs",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "fix:bindings": "node scripts/fix-platform-bindings.mjs"
   },
   "dependencies": {
     "@fastify/static": "^9.1.3",

@@ -70,6 +70,22 @@ JSON/Markdown exports — see [../backup-restore.md](../backup-restore.md).
 - **Startup failure**: if `/readyz` never answers within 30s, the splash
   window shows the error and points at `logs/server.log`.
 
+## Dual-OS working tree (macOS + Linux VM)
+
+If this checkout is shared between macOS and a Linux VM (e.g. OrbStack), npm
+installs native binding packages (`@tauri-apps/cli-*`, `@esbuild/*`) only for
+the platform that ran the last install — the other OS then fails with
+"Cannot find native binding". Don't follow the error's advice to delete the
+lockfile; instead run:
+
+```bash
+npm run fix:bindings
+```
+
+which additively installs the bindings for **both** platforms without
+touching `package.json` or the lockfile. Re-run it whenever a fresh
+`npm install`/`npm ci` prunes the foreign-platform copies.
+
 ## Headless Linux verification (CI)
 
 The Linux build runs headless for smoke tests — GTK needs a display *and* a
