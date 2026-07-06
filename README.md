@@ -1,6 +1,6 @@
-# Moomora Console
+# Prax
 
-Moomora Console is a self-hosted console for tasks, runbooks, and Markdown notes, wrapped in a quiet, terminal-inspired UI. It pairs a project-scoped task queue and board with a full-text Markdown library — import, export, tags, and archive — all backed by PostgreSQL. An optional local MCP server exposes the same data to Claude Code, turning your tasks and notes into working context for AI-assisted work.
+Prax is a self-hosted console for tasks, runbooks, and Markdown notes, wrapped in a quiet, terminal-inspired UI. It pairs a project-scoped task queue and board with a full-text Markdown library — import, export, tags, and archive — all backed by PostgreSQL. An optional local MCP server exposes the same data to Claude Code, turning your tasks and notes into working context for AI-assisted work.
 
 Run it locally with Docker Compose or deploy it to Kubernetes (with CloudNativePG for PostgreSQL), or try it instantly with the in-memory demo server.
 
@@ -19,13 +19,13 @@ Run it locally with Docker Compose or deploy it to Kubernetes (with CloudNativeP
 
 ## Screenshots
 
-![Tasks queue across all projects](docs/images/moomora-tasks.png)
+![Tasks queue across all projects](docs/images/prax-tasks.png)
 
-![Board with priority dots, due-date flags, and project chips](docs/images/moomora-board.png)
+![Board with priority dots, due-date flags, and project chips](docs/images/prax-board.png)
 
-![Markdown library with tags and saved views](docs/images/moomora-library.png)
+![Markdown library with tags and saved views](docs/images/prax-library.png)
 
-![Appearance preferences with the four colour palettes](docs/images/moomora-settings.png)
+![Appearance preferences with the four colour palettes](docs/images/prax-settings.png)
 
 ## Stack
 
@@ -47,8 +47,8 @@ Run it locally with Docker Compose or deploy it to Kubernetes (with CloudNativeP
 Clone the repo:
 
 ```bash
-git clone git@github.com:awaybreaktoday/moomora-console.git
-cd moomora-console
+git clone git@github.com:awaybreaktoday/prax.git
+cd prax
 ```
 
 Install dependencies:
@@ -87,7 +87,7 @@ http://127.0.0.1:3100/
 
 The compose stack starts:
 
-- `app`: Moomora Console on host port `3100`
+- `app`: Prax on host port `3100`
 - `postgres`: PostgreSQL 18 on host port `54320`
 - `postgres-data`: named volume for database persistence
 
@@ -110,7 +110,7 @@ docker compose -f compose.yaml -f compose.image.yaml up
 The image override uses:
 
 ```text
-ghcr.io/awaybreaktoday/moomora-console:v0.20.0
+ghcr.io/awaybreaktoday/prax:v0.20.0
 ```
 
 Use source-build Compose for development, and use the published image path when you want to test the same artifact Kubernetes will run.
@@ -182,23 +182,23 @@ npm run build:codemirror
 - `npm run migrate` applies pending database migrations.
 - `npm run build:codemirror` rebuilds the bundled CodeMirror editor asset.
 
-An optional local MCP server lives in `mcp/` — it exposes the Moomora API to Claude Code so
+An optional local MCP server lives in `mcp/` — it exposes the Prax API to Claude Code so
 you can query and edit tasks and documents interactively on a Claude subscription. See
 [mcp/README.md](mcp/README.md).
 
 ## Shared Memory CLI
 
-The `moomora` CLI lets any shell-capable AI tool or human pull a bounded, trust-aware context
+The `prax` CLI lets any shell-capable AI tool or human pull a bounded, trust-aware context
 pack from project memory, search and read documents, write new memory, and verify or supersede
-it. `npm link` in the repo gives a global `moomora` command. See [docs/cli.md](docs/cli.md)
+it. `npm link` in the repo gives a global `prax` command. See [docs/cli.md](docs/cli.md)
 for the full guide.
 
 ```bash
-moomora context "how do we restore postgres"
+prax context "how do we restore postgres"
 ```
 
 Documents written by agents (via the CLI or MCP) are **unverified** by default. A human runs
-`moomora verify <id>` to bless them. Retrieval is active-only and keeps unverified memory in a
+`prax verify <id>` to bless them. Retrieval is active-only and keeps unverified memory in a
 clearly-labelled section so AI tools can see it while treating it with appropriate caution.
 
 ## Backup & Restore
@@ -207,7 +207,7 @@ See [docs/backup-restore.md](docs/backup-restore.md) for backup, restore, and up
 
 ## Import And Export
 
-Task backups use the current Moomora format:
+Task backups use the current Prax format:
 
 ```json
 {
@@ -224,12 +224,12 @@ Import modes:
 - `append`: imports everything as new tasks.
 - `replace`: clears the selected project and imports the file after confirmation.
 
-Legacy TaskBoard export envelopes are not supported. This project is treated as a greenfield Moomora Console app.
+Legacy TaskBoard export envelopes are not supported. This project is treated as a greenfield Prax app.
 
 ## Data Formats
 
 The export/import formats (`moomora.tasks` task backups and library `.md` front-matter) and the
-MCP tool surface are documented in [docs/contract.md](docs/contract.md). Moomora Console is
+MCP tool surface are documented in [docs/contract.md](docs/contract.md). Prax is
 pre-1.0 and these shapes are still evolving; a regression-test suite under `tests/contract/`
 locks the current shapes so changes are made deliberately rather than by accident. The HTTP API
 is internal and may change between releases — for durable integration prefer the export formats
@@ -248,12 +248,12 @@ deploy/overlays/{dev,staging,prod}/   # per-env image tag + hostname
 These are **sanitized example manifests** — the hostnames (`*.example.com`), the Ollama endpoint,
 and the gateway are placeholders to adapt to your own cluster (the maintainer's live config is kept
 in a separate private GitOps repo). A GitOps tool such as Argo CD renders `deploy/overlays/<env>`
-into a namespace like `moomora-console-<env>`; no manifest hard-codes a namespace.
+into a namespace like `prax-<env>`; no manifest hard-codes a namespace.
 
-Each environment provisions its own CloudNativePG `Cluster` (`moomora-console-db`) running the
+Each environment provisions its own CloudNativePG `Cluster` (`prax-db`) running the
 stock PostgreSQL 18 operand image with `pgvector` mounted from the public
 `ghcr.io/cloudnative-pg/pgvector` image as an ImageVolume extension. CNPG generates the
-`moomora-console-db-app` secret; the app reads its `uri` key as `DATABASE_URL`. Semantic search is enabled through the
+`prax-db-app` secret; the app reads its `uri` key as `DATABASE_URL`. Semantic search is enabled through the
 ConfigMap (`EMBEDDING_BACKEND=ollama`, `OLLAMA_URL`, `EMBEDDING_MODEL`), and the app is exposed via a
 Gateway API `HTTPRoute` attached to the cluster's external gateway.
 
@@ -298,5 +298,5 @@ MIT. See [LICENSE](LICENSE).
 GitHub:
 
 ```text
-https://github.com/awaybreaktoday/moomora-console
+https://github.com/awaybreaktoday/prax
 ```

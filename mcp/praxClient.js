@@ -1,11 +1,12 @@
-import { MoomoraApiError, MoomoraUnavailableError } from './errors.js';
+import { PraxApiError, PraxUnavailableError } from './errors.js';
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:3000';
 const DEFAULT_TIMEOUT_MS = 5000;
 
-export function createMoomoraClient({
-  baseUrl = process.env.MOOMORA_API_URL || DEFAULT_BASE_URL,
-  token = process.env.MOOMORA_API_TOKEN,
+// PRAX_* are canonical; the MOOMORA_* fallbacks keep pre-rename setups working.
+export function createPraxClient({
+  baseUrl = process.env.PRAX_API_URL || process.env.MOOMORA_API_URL || DEFAULT_BASE_URL,
+  token = process.env.PRAX_API_TOKEN || process.env.MOOMORA_API_TOKEN,
   fetch = globalThis.fetch,
   timeoutMs = DEFAULT_TIMEOUT_MS,
 } = {}) {
@@ -43,8 +44,8 @@ export function createMoomoraClient({
         signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (err) {
-      throw new MoomoraUnavailableError(
-        `Moomora API not reachable at ${root} — is the server running? (${err.message})`,
+      throw new PraxUnavailableError(
+        `Prax API not reachable at ${root} — is the server running? (${err.message})`,
       );
     }
 
@@ -62,7 +63,7 @@ export function createMoomoraClient({
 
     if (!response.ok) {
       const message = (payload && payload.message) || `HTTP ${response.status}`;
-      throw new MoomoraApiError(response.status, message);
+      throw new PraxApiError(response.status, message);
     }
     return payload;
   }
@@ -71,7 +72,7 @@ export function createMoomoraClient({
     try {
       return await request('PATCH', path, { body: patch, headers });
     } catch (err) {
-      if (err instanceof MoomoraApiError && err.status === 404) return null;
+      if (err instanceof PraxApiError && err.status === 404) return null;
       throw err;
     }
   }
@@ -80,7 +81,7 @@ export function createMoomoraClient({
     try {
       return await request('GET', path);
     } catch (err) {
-      if (err instanceof MoomoraApiError && err.status === 404) return null;
+      if (err instanceof PraxApiError && err.status === 404) return null;
       throw err;
     }
   }
@@ -95,10 +96,10 @@ export function createMoomoraClient({
     getDocument: (id) => getOrNull(`/api/library/documents/${id}`),
 
     createDocument: (payload) =>
-      request('POST', '/api/library/documents', { body: payload, headers: { 'x-moomora-origin': 'agent' } }),
+      request('POST', '/api/library/documents', { body: payload, headers: { 'x-prax-origin': 'agent' } }),
 
     updateDocument: (id, patch) =>
-      patchOrNull(`/api/library/documents/${id}`, patch, { 'x-moomora-origin': 'agent' }),
+      patchOrNull(`/api/library/documents/${id}`, patch, { 'x-prax-origin': 'agent' }),
 
     listTasks: ({ q, project, status } = {}) =>
       request('GET', '/api/tasks', { query: { q, project, status } }),
@@ -138,7 +139,7 @@ export function createMoomoraClient({
     supersedeDocument: (id, supersededBy) =>
       request('POST', `/api/library/documents/${id}/supersede`, {
         body: { supersededBy },
-        headers: { 'x-moomora-origin': 'agent' },
+        headers: { 'x-prax-origin': 'agent' },
       }),
 
     listChecklist: (taskId) =>

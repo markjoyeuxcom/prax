@@ -1,6 +1,6 @@
-# Moomora Console Backup & Restore
+# Prax Backup & Restore
 
-Moomora Console stores all data in PostgreSQL. There are three layers to know about.
+Prax stores all data in PostgreSQL. There are three layers to know about.
 
 ## 1. App-level export (portable, not a full backup)
 
@@ -18,17 +18,17 @@ A full backup is a PostgreSQL dump of the database behind `DATABASE_URL`.
 **Docker Compose:**
 
 ```bash
-docker compose exec -T postgres pg_dump -U moomora -d moomora_console > moomora-backup.sql
+docker compose exec -T postgres pg_dump -U prax -d prax > prax-backup.sql
 # restore (into an empty database):
-docker compose exec -T postgres psql -U moomora -d moomora_console < moomora-backup.sql
+docker compose exec -T postgres psql -U prax -d prax < prax-backup.sql
 ```
 
 **Kubernetes (run from a pod with `psql`/`pg_dump` and the app secret):**
 
 ```bash
-DATABASE_URL=$(kubectl get secret moomora-console-db-app -o jsonpath='{.data.uri}' | base64 -d)
-pg_dump "$DATABASE_URL" > moomora-backup.sql
-psql "$DATABASE_URL" < moomora-backup.sql   # restore into an empty database
+DATABASE_URL=$(kubectl get secret prax-db-app -o jsonpath='{.data.uri}' | base64 -d)
+pg_dump "$DATABASE_URL" > prax-backup.sql
+psql "$DATABASE_URL" < prax-backup.sql   # restore into an empty database
 ```
 
 This dump includes the `schema_migrations` table, so a restored database is recognised as already-migrated.

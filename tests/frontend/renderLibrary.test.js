@@ -227,7 +227,7 @@ test('renderLibraryHtml renders empty state', () => {
 test('renderLibraryHtml list row meta shows type, project, and updater', () => {
   const html = renderLibraryHtml({
     documents: [{
-      id: 'doc-moomora',
+      id: 'doc-prax',
       title: 'Scratch note',
       body: '# Scratch',
       documentType: 'note',
@@ -236,7 +236,7 @@ test('renderLibraryHtml list row meta shows type, project, and updater', () => {
       tags: [],
     }],
     projects: [{ id: 'p9', name: 'Homelab', slug: 'homelab', status: 'active' }],
-    selectedDocumentId: 'doc-moomora',
+    selectedDocumentId: 'doc-prax',
   });
 
   assert.match(html, /<small>Note &middot; Homelab &middot; updated by agent<\/small>/);
@@ -245,13 +245,13 @@ test('renderLibraryHtml list row meta shows type, project, and updater', () => {
 test('renderLibraryHtml list row meta omits the project when unknown and defaults the updater', () => {
   const html = renderLibraryHtml({
     documents: [{
-      id: 'doc-moomora',
+      id: 'doc-prax',
       title: 'Scratch note',
       body: '# Scratch',
       documentType: 'note',
       tags: [],
     }],
-    selectedDocumentId: 'doc-moomora',
+    selectedDocumentId: 'doc-prax',
   });
 
   assert.match(html, /<small>Note &middot; updated by user<\/small>/);

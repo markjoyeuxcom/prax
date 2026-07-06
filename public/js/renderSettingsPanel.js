@@ -102,7 +102,7 @@ function renderAboutSection() {
     <section class="settings-section" aria-labelledby="settings-about-title">
       <div>
         <h3 id="settings-about-title">About</h3>
-        <p>Moomora Console is a local-first operations workspace for tasks, runbooks, and Markdown workflows.</p>
+        <p>Prax is a local-first operations workspace for tasks, runbooks, and Markdown workflows.</p>
       </div>
     </section>`;
 }

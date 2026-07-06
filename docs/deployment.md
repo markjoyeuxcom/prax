@@ -1,6 +1,6 @@
-# Moomora Console Kubernetes Deployment
+# Prax Kubernetes Deployment
 
-Moomora Console runs as one Node container that serves the frontend and API. Kubernetes manifests
+Prax runs as one Node container that serves the frontend and API. Kubernetes manifests
 use a Kustomize **base + overlays** layout under `deploy/`, designed for GitOps with Argo CD.
 
 > **These are sanitized example manifests** for self-hosters — the hostnames (`example.com`), the
@@ -19,7 +19,7 @@ deploy/overlays/prod/                 # prod: image tag + hostname patch
 
 `deploy/base/` contains:
 
-- `cluster.yaml` — CloudNativePG `Cluster` resource (`moomora-console-db`)
+- `cluster.yaml` — CloudNativePG `Cluster` resource (`prax-db`)
 - `configmap.yaml` — non-secret app env vars (host, port, embedding config)
 - `deployment.yaml` — app `Deployment`
 - `service.yaml` — `ClusterIP` `Service`
@@ -35,7 +35,7 @@ A homelab Argo CD ApplicationSet auto-discovers this repo and creates one `Appli
 environment. Each Application:
 
 - Points at `deploy/overlays/<env>` as its source path.
-- Deploys into namespace `moomora-console-<env>` (e.g. `moomora-console-dev`), with
+- Deploys into namespace `prax-<env>` (e.g. `prax-dev`), with
   `CreateNamespace=true` so the namespace is created automatically.
 - Injects the namespace into all resources at sync time — no manifest hard-codes one.
 
@@ -45,16 +45,16 @@ Each overlay pins the image tag and patches the `HTTPRoute` hostname:
 
 | Environment | Namespace                   | Hostname                              |
 |-------------|----------------------------|---------------------------------------|
-| dev         | `moomora-console-dev`      | `moomora-console-dev.example.com`   |
-| staging     | `moomora-console-staging`  | `moomora-console-staging.example.com` |
-| prod        | `moomora-console-prod`     | `moomora-console.example.com`       |
+| dev         | `prax-dev`      | `prax-dev.example.com`   |
+| staging     | `prax-staging`  | `prax-staging.example.com` |
+| prod        | `prax-prod`     | `prax.example.com`       |
 
 Overlays are currently pinned to `v0.15.0`. CI-driven `newTag` bumping on release is planned as
 future work.
 
 ## CloudNativePG Cluster
 
-Each environment provisions its own CNPG `Cluster` resource named `moomora-console-db`. It runs the
+Each environment provisions its own CNPG `Cluster` resource named `prax-db`. It runs the
 stock CNPG **operand** image `ghcr.io/cloudnative-pg/postgresql:18-minimal-trixie` and mounts
 `pgvector` from the public **extension** image as a Kubernetes ImageVolume (CNPG ≥ 1.27, PostgreSQL
 18's `extension_control_path`):
@@ -82,7 +82,7 @@ This is required because `vector` is not a trusted extension — the non-superus
 app runs migrations as cannot `CREATE EXTENSION` it. Migration `0005`'s
 `CREATE EXTENSION IF NOT EXISTS vector` then becomes a no-op.
 
-CNPG generates the `moomora-console-db-app` secret automatically. The app reads its `uri` key as
+CNPG generates the `prax-db-app` secret automatically. The app reads its `uri` key as
 `DATABASE_URL`.
 
 ## Database Schema
@@ -91,7 +91,7 @@ The app applies database migrations automatically on startup, so deploying the c
 sufficient to initialise or upgrade the schema. To apply migrations explicitly:
 
 ```bash
-DATABASE_URL=$(kubectl get secret moomora-console-db-app -n moomora-console-<env> \
+DATABASE_URL=$(kubectl get secret prax-db-app -n prax-<env> \
   -o jsonpath='{.data.uri}' | base64 -d)
 DATABASE_URL="$DATABASE_URL" npm run migrate
 ```
@@ -101,8 +101,8 @@ Migrations are forward-only and tracked in a `schema_migrations` table; re-runni
 ## Build and Publish Image
 
 ```bash
-docker build -f deploy/Dockerfile -t ghcr.io/awaybreaktoday/moomora-console:<tag> .
-docker push ghcr.io/awaybreaktoday/moomora-console:<tag>
+docker build -f deploy/Dockerfile -t ghcr.io/awaybreaktoday/prax:<tag> .
+docker push ghcr.io/awaybreaktoday/prax:<tag>
 ```
 
 Update the `newTag` in each overlay's `kustomization.yaml` to deploy a new version.
@@ -136,10 +136,10 @@ These must be in place before syncing — they are the cluster operator's respon
 
 1. **CNPG operator** installed in the cluster.
 2. **`external-gateway`** in `gateway-system` must:
-   - Have `allowedRoutes` configured to permit routes from `moomora-console-*` namespaces.
+   - Have `allowedRoutes` configured to permit routes from `prax-*` namespaces.
    - Terminate TLS for `*.example.com`.
 3. **DNS** records for all three hostnames pointing at the gateway's external IP/hostname.
-4. **Ollama reachability**: pods in `moomora-console-*` namespaces must reach
+4. **Ollama reachability**: pods in `prax-*` namespaces must reach
    `ollama.internal:11434` for semantic search to function.
 
 ## Local Render Check
@@ -159,6 +159,6 @@ kubectl kustomize deploy/overlays/prod
 
 ## Data Movement
 
-Moomora Console exports backups with the `moomora.tasks` format. Import accepts current Moomora
+Prax exports backups with the `moomora.tasks` format. Import accepts current Prax
 Console envelopes or raw task arrays, with append, skip duplicates, and replace-context modes
 available from the Admin panel.

@@ -1,4 +1,4 @@
-export const LOCAL_STORAGE_KEY = 'moomora-console.preferences';
+export const LOCAL_STORAGE_KEY = 'prax.preferences';
 
 export const DEFAULT_PREFERENCES = Object.freeze({
   fontScale: 'comfortable',

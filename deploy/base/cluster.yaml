@@ -1,9 +1,9 @@
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
-  name: moomora-console-db
+  name: prax-db
   labels:
-    app.kubernetes.io/name: moomora-console
+    app.kubernetes.io/name: prax
   annotations:
     argocd.argoproj.io/sync-wave: "0"
 spec:

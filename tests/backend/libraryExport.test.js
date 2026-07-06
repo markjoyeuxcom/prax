@@ -149,10 +149,10 @@ test('dedupeFilenames probes past pre-existing suffixed entries', () => {
 
 test('libraryArchiveFilename emits per-project name with date', () => {
   const date = new Date('2026-05-28T12:00:00.000Z')
-  assert.equal(libraryArchiveFilename('homelab', date), 'moomora-console-library-homelab-2026-05-28.zip')
+  assert.equal(libraryArchiveFilename('homelab', date), 'prax-library-homelab-2026-05-28.zip')
 })
 
 test('libraryArchiveFilename emits all-projects name with date', () => {
   const date = new Date('2026-05-28T12:00:00.000Z')
-  assert.equal(libraryArchiveFilename('all', date), 'moomora-console-library-all-2026-05-28.zip')
+  assert.equal(libraryArchiveFilename('all', date), 'prax-library-all-2026-05-28.zip')
 })

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// moomora-recall — thin wrapper over the shared cli/lib recall operation, so the
-// skill and the `moomora` CLI share one code path. Zero-install: imports the repo's
-// own lib by relative path; no global `moomora` needed.
+// prax-recall — thin wrapper over the shared cli/lib recall operation, so the
+// skill and the `prax` CLI share one code path. Zero-install: imports the repo's
+// own lib by relative path; no global `prax` needed.
 import { createClient } from '../../../cli/lib/apiClient.js';
 import { recall, formatRecall } from '../../../cli/lib/recall.js';
 

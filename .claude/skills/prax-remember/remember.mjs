@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// moomora-remember — thin wrapper over the shared cli/lib remember operation. Writes
+// prax-remember — thin wrapper over the shared cli/lib remember operation. Writes
 // agent memory (synthesized, memory-tagged) to the `memory` project by default.
-// Zero-install: imports the repo's own lib by relative path; no global `moomora`.
+// Zero-install: imports the repo's own lib by relative path; no global `prax`.
 import { createClient } from '../../../cli/lib/apiClient.js';
 import { remember } from '../../../cli/lib/remember.js';
 

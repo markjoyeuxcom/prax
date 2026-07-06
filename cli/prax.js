@@ -29,33 +29,34 @@ function parseArgs(argv) {
 }
 
 function resolveProjectName(flags) {
-  const { project, source } = detectProject({ flag: flags.project, env: process.env.MOOMORA_PROJECT });
+  // MOOMORA_PROJECT is the pre-rename env var; still honoured so existing setups keep working.
+  const { project, source } = detectProject({ flag: flags.project, env: process.env.PRAX_PROJECT || process.env.MOOMORA_PROJECT });
   if (!project) {
-    throw new Error('No project detected. Pass --project <slug>, set MOOMORA_PROJECT, or run `moomora init`.');
+    throw new Error('No project detected. Pass --project <slug>, set PRAX_PROJECT, or run `prax init`.');
   }
   return { project, source };
 }
 
-const HELP = `moomora — shared project memory CLI
+const HELP = `prax — shared project memory CLI
 
 Usage:
-  moomora init [--project <slug>]
-  moomora context [query...] [--json] [--limit <n>]
-  moomora search <query> [--all] [--json]
-  moomora recall [query...] [--project <slug>] [--limit <n>] [--recent [n]] [--json]
-  moomora get <id> [--json]
-  moomora remember <title> [--body <text>] [--memory] [--type runbook|note] [--tag a,b]
-  moomora verify <id> [--as <name>]
-  moomora unverify <id>
-  moomora supersede <oldId> --with <newId>
+  prax init [--project <slug>]
+  prax context [query...] [--json] [--limit <n>]
+  prax search <query> [--all] [--json]
+  prax recall [query...] [--project <slug>] [--limit <n>] [--recent [n]] [--json]
+  prax get <id> [--json]
+  prax remember <title> [--body <text>] [--memory] [--type runbook|note] [--tag a,b]
+  prax verify <id> [--as <name>]
+  prax unverify <id>
+  prax supersede <oldId> --with <newId>
 
 Global flags: --project <slug>  --url <baseUrl>  --json
-Env: MOOMORA_API_URL  MOOMORA_PROJECT  MOOMORA_TOKEN`;
+Env: PRAX_API_URL  PRAX_PROJECT  PRAX_TOKEN`;
 
 async function main(argv) {
   const { positionals, flags } = parseArgs(argv);
   const command = positionals[0];
-  const client = createClient({ baseUrl: flags.url, token: process.env.MOOMORA_TOKEN });
+  const client = createClient({ baseUrl: flags.url, token: process.env.PRAX_TOKEN });
   const out = (text) => process.stdout.write(`${typeof text === 'string' ? text : JSON.stringify(text, null, 2)}\n`);
 
   if (!command || command === 'help' || flags.help) { out(HELP); return; }
@@ -63,9 +64,9 @@ async function main(argv) {
   if (command === 'init') {
     const project = flags.project || detectProject({}).project;
     if (!project) throw new Error('Cannot infer a project name; pass --project <slug>.');
-    mkdirSync('.moomora', { recursive: true });
-    writeFileSync(join('.moomora', 'project.json'), `${JSON.stringify({ project }, null, 2)}\n`);
-    out(`Wrote .moomora/project.json (project: ${project}).`);
+    mkdirSync('.prax', { recursive: true });
+    writeFileSync(join('.prax', 'project.json'), `${JSON.stringify({ project }, null, 2)}\n`);
+    out(`Wrote .prax/project.json (project: ${project}).`);
     return;
   }
 
@@ -149,6 +150,6 @@ async function main(argv) {
 }
 
 main(process.argv.slice(2)).catch((err) => {
-  process.stderr.write(`moomora: ${err.message}\n`);
+  process.stderr.write(`prax: ${err.message}\n`);
   process.exit(1);
 });

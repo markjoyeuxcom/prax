@@ -363,7 +363,7 @@ const sharedDocuments = [
       '',
       '```yaml',
       'service:',
-      '  name: moomora-console',
+      '  name: prax',
       '```',
     ].join('\n'),
   }),

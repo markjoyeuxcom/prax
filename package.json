@@ -1,10 +1,11 @@
 {
-  "name": "moomora-console",
+  "name": "prax",
   "version": "0.20.0",
   "type": "module",
   "private": true,
   "bin": {
-    "moomora": "cli/moomora.js"
+    "prax": "cli/prax.js",
+    "moomora": "cli/prax.js"
   },
   "scripts": {
     "build:codemirror": "esbuild scripts/codemirror-editor-source.js --bundle --format=esm --outfile=public/vendor/codemirror-editor.js",
@@ -13,7 +14,7 @@
     "migrate": "node scripts/migrate.js",
     "test": "node scripts/run-tests.js",
     "test:e2e": "playwright test",
-    "check": "node --check server/index.js && node --check scripts/demo-server.js && node --check public/js/main.js && node --check mcp/server.js && node --check server/migrate.js && node --check scripts/migrate.js && node --check server/documentLinksRepository.js && node --check server/settingsRoutes.js && node --check cli/moomora.js && node --check cli/lib/detectProject.js && node --check cli/lib/apiClient.js && node --check cli/lib/format.js && node --check cli/lib/recall.js && node --check cli/lib/remember.js"
+    "check": "node --check server/index.js && node --check scripts/demo-server.js && node --check public/js/main.js && node --check mcp/server.js && node --check server/migrate.js && node --check scripts/migrate.js && node --check server/documentLinksRepository.js && node --check server/settingsRoutes.js && node --check cli/prax.js && node --check cli/lib/detectProject.js && node --check cli/lib/apiClient.js && node --check cli/lib/format.js && node --check cli/lib/recall.js && node --check cli/lib/remember.js"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.3",

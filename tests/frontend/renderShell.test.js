@@ -24,8 +24,8 @@ test('renderShellHtml renders All-projects button active when activeProject is "
   assert.match(html, /data-action="open-project-manager"/);
   // Standard shell elements still present
   assert.match(html, /Tasks/);
-  assert.match(html, /Moomora Console/);
-  assert.match(html, /aria-label="Moomora Console navigation"/);
+  assert.match(html, /Prax/);
+  assert.match(html, /aria-label="Prax navigation"/);
   assert.match(html, /Board/);
   assert.match(html, /Library/);
   assert.match(html, /Postgres/);
@@ -48,7 +48,7 @@ test('renderShellHtml renders project button active when activeProject matches a
   assert.match(html, /class="nav-button is-active"[^>]*data-project="p1"/);
   assert.doesNotMatch(html, /class="nav-button is-active"[^>]*data-project="all"/);
   // Status-footer breadcrumb shows project name
-  assert.match(html, /moomora.*homelab/i);
+  assert.match(html, /prax.*homelab/i);
 });
 
 test('renderShellHtml status-footer breadcrumb shows "all projects" when activeProject is "all"', () => {
@@ -58,7 +58,7 @@ test('renderShellHtml status-footer breadcrumb shows "all projects" when activeP
     activeView: 'list',
     metrics: {},
   });
-  assert.match(html, /moomora.*all projects/i);
+  assert.match(html, /prax.*all projects/i);
 });
 
 test('renderShellHtml includes new-project and open-project-manager controls', () => {
@@ -142,7 +142,7 @@ test('shell renders a status footer with breadcrumb, sync, and mode tag', () => 
   });
   assert.match(html, /class="status-footer"/);
   assert.match(html, /class="status-footer__breadcrumb"/);
-  assert.match(html, /moomora.*tasks.*homelab/i);
+  assert.match(html, /prax.*tasks.*homelab/i);
   assert.match(html, /class="status-footer__sync"/);
   assert.match(html, /class="status-footer__mode">&lt;TASKS&gt;/);
 });

@@ -1,4 +1,4 @@
-import { MoomoraApiError, MoomoraUnavailableError } from './errors.js';
+import { PraxApiError, PraxUnavailableError } from './errors.js';
 
 export function okResult(data) {
   return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
@@ -13,7 +13,7 @@ export function withErrorHandling(handler) {
     try {
       return await handler(args);
     } catch (err) {
-      if (err instanceof MoomoraApiError || err instanceof MoomoraUnavailableError) {
+      if (err instanceof PraxApiError || err instanceof PraxUnavailableError) {
         return errorResult(err.message);
       }
       return errorResult(`Unexpected error: ${err?.message ?? String(err)}`);

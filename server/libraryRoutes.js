@@ -27,7 +27,10 @@ function isValidUuid(value) {
 }
 
 function originFrom(request) {
-  return request.headers['x-moomora-origin'] === 'agent' ? 'agent' : 'user';
+  // x-moomora-origin is the pre-rename header; still accepted so older
+  // agents/CLIs keep stamping provenance correctly.
+  const origin = request.headers['x-prax-origin'] ?? request.headers['x-moomora-origin'];
+  return origin === 'agent' ? 'agent' : 'user';
 }
 
 function isValidTags(value) {

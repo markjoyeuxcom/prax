@@ -1,9 +1,9 @@
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: moomora-console
+  name: prax
   labels:
-    app.kubernetes.io/name: moomora-console
+    app.kubernetes.io/name: prax
   annotations:
     external-dns.alpha.kubernetes.io/target: "true"
 spec:
@@ -12,8 +12,8 @@ spec:
       namespace: gateway-system
       sectionName: https
   hostnames:
-    - moomora-console.invalid
+    - prax.invalid
   rules:
     - backendRefs:
-        - name: moomora-console
+        - name: prax
           port: 3000
