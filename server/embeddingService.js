@@ -1,5 +1,3 @@
-import { toVectorLiteral } from './vectorLiteral.js';
-
 // The text we embed for a document: title + body together, so a query matching
 // the title (high-signal, especially for short notes) retrieves it. Trims and
 // drops empty parts.
@@ -17,7 +15,7 @@ export function createEmbeddingService({ repository, embedder, concurrency = 4, 
     if (!doc) return false;
     const { vector, model, dim } = await embedder.embed(embeddableText(doc));
     await repository.setDocumentEmbedding(id, {
-      literal: toVectorLiteral(vector),
+      vector,
       backend: embedder.backend,
       model,
       dim,

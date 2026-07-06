@@ -21,8 +21,8 @@ import {
   fetchDocuments, createDocument, updateDocument, archiveDocument,
   restoreDocument, deleteArchivedDocument, fetchDocumentLinks,
   fetchStaleDocuments, fetchOrphanDocuments, fetchSemanticStatus,
-  setSemanticEnabled, reindexEmbeddings, semanticSearch, verifyDocument,
-  supersedeDocument,
+  setSemanticEnabled, putSemanticSettings, reindexEmbeddings, semanticSearch,
+  verifyDocument, supersedeDocument,
 } from './libraryApi.js';
 import { normalizeTask } from './taskModel.js';
 import { apiStatus, designStatus, isOpen } from './statusMap.js';
@@ -1403,6 +1403,38 @@ async function handleAction(action, el, event) {
       const preferences = resetPreferences();
       setState({ preferences });
       applyPreferences(preferences);
+      renderApp();
+      break;
+    }
+    case 'set-ai-provider': {
+      try {
+        const status = await putSemanticSettings({ backend: el.dataset.backend });
+        setState({ semanticStatus: status, librarySemantic: false, semanticResults: null });
+      } catch (err) {
+        showToast(err?.message || 'Prax could not switch the provider.');
+      }
+      renderApp();
+      break;
+    }
+    case 'save-ai-provider': {
+      const patch = {};
+      const model = appRoot.querySelector('[data-ai-model]');
+      if (model) patch.model = model.value.trim();
+      const ollamaUrl = appRoot.querySelector('[data-ai-ollama-url]');
+      if (ollamaUrl) patch.ollamaUrl = ollamaUrl.value.trim();
+      const openaiUrl = appRoot.querySelector('[data-ai-openai-url]');
+      if (openaiUrl) patch.openaiBaseUrl = openaiUrl.value.trim();
+      const key = appRoot.querySelector('[data-ai-key]');
+      if (key && key.value.trim()) patch.openaiApiKey = key.value.trim();
+      try {
+        const status = await putSemanticSettings(patch);
+        setState({ semanticStatus: status });
+        showToast(status.connected
+          ? `Connected to ${status.backend} — embeddings ready.`
+          : `Saved, but ${status.backend || 'the backend'} is not reachable yet.`);
+      } catch (err) {
+        showToast(err?.message || 'Prax could not save the provider settings.');
+      }
       renderApp();
       break;
     }

@@ -129,6 +129,24 @@ test('PUT semantic settings 409s when not configured', async () => {
   await app.close();
 });
 
+test('PUT semantic settings 400s on an unknown backend (validated before any write)', async () => {
+  const app = await makeApp({ available: true, enabled: true });
+  const res = await app.inject({ method: 'PUT', url: '/api/settings/semantic-search', payload: { backend: 'quantum' } });
+  assert.equal(res.statusCode, 400);
+  await app.close();
+});
+
+test('GET semantic settings exposes the provider fields (never the key value)', async () => {
+  const app = await makeApp({ available: true, enabled: true });
+  const body = (await app.inject({ method: 'GET', url: '/api/settings/semantic-search' })).json();
+  assert.equal(typeof body.model, 'string');
+  assert.equal(typeof body.ollamaUrl, 'string');
+  assert.equal(typeof body.openaiBaseUrl, 'string');
+  assert.equal(typeof body.hasApiKey, 'boolean');
+  assert.ok(!('openaiApiKey' in body));
+  await app.close();
+});
+
 test('creating a document fires a non-awaited embed when active', async () => {
   const embedded = [];
   const app = await makeApp({ available: true, enabled: true }, (f) => {

@@ -7,27 +7,69 @@ import {
   createLibraryRepository,
   normalizeDocumentRow,
   applyRelevanceCutoff,
+  cosineSimilarity,
 } from '../../server/libraryRepository.js';
 
-// The embedded-SQLite build has no vector operator: the semantic-search SQL
-// builder is a stub that must throw before emitting any SQL. The routes map
-// this to their existing 409/503 "unavailable" degradation.
-test('buildSearchDocumentsSemantic throws — no vector backend in the SQLite build', () => {
-  assert.throws(
-    () => buildSearchDocumentsSemantic('[0.1,0.2]', 'ollama', { limit: 5 }),
-    /semantic search requires a vector backend/,
-  );
+// Semantic search on the embedded-SQLite build: the SQL fetches candidate
+// rows (embedding included) and the cosine ranking happens in JS.
+test('buildSearchDocumentsSemantic selects candidates with the pg-era filters + embedding', () => {
+  const q = buildSearchDocumentsSemantic('fake', {});
+  assert.match(q.text, /select id, title, document_type, project_id, tags, body, kind, verified, status, embedding/);
+  assert.match(q.text, /archived_at is null/);
+  assert.match(q.text, /embedding is not null/);
+  assert.match(q.text, /embedding_backend = \$1/);
+  assert.match(q.text, /status = 'active'/);
+  assert.doesNotMatch(q.text, /<=>/, 'no pgvector operator on SQLite');
+  assert.deepEqual(q.values, ['fake']);
 });
 
-test('searchDocumentsSemantic (repository) surfaces the unavailable signal without touching the db', async () => {
-  let queried = false;
-  const db = { query: async () => { queried = true; return { rows: [] }; } };
+test('buildSearchDocumentsSemantic threads includeRetired and projectId', () => {
+  const retired = buildSearchDocumentsSemantic('fake', { includeRetired: true });
+  assert.doesNotMatch(retired.text, /status = 'active'/);
+
+  const scoped = buildSearchDocumentsSemantic('fake', { projectId: 'p1' });
+  assert.match(scoped.text, /project_id = \$2/);
+  assert.deepEqual(scoped.values, ['fake', 'p1']);
+});
+
+test('cosineSimilarity ranks aligned vectors above orthogonal ones and rejects junk', () => {
+  assert.ok(Math.abs(cosineSimilarity([1, 0], [1, 0]) - 1) < 1e-9);
+  assert.ok(Math.abs(cosineSimilarity([1, 0], [0, 1])) < 1e-9);
+  assert.ok(Math.abs(cosineSimilarity([1, 0], [-1, 0]) + 1) < 1e-9);
+  assert.equal(cosineSimilarity([1, 0], [1, 0, 0]), null);  // dim mismatch
+  assert.equal(cosineSimilarity([0, 0], [1, 0]), null);     // zero vector
+  assert.equal(cosineSimilarity([1], null), null);
+  assert.equal(cosineSimilarity([], []), null);
+});
+
+test('searchDocumentsSemantic ranks by cosine in JS, applies limit + cutoff, never leaks embeddings', async () => {
+  const rows = [
+    { id: 'near', title: 'Near', document_type: 'note', project_id: 'p1', tags: '["a"]', body: 'b', kind: 'source', verified: 1, status: 'active', embedding: JSON.stringify([1, 0]) },
+    { id: 'far', title: 'Far', document_type: 'note', project_id: 'p1', tags: '[]', body: 'b', kind: 'source', verified: 0, status: 'active', embedding: JSON.stringify([0, 1]) },
+    { id: 'close', title: 'Close', document_type: 'note', project_id: 'p1', tags: '[]', body: 'b', kind: 'source', verified: 0, status: 'active', embedding: JSON.stringify([0.9, 0.1]) },
+    { id: 'broken', title: 'Broken', document_type: 'note', project_id: 'p1', tags: '[]', body: 'b', kind: 'source', verified: 0, status: 'active', embedding: 'not-json' },
+  ];
+  let seen;
+  const db = { query: async (text, values) => { seen = { text, values }; return { rows }; } };
   const repo = createLibraryRepository(db);
-  await assert.rejects(
-    () => repo.searchDocumentsSemantic('[0.1]', 'ollama', {}),
-    /semantic search requires a vector backend/,
-  );
-  assert.equal(queried, false, 'must throw before issuing SQL');
+  const docs = await repo.searchDocumentsSemantic([1, 0], 'fake', { minSimilarity: 0.45, topDrop: 0.20 });
+  assert.deepEqual(seen.values, ['fake']);
+  assert.deepEqual(docs.map((d) => d.id), ['near', 'close']);   // sorted desc, 'far'+'broken' dropped
+  assert.ok(Math.abs(docs[0].similarity - 1) < 1e-9);           // similarity float rides along
+  assert.deepEqual(docs[0].tags, ['a']);                        // tags parsed
+  assert.equal(docs[0].verified, true);                         // 0/1 normalized
+  for (const d of docs) {
+    assert.ok(!('embedding' in d), 'embedding must never leave the repository');
+  }
+});
+
+test('searchDocumentsSemantic honours the limit before the cutoff (pg parity)', async () => {
+  const mk = (id, x, y) => ({ id, title: id, document_type: 'note', project_id: 'p1', tags: '[]', body: 'b', kind: 'source', verified: 0, status: 'active', embedding: JSON.stringify([x, y]) });
+  const rows = [mk('a', 1, 0), mk('b', 0.99, 0.14), mk('c', 0.98, 0.2)];
+  const db = { query: async () => ({ rows }) };
+  const repo = createLibraryRepository(db);
+  const docs = await repo.searchDocumentsSemantic([1, 0], 'fake', { limit: 2, minSimilarity: 0, topDrop: 1 });
+  assert.deepEqual(docs.map((d) => d.id), ['a', 'b']);
 });
 
 test('buildListDocumentsNeedingEmbedding selects null/stale/mismatched rows', () => {
@@ -39,12 +81,18 @@ test('buildListDocumentsNeedingEmbedding selects null/stale/mismatched rows', ()
   assert.deepEqual(q.values, ['ollama']);
 });
 
-test('buildSetDocumentEmbedding stores the vector as plain text (no pg cast)', () => {
-  const q = buildSetDocumentEmbedding('d1', { literal: '[0.1,0.2]', backend: 'fake', model: 'm', dim: 2, contentHash: 'h' });
+test('buildSetDocumentEmbedding stores the vector as JSON text (no pg cast)', () => {
+  const q = buildSetDocumentEmbedding('d1', { vector: [0.1, 0.2], backend: 'fake', model: 'm', dim: 2, contentHash: 'h' });
   assert.doesNotMatch(q.text, /::vector/);
   assert.match(q.text, /set embedding = \$2,/);
   assert.match(q.text, /embedded_at = strftime\('%Y-%m-%dT%H:%M:%fZ','now'\)/);
-  assert.deepEqual(q.values, ['d1', '[0.1,0.2]', 'fake', 'm', 2, 'h']);
+  assert.deepEqual(q.values, ['d1', JSON.stringify([0.1, 0.2]), 'fake', 'm', 2, 'h']);
+  assert.deepEqual(JSON.parse(q.values[1]), [0.1, 0.2], 'stored text round-trips through JSON.parse');
+});
+
+test('buildSetDocumentEmbedding rejects non-finite or non-array vectors', () => {
+  assert.throws(() => buildSetDocumentEmbedding('d1', { vector: '[0.1]', backend: 'fake', model: 'm', dim: 1, contentHash: 'h' }), /finite numbers/);
+  assert.throws(() => buildSetDocumentEmbedding('d1', { vector: [0.1, NaN], backend: 'fake', model: 'm', dim: 2, contentHash: 'h' }), /finite numbers/);
 });
 
 test('applyRelevanceCutoff keeps only the strong hit (calibration: graphics query)', () => {

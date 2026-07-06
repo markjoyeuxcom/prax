@@ -98,49 +98,49 @@ test('reading scale range carries bounds, current value, and a percent label', (
 
 // ---- Intelligence ---------------------------------------------------------
 
-test('semantic search unavailable: inert disabled switch, honest message, no reindex buttons', () => {
-  const html = renderSettingsHtml(baseState({ semanticStatus: { available: false } }), baseModel());
+test('no provider configured: disabled switch, invitation copy, Off card active', () => {
+  const html = renderSettingsHtml(baseState({ semanticStatus: { available: false, backend: null } }), baseModel());
   assert.match(html, /data-action="toggle-semantic-search"[^>]* disabled/);
-  assert.doesNotMatch(html, /class="switch is-on"/);
-  assert.match(html, /Semantic search is unavailable — no embedding backend is configured\./);
+  assert.doesNotMatch(html, /class="switch is-on" data-action="toggle-semantic-search"/);
+  assert.match(html, /Pick a provider below to enable searching the library by meaning\./);
+  assert.match(html, /provider-card is-active" data-action="set-ai-provider" data-backend="none"/);
   assert.doesNotMatch(html, /data-action="reindex-embeddings"/);
-  assert.doesNotMatch(html, /data-action="force-reindex-embeddings"/);
-  assert.doesNotMatch(html, /provider-card/);
 });
 
-test('semantic search available but disabled: switch off and enabled, status line, no reindex buttons', () => {
+test('ollama provider selected: config fields, save action, status line', () => {
   const html = renderSettingsHtml(baseState({
-    semanticStatus: { available: true, enabled: false, backend: 'ollama', connected: false, embeddedCount: 0, totalCount: 10 },
+    semanticStatus: { available: true, enabled: false, backend: 'ollama', connected: false, embeddedCount: 0, totalCount: 10, ollamaUrl: 'http://127.0.0.1:11434', model: 'nomic-embed-text' },
   }), baseModel());
-  assert.match(html, /class="switch" data-action="toggle-semantic-search" aria-pressed="false"/);
+  assert.match(html, /provider-card is-active" data-action="set-ai-provider" data-backend="ollama"/);
+  assert.match(html, /ollama · disconnected · 0\/10 documents embedded/);
+  assert.match(html, /data-ai-ollama-url value="http:\/\/127\.0\.0\.1:11434"/);
+  assert.match(html, /data-ai-model value="nomic-embed-text"/);
+  assert.match(html, /data-action="save-ai-provider"/);
+  assert.doesNotMatch(html, /data-ai-key/);
+  // disabled → no reindex yet, switch usable
+  assert.doesNotMatch(html, /data-action="reindex-embeddings"/);
   assert.doesNotMatch(html, /data-action="toggle-semantic-search"[^>]* disabled/);
-  assert.match(html, /Backend: ollama · disconnected · 0\/10 documents embedded/);
-  assert.doesNotMatch(html, /data-action="reindex-embeddings"/);
-  assert.doesNotMatch(html, /data-action="force-reindex-embeddings"/);
 });
 
-test('semantic search enabled: switch on, backend counts, reindex + rebuild buttons', () => {
+test('openai provider selected: key field is write-only and never echoes the key', () => {
   const html = renderSettingsHtml(baseState({
-    semanticStatus: { available: true, enabled: true, backend: 'ollama', connected: true, embeddedCount: 9, totalCount: 10 },
+    semanticStatus: { available: true, enabled: true, backend: 'openai', connected: true, embeddedCount: 9, totalCount: 10, openaiBaseUrl: 'https://api.openai.com/v1', model: 'text-embedding-3-small', hasApiKey: true },
   }), baseModel());
+  assert.match(html, /provider-card is-active" data-action="set-ai-provider" data-backend="openai"/);
+  assert.match(html, /data-ai-key value=""/);
+  assert.match(html, /placeholder="•••••••• saved — enter to replace"/);
+  assert.match(html, /type="password"/);
   assert.match(html, /class="switch is-on" data-action="toggle-semantic-search" aria-pressed="true"/);
-  assert.match(html, /Backend: ollama · connected · 9\/10 documents embedded/);
   assert.match(html, /data-action="reindex-embeddings"[^>]*>Re-index</);
   assert.match(html, /data-action="force-reindex-embeddings"[^>]*>Rebuild all</);
 });
 
-test('provider display is read-only backend status — no switching or API-key affordances', () => {
-  const html = renderSettingsHtml(baseState({
-    semanticStatus: { available: true, enabled: true, backend: 'openai', connected: true, embeddedCount: 2, totalCount: 2 },
-  }), baseModel());
-  assert.match(html, /<div class="provider-card is-active">/);
-  assert.match(html, /provider-card__label">openai</);
-  assert.match(html, /provider-card__desc">Configured on the server</);
-  assert.doesNotMatch(html, /<button[^>]*provider-card/);
-  assert.doesNotMatch(html, /type="password"/);
-  assert.doesNotMatch(html, /data-action="set-provider"/);
+test('all three provider cards render as buttons with backend payloads', () => {
+  const html = renderSettingsHtml(baseState({ semanticStatus: { available: false, backend: null } }), baseModel());
+  for (const backend of ['none', 'ollama', 'openai']) {
+    assert.match(html, new RegExp(`<button[^>]*data-action="set-ai-provider" data-backend="${backend}"`));
+  }
 });
-
 // ---- Data & admin ----------------------------------------------------------
 
 test('task export rows carry actions and the active project name', () => {

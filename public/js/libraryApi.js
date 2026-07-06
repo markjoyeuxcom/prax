@@ -78,6 +78,22 @@ export async function fetchSemanticStatus() {
   return res.json();
 }
 
+// Update the semantic-search provider configuration (backend/model/urls/key);
+// same endpoint as the enabled toggle — the server merges and returns the
+// fresh status shape.
+export async function putSemanticSettings(patch) {
+  const response = await fetch('/api/settings/semantic-search', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(patch || {}),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.message || 'Failed to update semantic settings');
+  }
+  return response.json();
+}
+
 export async function setSemanticEnabled(enabled) {
   const res = await fetch('/api/settings/semantic-search', {
     method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled }),
