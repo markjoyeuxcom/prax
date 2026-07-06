@@ -141,9 +141,10 @@ function sidebarSavedViews(state) {
 
 export function renderSidebarHtml(state, counts = {}) {
   // In the desktop shell the macOS traffic lights overlay the top-left corner
-  // — the app icon there reads as clutter, so the brand row is wordmark-only.
+  // — a full-size icon beneath them read as a fourth button, so the mark
+  // renders smaller, inline with the wordmark.
   const brand = '<div class="sidebar__brand">'
-    + (state.desktopShell ? '' : logo(25))
+    + logo(state.desktopShell ? 20 : 25)
     + '<span class="sidebar__wordmark">prax</span>'
     + '<span class="sidebar__byline">by moomora</span>'
     + '</div>';
