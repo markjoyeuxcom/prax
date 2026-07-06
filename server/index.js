@@ -75,4 +75,17 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const config = loadConfig();
   const app = await buildApp({ config, logger: true });
   await app.listen({ host: config.host, port: config.port });
+
+  // Graceful shutdown: close Fastify (which closes the embedded database via
+  // the onClose hook) before exiting. The desktop wrapper and orchestrators
+  // send SIGTERM; Ctrl-C sends SIGINT.
+  for (const signal of ['SIGTERM', 'SIGINT']) {
+    process.once(signal, async () => {
+      try {
+        await app.close();
+      } finally {
+        process.exit(0);
+      }
+    });
+  }
 }

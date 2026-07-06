@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Prax</title>
+  <style>
+    :root {
+      --bg: #F1F0EC;
+      --ink: #1F2624;
+      --ink2: #59625E;
+      --accent: #3E8172;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #171C1B;
+        --ink: #E6EAE8;
+        --ink2: #9AA5A0;
+        --accent: #6FB5A4;
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Instrument Sans", "Helvetica Neue", -apple-system, "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .logo { animation: pulse 1.6s ease-in-out infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+    h1 { font-size: 15.5px; font-weight: 650; margin: 0; letter-spacing: -0.015em; }
+    p { font-size: 12.5px; color: var(--ink2); margin: 0; max-width: 420px; text-align: center; line-height: 1.55; }
+    body[data-state="error"] .logo { animation: none; opacity: .4; }
+    body[data-state="error"] h1::after { content: " could not start"; }
+    #detail { min-height: 1em; }
+  </style>
+</head>
+<body>
+  <svg class="logo" width="48" height="48" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+    <rect x="1.5" y="1.5" width="25" height="25" rx="7.5" stroke="var(--accent)" stroke-width="2"/>
+    <rect x="8.2" y="8.2" width="11.6" height="11.6" rx="2.6" stroke="var(--accent)" stroke-width="1.7" transform="rotate(45 14 14)"/>
+    <text x="14" y="17.2" text-anchor="middle" font-family="inherit" font-size="9" font-weight="700" fill="var(--accent)">p</text>
+  </svg>
+  <h1>Prax</h1>
+  <p id="detail">Starting the local server…</p>
+</body>
+</html>
