@@ -48,3 +48,8 @@ test('drawer geometry uses the inset/width custom properties', () => {
   assert.match(css, /\.drawer\s*\{[^}]*var\(--drawer-inset, 34px\)/s);
   assert.match(css, /width:\s*var\(--drawer-w, 410px\)/);
 });
+
+test('desktop shell mode removes the desk inset and window frame', () => {
+  assert.match(css, /body\.is-desktop \.desk\s*\{[^}]*padding:\s*0/s);
+  assert.match(css, /body\.is-desktop \.window\s*\{[^}]*border-radius:\s*0/s);
+});
