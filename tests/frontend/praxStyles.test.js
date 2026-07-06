@@ -53,3 +53,7 @@ test('desktop shell mode removes the desk inset and window frame', () => {
   assert.match(css, /body\.is-desktop \.desk\s*\{[^}]*padding:\s*0/s);
   assert.match(css, /body\.is-desktop \.window\s*\{[^}]*border-radius:\s*0/s);
 });
+
+test('macOS overlay titlebar insets content to clear the traffic lights', () => {
+  assert.match(css, /body\.is-desktop-mac \.titlebar\s*\{[^}]*padding-left:\s*84px/s);
+});

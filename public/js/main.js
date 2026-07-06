@@ -1755,9 +1755,14 @@ async function init() {
   const preferences = loadPreferences();
   // The Tauri shell serves the app with ?shell=desktop — the OS window chrome
   // is real there, so the in-app fake chrome is suppressed.
-  const desktopShell = new URLSearchParams(window.location.search).get('shell') === 'desktop';
+  const params = new URLSearchParams(window.location.search);
+  const desktopShell = params.get('shell') === 'desktop';
+  const desktopPlatform = desktopShell ? (params.get('platform') || '') : '';
   document.body.classList.toggle('is-desktop', desktopShell);
-  setState({ preferences, librarySavedViews: loadSavedViews(), winW: window.innerWidth, desktopShell });
+  // macOS merges the native titlebar into the app's top bar (overlay style) —
+  // inset the bar so the traffic lights sit inside it.
+  document.body.classList.toggle('is-desktop-mac', desktopShell && desktopPlatform === 'macos');
+  setState({ preferences, librarySavedViews: loadSavedViews(), winW: window.innerWidth, desktopShell, desktopPlatform });
   applyPreferences(preferences);
   appRoot.innerHTML = '<main class="empty" style="height:100vh"><p class="empty__sub">Loading Prax…</p></main>';
   try {

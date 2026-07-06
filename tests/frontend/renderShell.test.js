@@ -267,3 +267,15 @@ test('desktop shell suppresses the fake window chrome (the OS provides it)', () 
   assert.match(desktopMac, /data-action="open-palette"/);
   assert.match(desktopMac, /data-action="open-capture"/);
 });
+
+test('desktop shell titlebar is the drag region with no left ornament', () => {
+  const html = renderTitlebarHtml(makeState({ desktopShell: true }));
+  // draggable strip (titlebar + crumb both carry the attribute)
+  assert.match(html, /<div class="titlebar" data-tauri-drag-region>/);
+  assert.match(html, /titlebar__crumb" data-tauri-drag-region/);
+  // no logo or fake controls at the left — the real traffic lights live there
+  assert.doesNotMatch(html, /<svg/.source ? /titlebar" data-tauri-drag-region><svg/ : /x/);
+  // browser mode keeps its ornament and has no drag attribute
+  const web = renderTitlebarHtml(makeState());
+  assert.doesNotMatch(web, /data-tauri-drag-region/);
+});

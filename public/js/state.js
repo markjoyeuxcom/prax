@@ -19,6 +19,7 @@ export const state = {
 
   // ---- chrome / status ----
   desktopShell: false,          // true when served inside the Tauri shell (?shell=desktop)
+  desktopPlatform: '',          // 'macos' | 'windows' | 'linux' when desktopShell
   apiStatus: 'unknown',         // 'unknown' | 'loading' | 'connected' | 'error'
   winW: 1400,                   // window width for the sidebar→rail switch (<940)
 
