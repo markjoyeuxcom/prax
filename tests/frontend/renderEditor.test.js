@@ -165,12 +165,13 @@ test('focus mode hides toolbar and outline and marks the sheet pane', () => {
 
 // ---- archived (readOnly) -----------------------------------------------------
 
-test('archived doc forces preview and offers restore/delete', () => {
-  const html = render({ editorMode: 'edit' }, { archivedAt: '2026-06-01T00:00:00.000Z' });
+test('archived doc forces preview and offers restore/delete in the menu', () => {
+  const html = render({ editorMode: 'edit', docMenuOpen: true }, { archivedAt: '2026-06-01T00:00:00.000Z' });
   assert.match(html, /data-markdown-preview/);
   assert.equal(html.includes('data-document-editor'), false);
   assert.equal(html.includes('data-action="set-editor-mode"'), false);
   assert.equal(html.includes('data-action="md-format"'), false);
+  assert.match(html, /chip--state-archived[^>]*>ARCHIVED</);
   assert.match(html, /data-action="restore-document"/);
   assert.match(html, /data-action="delete-archived-document"/);
   assert.equal(html.includes('data-action="archive-document"'), false);
@@ -178,27 +179,38 @@ test('archived doc forces preview and offers restore/delete', () => {
   assert.equal(html.includes('data-action="supersede-document"'), false);
 });
 
-// ---- trust strip ---------------------------------------------------------------
+// ---- trust chips + document menu ------------------------------------------------
 
-test('trust strip shows kind chip, meta, and actions for a source doc', () => {
+test('the header keeps the prototype shape: no trust strip, actions behind the menu', () => {
   const html = render();
-  assert.match(html, /class="chip"[^>]*>SOURCE</);
+  assert.equal(html.includes('trust-strip'), false);
+  assert.match(html, /data-action="toggle-doc-menu"/);
+  // menu closed by default: no actions rendered yet
+  assert.equal(html.includes('data-action="toggle-verify"'), false);
+  assert.equal(html.includes('data-action="archive-document"'), false);
+  // a plain source doc shows no trust chips in the header
+  assert.equal(html.includes('>SOURCE<'), false);
+});
+
+test('the open menu carries meta and verify/supersede/archive/info for a source doc', () => {
+  const html = render({ docMenuOpen: true });
+  assert.match(html, /menu__meta">Source · updated by user · unverified</);
+  assert.match(html, /data-action="edit-document-info">Document info…</);
   assert.match(html, /data-action="toggle-verify">Verify</);
   assert.match(html, /data-action="supersede-document">Supersede…</);
   assert.match(html, /data-action="archive-document">Archive</);
-  assert.match(html, /Updated by user · unverified/);
 });
 
-test('synthesized + verified doc flips chips, meta, and the verify label', () => {
-  const html = render({}, { kind: 'synthesized', verified: true, verifiedBy: 'marc', updatedBy: 'agent' });
-  assert.match(html, /chip--synth[^>]*>SYNTHESIZED</);
+test('synthesized + verified doc shows header chips and flips the menu labels', () => {
+  const html = render({ docMenuOpen: true }, { kind: 'synthesized', verified: true, verifiedBy: 'marc', updatedBy: 'agent' });
+  assert.match(html, /chip--synth[^>]*>SYNTH</);
   assert.match(html, /chip--verified[^>]*>VERIFIED</);
   assert.match(html, /data-action="toggle-verify">Unverify</);
-  assert.match(html, /Updated by agent · verified by marc/);
+  assert.match(html, /Synthesized · updated by agent · verified by marc/);
 });
 
 test('superseded doc shows the chip and hides the supersede action', () => {
-  const html = render({}, { status: 'superseded' });
+  const html = render({ docMenuOpen: true }, { status: 'superseded' });
   assert.match(html, /chip--superseded[^>]*>SUPERSEDED</);
   assert.equal(html.includes('data-action="supersede-document"'), false);
 });

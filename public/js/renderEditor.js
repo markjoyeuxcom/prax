@@ -82,6 +82,47 @@ function projectChip(name, color) {
   return `<span class="chip chip--project" style="background:color-mix(in oklab, ${safeColor} 13%, transparent);color:${safeColor}">${escapeHtml(name)}</span>`;
 }
 
+function trustChips(doc) {
+  const chips = [];
+  if (doc.kind === 'synthesized') {
+    chips.push('<span class="chip chip--synth" aria-label="Document kind: synthesized">SYNTH</span>');
+  }
+  if (doc.verified === true) {
+    chips.push('<span class="chip chip--verified" aria-label="Verified by a human">VERIFIED</span>');
+  }
+  if (doc.status === 'superseded') {
+    chips.push('<span class="chip chip--superseded" aria-label="Superseded by a newer document">SUPERSEDED</span>');
+  }
+  if (doc.archivedAt) {
+    chips.push('<span class="chip chip--state-archived" aria-label="Archived document">ARCHIVED</span>');
+  }
+  return chips.join('');
+}
+
+function renderDocMenu(state, doc, { readOnly }) {
+  const verifiedText = doc.verified
+    ? `verified${doc.verifiedBy ? ` by ${escapeHtml(doc.verifiedBy)}` : ''}`
+    : 'unverified';
+  const meta = `${doc.kind === 'synthesized' ? 'Synthesized' : 'Source'} · updated by ${escapeHtml(doc.updatedBy || 'user')} · ${verifiedText}`;
+
+  const items = readOnly ? `
+        <button class="menu__item" type="button" data-action="restore-document">Restore</button>
+        <button class="menu__item menu__item--danger" type="button" data-action="delete-archived-document">Delete permanently</button>` : `
+        <button class="menu__item" type="button" data-action="edit-document-info">Document info…</button>
+        <button class="menu__item" type="button" data-action="toggle-verify">${doc.verified ? 'Unverify' : 'Verify'}</button>
+        ${doc.status === 'superseded' ? '' : '<button class="menu__item" type="button" data-action="supersede-document">Supersede…</button>'}
+        <button class="menu__item menu__item--danger" type="button" data-action="archive-document">Archive</button>`;
+
+  return `
+      <div class="menu">
+        <button class="btn-ghost" type="button" data-action="toggle-doc-menu" aria-haspopup="true" aria-expanded="${Boolean(state.docMenuOpen)}" title="Document actions">•••</button>
+        ${state.docMenuOpen ? `<div class="menu__panel" role="menu">
+          <div class="menu__meta">${meta}</div>
+          ${items}
+        </div>` : ''}
+      </div>`;
+}
+
 function renderHead(state, doc, { mode, readOnly }) {
   const tags = (Array.isArray(doc.tags) ? doc.tags : []).filter(Boolean);
   const seg = readOnly ? '' : `
@@ -93,47 +134,13 @@ function renderHead(state, doc, { mode, readOnly }) {
     <header class="editor-head">
       <button class="editor-head__back" type="button" data-action="back-to-library" title="Back to library" aria-label="Back to library">←</button>
       <input class="editor-head__title" type="text" data-doc-title value="${escapeHtml(doc.title || '')}" aria-label="Document title" autocomplete="off" spellcheck="false"${readOnly ? ' readonly' : ''}>
-      ${tags.length ? `<div class="editor-head__tags">${tags.map((tag) => chip(`#${tag}`, 'tag')).join('')}</div>` : ''}${seg}
-      <button class="btn-ghost${state.outlineOpen ? ' is-on' : ''}" type="button" data-action="toggle-outline" aria-pressed="${Boolean(state.outlineOpen)}">Outline</button>
+      <div class="editor-head__tags">${tags.map((tag) => chip(`#${tag}`, 'tag')).join('')}${trustChips(doc)}</div>
+      <button class="btn-ghost btn-ghost--toggle${state.outlineOpen ? ' is-on' : ''}" type="button" data-action="toggle-outline" aria-pressed="${Boolean(state.outlineOpen)}">Outline</button>
       <button class="btn-ghost" type="button" data-action="export-doc" title="Download this document as .md">Export</button>
+      ${seg}
       <button class="btn-ghost${state.editorFocus ? ' is-on' : ''}" type="button" data-action="toggle-focus" title="Focus mode (Esc to exit)" aria-pressed="${Boolean(state.editorFocus)}">Focus</button>
-      ${readOnly ? '' : '<button class="btn-ghost" type="button" data-action="edit-document-info">Info</button>'}
+      ${renderDocMenu(state, doc, { readOnly })}
     </header>`;
-}
-
-function renderTrustStrip(doc, { readOnly }) {
-  const chips = [];
-  if (doc.kind === 'synthesized') {
-    chips.push('<span class="chip chip--synth" aria-label="Document kind: synthesized">SYNTHESIZED</span>');
-  } else {
-    chips.push('<span class="chip" aria-label="Document kind: source">SOURCE</span>');
-  }
-  if (doc.verified === true) {
-    chips.push('<span class="chip chip--verified" aria-label="Verified by a human">VERIFIED</span>');
-  }
-  if (doc.status === 'superseded') {
-    chips.push('<span class="chip chip--superseded" aria-label="Superseded by a newer document">SUPERSEDED</span>');
-  }
-
-  const verifiedText = doc.verified
-    ? `verified${doc.verifiedBy ? ` by ${escapeHtml(doc.verifiedBy)}` : ''}`
-    : 'unverified';
-  const meta = `Updated by ${escapeHtml(doc.updatedBy || 'user')} · ${verifiedText}`;
-
-  const actions = readOnly ? `
-        <button class="btn-ghost" type="button" data-action="restore-document">Restore</button>
-        <button class="btn-ghost" type="button" data-action="delete-archived-document">Delete</button>` : `
-        <button class="btn-ghost" type="button" data-action="toggle-verify">${doc.verified ? 'Unverify' : 'Verify'}</button>
-        ${doc.status === 'superseded' ? '' : '<button class="btn-ghost" type="button" data-action="supersede-document">Supersede…</button>'}
-        <button class="btn-ghost" type="button" data-action="archive-document">Archive</button>`;
-
-  return `
-    <div class="trust-strip">
-      ${chips.join('')}
-      <span class="trust-strip__meta">${meta}</span>
-      <span class="trust-strip__actions">${actions}
-      </span>
-    </div>`;
 }
 
 function renderInfoForm(state, doc) {
@@ -298,7 +305,6 @@ export function renderEditorHtml(state, doc, model = {}) {
   return `
   <div class="editor">
     ${renderHead(state, doc, { mode, readOnly })}
-    ${renderTrustStrip(doc, { readOnly })}
     ${state.isDocumentInfoEditorOpen ? renderInfoForm(state, doc) : ''}
     ${toolbarHtml}
     <div class="editor-body">${outlineHtml}${panesHtml}

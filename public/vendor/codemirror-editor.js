@@ -25536,15 +25536,21 @@ function mountCodeMirrorEditor({
   host,
   value = "",
   onChange,
-  onSave
+  onSave,
+  lineNumbers: showLineNumbers = false,
+  cursorToEnd = true
 } = {}) {
   if (!host) return null;
+  const doc2 = String(value ?? "");
   const view = new EditorView({
     parent: host,
     state: EditorState.create({
-      doc: String(value ?? ""),
+      doc: doc2,
+      // Open with the caret at the end so typing continues the document
+      // instead of landing above the title heading.
+      selection: cursorToEnd ? { anchor: doc2.length } : void 0,
       extensions: [
-        lineNumbers(),
+        ...showLineNumbers ? [lineNumbers()] : [],
         history(),
         drawSelection(),
         indentOnInput(),

@@ -1708,3 +1708,57 @@ body.is-desktop .window {
   border-radius: 0;
   box-shadow: none;
 }
+
+/* ---- Editor polish: full-height sheet, overflow menu, outline toggle ---- */
+
+.main__scroll > .editor { min-height: 100%; }
+.pane--sheet .sheet {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+.pane--sheet .sheet .editor-ta { flex: 1; }
+.pane--sheet .sheet .prose { flex: 1; }
+.code-editor { flex: 1; display: flex; flex-direction: column; }
+.code-editor .cm-editor { flex: 1; }
+
+.btn-ghost--toggle.is-on {
+  background: transparent;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.menu { position: relative; }
+.menu__panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 230px;
+  background: var(--surface);
+  border: 1px solid var(--line2);
+  border-radius: 10px;
+  box-shadow: var(--pop);
+  padding: 6px;
+  z-index: 30;
+  animation: mmPop .16s cubic-bezier(.2, .8, .25, 1);
+}
+.menu__meta {
+  font-size: 11px;
+  color: var(--ink3);
+  padding: 6px 8px 8px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
+  line-height: 1.5;
+}
+.menu__item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 8px;
+  border-radius: 7px;
+  font-size: 12.5px;
+  color: var(--ink);
+  transition: background .1s ease;
+}
+.menu__item:hover { background: var(--accent-soft); }
+.menu__item--danger:hover { background: var(--hi-soft); color: var(--hi); }

@@ -96,6 +96,13 @@ function renderAppearanceCard(preferences) {
     </div>
 
     <div class="settings-row">
+        <div class="settings-row__text">
+          <div class="settings-row__label">Editor line numbers</div>
+          <div class="settings-row__desc">Show a line-number gutter in the Markdown editor.</div>
+        </div>
+        <button class="switch${preferences.lineNumbers ? ' is-on' : ''}" type="button" data-action="toggle-line-numbers" role="switch" aria-checked="${Boolean(preferences.lineNumbers)}" aria-label="Editor line numbers"><span></span></button>
+      </div>
+      <div class="settings-row">
       <div class="settings-row__text">
         <div class="settings-row__label" style="display:flex; align-items:center; justify-content:space-between;">
           <span>Reading text size</span>
