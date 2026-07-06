@@ -43,10 +43,12 @@ test('buildRevertSupersededIfOrphan reverts only when no live supersedes link re
   assert.deepEqual(q.values, [ID]);
 });
 
-test('buildSearchDocumentsSemantic is a throwing stub in the SQLite build', () => {
-  // No vector backend: the builder must never emit SQL (routes degrade 409/503).
-  assert.throws(() => buildSearchDocumentsSemantic('[0.1]', 'fake', {}), /semantic search requires a vector backend/);
-  assert.throws(() => buildSearchDocumentsSemantic('[0.1]', 'fake', { includeRetired: true }), /semantic search requires a vector backend/);
+test('buildSearchDocumentsSemantic hides retired docs unless includeRetired', () => {
+  // JS-cosine path: the candidate SQL keeps the pg-era trust filters.
+  const active = buildSearchDocumentsSemantic('fake', {});
+  assert.match(active.text, /status = 'active'/);
+  const all = buildSearchDocumentsSemantic('fake', { includeRetired: true });
+  assert.doesNotMatch(all.text, /status = 'active'/);
 });
 
 test('listDocuments applies a known status filter', async () => {

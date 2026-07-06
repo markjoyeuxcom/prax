@@ -1,11 +1,31 @@
+import { isEmbedderSettingsError } from './embedderProvider.js';
+
 const SETTING_KEY = 'semantic_search_enabled';
+const PROVIDER_FIELDS = ['backend', 'model', 'ollamaUrl', 'openaiBaseUrl', 'openaiApiKey'];
 
 export async function registerSettingsRoutes(app, options = {}) {
   const appSettings = options.appSettingsRepository || app.appSettingsRepository;
-  const embedder = options.embedder ?? app.embedder ?? null;
   const library = options.libraryRepository || app.libraryRepository;
+  const embedderProvider = options.embedderProvider ?? app.embedderProvider ?? null;
+  // Behavioral tests may inject an embedder directly — it wins over the
+  // runtime provider; the boot-time decorated embedder stays as the fallback.
+  const injectedEmbedder = options.embedder ?? null;
+
+  async function resolveEmbedder() {
+    if (injectedEmbedder) return injectedEmbedder;
+    if (embedderProvider) {
+      try {
+        return await embedderProvider.getEmbedder();
+      } catch {
+        return null;
+      }
+    }
+    return app.embedder ?? null;
+  }
 
   async function semanticStatus() {
+    const embedder = await resolveEmbedder();
+    const settings = embedderProvider ? await embedderProvider.getSettings().catch(() => null) : null;
     const available = Boolean(embedder);
     const enabled = available
       ? Boolean(await appSettings.getSetting(SETTING_KEY, true).catch(() => false))
@@ -23,15 +43,43 @@ export async function registerSettingsRoutes(app, options = {}) {
       connected,
       embeddedCount: counts.embedded,
       totalCount: counts.total,
+      model: settings ? settings.model : '',
+      ollamaUrl: settings ? settings.ollamaUrl : '',
+      openaiBaseUrl: settings ? settings.openaiBaseUrl : '',
+      hasApiKey: settings ? settings.hasApiKey : false,
     };
   }
 
   app.get('/api/settings/semantic-search', async () => semanticStatus());
 
   app.put('/api/settings/semantic-search', async (request, reply) => {
+    const body = request.body && typeof request.body === 'object' && !Array.isArray(request.body) ? request.body : {};
+    const patch = {};
+    for (const field of PROVIDER_FIELDS) {
+      if (body[field] !== undefined) patch[field] = body[field];
+    }
+
+    if (Object.keys(patch).length > 0) {
+      // Provider reconfiguration: valid even when the current backend is
+      // 'none' — this is how semantic search gets configured in the first
+      // place. Invalid values map to 400.
+      if (!embedderProvider) { reply.code(409); return { message: 'semantic search is not configured' }; }
+      try {
+        await embedderProvider.putSettings(patch);
+      } catch (err) {
+        if (isEmbedderSettingsError(err)) { reply.code(400); return { message: err.message }; }
+        throw err;
+      }
+      if (body.enabled !== undefined) {
+        await appSettings.putSetting(SETTING_KEY, Boolean(body.enabled));
+      }
+      return semanticStatus();
+    }
+
+    // Legacy shape: a bare { enabled } toggle, 409 when nothing is configured.
+    const embedder = await resolveEmbedder();
     if (!embedder) { reply.code(409); return { message: 'semantic search is not configured' }; }
-    const enabled = Boolean(request.body && request.body.enabled);
-    await appSettings.putSetting(SETTING_KEY, enabled);
+    await appSettings.putSetting(SETTING_KEY, Boolean(body.enabled));
     return semanticStatus();
   });
 }

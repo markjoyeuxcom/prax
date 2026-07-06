@@ -352,6 +352,80 @@ test('context pack renders markdown from the keyword fallback', async () => {
   assert.match(res.headers['content-type'], /text\/markdown/);
 });
 
+test('semantic search: runtime provider config + reindex + JS-cosine ranking (fake backend)', async () => {
+  // Invalid provider config never persists.
+  const bad = await app.inject({ method: 'PUT', url: '/api/settings/semantic-search', payload: { backend: 'quantum' } });
+  assert.equal(bad.statusCode, 400);
+  const badUrl = await app.inject({ method: 'PUT', url: '/api/settings/semantic-search', payload: { backend: 'ollama', ollamaUrl: 'not a url' } });
+  assert.equal(badUrl.statusCode, 400);
+  assert.equal((await app.inject({ method: 'GET', url: '/api/settings/semantic-search' })).json().available, false);
+
+  // Enable the deterministic fake backend at runtime — no restart, no env.
+  const put = await app.inject({ method: 'PUT', url: '/api/settings/semantic-search', payload: { backend: 'fake', enabled: true } });
+  assert.equal(put.statusCode, 200);
+  const status = put.json();
+  assert.equal(status.available, true);
+  assert.equal(status.enabled, true);
+  assert.equal(status.backend, 'fake');
+  assert.equal(status.connected, true);
+  assert.equal(status.hasApiKey, false);
+  assert.equal(typeof status.model, 'string');
+  assert.equal(typeof status.ollamaUrl, 'string');
+  assert.equal(typeof status.openaiBaseUrl, 'string');
+
+  const created = await app.inject({
+    method: 'POST',
+    url: '/api/library/documents',
+    payload: { title: 'Backup drill', body: 'Quarterly restore rehearsal for the NAS.', documentType: 'note', project: 'homelab' },
+  });
+  assert.equal(created.statusCode, 201);
+  const target = created.json();
+
+  // Reindex embeds every active doc (idempotent with the write-path embed).
+  const reindex = await app.inject({ method: 'POST', url: '/api/library/embeddings/reindex' });
+  assert.equal(reindex.statusCode, 200);
+  assert.equal(reindex.json().failed, 0);
+
+  const counts = (await app.inject({ method: 'GET', url: '/api/settings/semantic-search' })).json();
+  assert.ok(counts.totalCount >= 4, `expected the flow's docs, got ${counts.totalCount}`);
+  assert.equal(counts.embeddedCount, counts.totalCount);
+
+  // The fake embedder is deterministic (text -> fixed vector), so a query of
+  // the exact embedded text (title\n\nbody) makes the doc its own top hit.
+  const q = encodeURIComponent('Backup drill\n\nQuarterly restore rehearsal for the NAS.');
+  const search = await app.inject({ method: 'GET', url: `/api/library/documents/semantic-search?q=${q}` });
+  assert.equal(search.statusCode, 200);
+  const refs = search.json();
+  assert.ok(refs.length >= 1, 'expected at least the exact-match doc');
+  assert.equal(refs[0].id, target.id);
+  assert.ok('snippet' in refs[0]);
+  for (const ref of refs) {
+    assert.ok(!('embedding' in ref));
+    assert.ok(!('similarity' in ref));
+  }
+
+  // Project scoping still applies on the JS-cosine path.
+  const scoped = await app.inject({ method: 'GET', url: `/api/library/documents/semantic-search?q=${q}&project=personal` });
+  assert.equal(scoped.statusCode, 200);
+  assert.equal(scoped.json().length, 0);
+
+  // Context pack rides the same semantic branch when given a query.
+  const pack = await app.inject({ method: 'GET', url: `/api/projects/homelab/context-pack?query=${q}&format=json` });
+  assert.equal(pack.statusCode, 200);
+  assert.ok(pack.json().sections.some((s) => s.items.some((i) => i.id === target.id)));
+
+  // Disable -> the gate slams shut again (honest degradation).
+  const off = await app.inject({ method: 'PUT', url: '/api/settings/semantic-search', payload: { enabled: false } });
+  assert.equal(off.json().enabled, false);
+  assert.equal((await app.inject({ method: 'GET', url: `/api/library/documents/semantic-search?q=${q}` })).statusCode, 409);
+
+  // Back to backend none -> unavailable everywhere, like the shipped default.
+  const none = await app.inject({ method: 'PUT', url: '/api/settings/semantic-search', payload: { backend: 'none' } });
+  assert.equal(none.statusCode, 200);
+  assert.equal(none.json().available, false);
+  assert.equal((await app.inject({ method: 'POST', url: '/api/library/embeddings/reindex' })).statusCode, 409);
+});
+
 test('teardown', async () => {
   await app.close();
 });

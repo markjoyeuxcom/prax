@@ -28,7 +28,9 @@ export function createOpenAiEmbedder({ baseUrl, apiKey, model, fetch = globalThi
     },
     async isAvailable() {
       try {
-        const res = await fetch(`${base}/models`, { headers: headers() });
+        // Cheap reachability probe with a short timeout so settings reads
+        // never hang on a dead host.
+        const res = await fetch(`${base}/models`, { headers: headers(), signal: AbortSignal.timeout(1500) });
         return res.ok;
       } catch {
         return false;

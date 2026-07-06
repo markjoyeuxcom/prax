@@ -218,10 +218,12 @@ export function buildListActiveDocumentsForExport({ projectId } = {}) {
   };
 }
 
-export function buildSetDocumentEmbedding(id, { literal, backend, model, dim, contentHash }) {
-  // Embedding STORAGE keeps working on SQLite: the vector is plain text in a
-  // TEXT column (pg's ::vector cast is gone), ready for the sqlite-vec
-  // follow-up. Only the similarity-search path below is disabled.
+export function buildSetDocumentEmbedding(id, { vector, backend, model, dim, contentHash }) {
+  // Embeddings are stored as JSON text (a JSON.stringify'd float array) in the
+  // TEXT column; the JS cosine search path parses them back at query time.
+  if (!Array.isArray(vector) || vector.some((n) => typeof n !== 'number' || !Number.isFinite(n))) {
+    throw new Error('vector must be an array of finite numbers');
+  }
   return {
     text: `
       update markdown_documents
@@ -234,18 +236,61 @@ export function buildSetDocumentEmbedding(id, { literal, backend, model, dim, co
       where id = $1
       returning id
     `,
-    values: [id, literal, backend, model, dim, contentHash],
+    values: [id, JSON.stringify(vector), backend, model, dim, contentHash],
   };
 }
 
-// STUB — semantic search is unavailable in the embedded-SQLite build.
-// pgvector's `embedding <=> query` cosine-distance operator has no SQLite
-// equivalent until the sqlite-vec follow-up, so this must never emit vector
-// SQL. It throws instead; the routes already wrap the call and map failures
-// to their 409/503 "not configured / backend unavailable" responses (and with
-// the shipped EMBEDDING_BACKEND=none the routes gate before ever calling it).
-export function buildSearchDocumentsSemantic() {
-  throw new Error('semantic search requires a vector backend');
+// Candidate query for semantic search: same filters and columns the old pg
+// query used, minus the pgvector distance — ranking happens in JS (SQLite has
+// no vector operator), so the embedding column rides along to be scored.
+export function buildSearchDocumentsSemantic(backend, { projectId, includeRetired = false } = {}) {
+  const values = [backend];
+  let where = 'where archived_at is null and embedding is not null and embedding_backend = $1';
+  if (!includeRetired) {
+    where += ` and status = 'active'`;
+  }
+  if (projectId) {
+    values.push(projectId);
+    where += ` and project_id = $${values.length}`;
+  }
+  return {
+    text: `
+      select id, title, document_type, project_id, tags, body, kind, verified, status, embedding
+      from markdown_documents
+      ${where}
+    `,
+    values,
+  };
+}
+
+// Stored embeddings are JSON text; malformed or non-array content degrades to
+// null (the row is skipped) rather than breaking the whole search.
+function parseEmbedding(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string' || value === '') return null;
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+// Plain-JS cosine similarity. Returns null (not 0) for unusable pairs —
+// mismatched dimensions, empty/zero vectors — so callers can drop the row.
+export function cosineSimilarity(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length === 0 || a.length !== b.length) return null;
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    dot += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+  const denominator = Math.sqrt(normA) * Math.sqrt(normB);
+  if (!denominator) return null;
+  return dot / denominator;
 }
 
 export function buildListDocumentsNeedingEmbedding(backend) {
@@ -419,11 +464,23 @@ export function createLibraryRepository(db) {
       return result.rows[0] ? result.rows[0].id : null;
     },
 
-    async searchDocumentsSemantic(queryLiteral, backend, opts = {}) {
-      const q = buildSearchDocumentsSemantic(queryLiteral, backend, opts);
+    // JS-side vector search: fetch candidates, cosine-rank against the query
+    // vector, keep the top `limit`, then apply the same relevance cutoff the
+    // pg path used. Rows come back normalized (tags parsed, embedding never
+    // leaks) plus a `similarity` float.
+    async searchDocumentsSemantic(queryVector, backend, opts = {}) {
+      const q = buildSearchDocumentsSemantic(backend, { projectId: opts.projectId, includeRetired: opts.includeRetired });
       const result = await db.query(q.text, q.values);
-      const kept = applyRelevanceCutoff(result.rows, { minSimilarity: opts.minSimilarity, topDrop: opts.topDrop });
-      return kept.map(normalizeDocumentRow);
+      const limit = Number.isFinite(Number(opts.limit)) && Number(opts.limit) > 0 ? Number(opts.limit) : 20;
+      const ranked = [];
+      for (const row of result.rows) {
+        const similarity = cosineSimilarity(queryVector, parseEmbedding(row.embedding));
+        if (similarity === null || !Number.isFinite(similarity)) continue;
+        ranked.push({ ...row, similarity });
+      }
+      ranked.sort((a, b) => b.similarity - a.similarity);
+      const kept = applyRelevanceCutoff(ranked.slice(0, limit), { minSimilarity: opts.minSimilarity, topDrop: opts.topDrop });
+      return kept.map((row) => ({ ...normalizeDocumentRow(row), similarity: row.similarity }));
     },
 
     async listDocumentsNeedingEmbedding(backend) {

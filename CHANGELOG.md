@@ -14,6 +14,29 @@ fresh empty `[Unreleased]` section is started.
 
 ### Added
 
+- **Semantic search is back — configured from Settings, running on the
+  embedded database.** Settings ▸ Intelligence now offers real provider
+  selection (Off / Ollama / OpenAI-compatible endpoint) with model, server
+  URL, and write-only API key fields plus "Save & test connection"; the
+  configuration persists in the database (`PUT /api/settings/semantic-search`
+  gains optional provider fields — additive, the key is never returned).
+  Vector ranking runs in-process over embeddings stored as JSON — no native
+  extensions — with the same relevance cutoff as the Postgres era. Re-index /
+  Rebuild live in the same card. (The design comp's "Claude API" provider
+  does not exist — Claude has no embeddings API — so the honest provider set
+  is Ollama and OpenAI-compatible.)
+- The Markdown editor gained a Settings toggle for **line numbers** (off by
+  default, matching the design) and opens documents with the caret at the
+  end.
+
+### Changed
+
+- The editor header now matches the design comp: tag and provenance chips sit
+  beside the title, Outline is an outlined toggle, Edit/Split/Preview is a
+  segmented control, and document actions (info, verify, supersede, archive)
+  moved into a ••• menu — the permanent trust-strip row is gone. The page
+  sheet fills the editor height, and word/character counts update live.
+
 - **Prax is now a double-click desktop app** (Tauri 2 shell under `src-tauri/`).
   The bundled Node runtime runs the Fastify server as a sidecar on a free
   localhost port; the native window opens on a Prax splash and hands over once

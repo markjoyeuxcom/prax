@@ -13,7 +13,7 @@ function fakeRepo(docs) {
   };
 }
 
-test('embedDocument stores a vector literal with tracking fields', async () => {
+test('embedDocument stores the raw vector with tracking fields', async () => {
   const docs = [{ id: 'a', body: 'hello', contentHash: 'h1' }];
   const repo = fakeRepo(docs);
   const svc = createEmbeddingService({ repository: repo, embedder: createFakeEmbedder({ dim: 8 }) });
@@ -21,7 +21,9 @@ test('embedDocument stores a vector literal with tracking fields', async () => {
   assert.equal(repo.stored.length, 1);
   const s = repo.stored[0];
   assert.equal(s.id, 'a');
-  assert.match(s.literal, /^\[.*\]$/);
+  assert.ok(Array.isArray(s.vector), 'repository receives the raw vector array');
+  assert.equal(s.vector.length, 8);
+  assert.ok(s.vector.every((n) => Number.isFinite(n)));
   assert.equal(s.backend, 'fake');
   assert.equal(s.dim, 8);
   assert.equal(s.contentHash, 'h1');
