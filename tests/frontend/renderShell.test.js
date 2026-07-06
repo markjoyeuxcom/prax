@@ -268,15 +268,16 @@ test('desktop shell suppresses the fake window chrome (the OS provides it)', () 
   assert.match(desktopMac, /data-action="open-capture"/);
 });
 
-test('desktop shell hides the sidebar and rail app icon (traffic lights own that corner)', () => {
+test('desktop shell keeps the mark inline with the wordmark, smaller than in the browser', () => {
   const sidebar = renderSidebarHtml(makeState({ desktopShell: true }), {});
+  assert.match(sidebar, /sidebar__brand"><svg width="20"[^>]*><\/svg>|sidebar__brand"><svg width="20"/);
   assert.match(sidebar, /sidebar__wordmark">prax</);
-  assert.doesNotMatch(sidebar, /sidebar__brand"><svg/);
+  // the narrow rail still starts with its nav buttons (icon under the lights reads as a button)
   const rail = renderRailHtml(makeState({ desktopShell: true }));
   assert.doesNotMatch(rail, /aria-label="Navigation"><svg/);
-  // browser mode keeps the logo
+  // browser mode keeps the full-size logo
   const webSidebar = renderSidebarHtml(makeState(), {});
-  assert.match(webSidebar, /sidebar__brand"><svg/);
+  assert.match(webSidebar, /sidebar__brand"><svg width="25"/);
 });
 
 test('desktop shell titlebar is the drag region with no left ornament', () => {
