@@ -1,20 +1,6 @@
+# Prax is backed by embedded SQLite — no database service needed.
+# The volume keeps prax.db (+ WAL) across container restarts.
 services:
-  postgres:
-    image: pgvector/pgvector:pg18
-    environment:
-      POSTGRES_DB: prax
-      POSTGRES_USER: prax
-      POSTGRES_PASSWORD: prax_local_dev
-    ports:
-      - "54320:5432"
-    volumes:
-      - postgres-data:/var/lib/postgresql
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U prax -d prax"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-
   app:
     build:
       context: .
@@ -22,12 +8,11 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 3000
-      DATABASE_URL: postgresql://prax:prax_local_dev@postgres:5432/prax
+      PRAX_DB_FILE: /data/prax.db
     ports:
       - "3100:3000"
-    depends_on:
-      postgres:
-        condition: service_healthy
+    volumes:
+      - prax-data:/data
 
 volumes:
-  postgres-data:
+  prax-data:

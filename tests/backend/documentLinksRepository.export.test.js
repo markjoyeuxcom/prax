@@ -14,7 +14,9 @@ test('buildListOutboundLinksForDocuments selects target join columns', () => {
   assert.match(q.text, /t\.source_filename as target_source_filename/);
   assert.match(q.text, /t\.title as target_title/);
   assert.match(q.text, /and t\.archived_at is null/);
-  assert.deepEqual(q.values, [['a', 'b']]);
+  // The id list binds as JSON text expanded via json_each (pg's = any(uuid[])).
+  assert.match(q.text, /in \(select value from json_each\(\$1\)\)/);
+  assert.deepEqual(q.values, ['["a","b"]']);
 });
 
 test('listOutboundLinksForDocuments returns a Map grouped by source id and relation', async () => {

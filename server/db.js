@@ -1,17 +1,103 @@
-import pg from 'pg';
+import { DatabaseSync } from 'node:sqlite';
+import { mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 
-const { Pool } = pg;
+// Embedded-SQLite adapter with the same public shape the pg Pool wrapper had:
+// query(text, params) → { rows }, connect() → client { query, release },
+// checkReady(), close(). Repositories keep their $N placeholders — they are
+// rewritten to positional '?' binds here (repeats and gaps handled).
+//
+// node:sqlite runs in-process and synchronously; "connections" are sessions on
+// the one database handle. connect() hands out a serialized session (a simple
+// promise mutex) so BEGIN/COMMIT sequences never interleave across concurrent
+// requests, preserving the dedicated-client semantics callers relied on.
 
-export function createDb(databaseUrl) {
-  const pool = new Pool({ connectionString: databaseUrl });
+function coerceParam(value) {
+  if (value === undefined) return null;
+  if (typeof value === 'boolean') return value ? 1 : 0;
+  if (value instanceof Date) return value.toISOString();
+  return value;
+}
+
+// '$2 … $1 … $1' → '? … ? … ?' with params reordered (and repeated) to match.
+function rewritePlaceholders(text, params) {
+  const ordered = [];
+  const sql = String(text).replace(/\$(\d+)/g, (_match, n) => {
+    ordered.push(coerceParam(params[Number(n) - 1]));
+    return '?';
+  });
+  if (!ordered.length && params.length) {
+    // '?' placeholders were used directly — bind positionally.
+    return { sql, bound: params.map(coerceParam) };
+  }
+  return { sql, bound: ordered };
+}
+
+export function createDb(databaseFile) {
+  const file = databaseFile || ':memory:';
+  if (file !== ':memory:') {
+    mkdirSync(dirname(file), { recursive: true });
+  }
+  const db = new DatabaseSync(file);
+  db.exec('PRAGMA journal_mode = WAL');
+  db.exec('PRAGMA foreign_keys = ON');
+  db.exec('PRAGMA busy_timeout = 5000');
+
+  function query(text, params = []) {
+    const { sql, bound } = rewritePlaceholders(text, params);
+    try {
+      const statement = db.prepare(sql);
+      // .all() executes any statement and returns rows when the statement
+      // produces them ([] for plain writes), so one path serves both.
+      const rows = statement.all(...bound);
+      return Promise.resolve({ rows });
+    } catch (err) {
+      throw normalizeError(err);
+    }
+  }
+
+  // Constraint errors keep the pg SQLSTATE codes the routes/repositories
+  // already branch on (23505 unique_violation, 23503 foreign_key_violation),
+  // so those contracts — and their tests — survive the engine swap.
+  function normalizeError(err) {
+    const message = String(err?.message || '');
+    if (err && err.code === undefined) {
+      if (err.errcode === 2067 || /UNIQUE constraint failed/i.test(message)) {
+        err.code = '23505';
+      } else if (err.errcode === 787 || /FOREIGN KEY constraint failed/i.test(message)) {
+        err.code = '23503';
+      }
+    }
+    return err;
+  }
+
+  // Serialized session checkout — one BEGIN…COMMIT sequence at a time.
+  let sessionQueue = Promise.resolve();
+
+  function connect() {
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    const acquired = sessionQueue.then(() => ({
+      query,
+      release: () => release(),
+    }));
+    sessionQueue = sessionQueue.then(() => held);
+    return acquired;
+  }
 
   return {
-    query: (text, params = []) => pool.query(text, params),
-    connect: () => pool.connect(), // dedicated client; caller MUST release()
+    query,
+    connect,
     async checkReady() {
-      await pool.query('select 1');
+      db.prepare('select 1').get();
       return true;
     },
-    close: () => pool.end(),
+    close: () => {
+      db.close();
+      return Promise.resolve();
+    },
+    // Escape hatch for code that benefits from the synchronous handle
+    // (multi-statement exec in the migration runner).
+    exec: (sql) => db.exec(sql),
   };
 }
