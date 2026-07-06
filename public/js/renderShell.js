@@ -140,8 +140,10 @@ function sidebarSavedViews(state) {
 }
 
 export function renderSidebarHtml(state, counts = {}) {
+  // In the desktop shell the macOS traffic lights overlay the top-left corner
+  // — the app icon there reads as clutter, so the brand row is wordmark-only.
   const brand = '<div class="sidebar__brand">'
-    + logo(25)
+    + (state.desktopShell ? '' : logo(25))
     + '<span class="sidebar__wordmark">prax</span>'
     + '<span class="sidebar__byline">by moomora</span>'
     + '</div>';
@@ -195,7 +197,7 @@ export function renderRailHtml(state) {
   }).join('');
 
   return '<aside class="rail" aria-label="Navigation">'
-    + logo(25)
+    + (state.desktopShell ? '' : logo(25))
     + navs
     + '<div class="rail__divider"></div>'
     + projects
