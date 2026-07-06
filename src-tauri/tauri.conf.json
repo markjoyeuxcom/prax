@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Prax",
-  "version": "0.20.0",
+  "version": "../package.json",
   "identifier": "com.moomora.prax",
   "build": {
     "beforeDevCommand": "node scripts/prepare-sidecar.mjs",
