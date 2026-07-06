@@ -4,28 +4,39 @@ Prax (by Moomora) is a local-first app for tasks, runbooks, and Markdown notes, 
 
 Run it with plain Node (zero external dependencies — the database is an embedded file), with Docker Compose, or on Kubernetes; or try it instantly with the in-memory demo server.
 
+## Install
+
+**Desktop (recommended):** download the installer for your platform from the
+GitHub Releases page — `.dmg` (macOS), `.msi`/`.exe` (Windows), `.deb`/
+`.AppImage` (Linux). Zero external dependencies: the database is an embedded
+file, created on first launch. Building from source:
+[docs/desktop/BUILD.md](docs/desktop/BUILD.md).
+
+**Web server:** run it with plain Node or Docker Compose — see
+[Local Install](#local-install) below.
+
 ## What It Does
 
-- Organises work into user-creatable **Projects** (active / on-hold / completed / archived) that group both tasks and documents, with an "All projects" cross-project view, a project manager, and a separate archive dialog.
+- Organises work into user-creatable **Projects** (active / on-hold / completed / archived) that group both tasks and documents, with an **All projects** overview and a cross-project **Today** view of everything due or slipping.
 - Tracks tasks across Tasks, Board, Backlog, and Archive views, with create, edit, archive, restore, permanent delete, and drag/drop board reordering.
 - Surfaces at-a-glance board signals: a priority dot, overdue / due-soon date flags, and a project chip on each card in the All-projects view.
 - Links tasks to library runbooks and notes, so operational work points at the documents that support it.
 - Provides a Markdown Library with runbooks, notes, `.md` import, tags, saved tag views, type/sort/group controls, and full-text search.
 - Includes an Obsidian-style editor workspace with edit, preview, split, focus mode, live preview updates, CodeMirror editing, and Markdown helper buttons.
-- Adapts across desktop, tablet, and mobile, with browser-local appearance preferences (Console, Graphite, Daylight, and Midnight palettes plus a font-scale control) and keyboard shortcuts.
-- Offers an Admin panel for backup and JSON task import/export with append, skip duplicates, and replace-project modes.
+- Ships light ("Porcelain") and dark ("Deep Fern") themes with four accent colours and a reading-size control; fully keyboard-driven — **⌘K command palette**, **quick capture (N)**, list navigation, and undo toasts.
+- Backs up and restores through Settings: JSON task import/export (append / skip duplicates / replace-project modes) and Markdown library export.
 - Exposes the API to Claude Code through an optional local MCP server for interactive, subscription-backed task and document workflows.
 - Runs locally with plain Node or Docker Compose, or deploys to Kubernetes — the embedded SQLite database needs no separate server.
 
 ## Screenshots
 
-![Tasks queue across all projects](docs/images/prax-tasks.png)
+![Task list with due-date groups, priority dots, and signals](docs/images/prax-tasks.png)
 
-![Board with priority dots, due-date flags, and project chips](docs/images/prax-board.png)
+![Kanban board with drag-and-drop columns and card signals](docs/images/prax-board.png)
 
-![Markdown library with tags and saved views](docs/images/prax-library.png)
+![Markdown library with tags and trust chips](docs/images/prax-library.png)
 
-![Appearance preferences with the four colour palettes](docs/images/prax-settings.png)
+![Settings in the dark Deep Fern theme](docs/images/prax-settings.png)
 
 ## Stack
 
