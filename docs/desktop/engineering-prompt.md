@@ -1,4 +1,4 @@
-# Moomora Desktop — Engineering Prompt (Tauri + embedded SQLite)
+# Prax Desktop — Engineering Prompt (Tauri + embedded SQLite)
 
 A paste-ready prompt for turning the approved design into a real local desktop app.
 Chosen stack: **Tauri** (light webview shell) + **Node/Fastify sidecar** + **embedded
@@ -38,7 +38,7 @@ install, no Docker, no terminal, no separate DB process.
 - **Frontend:** vanilla-JS SPA in `public/` (a new visual design is being produced
   separately and will replace it; assume it stays a static bundle hitting the same API).
 - **Other surfaces that must keep working unchanged:** an MCP server (`mcp/`) and a
-  `moomora` CLI (`cli/`), both talking to the Fastify HTTP API. They don't touch the DB
+  `prax` CLI (`cli/`), both talking to the Fastify HTTP API. They don't touch the DB
   directly, so preserving the HTTP API keeps them working.
 - **Security:** no auth by design (single-user, localhost only).
 - **Tests:** extensive suite under `tests/` (`npm test`), including `tests/contract/`
@@ -97,8 +97,8 @@ storage internals:
 ## Runtime lifecycle (simpler than a DB server)
 
 On launch:
-1. Resolve a data dir: macOS `~/Library/Application Support/Moomora/`, Windows
-   `%APPDATA%\Moomora\`. Store `moomora.db` (+ `-wal`/`-shm`) and logs there.
+1. Resolve a data dir: macOS `~/Library/Application Support/Prax/`, Windows
+   `%APPDATA%\Prax\`. Store `prax.db` (+ `-wal`/`-shm`) and logs there.
 2. Start the Fastify server as a sidecar bound to `127.0.0.1` on a free port, pointed at
    that SQLite file. Run migrations on boot (existing behavior).
 3. Point the Tauri webview at the app URL once `/readyz` is ready (poll it).
@@ -113,7 +113,7 @@ Handle single-instance locking so two windows don't open the same DB file unsafe
   frontend, and — if using `better-sqlite3` — the correct **prebuilt native binary per
   platform** (resolve via Tauri resource paths, not dev paths). Note native-module
   rebuild/prebuild steps in CI.
-- App metadata (name "Moomora", icon, version from `package.json`), code
+- App metadata (name "Prax", icon, version from `package.json`), code
   signing/notarization hooks (macOS + Windows), optional Tauri auto-updater.
 
 ## Constraints & things not to break
@@ -135,7 +135,7 @@ Handle single-instance locking so two windows don't open the same DB file unsafe
 3. Graceful semantic-search degradation without `sqlite-vec` (Phase 1), plus a documented
    Phase 2 plan for `sqlite-vec`.
 4. Installers for both platforms + a BUILD/RELEASE doc: how to build/sign/release, where
-   user data lives, and backup/restore (copy `moomora.db` or use the existing JSON/.md
+   user data lives, and backup/restore (copy `prax.db` or use the existing JSON/.md
    export).
 5. A short architecture note on the SQLite migration decisions (driver, JSON-vs-join for
    arrays, FTS5 design, timestamp/boolean normalization).

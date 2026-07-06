@@ -1,7 +1,7 @@
 # deploy/ — example Kubernetes manifests
 
 **Sanitized examples for self-hosters, not a turnkey config.** A Kustomize **base + overlays**
-(dev / staging / prod) that deploys Moomora Console with a CloudNativePG `pgvector` database (mounted
+(dev / staging / prod) that deploys Prax with a CloudNativePG `pgvector` database (mounted
 as an ImageVolume extension) and a Gateway API `HTTPRoute`. The maintainer's live deployment config
 is kept in a separate private GitOps repo — this tree is here as a reference starting point.
 

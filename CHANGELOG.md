@@ -1,9 +1,9 @@
 # Changelog
 
-All notable changes to Moomora Console are documented here.
+All notable changes to Prax (formerly Moomora Console) are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
-uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Moomora Console is pre-1.0:
+uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Prax is pre-1.0:
 the data formats are still evolving, and `docs/contract.md` is a format *reference* (with
 regression tests under `tests/contract/`), not a stability contract.
 
@@ -11,6 +11,24 @@ At release time, the `[Unreleased]` section is renamed to the new version with i
 fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
+
+### Changed
+
+- **Moomora Console is now Prax** (by Moomora). The product, package (`prax`), CLI
+  (`prax`, with `moomora` kept as an alias), MCP server name, Docker/Kubernetes
+  manifests, skills (`prax-recall` / `prax-remember`), and docs are renamed.
+  Backwards compatibility is preserved everywhere it matters:
+  - `MOOMORA_API_URL` / `MOOMORA_API_TOKEN` / `MOOMORA_PROJECT` env vars still work
+    as fallbacks for the new `PRAX_*` names.
+  - The `x-moomora-origin` request header is still accepted alongside `x-prax-origin`
+    for agent provenance stamping.
+  - The `.moomora/project.json` CLI marker is still detected (`.prax/` wins when both
+    exist).
+  - **Wire formats are unchanged**: the `moomora.tasks` export/import envelope, library
+    `.md` front-matter, HTTP API shapes, and the MCP tool surface are untouched, so
+    existing backups, imports, and integrations keep working. Browser-local preference
+    keys are also unchanged. Entries below this one predate the rename and keep their
+    original wording.
 
 ## [0.20.0] - 2026-06-11
 

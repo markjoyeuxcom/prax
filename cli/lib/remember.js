@@ -1,7 +1,7 @@
 // cli/lib/remember.js — the one implementation of "remember": ensure the target
 // project exists, de-dup by exact title, then create or update. The CALLER resolves
 // the target project slug and composes tags/kind (namespace policy stays in the thin
-// callers). Shared by `moomora remember` and the moomora-remember skill wrapper.
+// callers). Shared by `prax remember` and the prax-remember skill wrapper.
 
 export async function remember(client, { title, body, project, type = 'note', tags = [], kind } = {}) {
   const slug = await client.ensureProject(project);

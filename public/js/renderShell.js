@@ -231,10 +231,10 @@ export function renderShellHtml({
   return `
     <div class="app-shell">
       ${renderHamburgerDrawer({ activeProject, projects, isDrawerOpen, apiStatus })}
-      <aside class="sidebar" aria-label="Moomora Console navigation">
+      <aside class="sidebar" aria-label="Prax navigation">
         <div class="brand">
           <span class="brand-mark" aria-hidden="true">M</span>
-          <span class="brand-name">Moomora Console</span>
+          <span class="brand-name">Prax</span>
         </div>
 
         ${renderSidebarNavGroups(activeViewConfig.id)}
@@ -287,7 +287,7 @@ export function renderShellHtml({
         ${metricsHtml}
         <div id="workspace" class="${workspaceClass.join(' ')}"></div>
         <footer class="status-footer" aria-label="Console status">
-          <span class="status-footer__breadcrumb">moomora <span class="status-footer__slash">/</span> ${escapeHtml(activeViewConfig.label)} <span class="status-footer__slash">/</span> <strong>${escapeHtml(activeProject === 'all' ? 'all projects' : (projects.find(p => p.id === activeProject)?.name || 'all projects'))}</strong></span>
+          <span class="status-footer__breadcrumb">prax <span class="status-footer__slash">/</span> ${escapeHtml(activeViewConfig.label)} <span class="status-footer__slash">/</span> <strong>${escapeHtml(activeProject === 'all' ? 'all projects' : (projects.find(p => p.id === activeProject)?.name || 'all projects'))}</strong></span>
           <span class="status-footer__sync">${syncLabelFor(apiStatus)}</span>
           <span class="status-footer__mode">&lt;${escapeHtml(modeTagFor(activeView))}&gt;</span>
         </footer>

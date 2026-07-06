@@ -1,16 +1,16 @@
-# Moomora CLI (`moomora`)
+# Prax CLI (`prax`)
 
-The `moomora` CLI is a thin client over the Moomora HTTP API. It gives any shell-capable AI
+The `prax` CLI is a thin client over the Prax HTTP API. It gives any shell-capable AI
 tool (Claude Code, a shell script, a cron job) or a human the ability to pull a bounded,
 trust-aware project memory briefing, search and read documents, write new memory, and
 verify or supersede it — all without opening a browser.
 
 ## Install
 
-Install from the repo with `npm link` to get a global `moomora` command:
+Install from the repo with `npm link` to get a global `prax` command:
 
 ```bash
-cd /path/to/moomora-console
+cd /path/to/prax
 npm ci
 npm link
 ```
@@ -18,7 +18,7 @@ npm link
 Or run directly without installing:
 
 ```bash
-node cli/moomora.js <command> [args]
+node cli/prax.js <command> [args]
 ```
 
 ## Project detection
@@ -27,36 +27,36 @@ Most commands need to know which project to operate on. The CLI resolves the pro
 precedence order:
 
 1. `--project <slug>` flag (highest priority)
-2. `MOOMORA_PROJECT` environment variable
-3. `.moomora/project.json` file, searched from the current directory upwards. The file must
-   contain `{"project": "<slug>"}`. Use `moomora init` to create it.
+2. `PRAX_PROJECT` environment variable
+3. `.prax/project.json` file, searched from the current directory upwards. The file must
+   contain `{"project": "<slug>"}`. Use `prax init` to create it.
 4. The current directory's folder name (lowest priority, a convenience default)
 
-Run `moomora init` once in a project root to write the file so subsequent commands pick up the
+Run `prax init` once in a project root to write the file so subsequent commands pick up the
 project automatically:
 
 ```bash
-moomora init --project homelab
-# Wrote .moomora/project.json (project: homelab).
+prax init --project homelab
+# Wrote .prax/project.json (project: homelab).
 ```
 
 ## Environment variables
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `MOOMORA_API_URL` | `http://127.0.0.1:3000` | Base URL of the Moomora server |
-| `MOOMORA_PROJECT` | — | Default project slug (overrides folder-name detection) |
-| `MOOMORA_TOKEN` | — | Optional bearer token, forwarded as `Authorization: Bearer <token>`; the server does not require it under the no-auth model |
+| `PRAX_API_URL` | `http://127.0.0.1:3000` | Base URL of the Prax server |
+| `PRAX_PROJECT` | — | Default project slug (overrides folder-name detection) |
+| `PRAX_TOKEN` | — | Optional bearer token, forwarded as `Authorization: Bearer <token>`; the server does not require it under the no-auth model |
 
 ## Commands
 
 ### `init [--project <slug>]`
 
-Writes `.moomora/project.json` in the current directory so subsequent commands detect the
+Writes `.prax/project.json` in the current directory so subsequent commands detect the
 project automatically.
 
 ```bash
-moomora init --project homelab
+prax init --project homelab
 ```
 
 If `--project` is omitted the CLI falls back to the usual detection order. The file is safe
@@ -70,9 +70,9 @@ project's active documents. With a query the server ranks documents by semantic 
 uses recency only.
 
 ```bash
-moomora context "how do we restore postgres"
-moomora context --limit 20
-moomora context --json
+prax context "how do we restore postgres"
+prax context --limit 20
+prax context --json
 ```
 
 Flags:
@@ -88,9 +88,9 @@ Search the project library. Attempts semantic (embedding) search first and falls
 keyword search automatically when semantic search is unavailable.
 
 ```bash
-moomora search "postgres backup"
-moomora search "postgres backup" --all
-moomora search "postgres backup" --json
+prax search "postgres backup"
+prax search "postgres backup" --all
+prax search "postgres backup" --json
 ```
 
 Flags:
@@ -106,8 +106,8 @@ Each result shows the document title, a trust tag (`[verified]`, `[unverified]`,
 Fetch a single document by UUID.
 
 ```bash
-moomora get c58d3108-4f93-4a50-ac42-0c1d61e61b08
-moomora get c58d3108-4f93-4a50-ac42-0c1d61e61b08 --json
+prax get c58d3108-4f93-4a50-ac42-0c1d61e61b08
+prax get c58d3108-4f93-4a50-ac42-0c1d61e61b08 --json
 ```
 
 ### `remember <title> [--body <text>] [--type runbook|note] [--tag <t>]`
@@ -117,7 +117,7 @@ project it is updated in place; otherwise a new document is created. Agent-writt
 (created via this command or the MCP tools) land **UNVERIFIED** by default.
 
 ```bash
-moomora remember "Postgres restore runbook" \
+prax remember "Postgres restore runbook" \
   --body "Steps: 1. Stop app. 2. pg_restore …" \
   --type runbook \
   --tag postgres
@@ -135,7 +135,7 @@ Mark a document as verified (human-blessed). Sets `verified: true`, stamps `veri
 `verifiedBy`.
 
 ```bash
-moomora verify c58d3108-4f93-4a50-ac42-0c1d61e61b08 --as mark
+prax verify c58d3108-4f93-4a50-ac42-0c1d61e61b08 --as mark
 ```
 
 The `--as` flag sets the `verifiedBy` string (defaults to `"cli"` if omitted).
@@ -145,7 +145,7 @@ The `--as` flag sets the `verifiedBy` string (defaults to `"cli"` if omitted).
 Remove the verified flag from a document, returning it to the unverified/pending state.
 
 ```bash
-moomora unverify c58d3108-4f93-4a50-ac42-0c1d61e61b08
+prax unverify c58d3108-4f93-4a50-ac42-0c1d61e61b08
 ```
 
 ### `supersede <oldId> --with <newId>`
@@ -155,7 +155,7 @@ replacement document to the old one. The old document remains readable but is ex
 active retrieval.
 
 ```bash
-moomora supersede c58d3108-4f93-4a50-ac42-0c1d61e61b08 \
+prax supersede c58d3108-4f93-4a50-ac42-0c1d61e61b08 \
   --with  d72e4219-5a04-4b61-bd53-1e2e72f7c219
 ```
 
@@ -176,14 +176,14 @@ but treat them with appropriate caution. Passing `--all` to `search` disables th
 filter.
 
 **Important:** under the no-auth / trusted-network model, `verified` is a **workflow signal,
-not access control**. Anyone on the network who can reach the Moomora server can call `verify`
+not access control**. Anyone on the network who can reach the Prax server can call `verify`
 or `unverify`. It is useful for distinguishing agent-written memory that has been reviewed by a
 human from memory that hasn't — not for preventing unauthorized writes. See
 [SECURITY.md](../SECURITY.md) for the security model.
 
 ## `context` output shape
 
-Below is an example of the Markdown emitted by `moomora context "restore postgres"`. The
+Below is an example of the Markdown emitted by `prax context "restore postgres"`. The
 structure is: a top-level header naming the project, an optional query line, then one or more
 `##` sections. Unverified documents always appear last under a clearly-labelled warning header;
 with a small `--limit` they may be dropped entirely once the budget is spent on

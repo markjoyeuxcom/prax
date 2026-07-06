@@ -1,14 +1,14 @@
-export class MoomoraUnavailableError extends Error {
+export class PraxUnavailableError extends Error {
   constructor(message) {
     super(message);
-    this.name = 'MoomoraUnavailableError';
+    this.name = 'PraxUnavailableError';
   }
 }
 
-export class MoomoraApiError extends Error {
+export class PraxApiError extends Error {
   constructor(status, message) {
     super(message);
-    this.name = 'MoomoraApiError';
+    this.name = 'PraxApiError';
     this.status = status;
   }
 }

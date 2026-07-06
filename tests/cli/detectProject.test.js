@@ -12,10 +12,25 @@ test('env wins over file and folder', () => {
   assert.deepEqual(out, { project: 'envproj', source: 'env' });
 });
 
-test('reads .moomora/project.json walking up from cwd', () => {
-  const files = { '/work/repo/sub/.moomora/project.json': null, '/work/repo/.moomora/project.json': '{"project":"fromfile"}' };
+test('reads .prax/project.json walking up from cwd', () => {
+  const files = { '/work/repo/sub/.prax/project.json': null, '/work/repo/.prax/project.json': '{"project":"fromfile"}' };
   const out = detectProject({ cwd: '/work/repo/sub', readFile: (p) => { if (!(p in files) || files[p] === null) throw new Error('nope'); return files[p]; } });
   assert.deepEqual(out, { project: 'fromfile', source: 'file' });
+});
+
+test('still reads the legacy .moomora/project.json marker', () => {
+  const files = { '/work/repo/.moomora/project.json': '{"project":"legacyproj"}' };
+  const out = detectProject({ cwd: '/work/repo/sub', readFile: (p) => { if (!(p in files)) throw new Error('nope'); return files[p]; } });
+  assert.deepEqual(out, { project: 'legacyproj', source: 'file' });
+});
+
+test('.prax marker wins over .moomora in the same directory', () => {
+  const files = {
+    '/work/repo/.prax/project.json': '{"project":"newproj"}',
+    '/work/repo/.moomora/project.json': '{"project":"legacyproj"}',
+  };
+  const out = detectProject({ cwd: '/work/repo', readFile: (p) => { if (!(p in files)) throw new Error('nope'); return files[p]; } });
+  assert.deepEqual(out, { project: 'newproj', source: 'file' });
 });
 
 test('falls back to cwd folder name', () => {
@@ -30,6 +45,6 @@ test('returns null project when cwd is root and nothing else resolves', () => {
 });
 
 test('ignores a malformed project.json and keeps walking', () => {
-  const out = detectProject({ cwd: '/work/repo', readFile: (p) => (p === '/work/repo/.moomora/project.json' ? 'not json' : (() => { throw new Error('nope'); })()) });
+  const out = detectProject({ cwd: '/work/repo', readFile: (p) => (p === '/work/repo/.prax/project.json' ? 'not json' : (() => { throw new Error('nope'); })()) });
   assert.deepEqual(out, { project: 'repo', source: 'folder' });
 });

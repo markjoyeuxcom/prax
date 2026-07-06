@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createMoomoraClient } from '../../mcp/moomoraClient.js';
-import { MoomoraApiError, MoomoraUnavailableError } from '../../mcp/errors.js';
+import { createPraxClient } from '../../mcp/praxClient.js';
+import { PraxApiError, PraxUnavailableError } from '../../mcp/errors.js';
 
 function jsonResponse(status, body) {
   return {
@@ -26,7 +26,7 @@ const BASE = 'http://127.0.0.1:3000';
 
 test('listDocuments builds query string and omits empty params', async () => {
   const fetch = recordingFetch(jsonResponse(200, [{ id: 'd1' }]));
-  const client = createMoomoraClient({ baseUrl: BASE, fetch });
+  const client = createPraxClient({ baseUrl: BASE, fetch });
   const docs = await client.listDocuments({ q: 'backup', project: 'homelab', documentType: undefined });
   assert.deepEqual(docs, [{ id: 'd1' }]);
   const url = new URL(fetch.calls[0].url);
@@ -39,17 +39,17 @@ test('listDocuments builds query string and omits empty params', async () => {
 
 test('adds Authorization header only when a token is set', async () => {
   const withToken = recordingFetch(jsonResponse(200, []));
-  await createMoomoraClient({ baseUrl: BASE, token: 'secret', fetch: withToken }).listTasks({});
+  await createPraxClient({ baseUrl: BASE, token: 'secret', fetch: withToken }).listTasks({});
   assert.equal(withToken.calls[0].options.headers.authorization, 'Bearer secret');
 
   const noToken = recordingFetch(jsonResponse(200, []));
-  await createMoomoraClient({ baseUrl: BASE, fetch: noToken }).listTasks({});
+  await createPraxClient({ baseUrl: BASE, fetch: noToken }).listTasks({});
   assert.equal(noToken.calls[0].options.headers.authorization, undefined);
 });
 
 test('createDocument POSTs a JSON body and returns the created doc', async () => {
   const fetch = recordingFetch(jsonResponse(201, { id: 'd9', title: 'New' }));
-  const client = createMoomoraClient({ baseUrl: BASE, fetch });
+  const client = createPraxClient({ baseUrl: BASE, fetch });
   const doc = await client.createDocument({ title: 'New', body: 'b', documentType: 'note', project: 'work' });
   assert.deepEqual(doc, { id: 'd9', title: 'New' });
   assert.equal(fetch.calls[0].options.method, 'POST');
@@ -58,17 +58,17 @@ test('createDocument POSTs a JSON body and returns the created doc', async () =>
   });
 });
 
-test('createDocument sends x-moomora-origin: agent header', async () => {
+test('createDocument sends x-prax-origin: agent header', async () => {
   const fetch = recordingFetch(jsonResponse(201, { id: 'd1', title: 'New' }));
-  const client = createMoomoraClient({ baseUrl: BASE, fetch });
+  const client = createPraxClient({ baseUrl: BASE, fetch });
   await client.createDocument({ title: 'New', body: 'b', documentType: 'note', project: 'work' });
-  assert.equal(fetch.calls[0].options.headers['x-moomora-origin'], 'agent');
+  assert.equal(fetch.calls[0].options.headers['x-prax-origin'], 'agent');
 });
 
 test('getDocument fetches by id and returns null on 404', async () => {
   const DOC_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const fetch = recordingFetch(jsonResponse(200, { id: DOC_ID, title: 'My Doc' }));
-  const client = createMoomoraClient({ baseUrl: BASE, fetch });
+  const client = createPraxClient({ baseUrl: BASE, fetch });
   const doc = await client.getDocument(DOC_ID);
   assert.deepEqual(doc, { id: DOC_ID, title: 'My Doc' });
   const url = new URL(fetch.calls[0].url);
@@ -76,14 +76,14 @@ test('getDocument fetches by id and returns null on 404', async () => {
   assert.equal(fetch.calls[0].options.method, 'GET');
 
   const fetch2 = recordingFetch(jsonResponse(404, { message: 'not found' }));
-  const client2 = createMoomoraClient({ baseUrl: BASE, fetch: fetch2 });
+  const client2 = createPraxClient({ baseUrl: BASE, fetch: fetch2 });
   assert.equal(await client2.getDocument(DOC_ID), null);
 });
 
 test('getTask fetches by id and returns null on 404', async () => {
   const TASK_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
   const fetch = recordingFetch(jsonResponse(200, { id: TASK_ID, title: 'My Task' }));
-  const client = createMoomoraClient({ baseUrl: BASE, fetch });
+  const client = createPraxClient({ baseUrl: BASE, fetch });
   const task = await client.getTask(TASK_ID);
   assert.deepEqual(task, { id: TASK_ID, title: 'My Task' });
   const url = new URL(fetch.calls[0].url);
@@ -91,26 +91,26 @@ test('getTask fetches by id and returns null on 404', async () => {
   assert.equal(fetch.calls[0].options.method, 'GET');
 
   const fetch2 = recordingFetch(jsonResponse(404, { message: 'not found' }));
-  const client2 = createMoomoraClient({ baseUrl: BASE, fetch: fetch2 });
+  const client2 = createPraxClient({ baseUrl: BASE, fetch: fetch2 });
   assert.equal(await client2.getTask(TASK_ID), null);
 });
 
 test('updateDocument returns null on 404', async () => {
   const fetch = recordingFetch(jsonResponse(404, { message: 'document not found' }));
-  const client = createMoomoraClient({ baseUrl: BASE, fetch });
+  const client = createPraxClient({ baseUrl: BASE, fetch });
   assert.equal(await client.updateDocument('x', { title: 'y' }), null);
 });
 
 test('updateTask returns null on 404', async () => {
   const fetch = recordingFetch(jsonResponse(404, { message: 'task not found' }));
-  const client = createMoomoraClient({ baseUrl: BASE, fetch });
+  const client = createPraxClient({ baseUrl: BASE, fetch });
   assert.equal(await client.updateTask('x', { status: 'completed' }), null);
 });
 
 test('linkTaskDocument posts documentId and returns the updated linked-doc list', async () => {
   // The real API returns 201/200 with the updated list of linked documents.
   const fetch = recordingFetch(jsonResponse(201, [{ id: 'd1', title: 'Runbook' }]));
-  const client = createMoomoraClient({ baseUrl: BASE, fetch });
+  const client = createPraxClient({ baseUrl: BASE, fetch });
   const result = await client.linkTaskDocument('t1', 'd1');
   const call = fetch.calls[0];
   assert.match(new URL(call.url).pathname, /\/api\/tasks\/t1\/documents$/);
@@ -122,7 +122,7 @@ test('linkTaskDocument posts documentId and returns the updated linked-doc list'
 test('unlinkTaskDocument issues DELETE and returns the updated linked-doc list', async () => {
   // The real API returns 200 with the remaining linked documents (not 204).
   const fetch = recordingFetch(jsonResponse(200, []));
-  const client = createMoomoraClient({ baseUrl: BASE, fetch });
+  const client = createPraxClient({ baseUrl: BASE, fetch });
   const res = await client.unlinkTaskDocument('t1', 'd1');
   assert.deepEqual(res, []);
   assert.equal(fetch.calls[0].options.method, 'DELETE');
@@ -130,45 +130,45 @@ test('unlinkTaskDocument issues DELETE and returns the updated linked-doc list',
 
 test('204 No Content responses resolve to null', async () => {
   const fetch = recordingFetch(jsonResponse(204, undefined));
-  const client = createMoomoraClient({ baseUrl: BASE, fetch });
+  const client = createPraxClient({ baseUrl: BASE, fetch });
   assert.equal(await client.unlinkTaskDocument('t1', 'd1'), null);
 });
 
-test('non-2xx (non-404) responses throw MoomoraApiError with status and message', async () => {
+test('non-2xx (non-404) responses throw PraxApiError with status and message', async () => {
   const fetch = recordingFetch(jsonResponse(400, { message: 'title is required' }));
-  const client = createMoomoraClient({ baseUrl: BASE, fetch });
+  const client = createPraxClient({ baseUrl: BASE, fetch });
   await assert.rejects(
     () => client.createDocument({}),
-    (err) => err instanceof MoomoraApiError && err.status === 400 && err.message === 'title is required',
+    (err) => err instanceof PraxApiError && err.status === 400 && err.message === 'title is required',
   );
 });
 
-test('fetch rejection maps to MoomoraUnavailableError', async () => {
+test('fetch rejection maps to PraxUnavailableError', async () => {
   const fetch = async () => { throw new TypeError('fetch failed'); };
-  const client = createMoomoraClient({ baseUrl: BASE, fetch });
+  const client = createPraxClient({ baseUrl: BASE, fetch });
   await assert.rejects(
     () => client.listTasks({}),
-    (err) => err instanceof MoomoraUnavailableError && /not reachable/.test(err.message),
+    (err) => err instanceof PraxUnavailableError && /not reachable/.test(err.message),
   );
 });
 
 test('rejects an invalid timeoutMs as a configuration error', () => {
   for (const bad of [-1, Number.NaN, Infinity]) {
     assert.throws(
-      () => createMoomoraClient({ baseUrl: BASE, fetch: async () => {}, timeoutMs: bad }),
+      () => createPraxClient({ baseUrl: BASE, fetch: async () => {}, timeoutMs: bad }),
       (err) => err instanceof TypeError && /timeoutMs/.test(err.message),
     );
   }
 });
 
-test('supersedeDocument POSTs supersededBy with x-moomora-origin: agent header', async () => {
+test('supersedeDocument POSTs supersededBy with x-prax-origin: agent header', async () => {
   const fetch = recordingFetch(jsonResponse(200, { id: 'old', status: 'superseded' }));
-  const client = createMoomoraClient({ baseUrl: BASE, fetch });
+  const client = createPraxClient({ baseUrl: BASE, fetch });
   const doc = await client.supersedeDocument('old-id', 'new-id');
   assert.deepEqual(doc, { id: 'old', status: 'superseded' });
   const call = fetch.calls[0];
   assert.equal(new URL(call.url).pathname, '/api/library/documents/old-id/supersede');
   assert.equal(call.options.method, 'POST');
   assert.deepEqual(JSON.parse(call.options.body), { supersededBy: 'new-id' });
-  assert.equal(call.options.headers['x-moomora-origin'], 'agent');
+  assert.equal(call.options.headers['x-prax-origin'], 'agent');
 });

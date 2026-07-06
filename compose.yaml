@@ -2,15 +2,15 @@ services:
   postgres:
     image: pgvector/pgvector:pg18
     environment:
-      POSTGRES_DB: moomora_console
-      POSTGRES_USER: moomora
-      POSTGRES_PASSWORD: moomora_local_dev
+      POSTGRES_DB: prax
+      POSTGRES_USER: prax
+      POSTGRES_PASSWORD: prax_local_dev
     ports:
       - "54320:5432"
     volumes:
       - postgres-data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U moomora -d moomora_console"]
+      test: ["CMD-SHELL", "pg_isready -U prax -d prax"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -22,7 +22,7 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 3000
-      DATABASE_URL: postgresql://moomora:moomora_local_dev@postgres:5432/moomora_console
+      DATABASE_URL: postgresql://prax:prax_local_dev@postgres:5432/prax
     ports:
       - "3100:3000"
     depends_on:

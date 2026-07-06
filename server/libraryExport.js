@@ -136,5 +136,5 @@ export function libraryArchiveFilename(scope, date = new Date()) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '') || 'all'
   const day = date.toISOString().slice(0, 10)
-  return `moomora-console-library-${safe}-${day}.zip`
+  return `prax-library-${safe}-${day}.zip`
 }

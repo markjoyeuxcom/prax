@@ -108,13 +108,13 @@ function taskNotesDraftFor(task) {
 }
 
 function renderLoading() {
-  app.innerHTML = '<main class="loading">Loading Moomora Console...</main>';
+  app.innerHTML = '<main class="loading">Loading Prax...</main>';
 }
 
 function renderError(message) {
   const error = document.createElement('main');
   error.className = 'loading';
-  error.textContent = `Moomora Console could not load: ${message}`;
+  error.textContent = `Prax could not load: ${message}`;
   app.replaceChildren(error);
 }
 
@@ -485,7 +485,7 @@ function renderWorkspace() {
       await archiveTask(taskToArchive.id);
       await loadTasks({ selectedTaskId: null });
     } catch {
-      window.alert('Moomora Console could not archive the selected task.');
+      window.alert('Prax could not archive the selected task.');
     }
   });
 
@@ -500,7 +500,7 @@ function renderWorkspace() {
       await restoreTask(taskToRestore.id);
       await loadTasks({ selectedTaskId: null });
     } catch {
-      window.alert('Moomora Console could not restore the selected task.');
+      window.alert('Prax could not restore the selected task.');
       await loadTasks({ selectedTaskId: null });
     }
   });
@@ -516,7 +516,7 @@ function renderWorkspace() {
       await deleteArchivedTask(taskToDelete.id);
       await loadTasks({ selectedTaskId: null });
     } catch {
-      window.alert('Moomora Console could not delete the archived task.');
+      window.alert('Prax could not delete the archived task.');
     }
   });
 
@@ -526,7 +526,7 @@ function renderWorkspace() {
       setState({ linkPickerDocuments: docs, linkPickerQuery: '', isLinkPickerOpen: true, pickerMode: 'link' });
       renderApp();
     } catch {
-      window.alert('Moomora Console could not load documents to link.');
+      window.alert('Prax could not load documents to link.');
     }
   });
 
@@ -571,7 +571,7 @@ function renderWorkspace() {
         clearTaskBoardExtra(taskId);
         renderWorkspace();
       } catch {
-        window.alert('Moomora Console could not unlink the document.');
+        window.alert('Prax could not unlink the document.');
       }
     });
   });
@@ -594,7 +594,7 @@ function renderWorkspace() {
       clearTaskBoardExtra(updated.id);
       renderWorkspace();
     } catch {
-      window.alert('Moomora Console could not save notes.');
+      window.alert('Prax could not save notes.');
     }
   });
 
@@ -635,7 +635,7 @@ function renderWorkspace() {
       clearTaskBoardExtra(taskId);
       renderWorkspace();
     } catch {
-      window.alert('Moomora Console could not add the checklist item.');
+      window.alert('Prax could not add the checklist item.');
     }
   }
 
@@ -659,7 +659,7 @@ function renderWorkspace() {
         clearTaskBoardExtra(taskId);
         renderWorkspace();
       } catch {
-        window.alert('Moomora Console could not update the checklist item.');
+        window.alert('Prax could not update the checklist item.');
       }
     });
   });
@@ -674,7 +674,7 @@ function renderWorkspace() {
         clearTaskBoardExtra(taskId);
         renderWorkspace();
       } catch {
-        window.alert('Moomora Console could not delete the checklist item.');
+        window.alert('Prax could not delete the checklist item.');
       }
     });
   });
@@ -948,7 +948,7 @@ function renderLibraryWorkspace(workspace) {
       isSavingDocumentDraft = false;
       setState({ documentSaveStatus: 'Save failed' });
       updateDocumentSaveControls(workspace, 'Save failed');
-      window.alert('Moomora Console could not save this document.');
+      window.alert('Prax could not save this document.');
     }
   }
 
@@ -1321,7 +1321,7 @@ function renderLibraryWorkspace(workspace) {
       loadDocumentLinks(savedDocument.id);
     } catch {
       setState({
-        documentInfoError: 'Moomora Console could not save document info.',
+        documentInfoError: 'Prax could not save document info.',
         isSaving: false,
       });
       renderWorkspace();
@@ -1335,7 +1335,7 @@ function renderLibraryWorkspace(workspace) {
       await verifyDocument(doc.id, !doc.verified);
       await loadDocuments({ selectedDocumentId: doc.id });
     } catch {
-      window.alert('Moomora Console could not update verification.');
+      window.alert('Prax could not update verification.');
     }
   });
 
@@ -1360,7 +1360,7 @@ function renderLibraryWorkspace(workspace) {
       });
       renderApp();
     } catch {
-      window.alert('Moomora Console could not load documents to supersede.');
+      window.alert('Prax could not load documents to supersede.');
     }
   });
 
@@ -1374,7 +1374,7 @@ function renderLibraryWorkspace(workspace) {
       await archiveDocument(documentToArchive.id);
       await loadDocuments({ selectedDocumentId: null });
     } catch {
-      window.alert('Moomora Console could not archive the selected document.');
+      window.alert('Prax could not archive the selected document.');
     }
   });
 
@@ -1388,7 +1388,7 @@ function renderLibraryWorkspace(workspace) {
       await restoreDocument(documentToRestore.id);
       await loadDocuments({ selectedDocumentId: documentToRestore.id });
     } catch {
-      window.alert('Moomora Console could not restore the selected document.');
+      window.alert('Prax could not restore the selected document.');
     }
   });
 
@@ -1402,7 +1402,7 @@ function renderLibraryWorkspace(workspace) {
       await deleteArchivedDocument(documentToDelete.id);
       await loadDocuments({ selectedDocumentId: null });
     } catch {
-      window.alert('Moomora Console could not delete the archived document.');
+      window.alert('Prax could not delete the archived document.');
     }
   });
 }
@@ -1584,7 +1584,7 @@ async function handleBoardDrop({ taskId, targetStatus, beforeTaskId }) {
     await reorderTasks(result.updates);
     await loadTasks({ selectedTaskId: taskId });
   } catch {
-    window.alert('Moomora Console could not save the board move.');
+    window.alert('Prax could not save the board move.');
     await loadTasks({ selectedTaskId: taskId });
   }
 }
@@ -1923,7 +1923,7 @@ function bindShellEvents() {
         if (state.activeView === 'library') await loadDocuments({ selectedDocumentId: null });
         else await loadTasks({ selectedTaskId: null });
       } catch {
-        window.alert('Moomora Console could not create that project.');
+        window.alert('Prax could not create that project.');
       }
     });
   });
@@ -1935,7 +1935,7 @@ function bindShellEvents() {
         setState({ isProjectManagerOpen: true, managedProjects: managed, projectManagerError: '', isDrawerOpen: false });
         renderApp();
       } catch {
-        window.alert('Moomora Console could not load projects.');
+        window.alert('Prax could not load projects.');
       }
     });
   });
@@ -1955,7 +1955,7 @@ function bindShellEvents() {
         });
         renderApp();
       } catch {
-        window.alert('Moomora Console could not load projects.');
+        window.alert('Prax could not load projects.');
       }
     });
   });
@@ -2083,7 +2083,7 @@ function bindDocumentFormEvents() {
     } catch {
       setState({
         isSaving: false,
-        documentFormError: state.editingDocumentId ? 'Moomora Console could not update this document.' : 'Moomora Console could not create this document.',
+        documentFormError: state.editingDocumentId ? 'Prax could not update this document.' : 'Prax could not create this document.',
       });
       renderApp();
     }
@@ -2101,8 +2101,8 @@ async function exportAdminTasks(project) {
     downloadJsonFile(exportFilename(project), exported);
   } catch {
     window.alert(project === 'all'
-      ? 'Moomora Console could not export all projects.'
-      : 'Moomora Console could not export this project.');
+      ? 'Prax could not export all projects.'
+      : 'Prax could not export this project.');
   }
 }
 
@@ -2138,7 +2138,7 @@ async function importAdminFile(file, panel) {
     setState({ isAdminPanelOpen: false });
     await loadTasks({ selectedTaskId: null });
   } catch {
-    window.alert('Moomora Console could not import that file.');
+    window.alert('Prax could not import that file.');
   }
 }
 
@@ -2161,7 +2161,7 @@ async function importLibraryMarkdownFile(file) {
     window.alert(`Imported "${doc.title}" into the Library.`);
     await loadDocuments({ selectedDocumentId: doc.id });
   } catch {
-    window.alert('Moomora Console could not import that Markdown file.');
+    window.alert('Prax could not import that Markdown file.');
   }
 }
 
@@ -2587,7 +2587,7 @@ function bindLinkPickerEvents() {
           await supersedeDocument(current.id, docId);
           await loadDocuments({ selectedDocumentId: current.id });
         } catch {
-          window.alert('Moomora Console could not supersede the document.');
+          window.alert('Prax could not supersede the document.');
         } finally {
           setState({ isLinkPickerOpen: false, pickerMode: 'link' });
           renderApp();
@@ -2606,7 +2606,7 @@ function bindLinkPickerEvents() {
         clearTaskBoardExtra(taskId);
         renderApp();
       } catch {
-        window.alert('Moomora Console could not update the document link.');
+        window.alert('Prax could not update the document link.');
       }
     });
   });
@@ -2672,7 +2672,7 @@ function bindTaskFormEvents() {
     } catch {
       setState({
         isSaving: false,
-        formError: state.editingTaskId ? 'Moomora Console could not update this task.' : 'Moomora Console could not create this task.',
+        formError: state.editingTaskId ? 'Prax could not update this task.' : 'Prax could not create this task.',
       });
       renderApp();
     }

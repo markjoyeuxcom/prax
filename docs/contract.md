@@ -1,10 +1,10 @@
-# Moomora Console — Data Formats & Shapes
+# Prax — Data Formats & Shapes
 
-This document describes the **current** shapes of Moomora Console's externally-consumed data:
+This document describes the **current** shapes of Prax's externally-consumed data:
 the export/import formats (`moomora.tasks` task backups, library `.md` front-matter) and the
 MCP tool surface. It's a reference for anyone writing backups, integrations, or MCP clients.
 
-**These shapes are not frozen.** Moomora Console is pre-1.0 and the data model is still evolving
+**These shapes are not frozen.** Prax is pre-1.0 and the data model is still evolving
 (for example, planned document links and provenance). The regression tests under
 `tests/contract/` lock the *current* shapes so that changes are caught and made deliberately
 rather than by accident — they are a safety net, **not a stability promise**.
@@ -122,14 +122,14 @@ Steps...
   hand-authored document; `synthesized` indicates an agent-generated derivation.
 - `content_hash` is the SHA-256 hex digest of the document body, lowercase, 64 characters,
   unquoted. It is recomputed on every write.
-- `updated_by` is `user` or `agent` (unquoted). Set from the `x-moomora-origin` request
+- `updated_by` is `user` or `agent` (unquoted). Set from the `x-prax-origin` request
   header on every write; the MCP client sends `agent` automatically.
 - A value is YAML-quoted when it contains `:`, `"`, `\`, a newline, or `#`, or starts with
   `-`, or starts/ends with whitespace; inside quotes, `\` → `\\`, newline → `\n`, `"` → `\"`.
 - **Filenames:** prefer `sourceFilename` (basename only, leading dots stripped, `.md`
   appended if missing); else the slugified title + `.md`; else `untitled.md`. Collisions
   within a folder get a `-2`, `-3`, … suffix.
-- **ZIP layout:** `moomora-console-library-<scope>-<YYYY-MM-DD>.zip`, with entries under
+- **ZIP layout:** `prax-library-<scope>-<YYYY-MM-DD>.zip`, with entries under
   `<project-slug>/<file>.md` for an all-projects export (flat for a single project).
 
 ### `links:` block
@@ -226,7 +226,7 @@ between documents, created/removed/listed via the tools above and the
 links are serialized into the `links:` block of every exported `.md` file (see Format 2).
 
 Document provenance: documents expose `contentHash` (SHA-256 of the body) and `updatedBy`
-(`"user"` | `"agent"`). Every document write stamps `updatedBy` from the `x-moomora-origin`
+(`"user"` | `"agent"`). Every document write stamps `updatedBy` from the `x-prax-origin`
 request header; the MCP client sends `"agent"` automatically. `derived-from` links snapshot
 the target document's `contentHash` at link time and refresh it on re-link. The maintenance
 tools `list_stale_documents` and `list_orphan_documents` drive a client-side groom loop:
@@ -238,7 +238,7 @@ links. Both tools are served at `GET /api/library/maintenance/stale` and
 Document `kind` distinguishes hand-authored documents (`"source"`) from agent-synthesized
 derivations (`"synthesized"`). It is set explicitly by callers (defaulting to `"source"`),
 mutable via `update_document`, and independent of `derived-from` edges and the
-`x-moomora-origin` edit-origin header. Read paths (`get_document`, search rows, stale/orphan
+`x-prax-origin` edit-origin header. Read paths (`get_document`, search rows, stale/orphan
 rows) include `kind`; the create/update tools accept it as an optional input.
 
 ### Trust fields
@@ -272,7 +272,7 @@ trusted-network model anyone on the network can call the verify endpoint. See
 
 These endpoints manage the trust/lifecycle state of library documents. `verify` is
 deliberately **not** exposed as an MCP tool — verification is a human act (Library UI button
-or `moomora verify --as`), so `verified` keeps meaning "a human blessed it." `supersede` **is**
+or `prax verify --as`), so `verified` keeps meaning "a human blessed it." `supersede` **is**
 available to agents via the `supersede_document` MCP tool (content lifecycle, not self-blessing),
 in addition to the HTTP route below.
 

@@ -52,7 +52,7 @@ export function renderAdminPanelHtml({
             <div class="modal-header__heading">
               <span class="detail-kicker">Operations</span>
               <h2 id="admin-title">Admin Operations</h2>
-              <p>Backup and restore controls for the selected Moomora Console project.</p>
+              <p>Backup and restore controls for the selected Prax project.</p>
             </div>
             <button class="modal-header__close bracket-button bracket-button--quiet" type="button" data-action="close-admin" aria-label="Close Admin">[x] close</button>
           </div>

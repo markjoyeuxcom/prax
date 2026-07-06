@@ -31,21 +31,21 @@ test('tasksFromImportPayload rejects legacy TaskBoard envelopes', () => {
       version: 1,
       tasks: [{ title: 'Old backup' }],
     }),
-    /Moomora Console import file format is not supported/,
+    /Prax import file format is not supported/,
   );
 });
 
 test('tasksFromImportPayload rejects unsupported payloads', () => {
   assert.throws(
     () => tasksFromImportPayload({ items: [] }),
-    /Moomora Console import file must contain a tasks array/,
+    /Prax import file must contain a tasks array/,
   );
 });
 
 test('exportFilename builds a stable context filename', () => {
   const filename = exportFilename('home/lab', new Date('2026-05-18T18:30:00.000Z'));
 
-  assert.equal(filename, 'moomora-console-home-lab-2026-05-18.json');
+  assert.equal(filename, 'prax-home-lab-2026-05-18.json');
 });
 
 test('normalizeImportMode accepts known modes and defaults blank values to skip', () => {

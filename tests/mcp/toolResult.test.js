@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { okResult, errorResult, withErrorHandling } from '../../mcp/toolResult.js';
-import { MoomoraApiError, MoomoraUnavailableError } from '../../mcp/errors.js';
+import { PraxApiError, PraxUnavailableError } from '../../mcp/errors.js';
 
 test('okResult serializes data as JSON text', () => {
   const res = okResult({ a: 1 });
@@ -16,18 +16,18 @@ test('errorResult marks isError and carries the message', () => {
   assert.equal(res.content[0].text, 'boom');
 });
 
-test('withErrorHandling maps MoomoraApiError to an error result', async () => {
+test('withErrorHandling maps PraxApiError to an error result', async () => {
   const wrapped = withErrorHandling(async () => {
-    throw new MoomoraApiError(404, 'document not found');
+    throw new PraxApiError(404, 'document not found');
   });
   const res = await wrapped({});
   assert.equal(res.isError, true);
   assert.equal(res.content[0].text, 'document not found');
 });
 
-test('withErrorHandling maps MoomoraUnavailableError to an error result', async () => {
+test('withErrorHandling maps PraxUnavailableError to an error result', async () => {
   const wrapped = withErrorHandling(async () => {
-    throw new MoomoraUnavailableError('api down');
+    throw new PraxUnavailableError('api down');
   });
   const res = await wrapped({});
   assert.equal(res.isError, true);

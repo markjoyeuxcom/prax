@@ -8,7 +8,7 @@ import { pendingMigrations, runMigrations } from '../../server/migrate.js';
 const SILENT = { info() {}, error() {} };
 
 function tmpMigrations(files) {
-  const dir = mkdtempSync(join(tmpdir(), 'moomora-mig-'));
+  const dir = mkdtempSync(join(tmpdir(), 'prax-mig-'));
   for (const [name, content] of Object.entries(files)) {
     writeFileSync(join(dir, name), content);
   }

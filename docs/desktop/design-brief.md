@@ -1,4 +1,4 @@
-# Moomora Desktop — Design Brief
+# Prax Desktop — Design Brief
 
 A paste-ready prompt for a design tool (e.g. Claude for design work). Self-contained —
 the designer does not need repo access. Gives a full feature inventory, sets the
@@ -12,7 +12,7 @@ freedom over the visual language, layout, and interaction model. Surprise me.
 
 ## The product
 
-"Moomora" is a self-hosted personal console for **tasks, notes, and runbooks**. It's
+"Prax" is a self-hosted personal console for **tasks, notes, and runbooks**. It's
 a single-user tool that runs locally on my own Mac and Windows PC (not a web SaaS, not
 a team tool). Today it looks like a quiet, terminal/console-inspired web app. I want to
 **throw out the terminal aesthetic entirely** and reimagine it as a polished, modern

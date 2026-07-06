@@ -1,11 +1,11 @@
 ---
-name: moomora-remember
-description: Use to persist a durable finding, decision, convention, or procedure into Moomora memory so future sessions can recall it — e.g. after discovering how something works, agreeing on an approach, or writing a reusable runbook. Writes to a dedicated `memory` project, de-duplicates by title (updates in place), and stamps agent provenance. Requires a running Moomora app.
+name: prax-remember
+description: Use to persist a durable finding, decision, convention, or procedure into Prax memory so future sessions can recall it — e.g. after discovering how something works, agreeing on an approach, or writing a reusable runbook. Writes to a dedicated `memory` project, de-duplicates by title (updates in place), and stamps agent provenance. Requires a running Prax app.
 ---
 
-# moomora-remember
+# prax-remember
 
-Persist durable knowledge into Moomora Console so a future session (via **moomora-recall** or the
+Persist durable knowledge into Prax so a future session (via **prax-recall** or the
 MCP tools) can retrieve it.
 
 ## When to use
@@ -21,18 +21,18 @@ long-term memory.
 ## How to run
 
 ```bash
-node .claude/skills/moomora-remember/remember.mjs "<title>" "<body>" [--tags a,b] [--type note|runbook] [--project <slug>]
+node .claude/skills/prax-remember/remember.mjs "<title>" "<body>" [--tags a,b] [--type note|runbook] [--project <slug>]
 ```
 
 - Writes to the **`memory`** project by default (created automatically on first use). Override with
   `--project <slug>` to file it under a specific project.
 - `--type` is `note` (default) or `runbook`; `--tags` is a comma-separated list (a `memory` tag is
   always added).
-- Set `MOOMORA_API_URL` if the app isn't at `http://127.0.0.1:3000`.
+- Set `PRAX_API_URL` if the app isn't at `http://127.0.0.1:3000`.
 
 > Implementation note: this script is a thin wrapper over `cli/lib/remember.js` — the same
-> operation behind `moomora remember`. The `node …/remember.mjs` invocation is unchanged and
-> needs no global `moomora` install.
+> operation behind `prax remember`. The `node …/remember.mjs` invocation is unchanged and
+> needs no global `prax` install.
 
 ## Behaviour notes
 
@@ -44,4 +44,4 @@ node .claude/skills/moomora-remember/remember.mjs "<title>" "<body>" [--tags a,b
 - For a larger restructure (one memory supersedes another) prefer the MCP `link_documents`
   (`supersedes`) tool rather than overwriting.
 
-Pairs with **moomora-recall** (the retrieve side); see `docs/agent-memory.md` for the full loop.
+Pairs with **prax-recall** (the retrieve side); see `docs/agent-memory.md` for the full loop.
