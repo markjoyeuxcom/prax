@@ -1732,8 +1732,17 @@ async function handleAction(action, el, event) {
       if (force) setState({ confirm: null });
       el.disabled = true;
       try {
-        await reindexEmbeddings(force);
+        const result = await reindexEmbeddings(force);
         await loadSemanticStatus();
+        const embedded = Number(result?.embedded) || 0;
+        const failed = Number(result?.failed) || 0;
+        if (failed) {
+          showToast(`Re-index: embedded ${embedded}, ${failed} failed — check the provider/model in Settings ▸ Intelligence.`);
+        } else if (embedded) {
+          showToast(`Re-indexed ${embedded} document${embedded === 1 ? '' : 's'}.`);
+        } else {
+          showToast('Embeddings are already up to date.');
+        }
       } catch { alertError('reindex embeddings'); }
       renderApp();
       break;
