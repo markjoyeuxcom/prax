@@ -143,6 +143,16 @@ fresh empty `[Unreleased]` section is started.
 
 ### Fixed
 
+- **Typing in the Library search no longer loses focus after each letter.**
+  Keyword search filters live, which re-renders and replaced the `<input>`
+  element, so focus (and the caret) were lost after every keystroke — you could
+  only enter one character at a time. The search input now re-focuses and
+  restores the caret after the live re-render, like the palette input.
+- **Semantic search failures are surfaced instead of looking like "no results".**
+  A failed search (e.g. the embedding backend is unreachable) threw, and the
+  handler silently swallowed it into an empty result set — indistinguishable
+  from a search that genuinely matched nothing. It now shows a toast pointing at
+  Settings ▸ Intelligence so a misconfigured/unreachable provider is visible.
 - **Database writes are isolated across the shared SQLite handle again.** The
   engine swap put every repository on one `node:sqlite` handle, and `connect()`'s
   session mutex only ordered sessions against each other — a direct `db.query()`

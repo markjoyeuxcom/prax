@@ -841,12 +841,16 @@ function persistSavedViews() {
 
 async function runSemanticSearch() {
   const query = state.libraryQuery.trim();
-  if (!query) { setState({ semanticResults: null }); renderApp(); return; }
+  if (!query) { setState({ semanticResults: null, semanticError: false }); renderApp(); return; }
   try {
     const results = await semanticSearch(query, undefined);
-    setState({ semanticResults: results });
+    setState({ semanticResults: results, semanticError: false });
   } catch {
-    setState({ semanticResults: [] });
+    // A thrown error means the request itself failed (e.g. the embedding
+    // backend is unreachable — a 503) — distinct from a successful search with
+    // no matches. Surface it so it doesn't look like an empty result set.
+    setState({ semanticResults: [], semanticError: true });
+    showToast('Semantic search failed — the embedding backend is unreachable. Check the provider in Settings ▸ Intelligence.');
   }
   renderApp();
 }
@@ -1807,8 +1811,18 @@ function bindEvents() {
       return;
     }
     if (target.matches?.('[data-library-search]')) {
+      // Keyword search filters live, which re-renders and replaces this input —
+      // restore focus and the caret so typing isn't interrupted after each key.
+      const caret = target.selectionStart;
       setState({ libraryQuery: target.value });
-      if (!state.librarySemantic) renderApp();
+      if (!state.librarySemantic) {
+        renderApp();
+        const next = appRoot.querySelector('[data-library-search]');
+        if (next) {
+          next.focus();
+          if (caret != null) next.setSelectionRange(caret, caret);
+        }
+      }
       return;
     }
     if (target.matches?.('[data-task-notes]')) {
