@@ -42,12 +42,12 @@ function render(stateOverrides = {}, docOverrides = {}, model = {}) {
 
 // ---- buildOutline ------------------------------------------------------------
 
-test('buildOutline collects #–### headings with levels, ordinals, and md symbols stripped', () => {
+test('buildOutline collects #–### headings with levels, ordinals, source lines, and md symbols stripped', () => {
   const outline = buildOutline('# One\ntext\n## *Two* `code`\n### [Three](url)\n#### Four');
   assert.deepEqual(outline, [
-    { label: 'One', level: 1, index: 0 },
-    { label: 'Two code', level: 2, index: 1 },
-    { label: 'Three(url)', level: 3, index: 2 },
+    { label: 'One', level: 1, index: 0, line: 0 },
+    { label: 'Two code', level: 2, index: 1, line: 2 },
+    { label: 'Three(url)', level: 3, index: 2, line: 3 },
   ]);
 });
 
@@ -57,18 +57,25 @@ test('buildOutline returns [] for empty or heading-less text', () => {
   assert.deepEqual(buildOutline('plain text\nno headings'), []);
 });
 
-test('outline rail renders when open with 2+ headings, padded by level', () => {
+test('outline rail renders when open with 2+ headings, padded by level, carrying source lines', () => {
   const outline = buildOutline('# A\n## B\n### C');
   const html = render({ outlineOpen: true }, {}, { outline });
   assert.match(html, /class="outline"/);
-  assert.match(html, /data-action="outline-jump" data-heading-index="0" style="padding-left:8px"/);
-  assert.match(html, /data-heading-index="1" style="padding-left:19px"/);
-  assert.match(html, /data-heading-index="2" style="padding-left:30px"/);
+  assert.match(html, /data-action="outline-jump" data-heading-index="0" data-line="0" style="padding-left:8px"/);
+  assert.match(html, /data-heading-index="1" data-line="1" style="padding-left:19px"/);
+  assert.match(html, /data-heading-index="2" data-line="2" style="padding-left:30px"/);
+  assert.equal(html.includes('outline__hint'), false);
 });
 
-test('outline rail hidden with fewer than 2 headings or when toggled off', () => {
+test('outline rail open with fewer than 2 headings shows the teach-hint (not hidden)', () => {
   const one = buildOutline('# Only');
-  assert.equal(render({ outlineOpen: true }, {}, { outline: one }).includes('class="outline"'), false);
+  const html = render({ outlineOpen: true }, {}, { outline: one });
+  assert.match(html, /class="outline"/);
+  assert.match(html, /outline__hint/);
+  assert.match(html, /data-heading-index="0"/); // the lone heading still lists
+});
+
+test('outline rail hidden when toggled off', () => {
   const two = buildOutline('# A\n## B');
   assert.equal(render({ outlineOpen: false }, {}, { outline: two }).includes('class="outline"'), false);
 });

@@ -995,6 +995,19 @@ a { color: var(--accent); }
   text-overflow: ellipsis;
 }
 .outline button:hover { background: var(--accent-soft); color: var(--ink); }
+.outline__hint {
+  padding: 4px 8px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ink3);
+}
+.outline__hint code {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  background: var(--accent-soft);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
 
 .pane { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
 .pane + .pane { border-left: 1px solid var(--line); }
