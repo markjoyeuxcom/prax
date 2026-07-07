@@ -43,19 +43,18 @@ export function createDb(databaseFile) {
   db.exec('PRAGMA foreign_keys = ON');
   db.exec('PRAGMA busy_timeout = 5000');
 
-  function query(text, params = []) {
-    const { sql, bound } = rewritePlaceholders(text, params);
+  // Run one statement on the raw handle. Rejects (never throws synchronously)
+  // so both `await query(...)` and `query(...).catch(...)` observe failures —
+  // the rollback swallow in replaceProjectTasks and the migration runner rely
+  // on that `.catch`.
+  function runStatement(text, params = []) {
     try {
+      const { sql, bound } = rewritePlaceholders(text, params);
       const statement = db.prepare(sql);
       // .all() executes any statement and returns rows when the statement
       // produces them ([] for plain writes), so one path serves both.
-      const rows = statement.all(...bound);
-      return Promise.resolve({ rows });
+      return Promise.resolve({ rows: statement.all(...bound) });
     } catch (err) {
-      // Reject (not throw) so both `await query(...)` and `query(...).catch(...)`
-      // observe the failure — a synchronous throw slips past a `.catch` attached
-      // to the returned value (the rollback swallow in replaceProjectTasks and
-      // the migration runner rely on that `.catch`).
       return Promise.reject(normalizeError(err));
     }
   }
@@ -79,17 +78,37 @@ export function createDb(databaseFile) {
     return err;
   }
 
-  // Serialized session checkout — one BEGIN…COMMIT sequence at a time.
-  let sessionQueue = Promise.resolve();
+  // A single FIFO gate serializes handle access. node:sqlite is synchronous, so
+  // a lone statement is already atomic — but a checked-out session's BEGIN…COMMIT
+  // awaits between statements, and without a gate a direct query() (e.g. a
+  // fire-and-forget embedding write) could slip inside that transaction and be
+  // committed or rolled back with it. The gate is held for a session's entire
+  // lifetime, restoring the dedicated-client isolation the pg Pool provided.
+  let gate = Promise.resolve();
+
+  // Top-level query: waits behind any in-progress session (and prior queries)
+  // so it can never execute inside another caller's open transaction.
+  function query(text, params = []) {
+    const result = gate.then(() => runStatement(text, params));
+    // Keep the queue alive regardless of this query's outcome; the caller sees
+    // the real result/error via `result`.
+    gate = result.then(() => {}, () => {});
+    return result;
+  }
 
   function connect() {
     let release;
     const held = new Promise((resolve) => { release = resolve; });
-    const acquired = sessionQueue.then(() => ({
-      query,
+    // Acquire the gate and hold it until release(), so the whole BEGIN…COMMIT
+    // owns the handle exclusively. The session's own query() runs the statement
+    // directly — it already holds the gate, and re-gating would deadlock (and is
+    // why db.exec() stays an ungated passthrough: the migration runner calls it
+    // on the raw handle inside its session transaction).
+    const acquired = gate.then(() => ({
+      query: (text, params = []) => runStatement(text, params),
       release: () => release(),
     }));
-    sessionQueue = sessionQueue.then(() => held);
+    gate = gate.then(() => held);
     return acquired;
   }
 

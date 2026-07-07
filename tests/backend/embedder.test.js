@@ -24,6 +24,21 @@ test('fake embedder reports available', async () => {
   assert.equal(await e.isAvailable(), true);
 });
 
+test('every embedder exposes .model equal to what embed() reports (for reindex-on-model-change)', async () => {
+  // reindex compares the active embedder.model against each row's stored
+  // embedding_model, so the property must match the model embed() records.
+  const fake = createFakeEmbedder({ dim: 8 });
+  assert.equal(fake.model, 'fake-8');
+  assert.equal(fake.model, (await fake.embed('x')).model);
+
+  assert.equal(createOllamaEmbedder({ model: 'nomic-embed-text', fetch: async () => ({ ok: true, json: async () => ({ embedding: [0] }) }) }).model, 'nomic-embed-text');
+  assert.equal(createOpenAiEmbedder({ model: 'text-embedding-3-large' }).model, 'text-embedding-3-large');
+  assert.equal(createOpenAiEmbedder({}).model, 'text-embedding-3-small');            // default
+  assert.equal(createOpenAiEmbedder({ backend: 'llamacpp', defaultModel: '' }).model, ''); // server-default
+  assert.equal(createGeminiEmbedder({ model: 'gemini-embedding-001' }).model, 'gemini-embedding-001');
+  assert.equal(createVoyageEmbedder({}).model, 'voyage-3-large');                     // default
+});
+
 test('ollama embedder parses the embeddings response', async () => {
   const fakeFetch = async (url, opts) => {
     assert.match(url, /\/api\/embeddings$/);

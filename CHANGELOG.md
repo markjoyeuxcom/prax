@@ -143,6 +143,21 @@ fresh empty `[Unreleased]` section is started.
 
 ### Fixed
 
+- **Database writes are isolated across the shared SQLite handle again.** The
+  engine swap put every repository on one `node:sqlite` handle, and `connect()`'s
+  session mutex only ordered sessions against each other — a direct `db.query()`
+  (e.g. a fire-and-forget embedding write) could land inside another request's
+  open `begin immediate` transaction and be committed or rolled back with it. A
+  single FIFO gate now serializes all handle access: a checked-out session holds
+  it for the whole `BEGIN…COMMIT`, so direct queries wait rather than interleave.
+  (`db.exec` stays an ungated passthrough — the migration runner calls it on the
+  raw handle inside its own session transaction.)
+- **Reindexing re-embeds after a model change within a backend.** The
+  "needs embedding" query compared only `embedding_backend`, so switching model
+  (e.g. openai `text-embedding-3-small` → `-3-large`, a different dimension) left
+  stale vectors that silently dropped out of search or mis-ranked until a *force*
+  reindex. Each embedder now exposes its `model`, and the query also re-embeds
+  rows whose `embedding_model` differs.
 - **Constraint violations map to their pg SQLSTATE again.** The engine-swap
   error normaliser gated on `err.code === undefined`, but `node:sqlite` tags
   every error with `code: 'ERR_SQLITE_ERROR'`, so the remap to `23505`/`23503`

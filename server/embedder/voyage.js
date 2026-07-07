@@ -14,6 +14,7 @@ export function createVoyageEmbedder({ baseUrl, apiKey, model, fetch = globalThi
 
   return {
     backend: 'voyage',
+    model: embedModel,
     async embed(text, opts = {}) {
       const res = await fetch(`${base}/embeddings`, {
         method: 'POST',

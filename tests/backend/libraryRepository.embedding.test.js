@@ -88,7 +88,23 @@ test('buildListDocumentsNeedingEmbedding selects null/stale/mismatched rows', ()
   assert.match(q.text, /embedded_hash is distinct from content_hash/);
   assert.match(q.text, /embedding_backend is distinct from \$1/);
   assert.match(q.text, /archived_at is null/);
+  // No model given: the model clause is omitted so it can't compare against a
+  // null and mark every row stale.
+  assert.doesNotMatch(q.text, /embedding_model/);
   assert.deepEqual(q.values, ['ollama']);
+});
+
+test('buildListDocumentsNeedingEmbedding also re-embeds on a model change within a backend', () => {
+  const q = buildListDocumentsNeedingEmbedding('openai', 'text-embedding-3-large');
+  assert.match(q.text, /embedding_backend is distinct from \$1/);
+  assert.match(q.text, /embedding_model is distinct from \$2/);
+  assert.deepEqual(q.values, ['openai', 'text-embedding-3-large']);
+});
+
+test('buildListDocumentsNeedingEmbedding treats an empty model (llama.cpp default) as a real value to compare', () => {
+  const q = buildListDocumentsNeedingEmbedding('llamacpp', '');
+  assert.match(q.text, /embedding_model is distinct from \$2/);
+  assert.deepEqual(q.values, ['llamacpp', '']);
 });
 
 test('buildSetDocumentEmbedding stores the vector as JSON text (no pg cast)', () => {

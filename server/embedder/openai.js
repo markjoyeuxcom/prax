@@ -18,6 +18,9 @@ export function createOpenAiEmbedder({ baseUrl, apiKey, model, backend = 'openai
 
   return {
     backend,
+    // The configured model, exposed so reindex can detect a model change within
+    // a backend (embed() reports this same value, which is what gets stored).
+    model: embedModel,
     async embed(text) {
       const body = { input: String(text ?? '') };
       if (embedModel) body.model = embedModel;

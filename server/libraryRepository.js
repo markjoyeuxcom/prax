@@ -298,7 +298,15 @@ export function cosineSimilarity(a, b) {
   return dot / denominator;
 }
 
-export function buildListDocumentsNeedingEmbedding(backend) {
+export function buildListDocumentsNeedingEmbedding(backend, model) {
+  // A model change *within* a backend (e.g. openai text-embedding-3-small ->
+  // -3-large, a different dimension) must also re-embed — otherwise stale
+  // vectors silently drop out of search (dim mismatch) or mis-rank (same dim).
+  // The clause is added only when a model is given (typeof string, '' included
+  // for llama.cpp's server-default): with no model it must not compare against
+  // a null and mark every row stale.
+  const hasModel = typeof model === 'string';
+  const modelClause = hasModel ? '\n          or embedding_model is distinct from $2' : '';
   return {
     text: `
       select id, content_hash
@@ -307,11 +315,11 @@ export function buildListDocumentsNeedingEmbedding(backend) {
         and (
           embedding is null
           or embedded_hash is distinct from content_hash
-          or embedding_backend is distinct from $1
+          or embedding_backend is distinct from $1${modelClause}
         )
       order by updated_at desc
     `,
-    values: [backend],
+    values: hasModel ? [backend, model] : [backend],
   };
 }
 
@@ -511,8 +519,8 @@ export function createLibraryRepository(db) {
       return kept.map((row) => ({ ...normalizeDocumentRow(row), similarity: row.similarity }));
     },
 
-    async listDocumentsNeedingEmbedding(backend) {
-      const q = buildListDocumentsNeedingEmbedding(backend);
+    async listDocumentsNeedingEmbedding(backend, model) {
+      const q = buildListDocumentsNeedingEmbedding(backend, model);
       const result = await db.query(q.text, q.values);
       return result.rows.map((r) => ({ id: r.id, contentHash: r.content_hash }));
     },
