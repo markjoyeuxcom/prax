@@ -165,6 +165,11 @@ fresh empty `[Unreleased]` section is started.
   not found". The check now requires the configured model to be present in the
   tag list (resolving a bare name to `:latest`), so a missing model reads as
   disconnected at configure time instead of silently failing at search time.
+- **Ollama tolerates a `/v1` on the base URL.** Ollama's native API lives at the
+  root (`/api/…`); `/v1` is its OpenAI-compatible surface (that's the llama.cpp
+  provider). A base URL like `https://host/v1` therefore 404'd at
+  `/v1/api/embeddings`. The Ollama adapter now strips a trailing `/v1`, so a URL
+  copied from an OpenAI-style config still works.
 - **Database writes are isolated across the shared SQLite handle again.** The
   engine swap put every repository on one `node:sqlite` handle, and `connect()`'s
   session mutex only ordered sessions against each other — a direct `db.query()`

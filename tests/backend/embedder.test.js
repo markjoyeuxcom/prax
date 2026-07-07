@@ -55,6 +55,17 @@ test('ollama embedder parses the embeddings response', async () => {
   assert.equal(out.dim, 3);
 });
 
+test('ollama strips a trailing /v1 from the base URL (native API lives at root, not /v1)', async () => {
+  const urls = [];
+  const fakeFetch = async (url) => { urls.push(url); return { ok: true, json: async () => ({ embedding: [0.1], models: [{ name: 'm' }] }) }; };
+  const e = createOllamaEmbedder({ url: 'https://ollama.example/v1', model: 'm', fetch: fakeFetch });
+  await e.embed('hi');
+  await e.isAvailable();
+  assert.equal(urls[0], 'https://ollama.example/api/embeddings');
+  assert.equal(urls[1], 'https://ollama.example/api/tags');
+  assert.doesNotMatch(urls.join(' '), /\/v1\//);
+});
+
 test('ollama isAvailable requires the configured model to be pulled, not just reachability', async () => {
   const tags = (models) => async () => ({ ok: true, json: async () => ({ models: models.map((name) => ({ name })) }) });
 
