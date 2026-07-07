@@ -1608,8 +1608,13 @@ function bindEvents() {
       handleAction(el.dataset.action, el, event);
       return;
     }
-    // Clicking the blank page-sheet around the editor means "start typing".
-    if (state.navType === 'editor' && event.target.closest?.('.pane, .sheet')) {
+    // Clicking the blank page-sheet around the editor means "start typing" —
+    // but NOT when the click lands in CodeMirror's own UI (the find/replace
+    // panel lives inside .sheet), which manages its own focus. Forcing focus
+    // back to the document there makes the search inputs untypable.
+    if (state.navType === 'editor'
+      && event.target.closest?.('.pane, .sheet')
+      && !event.target.closest?.('.cm-panel')) {
       focusEditor();
     }
   });
