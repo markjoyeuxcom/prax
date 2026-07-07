@@ -1109,6 +1109,7 @@ async function handleAction(action, el, event) {
       break;
     case 'nav-library': goLibrary(); break;
     case 'nav-settings': goSettings(); break;
+    case 'set-settings-tab': setState({ settingsTab: el.dataset.tab }); renderApp(); break;
     case 'nav-project': goProject(el.dataset.projectId); break;
     case 'set-tab': {
       const tab = el.dataset.tab;

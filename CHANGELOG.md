@@ -14,6 +14,12 @@ fresh empty `[Unreleased]` section is started.
 
 ### Added
 
+- **Settings is now split into tabbed sections** — Appearance, Intelligence,
+  and Data & admin each get their own page, selectable by tabs, instead of
+  one long scroll. The tabs reuse the app's existing `.tabs` pattern and
+  mark the active section with `aria-current`, matching the sidebar/board/
+  list active-state convention; the last-viewed section persists within a
+  session.
 - **Semantic search is back — configured from Settings, running on the
   embedded database.** Settings ▸ Intelligence now offers real provider
   selection across **Ollama (local or remote), OpenAI, Claude via Voyage AI

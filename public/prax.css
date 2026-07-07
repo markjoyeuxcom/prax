@@ -1604,6 +1604,7 @@ a { color: var(--accent); }
 /* ---- Settings ------------------------------------------------------------------ */
 
 .settings { max-width: 640px; }
+.page--settings .tabs { max-width: 640px; }
 
 .settings-card {
   background: var(--card);
