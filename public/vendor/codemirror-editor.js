@@ -20158,6 +20158,13 @@ var completionKeymap = [
   { key: "Enter", run: acceptCompletion }
 ];
 var completionKeymapExt = /* @__PURE__ */ Prec.highest(/* @__PURE__ */ keymap.computeN([completionConfig], (state) => state.facet(completionConfig).defaultKeymap ? [completionKeymap] : []));
+function completionStatus(state) {
+  let cState = state.field(completionState, false);
+  return cState && cState.active.some((a) => a.isPending) ? "pending" : cState && cState.active.some(
+    (a) => a.state != 0
+    /* State.Inactive */
+  ) ? "active" : null;
+}
 
 // node_modules/@lezer/markdown/dist/index.js
 var CompositeBlock = class _CompositeBlock {
@@ -28283,6 +28290,7 @@ function makeWikiCompletionSource(documentsProvider) {
   };
 }
 function listContinuationEnter(view) {
+  if (completionStatus(view.state) === "active") return false;
   const sel = view.state.selection.main;
   if (!sel.empty) return false;
   const line = view.state.doc.lineAt(sel.head);

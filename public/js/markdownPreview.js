@@ -21,23 +21,32 @@ function renderInline(value) {
     return token;
   });
 
-  text = escapeHtml(text);
-  // Wiki-links [[Title]] — resolved to a clickable doc link, or a muted
-  // "missing" span. Runs before the standard link rule (it never has parens,
-  // so there is no overlap). The title is already escaped by escapeHtml above.
-  text = text.replace(/\[\[([^\]\n]+)\]\]/g, (_match, escapedTitle) => {
-    const title = escapedTitle.trim();
+  // Wiki-links [[Title]] are resolved on the RAW text (before escapeHtml) so
+  // the resolver sees the true title — titles with & ' \" < > would otherwise
+  // never match. The rendered HTML is protected by a token like code spans,
+  // and its display title / attributes are escaped explicitly.
+  const wikiSpans = [];
+  text = text.replace(/\[\[([^\]\n]+)\]\]/g, (_match, rawTitle) => {
+    const title = rawTitle.trim();
     const doc = wikiResolver ? wikiResolver(title) : null;
+    const token = `\u0000WIKI${wikiSpans.length}\u0000`;
     if (doc) {
-      return `<a class="wikilink" data-action="open-doc" data-document-id="${escapeHtml(doc.id)}" title="Open ${escapeHtml(doc.title || title)}">${title}</a>`;
+      wikiSpans.push(`<a class="wikilink" data-action="open-doc" data-document-id="${escapeHtml(doc.id)}" title="Open ${escapeHtml(doc.title || title)}">${escapeHtml(title)}</a>`);
+    } else {
+      wikiSpans.push(`<span class="wikilink wikilink--missing" title="No document named this yet">${escapeHtml(title)}</span>`);
     }
-    return `<span class="wikilink wikilink--missing" title="No document named this yet">${title}</span>`;
+    return token;
   });
+
+  text = escapeHtml(text);
   text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+|\/[^)\s]+|#[^)\s]+)\)/g, '<a href="$2" rel="noreferrer">$1</a>');
   text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   text = text.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
   codeSpans.forEach((code, index) => {
     text = text.replace(`\u0000CODE${index}\u0000`, code);
+  });
+  wikiSpans.forEach((wiki, index) => {
+    text = text.replace(`\u0000WIKI${index}\u0000`, wiki);
   });
   return text;
 }
