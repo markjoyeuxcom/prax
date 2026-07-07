@@ -1,5 +1,9 @@
 export function createOllamaEmbedder({ url, model, fetch = globalThis.fetch } = {}) {
-  const base = String(url || 'http://127.0.0.1:11434').replace(/\/+$/, '');
+  // Ollama's native API lives at the root (/api/...), never under /v1 — that's
+  // its OpenAI-compatible surface (use the llama.cpp/OpenAI provider for that).
+  // Strip a trailing /v1 so a base URL copied from an OpenAI-style config still
+  // works instead of 404ing at /v1/api/embeddings.
+  const base = String(url || 'http://127.0.0.1:11434').replace(/\/+$/, '').replace(/\/v1$/, '');
   const embedModel = model || 'nomic-embed-text';
   return {
     backend: 'ollama',
