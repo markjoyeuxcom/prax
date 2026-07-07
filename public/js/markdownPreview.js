@@ -57,20 +57,59 @@ function flushParagraph(output, paragraph) {
   paragraph.length = 0;
 }
 
+function renderListItem(item, childHtml) {
+  if (item.type === 'task') {
+    // Task items are clickable in Prax: main.js listens on [data-md-check]
+    // and rewrites `- [ ]`/`- [x]` at data-line in the markdown source.
+    return `<li class="task-item${item.checked ? ' is-done' : ''}" data-md-check data-line="${item.line}" title="Click to toggle">`
+      + `<span class="task-item__box">${item.checked ? '✓' : ''}</span> `
+      + `<span class="task-item__label">${renderInline(item.text)}</span>${childHtml}</li>`;
+  }
+  return `<li>${renderInline(item.text)}${childHtml}</li>`;
+}
+
+// Turn each item's raw indent into a nesting depth (0,1,2,…). Depth only ever
+// increments by one at a time (indent runs through a stack), so the builder
+// below can nest safely without infinite loops on inconsistent indentation.
+function assignListLevels(items) {
+  const indents = [];
+  return items.map((item) => {
+    while (indents.length && item.indent < indents[indents.length - 1]) indents.pop();
+    if (!indents.length || item.indent > indents[indents.length - 1]) indents.push(item.indent);
+    return { ...item, level: indents.length - 1 };
+  });
+}
+
+// Build nested <ul>/<ol> from level-annotated items. A run of same-kind items at
+// one level is one list; deeper items nest inside the preceding <li>; a change
+// of ordered/unordered kind at the same level starts a sibling list. Returns
+// [html, nextIndex].
+function buildListTree(items, start, level) {
+  let html = '';
+  let i = start;
+  while (i < items.length && items[i].level >= level) {
+    const ordered = items[i].type === 'ordered';
+    const tag = ordered ? 'ol' : 'ul';
+    let lis = '';
+    while (i < items.length && items[i].level === level && (items[i].type === 'ordered') === ordered) {
+      const item = items[i];
+      i += 1;
+      let childHtml = '';
+      if (i < items.length && items[i].level > level) {
+        const [nested, next] = buildListTree(items, i, level + 1);
+        childHtml = nested;
+        i = next;
+      }
+      lis += renderListItem(item, childHtml);
+    }
+    html += `<${tag}>${lis}</${tag}>`;
+  }
+  return [html, i];
+}
+
 function flushList(output, listItems) {
   if (!listItems.length) return;
-  const type = listItems[0].type;
-  const tag = type === 'ordered' ? 'ol' : 'ul';
-  output.push(`<${tag}>${listItems.map((item) => {
-    if (item.type === 'task') {
-      // Task items are clickable in Prax: main.js listens on [data-md-check]
-      // and rewrites `- [ ]`/`- [x]` at data-line in the markdown source.
-      return `<li class="task-item${item.checked ? ' is-done' : ''}" data-md-check data-line="${item.line}" title="Click to toggle">`
-        + `<span class="task-item__box">${item.checked ? '✓' : ''}</span> `
-        + `<span class="task-item__label">${renderInline(item.text)}</span></li>`;
-    }
-    return `<li>${renderInline(item.text)}</li>`;
-  }).join('')}</${tag}>`);
+  output.push(buildListTree(assignListLevels(listItems), 0, 0)[0]);
   listItems.length = 0;
 }
 
@@ -135,6 +174,8 @@ function renderMarkdownBody(markdown) {
     }
 
     const trimmed = line.trim();
+    // Leading-whitespace width (tabs → 4) drives list nesting depth.
+    const indent = line.slice(0, line.length - line.trimStart().length).replace(/\t/g, '    ').length;
     if (!trimmed) {
       flushParagraph(output, paragraph);
       flushList(output, listItems);
@@ -185,21 +226,21 @@ function renderMarkdownBody(markdown) {
     const taskItem = /^[-*]\s+\[([ xX])\]\s+(.+)$/.exec(trimmed);
     if (taskItem) {
       flushParagraph(output, paragraph);
-      listItems.push({ type: 'task', checked: taskItem[1].toLowerCase() === 'x', text: taskItem[2], line: lineIndex });
+      listItems.push({ type: 'task', checked: taskItem[1].toLowerCase() === 'x', text: taskItem[2], line: lineIndex, indent });
       return;
     }
 
     const orderedItem = /^\d+\.\s+(.+)$/.exec(trimmed);
     if (orderedItem) {
       flushParagraph(output, paragraph);
-      listItems.push({ type: 'ordered', text: orderedItem[1] });
+      listItems.push({ type: 'ordered', text: orderedItem[1], indent });
       return;
     }
 
-    const listItem = /^[-*]\s+(.+)$/.exec(trimmed);
+    const listItem = /^[-*+]\s+(.+)$/.exec(trimmed);
     if (listItem) {
       flushParagraph(output, paragraph);
-      listItems.push({ type: 'unordered', text: listItem[1] });
+      listItems.push({ type: 'unordered', text: listItem[1], indent });
       return;
     }
 

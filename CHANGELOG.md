@@ -118,6 +118,14 @@ fresh empty `[Unreleased]` section is started.
   Settings, and the project views were inset. Today now shares the same
   padding.
 
+### Fixed
+
+- **Nested lists render correctly in the Markdown preview.** Indented
+  sub-bullets under an ordered item were flattened into the parent list and
+  renumbered (e.g. a 5-item list with sub-bullets showed as 1–9); the preview
+  now nests by indentation, and a contiguous ordered-then-unordered block
+  renders as two lists instead of one.
+
 ### Changed
 
 - The editor header now matches the design comp: tag and provenance chips sit
