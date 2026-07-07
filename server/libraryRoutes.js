@@ -392,6 +392,22 @@ export async function registerLibraryRoutes(app, options = {}) {
     return tasksRepository.listTasksForDocument(request.params.id);
   });
 
+  // "More like this" — documents most similar to this one by embedding. Reuses
+  // the document's own stored vector (no new embedding call). Empty when
+  // semantic search is off or the document has no embedding.
+  app.get('/api/library/documents/:id/similar', async (request, reply) => {
+    if (!isValidUuid(request.params.id)) { reply.code(400); return { message: 'document id is invalid' }; }
+    const embedder = await resolveEmbedder();
+    if (!embedder || !(await semanticEnabled())) return [];
+    const search = app.embeddingSearch || {};
+    const docs = await repository.findSimilarDocuments(request.params.id, embedder.backend, {
+      limit: 5,
+      minSimilarity: search.minSimilarity,
+      topDrop: search.topDrop,
+    });
+    return docs.map(toRef);
+  });
+
   app.get('/api/library/documents/:id/export', async (request, reply) => {
     if (!isValidUuid(request.params.id)) { reply.code(400); return { message: 'document id is invalid' }; }
     const doc = await repository.getDocument(request.params.id);

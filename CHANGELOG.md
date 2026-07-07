@@ -25,6 +25,12 @@ fresh empty `[Unreleased]` section is started.
 - **`[[wiki-links]]`.** Type `[[` to autocomplete a link to another document
   by title; the preview renders resolved links as clickable (they open the
   doc) and unresolved ones as a muted "missing" style.
+- **Related documents in the editor.** A "Related documents" panel (Preview
+  and Split modes) lists the docs most similar to the one you're reading,
+  reusing its own stored embedding — no new embedding call. `GET
+  /api/library/documents/:id/similar` ranks by cosine similarity, drops the
+  document itself, and returns empty when semantic search is off or the doc
+  has no embedding; each result is a clickable row with its match percentage.
 - **The Markdown preview renders images, `~~strikethrough~~`, and underscore
   emphasis** (`_italic_` / `__bold__`). Underscore emphasis has word-boundary
   guards, so `snake_case` identifiers and paths like `/etc/foo_bar` are left

@@ -323,3 +323,24 @@ test('escapes task titles in backlinks', () => {
   assert.equal(html.includes('<script>'), false);
   assert.match(html, /&lt;script&gt;steal\(\)&lt;\/script&gt;/);
 });
+
+// ---- related documents -------------------------------------------------------
+
+test('related documents render as clickable rows with a similarity percentage (preview modes)', () => {
+  const related = [
+    { id: 'doc-2', title: 'Backup drill', similarity: 0.82 },
+    { id: 'doc-3', title: 'Failover', similarity: 0.55 },
+  ];
+  const html = render({ editorMode: 'split' }, {}, { related });
+  assert.match(html, /class="doc-related"/);
+  assert.match(html, /class="doc-related__label">Related documents</);
+  assert.match(html, /data-action="open-doc" data-document-id="doc-2"[^>]*>[\s\S]*?Backup drill[\s\S]*?82%/);
+  assert.match(html, /data-document-id="doc-3"[\s\S]*?55%/);
+});
+
+test('related documents section is hidden when empty, not fetched, or in edit-only mode', () => {
+  assert.doesNotMatch(render({ editorMode: 'split' }, {}, { related: [] }), /doc-related/);
+  assert.doesNotMatch(render({ editorMode: 'split' }, {}, { related: null }), /doc-related/);
+  // edit-only mode shows no preview-side sections
+  assert.doesNotMatch(render({ editorMode: 'edit' }, {}, { related: [{ id: 'x', title: 'X', similarity: 0.9 }] }), /doc-related/);
+});

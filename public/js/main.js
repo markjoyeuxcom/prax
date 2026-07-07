@@ -19,7 +19,7 @@ import {
 } from './projectApi.js';
 import {
   fetchDocuments, createDocument, updateDocument, archiveDocument,
-  restoreDocument, deleteArchivedDocument, fetchDocumentLinks, fetchDocumentTaskBacklinks,
+  restoreDocument, deleteArchivedDocument, fetchDocumentLinks, fetchDocumentTaskBacklinks, fetchSimilarDocuments,
   fetchStaleDocuments, fetchOrphanDocuments, fetchSemanticStatus,
   setSemanticEnabled, putSemanticSettings, reindexEmbeddings, semanticSearch,
   verifyDocument, supersedeDocument,
@@ -174,6 +174,18 @@ async function loadDocumentTaskBacklinks(documentId) {
     }
   } catch {
     /* backlinks footer stays empty */
+  }
+}
+
+async function loadSimilarDocuments(documentId) {
+  try {
+    const similar = await fetchSimilarDocuments(documentId);
+    if (state.editorDocId === documentId) {
+      setState({ documentSimilar: similar });
+      renderApp();
+    }
+  } catch {
+    /* related-docs section stays hidden */
   }
 }
 
@@ -489,6 +501,7 @@ function seedEditorDraft(doc) {
     documentSaveStatus: 'Saved',
     documentLinks: null,
     documentTaskBacklinks: null,
+    documentSimilar: null,
     isDocumentInfoEditorOpen: false,
     documentInfoError: '',
     // A new document starts with find/replace closed and cleared.
@@ -754,6 +767,7 @@ async function openDocumentInEditor(documentId) {
   renderApp();
   loadDocumentLinks(doc.id);
   loadDocumentTaskBacklinks(doc.id);
+  loadSimilarDocuments(doc.id);
 }
 
 // ---------------------------------------------------------------------------

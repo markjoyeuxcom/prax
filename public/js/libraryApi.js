@@ -65,6 +65,14 @@ export async function fetchDocumentTaskBacklinks(id) {
   return response.json();
 }
 
+// Documents most similar to this one by embedding (empty when semantic search
+// is off or the document has no embedding) — [{ id, title, similarity, ... }].
+export async function fetchSimilarDocuments(id) {
+  const response = await fetch(`/api/library/documents/${id}/similar`);
+  if (!response.ok) throw new Error('Failed to load similar documents');
+  return response.json();
+}
+
 export async function fetchStaleDocuments(project = '') {
   const qs = project ? `?project=${encodeURIComponent(project)}` : '';
   const response = await fetch(`/api/library/maintenance/stale${qs}`);
