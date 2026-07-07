@@ -132,6 +132,46 @@ test('model flags archive mode from state.libraryView', () => {
   assert.equal(build({ libraryView: 'archive' }).archive, true);
 });
 
+test('semantic empty state prompts a re-index when nothing is embedded (the switch-provider gap)', () => {
+  const html = render({
+    librarySemantic: true, libraryQuery: 'db dies', semanticResults: [],
+    semanticStatus: { available: true, connected: true, embeddedCount: 0, totalCount: 5 },
+  });
+  assert.match(html, /Nothing is embedded yet/);
+  assert.match(html, /0 of 5/);
+  assert.match(html, /data-action="reindex-embeddings"/);
+});
+
+test('semantic empty state shows an unavailable message when the backend errored', () => {
+  const html = render({
+    librarySemantic: true, libraryQuery: 'db dies', semanticResults: [], semanticError: true,
+    semanticStatus: { available: true, connected: false, embeddedCount: 3, totalCount: 5 },
+  });
+  assert.match(html, /Semantic search is unavailable/);
+  assert.match(html, /data-action="nav-settings"/);
+  assert.doesNotMatch(html, /Nothing is embedded yet/);
+});
+
+test('semantic empty state is a genuine no-match when docs are embedded but nothing scored', () => {
+  const html = render({
+    librarySemantic: true, libraryQuery: 'db dies', semanticResults: [],
+    semanticStatus: { available: true, connected: true, embeddedCount: 5, totalCount: 5 },
+  });
+  assert.match(html, /No matches by meaning/);
+  assert.match(html, /5 embedded documents/);
+  assert.doesNotMatch(html, /reindex-embeddings/);
+});
+
+test('semantic results render match cards when there are hits', () => {
+  const html = render({
+    librarySemantic: true, libraryQuery: 'db dies',
+    semanticResults: [{ id: 'doc-1', title: 'Restore', similarity: 0.8, snippet: 'x' }],
+    semanticStatus: { available: true, embeddedCount: 5, totalCount: 5 },
+  });
+  assert.match(html, /matched by meaning/);
+  assert.match(html, /data-document-id="doc-1"/);
+});
+
 // ---------------------------------------------------------------------------
 // renderLibraryHtml — header, search row, tag row
 // ---------------------------------------------------------------------------
@@ -335,7 +375,9 @@ test('semantic results note is singular for one match and handles empty results'
     semanticStatus: { available: true, enabled: true },
     semanticResults: [],
   });
-  assert.match(none, /class="sem-note">0 documents matched by meaning\.</);
+  // Empty results are no longer a bare "0 matched" — with nothing embedded they
+  // guide the user to re-index (see the dedicated empty-state tests above).
+  assert.match(none, /Nothing is embedded yet/);
   assert.doesNotMatch(none, /class="sem-card"/);
 });
 

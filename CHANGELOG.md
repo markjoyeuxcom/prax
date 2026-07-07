@@ -148,11 +148,17 @@ fresh empty `[Unreleased]` section is started.
   element, so focus (and the caret) were lost after every keystroke — you could
   only enter one character at a time. The search input now re-focuses and
   restores the caret after the live re-render, like the palette input.
-- **Semantic search failures are surfaced instead of looking like "no results".**
-  A failed search (e.g. the embedding backend is unreachable) threw, and the
-  handler silently swallowed it into an empty result set — indistinguishable
-  from a search that genuinely matched nothing. It now shows a toast pointing at
-  Settings ▸ Intelligence so a misconfigured/unreachable provider is visible.
+- **Semantic search no longer looks broken when nothing is embedded.** The most
+  common "semantic search isn't working" was configuring a provider (e.g. Ollama)
+  but never re-indexing: search only matches documents embedded with the *active*
+  provider, so it silently returned an empty list. The empty state now
+  distinguishes three cases — **nothing embedded yet** (shows "0 of N" with a
+  **Re-index now** button — the fix for the switch-provider gap), a **backend
+  error** (a toast + "unavailable" message pointing at Settings ▸ Intelligence,
+  instead of swallowing the failure into empty results), and a **genuine
+  no-match**. Re-index also now reports its outcome ("Re-indexed N documents", or
+  "embedded X, Y failed — check the provider/model") so a provider that's
+  reachable but missing its embedding model no longer fails invisibly.
 - **Database writes are isolated across the shared SQLite handle again.** The
   engine swap put every repository on one `node:sqlite` handle, and `connect()`'s
   session mutex only ordered sessions against each other — a direct `db.query()`
