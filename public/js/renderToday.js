@@ -51,12 +51,13 @@ export function renderTodayHtml(state, groups, { now = new Date() } = {}) {
   });
   const head = '<header class="page-head"><h1 class="page-head__title">Today</h1></header>'
     + `<p class="page-head__sub">${escapeHtml(dateLabel)} — everything due or slipping across your projects.</p>`;
-  if (!groups || !groups.length) {
-    return head
-      + `<div class="empty">${logo(48)}`
+  // Wrap in .page so the heading and rows share the same inset as every other
+  // top-level view (All projects, Library, Settings, project List/Board).
+  const body = (!groups || !groups.length)
+    ? `<div class="empty">${logo(48)}`
       + '<p class="empty__title">All clear</p>'
       + '<p class="empty__sub">Nothing overdue, nothing due today. Enjoy the quiet.</p>'
-      + '</div>';
-  }
-  return head + renderTaskGroupsHtml(state, groups, { rowExtra: projectChipHtml });
+      + '</div>'
+    : renderTaskGroupsHtml(state, groups, { rowExtra: projectChipHtml });
+  return `<div class="page">${head}${body}</div>`;
 }

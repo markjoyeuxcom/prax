@@ -71,6 +71,14 @@ test('renderTodayHtml renders the page head with the formatted date line', () =>
   assert.match(html, /class="page-head__sub">Monday, July 6 — everything due or slipping across your projects\.</);
 });
 
+test('renderTodayHtml wraps in .page so it aligns with every other top-level view', () => {
+  // Both the populated and empty branches must sit inside the standard .page
+  // inset — otherwise the Today heading hangs flush-left of the others.
+  const { groups } = buildTodayGroups([task({ id: 'a', dueDate: '2026-07-06' })], PROJECTS, { now: NOW });
+  assert.match(renderTodayHtml(baseState(), groups, { now: NOW }), /^\s*<div class="page">/);
+  assert.match(renderTodayHtml(baseState(), [], { now: NOW }), /^\s*<div class="page">/);
+});
+
 test('renderTodayHtml adds a project chip tinted with the project color after the title', () => {
   const { groups } = buildTodayGroups([
     task({ id: 'a', title: 'Patch node', dueDate: '2026-07-04' }),
