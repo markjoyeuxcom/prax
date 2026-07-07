@@ -35,6 +35,22 @@ export function filterDocumentsByType(documents = [], type = 'all') {
   return documents.filter(doc => (doc.documentType || 'note') === type);
 }
 
+// Predicates for each trust facet (matching the card chips).
+export const TRUST_PREDICATES = {
+  verified: (doc) => doc.verified === true,
+  stale: (doc) => doc.stale === true,
+  superseded: (doc) => doc.status === 'superseded',
+};
+
+// OR within the trust axis: a document passes if it matches ANY selected facet
+// (an unselected/empty axis passes everything). AND-across-axes is composed by
+// the caller (tags AND type AND trust AND query).
+export function filterDocumentsByTrust(documents = [], trust = []) {
+  const active = (Array.isArray(trust) ? trust : []).filter((key) => TRUST_PREDICATES[key]);
+  if (!active.length) return documents;
+  return documents.filter((doc) => active.some((key) => TRUST_PREDICATES[key](doc)));
+}
+
 export function sortDocuments(documents = [], sortBy = 'updated') {
   const copy = [...documents];
   const byStr = (a, b) => String(a || '').localeCompare(String(b || ''));

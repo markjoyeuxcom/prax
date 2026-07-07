@@ -435,3 +435,54 @@ test('semantic snippets and archive titles are escaped', () => {
   assert.doesNotMatch(archive, /<script>/);
   assert.match(archive, /class="plain-row__title">&lt;script&gt;a&lt;\/script&gt;</);
 });
+
+// ---- type + trust facets -----------------------------------------------------
+
+test('facet row shows Type pills with counts while browsing', () => {
+  const html = render();
+  assert.match(html, /class="facet-row"/);
+  assert.match(html, /facet-group__label">Type</);
+  assert.match(html, /data-action="toggle-lib-type" data-facet="runbook"[^>]*>Runbooks <span class="facet-pill__count">2</);
+  assert.match(html, /data-action="toggle-lib-type" data-facet="note"[^>]*>Notes <span class="facet-pill__count">1</);
+});
+
+test('the Trust group is omitted when no document carries a trust flag', () => {
+  const html = render();
+  assert.doesNotMatch(html, /facet-group__label">Trust</);
+});
+
+test('Trust facets appear (with counts) once documents carry the flags, and mark active', () => {
+  const docs = [
+    { id: 'v', title: 'V', documentType: 'note', tags: [], verified: true },
+    { id: 's', title: 'S', documentType: 'note', tags: [], stale: true },
+    { id: 'p', title: 'P', documentType: 'note', tags: [] },
+  ];
+  const html = render({ documents: docs, libraryTrust: ['verified'] });
+  assert.match(html, /facet-group__label">Trust</);
+  assert.match(html, /class="facet-pill is-active"[^>]*data-facet="verified"[^>]*aria-pressed="true"[^>]*>Verified <span class="facet-pill__count">1</);
+  assert.match(html, /data-facet="stale"[^>]*aria-pressed="false"[^>]*>Stale <span class="facet-pill__count">1</);
+  assert.doesNotMatch(html, /data-facet="superseded"/); // none superseded
+});
+
+test('selecting one type facet filters the visible docs to that type', () => {
+  assert.equal(build().visibleCount, 3);
+  assert.deepEqual(build({ libraryTypes: ['note'] }).groups.flatMap(g => g.docs).map(d => d.id), ['doc-ideas']);
+  // both types selected = no narrowing (like "all")
+  assert.equal(build({ libraryTypes: ['note', 'runbook'] }).visibleCount, 3);
+});
+
+test('trust facet narrows to matching docs (AND across type + trust axes)', () => {
+  const docs = [
+    { id: 'vr', title: 'VR', documentType: 'runbook', tags: [], verified: true },
+    { id: 'vn', title: 'VN', documentType: 'note', tags: [], verified: true },
+    { id: 'pr', title: 'PR', documentType: 'runbook', tags: [] },
+  ];
+  assert.deepEqual(build({ documents: docs, libraryTrust: ['verified'] }).groups.flatMap(g => g.docs).map(d => d.id), ['vr', 'vn']);
+  // AND with type: verified runbooks only
+  assert.deepEqual(build({ documents: docs, libraryTrust: ['verified'], libraryTypes: ['runbook'] }).groups.flatMap(g => g.docs).map(d => d.id), ['vr']);
+});
+
+test('facet row is hidden in archive and semantic modes', () => {
+  assert.doesNotMatch(render({ libraryView: 'archive' }), /facet-row/);
+  assert.doesNotMatch(render({ librarySemantic: true, semanticStatus: { available: true, enabled: true } }), /facet-row/);
+});

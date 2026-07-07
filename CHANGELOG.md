@@ -25,6 +25,11 @@ fresh empty `[Unreleased]` section is started.
 - **`[[wiki-links]]`.** Type `[[` to autocomplete a link to another document
   by title; the preview renders resolved links as clickable (they open the
   doc) and unresolved ones as a muted "missing" style.
+- **Filter the Library by type and trust.** A facet row adds Type
+  (Runbooks / Notes) and Trust (Verified / Stale / Superseded) toggles with
+  live counts. Facets are additive — AND across the axes (and with tags and
+  search), OR within the Trust axis — and only show while browsing (not in
+  archive or semantic mode); trust facets no document carries are hidden.
 - **New-doc templates.** "＋ New doc" is now a small chooser: **Blank note**
   or **Runbook**, the latter seeding a `## Symptoms / Diagnosis / Resolution /
   Verification / Rollback` skeleton so the outline is ready to fill in.
