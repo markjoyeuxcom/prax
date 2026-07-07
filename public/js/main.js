@@ -78,6 +78,7 @@ let descriptionSaveTimer = null;
 let titleSaveTimer = null;        // editor document title
 let taskTitleSaveTimer = null;    // drawer task title
 let toastTimer = null;
+let isReindexing = false;         // guards the reindex/rebuild handler from double-runs
 let dragIndicator = null;
 
 // Native window.alert/confirm/prompt do not exist in the desktop webview
@@ -1729,8 +1730,14 @@ async function handleAction(action, el, event) {
         });
         break;
       }
-      if (force) setState({ confirm: null });
-      el.disabled = true;
+      if (isReindexing) break; // ignore repeat clicks while one is running
+      isReindexing = true;
+      // Close the confirm dialog immediately and show progress — a rebuild can
+      // take a while against a remote/large model, and leaving the dialog up (it
+      // only closed after the whole run finished) read as "the button did
+      // nothing". showToast re-renders, so the dialog is gone right away.
+      if (state.confirm) setState({ confirm: null });
+      showToast(force ? 'Rebuilding every embedding…' : 'Re-indexing…');
       try {
         const result = await reindexEmbeddings(force);
         await loadSemanticStatus();
@@ -1744,6 +1751,7 @@ async function handleAction(action, el, event) {
           showToast('Embeddings are already up to date.');
         }
       } catch { alertError('reindex embeddings'); }
+      finally { isReindexing = false; }
       renderApp();
       break;
     }
