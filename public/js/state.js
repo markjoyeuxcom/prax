@@ -80,6 +80,7 @@ export const state = {
   isDocumentInfoEditorOpen: false,
   documentInfoError: '',
   docMenuOpen: false,           // editor ••• actions dropdown
+  newDocMenuOpen: false,        // Library "＋ New doc" template chooser
 
   // ---- editor find/replace (Prax-native panel; see renderSearchPanel.js) ----
   editorSearchOpen: false,
