@@ -70,3 +70,28 @@ test('titleFromMarkdown prefers first heading then filename then fallback', () =
   assert.equal(titleFromMarkdown('No heading', 'ingress-notes.md'), 'ingress-notes');
   assert.equal(titleFromMarkdown('', ''), 'Untitled document');
 });
+
+// ---- wiki-links --------------------------------------------------------------
+
+test('renderMarkdownHtml resolves [[wiki-links]] to a clickable doc link', () => {
+  const resolveWikiLink = (title) => (title === 'Runbook' ? { id: 'doc-1', title: 'Runbook' } : null);
+  const html = renderMarkdownHtml('See [[Runbook]] for steps.', { resolveWikiLink });
+  assert.match(html, /<a class="wikilink" data-action="open-doc" data-document-id="doc-1"[^>]*>Runbook<\/a>/);
+});
+
+test('renderMarkdownHtml renders an unresolved [[wiki-link]] as a muted missing span', () => {
+  const html = renderMarkdownHtml('See [[Nonexistent]] here.', { resolveWikiLink: () => null });
+  assert.match(html, /<span class="wikilink wikilink--missing"[^>]*>Nonexistent<\/span>/);
+  assert.doesNotMatch(html, /data-action="open-doc"/);
+});
+
+test('renderMarkdownHtml treats [[wiki-links]] as missing when no resolver is given', () => {
+  const html = renderMarkdownHtml('A [[Doc]] link.');
+  assert.match(html, /wikilink--missing/);
+});
+
+test('renderMarkdownHtml escapes wiki-link titles', () => {
+  const html = renderMarkdownHtml('[[<script>x</script>]]', { resolveWikiLink: () => null });
+  assert.ok(!html.includes('<script>'));
+  assert.match(html, /&lt;script&gt;x&lt;\/script&gt;/);
+});

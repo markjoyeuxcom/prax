@@ -461,6 +461,25 @@ function currentDocument() {
   return state.documents.find(d => d.id === state.editorDocId) || null;
 }
 
+// Resolve a [[wiki-link]] title to a non-archived document (case-insensitive),
+// for the Markdown preview. Returns { id, title } or null (renders as "missing").
+function resolveWikiLink(title) {
+  const key = String(title || '').trim().toLowerCase();
+  if (!key) return null;
+  const doc = (state.documents || []).find(
+    (d) => d && !d.archivedAt && String(d.title || '').trim().toLowerCase() === key,
+  );
+  return doc ? { id: doc.id, title: doc.title } : null;
+}
+
+// Non-archived documents (excluding the one being edited) offered as
+// [[wiki-link]] autocomplete targets in the editor.
+function wikiLinkDocuments() {
+  return (state.documents || [])
+    .filter((d) => d && !d.archivedAt && d.title && d.id !== state.editorDocId)
+    .map((d) => ({ id: d.id, title: d.title }));
+}
+
 function seedEditorDraft(doc) {
   setState({
     editorDocId: doc.id,
@@ -587,7 +606,7 @@ function handleDocumentDraftBodyChange(value) {
     const words = value.split(/\s+/).filter(Boolean).length;
     counts.textContent = `${words} words · ${value.length} characters · ${Math.max(1, Math.round(words / 200))} min read`;
   }
-  updateDocumentLivePreview(appRoot, value);
+  updateDocumentLivePreview(appRoot, value, { resolveWikiLink });
   scheduleDocumentAutosave();
 }
 
@@ -659,6 +678,7 @@ function mountEditorIfNeeded() {
       value: state.documentDraftBody,
       lineNumbers: Boolean(state.preferences.lineNumbers),
       cursorToEnd: true,
+      documentsProvider: wikiLinkDocuments,
       onChange: (value) => {
         if (fallback) fallback.value = value;
         handleDocumentDraftBodyChange(value);
@@ -983,7 +1003,7 @@ function renderMainHtml() {
       const model = {
         outline: buildOutline(text),
         backlinks: buildBacklinks(backlinkTasks, coloredProjects, doc.id),
-        previewHtml: renderMarkdownHtml(text),
+        previewHtml: renderMarkdownHtml(text, { resolveWikiLink }),
       };
       return renderEditorHtml(state, doc, model);
     }

@@ -7,6 +7,12 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+// Set per-render by renderMarkdownHtml: (title) => { id, title } | null. Lets
+// renderInline (called deep in the parse) resolve [[wiki-links]] without
+// threading the document list through every call. Safe because rendering is
+// synchronous and single-threaded.
+let wikiResolver = null;
+
 function renderInline(value) {
   const codeSpans = [];
   let text = String(value ?? '').replace(/`([^`]+)`/g, (_match, code) => {
@@ -16,6 +22,17 @@ function renderInline(value) {
   });
 
   text = escapeHtml(text);
+  // Wiki-links [[Title]] — resolved to a clickable doc link, or a muted
+  // "missing" span. Runs before the standard link rule (it never has parens,
+  // so there is no overlap). The title is already escaped by escapeHtml above.
+  text = text.replace(/\[\[([^\]\n]+)\]\]/g, (_match, escapedTitle) => {
+    const title = escapedTitle.trim();
+    const doc = wikiResolver ? wikiResolver(title) : null;
+    if (doc) {
+      return `<a class="wikilink" data-action="open-doc" data-document-id="${escapeHtml(doc.id)}" title="Open ${escapeHtml(doc.title || title)}">${title}</a>`;
+    }
+    return `<span class="wikilink wikilink--missing" title="No document named this yet">${title}</span>`;
+  });
   text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+|\/[^)\s]+|#[^)\s]+)\)/g, '<a href="$2" rel="noreferrer">$1</a>');
   text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   text = text.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
@@ -65,7 +82,16 @@ function flushTable(output, tableRows) {
   return true;
 }
 
-export function renderMarkdownHtml(markdown = '') {
+export function renderMarkdownHtml(markdown = '', options = {}) {
+  wikiResolver = typeof options.resolveWikiLink === 'function' ? options.resolveWikiLink : null;
+  try {
+    return renderMarkdownBody(markdown);
+  } finally {
+    wikiResolver = null;
+  }
+}
+
+function renderMarkdownBody(markdown) {
   const lines = String(markdown || '').split(/\r?\n/);
   const output = [];
   const paragraph = [];

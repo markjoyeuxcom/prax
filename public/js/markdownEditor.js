@@ -123,3 +123,26 @@ export function applyMarkdownFormat(value, selectionStart, selectionEnd, action)
       return { value: safeValue, selectionStart: start, selectionEnd: end };
   }
 }
+
+// Given the text of the line the caret sits at (caret assumed at end of line),
+// decide what Enter should do inside a Markdown list/quote:
+//   { action: 'none' }                    — not a list line; default Enter
+//   { action: 'exit' }                    — empty item; clear the marker (leave list)
+//   { action: 'continue', prefix: '…' }   — insert a newline + this prefix
+// Handles bullets (-, *, +), ordered (auto-incremented), task items (fresh
+// unchecked), and blockquotes, preserving leading indentation. Pure.
+export function continueListOnEnter(lineText) {
+  const match = /^(\s*)([-*+] \[[ xX]\] |[-*+] |\d+\. |> ?)(.*)$/.exec(String(lineText ?? ''));
+  if (!match) return { action: 'none' };
+  const [, indent, marker, content] = match;
+  if (content.trim() === '') return { action: 'exit' };
+
+  const task = /^([-*+]) \[[ xX]\] $/.exec(marker);
+  const ordered = /^(\d+)\. $/.exec(marker);
+  let nextMarker;
+  if (task) nextMarker = `${task[1]} [ ] `;
+  else if (ordered) nextMarker = `${Number(ordered[1]) + 1}. `;
+  else if (marker.startsWith('>')) nextMarker = '> ';
+  else nextMarker = marker; // "- " / "* " / "+ "
+  return { action: 'continue', prefix: `${indent}${nextMarker}` };
+}
