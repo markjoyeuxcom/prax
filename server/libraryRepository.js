@@ -323,15 +323,22 @@ export function buildListDocumentsNeedingEmbedding(backend, model) {
   };
 }
 
-export function buildCountEmbeddings(backend) {
+export function buildCountEmbeddings(backend, model) {
+  // "embedded" counts only rows current for the ACTIVE config, so the status
+  // reads honestly after a model change (a doc on the old model is stale, not
+  // embedded — mirrors buildListDocumentsNeedingEmbedding's model clause). The
+  // model term is added only when a model is given, so the no-model call site
+  // doesn't compare against a null.
+  const hasModel = typeof model === 'string';
+  const modelClause = hasModel ? ' and embedding_model is not distinct from $2' : '';
   return {
     text: `
       select
         count(*) filter (where archived_at is null) as total,
-        count(*) filter (where archived_at is null and embedding is not null and embedding_backend = $1 and embedded_hash is not distinct from content_hash) as embedded
+        count(*) filter (where archived_at is null and embedding is not null and embedding_backend = $1 and embedded_hash is not distinct from content_hash${modelClause}) as embedded
       from markdown_documents
     `,
-    values: [backend],
+    values: hasModel ? [backend, model] : [backend],
   };
 }
 
@@ -525,8 +532,8 @@ export function createLibraryRepository(db) {
       return result.rows.map((r) => ({ id: r.id, contentHash: r.content_hash }));
     },
 
-    async countEmbeddings(backend) {
-      const q = buildCountEmbeddings(backend);
+    async countEmbeddings(backend, model) {
+      const q = buildCountEmbeddings(backend, model);
       const result = await db.query(q.text, q.values);
       const row = result.rows[0] || {};
       return { total: Number(row.total || 0), embedded: Number(row.embedded || 0) };

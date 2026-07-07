@@ -36,7 +36,7 @@ export async function registerSettingsRoutes(app, options = {}) {
     let counts = { total: 0, embedded: 0 };
     if (available) {
       connected = await embedder.isAvailable().catch(() => false);
-      if (library.countEmbeddings) counts = await library.countEmbeddings(embedder.backend).catch(() => counts);
+      if (library.countEmbeddings) counts = await library.countEmbeddings(embedder.backend, embedder.model).catch(() => counts);
     }
     return {
       available,
