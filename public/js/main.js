@@ -52,6 +52,7 @@ import { renderTaskDrawerHtml } from './renderTaskDetail.js';
 import { renderLinkPickerHtml } from './renderLinkPicker.js';
 import { renderLibraryHtml, buildLibraryModel } from './renderLibrary.js';
 import { renderEditorHtml, buildOutline, buildBacklinks } from './renderEditor.js';
+import { renderSearchPanelHtml, searchCountLabel } from './renderSearchPanel.js';
 import { renderAllProjectsHtml, buildProjectGroups } from './renderAllProjects.js';
 import { renderPaletteHtml, buildPaletteGroups } from './renderPalette.js';
 import { renderCaptureHtml } from './renderCapture.js';
@@ -471,7 +472,103 @@ function seedEditorDraft(doc) {
     documentTaskBacklinks: null,
     isDocumentInfoEditorOpen: false,
     documentInfoError: '',
+    // A new document starts with find/replace closed and cleared.
+    editorSearchOpen: false,
+    searchQuery: '',
+    searchReplace: '',
+    searchMatchInfo: { total: 0, current: 0, valid: true },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Editor find/replace — a Prax-native panel driving CodeMirror's search
+// commands through the mounted controller. Managed by direct DOM insertion so
+// CodeMirror is never remounted mid-search (renderApp would wipe its state).
+// ---------------------------------------------------------------------------
+
+let searchApplyTimer = null;
+
+// Push the current query/options into CodeMirror and refresh the count. Safe to
+// call after a remount — it re-applies from state, so search survives.
+function applyCurrentSearch() {
+  if (!documentEditorController?.applySearch) return;
+  const info = documentEditorController.applySearch({
+    search: state.searchQuery,
+    replace: state.searchReplace,
+    caseSensitive: state.searchCaseSensitive,
+    regexp: state.searchRegexp,
+    wholeWord: state.searchWholeWord,
+  });
+  setState({ searchMatchInfo: info });
+  updateSearchCountDom();
+}
+
+function scheduleSearchApply() {
+  clearTimeout(searchApplyTimer);
+  searchApplyTimer = setTimeout(applyCurrentSearch, 90);
+}
+
+function updateSearchCountDom() {
+  const el = appRoot?.querySelector('[data-search-count]');
+  if (el) el.textContent = searchCountLabel(state);
+}
+
+// Reconcile the panel DOM with state.editorSearchOpen. Called from afterRender
+// (a full render wipes the panel) and from open/close — never triggers renderApp.
+function syncSearchPanelDom() {
+  if (!appRoot) return;
+  const existing = appRoot.querySelector('[data-editor-search]');
+  const body = appRoot.querySelector('.editor-body');
+  const wantOpen = state.navType === 'editor'
+    && state.editorSearchOpen
+    && Boolean(documentEditorController)
+    && Boolean(body);
+  if (!wantOpen) { existing?.remove(); return; }
+  if (existing) return;
+  body.insertAdjacentHTML('afterbegin', renderSearchPanelHtml(state));
+  applyCurrentSearch();
+  const find = appRoot.querySelector('[data-search-find]');
+  find?.focus();
+  find?.select();
+}
+
+function openEditorSearch() {
+  if (state.navType !== 'editor' || !documentEditorController) return;
+  const existing = appRoot.querySelector('[data-search-find]');
+  if (existing) { existing.focus(); existing.select(); return; }
+  // Seed the Find field from a one-line selection, like most editors.
+  const selected = documentEditorController.getSelectionText?.() || '';
+  const query = selected && !selected.includes('\n') ? selected : state.searchQuery;
+  setState({ editorSearchOpen: true, searchQuery: query });
+  syncSearchPanelDom();
+}
+
+function closeEditorSearch() {
+  documentEditorController?.clearSearch?.();
+  setState({ editorSearchOpen: false, searchMatchInfo: { total: 0, current: 0, valid: true } });
+  syncSearchPanelDom();
+  documentEditorController?.focus?.();
+}
+
+// next | previous | replace | replace-all — call the controller, refresh count.
+// Replace commands mutate the doc, which fires onChange → draft autosave (that
+// path never renderApps while the edit surface is live), so the panel persists.
+function runSearchCommand(kind) {
+  if (!documentEditorController) return;
+  let info;
+  if (kind === 'previous') info = documentEditorController.searchPrevious();
+  else if (kind === 'replace') info = documentEditorController.replaceMatch();
+  else if (kind === 'replace-all') info = documentEditorController.replaceAllMatches();
+  else info = documentEditorController.searchNext();
+  setState({ searchMatchInfo: info });
+  updateSearchCountDom();
+}
+
+function toggleSearchOption(key, el) {
+  setState({ [key]: !state[key] });
+  el?.classList.toggle('is-on', state[key]);
+  el?.setAttribute('aria-pressed', String(state[key]));
+  applyCurrentSearch();
 }
 
 function setSaveStatusInPlace(status) {
@@ -812,6 +909,7 @@ function goSettings() {
 }
 
 function escapeCascade() {
+  if (state.editorSearchOpen) { closeEditorSearch(); return; }
   if (state.confirm) { setState({ confirm: null }); renderApp(); return; }
   if (state.docMenuOpen) { setState({ docMenuOpen: false }); renderApp(); return; }
   if (state.paletteOpen) { setState({ paletteOpen: false }); renderApp(); return; }
@@ -1021,12 +1119,16 @@ function afterRender() {
     // destructive action, so a stray Enter can't confirm a delete.
     (appRoot.querySelector('[data-confirm-input]')
       || appRoot.querySelector('.confirm button[data-action="confirm-cancel"]'))?.focus();
-  } else if (state.navType === 'editor' && !state.drawerTaskId && !state.isDocumentInfoEditorOpen) {
+  } else if (state.navType === 'editor' && !state.drawerTaskId
+    && !state.isDocumentInfoEditorOpen && !state.editorSearchOpen) {
     // Keep the caret in the document: an unfocused editor screen would let
     // plain letters fall through to the global shortcuts (n = capture…).
     const active = document.activeElement;
     if (!active || active === document.body || active === appRoot) focusEditor();
   }
+  // Re-attach the find/replace panel if a full render wiped it (it lives
+  // outside renderApp so CodeMirror is never remounted mid-search).
+  syncSearchPanelDom();
   if (state.navType === 'project' && (state.tab === 'board' || state.tab === 'list')) {
     ensureBoardExtras(projectTasks().filter(t => !t.archivedAt));
   }
@@ -1347,6 +1449,15 @@ async function handleAction(action, el, event) {
     case 'back-to-library': goLibrary(); break;
     case 'set-editor-mode': destroyEditorController(); setState({ editorMode: el.dataset.mode }); renderApp(); break;
     case 'toggle-outline': setState({ outlineOpen: !state.outlineOpen }); renderApp(); break;
+    // ---- editor find/replace ----
+    case 'close-editor-search': closeEditorSearch(); break;
+    case 'search-next': runSearchCommand('next'); break;
+    case 'search-previous': runSearchCommand('previous'); break;
+    case 'search-replace': runSearchCommand('replace'); break;
+    case 'search-replace-all': runSearchCommand('replace-all'); break;
+    case 'search-toggle-case': toggleSearchOption('searchCaseSensitive', el); break;
+    case 'search-toggle-word': toggleSearchOption('searchWholeWord', el); break;
+    case 'search-toggle-regexp': toggleSearchOption('searchRegexp', el); break;
     case 'toggle-focus': destroyEditorController(); setState({ editorFocus: !state.editorFocus }); renderApp(); break;
     case 'export-doc': triggerLibraryDocumentDownload(state.editorDocId); break;
     case 'md-format': applyEditorFormat(el.dataset.mdAction); break;
@@ -1621,6 +1732,16 @@ function bindEvents() {
 
   appRoot.addEventListener('input', (event) => {
     const target = event.target;
+    if (target.matches?.('[data-search-find]')) {
+      setState({ searchQuery: target.value });
+      scheduleSearchApply();
+      return;
+    }
+    if (target.matches?.('[data-search-replace]')) {
+      setState({ searchReplace: target.value });
+      scheduleSearchApply();
+      return;
+    }
     if (target.matches?.('[data-palette-input]')) {
       setState({ paletteQuery: target.value, paletteSelection: 0 });
       renderApp();
@@ -1721,6 +1842,24 @@ function bindEvents() {
 
   appRoot.addEventListener('keydown', (event) => {
     const target = event.target;
+    // ⌘F / Ctrl+F opens the editor find panel from anywhere in the editor view
+    // (document, panel inputs, preview) — never the browser's find-in-page.
+    if (state.navType === 'editor' && (event.metaKey || event.ctrlKey)
+      && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'f') {
+      event.preventDefault();
+      openEditorSearch();
+      return;
+    }
+    if (target.matches?.('[data-search-find]')) {
+      if (event.key === 'Enter') { event.preventDefault(); runSearchCommand(event.shiftKey ? 'previous' : 'next'); }
+      else if (event.key === 'Escape') { event.preventDefault(); closeEditorSearch(); }
+      return;
+    }
+    if (target.matches?.('[data-search-replace]')) {
+      if (event.key === 'Enter') { event.preventDefault(); runSearchCommand('replace'); }
+      else if (event.key === 'Escape') { event.preventDefault(); closeEditorSearch(); }
+      return;
+    }
     if (target.matches?.('[data-palette-input]')) {
       if (event.key === 'ArrowDown') {
         event.preventDefault();

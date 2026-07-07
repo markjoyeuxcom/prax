@@ -26,8 +26,15 @@ fresh empty `[Unreleased]` section is started.
   the server.
 - **⌘K finds documents by their body text**, not just title and tags — the
   cheap half of a doc quick-switcher.
-- **Find & replace inside the editor** (⌘F / ⌘⌥F), themed to the Prax palette,
-  via CodeMirror's search extension — scoped to the current document.
+- **Find & replace inside the editor** (⌘F) — a Prax-native panel that floats
+  over the editor: live match highlighting with an "n of N" counter,
+  next/previous, single Replace and Replace all, and match-case / whole-word /
+  regexp toggles. It drives CodeMirror's search commands but keeps its inputs
+  in the app's own DOM, so clicking into the Find/Replace fields behaves
+  normally (CodeMirror's built-in panel stole focus back to the document);
+  Enter finds the next match, ⇧Enter the previous, Esc closes and returns to
+  the text. Replace/Replace-all act on document ranges, so they work whether
+  or not the editor is focused.
 - **An empty Library shows a welcome** (New doc / Import .md) instead of the
   "No documents match / Clear filters" dead end, which only makes sense once
   something exists to filter.
