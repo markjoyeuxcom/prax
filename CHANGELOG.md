@@ -56,6 +56,17 @@ fresh empty `[Unreleased]` section is started.
   fixed, content scrolling), and Focus. The page fills the window width;
   Focus mode keeps the narrow 740px reading column.
 
+- **Archive, delete, and every other confirmation now work in the desktop
+  app.** The desktop webview has no native JS dialogs (`confirm()` silently
+  returns false, `alert()` shows nothing), which left Archive/Delete buttons
+  dead and error messages invisible. Archiving a document now just happens,
+  with an **Undo** toast (same pattern as tasks); permanent deletes (task,
+  document, project) and the embeddings rebuild ask through an in-app
+  confirm dialog (Enter confirms, Esc cancels); naming a saved Library view
+  uses the same dialog with a text field; and all error/status messages are
+  toasts. Clicking inside the quick-capture or command-palette dialog no
+  longer closes it (only true outside-clicks dismiss).
+
 ### Changed
 
 - The editor header now matches the design comp: tag and provenance chips sit

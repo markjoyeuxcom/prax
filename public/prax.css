@@ -1528,6 +1528,25 @@ a { color: var(--accent); }
 .palette__foot .kbd { margin-left: 8px; }
 .palette__foot .palette__brand { display: flex; align-items: center; gap: 6px; margin-right: auto; font-weight: 600; }
 
+/* In-app confirm dialog (native JS dialogs don't exist in the desktop webview) */
+.confirm {
+  margin-top: 24vh;
+  width: 420px;
+  max-width: calc(100vw - 40px);
+  background: var(--surface);
+  border: 1px solid var(--line2);
+  border-radius: 14px;
+  box-shadow: var(--pop);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: mmPop .18s cubic-bezier(.2, .8, .25, 1);
+}
+.confirm__message { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--ink); }
+.confirm__actions { display: flex; justify-content: flex-end; gap: 8px; }
+.confirm__ok--danger { background: var(--hi); }
+
 .capture {
   margin-top: 20vh;
   width: 520px;
