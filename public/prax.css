@@ -1021,31 +1021,46 @@ a { color: var(--accent); }
   padding: 10px 20px 0;
 }
 .pane__scroll { flex: 1; overflow-y: auto; min-height: 0; padding: 12px 20px 26px; }
+/* Edit pane in Split mode: fixed pane, CodeMirror scrolls internally. */
+.pane__scroll--edit { overflow: hidden; display: flex; flex-direction: column; padding: 0; }
 
-/* page-sheet: single-pane edit/preview rendered as a centered sheet */
+/* page-sheet: single-pane edit/preview — the pane is a fixed desk holding a
+   centered page; content scrolls inside the page, never the desk. */
 .pane--sheet { background: var(--bg); }
-.pane--sheet .pane__scroll { padding: 20px 26px 26px; }
+.pane--sheet .pane__scroll {
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  padding: 20px 26px 26px;
+}
 .sheet {
+  flex: 1;
   max-width: 740px;
-  margin: 0 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: var(--card);
   border: 1px solid var(--line2);
   border-radius: 14px;
   box-shadow: var(--sheet-shadow);
-  padding: 30px 38px;
 }
-.pane--focus .pane__scroll { padding: 34px 26px; }
+/* Content scrolls INSIDE the fixed page (preview: this wrapper; edit: the
+   CodeMirror scroller / textarea) — the page itself never scrolls away. */
+.sheet__scroll { flex: 1; overflow-y: auto; min-height: 0; padding: 30px 38px; }
+.pane--focus.pane--sheet .pane__scroll { background: transparent; padding: 34px 26px 0; }
 .pane--focus .sheet {
   background: transparent;
   border: none;
   box-shadow: none;
-  padding: 0;
 }
+.pane--focus .sheet__scroll { padding: 0 0 34px; }
 
 .editor-ta {
   width: 100%;
-  height: 100%;
-  min-height: 260px;
+  flex: 1;
+  min-height: 0;
+  padding: 24px 32px 60px;
   border: none;
   background: transparent;
   resize: none;
@@ -1220,10 +1235,9 @@ a { color: var(--accent); }
 .doc-links__empty { font-size: 12.5px; color: var(--ink3); }
 
 /* CodeMirror host */
-.code-editor { height: 100%; min-height: 260px; }
-.code-editor .cm-editor { height: 100%; font-size: calc(15px * var(--reading-scale)); }
+.code-editor .cm-editor { font-size: calc(15px * var(--reading-scale)); }
 .code-editor .cm-editor.cm-focused { outline: none; }
-.code-editor .cm-scroller { font-family: var(--font-ui); line-height: 1.7; }
+.code-editor .cm-scroller { font-family: var(--font-ui); line-height: 1.7; overflow-y: auto; }
 .code-editor .cm-gutters { background: transparent; border-right: 1px solid var(--line); color: var(--ink3); }
 
 .backlinks__title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1727,17 +1741,10 @@ body.is-desktop .window {
 
 /* Exact height, not min-height: the editor must never outgrow the scroll
    viewport, or .main__scroll adds a second scrollbar alongside the pane's
-   own — panes (.pane__scroll) are the only scrollers in the editor view. */
+   own — panes are the only scroll boundary in the editor view. */
 .main__scroll > .editor { height: 100%; }
-.pane--sheet .sheet {
-  display: flex;
-  flex-direction: column;
-  min-height: 100%;
-}
-.pane--sheet .sheet .editor-ta { flex: 1; }
-.pane--sheet .sheet .prose { flex: 1; }
-.code-editor { flex: 1; display: flex; flex-direction: column; }
-.code-editor .cm-editor { flex: 1; }
+.code-editor { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.code-editor .cm-editor { flex: 1; min-height: 0; }
 
 .btn-ghost--toggle.is-on {
   background: transparent;

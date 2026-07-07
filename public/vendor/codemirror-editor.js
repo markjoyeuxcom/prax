@@ -25501,9 +25501,10 @@ function applyMarkdownFormat(value, selectionStart, selectionEnd, action) {
 
 // scripts/codemirror-editor-source.js
 var operatorTheme = EditorView.theme({
-  "&": { backgroundColor: "var(--bg)", color: "var(--text-body)" },
+  // Transparent: the sheet (page) behind the editor is the surface.
+  "&": { backgroundColor: "transparent", color: "var(--text-body)" },
   ".cm-scroller": { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace' },
-  ".cm-content": { caretColor: "var(--caret)", padding: "14px" },
+  ".cm-content": { caretColor: "var(--caret)", padding: "24px 32px 60px" },
   ".cm-gutters": { backgroundColor: "var(--bg-deep)", color: "var(--text-dimmer)", border: "none", borderRight: "1px solid var(--border)" },
   ".cm-activeLineGutter": { backgroundColor: "color-mix(in srgb, var(--accent) 6%, transparent)", color: "var(--accent)" },
   ".cm-activeLine": { backgroundColor: "color-mix(in srgb, var(--accent) 4%, transparent)" },
