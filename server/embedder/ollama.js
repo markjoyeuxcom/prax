@@ -18,10 +18,22 @@ export function createOllamaEmbedder({ url, model, fetch = globalThis.fetch } = 
     },
     async isAvailable() {
       try {
-        // Cheap reachability probe with a short timeout so settings reads
-        // never hang on a dead host.
+        // Reachability + the configured model actually being pulled. /api/tags
+        // returning 200 only means Ollama is up — embeds still 404 with "model
+        // not found" if the model isn't pulled, which read as a misleading
+        // "connected". So require the model to be present (Ollama resolves a
+        // bare name to :latest, so match that too). If the list can't be read,
+        // fall back to reachability rather than blocking.
         const res = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(1500) });
-        return res.ok;
+        if (!res.ok) return false;
+        let models = null;
+        try {
+          const data = await res.json();
+          if (Array.isArray(data?.models)) models = data.models;
+        } catch { models = null; }
+        if (!models) return true;
+        const wanted = embedModel.includes(':') ? [embedModel] : [embedModel, `${embedModel}:latest`];
+        return models.some((m) => wanted.includes(String(m?.name || m?.model || '')));
       } catch {
         return false;
       }

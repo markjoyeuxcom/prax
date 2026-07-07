@@ -159,6 +159,12 @@ fresh empty `[Unreleased]` section is started.
   no-match**. Re-index also now reports its outcome ("Re-indexed N documents", or
   "embedded X, Y failed — check the provider/model") so a provider that's
   reachable but missing its embedding model no longer fails invisibly.
+- **Ollama's connection test now checks the model is actually pulled.** It only
+  probed `/api/tags` (is Ollama up?), so it reported "connected" even when the
+  configured embedding model wasn't pulled — every embed then 404'd with "model
+  not found". The check now requires the configured model to be present in the
+  tag list (resolving a bare name to `:latest`), so a missing model reads as
+  disconnected at configure time instead of silently failing at search time.
 - **Database writes are isolated across the shared SQLite handle again.** The
   engine swap put every repository on one `node:sqlite` handle, and `connect()`'s
   session mutex only ordered sessions against each other — a direct `db.query()`

@@ -55,11 +55,30 @@ test('ollama embedder parses the embeddings response', async () => {
   assert.equal(out.dim, 3);
 });
 
-test('ollama isAvailable maps reachability', async () => {
-  const up = createOllamaEmbedder({ url: 'http://x', model: 'm', fetch: async () => ({ ok: true }) });
+test('ollama isAvailable requires the configured model to be pulled, not just reachability', async () => {
+  const tags = (models) => async () => ({ ok: true, json: async () => ({ models: models.map((name) => ({ name })) }) });
+
+  // Reachable AND the model is pulled -> available.
+  const present = createOllamaEmbedder({ url: 'http://x', model: 'qwen3-embedding:8b', fetch: tags(['qwen3-embedding:8b']) });
+  assert.equal(await present.isAvailable(), true);
+
+  // Reachable but the configured model is NOT pulled -> unavailable (the
+  // "connected but embeds 404" trap). A bare name resolves to :latest.
+  const missing = createOllamaEmbedder({ url: 'http://x', model: 'nomic-embed-text', fetch: tags(['qwen3-embedding:8b']) });
+  assert.equal(await missing.isAvailable(), false);
+
+  const bareToLatest = createOllamaEmbedder({ url: 'http://x', model: 'nomic-embed-text', fetch: tags(['nomic-embed-text:latest']) });
+  assert.equal(await bareToLatest.isAvailable(), true);
+
+  // Reachable but the tags list can't be read -> fall back to reachability.
+  const unreadable = createOllamaEmbedder({ url: 'http://x', model: 'm', fetch: async () => ({ ok: true, json: async () => { throw new Error('bad json'); } }) });
+  assert.equal(await unreadable.isAvailable(), true);
+
+  // Not reachable at all -> unavailable.
   const down = createOllamaEmbedder({ url: 'http://x', model: 'm', fetch: async () => { throw new Error('refused'); } });
-  assert.equal(await up.isAvailable(), true);
   assert.equal(await down.isAvailable(), false);
+  const notOk = createOllamaEmbedder({ url: 'http://x', model: 'm', fetch: async () => ({ ok: false }) });
+  assert.equal(await notOk.isAvailable(), false);
 });
 
 test('createEmbedder resolves backends and null for none', () => {
