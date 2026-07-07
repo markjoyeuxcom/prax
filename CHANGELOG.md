@@ -77,6 +77,12 @@ fresh empty `[Unreleased]` section is started.
   of silently doing nothing; Enter in the name field creates directly, and
   a toast confirms creation.
 
+- **The Today view now aligns with the rest of the app.** It was the only
+  top-level view not wrapped in the standard `.page` container, so its
+  heading hung flush against the left edge while All projects, Library,
+  Settings, and the project views were inset. Today now shares the same
+  padding.
+
 ### Changed
 
 - The editor header now matches the design comp: tag and provenance chips sit
