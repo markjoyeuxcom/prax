@@ -1183,6 +1183,8 @@ a { color: var(--accent); }
 .prose ul { margin: 8px 0; padding-left: 22px; }
 .prose ol { margin: 8px 0; padding-left: 24px; }
 .prose li { margin: 4px 0; line-height: 1.6; }
+.prose img { max-width: 100%; height: auto; border-radius: 6px; margin: 8px 0; }
+.prose del { color: var(--ink3); }
 .prose blockquote {
   margin: 12px 0;
   padding: 8px 16px;
