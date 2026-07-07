@@ -22,6 +22,7 @@
     "fix:bindings": "node scripts/fix-platform-bindings.mjs"
   },
   "dependencies": {
+    "@codemirror/search": "6.7.1",
     "@fastify/static": "^9.1.3",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "archiver": "^8.0.0",

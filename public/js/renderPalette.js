@@ -44,7 +44,9 @@ export function buildPaletteGroups(state, { tasks = [], documents = [], projects
     if (taskItems.length) groups.push({ label: 'Tasks', items: taskItems });
 
     const docItems = documents
-      .filter((doc) => matches(`${doc.title} ${(doc.tags || []).join(' ')}`))
+      // Match title, tags, AND body so ⌘K finds a doc by a phrase inside it,
+      // not just its title — the cheap half of a doc quick-switcher.
+      .filter((doc) => matches(`${doc.title} ${(doc.tags || []).join(' ')} ${doc.body || ''}`))
       .slice(0, MAX_SEARCH_ITEMS)
       .map((doc) => ({
         title: doc.title,

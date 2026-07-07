@@ -64,6 +64,20 @@ test('documents match on title or tags; items carry documentType sub, open-doc a
   assert.deepEqual(docs.items.map(i => i.action), ['open-doc', 'open-doc']);
 });
 
+test('documents also match on body text, not just title/tags', () => {
+  const data = {
+    tasks: [],
+    projects: PROJECTS,
+    documents: [
+      { id: 'd1', title: 'Runbook', tags: [], documentType: 'runbook', body: '# Runbook\n\nRestart the pgbouncer pod when connections saturate.' },
+      { id: 'd2', title: 'Notes', tags: [], documentType: 'note', body: 'nothing relevant here' },
+    ],
+  };
+  const { groups } = buildPaletteGroups({ paletteQuery: 'pgbouncer', paletteSelection: 0 }, data);
+  const docs = groups.find(g => g.label === 'Documents');
+  assert.deepEqual(docs.items.map(i => i.id), ['d1']); // matched only by body
+});
+
 test('task and document groups cap at five items', () => {
   const many = {
     tasks: Array.from({ length: 9 }, (_, i) => ({ id: `t${i}`, projectId: 'p1', title: `match ${i}`, archivedAt: null })),

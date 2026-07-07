@@ -19,7 +19,7 @@ import {
 } from './projectApi.js';
 import {
   fetchDocuments, createDocument, updateDocument, archiveDocument,
-  restoreDocument, deleteArchivedDocument, fetchDocumentLinks,
+  restoreDocument, deleteArchivedDocument, fetchDocumentLinks, fetchDocumentTaskBacklinks,
   fetchStaleDocuments, fetchOrphanDocuments, fetchSemanticStatus,
   setSemanticEnabled, putSemanticSettings, reindexEmbeddings, semanticSearch,
   verifyDocument, supersedeDocument,
@@ -162,6 +162,18 @@ async function loadDrawerContext(taskId) {
     /* drawer sections degrade to empty */
   }
   if (guard()) renderApp();
+}
+
+async function loadDocumentTaskBacklinks(documentId) {
+  try {
+    const tasks = await fetchDocumentTaskBacklinks(documentId);
+    if (state.editorDocId === documentId) {
+      setState({ documentTaskBacklinks: tasks });
+      renderApp();
+    }
+  } catch {
+    /* backlinks footer stays empty */
+  }
 }
 
 async function loadDocumentLinks(documentId) {
@@ -456,6 +468,7 @@ function seedEditorDraft(doc) {
     isDocumentDirty: false,
     documentSaveStatus: 'Saved',
     documentLinks: null,
+    documentTaskBacklinks: null,
     isDocumentInfoEditorOpen: false,
     documentInfoError: '',
   });
@@ -623,6 +636,7 @@ async function openDocumentInEditor(documentId) {
   setState({ navType: 'editor', editorFocus: false });
   renderApp();
   loadDocumentLinks(doc.id);
+  loadDocumentTaskBacklinks(doc.id);
 }
 
 // ---------------------------------------------------------------------------
@@ -863,9 +877,14 @@ function renderMainHtml() {
       const doc = currentDocument();
       if (!doc) return '<div class="page"><p class="view-hint">Document not found.</p></div>';
       const text = state.documentDraftBody;
+      // Backlinks come from the server (tasks referencing this doc). Give each
+      // a docIds pointer and hand projects their computed color so the shared,
+      // tested buildBacklinks resolves the chip name/color the same as tasks.
+      const backlinkTasks = (state.documentTaskBacklinks || []).map((task) => ({ ...task, docIds: [doc.id] }));
+      const coloredProjects = (state.projects || []).map((project) => ({ ...project, color: projectColor(project) }));
       const model = {
         outline: buildOutline(text),
-        backlinks: buildBacklinks([], state.projects, doc.id),
+        backlinks: buildBacklinks(backlinkTasks, coloredProjects, doc.id),
         previewHtml: renderMarkdownHtml(text),
       };
       return renderEditorHtml(state, doc, model);

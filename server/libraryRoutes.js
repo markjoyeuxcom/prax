@@ -1,6 +1,7 @@
 import { ZipArchive } from 'archiver';
 import { createLibraryRepository } from './libraryRepository.js';
 import { createProjectsRepository } from './projectsRepository.js';
+import { createTasksRepository } from './tasksRepository.js';
 import { createDocumentLinksRepository, DOCUMENT_LINK_RELATIONS } from './documentLinksRepository.js';
 import {
   documentFilename,
@@ -94,6 +95,7 @@ function cleanDocumentPatchPayload(payload) {
 export async function registerLibraryRoutes(app, options = {}) {
   const repository = options.libraryRepository || app.libraryRepository || createLibraryRepository(app.db);
   const projectsRepository = options.projectsRepository || app.projectsRepository || createProjectsRepository(app.db);
+  const tasksRepository = options.tasksRepository || app.tasksRepository || (app.db ? createTasksRepository(app.db) : null);
   const documentLinksRepository = options.documentLinksRepository || app.documentLinksRepository || createDocumentLinksRepository(app.db);
 
   // Behavioral tests may inject an embedder/embeddingService directly — those
@@ -152,6 +154,10 @@ export async function registerLibraryRoutes(app, options = {}) {
       verified: Boolean(doc.verified),
       status: doc.status || 'active',
       snippet: String(doc.body || '').slice(0, 200),
+      // The semantic ranker computes a real cosine similarity per hit; surface
+      // it so the client can show "why it matched" honestly. Omitted on the
+      // keyword/archive paths, where doc.similarity is undefined.
+      ...(Number.isFinite(doc.similarity) ? { similarity: doc.similarity } : {}),
     };
   }
 
@@ -377,6 +383,13 @@ export async function registerLibraryRoutes(app, options = {}) {
     const direction = request.query.direction || 'both';
     if (!['outbound', 'inbound', 'both'].includes(direction)) { reply.code(400); return { message: 'direction is invalid' }; }
     return documentLinksRepository.listDocumentLinks(request.params.id, direction);
+  });
+
+  // Non-archived tasks that reference this document — the editor's backlinks.
+  app.get('/api/library/documents/:id/tasks', async (request, reply) => {
+    if (!isValidUuid(request.params.id)) { reply.code(400); return { message: 'document id is invalid' }; }
+    if (typeof tasksRepository?.listTasksForDocument !== 'function') return [];
+    return tasksRepository.listTasksForDocument(request.params.id);
   });
 
   app.get('/api/library/documents/:id/export', async (request, reply) => {

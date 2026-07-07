@@ -637,7 +637,8 @@ a { color: var(--accent); }
   animation: mmFade .3s ease;
 }
 .empty__title { font-size: 15.5px; font-weight: 650; margin: 6px 0 0; }
-.empty__sub { font-size: 13px; color: var(--ink2); margin: 0; }
+.empty__sub { font-size: 13px; color: var(--ink2); margin: 0; max-width: 420px; }
+.empty__actions { display: flex; gap: 8px; margin-top: 6px; }
 .empty__hint { font-size: 12px; color: var(--ink3); }
 
 .empty-slot {

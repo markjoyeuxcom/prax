@@ -11,6 +11,7 @@ import {
   buildRestoreTask,
   buildUpdateTask,
   buildListTaskDocuments,
+  buildListTasksForDocument,
   buildLinkTaskDocument,
   buildUnlinkTaskDocument,
   buildLinkExists,
@@ -333,6 +334,18 @@ test('buildListTaskDocuments returns join query with task_id param', () => {
   assert.match(query.text, /where td\.task_id = \$1 and d\.archived_at is null/);
   assert.match(query.text, /order by d\.title/);
   assert.deepEqual(query.values, [taskId]);
+});
+
+test('buildListTasksForDocument returns the inverse join with document_id param, archived tasks excluded', () => {
+  const documentId = '22222222-2222-4222-8222-222222222222';
+  const query = buildListTasksForDocument(documentId);
+
+  assert.match(query.text, /select t\.id, t\.title, t\.priority, t\.project_id/);
+  assert.match(query.text, /from task_documents td/);
+  assert.match(query.text, /join tasks t on t\.id = td\.task_id/);
+  assert.match(query.text, /where td\.document_id = \$1 and t\.archived_at is null/);
+  assert.match(query.text, /order by t\.title/);
+  assert.deepEqual(query.values, [documentId]);
 });
 
 test('buildLinkTaskDocument returns guarded insert with on conflict do nothing', () => {

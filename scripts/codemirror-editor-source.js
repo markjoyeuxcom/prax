@@ -7,6 +7,7 @@ import {
   syntaxHighlighting,
 } from '@codemirror/language';
 import { EditorState } from '@codemirror/state';
+import { search, searchKeymap, highlightSelectionMatches } from '@codemirror/search';
 import {
   drawSelection,
   EditorView,
@@ -32,6 +33,36 @@ const operatorTheme = EditorView.theme({
   '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--caret)', borderLeftWidth: '2px' },
   '.cm-selectionBackground, .cm-content ::selection': { backgroundColor: 'color-mix(in srgb, var(--accent) 22%, transparent) !important' },
   '&.cm-focused': { outline: 'none' },
+  // Find/replace panel (@codemirror/search) themed to the Prax palette so it
+  // reads as part of the app in both light and dark, not CodeMirror's default.
+  '.cm-panels': { backgroundColor: 'var(--surface)', color: 'var(--text-body)' },
+  '.cm-panel.cm-search': {
+    padding: '8px 10px',
+    borderTop: '1px solid var(--border)',
+    fontFamily: 'var(--font-ui, system-ui)',
+    fontSize: '12.5px',
+  },
+  '.cm-panel.cm-search input, .cm-panel.cm-search button, .cm-panel.cm-search label': { fontSize: '12.5px' },
+  '.cm-panel.cm-search input[type=text]': {
+    backgroundColor: 'var(--card)',
+    color: 'var(--text-body)',
+    border: '1px solid var(--border)',
+    borderRadius: '6px',
+    padding: '3px 7px',
+  },
+  '.cm-panel.cm-search button': {
+    backgroundColor: 'var(--card)',
+    color: 'var(--text-body)',
+    border: '1px solid var(--border)',
+    borderRadius: '6px',
+    padding: '2px 8px',
+    cursor: 'pointer',
+  },
+  '.cm-panel.cm-search button:hover': { backgroundColor: 'color-mix(in srgb, var(--accent) 12%, transparent)' },
+  '.cm-panel.cm-search .cm-button': { backgroundImage: 'none' },
+  '.cm-searchMatch': { backgroundColor: 'color-mix(in srgb, var(--accent) 22%, transparent)' },
+  '.cm-searchMatch.cm-searchMatch-selected': { backgroundColor: 'color-mix(in srgb, var(--accent) 42%, transparent)' },
+  '.cm-selectionMatch': { backgroundColor: 'color-mix(in srgb, var(--accent) 14%, transparent)' },
 }, { dark: true });
 
 const operatorHighlight = HighlightStyle.define([
@@ -84,13 +115,15 @@ export function mountCodeMirrorEditor({
         markdown(),
         syntaxHighlighting(operatorHighlight, { fallback: true }),
         highlightActiveLine(),
+        highlightSelectionMatches(),
+        search({ top: true }),
         EditorView.lineWrapping,
         EditorView.updateListener.of((update) => {
           if (!update.docChanged) return;
           onChange?.(update.state.doc.toString());
         }),
         operatorTheme,
-        keymap.of([...defaultKeymap, ...historyKeymap]),
+        keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
         ...(onSave ? [saveKeymap(onSave)] : []),
       ],
     }),

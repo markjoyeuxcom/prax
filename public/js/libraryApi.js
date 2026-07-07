@@ -58,6 +58,13 @@ export async function fetchDocumentLinks(id, direction = 'both') {
   return response.json();
 }
 
+// Non-archived tasks that reference this document — [{ id, title, priority, projectId }].
+export async function fetchDocumentTaskBacklinks(id) {
+  const response = await fetch(`/api/library/documents/${id}/tasks`);
+  if (!response.ok) throw new Error('Failed to load document task backlinks');
+  return response.json();
+}
+
 export async function fetchStaleDocuments(project = '') {
   const qs = project ? `?project=${encodeURIComponent(project)}` : '';
   const response = await fetch(`/api/library/maintenance/stale${qs}`);
