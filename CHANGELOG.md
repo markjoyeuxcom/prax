@@ -30,6 +30,11 @@ fresh empty `[Unreleased]` section is started.
 - The Markdown editor gained a Settings toggle for **line numbers** (off by
   default, matching the design) and opens documents with the caret at the
   end.
+- **Held keys repeat in the desktop app on macOS**: Prax opts its own
+  defaults domain out of the press-and-hold accent picker, so holding a
+  letter repeats it in the editor instead of opening the diacritics popover.
+  Only Prax is affected — the picker keeps working everywhere else
+  (`defaults delete com.moomora.prax ApplePressAndHoldEnabled` restores it).
 
 ### Changed
 
