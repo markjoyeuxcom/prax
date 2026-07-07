@@ -14,6 +14,23 @@ fresh empty `[Unreleased]` section is started.
 
 ### Added
 
+- **The editor's "Referenced by N tasks" backlinks now actually populate.**
+  The footer was wired but always fed an empty list; a new
+  `GET /api/library/documents/:id/tasks` returns the non-archived tasks that
+  link a document, and the editor loads them on open (Preview/Split modes).
+- **Semantic search results show the real match score.** The ranker already
+  computed a cosine similarity per hit and then discarded it; it's now
+  surfaced as a percentage with a bar scaled relative to the top hit (raw
+  cosine values cluster in a narrow band). Results carrying no score fall
+  back to rank — no fabricated numbers, and the raw embedding never leaves
+  the server.
+- **⌘K finds documents by their body text**, not just title and tags — the
+  cheap half of a doc quick-switcher.
+- **Find & replace inside the editor** (⌘F / ⌘⌥F), themed to the Prax palette,
+  via CodeMirror's search extension — scoped to the current document.
+- **An empty Library shows a welcome** (New doc / Import .md) instead of the
+  "No documents match / Clear filters" dead end, which only makes sense once
+  something exists to filter.
 - **Settings is now split into tabbed sections** — Appearance, Intelligence,
   and Data & admin each get their own page, selectable by tabs, instead of
   one long scroll. The tabs reuse the app's existing `.tabs` pattern and

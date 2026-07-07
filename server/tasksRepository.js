@@ -186,6 +186,21 @@ export function buildListTaskDocuments(taskId) {
   };
 }
 
+// The inverse of buildListTaskDocuments: the non-archived tasks that link a
+// given document. Powers the editor's "Referenced by N tasks" backlinks.
+export function buildListTasksForDocument(documentId) {
+  return {
+    text: `
+      select t.id, t.title, t.priority, t.project_id
+      from task_documents td
+      join tasks t on t.id = td.task_id
+      where td.document_id = $1 and t.archived_at is null
+      order by t.title
+    `,
+    values: [documentId],
+  };
+}
+
 export function buildLinkTaskDocument(taskId, documentId) {
   return {
     text: `
@@ -424,6 +439,17 @@ export function createTasksRepository(db) {
         id: row.id,
         title: row.title,
         documentType: row.document_type,
+        projectId: row.project_id,
+      }));
+    },
+
+    async listTasksForDocument(documentId) {
+      const query = buildListTasksForDocument(documentId);
+      const result = await db.query(query.text, query.values);
+      return result.rows.map(row => ({
+        id: row.id,
+        title: row.title,
+        priority: row.priority,
         projectId: row.project_id,
       }));
     },

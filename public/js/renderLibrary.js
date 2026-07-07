@@ -11,8 +11,10 @@ import {
 // tag-pill filters, Runbooks/Notes card grid, semantic idle/result states and
 // the flat archive list. Pure state → HTML; events delegate via data-action.
 //
-// Semantic results deliberately show *rank + snippet only* — the semantic
-// search API returns no similarity score and we never fabricate one.
+// Semantic results show the real cosine similarity the ranker computes — as a
+// percentage plus a bar scaled relative to the top hit so the (narrow) spread
+// is legible — alongside a snippet. If a result carries no score we fall back
+// to rank; we never fabricate a number.
 
 const KEYWORD_PLACEHOLDER = 'Search titles, text, and tags…';
 const SEMANTIC_PLACEHOLDER = 'Ask in plain language — e.g. "what do I do when the database dies"';
@@ -87,6 +89,11 @@ export function buildLibraryModel(state, _options = {}) {
     semanticResults: state.semanticResults ?? null,
     archive: state.libraryView === 'archive',
     visibleCount: filtered.length,
+    // A brand-new library (no documents at all, no filters/search active) gets
+    // a coaching welcome instead of the "no documents match / Clear filters"
+    // dead end, which only makes sense once something exists to filter.
+    welcome: documents.length === 0 && !semantic && !query
+      && activeTags.length === 0 && state.libraryView !== 'archive',
   };
 }
 
@@ -163,6 +170,19 @@ function renderNoResults(semanticVisible) {
     </div>`;
 }
 
+function renderWelcome() {
+  return `
+    <div class="empty" role="status">
+      ${icon('book', 28)}
+      <h2 class="empty__title">Your library is empty</h2>
+      <p class="empty__sub">Write a <strong>note</strong> for something to remember, or a <strong>runbook</strong> for a procedure you run again. Everything stays local and is searchable — by keyword or, once configured, by meaning.</p>
+      <div class="empty__actions">
+        <button class="btn-primary" type="button" data-action="new-document">＋ New doc</button>
+        <button class="btn-ghost" type="button" data-action="import-documents">Import .md</button>
+      </div>
+    </div>`;
+}
+
 function renderSemanticIdle() {
   return `
     <div class="empty" role="status">
@@ -172,16 +192,23 @@ function renderSemanticIdle() {
     </div>`;
 }
 
-function renderSemCard(result, index) {
-  // Rank + mini bar scaled by inverse rank (px against the 44px score block).
-  // No percentage: the API returns no similarity score.
+function renderSemCard(result, index, maxSim = 0) {
   const rank = index + 1;
-  const barWidth = Math.max(4, Math.round(44 / rank));
+  const hasScore = Number.isFinite(result.similarity);
+  const pct = hasScore ? Math.round(result.similarity * 100) : null;
+  // Fill relative to the strongest match in THIS result set — raw cosine
+  // similarities cluster in a narrow band, so an absolute-width bar would look
+  // uniformly full. Floor at 8% so even the weakest hit shows something.
+  const barPct = hasScore && maxSim > 0
+    ? Math.max(8, Math.round((result.similarity / maxSim) * 100))
+    : Math.max(8, Math.round(100 / rank));
+  const scoreLabel = hasScore ? `${pct}%` : `#${rank}`;
+  const ariaLabel = hasScore ? `${pct}% match, ranked ${rank}` : `Ranked ${rank}`;
   return `
     <button class="sem-card" type="button" data-action="open-doc" data-document-id="${escapeHtml(result.id)}">
-      <div class="sem-card__score" aria-label="Ranked ${rank}">
-        <div class="sem-card__pct">#${rank}</div>
-        <div class="sem-card__bar"><span style="width:${barWidth}px"></span></div>
+      <div class="sem-card__score" aria-label="${ariaLabel}">
+        <div class="sem-card__pct">${scoreLabel}</div>
+        <div class="sem-card__bar"><span style="width:${barPct}%"></span></div>
       </div>
       <div class="sem-card__body" style="flex:1;min-width:0">
         <div class="sem-card__head"><span class="sem-card__title" style="font-weight:600">${escapeHtml(result.title || 'Untitled')}</span> ${typeChip(result)}</div>
@@ -192,9 +219,10 @@ function renderSemCard(result, index) {
 
 function renderSemanticResults(results) {
   const list = Array.isArray(results) ? results : [];
+  const maxSim = list.reduce((m, r) => (Number.isFinite(r.similarity) && r.similarity > m ? r.similarity : m), 0);
   return `
     <p class="sem-note">${list.length} ${list.length === 1 ? 'document' : 'documents'} matched by meaning.</p>
-    <div class="sem-list">${list.map(renderSemCard).join('')}</div>`;
+    <div class="sem-list">${list.map((result, index) => renderSemCard(result, index, maxSim)).join('')}</div>`;
 }
 
 function renderArchiveRows(model) {
@@ -218,6 +246,7 @@ function renderArchiveRows(model) {
 }
 
 function renderBody(state, model, semanticVisible) {
+  if (model.welcome) return renderWelcome();
   if (model.archive) return renderArchiveRows(model);
   if (state.librarySemantic) {
     // Idle covers both "no query yet" and "results not back yet".

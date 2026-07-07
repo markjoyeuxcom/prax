@@ -285,9 +285,29 @@ test('semantic results render rank + snippet cards without fabricated scores', (
   assert.match(html, /class="sem-card__pct">#2</);
   assert.match(html, /class="sem-card__reason">Check backups nightly before promoting a replica\.</);
   assert.match(html, /sem-card[\s\S]*chip chip--type-runbook/);
-  // The API returns no similarity score — nothing in the page may show one.
-  assert.doesNotMatch(html, /%/);
+  // Fallback path: results carry no similarity, so the score label stays a
+  // rank (#N) — no fabricated percentage in the score block.
+  assert.doesNotMatch(html, /class="sem-card__pct">\d+%/);
   assert.doesNotMatch(html, /class="doc-grid"/);
+});
+
+test('semantic results show the real similarity as a percentage, bar scaled to the top hit', () => {
+  const html = render({
+    librarySemantic: true,
+    libraryQuery: 'database recovery',
+    semanticStatus: { available: true, enabled: true },
+    semanticResults: [
+      { id: 'a', title: 'Restore', documentType: 'runbook', snippet: 'restore', similarity: 0.82 },
+      { id: 'b', title: 'Backups', documentType: 'note', snippet: 'backups', similarity: 0.41 },
+    ],
+  });
+  // Real percentages (rounded), not ranks.
+  assert.match(html, /class="sem-card__pct">82%</);
+  assert.match(html, /class="sem-card__pct">41%</);
+  assert.doesNotMatch(html, /class="sem-card__pct">#/);
+  // Top hit fills the bar; the weaker one is scaled relative to it (0.41/0.82 = 50%).
+  assert.match(html, /width:100%/);
+  assert.match(html, /width:50%/);
 });
 
 test('semantic results note is singular for one match and handles empty results', () => {
@@ -346,6 +366,25 @@ test('archive mode renders its empty state when nothing is archived', () => {
   const html = render({ libraryView: 'archive', documents: [] });
   assert.match(html, /No archived documents/);
   assert.doesNotMatch(html, /class="rows"/);
+});
+
+test('an empty library (no docs, no filters) shows the welcome, not the no-match dead end', () => {
+  assert.equal(build({ documents: [] }).welcome, true);
+  const html = render({ documents: [] });
+  assert.match(html, /class="empty__title">Your library is empty</);
+  assert.match(html, /data-action="new-document"/);
+  assert.match(html, /data-action="import-documents"/);
+  assert.doesNotMatch(html, /No documents match/);
+  assert.doesNotMatch(html, /Clear filters/);
+});
+
+test('welcome does NOT show once a query, tag, semantic mode, or archive is active', () => {
+  assert.equal(build({ documents: [], libraryQuery: 'x' }).welcome, false);
+  assert.equal(build({ documents: [], activeLibraryTags: ['ops'] }).welcome, false);
+  assert.equal(build({ documents: [], librarySemantic: true }).welcome, false);
+  assert.equal(build({ documents: [], libraryView: 'archive' }).welcome, false);
+  // And never when documents exist.
+  assert.equal(build({}).welcome, false);
 });
 
 // ---------------------------------------------------------------------------

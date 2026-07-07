@@ -402,9 +402,16 @@ test('semantic search: runtime provider config + reindex + JS-cosine ranking (fa
   assert.equal(refs[0].id, target.id);
   assert.ok('snippet' in refs[0]);
   for (const ref of refs) {
+    // The raw embedding vector must never leak…
     assert.ok(!('embedding' in ref));
-    assert.ok(!('similarity' in ref));
+    // …but the real cosine similarity is now surfaced (0..1) so the UI can
+    // show "why it matched" honestly.
+    assert.ok('similarity' in ref, 'semantic results expose a similarity score');
+    assert.equal(typeof ref.similarity, 'number');
+    assert.ok(ref.similarity >= 0 && ref.similarity <= 1, `similarity in [0,1], got ${ref.similarity}`);
   }
+  // The exact-text match is its own top hit at ~1.0 similarity.
+  assert.ok(refs[0].similarity >= 0.99, `exact match should score ~1, got ${refs[0].similarity}`);
 
   // Project scoping still applies on the JS-cosine path.
   const scoped = await app.inject({ method: 'GET', url: `/api/library/documents/semantic-search?q=${q}&project=personal` });

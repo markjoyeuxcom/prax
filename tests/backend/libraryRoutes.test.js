@@ -394,3 +394,48 @@ test('library document routes return 404 for missing documents', async () => {
 
   await app.close();
 });
+
+test('GET /api/library/documents/:id/tasks returns the tasks referencing the document', async () => {
+  const seen = [];
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: {
+      listTasks: async () => [],
+      async listTasksForDocument(id) {
+        seen.push(id);
+        return [{ id: 'task-1', title: 'Patch the replica', priority: 'high', projectId: PROJECT_UUID }];
+      },
+    },
+    libraryRepository: createFakeLibraryRepository(),
+    projectsRepository: createFakeProjectsRepository(),
+  });
+
+  const response = await app.inject({ method: 'GET', url: `/api/library/documents/${DOCUMENT_ID}/tasks` });
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(seen, [DOCUMENT_ID]);
+  assert.deepEqual(response.json(), [
+    { id: 'task-1', title: 'Patch the replica', priority: 'high', projectId: PROJECT_UUID },
+  ]);
+
+  await app.close();
+});
+
+test('GET /api/library/documents/:id/tasks rejects an invalid id and degrades when the repo lacks the method', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: { listTasks: async () => [] }, // no listTasksForDocument
+    libraryRepository: createFakeLibraryRepository(),
+    projectsRepository: createFakeProjectsRepository(),
+  });
+
+  const bad = await app.inject({ method: 'GET', url: '/api/library/documents/not-a-uuid/tasks' });
+  assert.equal(bad.statusCode, 400);
+  assert.equal(bad.json().message, 'document id is invalid');
+
+  // A repository without the method must degrade to [] rather than crash.
+  const ok = await app.inject({ method: 'GET', url: `/api/library/documents/${DOCUMENT_ID}/tasks` });
+  assert.equal(ok.statusCode, 200);
+  assert.deepEqual(ok.json(), []);
+
+  await app.close();
+});
