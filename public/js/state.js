@@ -81,6 +81,15 @@ export const state = {
   documentInfoError: '',
   docMenuOpen: false,           // editor ••• actions dropdown
 
+  // ---- editor find/replace (Prax-native panel; see renderSearchPanel.js) ----
+  editorSearchOpen: false,
+  searchQuery: '',
+  searchReplace: '',
+  searchCaseSensitive: false,
+  searchWholeWord: false,
+  searchRegexp: false,
+  searchMatchInfo: { total: 0, current: 0, valid: true },
+
   // ---- settings ----
   preferences: { ...DEFAULT_PREFERENCES },
   adminImportMode: 'skip',

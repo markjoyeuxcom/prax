@@ -12625,108 +12625,6 @@ function rm(node) {
 var showPanel = /* @__PURE__ */ Facet.define({
   enables: panelPlugin
 });
-function showDialog(view, config) {
-  let resolve;
-  let promise = new Promise((r) => resolve = r);
-  let panelCtor = (view2) => createDialog(view2, config, resolve);
-  if (view.state.field(dialogField, false)) {
-    view.dispatch({ effects: openDialogEffect.of(panelCtor) });
-  } else {
-    view.dispatch({ effects: StateEffect.appendConfig.of(dialogField.init(() => [panelCtor])) });
-  }
-  let close = closeDialogEffect.of(panelCtor);
-  return { close, result: promise.then((form) => {
-    let queue = view.win.queueMicrotask || ((f) => view.win.setTimeout(f, 10));
-    queue(() => {
-      if (view.state.field(dialogField).indexOf(panelCtor) > -1)
-        view.dispatch({ effects: close });
-    });
-    return form;
-  }) };
-}
-var dialogField = /* @__PURE__ */ StateField.define({
-  create() {
-    return [];
-  },
-  update(dialogs, tr) {
-    for (let e of tr.effects) {
-      if (e.is(openDialogEffect))
-        dialogs = [e.value].concat(dialogs);
-      else if (e.is(closeDialogEffect))
-        dialogs = dialogs.filter((d) => d != e.value);
-    }
-    return dialogs;
-  },
-  provide: (f) => showPanel.computeN([f], (state) => state.field(f))
-});
-var openDialogEffect = /* @__PURE__ */ StateEffect.define();
-var closeDialogEffect = /* @__PURE__ */ StateEffect.define();
-function createDialog(view, config, result) {
-  let content2 = config.content ? config.content(view, () => done(null)) : null;
-  if (!content2) {
-    content2 = crelt("form");
-    if (config.input) {
-      let input = crelt("input", config.input);
-      if (/^(text|password|number|email|tel|url)$/.test(input.type))
-        input.classList.add("cm-textfield");
-      if (!input.name)
-        input.name = "input";
-      content2.appendChild(crelt("label", (config.label || "") + ": ", input));
-    } else {
-      content2.appendChild(document.createTextNode(config.label || ""));
-    }
-    content2.appendChild(document.createTextNode(" "));
-    content2.appendChild(crelt("button", { class: "cm-button", type: "submit" }, config.submitLabel || "OK"));
-  }
-  let forms = content2.nodeName == "FORM" ? [content2] : content2.querySelectorAll("form");
-  for (let i2 = 0; i2 < forms.length; i2++) {
-    let form = forms[i2];
-    form.addEventListener("keydown", (event) => {
-      if (event.keyCode == 27) {
-        event.preventDefault();
-        done(null);
-      } else if (event.keyCode == 13) {
-        event.preventDefault();
-        done(form);
-      }
-    });
-    form.addEventListener("submit", (event) => {
-      event.preventDefault();
-      done(form);
-    });
-  }
-  let panel = crelt("div", content2, crelt("button", {
-    onclick: () => done(null),
-    "aria-label": view.state.phrase("close"),
-    class: "cm-dialog-close",
-    type: "button"
-  }, ["\xD7"]));
-  if (config.class)
-    panel.className = config.class;
-  panel.classList.add("cm-dialog");
-  function done(form) {
-    if (panel.contains(panel.ownerDocument.activeElement))
-      view.focus();
-    result(form);
-  }
-  return {
-    dom: panel,
-    top: config.top,
-    mount: () => {
-      if (config.focus) {
-        let focus;
-        if (typeof config.focus == "string")
-          focus = content2.querySelector(config.focus);
-        else
-          focus = content2.querySelector("input") || content2.querySelector("button");
-        if (focus && "select" in focus)
-          focus.select();
-        else if (focus && "focus" in focus)
-          focus.focus();
-      }
-    }
-  };
-}
 var GutterMarker = class extends RangeValue {
   /**
   @internal
@@ -25957,42 +25855,6 @@ function toCharEnd(text, pos) {
     pos++;
   return pos;
 }
-var gotoLine = (view) => {
-  let { state } = view;
-  let line = String(state.doc.lineAt(view.state.selection.main.head).number);
-  let { close, result } = showDialog(view, {
-    label: state.phrase("Go to line"),
-    input: { type: "text", name: "line", value: line },
-    focus: true,
-    submitLabel: state.phrase("go")
-  });
-  result.then((form) => {
-    let match = form && /^([+-])?(\d+)?(:\d+)?(%)?$/.exec(form.elements["line"].value);
-    if (!match) {
-      view.dispatch({ effects: close });
-      return;
-    }
-    let startLine = state.doc.lineAt(state.selection.main.head);
-    let [, sign, ln, cl, percent2] = match;
-    let col = cl ? +cl.slice(1) : 0;
-    let line2 = ln ? +ln : startLine.number;
-    if (ln && percent2) {
-      let pc = line2 / 100;
-      if (sign)
-        pc = pc * (sign == "-" ? -1 : 1) + startLine.number / state.doc.lines;
-      line2 = Math.round(state.doc.lines * pc);
-    } else if (ln && sign) {
-      line2 = line2 * (sign == "-" ? -1 : 1) + startLine.number;
-    }
-    let docLine = state.doc.line(Math.max(1, Math.min(state.doc.lines, line2)));
-    let selection = EditorSelection.cursor(docLine.from + Math.max(0, Math.min(col, docLine.length)));
-    view.dispatch({
-      effects: [close, EditorView.scrollIntoView(selection.from, { y: "center" })],
-      selection
-    });
-  });
-  return true;
-};
 var defaultHighlightOptions = {
   highlightWordAroundCursor: false,
   minSelectionLength: 1,
@@ -26083,52 +25945,6 @@ var defaultTheme = /* @__PURE__ */ EditorView.baseTheme({
   ".cm-selectionMatch": { backgroundColor: "#99ff7780" },
   ".cm-searchMatch .cm-selectionMatch": { backgroundColor: "transparent" }
 });
-var selectWord = ({ state, dispatch }) => {
-  let { selection } = state;
-  let newSel = EditorSelection.create(selection.ranges.map((range) => state.wordAt(range.head) || EditorSelection.cursor(range.head)), selection.mainIndex);
-  if (newSel.eq(selection))
-    return false;
-  dispatch(state.update({ selection: newSel }));
-  return true;
-};
-function findNextOccurrence(state, query) {
-  let { main, ranges } = state.selection;
-  let word = state.wordAt(main.head), fullWord = word && word.from == main.from && word.to == main.to;
-  for (let cycled = false, cursor = new SearchCursor(state.doc, query, ranges[ranges.length - 1].to); ; ) {
-    cursor.next();
-    if (cursor.done) {
-      if (cycled)
-        return null;
-      cursor = new SearchCursor(state.doc, query, 0, Math.max(0, ranges[ranges.length - 1].from - 1));
-      cycled = true;
-    } else {
-      if (cycled && ranges.some((r) => r.from == cursor.value.from))
-        continue;
-      if (fullWord) {
-        let word2 = state.wordAt(cursor.value.from);
-        if (!word2 || word2.from != cursor.value.from || word2.to != cursor.value.to)
-          continue;
-      }
-      return cursor.value;
-    }
-  }
-}
-var selectNextOccurrence = ({ state, dispatch }) => {
-  let { ranges } = state.selection;
-  if (ranges.some((sel) => sel.from === sel.to))
-    return selectWord({ state, dispatch });
-  let searchedText = state.sliceDoc(ranges[0].from, ranges[0].to);
-  if (state.selection.ranges.some((r) => state.sliceDoc(r.from, r.to) != searchedText))
-    return false;
-  let range = findNextOccurrence(state, searchedText);
-  if (!range)
-    return false;
-  dispatch(state.update({
-    selection: state.selection.addRange(EditorSelection.range(range.from, range.to), false),
-    effects: EditorView.scrollIntoView(range.to)
-  }));
-  return true;
-};
 var searchConfigFacet = /* @__PURE__ */ Facet.define({
   combine(configs) {
     return combineConfig(configs, {
@@ -26368,6 +26184,10 @@ var searchState = /* @__PURE__ */ StateField.define({
   },
   provide: (f) => showPanel.from(f, (val) => val.panel)
 });
+function getSearchQuery(state) {
+  let curState = state.field(searchState, false);
+  return curState ? curState.query.spec : defaultQuery(state);
+}
 var SearchState = class {
   constructor(query, panel) {
     this.query = query;
@@ -26451,25 +26271,6 @@ var selectMatches = /* @__PURE__ */ searchCommand((view, { query }) => {
   });
   return true;
 });
-var selectSelectionMatches = ({ state, dispatch }) => {
-  let sel = state.selection;
-  if (sel.ranges.length > 1 || sel.main.empty)
-    return false;
-  let { from, to } = sel.main;
-  let ranges = [], main = 0;
-  for (let cur = new SearchCursor(state.doc, state.sliceDoc(from, to)); !cur.next().done; ) {
-    if (ranges.length > 1e3)
-      return false;
-    if (cur.value.from == from)
-      main = ranges.length;
-    ranges.push(EditorSelection.range(cur.value.from, cur.value.to));
-  }
-  dispatch(state.update({
-    selection: EditorSelection.create(ranges, main),
-    userEvent: "select.search.matches"
-  }));
-  return true;
-};
 var replaceNext = /* @__PURE__ */ searchCommand((view, { query }) => {
   let { state } = view, { from, to } = state.selection.main;
   if (state.readOnly)
@@ -26577,15 +26378,6 @@ var closeSearchPanel = (view) => {
   view.dispatch({ effects: togglePanel.of(false) });
   return true;
 };
-var searchKeymap = [
-  { key: "Mod-f", run: openSearchPanel, scope: "editor search-panel" },
-  { key: "F3", run: findNext, shift: findPrevious, scope: "editor search-panel", preventDefault: true },
-  { key: "Mod-g", run: findNext, shift: findPrevious, scope: "editor search-panel", preventDefault: true },
-  { key: "Escape", run: closeSearchPanel, scope: "editor search-panel" },
-  { key: "Mod-Shift-l", run: selectSelectionMatches },
-  { key: "Mod-Alt-g", run: gotoLine },
-  { key: "Mod-d", run: selectNextOccurrence, preventDefault: true }
-];
 var SearchPanel = class {
   constructor(view) {
     this.view = view;
@@ -26888,35 +26680,15 @@ var operatorTheme = EditorView.theme({
   ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--caret)", borderLeftWidth: "2px" },
   ".cm-selectionBackground, .cm-content ::selection": { backgroundColor: "color-mix(in srgb, var(--accent) 22%, transparent) !important" },
   "&.cm-focused": { outline: "none" },
-  // Find/replace panel (@codemirror/search) themed to the Prax palette so it
-  // reads as part of the app in both light and dark, not CodeMirror's default.
-  ".cm-panels": { backgroundColor: "var(--surface)", color: "var(--text-body)" },
-  ".cm-panel.cm-search": {
-    padding: "8px 10px",
-    borderTop: "1px solid var(--border)",
-    fontFamily: "var(--font-ui, system-ui)",
-    fontSize: "12.5px"
-  },
-  ".cm-panel.cm-search input, .cm-panel.cm-search button, .cm-panel.cm-search label": { fontSize: "12.5px" },
-  ".cm-panel.cm-search input[type=text]": {
-    backgroundColor: "var(--card)",
-    color: "var(--text-body)",
-    border: "1px solid var(--border)",
-    borderRadius: "6px",
-    padding: "3px 7px"
-  },
-  ".cm-panel.cm-search button": {
-    backgroundColor: "var(--card)",
-    color: "var(--text-body)",
-    border: "1px solid var(--border)",
-    borderRadius: "6px",
-    padding: "2px 8px",
-    cursor: "pointer"
-  },
-  ".cm-panel.cm-search button:hover": { backgroundColor: "color-mix(in srgb, var(--accent) 12%, transparent)" },
-  ".cm-panel.cm-search .cm-button": { backgroundImage: "none" },
-  ".cm-searchMatch": { backgroundColor: "color-mix(in srgb, var(--accent) 22%, transparent)" },
-  ".cm-searchMatch.cm-searchMatch-selected": { backgroundColor: "color-mix(in srgb, var(--accent) 42%, transparent)" },
+  // The search panel is invisible (our real UI is Prax-native) — hide CM's
+  // panel container so its base-theme border never shows. Match highlighting
+  // is gated on the panel's JS state, not its CSS, so this is safe.
+  ".cm-panels": { display: "none" },
+  // Search-match highlights. The find/replace UI itself is a Prax-native panel
+  // (public/js/renderSearchPanel.js), not CodeMirror's built-in panel — but the
+  // search() extension still tracks the query and paints these highlights.
+  ".cm-searchMatch": { backgroundColor: "color-mix(in srgb, var(--accent) 22%, transparent)", borderRadius: "2px" },
+  ".cm-searchMatch.cm-searchMatch-selected": { backgroundColor: "color-mix(in srgb, var(--accent) 45%, transparent)" },
   ".cm-selectionMatch": { backgroundColor: "color-mix(in srgb, var(--accent) 14%, transparent)" }
 }, { dark: true });
 var operatorHighlight = HighlightStyle.define([
@@ -26929,6 +26701,12 @@ var operatorHighlight = HighlightStyle.define([
   { tag: tags.keyword, color: "var(--accent)" },
   { tag: tags.comment, color: "var(--text-dimmer)", fontStyle: "italic" }
 ]);
+function hiddenSearchPanel() {
+  const dom = document.createElement("div");
+  dom.className = "cm-search-hidden";
+  dom.style.display = "none";
+  return { dom, top: true };
+}
 function saveKeymap(onSave) {
   return keymap.of([
     {
@@ -26939,6 +26717,23 @@ function saveKeymap(onSave) {
       }
     }
   ]);
+}
+function searchMatchInfo(view) {
+  const query = getSearchQuery(view.state);
+  if (!query || !query.search) return { total: 0, current: 0, valid: true };
+  if (!query.valid) return { total: 0, current: 0, valid: false };
+  const sel = view.state.selection.main;
+  const cursor = query.getCursor(view.state);
+  let total = 0;
+  let current = 0;
+  const LIMIT = 5e3;
+  while (!cursor.next().done) {
+    total += 1;
+    const range = cursor.value;
+    if (range.from === sel.from && range.to === sel.to) current = total;
+    if (total >= LIMIT) return { total: LIMIT, current, valid: true, capped: true };
+  }
+  return { total, current, valid: true };
 }
 function mountCodeMirrorEditor({
   host,
@@ -26967,24 +26762,37 @@ function mountCodeMirrorEditor({
         syntaxHighlighting(operatorHighlight, { fallback: true }),
         highlightActiveLine(),
         highlightSelectionMatches(),
-        search({ top: true }),
+        // Track the query + paint match highlights. The panel is invisible
+        // (hiddenSearchPanel) because our real find/replace UI is Prax-native —
+        // CM's panel exists only to keep highlighting alive (see openSearchPanel
+        // below).
+        search({ createPanel: hiddenSearchPanel }),
         EditorView.lineWrapping,
         EditorView.updateListener.of((update) => {
           if (!update.docChanged) return;
           onChange?.(update.state.doc.toString());
         }),
         operatorTheme,
-        keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
+        // Note: Mod-f (open search) is handled by Prax's own keydown listener
+        // so it works from the panel inputs too, not just the focused editor.
+        keymap.of([...defaultKeymap, ...historyKeymap]),
         ...onSave ? [saveKeymap(onSave)] : []
       ]
     })
   });
+  openSearchPanel(view);
   return {
     getValue() {
       return view.state.doc.toString();
     },
     focus() {
       view.focus();
+    },
+    // Text of the primary selection ('' when nothing is selected) — used to
+    // seed the Find field from a selection when the panel opens.
+    getSelectionText() {
+      const sel = view.state.selection.main;
+      return sel.empty ? "" : view.state.sliceDoc(sel.from, sel.to);
     },
     scrollToLine(lineNumber) {
       const line = view.state.doc.line(
@@ -27006,6 +26814,37 @@ function mountCodeMirrorEditor({
         scrollIntoView: true
       });
       view.focus();
+    },
+    // ---- Search (driven by the Prax-native panel) --------------------------
+    // Each method returns the current match info so the caller can update the
+    // "n of N" readout without touching CodeMirror focus. Replace commands act
+    // on document ranges and never need the editor focused.
+    applySearch({ search: term = "", replace: replace2 = "", caseSensitive = false, regexp = false, wholeWord = false } = {}) {
+      const query = new SearchQuery({ search: term, replace: replace2, caseSensitive, regexp, wholeWord });
+      view.dispatch({ effects: setSearchQuery.of(query) });
+      return searchMatchInfo(view);
+    },
+    searchNext() {
+      findNext(view);
+      return searchMatchInfo(view);
+    },
+    searchPrevious() {
+      findPrevious(view);
+      return searchMatchInfo(view);
+    },
+    replaceMatch() {
+      replaceNext(view);
+      return searchMatchInfo(view);
+    },
+    replaceAllMatches() {
+      replaceAll(view);
+      return searchMatchInfo(view);
+    },
+    searchInfo() {
+      return searchMatchInfo(view);
+    },
+    clearSearch() {
+      view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: "" })) });
     },
     destroy() {
       view.destroy();
