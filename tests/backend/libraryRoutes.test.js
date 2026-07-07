@@ -75,8 +75,8 @@ function createFakeLibraryRepository() {
       document.archivedAt = null;
       return document;
     },
-    async deleteArchivedDocument(id) {
-      const index = documents.findIndex(item => item.id === id && item.archivedAt);
+    async deleteDocument(id) {
+      const index = documents.findIndex(item => item.id === id);
       if (index < 0) return null;
       return documents.splice(index, 1)[0];
     },
@@ -318,7 +318,7 @@ test('DELETE /api/library/documents/:id archives a Markdown document', async () 
   await app.close();
 });
 
-test('restore and permanent delete require archived Markdown documents', async () => {
+test('restore requires an archived document; permanent delete then removes it', async () => {
   const repository = createFakeLibraryRepository();
   await repository.archiveDocument(DOCUMENT_ID);
   const app = await buildApp({
@@ -336,6 +336,27 @@ test('restore and permanent delete require archived Markdown documents', async (
   assert.equal(restore.json().archivedAt, null);
 
   await repository.archiveDocument(DOCUMENT_ID);
+  const remove = await app.inject({
+    method: 'DELETE',
+    url: `/api/library/documents/${DOCUMENT_ID}/permanent`,
+  });
+  assert.equal(remove.statusCode, 200);
+  assert.equal(remove.json().id, DOCUMENT_ID);
+  assert.deepEqual(await repository.listDocuments({ archived: 'all' }), []);
+
+  await app.close();
+});
+
+test('permanent delete removes an active (never-archived) document', async () => {
+  const repository = createFakeLibraryRepository();
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: { listTasks: async () => [] },
+    libraryRepository: repository,
+    projectsRepository: createFakeProjectsRepository(),
+  });
+
+  // No archive step — delete the live document outright.
   const remove = await app.inject({
     method: 'DELETE',
     url: `/api/library/documents/${DOCUMENT_ID}/permanent`,

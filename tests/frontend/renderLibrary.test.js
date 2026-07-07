@@ -368,7 +368,7 @@ test('archive mode renders dim plain rows with restore and delete actions', () =
   assert.match(html, /class="plain-row__title">Restore CloudNativePG</);
   assert.match(html, /plain-row[\s\S]*chip chip--type-runbook/);
   assert.match(html, /class="btn-outline"[^>]*data-action="restore-document"[^>]*data-document-id="doc-restore"[^>]*>Restore</);
-  assert.match(html, /class="btn-outline btn-outline--danger"[^>]*data-action="delete-archived-document"[^>]*data-document-id="doc-restore"[^>]*>Delete</);
+  assert.match(html, /class="btn-outline btn-outline--danger"[^>]*data-action="delete-document"[^>]*data-document-id="doc-restore"[^>]*>Delete</);
   assert.doesNotMatch(html, /class="doc-grid"/);
 });
 

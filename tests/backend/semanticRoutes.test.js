@@ -13,7 +13,7 @@ function fakes({ available = true, enabled = true } = {}) {
       updateDocument: async (id, f) => ({ id, ...f }),
       archiveDocument: async () => null,
       restoreDocument: async () => null,
-      deleteArchivedDocument: async () => null,
+      deleteDocument: async () => null,
       listActiveDocumentsForExport: async () => [],
       searchDocumentsSemantic: async () => [
         { id: 'd1', title: 'Restore', documentType: 'runbook', projectId: PROJECT_ID, tags: [], body: 'b', kind: 'source' },
