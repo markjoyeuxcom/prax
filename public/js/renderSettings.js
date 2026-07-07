@@ -115,12 +115,22 @@ function renderAppearanceCard(preferences) {
   </section>`;
 }
 
-function providerCard(key, label, desc, activeBackend) {
-  const active = activeBackend === key || (key === 'none' && (!activeBackend || activeBackend === 'none'));
+const AI_PROVIDERS = [
+  { key: 'none', label: 'Off', desc: 'Keyword search only' },
+  { key: 'ollama', label: 'Ollama', desc: 'Local or remote server — private by default' },
+  { key: 'openai', label: 'OpenAI', desc: 'ChatGPT\u2019s embeddings — needs an API key' },
+  { key: 'voyage', label: 'Claude \u00b7 Voyage AI', desc: 'Anthropic\u2019s embeddings partner — needs a Voyage key' },
+  { key: 'gemini', label: 'Gemini', desc: 'Google\u2019s embeddings — needs an API key' },
+  { key: 'llamacpp', label: 'llama.cpp', desc: 'Your llama-server (OpenAI-compatible)' },
+];
+
+function providerCard(provider, activeBackend) {
+  const active = activeBackend === provider.key
+    || (provider.key === 'none' && (!activeBackend || activeBackend === 'none'));
   return `
-          <button type="button" class="provider-card${active ? ' is-active' : ''}" data-action="set-ai-provider" data-backend="${key}">
-            <div class="provider-card__label">${label}</div>
-            <div class="provider-card__desc">${desc}</div>
+          <button type="button" class="provider-card${active ? ' is-active' : ''}" data-action="set-ai-provider" data-backend="${provider.key}">
+            <div class="provider-card__label">${provider.label}</div>
+            <div class="provider-card__desc">${provider.desc}</div>
           </button>`;
 }
 
@@ -129,45 +139,38 @@ function renderIntelligenceCard(semanticStatus) {
   const available = status.available === true;
   const enabled = available && status.enabled === true;
   const backend = status.backend || 'none';
+  const providerMeta = AI_PROVIDERS.find((p) => p.key === backend);
 
   const statusLine = available
-    ? `${escapeHtml(status.backend)} · ${status.connected ? 'connected' : 'disconnected'} · ${Number(status.embeddedCount) || 0}/${Number(status.totalCount) || 0} documents embedded`
+    ? `${escapeHtml(providerMeta ? providerMeta.label : status.backend)} · ${status.connected ? 'connected' : 'disconnected'} · ${Number(status.embeddedCount) || 0}/${Number(status.totalCount) || 0} documents embedded`
     : 'Pick a provider below to enable searching the library by meaning.';
 
-  // Honest provider set: Claude has no embeddings API, so the comp's card
-  // becomes the two backends that exist (plus Off).
   const providers = `
     <div class="settings-row">
       <div class="settings-row__text">
         <div class="settings-row__label">Provider</div>
-        <div style="display:flex; gap:8px; margin-top:8px;">
-          ${providerCard('none', 'Off', 'Keyword search only', backend)}
-          ${providerCard('ollama', 'Ollama', 'Local model — nothing leaves this machine', backend)}
-          ${providerCard('openai', 'OpenAI-compatible', 'Any OpenAI-compatible endpoint; needs a key', backend)}
+        <div class="provider-grid">
+          ${AI_PROVIDERS.map((provider) => providerCard(provider, backend)).join('')}
         </div>
       </div>
     </div>`;
 
+  // Generic per-provider configuration: every real backend has a base URL and
+  // model; the key field appears when the backend needs (or accepts) one.
   let configRows = '';
-  if (backend === 'ollama') {
+  if (backend !== 'none' && backend !== 'fake') {
+    const keyRequired = status.keyRequired === true;
+    const showKey = keyRequired || backend === 'llamacpp';
+    const keyLabel = keyRequired ? 'API key' : 'API key (optional)';
+    const keyPlaceholder = status.hasApiKey ? '•••••••• saved — enter to replace' : (keyRequired ? 'required' : 'none');
     configRows = `
     <div class="settings-row">
       <div class="settings-row__text" style="display:flex; flex-direction:column; gap:8px;">
-        <div class="settings-row__label">Ollama</div>
-        <div class="editor-info__field"><label>Server URL</label><input class="text-input" type="text" data-ai-ollama-url value="${escapeHtml(status.ollamaUrl || '')}" placeholder="http://127.0.0.1:11434"></div>
-        <div class="editor-info__field"><label>Embedding model</label><input class="text-input" type="text" data-ai-model value="${escapeHtml(status.model || '')}" placeholder="nomic-embed-text"></div>
-        <div style="display:flex; justify-content:flex-end;"><button class="btn-outline" type="button" data-action="save-ai-provider">Save &amp; test connection</button></div>
-      </div>
-    </div>`;
-  } else if (backend === 'openai') {
-    configRows = `
-    <div class="settings-row">
-      <div class="settings-row__text" style="display:flex; flex-direction:column; gap:8px;">
-        <div class="settings-row__label">OpenAI-compatible endpoint</div>
-        <div class="editor-info__field"><label>Base URL</label><input class="text-input" type="text" data-ai-openai-url value="${escapeHtml(status.openaiBaseUrl || '')}" placeholder="https://api.openai.com/v1"></div>
-        <div class="editor-info__field"><label>API key</label><input class="text-input" type="password" data-ai-key value="" placeholder="${status.hasApiKey ? '•••••••• saved — enter to replace' : 'sk-…'}" autocomplete="off"></div>
-        <div class="editor-info__field"><label>Embedding model</label><input class="text-input" type="text" data-ai-model value="${escapeHtml(status.model || '')}" placeholder="text-embedding-3-small"></div>
-        <div class="settings-row__desc">The key is stored in the local database and never returned by the API.</div>
+        <div class="settings-row__label">${providerMeta ? providerMeta.label : escapeHtml(backend)} configuration</div>
+        <div class="editor-info__field"><label>Base URL</label><input class="text-input" type="text" data-ai-base-url value="${escapeHtml(status.baseUrl || '')}"></div>
+        <div class="editor-info__field"><label>Embedding model</label><input class="text-input" type="text" data-ai-model value="${escapeHtml(status.model || '')}"></div>
+        ${showKey ? `<div class="editor-info__field"><label>${keyLabel}</label><input class="text-input" type="password" data-ai-key value="" placeholder="${keyPlaceholder}" autocomplete="off"></div>
+        <div class="settings-row__desc">The key is stored in the local database and never returned by the API.</div>` : ''}
         <div style="display:flex; justify-content:flex-end;"><button class="btn-outline" type="button" data-action="save-ai-provider">Save &amp; test connection</button></div>
       </div>
     </div>`;

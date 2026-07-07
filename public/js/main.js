@@ -1420,12 +1420,10 @@ async function handleAction(action, el, event) {
       const patch = {};
       const model = appRoot.querySelector('[data-ai-model]');
       if (model) patch.model = model.value.trim();
-      const ollamaUrl = appRoot.querySelector('[data-ai-ollama-url]');
-      if (ollamaUrl) patch.ollamaUrl = ollamaUrl.value.trim();
-      const openaiUrl = appRoot.querySelector('[data-ai-openai-url]');
-      if (openaiUrl) patch.openaiBaseUrl = openaiUrl.value.trim();
+      const baseUrl = appRoot.querySelector('[data-ai-base-url]');
+      if (baseUrl) patch.baseUrl = baseUrl.value.trim();
       const key = appRoot.querySelector('[data-ai-key]');
-      if (key && key.value.trim()) patch.openaiApiKey = key.value.trim();
+      if (key && key.value.trim()) patch.apiKey = key.value.trim();
       try {
         const status = await putSemanticSettings(patch);
         setState({ semanticStatus: status });

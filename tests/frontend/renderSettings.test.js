@@ -107,39 +107,47 @@ test('no provider configured: disabled switch, invitation copy, Off card active'
   assert.doesNotMatch(html, /data-action="reindex-embeddings"/);
 });
 
-test('ollama provider selected: config fields, save action, status line', () => {
+test('ollama provider selected: generic config fields without a key input', () => {
   const html = renderSettingsHtml(baseState({
-    semanticStatus: { available: true, enabled: false, backend: 'ollama', connected: false, embeddedCount: 0, totalCount: 10, ollamaUrl: 'http://127.0.0.1:11434', model: 'nomic-embed-text' },
+    semanticStatus: { available: true, enabled: false, backend: 'ollama', connected: false, embeddedCount: 0, totalCount: 10, baseUrl: 'http://127.0.0.1:11434', model: 'nomic-embed-text', keyRequired: false },
   }), baseModel());
   assert.match(html, /provider-card is-active" data-action="set-ai-provider" data-backend="ollama"/);
-  assert.match(html, /ollama · disconnected · 0\/10 documents embedded/);
-  assert.match(html, /data-ai-ollama-url value="http:\/\/127\.0\.0\.1:11434"/);
+  assert.match(html, /Ollama · disconnected · 0\/10 documents embedded/);
+  assert.match(html, /data-ai-base-url value="http:\/\/127\.0\.0\.1:11434"/);
   assert.match(html, /data-ai-model value="nomic-embed-text"/);
   assert.match(html, /data-action="save-ai-provider"/);
   assert.doesNotMatch(html, /data-ai-key/);
-  // disabled → no reindex yet, switch usable
   assert.doesNotMatch(html, /data-action="reindex-embeddings"/);
   assert.doesNotMatch(html, /data-action="toggle-semantic-search"[^>]* disabled/);
 });
 
-test('openai provider selected: key field is write-only and never echoes the key', () => {
-  const html = renderSettingsHtml(baseState({
-    semanticStatus: { available: true, enabled: true, backend: 'openai', connected: true, embeddedCount: 9, totalCount: 10, openaiBaseUrl: 'https://api.openai.com/v1', model: 'text-embedding-3-small', hasApiKey: true },
-  }), baseModel());
-  assert.match(html, /provider-card is-active" data-action="set-ai-provider" data-backend="openai"/);
-  assert.match(html, /data-ai-key value=""/);
-  assert.match(html, /placeholder="•••••••• saved — enter to replace"/);
-  assert.match(html, /type="password"/);
-  assert.match(html, /class="switch is-on" data-action="toggle-semantic-search" aria-pressed="true"/);
-  assert.match(html, /data-action="reindex-embeddings"[^>]*>Re-index</);
-  assert.match(html, /data-action="force-reindex-embeddings"[^>]*>Rebuild all</);
+test('key-required providers get a write-only key field that never echoes the key', () => {
+  for (const backend of ['openai', 'gemini', 'voyage']) {
+    const html = renderSettingsHtml(baseState({
+      semanticStatus: { available: true, enabled: true, backend, connected: true, embeddedCount: 9, totalCount: 10, baseUrl: 'https://example.test/v1', model: 'some-model', hasApiKey: true, keyRequired: true },
+    }), baseModel());
+    assert.match(html, new RegExp(`provider-card is-active" data-action="set-ai-provider" data-backend="${backend}"`));
+    assert.match(html, /data-ai-key value=""/);
+    assert.match(html, /placeholder="•••••••• saved — enter to replace"/);
+    assert.match(html, /type="password"/);
+  }
 });
 
-test('all three provider cards render as buttons with backend payloads', () => {
+test('llama.cpp shows an optional key field; reindex appears when enabled', () => {
+  const html = renderSettingsHtml(baseState({
+    semanticStatus: { available: true, enabled: true, backend: 'llamacpp', connected: true, embeddedCount: 2, totalCount: 2, baseUrl: 'http://127.0.0.1:8080/v1', model: '', keyRequired: false, hasApiKey: false },
+  }), baseModel());
+  assert.match(html, /provider-card is-active" data-action="set-ai-provider" data-backend="llamacpp"/);
+  assert.match(html, /API key \(optional\)/);
+  assert.match(html, /data-action="reindex-embeddings"[^>]*>Re-index</);
+});
+
+test('all six provider cards render as buttons with backend payloads', () => {
   const html = renderSettingsHtml(baseState({ semanticStatus: { available: false, backend: null } }), baseModel());
-  for (const backend of ['none', 'ollama', 'openai']) {
+  for (const backend of ['none', 'ollama', 'openai', 'voyage', 'gemini', 'llamacpp']) {
     assert.match(html, new RegExp(`<button[^>]*data-action="set-ai-provider" data-backend="${backend}"`));
   }
+  assert.match(html, /Claude · Voyage AI/);
 });
 // ---- Data & admin ----------------------------------------------------------
 

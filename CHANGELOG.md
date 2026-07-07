@@ -16,15 +16,17 @@ fresh empty `[Unreleased]` section is started.
 
 - **Semantic search is back — configured from Settings, running on the
   embedded database.** Settings ▸ Intelligence now offers real provider
-  selection (Off / Ollama / OpenAI-compatible endpoint) with model, server
-  URL, and write-only API key fields plus "Save & test connection"; the
-  configuration persists in the database (`PUT /api/settings/semantic-search`
-  gains optional provider fields — additive, the key is never returned).
-  Vector ranking runs in-process over embeddings stored as JSON — no native
+  selection across **Ollama (local or remote), OpenAI, Claude via Voyage AI
+  (Anthropic's official embeddings partner — Anthropic has no first-party
+  embeddings API), Gemini, and llama.cpp (its OpenAI-compatible server)** —
+  each with its own base URL, embedding model, and write-only API key,
+  remembered per provider so switching back restores what you entered.
+  "Save & test connection" probes the backend honestly; configuration
+  persists in the database (`PUT /api/settings/semantic-search` gains
+  optional provider fields — additive, the key is never returned). Vector
+  ranking runs in-process over embeddings stored as JSON — no native
   extensions — with the same relevance cutoff as the Postgres era. Re-index /
-  Rebuild live in the same card. (The design comp's "Claude API" provider
-  does not exist — Claude has no embeddings API — so the honest provider set
-  is Ollama and OpenAI-compatible.)
+  Rebuild live in the same card.
 - The Markdown editor gained a Settings toggle for **line numbers** (off by
   default, matching the design) and opens documents with the caret at the
   end.

@@ -32,8 +32,10 @@ test('defaults come from env config; nothing stored means env behavior', async (
   const s = await p.getSettings();
   assert.equal(s.backend, 'ollama');
   assert.equal(s.model, 'nomic-embed-text');
-  assert.equal(s.ollamaUrl, 'http://envhost:11434');
-  assert.equal(s.openaiBaseUrl, 'https://api.openai.com/v1');
+  assert.equal(s.baseUrl, 'http://envhost:11434');           // active backend's url
+  assert.equal(s.keyRequired, false);
+  assert.equal(s.ollamaUrl, 'http://envhost:11434');          // legacy alias, one release
+  assert.equal(s.openaiBaseUrl, 'https://api.openai.com/v1'); // legacy alias, one release
   assert.equal(s.hasApiKey, false);
   assert.equal((await p.getEmbedder()).backend, 'ollama');
 });
@@ -51,9 +53,11 @@ test('putSettings persists to app_settings and round-trips through a fresh provi
   assert.equal(out.backend, 'ollama');
   assert.equal(out.model, 'mxbai-embed-large');
 
+  // Persisted as per-backend configs: the alias landed on ollama's config.
   const stored = repo.store.get(EMBEDDING_PROVIDER_KEY);
   assert.equal(stored.backend, 'ollama');
-  assert.equal(stored.ollamaUrl, 'http://box:11434');
+  assert.equal(stored.configs.ollama.baseUrl, 'http://box:11434');
+  assert.equal(stored.configs.ollama.model, 'mxbai-embed-large');
 
   // A brand-new provider over the same repository resolves the same settings.
   const p2 = createEmbedderProvider({ appSettingsRepository: repo, config: loadConfig({}) });
@@ -108,6 +112,9 @@ test('putSettings validates: unknown backend / bad urls / bad types are 400-able
     { backend: 'quantum' },
     { backend: 42 },
     { model: 42 },
+    { baseUrl: 'not a url' },
+    { baseUrl: 'ftp://nope' },
+    { apiKey: 42 },
     { ollamaUrl: 'not a url' },
     { ollamaUrl: 'ftp://nope' },
     { openaiBaseUrl: '' },
@@ -156,4 +163,109 @@ test('without a settings repository: env defaults work, writes fail loudly (not 
   const p = createEmbedderProvider({ config: loadConfig({ EMBEDDING_BACKEND: 'fake' }) });
   assert.equal((await p.getEmbedder()).backend, 'fake');
   await assert.rejects(p.putSettings({ backend: 'none' }), (err) => !isEmbedderSettingsError(err));
+});
+
+test('per-backend configs are retained across backend switches', async () => {
+  const { provider: p } = provider({});
+  await p.putSettings({ backend: 'gemini', apiKey: 'g-key', model: 'gemini-embedding-001' });
+  await p.putSettings({ backend: 'voyage', apiKey: 'v-key', baseUrl: 'http://proxy.local/v1' });
+  const voyage = await p.getSettings();
+  assert.equal(voyage.backend, 'voyage');
+  assert.equal(voyage.baseUrl, 'http://proxy.local/v1');
+  assert.equal(voyage.hasApiKey, true);
+
+  // Switching back restores gemini's own config, untouched by the voyage edits.
+  const gemini = await p.putSettings({ backend: 'gemini' });
+  assert.equal(gemini.baseUrl, 'https://generativelanguage.googleapis.com/v1beta');
+  assert.equal(gemini.model, 'gemini-embedding-001');
+  assert.equal(gemini.hasApiKey, true, 'gemini key survives the round trip');
+
+  // And voyage's config also survived the trip away.
+  const voyage2 = await p.putSettings({ backend: 'voyage' });
+  assert.equal(voyage2.baseUrl, 'http://proxy.local/v1');
+  assert.equal(voyage2.hasApiKey, true);
+});
+
+test('legacy flat stored shape is migrated transparently on read', async () => {
+  const repo = memSettings({ [EMBEDDING_PROVIDER_KEY]: {
+    backend: 'openai',
+    model: 'text-embedding-3-large',
+    ollamaUrl: 'http://box:11434',
+    openaiBaseUrl: 'http://proxy/v1',
+    openaiApiKey: 'sk-legacy',
+  } });
+  const { provider: p } = provider({}, repo);
+  const s = await p.getSettings();
+  assert.equal(s.backend, 'openai');
+  assert.equal(s.baseUrl, 'http://proxy/v1');
+  assert.equal(s.model, 'text-embedding-3-large'); // the shared model stuck to its active backend
+  assert.equal(s.hasApiKey, true);
+  assert.equal(s.keyRequired, true);
+  assert.equal(s.ollamaUrl, 'http://box:11434');   // migrated into the ollama config
+  assert.equal((await p.getEmbedder()).backend, 'openai');
+
+  // Switching to ollama surfaces its migrated url; openai's key is retained.
+  const o = await p.putSettings({ backend: 'ollama' });
+  assert.equal(o.baseUrl, 'http://box:11434');
+  assert.equal(o.model, 'nomic-embed-text');
+  assert.equal(o.hasApiKey, false);
+  assert.equal((await p.putSettings({ backend: 'openai' })).hasApiKey, true);
+});
+
+test('keyRequired flags hosted backends only', async () => {
+  const { provider: p } = provider({});
+  const expectations = { none: false, fake: false, ollama: false, llamacpp: false, openai: true, gemini: true, voyage: true };
+  for (const [backend, required] of Object.entries(expectations)) {
+    assert.equal((await p.putSettings({ backend })).keyRequired, required, backend);
+  }
+});
+
+test('legacy aliases patch their own backend regardless of the active one', async () => {
+  const { provider: p } = provider({});
+  await p.putSettings({ backend: 'gemini', ollamaUrl: 'http://nas:11434', openaiBaseUrl: 'http://proxy/v1', openaiApiKey: 'sk-x' });
+  const s = await p.getSettings();
+  assert.equal(s.backend, 'gemini');
+  assert.equal(s.baseUrl, 'https://generativelanguage.googleapis.com/v1beta');
+  assert.equal(s.hasApiKey, false, 'the alias key belongs to openai, not the active gemini');
+  assert.equal(s.ollamaUrl, 'http://nas:11434');
+  assert.equal(s.openaiBaseUrl, 'http://proxy/v1');
+  assert.equal((await p.putSettings({ backend: 'openai' })).hasApiKey, true);
+  assert.equal((await p.putSettings({ backend: 'ollama' })).baseUrl, 'http://nas:11434');
+});
+
+test('new backends ship their documented defaults', async () => {
+  const { provider: p } = provider({});
+  const g = await p.putSettings({ backend: 'gemini' });
+  assert.equal(g.baseUrl, 'https://generativelanguage.googleapis.com/v1beta');
+  assert.equal(g.model, 'gemini-embedding-001');
+  const v = await p.putSettings({ backend: 'voyage' });
+  assert.equal(v.baseUrl, 'https://api.voyageai.com/v1');
+  assert.equal(v.model, 'voyage-3-large');
+  const l = await p.putSettings({ backend: 'llamacpp' });
+  assert.equal(l.baseUrl, 'http://127.0.0.1:8080/v1');
+  assert.equal(l.model, '');
+  assert.equal((await p.getEmbedder()).backend, 'llamacpp');
+});
+
+test('garbage per-backend config values degrade to defaults', async () => {
+  const repo = memSettings({ [EMBEDDING_PROVIDER_KEY]: {
+    backend: 'gemini',
+    configs: { gemini: { baseUrl: 'nope', model: 42, apiKey: 7 }, voyage: 'lol' },
+  } });
+  const { provider: p } = provider({}, repo);
+  const s = await p.getSettings();
+  assert.equal(s.backend, 'gemini');
+  assert.equal(s.baseUrl, 'https://generativelanguage.googleapis.com/v1beta');
+  assert.equal(s.model, 'gemini-embedding-001');
+  assert.equal(s.hasApiKey, false);
+});
+
+test('gemini/voyage api keys never leave the provider either', async () => {
+  const { provider: p } = provider({});
+  await p.putSettings({ backend: 'voyage', apiKey: 'vk-secret' });
+  await p.putSettings({ backend: 'gemini', apiKey: 'gk-secret' });
+  const s = await p.getSettings();
+  assert.equal(s.hasApiKey, true);
+  assert.ok(!('apiKey' in s) && !('configs' in s));
+  assert.ok(!JSON.stringify(s).includes('secret'));
 });

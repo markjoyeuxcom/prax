@@ -1766,3 +1766,11 @@ body.is-desktop .window {
 /* macOS overlay titlebar: the native traffic lights render inside this bar —
    inset the content to clear them. The bar is the window drag region. */
 body.is-desktop-mac .titlebar { padding-left: 84px; }
+
+/* Provider selection grid (Settings ▸ Intelligence) */
+.provider-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
