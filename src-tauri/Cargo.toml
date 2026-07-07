@@ -16,6 +16,11 @@ tauri = { version = "2", features = [] }
 tauri-plugin-shell = "2"
 tauri-plugin-single-instance = "2"
 
+# macOS: disable the press-and-hold accent picker for this app so held keys
+# repeat in the editor (same version the tauri tree already pins).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-foundation = { version = "0.3", features = ["NSUserDefaults", "NSString"] }
+
 [lib]
 name = "prax_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]

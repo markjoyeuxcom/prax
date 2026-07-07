@@ -58,6 +58,14 @@ Contents: `prax.db` (plus `-wal`/`-shm` WAL siblings) and `logs/server.log`
 (the sidecar's output). Back up by copying the database file or via the
 JSON/Markdown exports — see [../backup-restore.md](../backup-restore.md).
 
+## macOS input behavior
+
+The app opts its own defaults domain out of the press-and-hold accent picker
+(`ApplePressAndHoldEnabled = false` for `com.moomora.prax`) so held keys
+repeat in the Markdown editor. The system-wide setting and every other app
+are untouched; restore the picker for Prax with
+`defaults delete com.moomora.prax ApplePressAndHoldEnabled`.
+
 ## Lifecycle guarantees
 
 - **Port**: the shell binds `127.0.0.1:0` to pick a free port and passes it to

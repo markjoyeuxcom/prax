@@ -142,8 +142,22 @@ fn open_window(handle: &AppHandle, url: WebviewUrl, error_detail: Option<String>
     });
 }
 
+// Holding a letter key on macOS opens the accent picker instead of
+// repeating the character — wrong for a Markdown editor. Opting this app's
+// defaults domain out restores key repeat inside Prax without touching the
+// system-wide setting (the picker still works in every other app).
+#[cfg(target_os = "macos")]
+fn disable_press_and_hold() {
+    use objc2_foundation::{ns_string, NSUserDefaults};
+    let defaults = NSUserDefaults::standardUserDefaults();
+    defaults.setBool_forKey(false, ns_string!("ApplePressAndHoldEnabled"));
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "macos")]
+    disable_press_and_hold();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // Second launch: focus the existing window instead of opening a
