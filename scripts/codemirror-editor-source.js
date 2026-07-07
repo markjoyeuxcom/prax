@@ -26,7 +26,7 @@ import {
   keymap,
   lineNumbers,
 } from '@codemirror/view';
-import { autocompletion, startCompletion } from '@codemirror/autocomplete';
+import { autocompletion, startCompletion, completionStatus } from '@codemirror/autocomplete';
 import { tags } from '@lezer/highlight';
 
 import { applyMarkdownFormat, continueListOnEnter } from '../public/js/markdownEditor.js';
@@ -215,6 +215,11 @@ function makeWikiCompletionSource(documentsProvider) {
 // item). Only acts with a collapsed caret at the end of the line — otherwise it
 // returns false and the default Enter (newline) runs.
 function listContinuationEnter(view) {
+  // Never fire while a completion popup (slash menu / wiki-links) is open —
+  // Enter belongs to the popup (accept). During the popup's brief interaction
+  // delay CM's accept returns false; falling through to a list continuation
+  // here would be surprising, so we defer to the default newline instead.
+  if (completionStatus(view.state) === 'active') return false;
   const sel = view.state.selection.main;
   if (!sel.empty) return false;
   const line = view.state.doc.lineAt(sel.head);

@@ -95,3 +95,15 @@ test('renderMarkdownHtml escapes wiki-link titles', () => {
   assert.ok(!html.includes('<script>'));
   assert.match(html, /&lt;script&gt;x&lt;\/script&gt;/);
 });
+
+test('renderMarkdownHtml resolves wiki-links whose titles contain & \' " < >', () => {
+  // The resolver must see the RAW title, not the HTML-escaped one — otherwise
+  // common titles (apostrophes, ampersands) never match.
+  const docs = { "mark's notes": { id: 'd1', title: "Mark's Notes" }, 'q&a': { id: 'd2', title: 'Q&A' } };
+  const resolveWikiLink = (title) => docs[title.trim().toLowerCase()] || null;
+  const html = renderMarkdownHtml("See [[Mark's Notes]] and [[Q&A]].", { resolveWikiLink });
+  assert.match(html, /data-document-id="d1"[^>]*>Mark&#39;s Notes<\/a>/);
+  assert.match(html, /data-document-id="d2"[^>]*>Q&amp;A<\/a>/);
+  assert.doesNotMatch(html, /wikilink--missing/);
+  assert.ok(!html.includes('<script>'));
+});
