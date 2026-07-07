@@ -143,6 +143,11 @@ fresh empty `[Unreleased]` section is started.
 
 ### Fixed
 
+- **"Rebuild all" embeddings no longer looks like it did nothing.** The confirm
+  dialog only closed *after* the whole rebuild finished, so against a remote or
+  large model it sat on screen for the entire run and read as a dead button. It
+  now dismisses immediately with a "Rebuilding every embedding…" toast, reports
+  the result when done, and ignores repeat clicks while one run is in flight.
 - **Typing in the Library search no longer loses focus after each letter.**
   Keyword search filters live, which re-renders and replaced the `<input>`
   element, so focus (and the caret) were lost after every keystroke — you could
