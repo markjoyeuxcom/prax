@@ -57,3 +57,7 @@ test('desktop shell mode removes the desk inset and window frame', () => {
 test('macOS overlay titlebar insets content to clear the traffic lights', () => {
   assert.match(css, /body\.is-desktop-mac \.titlebar\s*\{[^}]*padding-left:\s*84px/s);
 });
+
+test('provider grid lays cards out responsively', () => {
+  assert.match(css, /\.provider-grid\s*\{[^}]*grid-template-columns:\s*repeat\(auto-fill, minmax\(170px, 1fr\)\)/s);
+});

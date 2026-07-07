@@ -1,7 +1,9 @@
 import { isEmbedderSettingsError } from './embedderProvider.js';
 
 const SETTING_KEY = 'semantic_search_enabled';
-const PROVIDER_FIELDS = ['backend', 'model', 'ollamaUrl', 'openaiBaseUrl', 'openaiApiKey'];
+// Generic fields plus the legacy aliases the shipped UI still sends; the
+// provider maps aliases onto the right backend's config.
+const PROVIDER_FIELDS = ['backend', 'model', 'baseUrl', 'apiKey', 'ollamaUrl', 'openaiBaseUrl', 'openaiApiKey'];
 
 export async function registerSettingsRoutes(app, options = {}) {
   const appSettings = options.appSettingsRepository || app.appSettingsRepository;
@@ -44,9 +46,13 @@ export async function registerSettingsRoutes(app, options = {}) {
       embeddedCount: counts.embedded,
       totalCount: counts.total,
       model: settings ? settings.model : '',
+      baseUrl: settings ? settings.baseUrl : '',
+      keyRequired: settings ? settings.keyRequired : false,
+      hasApiKey: settings ? settings.hasApiKey : false,
+      // Deprecated aliases (mapped from the ollama/openai configs) — kept for
+      // one release so the current UI keeps working until it reads baseUrl.
       ollamaUrl: settings ? settings.ollamaUrl : '',
       openaiBaseUrl: settings ? settings.openaiBaseUrl : '',
-      hasApiKey: settings ? settings.hasApiKey : false,
     };
   }
 

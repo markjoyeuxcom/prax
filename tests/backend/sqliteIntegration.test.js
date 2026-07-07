@@ -370,6 +370,8 @@ test('semantic search: runtime provider config + reindex + JS-cosine ranking (fa
   assert.equal(status.connected, true);
   assert.equal(status.hasApiKey, false);
   assert.equal(typeof status.model, 'string');
+  assert.equal(typeof status.baseUrl, 'string');
+  assert.equal(status.keyRequired, false);
   assert.equal(typeof status.ollamaUrl, 'string');
   assert.equal(typeof status.openaiBaseUrl, 'string');
 

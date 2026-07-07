@@ -140,10 +140,41 @@ test('GET semantic settings exposes the provider fields (never the key value)', 
   const app = await makeApp({ available: true, enabled: true });
   const body = (await app.inject({ method: 'GET', url: '/api/settings/semantic-search' })).json();
   assert.equal(typeof body.model, 'string');
+  assert.equal(typeof body.baseUrl, 'string');
+  assert.equal(typeof body.keyRequired, 'boolean');
   assert.equal(typeof body.ollamaUrl, 'string');
   assert.equal(typeof body.openaiBaseUrl, 'string');
   assert.equal(typeof body.hasApiKey, 'boolean');
   assert.ok(!('openaiApiKey' in body));
+  assert.ok(!('apiKey' in body));
+  await app.close();
+});
+
+test('PUT with a hosted backend reports keyRequired and its default baseUrl', async () => {
+  const app = await makeApp({ available: true, enabled: true });
+  const res = await app.inject({ method: 'PUT', url: '/api/settings/semantic-search', payload: { backend: 'gemini' } });
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+  assert.equal(body.keyRequired, true);
+  assert.equal(body.baseUrl, 'https://generativelanguage.googleapis.com/v1beta');
+  await app.close();
+});
+
+test('PUT accepts the generic baseUrl/apiKey fields for the new backends', async () => {
+  const app = await makeApp({ available: true, enabled: true });
+  const res = await app.inject({
+    method: 'PUT',
+    url: '/api/settings/semantic-search',
+    payload: { backend: 'voyage', baseUrl: 'http://proxy.local/v1', apiKey: 'vk' },
+  });
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+  assert.equal(body.baseUrl, 'http://proxy.local/v1');
+  assert.equal(body.hasApiKey, true);
+  assert.ok(!JSON.stringify(body).includes('vk'), 'the key value never reaches the client');
+
+  const bad = await app.inject({ method: 'PUT', url: '/api/settings/semantic-search', payload: { backend: 'voyage', baseUrl: 'not a url' } });
+  assert.equal(bad.statusCode, 400);
   await app.close();
 });
 
