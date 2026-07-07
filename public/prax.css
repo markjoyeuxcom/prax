@@ -1187,6 +1187,7 @@ a { color: var(--accent); }
 .editor-info {
   display: flex;
   flex-direction: column;
+  flex: none; /* fixed strip in the height-constrained editor column */
   gap: 10px;
   padding: 14px 20px;
   border-bottom: 1px solid var(--line);
@@ -1724,7 +1725,10 @@ body.is-desktop .window {
 
 /* ---- Editor polish: full-height sheet, overflow menu, outline toggle ---- */
 
-.main__scroll > .editor { min-height: 100%; }
+/* Exact height, not min-height: the editor must never outgrow the scroll
+   viewport, or .main__scroll adds a second scrollbar alongside the pane's
+   own — panes (.pane__scroll) are the only scrollers in the editor view. */
+.main__scroll > .editor { height: 100%; }
 .pane--sheet .sheet {
   display: flex;
   flex-direction: column;
