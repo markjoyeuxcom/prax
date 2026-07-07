@@ -90,7 +90,12 @@ function alertError(message) {
 }
 
 function openConfirm(confirm) {
-  setState({ confirm });
+  // Close any open menu first. A confirm launched from a menu item (e.g. the
+  // doc menu's "Delete permanently…") otherwise leaves the menu open, and the
+  // "click outside a menu closes it" handler swallows the first click on the
+  // confirm's buttons — forcing a second click. The confirm is a modal, so the
+  // menu should be gone anyway.
+  setState({ confirm, docMenuOpen: false, newDocMenuOpen: false, captureMenuOpen: false });
   renderApp();
 }
 
