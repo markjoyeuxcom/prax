@@ -143,6 +143,12 @@ fresh empty `[Unreleased]` section is started.
 
 ### Fixed
 
+- **Re-index surfaces *why* embeddings failed.** A failed re-index reported a bare
+  "N failed"; it now includes the first failure's message, and Ollama labels a
+  504/408/524 as a timeout ("the model is slower than the gateway/proxy request
+  timeout; raise the timeout or use a smaller embedding model") — the usual cause
+  of a large model (e.g. `qwen3-embedding:8b`) behind an Envoy/nginx gateway
+  failing every embed while the connection test still passes.
 - **"Rebuild all" embeddings no longer looks like it did nothing.** The confirm
   dialog only closed *after* the whole rebuild finished, so against a remote or
   large model it sat on screen for the entire run and read as a dead button. It

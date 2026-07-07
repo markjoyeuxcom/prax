@@ -237,13 +237,13 @@ async function ensureBoardExtras(tasks) {
 // Toasts & undo
 // ---------------------------------------------------------------------------
 
-function showToast(message, undo = null) {
+function showToast(message, undo = null, duration = undo ? 5000 : 2400) {
   clearTimeout(toastTimer);
   setState({ toast: { message, undo } });
   toastTimer = setTimeout(() => {
     setState({ toast: null });
     renderApp();
-  }, undo ? 5000 : 2400);
+  }, duration);
   renderApp();
 }
 
@@ -1744,7 +1744,8 @@ async function handleAction(action, el, event) {
         const embedded = Number(result?.embedded) || 0;
         const failed = Number(result?.failed) || 0;
         if (failed) {
-          showToast(`Re-index: embedded ${embedded}, ${failed} failed — check the provider/model in Settings ▸ Intelligence.`);
+          const reason = result?.sampleError ? ` (${result.sampleError})` : '';
+          showToast(`Re-index: embedded ${embedded}, ${failed} failed${reason}`, null, 6000);
         } else if (embedded) {
           showToast(`Re-indexed ${embedded} document${embedded === 1 ? '' : 's'}.`);
         } else {

@@ -105,6 +105,12 @@ test('createEmbedder throws on unknown backend', () => {
 test('ollama embed throws on a non-ok response', async () => {
   const e = createOllamaEmbedder({ url: 'http://x', model: 'm', fetch: async () => ({ ok: false, status: 500 }) });
   await assert.rejects(e.embed('hi'), /ollama embed failed: 500/);
+  assert.doesNotMatch((await e.embed('hi').catch((err) => err.message)), /timed out/);
+});
+
+test('ollama embed labels a 504 as a timeout (gateway/model slower than the request timeout)', async () => {
+  const e = createOllamaEmbedder({ url: 'http://x', model: 'm', fetch: async () => ({ ok: false, status: 504 }) });
+  await assert.rejects(e.embed('hi'), /ollama embed failed: 504 \(timed out/);
 });
 
 test('ollama embed throws on a malformed response (no embedding array)', async () => {

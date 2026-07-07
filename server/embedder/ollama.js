@@ -14,7 +14,13 @@ export function createOllamaEmbedder({ url, model, fetch = globalThis.fetch } = 
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ model: embedModel, prompt: String(text ?? '') }),
       });
-      if (!res.ok) throw new Error(`ollama embed failed: ${res.status}`);
+      if (!res.ok) {
+        // 504/408/524 are timeouts — almost always a gateway/proxy request
+        // timeout shorter than the model's embed time (common with large models
+        // behind Envoy/nginx). Say so, since it's not a model/config problem.
+        const timedOut = res.status === 504 || res.status === 408 || res.status === 524;
+        throw new Error(`ollama embed failed: ${res.status}${timedOut ? ' (timed out — the model is slower than the gateway/proxy request timeout; raise the timeout or use a smaller embedding model)' : ''}`);
+      }
       const data = await res.json();
       const vector = data.embedding;
       if (!Array.isArray(vector)) throw new Error('ollama returned no embedding array');
