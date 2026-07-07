@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   archiveDocument,
   createDocument,
-  deleteArchivedDocument,
+  deleteDocumentPermanently,
   fetchDocumentLinks,
   fetchDocuments,
   fetchOrphanDocuments,
@@ -74,7 +74,7 @@ test('archive restore and delete call document lifecycle endpoints', async () =>
 
   await archiveDocument('doc-1');
   await restoreDocument('doc-1');
-  await deleteArchivedDocument('doc-1');
+  await deleteDocumentPermanently('doc-1');
 
   assert.deepEqual(calls.map(call => [call[0], call[1].method]), [
     ['/api/library/documents/doc-1', 'DELETE'],

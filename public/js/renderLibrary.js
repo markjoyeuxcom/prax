@@ -312,7 +312,7 @@ function renderArchiveRows(model) {
         <span class="plain-row__title">${escapeHtml(doc.title || 'Untitled')}</span>
         ${typeChip(doc)}${trustChips(doc)}
         <button class="btn-outline" type="button" data-action="restore-document" data-document-id="${escapeHtml(doc.id)}">Restore</button>
-        <button class="btn-outline btn-outline--danger" type="button" data-action="delete-archived-document" data-document-id="${escapeHtml(doc.id)}">Delete</button>
+        <button class="btn-outline btn-outline--danger" type="button" data-action="delete-document" data-document-id="${escapeHtml(doc.id)}">Delete</button>
       </div>`).join('')}
     </div>`;
 }

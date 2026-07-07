@@ -127,11 +127,14 @@ export function buildRestoreDocument(id) {
   };
 }
 
-export function buildDeleteArchivedDocument(id) {
+// Permanent delete of any document, archived or active — "delete" is offered
+// alongside "archive" so a document can be removed outright without first being
+// archived. Callers gate it behind a confirmation.
+export function buildDeleteDocument(id) {
   return {
     text: `
       delete from markdown_documents
-      where id = $1 and archived_at is not null
+      where id = $1
       returning *
     `,
     values: [id],
@@ -442,8 +445,8 @@ export function createLibraryRepository(db) {
       return result.rows[0] ? normalizeDocumentRow(result.rows[0]) : null;
     },
 
-    async deleteArchivedDocument(id) {
-      const query = buildDeleteArchivedDocument(id);
+    async deleteDocument(id) {
+      const query = buildDeleteDocument(id);
       const result = await db.query(query.text, query.values);
       return result.rows[0] ? normalizeDocumentRow(result.rows[0]) : null;
     },

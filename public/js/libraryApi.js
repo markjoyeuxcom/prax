@@ -44,11 +44,11 @@ export async function restoreDocument(id) {
   return response.json();
 }
 
-export async function deleteArchivedDocument(id) {
+export async function deleteDocumentPermanently(id) {
   const response = await fetch(`/api/library/documents/${id}/permanent`, {
     method: 'DELETE',
   });
-  if (!response.ok) throw new Error('Failed to delete archived document');
+  if (!response.ok) throw new Error('Failed to delete document');
   return response.json();
 }
 

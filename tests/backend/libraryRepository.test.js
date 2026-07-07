@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import {
   buildArchiveDocument,
   buildCreateDocument,
-  buildDeleteArchivedDocument,
+  buildDeleteDocument,
   buildGetDocument,
   buildListActiveDocumentsForExport,
   buildRestoreDocument,
@@ -133,17 +133,19 @@ test('buildUpdateDocument rejects empty updates', () => {
   );
 });
 
-test('archive restore and permanent delete are archived-state scoped', () => {
+test('archive and restore are archived-state scoped; permanent delete removes any document', () => {
   const archive = buildArchiveDocument(DOCUMENT_ID);
   const restore = buildRestoreDocument(DOCUMENT_ID);
-  const remove = buildDeleteArchivedDocument(DOCUMENT_ID);
+  const remove = buildDeleteDocument(DOCUMENT_ID);
 
   assert.match(archive.text, /set archived_at = strftime\('%Y-%m-%dT%H:%M:%fZ','now'\)/);
   assert.match(archive.text, /where id = \$1 and archived_at is null/);
   assert.match(restore.text, /set archived_at = null/);
   assert.match(restore.text, /where id = \$1 and archived_at is not null/);
   assert.match(remove.text, /delete from markdown_documents/);
-  assert.match(remove.text, /where id = \$1 and archived_at is not null/);
+  // Delete is NOT archived-scoped — active documents can be deleted outright.
+  assert.match(remove.text, /where id = \$1\s+returning/);
+  assert.doesNotMatch(remove.text, /archived_at/);
   assert.deepEqual(archive.values, [DOCUMENT_ID]);
   assert.deepEqual(restore.values, [DOCUMENT_ID]);
   assert.deepEqual(remove.values, [DOCUMENT_ID]);
