@@ -56,6 +56,7 @@ import { renderAllProjectsHtml, buildProjectGroups } from './renderAllProjects.j
 import { renderPaletteHtml, buildPaletteGroups } from './renderPalette.js';
 import { renderCaptureHtml } from './renderCapture.js';
 import { renderToastHtml } from './renderToast.js';
+import { renderConfirmHtml } from './renderConfirm.js';
 import { renderSettingsHtml } from './renderSettings.js';
 import { escapeHtml } from './renderHelpers.js';
 
@@ -77,8 +78,17 @@ let taskTitleSaveTimer = null;    // drawer task title
 let toastTimer = null;
 let dragIndicator = null;
 
+// Native window.alert/confirm/prompt do not exist in the desktop webview
+// (Tauri implements no JS dialogs — confirm() returns falsy, alert() is a
+// no-op). All user feedback goes through the toast; confirmations go through
+// the in-app confirm dialog (openConfirm → renderConfirmHtml).
 function alertError(message) {
-  window.alert(`Prax could not ${message}.`);
+  showToast(`Prax could not ${message}.`);
+}
+
+function openConfirm(confirm) {
+  setState({ confirm });
+  renderApp();
 }
 
 // ---------------------------------------------------------------------------
@@ -617,7 +627,7 @@ function defaultProjectId() {
 
 async function createNewDocument() {
   const project = defaultProjectId();
-  if (!project) { window.alert('Create a project first.'); return; }
+  if (!project) { showToast('Create a project first.'); return; }
   try {
     const doc = await createDocument({
       title: 'Untitled', body: '# Untitled\n\n', documentType: 'note', project, tags: [],
@@ -641,7 +651,7 @@ function importDocumentFiles() {
     const files = [...(input.files || [])];
     if (!files.length) return;
     const project = defaultProjectId();
-    if (!project) { window.alert('Create a project first.'); return; }
+    if (!project) { showToast('Create a project first.'); return; }
     let imported = 0;
     for (const file of files) {
       try {
@@ -721,24 +731,24 @@ async function importTasksFromSettings() {
   if (mode === 'replace') {
     const confirmBox = appRoot.querySelector('[data-replace-confirm]');
     if ((confirmBox?.value || '') !== 'REPLACE') {
-      window.alert('Type REPLACE to confirm a replace import.');
+      showToast('Type REPLACE to confirm a replace import.');
       return;
     }
   }
   const fileInput = appRoot.querySelector('[data-import-file]');
   const file = fileInput?.files?.[0];
-  if (!file) { window.alert('Choose a JSON export file first.'); return; }
+  if (!file) { showToast('Choose a JSON export file first.'); return; }
   const project = defaultProjectId();
-  if (!project) { window.alert('Create a project first.'); return; }
+  if (!project) { showToast('Create a project first.'); return; }
   try {
     const payload = JSON.parse(await file.text());
     const tasks = tasksFromImportPayload(payload);
     const result = await importTasks({ project, mode, tasks });
-    window.alert(`Imported ${result.imported} task(s). Skipped ${result.skipped ?? 0}.`);
+    showToast(`Imported ${result.imported} task(s). Skipped ${result.skipped ?? 0}.`);
     await loadTasks();
     renderApp();
   } catch (err) {
-    window.alert(`Prax could not import that file. ${err?.message || ''}`.trim());
+    showToast(`Prax could not import that file. ${err?.message || ''}`.trim());
   }
 }
 
@@ -779,6 +789,7 @@ function goSettings() {
 }
 
 function escapeCascade() {
+  if (state.confirm) { setState({ confirm: null }); renderApp(); return; }
   if (state.docMenuOpen) { setState({ docMenuOpen: false }); renderApp(); return; }
   if (state.paletteOpen) { setState({ paletteOpen: false }); renderApp(); return; }
   if (state.captureOpen) { setState({ captureOpen: false }); renderApp(); return; }
@@ -936,6 +947,7 @@ function renderOverlaysHtml() {
       project ? { ...project, color: projectColor(project) } : { name: 'No project', color: 'var(--ink3)' },
     );
   }
+  if (state.confirm) html += renderConfirmHtml(state.confirm);
   html += renderToastHtml(state);
   return html;
 }
@@ -1125,7 +1137,15 @@ async function handleAction(action, el, event) {
       event.stopPropagation();
       const id = el.dataset.taskId || state.drawerTaskId;
       const task = taskById(id);
-      if (!window.confirm(`Permanently delete "${task?.title || 'this task'}"? This cannot be undone.`)) break;
+      if (!el.dataset.confirmed) {
+        openConfirm({
+          message: `Permanently delete "${task?.title || 'this task'}"? This cannot be undone.`,
+          okLabel: 'Delete', danger: true,
+          action: 'delete-archived-task', data: { 'task-id': id || '' },
+        });
+        break;
+      }
+      setState({ confirm: null });
       try {
         await deleteArchivedTask(id);
         setState({ drawerTaskId: null });
@@ -1224,14 +1244,24 @@ async function handleAction(action, el, event) {
     case 'import-documents': importDocumentFiles(); break;
     case 'export-library': window.location.href = '/api/library/export?project=all'; break;
     case 'save-library-view': {
-      const name = window.prompt('Name this view', state.activeLibraryTags.join(' + '));
-      if (!name) break;
-      const view = createSavedLibraryView(name, state.activeLibraryTags);
-      if (view) {
-        setState({ librarySavedViews: [...state.librarySavedViews.filter(v => v.id !== view.id), view] });
-        persistSavedViews();
-        renderApp();
+      if (!el.dataset.confirmed) {
+        openConfirm({
+          message: 'Name this view',
+          okLabel: 'Save view', action: 'save-library-view',
+          input: { value: state.activeLibraryTags.join(' + '), placeholder: 'View name' },
+        });
+        break;
       }
+      const name = (appRoot.querySelector('[data-confirm-input]')?.value || '').trim();
+      setState({ confirm: null });
+      if (name) {
+        const view = createSavedLibraryView(name, state.activeLibraryTags);
+        if (view) {
+          setState({ librarySavedViews: [...state.librarySavedViews.filter(v => v.id !== view.id), view] });
+          persistSavedViews();
+        }
+      }
+      renderApp();
       break;
     }
     case 'delete-library-view': {
@@ -1257,7 +1287,15 @@ async function handleAction(action, el, event) {
     }
     case 'delete-archived-document': {
       const id = el.dataset.documentId || state.editorDocId;
-      if (!window.confirm('Permanently delete this document? This cannot be undone.')) break;
+      if (!el.dataset.confirmed) {
+        openConfirm({
+          message: 'Permanently delete this document? This cannot be undone.',
+          okLabel: 'Delete', danger: true,
+          action: 'delete-archived-document', data: { 'document-id': id || '' },
+        });
+        break;
+      }
+      setState({ confirm: null });
       try {
         await deleteArchivedDocument(id);
         if (state.editorDocId === id) setState({ navType: 'library', editorDocId: null });
@@ -1338,10 +1376,18 @@ async function handleAction(action, el, event) {
     case 'archive-document': {
       const doc = currentDocument();
       setState({ docMenuOpen: false });
-      if (!doc || !window.confirm(`Archive "${doc.title}"?`)) break;
+      if (!doc) break;
       try {
         await archiveDocument(doc.id);
         goLibrary();
+        showToast('Document archived', async () => {
+          dismissToast();
+          try {
+            await restoreDocument(doc.id);
+            await loadDocuments();
+          } catch { alertError('restore the document'); }
+          renderApp();
+        });
       } catch { alertError('archive the selected document'); }
       break;
     }
@@ -1371,12 +1417,20 @@ async function handleAction(action, el, event) {
     }
     case 'delete-project': {
       event.stopPropagation();
-      if (!window.confirm('Permanently delete this project? Only empty projects (no tasks or documents) can be deleted.')) break;
+      if (!el.dataset.confirmed) {
+        openConfirm({
+          message: 'Permanently delete this project? Only empty projects (no tasks or documents) can be deleted.',
+          okLabel: 'Delete project', danger: true,
+          action: 'delete-project', data: { 'project-id': el.dataset.projectId || '' },
+        });
+        break;
+      }
+      setState({ confirm: null });
       try {
         await deleteProjectPermanent(el.dataset.projectId);
         await loadProjects();
       } catch {
-        window.alert('Could not delete: the project still has tasks or documents.');
+        showToast('Could not delete: the project still has tasks or documents.');
       }
       renderApp();
       break;
@@ -1386,6 +1440,7 @@ async function handleAction(action, el, event) {
     case 'palette-run': runPaletteItem(paletteFlat[Number(el.dataset.paletteIndex)]); break;
     case 'close-palette': setState({ paletteOpen: false }); renderApp(); break;
     case 'close-capture': setState({ captureOpen: false }); renderApp(); break;
+    case 'confirm-cancel': setState({ confirm: null }); renderApp(); break;
     case 'toast-undo': state.toast?.undo?.(); break;
 
     // ---- settings ----
@@ -1452,7 +1507,14 @@ async function handleAction(action, el, event) {
     }
     case 'reindex-embeddings': case 'force-reindex-embeddings': {
       const force = action === 'force-reindex-embeddings';
-      if (force && !window.confirm('Rebuild embeddings for every document?')) break;
+      if (force && !el.dataset.confirmed) {
+        openConfirm({
+          message: 'Rebuild embeddings for every document?',
+          okLabel: 'Rebuild', action: 'force-reindex-embeddings',
+        });
+        break;
+      }
+      if (force) setState({ confirm: null });
       el.disabled = true;
       try {
         await reindexEmbeddings(force);
@@ -1495,6 +1557,9 @@ function bindEvents() {
     }
     const el = event.target.closest?.('[data-action]');
     if (el && appRoot.contains(el)) {
+      // Overlay scrims (data-overlay) close only on direct clicks — clicks
+      // inside the dialog bubble up here but must not dismiss it.
+      if (el.dataset.overlay !== undefined && event.target !== el) return;
       handleAction(el.dataset.action, el, event);
       return;
     }
@@ -1621,6 +1686,11 @@ function bindEvents() {
       }
       return;
     }
+    if (target.matches?.('[data-confirm-input]') && event.key === 'Enter') {
+      event.preventDefault();
+      appRoot.querySelector('[data-confirm-ok]')?.click();
+      return;
+    }
     if (target.matches?.('[data-capture-input]') && event.key === 'Enter') {
       event.preventDefault();
       addQuickTask(state.captureQuery.trim());
@@ -1682,7 +1752,7 @@ async function handleLinkPickerPick(documentId) {
 async function addQuickTask(title) {
   if (!title) return;
   const project = defaultProjectId();
-  if (!project) { window.alert('Create a project first.'); return; }
+  if (!project) { showToast('Create a project first.'); return; }
   try {
     await createTask({
       title, description: '', notes: '', priority: 'medium',
