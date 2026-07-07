@@ -24,7 +24,7 @@ test('buildLinkDocuments: derived-from upserts target_hash, supersedes stays do-
   assert.match(derived.text, /insert into document_links/);
   assert.match(derived.text, /target_hash/);
   assert.match(derived.text, /do update set target_hash = excluded\.target_hash/);
-  assert.match(derived.text, /xmax = 0/);
+  assert.match(derived.text, /returning source_document_id/);
   assert.deepEqual(derived.values, [SRC, TGT, 'derived-from']);
 
   const sup = buildLinkDocuments(SRC, TGT, 'supersedes');
@@ -47,11 +47,14 @@ test('normalizeLinkRow maps a row to the public link shape', () => {
   });
 });
 
-test('linkDocuments(derived-from) returns linked vs alreadyLinked via the inserted flag', async () => {
-  const fresh = { query: async () => ({ rows: [{ source_document_id: SRC, inserted: true }] }) };
+test('linkDocuments(derived-from) returns linked vs alreadyLinked via the pre-upsert probe', async () => {
+  // First query is the exists probe, second is the guarded upsert.
+  const fresh = { calls: 0, async query() { this.calls += 1; return this.calls === 1 ? { rows: [] } : { rows: [{ source_document_id: SRC }] }; } };
   assert.deepEqual(await createDocumentLinksRepository(fresh).linkDocuments(SRC, TGT, 'derived-from'), { linked: true });
-  const refreshed = { query: async () => ({ rows: [{ source_document_id: SRC, inserted: false }] }) };
+
+  const refreshed = { calls: 0, async query() { this.calls += 1; return this.calls === 1 ? { rows: [{ 1: 1 }] } : { rows: [{ source_document_id: SRC }] }; } };
   assert.deepEqual(await createDocumentLinksRepository(refreshed).linkDocuments(SRC, TGT, 'derived-from'), { linked: true, alreadyLinked: true });
+
   const missing = { query: async () => ({ rows: [] }) };
   assert.deepEqual(await createDocumentLinksRepository(missing).linkDocuments(SRC, TGT, 'derived-from'), { linked: false });
 });
@@ -61,7 +64,7 @@ test('linkDocuments(supersedes) returns linked / alreadyLinked / not-linked via 
   assert.deepEqual(await createDocumentLinksRepository(inserted).linkDocuments(SRC, TGT, 'supersedes'), { linked: true });
 
   let call = 0;
-  const existing = { query: async () => (call++ === 0 ? { rows: [] } : { rows: [{ '?column?': 1 }] }) };
+  const existing = { query: async () => (call++ === 0 ? { rows: [] } : { rows: [{ 1: 1 }] }) };
   assert.deepEqual(await createDocumentLinksRepository(existing).linkDocuments(SRC, TGT, 'supersedes'), { linked: true, alreadyLinked: true });
 
   const missing = { query: async () => ({ rows: [] }) };

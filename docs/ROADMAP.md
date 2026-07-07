@@ -1,4 +1,4 @@
-# Moomora Console — Roadmap
+# Prax — Roadmap
 
 A living backlog of planned and deferred work. This is **direction, not a commitment** — a
 catalogue of candidate next steps kept honest. Substantial items go through the repo's
@@ -10,7 +10,7 @@ spec → plan → review workflow under [`docs/superpowers/`](superpowers/) befo
 
 - **v0.15.0 — Shared AI memory, slice 1.** Trust model (`verified` / `status` on documents +
   migration `0007`), `verify` / `supersede` / `context-pack` routes, conservative active-only
-  retrieval with unverified memory quarantined, the thin `moomora` CLI, and read-only trust
+  retrieval with unverified memory quarantined, the thin `prax` CLI, and read-only trust
   display in the Library UI. See
   [`specs/2026-06-04-shared-ai-memory-slice1-design.md`](superpowers/specs/2026-06-04-shared-ai-memory-slice1-design.md).
 - **v0.15.1 — Kubernetes deploy + cross-tool memory.** Kustomize `deploy/base` + overlays for
@@ -23,10 +23,10 @@ spec → plan → review workflow under [`docs/superpowers/`](superpowers/) befo
   replacement) and a `supersede_document` MCP tool, both thin clients over the slice-1 routes.
   Verification stays a human-only action (no MCP verify tool) by design. See
   [`specs/2026-06-06-memory-slice2-trust-actions-design.md`](superpowers/specs/2026-06-06-memory-slice2-trust-actions-design.md).
-- **v0.17.0 — Memory skills converged onto the CLI.** `moomora-recall` / `moomora-remember` are
+- **v0.17.0 — Memory skills converged onto the CLI.** `prax-recall` / `prax-remember` are
   now thin wrappers over shared `cli/lib/recall.js` + `cli/lib/remember.js` — one implementation
-  behind both the skills and the `moomora` CLI. Adds cross-project `moomora recall` (distilled,
-  `--recent`) and `moomora remember --memory`; skills stay zero-install. See
+  behind both the skills and the `prax` CLI. Adds cross-project `prax recall` (distilled,
+  `--recent`) and `prax remember --memory`; skills stay zero-install. See
   [`specs/2026-06-07-memory-skills-cli-convergence-design.md`](superpowers/specs/2026-06-07-memory-skills-cli-convergence-design.md).
 
 ---
@@ -44,7 +44,7 @@ next steps, by value:
 
 - [ ] **External references.** Link a memory to a GitHub/GitLab/URL without copying the content
   (`memory_external_refs`). *(medium–large)*
-- [ ] **Repo-URL project detection.** `moomora` auto-detects the project from the git remote URL
+- [ ] **Repo-URL project detection.** `prax` auto-detects the project from the git remote URL
   (projects gain a repo-URL field). *(medium)*
 - [ ] **RAG / "Ask Project".** An optional retrieval + generation layer, kept separate from the
   retrieval-only default. *(large)*
@@ -57,7 +57,7 @@ next steps, by value:
   live build (today images are built on version tags; per-env image versions are pinned in Argo).
   *(medium)*
 - [ ] **App-level auth.** None by design (trusted-network model); currently fronted by the
-  gateway + Keycloak. Revisit only if a multi-tenant / `MOOMORA_TOKEN` model is wanted. *(large)*
+  gateway + Keycloak. Revisit only if a multi-tenant / `PRAX_TOKEN` model is wanted. *(large)*
 
 ---
 

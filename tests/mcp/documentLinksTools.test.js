@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createDocumentLinkTools } from '../../mcp/tools/documentLinks.js';
-import { MoomoraApiError } from '../../mcp/errors.js';
+import { PraxApiError } from '../../mcp/errors.js';
 
 function byName(tools, name) {
   const t = tools.find((x) => x.name === name);
@@ -63,11 +63,11 @@ test('supersede_document validates uuids, rejects self-supersede, maps not-found
   assert.deepEqual(received, [SRC, TGT]);
   assert.deepEqual(JSON.parse(res.content[0].text), { id: SRC, status: 'superseded' });
 
-  // Not-found is a server 404 -> MoomoraApiError thrown by the client's request(); withErrorHandling
+  // Not-found is a server 404 -> PraxApiError thrown by the client's request(); withErrorHandling
   // turns it into an error result. (The client never returns null for this route, so there is no !doc guard.)
   const throwing = byName(
     createDocumentLinkTools({
-      supersedeDocument: async () => { throw new MoomoraApiError(404, 'document not found'); },
+      supersedeDocument: async () => { throw new PraxApiError(404, 'document not found'); },
     }),
     'supersede_document',
   );

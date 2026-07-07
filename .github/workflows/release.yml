@@ -17,7 +17,7 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: awaybreaktoday/moomora-console
+  IMAGE_NAME: awaybreaktoday/prax
 
 jobs:
   publish:
@@ -50,7 +50,7 @@ jobs:
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
 
       - name: Checkout release ref
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ steps.release.outputs.version }}
 
@@ -78,7 +78,7 @@ jobs:
             type=semver,pattern={{major}},value=${{ steps.release.outputs.version }}
             type=raw,value=latest,enable=${{ steps.release.outputs.prerelease == 'false' }}
           labels: |
-            org.opencontainers.image.title=Moomora Console
+            org.opencontainers.image.title=Prax
             org.opencontainers.image.description=Local-first homelab operations console for tasks, runbooks, and Markdown workflows.
             org.opencontainers.image.licenses=MIT
 

@@ -54,8 +54,10 @@ cloudflared tunnel list
   assert.match(html, /<a href="https:\/\/dash.cloudflare.com" rel="noreferrer">Cloudflare<\/a>/);
   assert.match(html, /<ol>/);
   assert.match(html, /<li>First step<\/li>/);
-  assert.match(html, /type="checkbox" disabled/);
-  assert.match(html, /checked/);
+  // Prax renders task items as clickable rows (main.js rewrites the source
+  // line via data-line) instead of the old disabled checkboxes.
+  assert.match(html, /class="task-item is-done" data-md-check data-line="\d+"/);
+  assert.match(html, /task-item__box">✓</);
   assert.match(html, /<table>/);
   assert.match(html, /<th>Name<\/th>/);
   assert.match(html, /<td>Enabled<\/td>/);
@@ -67,4 +69,121 @@ test('titleFromMarkdown prefers first heading then filename then fallback', () =
   assert.equal(titleFromMarkdown('## Cluster Restore', 'restore.md'), 'Cluster Restore');
   assert.equal(titleFromMarkdown('No heading', 'ingress-notes.md'), 'ingress-notes');
   assert.equal(titleFromMarkdown('', ''), 'Untitled document');
+});
+
+// ---- wiki-links --------------------------------------------------------------
+
+test('renderMarkdownHtml resolves [[wiki-links]] to a clickable doc link', () => {
+  const resolveWikiLink = (title) => (title === 'Runbook' ? { id: 'doc-1', title: 'Runbook' } : null);
+  const html = renderMarkdownHtml('See [[Runbook]] for steps.', { resolveWikiLink });
+  assert.match(html, /<a class="wikilink" data-action="open-doc" data-document-id="doc-1"[^>]*>Runbook<\/a>/);
+});
+
+test('renderMarkdownHtml renders an unresolved [[wiki-link]] as a muted missing span', () => {
+  const html = renderMarkdownHtml('See [[Nonexistent]] here.', { resolveWikiLink: () => null });
+  assert.match(html, /<span class="wikilink wikilink--missing"[^>]*>Nonexistent<\/span>/);
+  assert.doesNotMatch(html, /data-action="open-doc"/);
+});
+
+test('renderMarkdownHtml treats [[wiki-links]] as missing when no resolver is given', () => {
+  const html = renderMarkdownHtml('A [[Doc]] link.');
+  assert.match(html, /wikilink--missing/);
+});
+
+test('renderMarkdownHtml escapes wiki-link titles', () => {
+  const html = renderMarkdownHtml('[[<script>x</script>]]', { resolveWikiLink: () => null });
+  assert.ok(!html.includes('<script>'));
+  assert.match(html, /&lt;script&gt;x&lt;\/script&gt;/);
+});
+
+test('renderMarkdownHtml resolves wiki-links whose titles contain & \' " < >', () => {
+  // The resolver must see the RAW title, not the HTML-escaped one — otherwise
+  // common titles (apostrophes, ampersands) never match.
+  const docs = { "mark's notes": { id: 'd1', title: "Mark's Notes" }, 'q&a': { id: 'd2', title: 'Q&A' } };
+  const resolveWikiLink = (title) => docs[title.trim().toLowerCase()] || null;
+  const html = renderMarkdownHtml("See [[Mark's Notes]] and [[Q&A]].", { resolveWikiLink });
+  assert.match(html, /data-document-id="d1"[^>]*>Mark&#39;s Notes<\/a>/);
+  assert.match(html, /data-document-id="d2"[^>]*>Q&amp;A<\/a>/);
+  assert.doesNotMatch(html, /wikilink--missing/);
+  assert.ok(!html.includes('<script>'));
+});
+
+// ---- nested lists ------------------------------------------------------------
+
+test('renderMarkdownHtml nests indented bullets under an ordered item without renumbering', () => {
+  const md = [
+    '1. First',
+    '2. Second:',
+    '  - sub a',
+    '  - sub b',
+    '3. Third',
+  ].join('\n');
+  const html = renderMarkdownHtml(md);
+  // Exactly three top-level <ol> items; the sub-bullets are a nested <ul>.
+  const ol = html.match(/<ol>([\s\S]*)<\/ol>/)[1];
+  const topLevelLis = ol.replace(/<ul>[\s\S]*?<\/ul>/g, '').match(/<li>/g) || [];
+  assert.equal(topLevelLis.length, 3);
+  assert.match(html, /<li>Second:<ul><li>sub a<\/li><li>sub b<\/li><\/ul><\/li>/);
+  assert.match(html, /<li>Third<\/li><\/ol>/);
+});
+
+test('renderMarkdownHtml keeps a contiguous ordered then unordered block as two lists', () => {
+  const html = renderMarkdownHtml('1. one\n2. two\n- a\n- b');
+  assert.match(html, /<ol><li>one<\/li><li>two<\/li><\/ol><ul><li>a<\/li><li>b<\/li><\/ul>/);
+});
+
+test('renderMarkdownHtml nests deeper levels and returns to shallower ones', () => {
+  const md = ['- top', '  - mid', '    - deep', '- top2'].join('\n');
+  const html = renderMarkdownHtml(md);
+  assert.match(html, /<ul><li>top<ul><li>mid<ul><li>deep<\/li><\/ul><\/li><\/ul><\/li><li>top2<\/li><\/ul>/);
+});
+
+// ---- images, strikethrough, underscore emphasis ------------------------------
+
+test('renderMarkdownHtml renders images (relative + http) with escaped alt and lazy loading', () => {
+  assert.match(renderMarkdownHtml('![logo](/img/x.png)'), /<img src="\/img\/x\.png" alt="logo" loading="lazy">/);
+  assert.match(renderMarkdownHtml('![a](https://ex.com/y.png)'), /<img src="https:\/\/ex\.com\/y\.png" alt="a" loading="lazy">/);
+});
+
+test('renderMarkdownHtml does not create an image for a javascript: (or other) unsafe src', () => {
+  const html = renderMarkdownHtml('![x](javascript:alert(1))');
+  assert.doesNotMatch(html, /<img/);
+  assert.ok(!html.includes('javascript:alert(1)') || html.includes('!['));
+});
+
+test('renderMarkdownHtml renders ~~strikethrough~~ as <del>', () => {
+  assert.match(renderMarkdownHtml('this is ~~gone~~ now'), /this is <del>gone<\/del> now/);
+});
+
+test('renderMarkdownHtml renders _underscore_ and __underscore__ emphasis', () => {
+  assert.match(renderMarkdownHtml('an _emphasised_ word'), /an <em>emphasised<\/em> word/);
+  assert.match(renderMarkdownHtml('a __strong__ word'), /a <strong>strong<\/strong> word/);
+});
+
+test('renderMarkdownHtml leaves snake_case identifiers and underscored paths untouched', () => {
+  assert.match(renderMarkdownHtml('my_var_name stays plain'), /my_var_name stays plain/);
+  assert.doesNotMatch(renderMarkdownHtml('my_var_name stays plain'), /<em>|<strong>/);
+  assert.match(renderMarkdownHtml('see /etc/foo_bar_baz/x here'), /\/etc\/foo_bar_baz\/x/);
+  assert.doesNotMatch(renderMarkdownHtml('see /etc/foo_bar_baz/x here'), /<em>|<strong>/);
+});
+
+test('renderMarkdownHtml keeps asterisk bold/italic working alongside the underscore rules', () => {
+  assert.match(renderMarkdownHtml('keep **star** and *em* going'), /keep <strong>star<\/strong> and <em>em<\/em> going/);
+});
+
+test('renderMarkdownHtml renders an inline code span containing $-patterns literally', () => {
+  // A string replacement arg would expand `$&` in the escaped HTML into the
+  // matched placeholder token and leak a NUL sentinel; the function replacer
+  // must insert the code verbatim.
+  const html = renderMarkdownHtml('Use `sed s/$&/x/` daily.');
+  assert.match(html, /<code>sed s\/\$&amp;\/x\/<\/code>/);
+  assert.ok(!html.includes('\u0000'));
+});
+
+test('renderMarkdownHtml resolves a [[wiki-link]] whose title contains $ without corruption', () => {
+  const resolveWikiLink = (title) => (title === 'A$&B' ? { id: 'doc-9', title: 'A$&B' } : null);
+  const html = renderMarkdownHtml('See [[A$&B]] here.', { resolveWikiLink });
+  assert.match(html, /data-document-id="doc-9"/);
+  assert.match(html, />A\$&amp;B<\/a>/);
+  assert.ok(!html.includes('\u0000'));
 });

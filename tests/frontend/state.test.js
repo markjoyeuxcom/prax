@@ -1,46 +1,41 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { loadBoardGrouping, persistBoardGrouping, loadListGrouping, persistListGrouping } from '../../public/js/state.js';
+import { loadActiveProject, persistActiveProject, state, setState } from '../../public/js/state.js';
 
 function storageWith(initial = {}) {
   const values = new Map(Object.entries(initial));
   return {
-    getItem(key) { return values.has(key) ? values.get(key) : null; },
-    setItem(key, value) { values.set(key, String(value)); },
+    getItem(key) {
+      return values.has(key) ? values.get(key) : null;
+    },
+    setItem(key, value) {
+      values.set(key, String(value));
+    },
     values,
   };
 }
 
-test('loadBoardGrouping defaults to flat when unset or unknown', () => {
-  assert.equal(loadBoardGrouping(storageWith()), 'flat');
-  assert.equal(loadBoardGrouping(storageWith({ 'moomora.boardGrouping.v1': 'weird' })), 'flat');
+test('loadActiveProject keeps the pre-rename storage key and defaults to all', () => {
+  assert.equal(loadActiveProject(storageWith()), 'all');
+  assert.equal(loadActiveProject(storageWith({ 'moomora.activeProject.v1': 'proj-1' })), 'proj-1');
 });
 
-test('loadBoardGrouping returns swimlanes when stored', () => {
-  assert.equal(loadBoardGrouping(storageWith({ 'moomora.boardGrouping.v1': 'swimlanes' })), 'swimlanes');
-});
-
-test('persistBoardGrouping stores a normalized value', () => {
+test('persistActiveProject round-trips through the same key', () => {
   const storage = storageWith();
-  persistBoardGrouping('swimlanes', storage);
-  assert.equal(storage.getItem('moomora.boardGrouping.v1'), 'swimlanes');
-  persistBoardGrouping('nonsense', storage);
-  assert.equal(storage.getItem('moomora.boardGrouping.v1'), 'flat');
+  persistActiveProject('proj-9', storage);
+  assert.equal(storage.getItem('moomora.activeProject.v1'), 'proj-9');
+  assert.equal(loadActiveProject(storage), 'proj-9');
 });
 
-test('loadListGrouping defaults to flat when unset or unknown', () => {
-  assert.equal(loadListGrouping(storageWith()), 'flat');
-  assert.equal(loadListGrouping(storageWith({ 'moomora.listGrouping.v1': 'weird' })), 'flat');
+test('storage failures fall back silently', () => {
+  const broken = { getItem() { throw new Error('nope'); }, setItem() { throw new Error('nope'); } };
+  assert.equal(loadActiveProject(broken), 'all');
+  assert.doesNotThrow(() => persistActiveProject('x', broken));
 });
 
-test('loadListGrouping returns swimlanes when stored', () => {
-  assert.equal(loadListGrouping(storageWith({ 'moomora.listGrouping.v1': 'swimlanes' })), 'swimlanes');
-});
-
-test('persistListGrouping stores a normalized value', () => {
-  const storage = storageWith();
-  persistListGrouping('swimlanes', storage);
-  assert.equal(storage.getItem('moomora.listGrouping.v1'), 'swimlanes');
-  persistListGrouping('nonsense', storage);
-  assert.equal(storage.getItem('moomora.listGrouping.v1'), 'flat');
+test('setState patches the shared state object', () => {
+  const before = state.groupBy;
+  setState({ groupBy: 'priority' });
+  assert.equal(state.groupBy, 'priority');
+  setState({ groupBy: before });
 });

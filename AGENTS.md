@@ -1,4 +1,4 @@
-# AGENTS.md — Moomora Console
+# AGENTS.md — Prax
 
 Instructions for AI coding agents working in this repo — **Codex CLI, Cursor, aider, Claude
 Code, and any shell-capable agent**. Claude Code also reads `CLAUDE.md`; this file is the
@@ -7,8 +7,8 @@ tool-agnostic equivalent and is authoritative for non-Claude agents.
 ## Shared agent memory
 
 This project doubles as **shared, local-first long-term memory** for AI tools, backed by
-Moomora's library + semantic search. Use it so durable knowledge carries across sessions
-*and across tools*: what one agent learns, another can recall. The memory lives in Moomora
+Prax's library + semantic search. Use it so durable knowledge carries across sessions
+*and across tools*: what one agent learns, another can recall. The memory lives in Prax
 (Postgres + embeddings), not in your context window.
 
 Two moves — **recall first, remember durable findings.** Both are plain Node scripts that run
@@ -20,7 +20,7 @@ not Claude-specific):
 Before starting a task, retrieve what's already known:
 
 ```bash
-node .claude/skills/moomora-recall/recall.mjs "<what you're about to work on>"
+node .claude/skills/prax-recall/recall.mjs "<what you're about to work on>"
 ```
 
 It searches **all projects** by meaning and returns a distilled summary (top hit + a short
@@ -28,7 +28,7 @@ related list) — cheap on tokens. An honest `No relevant memory found` means st
 For a chronological "what did I note recently" list instead of a similarity search:
 
 ```bash
-node .claude/skills/moomora-recall/recall.mjs --recent 5
+node .claude/skills/prax-recall/recall.mjs --recent 5
 ```
 
 ### 2. Remember durable findings
@@ -37,7 +37,7 @@ When you learn something that outlives this session — how a system works, a de
 convention, a reusable runbook — persist it:
 
 ```bash
-node .claude/skills/moomora-remember/remember.mjs "<title>" "<body>" [--type runbook] [--tags a,b]
+node .claude/skills/prax-remember/remember.mjs "<title>" "<body>" [--type runbook] [--tags a,b]
 ```
 
 Writes to the dedicated **`memory`** project, **de-dups by title** (re-running refines the
@@ -47,23 +47,23 @@ treat unverified recalls as leads, not gospel. Do **not** persist transient/sess
 
 ## Project context packs (optional)
 
-For a task-scoped briefing of *this project's* verified memory, the `moomora` CLI assembles a
+For a task-scoped briefing of *this project's* verified memory, the `prax` CLI assembles a
 bounded, trust-aware context pack (Markdown):
 
 ```bash
-node cli/moomora.js context "<task>"     # briefing for the current project (.moomora/project.json)
-node cli/moomora.js search "<query>"     # semantic search, scoped to the current project
-node cli/moomora.js help                 # full surface: init/context/search/get/remember/verify/supersede
+node cli/prax.js context "<task>"     # briefing for the current project (.prax/project.json)
+node cli/prax.js search "<query>"     # semantic search, scoped to the current project
+node cli/prax.js help                 # full surface: init/context/search/get/remember/verify/supersede
 ```
 
-`npm link` installs a global `moomora`. Note the CLI is **project-scoped** (it resolves the
-project from `.moomora/project.json` / `--project`), whereas the recall/remember scripts above
+`npm link` installs a global `prax`. Note the CLI is **project-scoped** (it resolves the
+project from `.prax/project.json` / `--project`), whereas the recall/remember scripts above
 operate on the cross-tool **`memory`** namespace — use the scripts for durable shared memory,
 the CLI for "what does *this project* know."
 
 ## Configuration
 
-- Both the scripts and the CLI reach Moomora at **`MOOMORA_API_URL`** (default
+- Both the scripts and the CLI reach Prax at **`PRAX_API_URL`** (default
   `http://127.0.0.1:3000`). Export it to point at your running instance. Semantic recall needs
   the app running with `EMBEDDING_BACKEND` set (e.g. `ollama`).
 - **No authentication by design** (trusted-network model). All backend config (DB URL, embedding

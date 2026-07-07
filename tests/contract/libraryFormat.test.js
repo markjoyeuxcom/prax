@@ -127,8 +127,8 @@ test('SHAPE: documentFilename precedence is locked', () => {
 
 test('SHAPE: libraryArchiveFilename shape is locked', () => {
   const date = new Date('2026-05-29T12:00:00.000Z');
-  assert.equal(libraryArchiveFilename('homelab', date), 'moomora-console-library-homelab-2026-05-29.zip');
-  assert.equal(libraryArchiveFilename('', date), 'moomora-console-library-all-2026-05-29.zip');
+  assert.equal(libraryArchiveFilename('homelab', date), 'prax-library-homelab-2026-05-29.zip');
+  assert.equal(libraryArchiveFilename('', date), 'prax-library-all-2026-05-29.zip');
 });
 
 test('SHAPE: dedupeFilenames suffixes per-folder collisions with -N before .md', () => {

@@ -58,6 +58,21 @@ export async function fetchDocumentLinks(id, direction = 'both') {
   return response.json();
 }
 
+// Non-archived tasks that reference this document — [{ id, title, priority, projectId }].
+export async function fetchDocumentTaskBacklinks(id) {
+  const response = await fetch(`/api/library/documents/${id}/tasks`);
+  if (!response.ok) throw new Error('Failed to load document task backlinks');
+  return response.json();
+}
+
+// Documents most similar to this one by embedding (empty when semantic search
+// is off or the document has no embedding) — [{ id, title, similarity, ... }].
+export async function fetchSimilarDocuments(id) {
+  const response = await fetch(`/api/library/documents/${id}/similar`);
+  if (!response.ok) throw new Error('Failed to load similar documents');
+  return response.json();
+}
+
 export async function fetchStaleDocuments(project = '') {
   const qs = project ? `?project=${encodeURIComponent(project)}` : '';
   const response = await fetch(`/api/library/maintenance/stale${qs}`);
@@ -76,6 +91,22 @@ export async function fetchSemanticStatus() {
   const res = await fetch('/api/settings/semantic-search');
   if (!res.ok) throw new Error('Failed to load semantic search status');
   return res.json();
+}
+
+// Update the semantic-search provider configuration (backend/model/urls/key);
+// same endpoint as the enabled toggle — the server merges and returns the
+// fresh status shape.
+export async function putSemanticSettings(patch) {
+  const response = await fetch('/api/settings/semantic-search', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(patch || {}),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.message || 'Failed to update semantic settings');
+  }
+  return response.json();
 }
 
 export async function setSemanticEnabled(enabled) {

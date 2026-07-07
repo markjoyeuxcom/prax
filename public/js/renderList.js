@@ -1,137 +1,141 @@
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+import { escapeHtml, chip, prioDotClass } from './renderHelpers.js';
+import { designPriority, designStatus } from './statusMap.js';
+import { dueFlag } from './dueFlags.js';
+import { icon, logo } from './icons.js';
+
+// Project ▸ List tab — grouped task rows (docs/desktop/design-handoff.md §1).
+// Pure render module (phase1-actions.md): state → HTML string, events are
+// delegated in main.js via data-action attributes. Tasks keep API field names
+// (status 'high-priority', priority 'medium', dueDate, archivedAt); statusMap/
+// dueFlags translate for display.
+
+// Group tones map onto the .group-label --group-fg hook in prax.css.
+const TONES = {
+  hi: { cls: ' group-label--hi', style: ' style="--group-fg:var(--hi)"' },
+  med: { cls: ' group-label--med', style: ' style="--group-fg:var(--med)"' },
+  muted: { cls: '', style: '' },
+};
+
+const DUE_GROUPS = [
+  ['overdue', 'Overdue', 'hi'],
+  ['today', 'Today', 'med'],
+  ['soon', 'Due soon', 'muted'],
+  ['later', 'Upcoming', 'muted'],
+  ['none', 'No date', 'muted'],
+];
+const PRIORITY_GROUPS = [
+  ['high', 'High', 'hi'],
+  ['med', 'Medium', 'med'],
+  ['low', 'Low', 'muted'],
+];
+const STATUS_GROUPS = [
+  ['priority', 'Priority', 'hi'],
+  ['inprogress', 'In progress', 'med'],
+  ['planned', 'Planned', 'muted'],
+];
+
+// Decorate an API task with the derived bits every row needs; API fields are
+// kept untouched (same idiom as the prototype's decor()).
+function decorate(task, now) {
+  const done = designStatus(task.status) === 'completed';
+  return { ...task, done, dueInfo: dueFlag(task.dueDate, { done, now }) };
 }
 
-function priorityClass(priority) {
-  const p = String(priority || 'medium').toLowerCase();
-  if (p === 'high') return 'hi';
-  if (p === 'low') return 'lo';
-  return 'md';
-}
+// Pure. Project-scoped API-shaped tasks → { groups, flatIds }. Excludes
+// archived + backlog tasks; groups open tasks by state.groupBy and appends a
+// Completed group last. Empty groups are dropped. flatIds is the visible row
+// order for ↑↓ keyboard navigation.
+export function buildListGroups(state, tasks, { now = new Date() } = {}) {
+  const visible = (tasks || [])
+    .filter((task) => !task.archivedAt && designStatus(task.status) !== 'backlog')
+    .map((task) => decorate(task, now));
+  const open = visible.filter((task) => !task.done);
+  const done = visible.filter((task) => task.done);
 
-function priorityLabel(priority) {
-  const p = String(priority || 'medium').toLowerCase();
-  if (p === 'high') return 'HIGH';
-  if (p === 'low') return 'LOW';
-  return 'MED';
-}
-
-function renderCard(task, selectedTaskId) {
-  const isSelected = task.id === selectedTaskId;
-  const pClass = priorityClass(task.priority);
-  const pLabel = priorityLabel(task.priority);
-  const desc = task.description || '';
-  const due = task.dueDate ? `due <strong>${escapeHtml(task.dueDate)}</strong>` : 'no due';
-  const status = String(task.status || 'planned').replace(/-/g, ' ');
-  const tags = (task.tags || []).filter(Boolean);
-  const tagLine = tags.length
-    ? `<div class="task-card__tags">${tags.map(t => `#${escapeHtml(t)}`).join(' ')}</div>`
-    : '';
-
-  return `
-    <button class="task-card task-card--${pClass}${isSelected ? ' is-selected' : ''}" type="button" data-task-id="${escapeHtml(task.id)}"${isSelected ? ' aria-current="true"' : ''}>
-      <div class="task-card__line1">
-        <strong class="task-card__title">${escapeHtml(task.title || 'Untitled task')}</strong>
-        <span class="bracket-badge bracket-badge--${pClass}">[ ${pLabel} ]</span>
-      </div>
-      <div class="task-card__line2">${escapeHtml(status)} · ${due}${desc ? ` · ${escapeHtml(desc)}` : ''}</div>
-      ${tagLine}
-    </button>`;
-}
-
-function renderCards(tasks, selectedTaskId, emptyTitle, emptyDescription) {
-  if (!tasks.length) {
-    return `
-      <div class="task-list--empty" role="status">
-        <strong>[ ${escapeHtml(emptyTitle || 'no tasks').toLowerCase()} ]</strong>
-        <span>${escapeHtml(emptyDescription || '')}</span>
-      </div>`;
+  let defs = DUE_GROUPS;
+  let keyOf = (task) => (task.dueInfo ? task.dueInfo.bucket : 'none');
+  if (state.groupBy === 'priority') {
+    defs = PRIORITY_GROUPS;
+    keyOf = (task) => designPriority(task.priority);
+  } else if (state.groupBy === 'status') {
+    defs = STATUS_GROUPS;
+    keyOf = (task) => designStatus(task.status);
   }
-  return tasks.map(t => renderCard(t, selectedTaskId)).join('');
+
+  const groups = defs.map(([key, label, tone]) => ({
+    key, label, tone, tasks: open.filter((task) => keyOf(task) === key),
+  }));
+  if (done.length) groups.push({ key: 'completed', label: 'Completed', tone: 'muted', tasks: done });
+  const kept = groups.filter((group) => group.tasks.length);
+  return { groups: kept, flatIds: kept.flatMap((group) => group.tasks.map((task) => task.id)) };
 }
 
-function renderListPanel(bodyHtml, options = {}) {
-  const title = options.title || 'Task Queue';
-  const countLabel = options.countLabel || 'active tasks';
-  const count = Number.isFinite(options.count) ? options.count : 0;
-  const toolbar = options.toolbar || '';
+// Shared row markup (also used by renderToday.js). The row is a
+// div[role=button] rather than a <button>: it must contain the done-toggle
+// button, and button-in-button is invalid HTML that parsers eject.
+export function renderTaskRowHtml(state, task, { afterTitle = '' } = {}) {
+  const done = !!task.done;
+  const selected = state.selectedTaskId === task.id;
+  const multi = Array.isArray(state.multiSelectIds) && state.multiSelectIds.includes(task.id);
+  const classes = ['task-row'];
+  if (done) classes.push('is-done');
+  if (selected) classes.push('is-selected');
+  if (multi) classes.push('is-multi');
 
-  return `
-    <section class="task-panel" aria-labelledby="task-queue-title">
-      <header class="panel-header">
-        <div>
-          <h2 id="task-queue-title">${escapeHtml(title)}</h2>
-          <p>${count} ${escapeHtml(countLabel)}</p>
-        </div>
-        ${toolbar}
-      </header>
-      ${bodyHtml}
-    </section>`;
+  const id = escapeHtml(task.id);
+  const extras = (state.taskBoardExtras || {})[task.id];
+  const signals = [];
+  if (extras && extras.checklistTotal > 0) {
+    signals.push(`<span class="task-row__signal">${icon('check', 12)}${Number(extras.checklistDone) || 0}/${Number(extras.checklistTotal)}</span>`);
+  }
+  if (extras && extras.docsCount > 0) {
+    signals.push(`<span class="task-row__signal">${icon('doc', 12)}${Number(extras.docsCount)}</span>`);
+  }
+  const dueChip = task.dueInfo ? chip(task.dueInfo.label, `due-${task.dueInfo.bucket}`) : '';
+
+  return `<div class="${classes.join(' ')}" role="button" tabindex="0" data-action="open-task" data-task-id="${id}"${selected ? ' aria-current="true"' : ''}>`
+    + `<button class="task-check${done ? ' is-done' : ''}" type="button" data-action="toggle-task-done" data-task-id="${id}" aria-label="${done ? 'Mark not done' : 'Mark done'}">${done ? '✓' : ''}</button>`
+    + `<span class="${prioDotClass(task.priority)}"></span>`
+    + `<span class="task-row__title">${escapeHtml(task.title)}</span>`
+    + afterTitle
+    + `<span class="task-row__meta">${signals.join('')}${dueChip}</span>`
+    + '</div>';
 }
 
-export function renderListHtml(tasks = [], selectedTaskId = null, options = {}) {
-  const safeTasks = Array.isArray(tasks) ? tasks : [];
-  const body = `<div class="task-list">${renderCards(safeTasks, selectedTaskId, options.emptyTitle, options.emptyDescription)}
-      </div>`;
-  return renderListPanel(body, { ...options, count: safeTasks.length });
+// Group-label headers + .rows containers (shared with renderToday.js).
+// rowExtra(task) → HTML injected after the row title (Today's project chip).
+export function renderTaskGroupsHtml(state, groups, { rowExtra } = {}) {
+  return (groups || []).map((group) => {
+    const tone = TONES[group.tone] || TONES.muted;
+    const rows = group.tasks
+      .map((task) => renderTaskRowHtml(state, task, { afterTitle: rowExtra ? rowExtra(task) : '' }))
+      .join('');
+    return `<div class="group-label${tone.cls}"${tone.style}>${escapeHtml(group.label)} <span class="group-label__count">${group.tasks.length}</span></div>`
+      + `<div class="rows" data-group="${escapeHtml(group.key)}">${rows}</div>`;
+  }).join('');
 }
 
-function buildProjectLanes(tasks, projects) {
-  const safeTasks = Array.isArray(tasks) ? tasks : [];
-  const safeProjects = Array.isArray(projects) ? projects : [];
-  const lanes = safeProjects
-    .map(project => ({ project, tasks: safeTasks.filter(t => t.projectId === project.id) }))
-    .filter(lane => lane.tasks.length > 0);
-  const known = new Set(safeProjects.map(p => p.id));
-  const orphans = safeTasks.filter(t => !known.has(t.projectId));
-  if (orphans.length) lanes.push({ project: { id: '__none__', name: 'No project' }, tasks: orphans });
-  return lanes;
+export function renderListHtml(state, groups) {
+  if (!groups || !groups.length) {
+    return `<div class="empty">${logo(48)}`
+      + '<p class="empty__title">Nothing here yet</p>'
+      + '<p class="empty__sub">This project is a clean slate. Capture the first task and it will show up in your list and board.</p>'
+      + '<button class="btn-primary" type="button" data-action="open-capture">New task</button>'
+      + '<p class="empty__hint">or press <span class="kbd">N</span> anywhere</p>'
+      + '</div>';
+  }
+  return renderTaskGroupsHtml(state, groups);
 }
 
-function laneSummary(tasks, today) {
-  const activeCount = tasks.filter(t => t.status !== 'completed').length;
-  const dueToday = today ? tasks.filter(t => t.dueDate === today && t.status !== 'completed').length : 0;
-  const overdue = today ? tasks.filter(t => t.dueDate && t.dueDate < today && t.status !== 'completed').length : 0;
-  const parts = [`${activeCount} active`];
-  if (overdue) parts.push(`${overdue} overdue`);
-  else if (dueToday) parts.push(`${dueToday} due today`);
-  return parts.join(' · ');
-}
-
-export function renderSwimlaneListHtml(tasks = [], selectedTaskId = null, options = {}) {
-  const safeTasks = Array.isArray(tasks) ? tasks : [];
-  const projects = Array.isArray(options.projects) ? options.projects : [];
-  const collapsed = options.listLaneCollapsed || {};
-  const lanes = buildProjectLanes(safeTasks, projects);
-
-  const body = lanes.length
-    ? `<div class="task-lanes">${lanes.map(({ project, tasks: laneTasks }) => {
-        const isCollapsed = collapsed[project.id] === true;
-        return `
-        <section class="task-lane${isCollapsed ? ' task-lane--collapsed' : ''}" data-task-lane="${escapeHtml(project.id)}">
-          <header class="task-lane__header">
-            <button class="task-lane__toggle" type="button" data-action="toggle-list-lane" data-project-id="${escapeHtml(project.id)}" aria-label="Toggle ${escapeHtml(project.name)}" aria-expanded="${!isCollapsed}">
-              <span class="task-lane__glyph">${isCollapsed ? '▸' : '▾'}</span>
-              <span class="task-lane__name">${escapeHtml(project.name)}</span>
-              <span class="task-lane__summary">${escapeHtml(laneSummary(laneTasks, options.today))}</span>
-            </button>
-          </header>
-          ${isCollapsed ? '' : `<div class="task-lane__cards">${renderCards(laneTasks, selectedTaskId, options.emptyTitle, options.emptyDescription)}</div>`}
-        </section>`;
-      }).join('')}</div>`
-    : `<div class="task-list">${renderCards(safeTasks, selectedTaskId, options.emptyTitle, options.emptyDescription)}</div>`;
-
-  return renderListPanel(body, { ...options, count: safeTasks.length });
-}
-
-export function renderListToolbar(grouping = 'flat') {
-  const option = (value, label) =>
-    `<button class="list-toolbar__option" type="button" data-action="set-list-grouping" data-grouping="${value}" aria-pressed="${grouping === value}">${label}</button>`;
-  return `
-    <div class="list-toolbar">
-      <span class="list-toolbar__label">Group</span>
-      <div class="list-toolbar__group">${option('flat', 'flat')}${option('swimlanes', 'swimlanes')}</div>
-    </div>`;
+// Sticky multi-select bulk bar; empty string when there is no multi-selection.
+export function renderBulkBarHtml(state) {
+  const count = Array.isArray(state.multiSelectIds) ? state.multiSelectIds.length : 0;
+  if (!count) return '';
+  return '<div class="bulkbar" role="toolbar" aria-label="Bulk actions">'
+    + `<span class="bulkbar__count">${count} selected</span>`
+    + '<button type="button" data-action="bulk-complete">Complete</button>'
+    + '<button type="button" data-action="bulk-backlog">Backlog</button>'
+    + '<button type="button" data-action="bulk-archive">Archive</button>'
+    + '<button type="button" class="bulkbar__clear" data-action="clear-selection" aria-label="Clear selection">✕</button>'
+    + '</div>';
 }

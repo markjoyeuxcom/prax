@@ -3,8 +3,6 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const DEFAULT_DIR = join(dirname(fileURLToPath(import.meta.url)), 'migrations');
-// Arbitrary fixed 64-bit key so all app instances serialize on the same lock.
-const ADVISORY_LOCK_KEY = 4073220011;
 const MIGRATION_RE = /^(\d+)_.*\.sql$/;
 
 export function pendingMigrations(allFiles, appliedVersions) {
@@ -17,16 +15,20 @@ export function pendingMigrations(allFiles, appliedVersions) {
     .map(({ version }) => version);
 }
 
+// Runs pending .sql files in ordinal order, one transaction each, recording
+// them in schema_migrations. The database is embedded, so cross-process
+// serialization comes from SQLite's own write locking (BEGIN IMMEDIATE takes
+// the write lock up front; busy_timeout in db.js makes contenders wait) —
+// the old Postgres advisory lock has no equivalent and no longer applies.
 export async function runMigrations(db, options = {}) {
   const dir = options.dir || DEFAULT_DIR;
   const log = options.logger || console;
   const client = await db.connect();
   try {
-    await client.query('select pg_advisory_lock($1)', [ADVISORY_LOCK_KEY]);
     await client.query(`
       create table if not exists schema_migrations (
         version text primary key,
-        applied_at timestamptz not null default now()
+        applied_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
       )
     `);
     const appliedRes = await client.query('select version from schema_migrations');
@@ -41,8 +43,13 @@ export async function runMigrations(db, options = {}) {
     for (const version of pending) {
       const sql = readFileSync(join(dir, version), 'utf8');
       try {
-        await client.query('begin');
-        await client.query(sql);
+        await client.query('begin immediate');
+        if (db.exec) {
+          // Migration files are multi-statement; run them on the raw handle.
+          db.exec(sql);
+        } else {
+          await client.query(sql);
+        }
         await client.query('insert into schema_migrations (version) values ($1)', [version]);
         await client.query('commit');
       } catch (err) {
@@ -54,7 +61,6 @@ export async function runMigrations(db, options = {}) {
     log.info(`applied ${pending.length} migration(s)`);
     return { applied: pending };
   } finally {
-    await client.query('select pg_advisory_unlock($1)', [ADVISORY_LOCK_KEY]).catch(() => {});
     client.release();
   }
 }

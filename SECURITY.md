@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-Moomora Console is maintained by a single author. Only the latest release receives security
+Prax is maintained by a single author. Only the latest release receives security
 fixes; please upgrade to the newest version before reporting an issue.
 
 | Version | Supported |
@@ -13,7 +13,7 @@ fixes; please upgrade to the newest version before reporting an issue.
 ## Reporting a Vulnerability
 
 Please report security vulnerabilities **privately** through GitHub's
-[private vulnerability reporting](https://github.com/awaybreaktoday/moomora-console/security/advisories/new)
+[private vulnerability reporting](https://github.com/awaybreaktoday/prax/security/advisories/new)
 ("Report a vulnerability" under the repository's **Security** tab). Do **not** open a public
 issue for a security problem.
 
@@ -22,9 +22,9 @@ advisory unless they ask to remain anonymous.
 
 ## Security Model & Scope
 
-Understand the trust boundary before exposing Moomora Console to a network:
+Understand the trust boundary before exposing Prax to a network:
 
-- **No built-in authentication or authorization, by design.** Moomora Console is built for
+- **No built-in authentication or authorization, by design.** Prax is built for
   single-user, trusted-network, or localhost operation. Anyone who can reach the HTTP port has
   full read/write access to every project, task, and document.
 - **Network-exposed deployments must add their own auth.** Put authentication and TLS at the

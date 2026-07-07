@@ -16,7 +16,7 @@ export async function resolveProjectId(request, slug) {
 export async function createDocument(request, doc, { origin } = {}) {
   const res = await request.post('/api/library/documents', {
     data: doc,
-    ...(origin ? { headers: { 'x-moomora-origin': origin } } : {}),
+    ...(origin ? { headers: { 'x-prax-origin': origin } } : {}),
   });
   if (!res.ok()) throw new Error(`POST document failed: ${res.status()} ${await res.text()}`);
   return res.json();

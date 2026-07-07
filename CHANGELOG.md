@@ -1,9 +1,9 @@
 # Changelog
 
-All notable changes to Moomora Console are documented here.
+All notable changes to Prax (formerly Moomora Console) are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
-uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Moomora Console is pre-1.0:
+uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Prax is pre-1.0:
 the data formats are still evolving, and `docs/contract.md` is a format *reference* (with
 regression tests under `tests/contract/`), not a stability contract.
 
@@ -11,6 +11,252 @@ At release time, the `[Unreleased]` section is renamed to the new version with i
 fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
+
+### Added
+
+- **Smart list continuation.** Pressing Enter in a Markdown bullet, numbered,
+  task, or quote line continues the marker on the next line (numbers
+  auto-increment, task boxes start fresh and unchecked, indentation is
+  preserved); Enter on an empty item exits the list.
+- **Slash menu.** Type `/` at the start of a line for a filterable menu of the
+  formatting actions (heading, lists, task, quote, code block, bold, italic,
+  inline code, link) — giving every toolbar command a keyboard path. It reuses
+  the existing format logic, so there's nothing new to keep in sync.
+- **`[[wiki-links]]`.** Type `[[` to autocomplete a link to another document
+  by title; the preview renders resolved links as clickable (they open the
+  doc) and unresolved ones as a muted "missing" style.
+- **⌘B / ⌘I / ⌘E format in the editor.** The bold/italic/code shortcuts the
+  toolbar advertises now fire inside CodeMirror (they only worked in the
+  fallback textarea before), reusing the same format path as the toolbar and
+  slash menu — and overriding the contentEditable's native Cmd-B so it can't
+  insert stray `<b>` tags.
+- **Filter the Library by type and trust.** A facet row adds Type
+  (Runbooks / Notes) and Trust (Verified / Stale / Superseded) toggles with
+  live counts. Facets are additive — AND across the axes (and with tags and
+  search), OR within the Trust axis — and only show while browsing (not in
+  archive or semantic mode); trust facets no document carries are hidden.
+- **New-doc templates.** "＋ New doc" is now a small chooser: **Blank note**
+  or **Runbook**, the latter seeding a `## Symptoms / Diagnosis / Resolution /
+  Verification / Rollback` skeleton so the outline is ready to fill in.
+- **Related documents in the editor.** A "Related documents" panel (Preview
+  and Split modes) lists the docs most similar to the one you're reading,
+  reusing its own stored embedding — no new embedding call. `GET
+  /api/library/documents/:id/similar` ranks by cosine similarity, drops the
+  document itself, and returns empty when semantic search is off or the doc
+  has no embedding; each result is a clickable row with its match percentage.
+- **The Markdown preview renders images, `~~strikethrough~~`, and underscore
+  emphasis** (`_italic_` / `__bold__`). Underscore emphasis has word-boundary
+  guards, so `snake_case` identifiers and paths like `/etc/foo_bar` are left
+  alone; image `src` is restricted to http(s)/relative (no `javascript:`).
+- **The editor's "Referenced by N tasks" backlinks now actually populate.**
+  The footer was wired but always fed an empty list; a new
+  `GET /api/library/documents/:id/tasks` returns the non-archived tasks that
+  link a document, and the editor loads them on open (Preview/Split modes).
+- **Semantic search results show the real match score.** The ranker already
+  computed a cosine similarity per hit and then discarded it; it's now
+  surfaced as a percentage with a bar scaled relative to the top hit (raw
+  cosine values cluster in a narrow band). Results carrying no score fall
+  back to rank — no fabricated numbers, and the raw embedding never leaves
+  the server.
+- **⌘K finds documents by their body text**, not just title and tags — the
+  cheap half of a doc quick-switcher.
+- **Find & replace inside the editor** (⌘F) — a Prax-native panel that floats
+  over the editor: live match highlighting with an "n of N" counter,
+  next/previous, single Replace and Replace all, and match-case / whole-word /
+  regexp toggles. It drives CodeMirror's search commands but keeps its inputs
+  in the app's own DOM, so clicking into the Find/Replace fields behaves
+  normally (CodeMirror's built-in panel stole focus back to the document);
+  Enter finds the next match, ⇧Enter the previous, Esc closes and returns to
+  the text. Replace/Replace-all act on document ranges, so they work whether
+  or not the editor is focused.
+- **An empty Library shows a welcome** (New doc / Import .md) instead of the
+  "No documents match / Clear filters" dead end, which only makes sense once
+  something exists to filter.
+- **Settings is now split into tabbed sections** — Appearance, Intelligence,
+  and Data & admin each get their own page, selectable by tabs, instead of
+  one long scroll. The tabs reuse the app's existing `.tabs` pattern and
+  mark the active section with `aria-current`, matching the sidebar/board/
+  list active-state convention; the last-viewed section persists within a
+  session.
+- **Semantic search is back — configured from Settings, running on the
+  embedded database.** Settings ▸ Intelligence now offers real provider
+  selection across **Ollama (local or remote), OpenAI, Claude via Voyage AI
+  (Anthropic's official embeddings partner — Anthropic has no first-party
+  embeddings API), Gemini, and llama.cpp (its OpenAI-compatible server)** —
+  each with its own base URL, embedding model, and write-only API key,
+  remembered per provider so switching back restores what you entered.
+  "Save & test connection" probes the backend honestly; configuration
+  persists in the database (`PUT /api/settings/semantic-search` gains
+  optional provider fields — additive, the key is never returned). Vector
+  ranking runs in-process over embeddings stored as JSON — no native
+  extensions — with the same relevance cutoff as the Postgres era. Re-index /
+  Rebuild live in the same card.
+- The Markdown editor gained a Settings toggle for **line numbers** (off by
+  default, matching the design) and opens documents with the caret at the
+  end.
+- **Held keys repeat in the desktop app on macOS**: Prax opts its own
+  defaults domain out of the press-and-hold accent picker, so holding a
+  letter repeats it in the editor instead of opening the diacritics popover.
+  Only Prax is affected — the picker keeps working everywhere else
+  (`defaults delete com.moomora.prax ApplePressAndHoldEnabled` restores it).
+- **The Outline toggle always answers the click.** The rail previously
+  auto-hid on documents with fewer than two headings, leaving the button
+  looking active while nothing appeared; it now always opens, showing a
+  hint ("add `##` section headings…") until the document has enough
+  structure to navigate. Outline entries also jump in **Edit** mode now —
+  the click moves the CodeMirror cursor to the heading's source line and
+  scrolls it to the top (previously jumps only worked in Split/Preview).
+- **No more double scrollbar on long documents.** The editor claimed
+  "at least" the content height instead of exactly the viewport height,
+  so the page scrolled the whole editor while the pane scrolled the
+  content. The editor is now pinned to the viewport; the pane is the
+  only scroller.
+- **Writing happens directly on the page.** The Markdown editing surface
+  was an opaque box (the old terminal theme's background) sitting inside
+  the white sheet; it is now transparent — the page *is* the surface,
+  matching the design comp. The page itself is fixed (like a sheet of
+  paper in a frame) and the text scrolls inside it, in every mode: Edit,
+  Preview (prose and document links scroll together), Split (each pane
+  fixed, content scrolling), and Focus. The page fills the window width;
+  Focus mode keeps the narrow 740px reading column.
+
+- **Archive, delete, and every other confirmation now work in the desktop
+  app.** The desktop webview has no native JS dialogs (`confirm()` silently
+  returns false, `alert()` shows nothing), which left Archive/Delete buttons
+  dead and error messages invisible. Archiving a document now just happens,
+  with an **Undo** toast (same pattern as tasks); permanent deletes (task,
+  document, project) and the embeddings rebuild ask through an in-app
+  confirm dialog (Enter confirms, Esc cancels); naming a saved Library view
+  uses the same dialog with a text field; and all error/status messages are
+  toasts. Clicking inside the quick-capture or command-palette dialog no
+  longer closes it (only true outside-clicks dismiss).
+- **"＋ New project" always answers.** With the name field empty the button
+  (and the sidebar ＋) now opens a small "Name this project" dialog instead
+  of silently doing nothing; Enter in the name field creates directly, and
+  a toast confirms creation.
+
+- **The Today view now aligns with the rest of the app.** It was the only
+  top-level view not wrapped in the standard `.page` container, so its
+  heading hung flush against the left edge while All projects, Library,
+  Settings, and the project views were inset. Today now shares the same
+  padding.
+
+### Fixed
+
+- **Database writes are isolated across the shared SQLite handle again.** The
+  engine swap put every repository on one `node:sqlite` handle, and `connect()`'s
+  session mutex only ordered sessions against each other — a direct `db.query()`
+  (e.g. a fire-and-forget embedding write) could land inside another request's
+  open `begin immediate` transaction and be committed or rolled back with it. A
+  single FIFO gate now serializes all handle access: a checked-out session holds
+  it for the whole `BEGIN…COMMIT`, so direct queries wait rather than interleave.
+  (`db.exec` stays an ungated passthrough — the migration runner calls it on the
+  raw handle inside its own session transaction.)
+- **Reindexing re-embeds after a model change within a backend.** The
+  "needs embedding" query compared only `embedding_backend`, so switching model
+  (e.g. openai `text-embedding-3-small` → `-3-large`, a different dimension) left
+  stale vectors that silently dropped out of search or mis-ranked until a *force*
+  reindex. Each embedder now exposes its `model`, and the query also re-embeds
+  rows whose `embedding_model` differs. The semantic-status "embedded" count is
+  likewise model-aware, so it reads honestly (stale, not embedded) after a model
+  change and nudges a reindex instead of claiming everything is current.
+- **Constraint violations map to their pg SQLSTATE again.** The engine-swap
+  error normaliser gated on `err.code === undefined`, but `node:sqlite` tags
+  every error with `code: 'ERR_SQLITE_ERROR'`, so the remap to `23505`/`23503`
+  never ran — a dependent added between the count check and delete surfaced as
+  a 500 instead of the intended 409. It now keys off `errcode`/message.
+- **`db.query()` rejects instead of throwing synchronously on failure**, so the
+  `rollback().catch(…)` swallows in `replaceProjectTasks` and the migration
+  runner actually catch (a failed rollback no longer masks the original error).
+- **Markdown code spans and `[[wiki-links]]` no longer corrupt on `$`.** Token
+  restoration used a string replacement argument, so `$&`/`` $` ``/`$'` in the
+  escaped HTML (reachable from any code/title containing `$`) expanded as
+  replacement patterns and leaked a NUL sentinel; it now uses a function
+  replacer that inserts the HTML verbatim.
+- **Saving only the AI model no longer 400s when the Base URL field is blank.**
+  The save sent `baseUrl: ''` whenever the field existed; the server rejects an
+  empty URL. It now sends the base URL only when non-empty, matching the API-key
+  field.
+- **`cosineSimilarity` rejects vectors with `null`/`NaN`/non-number entries**
+  instead of letting `null * null === 0` produce a finite-but-wrong score that
+  ranks and passes the relevance cutoff normally.
+- **Nested lists render correctly in the Markdown preview.** Indented
+  sub-bullets under an ordered item were flattened into the parent list and
+  renumbered (e.g. a 5-item list with sub-bullets showed as 1–9); the preview
+  now nests by indentation, and a contiguous ordered-then-unordered block
+  renders as two lists instead of one.
+
+### Changed
+
+- The editor header now matches the design comp: tag and provenance chips sit
+  beside the title, Outline is an outlined toggle, Edit/Split/Preview is a
+  segmented control, and document actions (info, verify, supersede, archive)
+  moved into a ••• menu — the permanent trust-strip row is gone. The page
+  sheet fills the editor height, and word/character counts update live.
+- **Prax is now a double-click desktop app** (Tauri 2 shell under `src-tauri/`).
+  The bundled Node runtime runs the Fastify server as a sidecar on a free
+  localhost port; the native window opens on a Prax splash and hands over once
+  `/readyz` answers. User data lives in the OS app-data directory
+  (`com.moomora.prax/` — `prax.db` plus `logs/server.log`), a second launch
+  focuses the existing window instead of double-opening the database, and the
+  sidecar is stopped when the app exits (the server also shuts down cleanly on
+  SIGTERM/SIGINT everywhere). `npm run desktop:dev` / `desktop:build`;
+  see docs/desktop/BUILD.md. The web-server workflow is unchanged — the
+  desktop wrapper is additive.
+- **PostgreSQL is replaced by an embedded SQLite database** (Node's built-in
+  `node:sqlite` — no native modules, no database server, no Docker requirement).
+  One file (`PRAX_DB_FILE`, default `./prax.db`; `DATABASE_URL` is still read as
+  a plain file path) holds everything, in WAL mode with foreign keys on. The
+  seven Postgres migrations are consolidated into one SQLite schema; migrations
+  still run automatically at startup. Full-text library search now runs on FTS5
+  (external-content table + sync triggers). The HTTP API, export/import formats,
+  and MCP tool surface are byte-for-byte unchanged; constraint errors keep their
+  pg SQLSTATE codes (23505/23503) via the adapter, so existing error handling
+  behaves identically. A new real-engine integration suite drives the whole HTTP
+  API against actual SQLite.
+- Docker Compose no longer runs a database container — just the app plus a
+  named volume. The Kubernetes manifests swap the CloudNativePG cluster for a
+  PersistentVolumeClaim (`Recreate` strategy, single replica — SQLite is
+  single-writer). Backup/restore is now file-based; see docs/backup-restore.md.
+
+- **The Prax desktop design replaces the terminal-inspired UI.** The frontend is
+  rebuilt to the Prax design system (light "Porcelain" / dark "Deep Fern" themes,
+  Instrument Sans + Source Serif 4 bundled locally, oklch accent system with four
+  user-selectable accents): floating-window shell with titlebar/sidebar/statusbar,
+  a cross-project **Today** view, grouped task lists with multi-select and undo
+  toasts, a four-column board with drop-position indicators, Backlog and Archive
+  tabs, a floating task drawer (status/priority pills, due date, autosaving notes,
+  checklist, linked docs, activity), an **⌘K command palette**, **quick capture
+  (N)**, an **All projects** screen (replaces the project manager/archive dialogs),
+  a card-grid Library with semantic mode, and a page-sheet editor with outline
+  rail, focus mode, and clickable Markdown task items. Settings absorbs the old
+  admin panel (backup/import/export, maintenance, semantic index) and adds theme/
+  accent/window-chrome/reading-size preferences.
+- **Backlog is now a real status**: the design's Backlog maps onto the API's
+  spare `notes` status (previously a fifth "NOTES" board column). Tasks in the
+  old NOTES column appear under Backlog; the old derived backlog (planned +
+  no due date) now shows only under Planned. The HTTP API is unchanged.
+- The task detail drawer is now the task editor (title, description, notes all
+  autosave); the separate task edit form is gone. Documents open directly in the
+  editor; new documents are created untitled and named in place.
+- Browser-local keys for the retired swimlane groupings are no longer read;
+  active-project, saved-views, and preference keys keep working (legacy palettes
+  map onto the nearest theme).
+- **Moomora Console is now Prax** (by Moomora). The product, package (`prax`), CLI
+  (`prax`, with `moomora` kept as an alias), MCP server name, Docker/Kubernetes
+  manifests, skills (`prax-recall` / `prax-remember`), and docs are renamed.
+  Backwards compatibility is preserved everywhere it matters:
+  - `MOOMORA_API_URL` / `MOOMORA_API_TOKEN` / `MOOMORA_PROJECT` env vars still work
+    as fallbacks for the new `PRAX_*` names.
+  - The `x-moomora-origin` request header is still accepted alongside `x-prax-origin`
+    for agent provenance stamping.
+  - The `.moomora/project.json` CLI marker is still detected (`.prax/` wins when both
+    exist).
+  - **Wire formats are unchanged**: the `moomora.tasks` export/import envelope, library
+    `.md` front-matter, HTTP API shapes, and the MCP tool surface are untouched, so
+    existing backups, imports, and integrations keep working. Browser-local preference
+    keys are also unchanged. Entries below this one predate the rename and keep their
+    original wording.
 
 ## [0.20.0] - 2026-06-11
 

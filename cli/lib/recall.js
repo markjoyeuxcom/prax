@@ -1,7 +1,7 @@
 // cli/lib/recall.js — the one implementation of "recall": semantic-first (→ keyword
 // on a 409 = semantic-disabled), distilled to a compact result, plus a chronological
 // --recent mode. Pure of I/O: takes an injected client and returns a structured
-// result; formatRecall renders it. Shared by `moomora recall` and the moomora-recall
+// result; formatRecall renders it. Shared by `prax recall` and the prax-recall
 // skill wrapper.
 
 const BODY_CHARS = 800;

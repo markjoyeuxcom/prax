@@ -1,6 +1,7 @@
 import { ZipArchive } from 'archiver';
 import { createLibraryRepository } from './libraryRepository.js';
 import { createProjectsRepository } from './projectsRepository.js';
+import { createTasksRepository } from './tasksRepository.js';
 import { createDocumentLinksRepository, DOCUMENT_LINK_RELATIONS } from './documentLinksRepository.js';
 import {
   documentFilename,
@@ -9,7 +10,7 @@ import {
   libraryArchiveFilename,
   buildLinksFromGroups,
 } from './libraryExport.js';
-import { toVectorLiteral } from './vectorLiteral.js';
+import { createEmbeddingService } from './embeddingService.js';
 import { buildContextPack, renderContextPackMarkdown } from './contextPack.js';
 
 const DOCUMENT_TYPES = new Set(['runbook', 'note']);
@@ -27,7 +28,10 @@ function isValidUuid(value) {
 }
 
 function originFrom(request) {
-  return request.headers['x-moomora-origin'] === 'agent' ? 'agent' : 'user';
+  // x-moomora-origin is the pre-rename header; still accepted so older
+  // agents/CLIs keep stamping provenance correctly.
+  const origin = request.headers['x-prax-origin'] ?? request.headers['x-moomora-origin'];
+  return origin === 'agent' ? 'agent' : 'user';
 }
 
 function isValidTags(value) {
@@ -91,19 +95,53 @@ function cleanDocumentPatchPayload(payload) {
 export async function registerLibraryRoutes(app, options = {}) {
   const repository = options.libraryRepository || app.libraryRepository || createLibraryRepository(app.db);
   const projectsRepository = options.projectsRepository || app.projectsRepository || createProjectsRepository(app.db);
+  const tasksRepository = options.tasksRepository || app.tasksRepository || (app.db ? createTasksRepository(app.db) : null);
   const documentLinksRepository = options.documentLinksRepository || app.documentLinksRepository || createDocumentLinksRepository(app.db);
 
-  const embedder = options.embedder ?? app.embedder ?? null;
-  const embeddingService = options.embeddingService ?? app.embeddingService ?? null;
+  // Behavioral tests may inject an embedder/embeddingService directly — those
+  // win. Otherwise the runtime provider resolves the current settings (cached
+  // until they change); the boot-time decorated embedder stays as a fallback.
+  const injectedEmbedder = options.embedder ?? null;
+  const injectedEmbeddingService = options.embeddingService ?? app.embeddingService ?? null;
+  const embedderProvider = options.embedderProvider ?? app.embedderProvider ?? null;
   const appSettings = options.appSettingsRepository || app.appSettingsRepository;
 
-  async function semanticActive() {
-    if (!embedder || !appSettings) return false;
+  async function resolveEmbedder() {
+    if (injectedEmbedder) return injectedEmbedder;
+    if (embedderProvider) {
+      try {
+        return await embedderProvider.getEmbedder();
+      } catch {
+        return null;
+      }
+    }
+    return app.embedder ?? null;
+  }
+
+  // The embedding service is bound to whichever embedder is current, so it is
+  // built per use (cheap: a plain object) unless one was injected.
+  function embeddingServiceFor(embedder) {
+    if (injectedEmbeddingService) return injectedEmbeddingService;
+    if (!embedder) return null;
+    return createEmbeddingService({ repository, embedder });
+  }
+
+  async function semanticEnabled() {
+    if (!appSettings) return false;
     // Never throw from the gate: it runs on the document write path (the
     // un-awaited embed trigger), so a transient settings-read failure must not
     // be able to surface as a 500 on a create/update. Treat a failed read as
     // "not active" rather than propagating.
     return Boolean(await appSettings.getSetting('semantic_search_enabled', true).catch(() => false));
+  }
+
+  // Fires the fire-and-forget embed for a written document when semantic
+  // search is configured + enabled. Deliberately not awaited by callers.
+  async function embedOnWrite(documentId) {
+    const embedder = await resolveEmbedder();
+    if (!embedder || !(await semanticEnabled())) return;
+    const service = embeddingServiceFor(embedder);
+    if (service) service.embedDocument(documentId); // not awaited
   }
 
   function toRef(doc) {
@@ -116,6 +154,10 @@ export async function registerLibraryRoutes(app, options = {}) {
       verified: Boolean(doc.verified),
       status: doc.status || 'active',
       snippet: String(doc.body || '').slice(0, 200),
+      // The semantic ranker computes a real cosine similarity per hit; surface
+      // it so the client can show "why it matched" honestly. Omitted on the
+      // keyword/archive paths, where doc.similarity is undefined.
+      ...(Number.isFinite(doc.similarity) ? { similarity: doc.similarity } : {}),
     };
   }
 
@@ -190,7 +232,8 @@ export async function registerLibraryRoutes(app, options = {}) {
   });
 
   app.get('/api/library/documents/semantic-search', async (request, reply) => {
-    if (!(await semanticActive())) {
+    const embedder = await resolveEmbedder();
+    if (!embedder || !(await semanticEnabled())) {
       reply.code(409);
       return { message: 'semantic search is not enabled' };
     }
@@ -208,7 +251,7 @@ export async function registerLibraryRoutes(app, options = {}) {
     try {
       const { vector } = await embedder.embed(String(q), { query: true });
       const search = app.embeddingSearch || {};
-      docs = await repository.searchDocumentsSemantic(toVectorLiteral(vector), embedder.backend, {
+      docs = await repository.searchDocumentsSemantic(vector, embedder.backend, {
         projectId,
         limit: 20,
         minSimilarity: search.minSimilarity,
@@ -229,10 +272,12 @@ export async function registerLibraryRoutes(app, options = {}) {
   });
 
   app.post('/api/library/embeddings/reindex', async (request, reply) => {
+    const embedder = await resolveEmbedder();
     if (!embedder) { reply.code(409); return { message: 'semantic search is not configured' }; }
-    if (!embeddingService) { reply.code(409); return { message: 'semantic search is not configured' }; }
+    const service = embeddingServiceFor(embedder);
+    if (!service) { reply.code(409); return { message: 'semantic search is not configured' }; }
     const force = request.query.force === 'true' || request.query.force === true;
-    const result = await embeddingService.reindex({ force });
+    const result = await service.reindex({ force });
     return result;
   });
 
@@ -249,9 +294,7 @@ export async function registerLibraryRoutes(app, options = {}) {
 
     reply.code(201);
     const created = await repository.createDocument({ ...cleanDocumentPayload(request.body), updatedBy: originFrom(request) });
-    if (embeddingService && embedder && await semanticActive()) {
-      embeddingService.embedDocument(created.id);  // not awaited
-    }
+    await embedOnWrite(created.id); // gate awaited; the embed itself is not
     return created;
   });
 
@@ -308,8 +351,8 @@ export async function registerLibraryRoutes(app, options = {}) {
       reply.code(404);
       return { message: 'document not found' };
     }
-    if ((Object.prototype.hasOwnProperty.call(request.body, 'title') || Object.prototype.hasOwnProperty.call(request.body, 'body')) && embeddingService && embedder && await semanticActive()) {
-      embeddingService.embedDocument(document.id);  // not awaited
+    if (Object.prototype.hasOwnProperty.call(request.body, 'title') || Object.prototype.hasOwnProperty.call(request.body, 'body')) {
+      await embedOnWrite(document.id); // gate awaited; the embed itself is not
     }
     return document;
   });
@@ -340,6 +383,29 @@ export async function registerLibraryRoutes(app, options = {}) {
     const direction = request.query.direction || 'both';
     if (!['outbound', 'inbound', 'both'].includes(direction)) { reply.code(400); return { message: 'direction is invalid' }; }
     return documentLinksRepository.listDocumentLinks(request.params.id, direction);
+  });
+
+  // Non-archived tasks that reference this document — the editor's backlinks.
+  app.get('/api/library/documents/:id/tasks', async (request, reply) => {
+    if (!isValidUuid(request.params.id)) { reply.code(400); return { message: 'document id is invalid' }; }
+    if (typeof tasksRepository?.listTasksForDocument !== 'function') return [];
+    return tasksRepository.listTasksForDocument(request.params.id);
+  });
+
+  // "More like this" — documents most similar to this one by embedding. Reuses
+  // the document's own stored vector (no new embedding call). Empty when
+  // semantic search is off or the document has no embedding.
+  app.get('/api/library/documents/:id/similar', async (request, reply) => {
+    if (!isValidUuid(request.params.id)) { reply.code(400); return { message: 'document id is invalid' }; }
+    const embedder = await resolveEmbedder();
+    if (!embedder || !(await semanticEnabled())) return [];
+    const search = app.embeddingSearch || {};
+    const docs = await repository.findSimilarDocuments(request.params.id, embedder.backend, {
+      limit: 5,
+      minSimilarity: search.minSimilarity,
+      topDrop: search.topDrop,
+    });
+    return docs.map(toRef);
   });
 
   app.get('/api/library/documents/:id/export', async (request, reply) => {
@@ -395,11 +461,12 @@ export async function registerLibraryRoutes(app, options = {}) {
     const query = request.query.query ? String(request.query.query) : '';
 
     let docs = [];
-    if (query && embedder && await semanticActive()) {
+    const embedder = query ? await resolveEmbedder() : null;
+    if (query && embedder && await semanticEnabled()) {
       try {
         const { vector } = await embedder.embed(query, { query: true });
         const search = app.embeddingSearch || {};
-        docs = await repository.searchDocumentsSemantic(toVectorLiteral(vector), embedder.backend, {
+        docs = await repository.searchDocumentsSemantic(vector, embedder.backend, {
           projectId: project.id,
           limit: 50,
           minSimilarity: search.minSimilarity,

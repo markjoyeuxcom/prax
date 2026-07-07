@@ -4,6 +4,8 @@ import { createFakeEmbedder } from '../../server/embedder/fake.js';
 import { createOllamaEmbedder } from '../../server/embedder/ollama.js';
 import { createEmbedder } from '../../server/embedder/index.js';
 import { createOpenAiEmbedder } from '../../server/embedder/openai.js';
+import { createGeminiEmbedder } from '../../server/embedder/gemini.js';
+import { createVoyageEmbedder } from '../../server/embedder/voyage.js';
 
 test('fake embedder is deterministic and fixed-dimension', async () => {
   const e = createFakeEmbedder({ dim: 16 });
@@ -20,6 +22,21 @@ test('fake embedder is deterministic and fixed-dimension', async () => {
 test('fake embedder reports available', async () => {
   const e = createFakeEmbedder({ dim: 8 });
   assert.equal(await e.isAvailable(), true);
+});
+
+test('every embedder exposes .model equal to what embed() reports (for reindex-on-model-change)', async () => {
+  // reindex compares the active embedder.model against each row's stored
+  // embedding_model, so the property must match the model embed() records.
+  const fake = createFakeEmbedder({ dim: 8 });
+  assert.equal(fake.model, 'fake-8');
+  assert.equal(fake.model, (await fake.embed('x')).model);
+
+  assert.equal(createOllamaEmbedder({ model: 'nomic-embed-text', fetch: async () => ({ ok: true, json: async () => ({ embedding: [0] }) }) }).model, 'nomic-embed-text');
+  assert.equal(createOpenAiEmbedder({ model: 'text-embedding-3-large' }).model, 'text-embedding-3-large');
+  assert.equal(createOpenAiEmbedder({}).model, 'text-embedding-3-small');            // default
+  assert.equal(createOpenAiEmbedder({ backend: 'llamacpp', defaultModel: '' }).model, ''); // server-default
+  assert.equal(createGeminiEmbedder({ model: 'gemini-embedding-001' }).model, 'gemini-embedding-001');
+  assert.equal(createVoyageEmbedder({}).model, 'voyage-3-large');                     // default
 });
 
 test('ollama embedder parses the embeddings response', async () => {
@@ -124,4 +141,135 @@ test('query prefix is applied to query embeddings only', async () => {
 test('no prefix → createEmbedder returns the base embedder unwrapped', () => {
   const e = createEmbedder({ embeddingBackend: 'fake' });
   assert.equal(e.backend, 'fake');
+});
+
+test('gemini embed posts embedContent with the key header and document task type', async () => {
+  let seen;
+  const fetch = fakeFetch((url, init) => { seen = { url, init }; return { ok: true, async json() { return { embedding: { values: [0.1, 0.2] } }; } }; });
+  const e = createGeminiEmbedder({ baseUrl: 'http://g/v1beta', apiKey: 'gk-1', model: 'gemini-embedding-001', fetch });
+  const out = await e.embed('hello');
+  assert.equal(e.backend, 'gemini');
+  assert.deepEqual(out.vector, [0.1, 0.2]);
+  assert.equal(out.model, 'gemini-embedding-001');
+  assert.equal(out.dim, 2);
+  assert.equal(seen.url, 'http://g/v1beta/models/gemini-embedding-001:embedContent');
+  assert.equal(seen.init.headers['x-goog-api-key'], 'gk-1');
+  const body = JSON.parse(seen.init.body);
+  assert.deepEqual(body.content, { parts: [{ text: 'hello' }] });
+  assert.equal(body.taskType, 'RETRIEVAL_DOCUMENT');
+});
+
+test('gemini flips to the query task type for query embeddings', async () => {
+  let body;
+  const fetch = fakeFetch((url, init) => { body = JSON.parse(init.body); return { ok: true, async json() { return { embedding: { values: [1] } }; } }; });
+  const e = createGeminiEmbedder({ apiKey: 'gk', fetch });
+  await e.embed('find me', { query: true });
+  assert.equal(body.taskType, 'RETRIEVAL_QUERY');
+});
+
+test('gemini defaults to the public baseUrl and gemini-embedding-001', async () => {
+  let url;
+  const fetch = fakeFetch((u) => { url = u; return { ok: true, async json() { return { embedding: { values: [1] } }; } }; });
+  await createGeminiEmbedder({ fetch }).embed('x');
+  assert.equal(url, 'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent');
+});
+
+test('gemini throws on non-ok and malformed responses', async () => {
+  const bad = createGeminiEmbedder({ fetch: fakeFetch(() => ({ ok: false, status: 403 })) });
+  await assert.rejects(bad.embed('x'), /gemini embed failed: 403/);
+  const malformed = createGeminiEmbedder({ fetch: fakeFetch(() => ({ ok: true, async json() { return {}; } })) });
+  await assert.rejects(malformed.embed('x'), /no embedding array/);
+});
+
+test('gemini isAvailable probes GET /models with the key header', async () => {
+  let seen;
+  const up = createGeminiEmbedder({ apiKey: 'gk', fetch: fakeFetch((url, init) => { seen = { url, init }; return { ok: true }; }) });
+  assert.equal(await up.isAvailable(), true);
+  assert.match(seen.url, /\/v1beta\/models$/);
+  assert.equal(seen.init.headers['x-goog-api-key'], 'gk');
+  const down = createGeminiEmbedder({ fetch: fakeFetch(() => { throw new Error('down'); }) });
+  assert.equal(await down.isAvailable(), false);
+});
+
+test('voyage embed posts model/input/input_type with the Bearer key', async () => {
+  let seen;
+  const fetch = fakeFetch((url, init) => { seen = { url, init }; return { ok: true, async json() { return { data: [{ embedding: [0.4, 0.5] }] }; } }; });
+  const e = createVoyageEmbedder({ baseUrl: 'http://v/v1', apiKey: 'vk-1', model: 'voyage-3-large', fetch });
+  const out = await e.embed('hello');
+  assert.equal(e.backend, 'voyage');
+  assert.deepEqual(out.vector, [0.4, 0.5]);
+  assert.equal(out.model, 'voyage-3-large');
+  assert.equal(seen.url, 'http://v/v1/embeddings');
+  assert.equal(seen.init.headers.authorization, 'Bearer vk-1');
+  const body = JSON.parse(seen.init.body);
+  assert.equal(body.model, 'voyage-3-large');
+  assert.deepEqual(body.input, ['hello']);
+  assert.equal(body.input_type, 'document');
+});
+
+test('voyage flips input_type for query embeddings', async () => {
+  let body;
+  const fetch = fakeFetch((url, init) => { body = JSON.parse(init.body); return { ok: true, async json() { return { data: [{ embedding: [1] }] }; } }; });
+  const e = createVoyageEmbedder({ apiKey: 'vk', fetch });
+  await e.embed('find me', { query: true });
+  assert.equal(body.input_type, 'query');
+});
+
+test('voyage throws on non-ok and malformed responses', async () => {
+  const bad = createVoyageEmbedder({ fetch: fakeFetch(() => ({ ok: false, status: 401 })) });
+  await assert.rejects(bad.embed('x'), /voyage embed failed: 401/);
+  const malformed = createVoyageEmbedder({ fetch: fakeFetch(() => ({ ok: true, async json() { return { data: [] }; } })) });
+  await assert.rejects(malformed.embed('x'), /no embedding array/);
+});
+
+test('voyage isAvailable probes with a tiny embeddings POST (no cheap GET exists)', async () => {
+  let seen;
+  const up = createVoyageEmbedder({ apiKey: 'vk', fetch: fakeFetch((url, init) => { seen = { url, init }; return { ok: true }; }) });
+  assert.equal(await up.isAvailable(), true);
+  assert.equal(seen.url, 'https://api.voyageai.com/v1/embeddings');
+  assert.equal(seen.init.method, 'POST');
+  const down = createVoyageEmbedder({ fetch: fakeFetch(() => ({ ok: false, status: 401 })) });
+  assert.equal(await down.isAvailable(), false);
+});
+
+test('llamacpp rides the openai client: keyless and modelless by default', async () => {
+  let seen;
+  const fetch = fakeFetch((url, init) => { seen = { url, init }; return { ok: true, async json() { return { data: [{ embedding: [1, 2] }] }; } }; });
+  const e = createEmbedder({ embeddingBackend: 'llamacpp', fetch });
+  assert.equal(e.backend, 'llamacpp');
+  const out = await e.embed('hi');
+  assert.deepEqual(out.vector, [1, 2]);
+  assert.equal(seen.url, 'http://127.0.0.1:8080/v1/embeddings');
+  assert.equal('authorization' in seen.init.headers, false);
+  assert.equal('model' in JSON.parse(seen.init.body), false); // llama-server uses its loaded model
+});
+
+test('llamacpp sends the model field and Bearer key when configured', async () => {
+  let seen;
+  const fetch = fakeFetch((url, init) => { seen = { url, init }; return { ok: true, async json() { return { data: [{ embedding: [1] }] }; } }; });
+  const e = createEmbedder({ embeddingBackend: 'llamacpp', baseUrl: 'http://box:8080/v1', apiKey: 'k', embeddingModel: 'nomic', fetch });
+  await e.embed('hi');
+  assert.equal(seen.url, 'http://box:8080/v1/embeddings');
+  assert.equal(seen.init.headers.authorization, 'Bearer k');
+  assert.equal(JSON.parse(seen.init.body).model, 'nomic');
+});
+
+test('llamacpp errors carry the llamacpp name, not openai', async () => {
+  const e = createEmbedder({ embeddingBackend: 'llamacpp', fetch: fakeFetch(() => ({ ok: false, status: 500 })) });
+  await assert.rejects(e.embed('x'), /llamacpp embed failed: 500/);
+});
+
+test('createEmbedder resolves the new backends', () => {
+  assert.equal(createEmbedder({ embeddingBackend: 'gemini' }).backend, 'gemini');
+  assert.equal(createEmbedder({ embeddingBackend: 'voyage' }).backend, 'voyage');
+  assert.equal(createEmbedder({ embeddingBackend: 'llamacpp' }).backend, 'llamacpp');
+});
+
+test('query prefix forwards the query flag to backends with native task types', async () => {
+  let body;
+  const fetch = fakeFetch((url, init) => { body = JSON.parse(init.body); return { ok: true, async json() { return { embedding: { values: [1] } }; } }; });
+  const e = createEmbedder({ embeddingBackend: 'gemini', apiKey: 'k', embeddingQueryPrefix: 'Q: ', fetch });
+  await e.embed('cat', { query: true });
+  assert.equal(body.taskType, 'RETRIEVAL_QUERY');           // flag still reaches the client
+  assert.deepEqual(body.content.parts, [{ text: 'Q: cat' }]); // prefix applied on top
 });

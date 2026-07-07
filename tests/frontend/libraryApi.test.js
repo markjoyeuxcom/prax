@@ -12,6 +12,7 @@ import {
   supersedeDocument,
   updateDocument,
   verifyDocument,
+  putSemanticSettings,
 } from '../../public/js/libraryApi.js';
 
 function jsonResponse(body, ok = true) {
@@ -165,4 +166,22 @@ test('supersedeDocument posts supersededBy to the supersede route', async () => 
   assert.equal(calls[0][0], '/api/library/documents/old/supersede');
   assert.equal(calls[0][1].method, 'POST');
   assert.deepEqual(JSON.parse(calls[0][1].body), { supersededBy: 'new' });
+});
+
+test('putSemanticSettings PUTs provider config and returns the fresh status', async () => {
+  const calls = [];
+  globalThis.fetch = async (...args) => {
+    calls.push(args);
+    return { ok: true, json: async () => ({ available: true, backend: 'ollama', hasApiKey: false }) };
+  };
+  const status = await putSemanticSettings({ backend: 'ollama', model: 'nomic-embed-text' });
+  assert.equal(calls[0][0], '/api/settings/semantic-search');
+  assert.equal(calls[0][1].method, 'PUT');
+  assert.deepEqual(JSON.parse(calls[0][1].body), { backend: 'ollama', model: 'nomic-embed-text' });
+  assert.equal(status.backend, 'ollama');
+});
+
+test('putSemanticSettings surfaces the server message on failure', async () => {
+  globalThis.fetch = async () => ({ ok: false, json: async () => ({ message: 'backend is invalid' }) });
+  await assert.rejects(() => putSemanticSettings({ backend: 'nope' }), /backend is invalid/);
 });

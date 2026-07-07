@@ -1,4 +1,4 @@
-# Moomora Console — agent guide
+# Prax — agent guide
 
 Project-specific guidance for AI agents (e.g. Claude Code) working in this repo.
 
@@ -7,21 +7,21 @@ Project-specific guidance for AI agents (e.g. Claude Code) working in this repo.
 This project can act as your **long-term memory** via the library + semantic search. Use the
 `memory` skills to carry durable knowledge across sessions instead of relearning it:
 
-- **Recall first.** Before starting a task, run `moomora-recall "<what you're about to work on>"`
+- **Recall first.** Before starting a task, run `prax-recall "<what you're about to work on>"`
   to surface prior context, decisions, and runbooks. An honest "no relevant memory" means start
   fresh.
 - **Remember durable findings.** When you learn something that outlives this session — how a system
   works, a decision/convention, a reusable procedure — run
-  `moomora-remember "<title>" "<body>"`. It de-dups by title (updates in place) and stamps agent
+  `prax-remember "<title>" "<body>"`. It de-dups by title (updates in place) and stamps agent
   provenance. Don't persist transient/session-only state.
 - **Supersede, don't duplicate.** Re-`remember` an existing title to refine it; run
-  `moomora supersede <oldId> --with <newId>` when one memory replaces a different one.
+  `prax supersede <oldId> --with <newId>` when one memory replaces a different one.
 
-The skills + `moomora` CLI are the **canonical agent path** for memory (one shared code path,
+The skills + `prax` CLI are the **canonical agent path** for memory (one shared code path,
 distilled summaries, lazy-loading — token-cheaper than always-on MCP tool schemas). The MCP server
 remains a product feature but is **not enabled by default** for agent sessions here; re-add it with
 `claude mcp add` only for a heavy task-curation session. Skills/CLI reach the app at
-`MOOMORA_API_URL` (default `http://127.0.0.1:3000`); semantic recall needs the app running with
+`PRAX_API_URL` (default `http://127.0.0.1:3000`); semantic recall needs the app running with
 `EMBEDDING_BACKEND` set.
 
 See [docs/agent-memory.md](docs/agent-memory.md) for the full convention.

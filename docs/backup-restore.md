@@ -1,47 +1,50 @@
-# Moomora Console Backup & Restore
+# Prax Backup & Restore
 
-Moomora Console stores all data in PostgreSQL. There are three layers to know about.
+Prax stores all data in a single embedded SQLite file (`PRAX_DB_FILE`, default
+`./prax.db`). There are two layers to know about.
 
 ## 1. App-level export (portable, not a full backup)
 
-The Admin panel exports:
+Settings ▸ Data & admin exports:
 
 - **Tasks** as a `moomora.tasks` JSON envelope (per-project or all projects).
 - **Library** documents as a ZIP of `.md` files (per-project or all projects).
 
-These are good for moving content between instances or keeping human-readable copies. They do **not** capture: archived tasks/documents, task↔document links, checklist or activity history, or project metadata. Treat them as portability/export, not as a complete backup.
+These are good for moving content between instances or keeping human-readable
+copies. They do **not** capture: archived tasks/documents, task↔document links,
+checklist or activity history, or project metadata. Treat them as
+portability/export, not as a complete backup.
 
 ## 2. Database backup (authoritative)
 
-A full backup is a PostgreSQL dump of the database behind `DATABASE_URL`.
-
-**Docker Compose:**
-
-```bash
-docker compose exec -T postgres pg_dump -U moomora -d moomora_console > moomora-backup.sql
-# restore (into an empty database):
-docker compose exec -T postgres psql -U moomora -d moomora_console < moomora-backup.sql
-```
-
-**Kubernetes (run from a pod with `psql`/`pg_dump` and the app secret):**
+A full backup is a copy of the database file. Prax runs SQLite in WAL mode, so
+either stop the app first, or use SQLite's online-backup command against the
+live file:
 
 ```bash
-DATABASE_URL=$(kubectl get secret moomora-console-db-app -o jsonpath='{.data.uri}' | base64 -d)
-pg_dump "$DATABASE_URL" > moomora-backup.sql
-psql "$DATABASE_URL" < moomora-backup.sql   # restore into an empty database
+sqlite3 "$PRAX_DB_FILE" ".backup '/backups/prax-$(date +%F).db'"
 ```
 
-This dump includes the `schema_migrations` table, so a restored database is recognised as already-migrated.
+Copying the raw file while the app is stopped also works — take `prax.db`
+together with its `-wal` and `-shm` siblings if they exist.
 
-## 3. CloudNativePG (cluster-level)
+**Docker Compose:** the file lives in the `prax-data` volume at `/data/prax.db`:
 
-When running on Kubernetes with CloudNativePG, prefer CNPG's built-in scheduled backups and point-in-time recovery for the database cluster — see the CloudNativePG documentation. The `pg_dump` flow above remains useful for portable, logical snapshots.
+```bash
+docker compose exec app sqlite3 /data/prax.db ".backup '/data/backup.db'"
+docker compose cp app:/data/backup.db ./prax-backup.db
+```
 
-## Upgrading safely
+**Kubernetes:** the file lives on the `prax-data` PersistentVolumeClaim at
+`/data/prax.db`; use `kubectl exec` + `kubectl cp` the same way, or snapshot
+the volume with your storage class's tooling.
 
-1. **Back up** with `pg_dump` (section 2).
-2. **Deploy** the new image.
-3. Migrations **apply automatically on startup** (or run `npm run migrate` explicitly).
-4. **Verify** `GET /readyz` returns ready.
+## Restore
 
-**Rollback:** migrations are forward-only. To roll back, redeploy the previous image **and** restore the pre-upgrade dump — a migration may have changed the schema in a way the old code cannot read.
+Stop the app, replace the database file with the backup copy (removing any
+stale `-wal`/`-shm` files), and start the app again — migrations are
+idempotent and will no-op on an up-to-date backup.
+
+For app-level exports: create/choose a project, then Settings ▸ Data & admin ▸
+**Import tasks from JSON** (choose append/skip/replace), and re-import `.md`
+files through the Library's **Import .md**.

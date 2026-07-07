@@ -1,6 +1,6 @@
-# Moomora Desktop — Phased Task Checklist
+# Prax Desktop — Phased Task Checklist
 
-Execution plan for shipping Moomora as a local desktop app (Tauri + embedded SQLite).
+Execution plan for shipping Prax as a local desktop app (Tauri + embedded SQLite).
 Work top to bottom; each phase has a clear exit gate. See [`README.md`](README.md) for the
 decisions behind this and the two prompts (`design-brief.md`, `engineering-prompt.md`).
 
@@ -55,8 +55,8 @@ export/import formats byte-for-byte unchanged. MCP server + CLI still work again
 - [ ] Scaffold the Tauri project (Rust shell, `tauri.conf.json`).
 - [ ] Bundle the Fastify server (Node runtime or compiled binary) + `public/` as resources.
 - [ ] Start the server as a managed sidecar on `127.0.0.1` + free port; resolve the
-      SQLite file under the OS app-data dir (macOS `~/Library/Application Support/Moomora/`,
-      Windows `%APPDATA%\Moomora\`).
+      SQLite file under the OS app-data dir (macOS `~/Library/Application Support/Prax/`,
+      Windows `%APPDATA%\Prax\`).
 - [ ] Point the webview at the app URL once `/readyz` is ready (poll it).
 - [ ] Lifecycle: graceful shutdown (checkpoint/close WAL), single-instance lock, stale-lock
       recovery, port-in-use handling; write logs under the data dir.
@@ -69,12 +69,12 @@ app, data persists across restarts, clean start/stop.
 - [ ] Tauri bundler → `.dmg`/`.app` (macOS), `.msi`/`.exe` (Windows).
 - [ ] If `better-sqlite3`: bundle the correct prebuilt native binary per platform;
       document the CI rebuild/prebuild step.
-- [ ] App metadata: name "Moomora", icon, version synced from `package.json`.
+- [ ] App metadata: name "Prax", icon, version synced from `package.json`.
 - [ ] Code signing + notarization (macOS) and signing (Windows) — unsigned dev builds OK
       to start.
 - [ ] (Optional) Tauri auto-updater.
 - [ ] BUILD/RELEASE doc: build/sign/release steps, where user data lives, backup/restore
-      (copy `moomora.db` or use JSON/`.md` export).
+      (copy `prax.db` or use JSON/`.md` export).
 
 **Exit gate:** installers build for both platforms; a fresh install runs with no external
 dependencies.

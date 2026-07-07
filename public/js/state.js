@@ -1,81 +1,102 @@
 import { DEFAULT_PREFERENCES } from './preferences.js';
 
+// Prax app state — one mutable object; setState(patch) = Object.assign and the
+// caller re-renders. Navigation is in-memory only (no URL routing, matching the
+// previous app). View modules speak the design vocabulary (see statusMap.js).
 export const state = {
-  tasks: [],
+  // ---- data ----
+  tasks: [],                    // all active tasks across projects (Today/sidebar need the full set)
+  archivedTasks: [],            // archived tasks of the current project (Archive tab fetch)
   documents: [],
-  selectedTaskId: null,
-  selectedDocumentId: null,
-  activeView: 'list',
-  activeProject: 'all',   // 'all' or a project id
-  projects: [],           // active projects loaded from /api/projects
-  searchQuery: '',
-  apiStatus: 'unknown',
-  isTaskFormOpen: false,
-  isDrawerOpen: false,
-  mobileDetailOpen: false,
-  isAdminPanelOpen: false,
-  isProjectManagerOpen: false,
-  isProjectArchiveOpen: false,
-  managedProjects: [],
-  projectManagerError: '',
-  isSettingsPanelOpen: false,
-  settingsSection: 'appearance',
-  isDocumentFormOpen: false,
-  isDocumentInfoEditorOpen: false,
-  editingTaskId: null,
-  editingDocumentId: null,
-  formError: '',
-  documentFormError: '',
-  documentInfoError: '',
-  isSaving: false,
-  adminImportMode: 'skip',
-  documentEditorMode: 'preview',
-  documentDraftBody: '',
-  documentDraftId: null,
-  isDocumentDirty: false,
-  documentSaveStatus: 'Saved',
-  isDocumentFocusMode: false,
-  isLibraryTagsDrawerOpen: false,
-  isLibraryDocOpen: false,
-  documentLinks: null,       // null = not yet fetched; [] = fetched, empty; [...] = entries
-  staleDocs: [],
-  orphanDocs: [],
-  maintenanceProjectFilter: 'all',  // independent of activeProject; used only in Admin Maintenance
-  activeLibraryTags: [],
-  libraryTagQuery: '',
-  areLibraryTagsExpanded: false,
-  librarySavedViews: [],
-  libraryTypeFilter: 'all',
-  librarySortBy: 'updated',
-  libraryGroupByType: false,
-  libraryView: 'active',            // 'active' | 'archive' (Library workspace mode)
-  libraryActiveDocumentCount: 0,    // cached count of active docs for the Admin panel
+  projects: [],                 // active + on-hold projects (sidebar set)
+  managedProjects: [],          // all statuses (All-projects view)
+
+  // ---- routing ----
+  navType: 'project',           // 'today' | 'project' | 'all' | 'library' | 'editor' | 'settings'
+  navId: null,                  // project id when navType === 'project'
+  tab: 'list',                  // project tab: 'list' | 'board' | 'backlog' | 'archive'
+  groupBy: 'due',               // list grouping cycler: 'due' | 'priority' | 'status'
+
+  // ---- chrome / status ----
+  desktopShell: false,          // true when served inside the Tauri shell (?shell=desktop)
+  desktopPlatform: '',          // 'macos' | 'windows' | 'linux' when desktopShell
+  apiStatus: 'unknown',         // 'unknown' | 'loading' | 'connected' | 'error'
+  winW: 1400,                   // window width for the sidebar→rail switch (<940)
+
+  // ---- tasks: selection + drawer ----
+  selectedTaskId: null,         // keyboard/list selection (accent-soft tint)
+  multiSelectIds: [],           // ⇧/⌘-click multi-select (accent-soft2 tint)
+  drawerTaskId: null,           // open task drawer (null = closed)
   taskDocuments: [],
   taskChecklist: [],
   taskActivity: [],
-  activeTaskDetailTab: 'work',
-  activeTaskDetailSection: 'docs',
   taskNotesDraftId: null,
   taskNotesDraft: '',
   isTaskNotesDirty: false,
-  taskNotesSavedAt: '',
-  taskDetailOpen: false,          // unified detail drawer open state (Tasks/Board/Backlog/Archive)
+
+  // ---- board ----
+  dragTaskId: null,
+  dragOverColumn: null,         // design column key under the pointer
+  dragPos: null,                // { col, beforeId } drop-position indicator
+  taskBoardExtras: {},          // { [taskId]: { docsCount, checklistDone, checklistTotal, nextChecklistItem, latestActivity } }
+  taskBoardExtrasLoading: {},   // { [taskId]: token } requests in flight
+
+  // ---- overlays ----
+  paletteOpen: false,
+  paletteQuery: '',
+  paletteSelection: 0,
+  captureOpen: false,
+  captureQuery: '',
+  toast: null,                  // { message, undo: fn|null }
   isLinkPickerOpen: false,
-  pickerMode: 'link',             // 'link' (task↔doc) | 'supersede' (pick a replacement)
+  pickerMode: 'link',           // 'link' (task↔doc) | 'supersede' (pick a replacement)
   linkPickerDocuments: [],
   linkPickerQuery: '',
-  preferences: { ...DEFAULT_PREFERENCES },
-  boardOpenSections: { 'high-priority': true, 'in-progress': true, planned: false, completed: false, notes: false },
-  boardGrouping: 'flat',        // 'flat' | 'swimlanes' (All-projects board only)
-  boardLaneCollapsed: {},        // { [projectId]: true } collapsed lanes (session-only)
-  boardFilters: [],              // active Board focus chips (session-only)
-  taskBoardExtras: {},           // { [taskId]: { docsCount, checklistDone, checklistTotal, nextChecklistItem, latestActivity } }
-  taskBoardExtrasLoading: {},    // { [taskId]: token } requests currently in flight
-  listGrouping: 'flat',         // 'flat' | 'swimlanes' (All-projects Tasks view only)
-  listLaneCollapsed: {},         // { [projectId]: true } collapsed list lanes (session-only)
+
+  // ---- library ----
+  selectedDocumentId: null,
+  libraryQuery: '',
+  librarySemantic: false,       // semantic mode toggle (spark)
+  activeLibraryTags: [],
+  libraryTypes: [],             // facet: active doc types ('runbook'/'note')
+  libraryTrust: [],             // facet: active trust flags ('verified'/'stale'/'superseded')
+  librarySavedViews: [],
+  librarySortBy: 'updated',     // 'updated' | 'title' cycler
+  libraryView: 'active',        // 'active' | 'archive'
   semanticStatus: { available: false },
-  librarySearchMode: 'keyword',
-  semanticResults: null,
+  semanticResults: null,        // null = no search ran; [] = ran, empty
+  documentLinks: null,          // null = not yet fetched; [] = fetched, empty
+  staleDocs: [],
+  orphanDocs: [],
+  maintenanceProjectFilter: 'all',
+
+  // ---- editor ----
+  editorDocId: null,
+  editorMode: 'split',          // 'edit' | 'split' | 'preview'
+  editorFocus: false,
+  outlineOpen: true,
+  documentDraftBody: '',
+  documentDraftId: null,
+  isDocumentDirty: false,
+  documentSaveStatus: 'Saved',  // 'Saved' | 'Unsaved changes' | 'Saving...' | 'Autosaving...' | 'Save failed'
+  isDocumentInfoEditorOpen: false,
+  documentInfoError: '',
+  docMenuOpen: false,           // editor ••• actions dropdown
+  newDocMenuOpen: false,        // Library "＋ New doc" template chooser
+
+  // ---- editor find/replace (Prax-native panel; see renderSearchPanel.js) ----
+  editorSearchOpen: false,
+  searchQuery: '',
+  searchReplace: '',
+  searchCaseSensitive: false,
+  searchWholeWord: false,
+  searchRegexp: false,
+  searchMatchInfo: { total: 0, current: 0, valid: true },
+
+  // ---- settings ----
+  preferences: { ...DEFAULT_PREFERENCES },
+  adminImportMode: 'skip',
+  settingsTab: 'appearance',    // 'appearance' | 'intelligence' | 'data'
 };
 
 export function setState(patch) {
@@ -84,6 +105,7 @@ export function setState(patch) {
 
 const ACTIVE_PROJECT_KEY = 'moomora.activeProject.v1';
 
+// Persisted as 'all' or a project id; navType/tab derive from it on boot.
 export function loadActiveProject(storage = globalThis.localStorage) {
   try {
     return storage?.getItem?.(ACTIVE_PROJECT_KEY) ?? 'all';
@@ -100,38 +122,6 @@ export function persistActiveProject(value, storage = globalThis.localStorage) {
   }
 }
 
-const BOARD_GROUPING_KEY = 'moomora.boardGrouping.v1';
-
-export function loadBoardGrouping(storage = globalThis.localStorage) {
-  try {
-    return storage?.getItem?.(BOARD_GROUPING_KEY) === 'swimlanes' ? 'swimlanes' : 'flat';
-  } catch {
-    return 'flat';
-  }
-}
-
-export function persistBoardGrouping(value, storage = globalThis.localStorage) {
-  try {
-    storage?.setItem?.(BOARD_GROUPING_KEY, value === 'swimlanes' ? 'swimlanes' : 'flat');
-  } catch {
-    /* ignore storage failures */
-  }
-}
-
-const LIST_GROUPING_KEY = 'moomora.listGrouping.v1';
-
-export function loadListGrouping(storage = globalThis.localStorage) {
-  try {
-    return storage?.getItem?.(LIST_GROUPING_KEY) === 'swimlanes' ? 'swimlanes' : 'flat';
-  } catch {
-    return 'flat';
-  }
-}
-
-export function persistListGrouping(value, storage = globalThis.localStorage) {
-  try {
-    storage?.setItem?.(LIST_GROUPING_KEY, value === 'swimlanes' ? 'swimlanes' : 'flat');
-  } catch {
-    /* ignore storage failures */
-  }
-}
+// The old board/list swimlane-grouping persistence keys (moomora.boardGrouping.v1 /
+// moomora.listGrouping.v1) were retired with the swimlane views themselves —
+// the All-projects screen and Today view replace cross-project lanes.

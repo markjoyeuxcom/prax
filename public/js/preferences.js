@@ -1,25 +1,59 @@
-export const LOCAL_STORAGE_KEY = 'moomora-console.preferences';
+export const LOCAL_STORAGE_KEY = 'prax.preferences';
 
+// Prax appearance preferences. Theme is light "Porcelain" / dark "Deep Fern";
+// accent is one of four oklch swatches applied as a --accent override; the
+// reading scale (0.85–1.25) applies to editor/preview prose only; chromeOS
+// picks macOS traffic lights vs Windows controls in the titlebar.
 export const DEFAULT_PREFERENCES = Object.freeze({
-  fontScale: 'comfortable',
-  palette: 'console',
-  boardDensity: 'comfortable',
+  theme: 'light',
+  accent: 'fern',
+  chromeOS: 'mac',
+  readingScale: 1,
+  lineNumbers: false,
 });
 
-export const FONT_SCALE_OPTIONS = Object.freeze(['compact', 'comfortable', 'large']);
-export const PALETTE_OPTIONS = Object.freeze(['console', 'graphite', 'daylight', 'midnight']);
-export const BOARD_DENSITY_OPTIONS = Object.freeze(['comfortable', 'compact']);
+export const THEME_OPTIONS = Object.freeze(['light', 'dark']);
+export const ACCENT_OPTIONS = Object.freeze(['fern', 'indigo', 'clay', 'moss']);
+export const CHROME_OPTIONS = Object.freeze(['mac', 'win']);
+export const READING_SCALE_MIN = 0.85;
+export const READING_SCALE_MAX = 1.25;
+
+// Fern is the token default in prax.css (per theme); the others override it.
+export const ACCENT_CSS = Object.freeze({
+  fern: null,
+  indigo: 'oklch(0.60 0.11 265)',
+  clay: 'oklch(0.62 0.11 40)',
+  moss: 'oklch(0.58 0.10 130)',
+});
+
+// Pre-rename palettes ('prax.preferences' may hold the old shape) map onto
+// the nearest theme so an upgrade keeps roughly the user's brightness choice.
+const LEGACY_PALETTE_TO_THEME = {
+  console: 'dark',
+  graphite: 'dark',
+  midnight: 'dark',
+  daylight: 'light',
+};
 
 function isAllowed(value, allowed) {
   return allowed.includes(String(value || ''));
 }
 
+function clampReadingScale(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return DEFAULT_PREFERENCES.readingScale;
+  return Math.min(READING_SCALE_MAX, Math.max(READING_SCALE_MIN, n));
+}
+
 export function normalizePreferences(value = {}) {
   const source = value && typeof value === 'object' ? value : {};
+  const legacyTheme = LEGACY_PALETTE_TO_THEME[String(source.palette || '')];
   return {
-    fontScale: isAllowed(source.fontScale, FONT_SCALE_OPTIONS) ? source.fontScale : DEFAULT_PREFERENCES.fontScale,
-    palette: isAllowed(source.palette, PALETTE_OPTIONS) ? source.palette : DEFAULT_PREFERENCES.palette,
-    boardDensity: isAllowed(source.boardDensity, BOARD_DENSITY_OPTIONS) ? source.boardDensity : DEFAULT_PREFERENCES.boardDensity,
+    theme: isAllowed(source.theme, THEME_OPTIONS) ? source.theme : (legacyTheme || DEFAULT_PREFERENCES.theme),
+    accent: isAllowed(source.accent, ACCENT_OPTIONS) ? source.accent : DEFAULT_PREFERENCES.accent,
+    chromeOS: isAllowed(source.chromeOS, CHROME_OPTIONS) ? source.chromeOS : DEFAULT_PREFERENCES.chromeOS,
+    readingScale: clampReadingScale(source.readingScale),
+    lineNumbers: source.lineNumbers === true,
   };
 }
 
@@ -52,10 +86,14 @@ export function resetPreferences(storage = globalThis.localStorage) {
   return { ...DEFAULT_PREFERENCES };
 }
 
-export function applyPreferences(preferences, root = globalThis.document?.documentElement) {
+// Theme goes on <body data-theme> (the prax.css hook); accent + reading scale
+// are custom-property overrides scoped to the body inline style.
+export function applyPreferences(preferences, body = globalThis.document?.body) {
   const normalized = normalizePreferences(preferences);
-  root?.setAttribute?.('data-font-scale', normalized.fontScale);
-  root?.setAttribute?.('data-palette', normalized.palette);
-  root?.setAttribute?.('data-board-density', normalized.boardDensity);
+  body?.setAttribute?.('data-theme', normalized.theme);
+  const accentCss = ACCENT_CSS[normalized.accent];
+  if (accentCss) body?.style?.setProperty?.('--accent', accentCss);
+  else body?.style?.removeProperty?.('--accent');
+  body?.style?.setProperty?.('--reading-scale', String(normalized.readingScale));
   return normalized;
 }

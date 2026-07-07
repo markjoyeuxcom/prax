@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { filterDocumentsByTags, filterDocumentsByType, groupDocumentsByType, sortDocuments, tagsForDocuments, visibleTagsForFilter } from '../../public/js/libraryFilters.js';
+import { filterDocumentsByTags, filterDocumentsByType, filterDocumentsByTrust, groupDocumentsByType, sortDocuments, tagsForDocuments, visibleTagsForFilter } from '../../public/js/libraryFilters.js';
 
 const documents = [
   { id: 'doc-1', title: 'Cloudflare Tunnel', tags: ['Cloudflare', 'Tunnel', 'Homelab'] },
@@ -149,4 +149,32 @@ test('groupDocumentsByType treats unknown documentType as note', () => {
   const groups = groupDocumentsByType(docs);
   assert.equal(groups.length, 1);
   assert.equal(groups[0].type, 'note');
+});
+
+// ---- filterDocumentsByTrust --------------------------------------------------
+
+const trustDocs = [
+  { id: 'v', verified: true, stale: false, status: 'active' },
+  { id: 's', verified: false, stale: true, status: 'active' },
+  { id: 'sup', verified: false, stale: false, status: 'superseded' },
+  { id: 'vs', verified: true, stale: true, status: 'active' },
+  { id: 'plain', verified: false, stale: false, status: 'active' },
+];
+
+test('filterDocumentsByTrust returns all documents when no facet is selected', () => {
+  assert.deepEqual(filterDocumentsByTrust(trustDocs, []).map(d => d.id), ['v', 's', 'sup', 'vs', 'plain']);
+});
+
+test('filterDocumentsByTrust matches a single facet', () => {
+  assert.deepEqual(filterDocumentsByTrust(trustDocs, ['verified']).map(d => d.id), ['v', 'vs']);
+  assert.deepEqual(filterDocumentsByTrust(trustDocs, ['stale']).map(d => d.id), ['s', 'vs']);
+  assert.deepEqual(filterDocumentsByTrust(trustDocs, ['superseded']).map(d => d.id), ['sup']);
+});
+
+test('filterDocumentsByTrust is OR within the axis (union of selected facets)', () => {
+  assert.deepEqual(filterDocumentsByTrust(trustDocs, ['verified', 'superseded']).map(d => d.id), ['v', 'sup', 'vs']);
+});
+
+test('filterDocumentsByTrust ignores unknown facet keys', () => {
+  assert.deepEqual(filterDocumentsByTrust(trustDocs, ['bogus']).map(d => d.id), ['v', 's', 'sup', 'vs', 'plain']);
 });
