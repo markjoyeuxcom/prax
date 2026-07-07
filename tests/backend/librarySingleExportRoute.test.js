@@ -14,7 +14,7 @@ function fakeLibrary() {
     updateDocument: async () => null,
     archiveDocument: async () => null,
     restoreDocument: async () => null,
-    deleteArchivedDocument: async () => null,
+    deleteDocument: async () => null,
     listActiveDocumentsForExport: async () => [],
   };
 }

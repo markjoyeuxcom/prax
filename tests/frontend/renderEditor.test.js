@@ -180,7 +180,7 @@ test('archived doc forces preview and offers restore/delete in the menu', () => 
   assert.equal(html.includes('data-action="md-format"'), false);
   assert.match(html, /chip--state-archived[^>]*>ARCHIVED</);
   assert.match(html, /data-action="restore-document"/);
-  assert.match(html, /data-action="delete-archived-document"/);
+  assert.match(html, /data-action="delete-document"/);
   assert.equal(html.includes('data-action="archive-document"'), false);
   assert.equal(html.includes('data-action="toggle-verify"'), false);
   assert.equal(html.includes('data-action="supersede-document"'), false);
@@ -199,13 +199,15 @@ test('the header keeps the prototype shape: no trust strip, actions behind the m
   assert.equal(html.includes('>SOURCE<'), false);
 });
 
-test('the open menu carries meta and verify/supersede/archive/info for a source doc', () => {
+test('the open menu carries meta and verify/supersede/archive/delete/info for a source doc', () => {
   const html = render({ docMenuOpen: true });
   assert.match(html, /menu__meta">Source · updated by user · unverified</);
   assert.match(html, /data-action="edit-document-info">Document info…</);
   assert.match(html, /data-action="toggle-verify">Verify</);
   assert.match(html, /data-action="supersede-document">Supersede…</);
   assert.match(html, /data-action="archive-document">Archive</);
+  // Delete permanently sits alongside Archive for active docs.
+  assert.match(html, /data-action="delete-document">Delete permanently…</);
 });
 
 test('synthesized + verified doc shows header chips and flips the menu labels', () => {

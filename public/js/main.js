@@ -19,7 +19,7 @@ import {
 } from './projectApi.js';
 import {
   fetchDocuments, createDocument, updateDocument, archiveDocument,
-  restoreDocument, deleteArchivedDocument, fetchDocumentLinks, fetchDocumentTaskBacklinks, fetchSimilarDocuments,
+  restoreDocument, deleteDocumentPermanently, fetchDocumentLinks, fetchDocumentTaskBacklinks, fetchSimilarDocuments,
   fetchStaleDocuments, fetchOrphanDocuments, fetchSemanticStatus,
   setSemanticEnabled, putSemanticSettings, reindexEmbeddings, semanticSearch,
   verifyDocument, supersedeDocument,
@@ -1526,22 +1526,22 @@ async function handleAction(action, el, event) {
       renderApp();
       break;
     }
-    case 'delete-archived-document': {
+    case 'delete-document': {
       const id = el.dataset.documentId || state.editorDocId;
       if (!el.dataset.confirmed) {
         openConfirm({
           message: 'Permanently delete this document? This cannot be undone.',
           okLabel: 'Delete', danger: true,
-          action: 'delete-archived-document', data: { 'document-id': id || '' },
+          action: 'delete-document', data: { 'document-id': id || '' },
         });
         break;
       }
       setState({ confirm: null });
       try {
-        await deleteArchivedDocument(id);
+        await deleteDocumentPermanently(id);
         if (state.editorDocId === id) setState({ navType: 'library', editorDocId: null });
         await loadDocuments();
-      } catch { alertError('delete the archived document'); }
+      } catch { alertError('delete the document'); }
       renderApp();
       break;
     }
