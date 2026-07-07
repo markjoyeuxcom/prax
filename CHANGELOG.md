@@ -42,6 +42,11 @@ fresh empty `[Unreleased]` section is started.
   structure to navigate. Outline entries also jump in **Edit** mode now —
   the click moves the CodeMirror cursor to the heading's source line and
   scrolls it to the top (previously jumps only worked in Split/Preview).
+- **No more double scrollbar on long documents.** The editor claimed
+  "at least" the content height instead of exactly the viewport height,
+  so the page scrolled the whole editor while the pane scrolled the
+  content. The editor is now pinned to the viewport; the pane is the
+  only scroller.
 
 ### Changed
 
