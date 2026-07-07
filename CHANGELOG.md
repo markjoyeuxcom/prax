@@ -53,7 +53,8 @@ fresh empty `[Unreleased]` section is started.
   matching the design comp. The page itself is fixed (like a sheet of
   paper in a frame) and the text scrolls inside it, in every mode: Edit,
   Preview (prose and document links scroll together), Split (each pane
-  fixed, content scrolling), and Focus.
+  fixed, content scrolling), and Focus. The page fills the window width;
+  Focus mode keeps the narrow 740px reading column.
 
 ### Changed
 
