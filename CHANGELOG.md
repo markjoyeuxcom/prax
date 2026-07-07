@@ -38,7 +38,6 @@ fresh empty `[Unreleased]` section is started.
   segmented control, and document actions (info, verify, supersede, archive)
   moved into a ••• menu — the permanent trust-strip row is gone. The page
   sheet fills the editor height, and word/character counts update live.
-
 - **Prax is now a double-click desktop app** (Tauri 2 shell under `src-tauri/`).
   The bundled Node runtime runs the Fastify server as a sidecar on a free
   localhost port; the native window opens on a Prax splash and hands over once
@@ -49,9 +48,6 @@ fresh empty `[Unreleased]` section is started.
   SIGTERM/SIGINT everywhere). `npm run desktop:dev` / `desktop:build`;
   see docs/desktop/BUILD.md. The web-server workflow is unchanged — the
   desktop wrapper is additive.
-
-### Changed
-
 - **PostgreSQL is replaced by an embedded SQLite database** (Node's built-in
   `node:sqlite` — no native modules, no database server, no Docker requirement).
   One file (`PRAX_DB_FILE`, default `./prax.db`; `DATABASE_URL` is still read as
@@ -63,11 +59,6 @@ fresh empty `[Unreleased]` section is started.
   pg SQLSTATE codes (23505/23503) via the adapter, so existing error handling
   behaves identically. A new real-engine integration suite drives the whole HTTP
   API against actual SQLite.
-- **Semantic search is temporarily unavailable** on the embedded engine
-  (`EMBEDDING_BACKEND=none`): the settings endpoint reports it unavailable and
-  the semantic routes return 409, exactly as before when unconfigured. It
-  returns with the `sqlite-vec` follow-up; FTS5 keyword search covers the
-  library meanwhile.
 - Docker Compose no longer runs a database container — just the app plus a
   named volume. The Kubernetes manifests swap the CloudNativePG cluster for a
   PersistentVolumeClaim (`Recreate` strategy, single replica — SQLite is
