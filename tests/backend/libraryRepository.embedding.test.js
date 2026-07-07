@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildSearchDocumentsSemantic,
   buildListDocumentsNeedingEmbedding,
+  buildCountEmbeddings,
   buildSetDocumentEmbedding,
   createLibraryRepository,
   normalizeDocumentRow,
@@ -105,6 +106,21 @@ test('buildListDocumentsNeedingEmbedding treats an empty model (llama.cpp defaul
   const q = buildListDocumentsNeedingEmbedding('llamacpp', '');
   assert.match(q.text, /embedding_model is distinct from \$2/);
   assert.deepEqual(q.values, ['llamacpp', '']);
+});
+
+test('buildCountEmbeddings counts by backend only when no model is given', () => {
+  const q = buildCountEmbeddings('ollama');
+  assert.match(q.text, /embedding_backend = \$1/);
+  assert.doesNotMatch(q.text, /embedding_model/);
+  assert.deepEqual(q.values, ['ollama']);
+});
+
+test('buildCountEmbeddings only counts rows current for the active model', () => {
+  const q = buildCountEmbeddings('openai', 'text-embedding-3-large');
+  // "embedded" excludes rows on a different model; "total" is unconditional.
+  assert.match(q.text, /embedding_model is not distinct from \$2\) as embedded/);
+  assert.match(q.text, /count\(\*\) filter \(where archived_at is null\) as total/);
+  assert.deepEqual(q.values, ['openai', 'text-embedding-3-large']);
 });
 
 test('buildSetDocumentEmbedding stores the vector as JSON text (no pg cast)', () => {

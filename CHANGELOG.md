@@ -157,7 +157,9 @@ fresh empty `[Unreleased]` section is started.
   (e.g. openai `text-embedding-3-small` → `-3-large`, a different dimension) left
   stale vectors that silently dropped out of search or mis-ranked until a *force*
   reindex. Each embedder now exposes its `model`, and the query also re-embeds
-  rows whose `embedding_model` differs.
+  rows whose `embedding_model` differs. The semantic-status "embedded" count is
+  likewise model-aware, so it reads honestly (stale, not embedded) after a model
+  change and nudges a reindex instead of claiming everything is current.
 - **Constraint violations map to their pg SQLSTATE again.** The engine-swap
   error normaliser gated on `err.code === undefined`, but `node:sqlite` tags
   every error with `code: 'ERR_SQLITE_ERROR'`, so the remap to `23505`/`23503`
