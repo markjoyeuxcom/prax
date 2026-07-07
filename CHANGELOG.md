@@ -143,6 +143,26 @@ fresh empty `[Unreleased]` section is started.
 
 ### Fixed
 
+- **Constraint violations map to their pg SQLSTATE again.** The engine-swap
+  error normaliser gated on `err.code === undefined`, but `node:sqlite` tags
+  every error with `code: 'ERR_SQLITE_ERROR'`, so the remap to `23505`/`23503`
+  never ran — a dependent added between the count check and delete surfaced as
+  a 500 instead of the intended 409. It now keys off `errcode`/message.
+- **`db.query()` rejects instead of throwing synchronously on failure**, so the
+  `rollback().catch(…)` swallows in `replaceProjectTasks` and the migration
+  runner actually catch (a failed rollback no longer masks the original error).
+- **Markdown code spans and `[[wiki-links]]` no longer corrupt on `$`.** Token
+  restoration used a string replacement argument, so `$&`/`` $` ``/`$'` in the
+  escaped HTML (reachable from any code/title containing `$`) expanded as
+  replacement patterns and leaked a NUL sentinel; it now uses a function
+  replacer that inserts the HTML verbatim.
+- **Saving only the AI model no longer 400s when the Base URL field is blank.**
+  The save sent `baseUrl: ''` whenever the field existed; the server rejects an
+  empty URL. It now sends the base URL only when non-empty, matching the API-key
+  field.
+- **`cosineSimilarity` rejects vectors with `null`/`NaN`/non-number entries**
+  instead of letting `null * null === 0` produce a finite-but-wrong score that
+  ranks and passes the relevance cutoff normally.
 - **Nested lists render correctly in the Markdown preview.** Indented
   sub-bullets under an ordered item were flattened into the parent list and
   renumbered (e.g. a 5-item list with sub-bullets showed as 1–9); the preview

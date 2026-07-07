@@ -170,3 +170,20 @@ test('renderMarkdownHtml leaves snake_case identifiers and underscored paths unt
 test('renderMarkdownHtml keeps asterisk bold/italic working alongside the underscore rules', () => {
   assert.match(renderMarkdownHtml('keep **star** and *em* going'), /keep <strong>star<\/strong> and <em>em<\/em> going/);
 });
+
+test('renderMarkdownHtml renders an inline code span containing $-patterns literally', () => {
+  // A string replacement arg would expand `$&` in the escaped HTML into the
+  // matched placeholder token and leak a NUL sentinel; the function replacer
+  // must insert the code verbatim.
+  const html = renderMarkdownHtml('Use `sed s/$&/x/` daily.');
+  assert.match(html, /<code>sed s\/\$&amp;\/x\/<\/code>/);
+  assert.ok(!html.includes('\u0000'));
+});
+
+test('renderMarkdownHtml resolves a [[wiki-link]] whose title contains $ without corruption', () => {
+  const resolveWikiLink = (title) => (title === 'A$&B' ? { id: 'doc-9', title: 'A$&B' } : null);
+  const html = renderMarkdownHtml('See [[A$&B]] here.', { resolveWikiLink });
+  assert.match(html, /data-document-id="doc-9"/);
+  assert.match(html, />A\$&amp;B<\/a>/);
+  assert.ok(!html.includes('\u0000'));
+});

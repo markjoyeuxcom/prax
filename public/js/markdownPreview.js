@@ -51,11 +51,14 @@ function renderInline(value) {
   text = text.replace(/(^|[^\w])__(\S(?:[^_]*\S)?)__(?=[^\w]|$)/g, '$1<strong>$2</strong>');
   text = text.replace(/(^|[^\w])_(\S(?:[^_]*\S)?)_(?=[^\w]|$)/g, '$1<em>$2</em>');
   text = text.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+  // Function replacers: a string replacement arg would treat `$&`, `` $` ``,
+  // `$'`, `$$` in the HTML (reachable from user content with `$`) as
+  // replacement patterns and corrupt output; a function inserts it verbatim.
   codeSpans.forEach((code, index) => {
-    text = text.replace(`\u0000CODE${index}\u0000`, code);
+    text = text.replace(`\u0000CODE${index}\u0000`, () => code);
   });
   wikiSpans.forEach((wiki, index) => {
-    text = text.replace(`\u0000WIKI${index}\u0000`, wiki);
+    text = text.replace(`\u0000WIKI${index}\u0000`, () => wiki);
   });
   return text;
 }

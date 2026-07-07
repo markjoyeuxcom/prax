@@ -1690,7 +1690,10 @@ async function handleAction(action, el, event) {
       const model = appRoot.querySelector('[data-ai-model]');
       if (model) patch.model = model.value.trim();
       const baseUrl = appRoot.querySelector('[data-ai-base-url]');
-      if (baseUrl) patch.baseUrl = baseUrl.value.trim();
+      // Only send a non-empty base URL: the server rejects '' as an invalid URL
+      // (400), which would sink an otherwise model-only save. Mirrors the apiKey
+      // guard below.
+      if (baseUrl && baseUrl.value.trim()) patch.baseUrl = baseUrl.value.trim();
       const key = appRoot.querySelector('[data-ai-key]');
       if (key && key.value.trim()) patch.apiKey = key.value.trim();
       try {
