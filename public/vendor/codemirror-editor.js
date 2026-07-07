@@ -28366,8 +28366,24 @@ function mountCodeMirrorEditor({
         }),
         operatorTheme,
         // Higher precedence than the default keymap (earlier in the array), so
-        // Enter continues a list before the default newline runs.
-        keymap.of([{ key: "Enter", run: listContinuationEnter }]),
+        // Enter continues a list before the default newline runs, and the format
+        // shortcuts the toolbar advertises fire in CodeMirror (they overrode
+        // nothing before — a contentEditable's native Cmd-B would insert <b>).
+        keymap.of([
+          { key: "Enter", run: listContinuationEnter },
+          { key: "Mod-b", preventDefault: true, run: (view2) => {
+            runFormat(view2, "bold");
+            return true;
+          } },
+          { key: "Mod-i", preventDefault: true, run: (view2) => {
+            runFormat(view2, "italic");
+            return true;
+          } },
+          { key: "Mod-e", preventDefault: true, run: (view2) => {
+            runFormat(view2, "code");
+            return true;
+          } }
+        ]),
         // Note: Mod-f (open search) is handled by Prax's own keydown listener
         // so it works from the panel inputs too, not just the focused editor.
         keymap.of([...defaultKeymap, ...historyKeymap]),

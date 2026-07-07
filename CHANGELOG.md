@@ -25,6 +25,11 @@ fresh empty `[Unreleased]` section is started.
 - **`[[wiki-links]]`.** Type `[[` to autocomplete a link to another document
   by title; the preview renders resolved links as clickable (they open the
   doc) and unresolved ones as a muted "missing" style.
+- **⌘B / ⌘I / ⌘E format in the editor.** The bold/italic/code shortcuts the
+  toolbar advertises now fire inside CodeMirror (they only worked in the
+  fallback textarea before), reusing the same format path as the toolbar and
+  slash menu — and overriding the contentEditable's native Cmd-B so it can't
+  insert stray `<b>` tags.
 - **Filter the Library by type and trust.** A facet row adds Type
   (Runbooks / Notes) and Trust (Verified / Stale / Superseded) toggles with
   live counts. Facets are additive — AND across the axes (and with tags and
