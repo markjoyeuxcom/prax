@@ -158,6 +158,11 @@ fresh empty `[Unreleased]` section is started.
 
 ### Fixed
 
+- **Confirm dialogs launched from a menu no longer need a double-click.** A
+  confirm opened from an open menu (e.g. the doc menu's "Delete permanently…")
+  left the menu open, so the "click outside a menu closes it" handler ate the
+  first click on the confirm's buttons — you had to press Delete twice. Opening a
+  confirm now closes any open menu first.
 - **Re-index surfaces *why* embeddings failed.** A failed re-index reported a bare
   "N failed"; it now includes the first failure's message, and Ollama labels a
   504/408/524 as a timeout ("the model is slower than the gateway/proxy request
