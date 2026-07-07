@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const PORT = process.env.MOOMORA_E2E_PORT || '3199';
+const PORT = process.env.PRAX_E2E_PORT || '3199';
 
 export default defineConfig({
   testDir: 'tests/e2e',

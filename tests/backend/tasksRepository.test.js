@@ -11,6 +11,7 @@ import {
   buildRestoreTask,
   buildUpdateTask,
   buildListTaskDocuments,
+  buildListTasksForDocument,
   buildLinkTaskDocument,
   buildUnlinkTaskDocument,
   buildLinkExists,
@@ -120,15 +121,14 @@ test('buildReorderTasks returns a parameterized batch update query', () => {
   ]);
 
   assert.match(query.text, /with updates/);
+  assert.match(query.text, /from json_each\(\$1\)/);
   assert.match(query.text, /update tasks/);
   assert.match(query.text, /archived_at is null/);
-  assert.deepEqual(query.values, [
-    '11111111-1111-4111-8111-111111111111',
-    'planned',
-    0,
-    '22222222-2222-4222-8222-222222222222',
-    'in-progress',
-    1,
+  // The updates travel as one JSON array parameter.
+  assert.equal(query.values.length, 1);
+  assert.deepEqual(JSON.parse(query.values[0]), [
+    { id: '11111111-1111-4111-8111-111111111111', status: 'planned', sortOrder: 0 },
+    { id: '22222222-2222-4222-8222-222222222222', status: 'in-progress', sortOrder: 1 },
   ]);
 });
 
@@ -144,7 +144,7 @@ test('buildRestoreTask returns a parameterized restore query', () => {
 
   assert.match(query.text, /update tasks/);
   assert.match(query.text, /archived_at = null/);
-  assert.match(query.text, /updated_at = now\(\)/);
+  assert.match(query.text, /updated_at = strftime\('%Y-%m-%dT%H:%M:%fZ','now'\)/);
   assert.match(query.text, /where id = \$1 and archived_at is not null/);
   assert.match(query.text, /returning \*/);
   assert.deepEqual(query.values, ['11111111-1111-4111-8111-111111111111']);
@@ -227,13 +227,16 @@ test('buildReplaceProjectTasks deletes one project and inserts imported tasks', 
     },
   ]);
 
-  assert.match(query.text, /delete from tasks/);
-  assert.match(query.text, /where project_id = \$1/);
-  assert.match(query.text, /insert into tasks/);
-  assert.match(query.text, /returning \*/);
+  // SQLite has no writable CTEs, so replace is a delete + insert pair run in
+  // one transaction by the repository.
+  assert.match(query.delete.text, /delete from tasks/);
+  assert.match(query.delete.text, /where project_id = \$1/);
+  assert.deepEqual(query.delete.values, [PROJECT_ID]);
+  assert.match(query.insert.text, /insert into tasks/);
+  assert.match(query.insert.text, /returning \*/);
   // project_id is bound to $1 (the target project), not a per-row value, so the
   // values array carries the target id once followed by the 7 other columns.
-  assert.deepEqual(query.values, [
+  assert.deepEqual(query.insert.values, [
     PROJECT_ID,
     'Imported task',
     '',
@@ -253,9 +256,9 @@ test('buildReplaceProjectTasks forces every row into the target project', () => 
   ]);
 
   // Both rows must bind project_id to $1; the stray/absent projectId is ignored.
-  assert.match(query.text, /\$1, \$\d+, \$\d+, \$\d+\)/);
-  assert.ok(!query.values.includes(OTHER_PROJECT));
-  assert.equal(query.values.filter(value => value === PROJECT_ID).length, 1);
+  assert.match(query.insert.text, /\$1, \$\d+, \$\d+, \$\d+\)/);
+  assert.ok(!query.insert.values.includes(OTHER_PROJECT));
+  assert.equal(query.insert.values.filter(value => value === PROJECT_ID).length, 1);
 });
 
 test('listTasks filters active tasks by default', async () => {
@@ -317,7 +320,7 @@ test('listTasks parameterizes projectId status and search filters', async () => 
 
   assert.match(calls[0].text, /project_id = \$1/);
   assert.match(calls[0].text, /status = \$2/);
-  assert.match(calls[0].text, /title ilike \$3 or description ilike \$3/);
+  assert.match(calls[0].text, /lower\(title\) like lower\(\$3\) or lower\(description\) like lower\(\$3\)/);
   assert.deepEqual(calls[0].values, [PROJECT_ID, 'planned', '%backup%']);
 });
 
@@ -331,6 +334,18 @@ test('buildListTaskDocuments returns join query with task_id param', () => {
   assert.match(query.text, /where td\.task_id = \$1 and d\.archived_at is null/);
   assert.match(query.text, /order by d\.title/);
   assert.deepEqual(query.values, [taskId]);
+});
+
+test('buildListTasksForDocument returns the inverse join with document_id param, archived tasks excluded', () => {
+  const documentId = '22222222-2222-4222-8222-222222222222';
+  const query = buildListTasksForDocument(documentId);
+
+  assert.match(query.text, /select t\.id, t\.title, t\.priority, t\.project_id/);
+  assert.match(query.text, /from task_documents td/);
+  assert.match(query.text, /join tasks t on t\.id = td\.task_id/);
+  assert.match(query.text, /where td\.document_id = \$1 and t\.archived_at is null/);
+  assert.match(query.text, /order by t\.title/);
+  assert.deepEqual(query.values, [documentId]);
 });
 
 test('buildLinkTaskDocument returns guarded insert with on conflict do nothing', () => {
@@ -462,12 +477,14 @@ test('buildListTaskBoardExtras returns one aggregate query for board card signal
   ];
   const q = buildListTaskBoardExtras(taskIds);
 
-  assert.match(q.text, /unnest\(\$1::uuid\[\]\) with ordinality/);
+  assert.match(q.text, /from json_each\(\$1\)/);
+  assert.match(q.text, /order by requested.position/);
   assert.match(q.text, /from task_documents td/);
   assert.match(q.text, /from task_checklist_items/);
   assert.match(q.text, /from task_activity/);
   assert.match(q.text, /latest_activity/);
-  assert.deepEqual(q.values, [taskIds]);
+  // The requested ids travel as one JSON array parameter.
+  assert.deepEqual(q.values, [JSON.stringify(taskIds)]);
 });
 
 test('listTaskBoardExtras normalizes aggregate rows for board cards', async () => {

@@ -1,12 +1,12 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: moomora-console
+  name: prax
   labels:
-    app.kubernetes.io/name: moomora-console
+    app.kubernetes.io/name: prax
 spec:
   selector:
-    app.kubernetes.io/name: moomora-console
+    app.kubernetes.io/name: prax
   ports:
     - name: http
       port: 3000

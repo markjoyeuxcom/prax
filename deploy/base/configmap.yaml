@@ -1,13 +1,12 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: moomora-console-config
+  name: prax-config
   labels:
-    app.kubernetes.io/name: moomora-console
+    app.kubernetes.io/name: prax
 data:
   HOST: "0.0.0.0"
   PORT: "3000"
   PUBLIC_DIR: "/app/public"
-  EMBEDDING_BACKEND: "ollama"
-  OLLAMA_URL: "http://ollama.internal:11434"
-  EMBEDDING_MODEL: "qwen3-embedding:0.6b"
+  # Semantic search returns with the sqlite-vec follow-up (Phase 5).
+  EMBEDDING_BACKEND: "none"

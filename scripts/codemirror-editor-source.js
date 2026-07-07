@@ -8,29 +8,67 @@ import {
 } from '@codemirror/language';
 import { EditorState } from '@codemirror/state';
 import {
+  search,
+  SearchQuery,
+  setSearchQuery,
+  getSearchQuery,
+  findNext,
+  findPrevious,
+  replaceNext,
+  replaceAll,
+  openSearchPanel,
+  highlightSelectionMatches,
+} from '@codemirror/search';
+import {
   drawSelection,
   EditorView,
   highlightActiveLine,
   keymap,
   lineNumbers,
 } from '@codemirror/view';
+import { autocompletion, startCompletion, completionStatus } from '@codemirror/autocomplete';
 import { tags } from '@lezer/highlight';
 
-import { applyMarkdownFormat } from '../public/js/markdownEditor.js';
+import { applyMarkdownFormat, continueListOnEnter } from '../public/js/markdownEditor.js';
 
 // Colors reference CSS custom properties so the editor follows the active
 // palette (console / graphite / daylight). CodeMirror injects these as real
 // CSS, so var() and color-mix() resolve against :root at paint time.
 const operatorTheme = EditorView.theme({
-  '&': { backgroundColor: 'var(--bg)', color: 'var(--text-body)' },
+  // Transparent: the sheet (page) behind the editor is the surface.
+  '&': { backgroundColor: 'transparent', color: 'var(--text-body)' },
   '.cm-scroller': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace' },
-  '.cm-content': { caretColor: 'var(--caret)', padding: '14px' },
+  '.cm-content': { caretColor: 'var(--caret)', padding: '24px 32px 60px' },
   '.cm-gutters': { backgroundColor: 'var(--bg-deep)', color: 'var(--text-dimmer)', border: 'none', borderRight: '1px solid var(--border)' },
   '.cm-activeLineGutter': { backgroundColor: 'color-mix(in srgb, var(--accent) 6%, transparent)', color: 'var(--accent)' },
   '.cm-activeLine': { backgroundColor: 'color-mix(in srgb, var(--accent) 4%, transparent)' },
   '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--caret)', borderLeftWidth: '2px' },
   '.cm-selectionBackground, .cm-content ::selection': { backgroundColor: 'color-mix(in srgb, var(--accent) 22%, transparent) !important' },
   '&.cm-focused': { outline: 'none' },
+  // The search panel is invisible (our real UI is Prax-native) — hide CM's
+  // panel container so its base-theme border never shows. Match highlighting
+  // is gated on the panel's JS state, not its CSS, so this is safe.
+  '.cm-panels': { display: 'none' },
+  // Search-match highlights. The find/replace UI itself is a Prax-native panel
+  // (public/js/renderSearchPanel.js), not CodeMirror's built-in panel — but the
+  // search() extension still tracks the query and paints these highlights.
+  '.cm-searchMatch': { backgroundColor: 'color-mix(in srgb, var(--accent) 22%, transparent)', borderRadius: '2px' },
+  '.cm-searchMatch.cm-searchMatch-selected': { backgroundColor: 'color-mix(in srgb, var(--accent) 45%, transparent)' },
+  '.cm-selectionMatch': { backgroundColor: 'color-mix(in srgb, var(--accent) 14%, transparent)' },
+  // Autocomplete popup (slash menu + wiki-links), themed to the Prax palette.
+  '.cm-tooltip.cm-tooltip-autocomplete': {
+    backgroundColor: 'var(--surface)',
+    border: '1px solid var(--line2)',
+    borderRadius: '10px',
+    boxShadow: 'var(--pop, 0 12px 32px rgba(0,0,0,.18))',
+    overflow: 'hidden',
+    fontFamily: 'var(--font-ui, system-ui)',
+  },
+  '.cm-tooltip-autocomplete ul': { fontFamily: 'var(--font-ui, system-ui)', maxHeight: '15em' },
+  '.cm-tooltip-autocomplete ul li': { padding: '4px 10px', color: 'var(--text-body)', lineHeight: '1.5' },
+  '.cm-tooltip-autocomplete ul li[aria-selected]': { backgroundColor: 'color-mix(in srgb, var(--accent) 16%, transparent)', color: 'var(--text-body)' },
+  '.cm-completionLabel': { fontSize: '12.5px' },
+  '.cm-completionDetail': { color: 'var(--text-dimmer)', fontStyle: 'normal', marginLeft: '10px', fontSize: '11px' },
 }, { dark: true });
 
 const operatorHighlight = HighlightStyle.define([
@@ -44,6 +82,18 @@ const operatorHighlight = HighlightStyle.define([
   { tag: tags.comment,         color: 'var(--text-dimmer)', fontStyle: 'italic' },
 ]);
 
+// CodeMirror only paints match highlights while a search panel is "open"
+// (searchHighlighter gates on state.panel). Our real UI is the Prax-native
+// panel, so we hand CM an invisible, empty panel to satisfy that gate — then
+// keep it permanently open. It has no focusable content, so it never competes
+// for keyboard focus.
+function hiddenSearchPanel() {
+  const dom = document.createElement('div');
+  dom.className = 'cm-search-hidden';
+  dom.style.display = 'none';
+  return { dom, top: true };
+}
+
 function saveKeymap(onSave) {
   return keymap.of([
     {
@@ -56,20 +106,168 @@ function saveKeymap(onSave) {
   ]);
 }
 
+// Count total matches for the current query and which one (1-based) the primary
+// selection currently sits on (0 = none). Powers the panel's "n of N" readout.
+// Returns { total, current, valid } — valid:false for a broken regexp.
+function searchMatchInfo(view) {
+  // getSearchQuery returns the SearchQuery *spec* — it exposes getCursor (a
+  // SearchCursor) but not matchAll (that lives on the internal query type). We
+  // iterate the cursor to count total matches and which one (1-based) the
+  // primary selection sits on. Capped so a pathological query can't hang.
+  const query = getSearchQuery(view.state);
+  if (!query || !query.search) return { total: 0, current: 0, valid: true };
+  if (!query.valid) return { total: 0, current: 0, valid: false };
+  const sel = view.state.selection.main;
+  const cursor = query.getCursor(view.state);
+  let total = 0;
+  let current = 0;
+  const LIMIT = 5000;
+  while (!cursor.next().done) {
+    total += 1;
+    const range = cursor.value;
+    if (range.from === sel.from && range.to === sel.to) current = total;
+    if (total >= LIMIT) return { total: LIMIT, current, valid: true, capped: true };
+  }
+  return { total, current, valid: true };
+}
+
+// Apply a Markdown formatting action at the current selection. Shared by the
+// toolbar (controller.applyFormat) and the slash menu.
+function runFormat(view, action) {
+  const value = view.state.doc.toString();
+  const sel = view.state.selection.main;
+  const result = applyMarkdownFormat(value, sel.from, sel.to, action);
+  view.dispatch({
+    changes: { from: 0, to: value.length, insert: result.value },
+    selection: { anchor: result.selectionStart, head: result.selectionEnd },
+    scrollIntoView: true,
+  });
+  view.focus();
+}
+
+// Slash menu: type "/" at the start of a line for a block/inline formatting
+// command. Each option deletes the "/query" and runs the shared format path,
+// so there is no new formatting logic to maintain.
+const SLASH_COMMANDS = [
+  { key: 'heading', action: 'heading', detail: 'H2 heading' },
+  { key: 'bullet', action: 'bullet-list', detail: '• bullet list' },
+  { key: 'numbered', action: 'numbered-list', detail: '1. numbered list' },
+  { key: 'task', action: 'checklist', detail: '☐ to-do item' },
+  { key: 'quote', action: 'quote', detail: '❝ blockquote' },
+  { key: 'code', action: 'code-block', detail: '‹⁄› code block' },
+  { key: 'bold', action: 'bold', detail: 'bold text' },
+  { key: 'italic', action: 'italic', detail: 'italic text' },
+  { key: 'inline-code', action: 'code', detail: 'inline code' },
+  { key: 'link', action: 'link', detail: 'link' },
+];
+
+function slashCompletionSource(context) {
+  const line = context.state.doc.lineAt(context.pos);
+  const before = line.text.slice(0, context.pos - line.from);
+  const match = /^\s*\/(\w*)$/.exec(before);
+  if (!match) return null;
+  const from = context.pos - match[1].length - 1; // include the leading '/'
+  return {
+    from,
+    to: context.pos,
+    validFor: /^\/\w*$/,
+    options: SLASH_COMMANDS.map((cmd) => ({
+      label: `/${cmd.key}`,
+      detail: cmd.detail,
+      apply: (view, _completion, fromPos, toPos) => {
+        view.dispatch({ changes: { from: fromPos, to: toPos, insert: '' }, selection: { anchor: fromPos } });
+        runFormat(view, cmd.action);
+      },
+    })),
+  };
+}
+
+// Wiki-links: typing "[[" offers document titles; selecting one inserts
+// "[[Title]]". Titles come from the provider (the app's current document list).
+function makeWikiCompletionSource(documentsProvider) {
+  return function wikiCompletionSource(context) {
+    const before = context.state.sliceDoc(Math.max(0, context.pos - 160), context.pos);
+    const match = /\[\[([^\]\n[]*)$/.exec(before);
+    if (!match) return null;
+    const from = context.pos - match[1].length;
+    const docs = (typeof documentsProvider === 'function' ? documentsProvider() : []) || [];
+    const options = docs
+      .filter((doc) => doc && doc.title)
+      .slice(0, 200)
+      .map((doc) => ({
+        label: doc.title,
+        type: 'text',
+        apply: (view, _completion, fromPos, toPos) => {
+          const after = view.state.sliceDoc(toPos, Math.min(view.state.doc.length, toPos + 2));
+          const close = after === ']]' ? '' : ']]';
+          view.dispatch({
+            changes: { from: fromPos, to: toPos, insert: doc.title + close },
+            selection: { anchor: fromPos + doc.title.length + close.length },
+          });
+        },
+      }));
+    if (!options.length) return null;
+    return { from, options, validFor: /^[^\]\n[]*$/ };
+  };
+}
+
+// Enter inside a Markdown list/quote continues the marker (or exits an empty
+// item). Only acts with a collapsed caret at the end of the line — otherwise it
+// returns false and the default Enter (newline) runs.
+function listContinuationEnter(view) {
+  // Never fire while a completion popup (slash menu / wiki-links) is open —
+  // Enter belongs to the popup (accept). During the popup's brief interaction
+  // delay CM's accept returns false; falling through to a list continuation
+  // here would be surprising, so we defer to the default newline instead.
+  if (completionStatus(view.state) === 'active') return false;
+  const sel = view.state.selection.main;
+  if (!sel.empty) return false;
+  const line = view.state.doc.lineAt(sel.head);
+  if (sel.head !== line.to) return false;
+  const result = continueListOnEnter(line.text);
+  if (result.action === 'none') return false;
+  if (result.action === 'exit') {
+    // Empty item: clear the marker and drop out of the list.
+    view.dispatch({
+      changes: { from: line.from, to: line.to, insert: '' },
+      selection: { anchor: line.from },
+      userEvent: 'delete',
+    });
+    return true;
+  }
+  const insert = `\n${result.prefix}`;
+  view.dispatch({
+    changes: { from: sel.head, insert },
+    selection: { anchor: sel.head + insert.length },
+    scrollIntoView: true,
+    userEvent: 'input',
+  });
+  return true;
+}
+
 export function mountCodeMirrorEditor({
   host,
   value = '',
   onChange,
   onSave,
+  documentsProvider,
+  lineNumbers: showLineNumbers = false,
+  cursorToEnd = true,
 } = {}) {
   if (!host) return null;
 
+  const wikiCompletionSource = makeWikiCompletionSource(documentsProvider);
+
+  const doc = String(value ?? '');
   const view = new EditorView({
     parent: host,
     state: EditorState.create({
-      doc: String(value ?? ''),
+      doc,
+      // Open with the caret at the end so typing continues the document
+      // instead of landing above the title heading.
+      selection: cursorToEnd ? { anchor: doc.length } : undefined,
       extensions: [
-        lineNumbers(),
+        ...(showLineNumbers ? [lineNumbers()] : []),
         history(),
         drawSelection(),
         indentOnInput(),
@@ -77,17 +275,51 @@ export function mountCodeMirrorEditor({
         markdown(),
         syntaxHighlighting(operatorHighlight, { fallback: true }),
         highlightActiveLine(),
+        highlightSelectionMatches(),
+        // Track the query + paint match highlights. The panel is invisible
+        // (hiddenSearchPanel) because our real find/replace UI is Prax-native —
+        // CM's panel exists only to keep highlighting alive (see openSearchPanel
+        // below).
+        search({ createPanel: hiddenSearchPanel }),
+        autocompletion({ override: [slashCompletionSource, wikiCompletionSource], icons: false, defaultKeymap: true }),
         EditorView.lineWrapping,
         EditorView.updateListener.of((update) => {
           if (!update.docChanged) return;
           onChange?.(update.state.doc.toString());
+          // Slash menu ("/" at line start) and wiki-link ("[[") triggers aren't
+          // word characters, so autocomplete won't auto-open — nudge it here.
+          if (!update.transactions.some((tr) => tr.isUserEvent('input.type'))) return;
+          const sel = update.state.selection.main;
+          if (!sel.empty) return;
+          const line = update.state.doc.lineAt(sel.head);
+          const lineBefore = update.state.doc.sliceString(line.from, sel.head);
+          const lastTwo = update.state.doc.sliceString(Math.max(0, sel.head - 2), sel.head);
+          if (/^\s*\/$/.test(lineBefore) || lastTwo === '[[') {
+            Promise.resolve().then(() => startCompletion(update.view));
+          }
         }),
         operatorTheme,
+        // Higher precedence than the default keymap (earlier in the array), so
+        // Enter continues a list before the default newline runs, and the format
+        // shortcuts the toolbar advertises fire in CodeMirror (they overrode
+        // nothing before — a contentEditable's native Cmd-B would insert <b>).
+        keymap.of([
+          { key: 'Enter', run: listContinuationEnter },
+          { key: 'Mod-b', preventDefault: true, run: (view) => { runFormat(view, 'bold'); return true; } },
+          { key: 'Mod-i', preventDefault: true, run: (view) => { runFormat(view, 'italic'); return true; } },
+          { key: 'Mod-e', preventDefault: true, run: (view) => { runFormat(view, 'code'); return true; } },
+        ]),
+        // Note: Mod-f (open search) is handled by Prax's own keydown listener
+        // so it works from the panel inputs too, not just the focused editor.
         keymap.of([...defaultKeymap, ...historyKeymap]),
         ...(onSave ? [saveKeymap(onSave)] : []),
       ],
     }),
   });
+
+  // Open the invisible panel so match highlights render whenever a query is
+  // set. The panel has no focusable content, so this doesn't move focus.
+  openSearchPanel(view);
 
   return {
     getValue() {
@@ -96,18 +328,44 @@ export function mountCodeMirrorEditor({
     focus() {
       view.focus();
     },
-    applyFormat(action) {
-      const currentValue = view.state.doc.toString();
-      const selection = view.state.selection.main;
-      const result = applyMarkdownFormat(currentValue, selection.from, selection.to, action);
-
+    // Text of the primary selection ('' when nothing is selected) — used to
+    // seed the Find field from a selection when the panel opens.
+    getSelectionText() {
+      const sel = view.state.selection.main;
+      return sel.empty ? '' : view.state.sliceDoc(sel.from, sel.to);
+    },
+    scrollToLine(lineNumber) {
+      const line = view.state.doc.line(
+        Math.max(1, Math.min(view.state.doc.lines, Number(lineNumber) + 1)),
+      );
       view.dispatch({
-        changes: { from: 0, to: currentValue.length, insert: result.value },
-        selection: { anchor: result.selectionStart, head: result.selectionEnd },
-        scrollIntoView: true,
+        selection: { anchor: line.from },
+        effects: EditorView.scrollIntoView(line.from, { y: 'start' }),
       });
       view.focus();
     },
+    applyFormat(action) {
+      runFormat(view, action);
+    },
+
+    // ---- Search (driven by the Prax-native panel) --------------------------
+    // Each method returns the current match info so the caller can update the
+    // "n of N" readout without touching CodeMirror focus. Replace commands act
+    // on document ranges and never need the editor focused.
+    applySearch({ search: term = '', replace = '', caseSensitive = false, regexp = false, wholeWord = false } = {}) {
+      const query = new SearchQuery({ search: term, replace, caseSensitive, regexp, wholeWord });
+      view.dispatch({ effects: setSearchQuery.of(query) });
+      return searchMatchInfo(view);
+    },
+    searchNext() { findNext(view); return searchMatchInfo(view); },
+    searchPrevious() { findPrevious(view); return searchMatchInfo(view); },
+    replaceMatch() { replaceNext(view); return searchMatchInfo(view); },
+    replaceAllMatches() { replaceAll(view); return searchMatchInfo(view); },
+    searchInfo() { return searchMatchInfo(view); },
+    clearSearch() {
+      view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: '' })) });
+    },
+
     destroy() {
       view.destroy();
     },

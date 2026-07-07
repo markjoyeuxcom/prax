@@ -3,106 +3,121 @@ import assert from 'node:assert/strict';
 import { renderLinkPickerHtml } from '../../public/js/renderLinkPicker.js';
 
 const sampleDocuments = [
-  { id: 'doc-1', title: 'Deploy Runbook', documentType: 'runbook', projectId: 'homelab', tags: ['deploy'] },
-  { id: 'doc-2', title: 'Ops Note', documentType: 'note', projectId: 'work', tags: ['ops'] },
-  { id: 'doc-3', title: 'Homelab Setup', documentType: 'runbook', projectId: 'homelab', tags: ['setup'] },
+  { id: 'doc-1', title: 'Deploy Runbook', documentType: 'runbook', tags: ['deploy'] },
+  { id: 'doc-2', title: 'Ops Note', documentType: 'note', tags: ['ops'] },
+  { id: 'doc-3', title: 'Homelab Setup', documentType: 'runbook', tags: ['setup'] },
 ];
 
-test('link picker renders a modal backdrop and dialog', () => {
-  const html = renderLinkPickerHtml({ documents: sampleDocuments });
-  assert.match(html, /data-link-picker/);
-  assert.match(html, /role="dialog"/);
-  assert.match(html, /aria-modal="true"/);
-  assert.match(html, /link-picker-title/);
+function makeState(overrides = {}) {
+  return {
+    isLinkPickerOpen: true,
+    pickerMode: 'link',
+    linkPickerDocuments: sampleDocuments,
+    linkPickerQuery: '',
+    taskDocuments: [],
+    ...overrides,
+  };
+}
+
+test('picker renders a centered overlay with palette dialog semantics', () => {
+  const html = renderLinkPickerHtml(makeState());
+  assert.match(html, /class="overlay-center" data-link-picker/);
+  assert.match(html, /class="palette" role="dialog" aria-modal="true" aria-labelledby="link-picker-title"/);
+  assert.match(html, /id="link-picker-title"/);
 });
 
-test('link picker renders all document rows', () => {
-  const html = renderLinkPickerHtml({ documents: sampleDocuments });
-  assert.match(html, /data-link-picker-doc="doc-1"/);
-  assert.match(html, /data-link-picker-doc="doc-2"/);
-  assert.match(html, /data-link-picker-doc="doc-3"/);
+test('picker heading reads "Link a document" in link mode', () => {
+  const html = renderLinkPickerHtml(makeState());
+  assert.match(html, /id="link-picker-title">Link a document</);
+});
+
+test('picker heading switches to supersede copy in supersede mode', () => {
+  const html = renderLinkPickerHtml(makeState({ pickerMode: 'supersede' }));
+  assert.match(html, /id="link-picker-title">Supersede with…</);
+  assert.doesNotMatch(html, /Link a document/);
+});
+
+test('picker renders every document as a row button with a type chip', () => {
+  const html = renderLinkPickerHtml(makeState());
+  assert.match(html, /data-link-picker-doc data-document-id="doc-1"/);
+  assert.match(html, /data-link-picker-doc data-document-id="doc-2"/);
+  assert.match(html, /data-link-picker-doc data-document-id="doc-3"/);
   assert.match(html, /Deploy Runbook/);
-  assert.match(html, /Ops Note/);
-  assert.match(html, /Homelab Setup/);
+  assert.match(html, /class="chip chip--type-runbook">runbook</);
+  assert.match(html, /class="chip chip--type-note">note</);
 });
 
-test('link picker marks already-linked documents with is-linked and [x]', () => {
-  const html = renderLinkPickerHtml({ documents: sampleDocuments, linkedIds: ['doc-1', 'doc-3'] });
-  // doc-1 and doc-3 should be linked — class comes before data attr in the rendered HTML
-  assert.match(html, /class="link-picker__row is-linked"[^>]*data-link-picker-doc="doc-1"/);
-  assert.match(html, /class="link-picker__row is-linked"[^>]*data-link-picker-doc="doc-3"/);
-  // doc-2 should not be linked
-  assert.doesNotMatch(html, /class="link-picker__row is-linked"[^>]*data-link-picker-doc="doc-2"/);
-  // aria-pressed should reflect state
-  assert.match(html, /data-link-picker-doc="doc-1"[^>]*aria-pressed="true"/);
-  assert.match(html, /data-link-picker-doc="doc-2"[^>]*aria-pressed="false"/);
+test('picker renders the search input holding the current query', () => {
+  const html = renderLinkPickerHtml(makeState({ linkPickerQuery: 'run' }));
+  assert.match(html, /data-link-picker-search value="run"/);
 });
 
-test('link picker filters by query against title', () => {
-  const html = renderLinkPickerHtml({ documents: sampleDocuments, query: 'deploy' });
+test('picker escapes the query value attribute', () => {
+  const html = renderLinkPickerHtml(makeState({ linkPickerQuery: '"><img src=x>' }));
+  assert.doesNotMatch(html, /<img/);
+  assert.match(html, /value="&quot;&gt;&lt;img src=x&gt;"/);
+});
+
+test('picker filters rows by title', () => {
+  const html = renderLinkPickerHtml(makeState({ linkPickerQuery: 'deploy' }));
   assert.match(html, /Deploy Runbook/);
   assert.doesNotMatch(html, /Ops Note/);
   assert.doesNotMatch(html, /Homelab Setup/);
 });
 
-test('link picker filters by query against documentType', () => {
-  const html = renderLinkPickerHtml({ documents: sampleDocuments, query: 'note' });
+test('picker filters rows by documentType', () => {
+  const html = renderLinkPickerHtml(makeState({ linkPickerQuery: 'note' }));
   assert.match(html, /Ops Note/);
   assert.doesNotMatch(html, /Deploy Runbook/);
+  assert.doesNotMatch(html, /Homelab Setup/);
 });
 
-test('link picker filters by query against tags', () => {
-  const html = renderLinkPickerHtml({ documents: sampleDocuments, query: 'setup' });
+test('picker filters rows by tags', () => {
+  const html = renderLinkPickerHtml(makeState({ linkPickerQuery: 'setup' }));
   assert.match(html, /Homelab Setup/);
   assert.doesNotMatch(html, /Deploy Runbook/);
   assert.doesNotMatch(html, /Ops Note/);
 });
 
-test('link picker shows empty state when no documents match the query', () => {
-  const html = renderLinkPickerHtml({ documents: sampleDocuments, query: 'zzznomatch' });
-  assert.match(html, /link-picker__empty/);
-  assert.match(html, /No documents match/);
+test('picker marks already-linked documents with is-linked and aria-pressed', () => {
+  const html = renderLinkPickerHtml(makeState({ taskDocuments: [{ id: 'doc-1' }, { id: 'doc-3' }] }));
+  assert.match(html, /class="palette__item is-linked"[^>]*data-document-id="doc-1" aria-pressed="true"/);
+  assert.match(html, /class="palette__item is-linked"[^>]*data-document-id="doc-3" aria-pressed="true"/);
+  assert.match(html, /class="palette__item"[^>]*data-document-id="doc-2" aria-pressed="false"/);
 });
 
-test('link picker shows empty state when document list is empty', () => {
-  const html = renderLinkPickerHtml({ documents: [] });
-  assert.match(html, /link-picker__empty/);
+test('picker ignores linked ids in supersede mode', () => {
+  const html = renderLinkPickerHtml(makeState({ pickerMode: 'supersede', taskDocuments: [{ id: 'doc-1' }] }));
+  assert.doesNotMatch(html, /is-linked/);
+  assert.doesNotMatch(html, /aria-pressed/);
 });
 
-test('link picker renders a search input with the current query value', () => {
-  const html = renderLinkPickerHtml({ documents: sampleDocuments, query: 'run' });
-  assert.match(html, /data-link-picker-search/);
-  assert.match(html, /value="run"/);
+test('picker shows an empty state when nothing matches the query', () => {
+  const html = renderLinkPickerHtml(makeState({ linkPickerQuery: 'zzznomatch' }));
+  assert.match(html, /class="palette__empty">No documents match\./);
+  assert.doesNotMatch(html, /data-link-picker-doc/);
 });
 
-test('link picker renders close action buttons', () => {
-  const html = renderLinkPickerHtml({ documents: sampleDocuments });
+test('picker shows the empty state when there are no documents at all', () => {
+  const html = renderLinkPickerHtml(makeState({ linkPickerDocuments: [] }));
+  assert.match(html, /class="palette__empty"/);
+});
+
+test('picker renders a close control', () => {
+  const html = renderLinkPickerHtml(makeState());
   assert.match(html, /data-action="close-link-picker"/);
 });
 
-test('link picker escapes HTML in document titles', () => {
-  const docs = [{ id: 'doc-x', title: '<script>alert(1)</script>', documentType: 'note', projectId: 'homelab', tags: [] }];
-  const html = renderLinkPickerHtml({ documents: docs });
+test('picker escapes HTML in document titles', () => {
+  const docs = [{ id: 'doc-x', title: '<script>alert(1)</script>', documentType: 'note', tags: [] }];
+  const html = renderLinkPickerHtml(makeState({ linkPickerDocuments: docs }));
   assert.doesNotMatch(html, /<script>/);
-  assert.match(html, /&lt;script&gt;/);
+  assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
 });
 
-test('link picker handles missing fields gracefully', () => {
-  const docs = [{ id: 'doc-x' }];
-  const html = renderLinkPickerHtml({ documents: docs });
+test('picker tolerates documents with missing fields', () => {
+  const html = renderLinkPickerHtml(makeState({ linkPickerDocuments: [{ id: 'doc-x' }] }));
   assert.match(html, /Untitled document/);
-  assert.match(html, /data-link-picker-doc="doc-x"/);
-});
-
-test('link picker keeps task-link copy by default', () => {
-  const html = renderLinkPickerHtml({ documents: sampleDocuments });
-  assert.match(html, /<h2 id="link-picker-title">Link a document<\/h2>/);
-  assert.match(html, /Attach a runbook or note to this task\./);
-});
-
-test('link picker shows supersede copy in supersede mode', () => {
-  const html = renderLinkPickerHtml({ documents: sampleDocuments, mode: 'supersede' });
-  assert.match(html, /<h2 id="link-picker-title">Supersede with…<\/h2>/);
-  assert.match(html, /Pick the document that replaces this one\./);
-  assert.doesNotMatch(html, /Attach a runbook or note to this task\./);
+  assert.match(html, /data-link-picker-doc data-document-id="doc-x"/);
+  assert.match(html, /chip--type-note/);
 });

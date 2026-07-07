@@ -3,6 +3,7 @@ export function createOllamaEmbedder({ url, model, fetch = globalThis.fetch } = 
   const embedModel = model || 'nomic-embed-text';
   return {
     backend: 'ollama',
+    model: embedModel,
     async embed(text) {
       const res = await fetch(`${base}/api/embeddings`, {
         method: 'POST',
@@ -17,7 +18,9 @@ export function createOllamaEmbedder({ url, model, fetch = globalThis.fetch } = 
     },
     async isAvailable() {
       try {
-        const res = await fetch(`${base}/api/tags`);
+        // Cheap reachability probe with a short timeout so settings reads
+        // never hang on a dead host.
+        const res = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(1500) });
         return res.ok;
       } catch {
         return false;

@@ -2,6 +2,9 @@ export const DOCUMENT_LINK_RELATIONS = ['derived-from', 'supersedes'];
 
 export function buildLinkDocuments(sourceId, targetId, relation) {
   if (relation === 'derived-from') {
+    // Upsert refreshes the target_hash snapshot on re-link. SQLite has no
+    // pg xmax trick to tell insert from update, so linkDocuments() probes
+    // with buildLinkExists first and derives the alreadyLinked flag there.
     return {
       text: `
         insert into document_links (source_document_id, target_document_id, relation, target_hash)
@@ -10,7 +13,7 @@ export function buildLinkDocuments(sourceId, targetId, relation) {
           and exists (select 1 from markdown_documents where id = $2 and archived_at is null)
         on conflict (source_document_id, target_document_id, relation)
           do update set target_hash = excluded.target_hash
-        returning source_document_id, (xmax = 0) as inserted
+        returning source_document_id
       `,
       values: [sourceId, targetId, relation],
     };
@@ -82,7 +85,7 @@ export function buildListStaleDocuments(projectId) {
   return {
     text: `
       select d.id, d.title, d.document_type, d.project_id, d.updated_by, d.kind,
-             json_agg(json_build_object('documentId', tgt.id, 'title', tgt.title)) as stale_sources
+             json_group_array(json_object('documentId', tgt.id, 'title', tgt.title)) as stale_sources
       from document_links dl
       join markdown_documents d on d.id = dl.source_document_id and d.archived_at is null
       join markdown_documents tgt on tgt.id = dl.target_document_id and tgt.archived_at is null
@@ -98,6 +101,8 @@ export function buildListStaleDocuments(projectId) {
 }
 
 export function buildListOutboundLinksForDocuments(docIds) {
+  // pg took a uuid[] via = any($1); SQLite binds the id list as JSON text and
+  // expands it with json_each.
   return {
     text: `
       select dl.source_document_id,
@@ -109,10 +114,10 @@ export function buildListOutboundLinksForDocuments(docIds) {
       from document_links dl
       join markdown_documents t on t.id = dl.target_document_id and t.archived_at is null
       join projects p on p.id = t.project_id
-      where dl.source_document_id = any($1)
+      where dl.source_document_id in (select value from json_each($1))
       order by dl.source_document_id, dl.relation, t.title
     `,
-    values: [docIds],
+    values: [JSON.stringify(docIds)],
   };
 }
 
@@ -132,6 +137,19 @@ export function buildListOrphanDocuments(projectId) {
   };
 }
 
+// json_group_array returns TEXT (pg's json_agg auto-parsed on read); parse at
+// the boundary, degrading malformed text to [].
+function parseJsonArray(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string' || value === '') return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 export function normalizeStaleRow(row) {
   return {
     documentId: row.id,
@@ -140,19 +158,27 @@ export function normalizeStaleRow(row) {
     projectId: row.project_id,
     updatedBy: row.updated_by,
     kind: row.kind,
-    staleSources: row.stale_sources || [],
+    staleSources: parseJsonArray(row.stale_sources),
   };
 }
 
 export function createDocumentLinksRepository(db) {
   return {
     async linkDocuments(sourceId, targetId, relation) {
+      if (relation === 'derived-from') {
+        // Probe before the upsert: no xmax in SQLite, so inserted-vs-refreshed
+        // comes from whether a live link already existed. (Single-writer
+        // embedded db — no meaningful probe/upsert race.)
+        const existsQuery = buildLinkExists(sourceId, targetId, relation);
+        const existsResult = await db.query(existsQuery.text, existsQuery.values);
+        const alreadyLinked = existsResult.rows.length > 0;
+        const query = buildLinkDocuments(sourceId, targetId, relation);
+        const result = await db.query(query.text, query.values);
+        if (result.rows.length === 0) return { linked: false };
+        return alreadyLinked ? { linked: true, alreadyLinked: true } : { linked: true };
+      }
       const query = buildLinkDocuments(sourceId, targetId, relation);
       const result = await db.query(query.text, query.values);
-      if (relation === 'derived-from') {
-        if (result.rows.length === 0) return { linked: false };
-        return result.rows[0].inserted ? { linked: true } : { linked: true, alreadyLinked: true };
-      }
       if (result.rows.length > 0) return { linked: true };
       const existsQuery = buildLinkExists(sourceId, targetId, relation);
       const existsResult = await db.query(existsQuery.text, existsQuery.values);

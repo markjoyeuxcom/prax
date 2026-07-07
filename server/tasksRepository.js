@@ -13,9 +13,9 @@ const UPDATE_COLUMN_MAP = {
   notes: 'notes',
 };
 
-// pg returns DATE columns as JS Date objects (serialised as full ISO datetimes
-// like "2026-05-18T00:00:00.000Z"). Callers expect a plain calendar date, so
-// normalise due_date to YYYY-MM-DD; the in-memory demo already stores strings.
+// SQLite stores due_date as TEXT 'YYYY-MM-DD', which passes through unchanged.
+// Date objects are still normalised defensively (the pg era returned DATE
+// columns as JS Date objects, and callers may still hand one in).
 function toDateOnly(value) {
   if (!value) return null;
   if (value instanceof Date) return value.toISOString().slice(0, 10);
@@ -87,17 +87,22 @@ export function buildReplaceProjectTasks(projectId, tasks) {
     return `($${offset}, $${offset + 1}, $${offset + 2}, $${offset + 3}, $1, $${offset + 4}, $${offset + 5}, $${offset + 6})`;
   });
 
+  // SQLite has no data-modifying CTEs (the pg version deleted inside a WITH),
+  // so replace is two statements run inside one transaction — see
+  // replaceProjectTasks below.
   return {
-    text: `
-      with deleted as (
-        delete from tasks
-        where project_id = $1
-      )
-      insert into tasks (title, description, priority, status, project_id, due_date, sort_order, archived_at)
-      values ${rows.join(', ')}
-      returning *
-    `,
-    values: [projectId, ...tasks.flatMap(task => REPLACE_FIELDS.map(field => task[field] ?? null))],
+    delete: {
+      text: `delete from tasks where project_id = $1`,
+      values: [projectId],
+    },
+    insert: {
+      text: `
+        insert into tasks (title, description, priority, status, project_id, due_date, sort_order, archived_at)
+        values ${rows.join(', ')}
+        returning *
+      `,
+      values: [projectId, ...tasks.flatMap(task => REPLACE_FIELDS.map(field => task[field] ?? null))],
+    },
   };
 }
 
@@ -111,7 +116,7 @@ export function buildUpdateTask(id, fields) {
   return {
     text: `
       update tasks
-      set ${assignments.join(', ')}, updated_at = now()
+      set ${assignments.join(', ')}, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
       where id = $1 and archived_at is null
       returning *
     `,
@@ -124,23 +129,24 @@ export function buildReorderTasks(updates) {
     throw new Error('No task reorder updates provided');
   }
 
-  const rows = updates.map((_, index) => {
-    const offset = index * 3;
-    return `($${offset + 1}::uuid, $${offset + 2}::text, $${offset + 3}::integer)`;
-  });
-
+  // One set-based UPDATE ... FROM (SQLite 3.33+) over the updates decoded from
+  // a single JSON array parameter (the pg version used a VALUES CTE).
   return {
     text: `
       with updates(id, status, sort_order) as (
-        values ${rows.join(', ')}
+        select
+          json_extract(value, '$.id'),
+          json_extract(value, '$.status'),
+          json_extract(value, '$.sortOrder')
+        from json_each($1)
       )
       update tasks
-      set status = updates.status, sort_order = updates.sort_order, updated_at = now()
+      set status = updates.status, sort_order = updates.sort_order, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
       from updates
       where tasks.id = updates.id and archived_at is null
-      returning tasks.*
+      returning *
     `,
-    values: updates.flatMap(update => [update.id, update.status, update.sortOrder]),
+    values: [JSON.stringify(updates.map(({ id, status, sortOrder }) => ({ id, status, sortOrder })))],
   };
 }
 
@@ -148,7 +154,7 @@ export function buildRestoreTask(id) {
   return {
     text: `
       update tasks
-      set archived_at = null, updated_at = now()
+      set archived_at = null, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
       where id = $1 and archived_at is not null
       returning *
     `,
@@ -177,6 +183,21 @@ export function buildListTaskDocuments(taskId) {
       order by d.title
     `,
     values: [taskId],
+  };
+}
+
+// The inverse of buildListTaskDocuments: the non-archived tasks that link a
+// given document. Powers the editor's "Referenced by N tasks" backlinks.
+export function buildListTasksForDocument(documentId) {
+  return {
+    text: `
+      select t.id, t.title, t.priority, t.project_id
+      from task_documents td
+      join tasks t on t.id = td.task_id
+      where td.document_id = $1 and t.archived_at is null
+      order by t.title
+    `,
+    values: [documentId],
   };
 }
 
@@ -235,35 +256,47 @@ export function buildListTaskActivity(taskId) {
 }
 
 export function buildListTaskBoardExtras(taskIds) {
+  // The requested ids arrive as one JSON array parameter; json_each's key is
+  // the 0-based ordinal (replaces unnest ... with ordinality / = any(...)).
   return {
     text: `
-      with requested(task_id, position) as (
-        select * from unnest($1::uuid[]) with ordinality
+      with requested(position, task_id) as (
+        select key, value from json_each($1)
       ),
       docs as (
-        select td.task_id, count(*)::integer as docs_count
+        select td.task_id, count(*) as docs_count
         from task_documents td
         join markdown_documents d on d.id = td.document_id and d.archived_at is null
-        where td.task_id = any($1::uuid[])
+        where td.task_id in (select value from json_each($1))
         group by td.task_id
       ),
       checklist as (
         select
-          task_id,
-          count(*) filter (where completed)::integer as checklist_done,
-          count(*)::integer as checklist_total,
-          (array_agg(label order by sort_order, created_at) filter (where not completed))[1] as next_checklist_item
-        from task_checklist_items
-        where task_id = any($1::uuid[])
-        group by task_id
+          c.task_id,
+          count(*) filter (where c.completed = 1) as checklist_done,
+          count(*) as checklist_total,
+          (
+            select c2.label
+            from task_checklist_items c2
+            where c2.task_id = c.task_id and c2.completed = 0
+            order by c2.sort_order, c2.created_at
+            limit 1
+          ) as next_checklist_item
+        from task_checklist_items c
+        where c.task_id in (select value from json_each($1))
+        group by c.task_id
       ),
       activity as (
-        select distinct on (task_id)
-          task_id,
-          message as latest_activity
-        from task_activity
-        where task_id = any($1::uuid[])
-        order by task_id, created_at desc, id desc
+        select task_id, message as latest_activity
+        from (
+          select
+            task_id,
+            message,
+            row_number() over (partition by task_id order by created_at desc, id desc) as rn
+          from task_activity
+          where task_id in (select value from json_each($1))
+        )
+        where rn = 1
       )
       select
         requested.task_id,
@@ -278,7 +311,7 @@ export function buildListTaskBoardExtras(taskIds) {
       left join activity on activity.task_id = requested.task_id
       order by requested.position
     `,
-    values: [taskIds],
+    values: [JSON.stringify(taskIds)],
   };
 }
 
@@ -318,7 +351,9 @@ export function createTasksRepository(db) {
       }
       if (filters.q) {
         values.push(`%${filters.q}%`);
-        clauses.push(`(title ilike $${values.length} or description ilike $${values.length})`);
+        // SQLite LIKE is only case-insensitive for ASCII; lower() both sides
+        // to keep the pg ILIKE behaviour.
+        clauses.push(`(lower(title) like lower($${values.length}) or lower(description) like lower($${values.length}))`);
       }
 
       const where = clauses.length ? `where ${clauses.join(' and ')}` : '';
@@ -344,8 +379,23 @@ export function createTasksRepository(db) {
 
     async replaceProjectTasks(projectId, tasks) {
       const query = buildReplaceProjectTasks(projectId, tasks);
-      const result = await db.query(query.text, query.values);
-      return result.rows.map(normalizeTaskRow);
+      // Delete + insert must land together; run both on one session inside a
+      // transaction (SQLite cannot express the pg writable-CTE single statement).
+      const client = await db.connect();
+      try {
+        await client.query('begin immediate');
+        try {
+          await client.query(query.delete.text, query.delete.values);
+          const result = await client.query(query.insert.text, query.insert.values);
+          await client.query('commit');
+          return result.rows.map(normalizeTaskRow);
+        } catch (err) {
+          await client.query('rollback').catch(() => {});
+          throw err;
+        }
+      } finally {
+        client.release();
+      }
     },
 
     async updateTask(id, fields) {
@@ -363,7 +413,7 @@ export function createTasksRepository(db) {
     async archiveTask(id) {
       const result = await db.query(`
         update tasks
-        set archived_at = now(), updated_at = now()
+        set archived_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
         where id = $1 and archived_at is null
         returning *
       `, [id]);
@@ -389,6 +439,17 @@ export function createTasksRepository(db) {
         id: row.id,
         title: row.title,
         documentType: row.document_type,
+        projectId: row.project_id,
+      }));
+    },
+
+    async listTasksForDocument(documentId) {
+      const query = buildListTasksForDocument(documentId);
+      const result = await db.query(query.text, query.values);
+      return result.rows.map(row => ({
+        id: row.id,
+        title: row.title,
+        priority: row.priority,
         projectId: row.project_id,
       }));
     },

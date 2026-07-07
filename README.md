@@ -1,37 +1,48 @@
-# Moomora Console
+# Prax
 
-Moomora Console is a self-hosted console for tasks, runbooks, and Markdown notes, wrapped in a quiet, terminal-inspired UI. It pairs a project-scoped task queue and board with a full-text Markdown library — import, export, tags, and archive — all backed by PostgreSQL. An optional local MCP server exposes the same data to Claude Code, turning your tasks and notes into working context for AI-assisted work.
+Prax (by Moomora) is a local-first app for tasks, runbooks, and Markdown notes, wearing a calm, native-feeling desktop design. It pairs a project-scoped task list and board with a full-text Markdown library — import, export, tags, and archive — all backed by a single embedded SQLite file. An optional local MCP server exposes the same data to Claude Code, turning your tasks and notes into working context for AI-assisted work.
 
-Run it locally with Docker Compose or deploy it to Kubernetes (with CloudNativePG for PostgreSQL), or try it instantly with the in-memory demo server.
+Run it with plain Node (zero external dependencies — the database is an embedded file), with Docker Compose, or on Kubernetes; or try it instantly with the in-memory demo server.
+
+## Install
+
+**Desktop (recommended):** download the installer for your platform from the
+GitHub Releases page — `.dmg` (macOS), `.msi`/`.exe` (Windows), `.deb`/
+`.AppImage` (Linux). Zero external dependencies: the database is an embedded
+file, created on first launch. Building from source:
+[docs/desktop/BUILD.md](docs/desktop/BUILD.md).
+
+**Web server:** run it with plain Node or Docker Compose — see
+[Local Install](#local-install) below.
 
 ## What It Does
 
-- Organises work into user-creatable **Projects** (active / on-hold / completed / archived) that group both tasks and documents, with an "All projects" cross-project view, a project manager, and a separate archive dialog.
+- Organises work into user-creatable **Projects** (active / on-hold / completed / archived) that group both tasks and documents, with an **All projects** overview and a cross-project **Today** view of everything due or slipping.
 - Tracks tasks across Tasks, Board, Backlog, and Archive views, with create, edit, archive, restore, permanent delete, and drag/drop board reordering.
 - Surfaces at-a-glance board signals: a priority dot, overdue / due-soon date flags, and a project chip on each card in the All-projects view.
 - Links tasks to library runbooks and notes, so operational work points at the documents that support it.
 - Provides a Markdown Library with runbooks, notes, `.md` import, tags, saved tag views, type/sort/group controls, and full-text search.
 - Includes an Obsidian-style editor workspace with edit, preview, split, focus mode, live preview updates, CodeMirror editing, and Markdown helper buttons.
-- Adapts across desktop, tablet, and mobile, with browser-local appearance preferences (Console, Graphite, Daylight, and Midnight palettes plus a font-scale control) and keyboard shortcuts.
-- Offers an Admin panel for backup and JSON task import/export with append, skip duplicates, and replace-project modes.
+- Ships light ("Porcelain") and dark ("Deep Fern") themes with four accent colours and a reading-size control; fully keyboard-driven — **⌘K command palette**, **quick capture (N)**, list navigation, and undo toasts.
+- Backs up and restores through Settings: JSON task import/export (append / skip duplicates / replace-project modes) and Markdown library export.
 - Exposes the API to Claude Code through an optional local MCP server for interactive, subscription-backed task and document workflows.
-- Runs locally via Docker Compose or deploys to Kubernetes, backed by CloudNativePG/PostgreSQL.
+- Runs locally with plain Node or Docker Compose, or deploys to Kubernetes — the embedded SQLite database needs no separate server.
 
 ## Screenshots
 
-![Tasks queue across all projects](docs/images/moomora-tasks.png)
+![Task list with due-date groups, priority dots, and signals](docs/images/prax-tasks.png)
 
-![Board with priority dots, due-date flags, and project chips](docs/images/moomora-board.png)
+![Kanban board with drag-and-drop columns and card signals](docs/images/prax-board.png)
 
-![Markdown library with tags and saved views](docs/images/moomora-library.png)
+![Markdown library with tags and trust chips](docs/images/prax-library.png)
 
-![Appearance preferences with the four colour palettes](docs/images/moomora-settings.png)
+![Settings in the dark Deep Fern theme](docs/images/prax-settings.png)
 
 ## Stack
 
 - Node.js
 - Fastify
-- PostgreSQL via `pg`
+- Embedded SQLite via `node:sqlite` (no native modules, no database server)
 - Static frontend with plain JavaScript modules
 - CodeMirror for Markdown editing
 - Example Kubernetes manifests under `deploy/` (Kustomize base + overlays)
@@ -40,15 +51,14 @@ Run it locally with Docker Compose or deploy it to Kubernetes (with CloudNativeP
 
 - Node.js 20 or newer
 - npm
-- PostgreSQL only if you want persistent local data
 
 ## Local Install
 
 Clone the repo:
 
 ```bash
-git clone git@github.com:awaybreaktoday/moomora-console.git
-cd moomora-console
+git clone git@github.com:awaybreaktoday/prax.git
+cd prax
 ```
 
 Install dependencies:
@@ -73,31 +83,23 @@ Demo mode is for local UI testing. Data resets when the process restarts.
 
 ## Local Persistent Install
 
-Use Docker Compose when you want the app and PostgreSQL together with a persistent local database:
+Use Docker Compose when you want the app containerised with a persistent data volume:
 
 ```bash
 docker compose up --build
 ```
 
-Open:
+then open http://localhost:3100. Compose provides:
 
-```text
-http://127.0.0.1:3100/
-```
+- `app`: the Prax server on host port `3100`
+- `prax-data`: named volume holding `prax.db` (plus its WAL files)
 
-The compose stack starts:
-
-- `app`: Moomora Console on host port `3100`
-- `postgres`: PostgreSQL 18 on host port `54320`
-- `postgres-data`: named volume for database persistence
-
-The app applies database migrations automatically on startup, so a fresh Postgres volume is initialised on first run. To reset local data:
+The app applies database migrations automatically on startup, so a fresh volume is
+initialised on first run. To reset local data:
 
 ```bash
 docker compose down -v
 ```
-
-PostgreSQL 18 uses the official image's version-aware data directory layout. If you previously ran this project with the older PostgreSQL 17 Compose volume, reset local development data with `docker compose down -v` before starting the PostgreSQL 18 stack, or migrate the database with a dump/restore flow.
 
 ## Run The Published Image
 
@@ -110,42 +112,40 @@ docker compose -f compose.yaml -f compose.image.yaml up
 The image override uses:
 
 ```text
-ghcr.io/awaybreaktoday/moomora-console:v0.20.0
+ghcr.io/awaybreaktoday/prax:v0.20.0
 ```
 
 Use source-build Compose for development, and use the published image path when you want to test the same artifact Kubernetes will run.
 
-## Run With PostgreSQL
+## Run With Persistence
 
-Set `DATABASE_URL` in your shell:
-
-```bash
-export DATABASE_URL="postgresql://user:password@host:5432/database"
-```
-
-The app applies migrations automatically on startup. To apply them explicitly (e.g. before first boot or from CI):
+Prax stores everything in one SQLite file. Choose where it lives (defaults to
+`./prax.db` in the working directory):
 
 ```bash
-DATABASE_URL="postgresql://user:password@host:5432/database" npm run migrate
+export PRAX_DB_FILE="$HOME/.local/share/prax/prax.db"
 ```
 
-Start the production-style server:
+Migrations run automatically on startup; run them manually with:
 
 ```bash
-npm start
+PRAX_DB_FILE="$HOME/.local/share/prax/prax.db" npm run migrate
 ```
 
-By default the app listens on `0.0.0.0:3000`. Override with:
+Start the server:
 
 ```bash
-HOST=127.0.0.1 PORT=3100 DATABASE_URL="postgresql://user:password@host:5432/database" npm start
+HOST=127.0.0.1 PORT=3100 PRAX_DB_FILE="$HOME/.local/share/prax/prax.db" npm start
 ```
+
+Back up by copying the database file (plus `-wal`/`-shm` siblings) or using the
+JSON/Markdown exports in Settings — see [docs/backup-restore.md](docs/backup-restore.md).
 
 ## Semantic Search (optional)
 
 Semantic (embedding-based) library search is **off by default** and configured entirely via
 environment variables (never the UI — the web UI exposes only a read-only status and an on/off
-toggle). It requires PostgreSQL with the `pgvector` extension.
+toggle). Vector-backed semantic search is temporarily unavailable on the embedded database — it returns with the `sqlite-vec` follow-up; keyword full-text search (FTS5) covers the library meanwhile.
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
@@ -176,29 +176,29 @@ npm run build:codemirror
 ```
 
 - `npm run demo` starts the in-memory local demo server.
-- `npm start` starts the PostgreSQL-backed server.
+- `npm start` starts the SQLite-backed server.
 - `npm test` runs backend and frontend unit tests.
 - `npm run check` syntax-checks key server and browser entry points.
 - `npm run migrate` applies pending database migrations.
 - `npm run build:codemirror` rebuilds the bundled CodeMirror editor asset.
 
-An optional local MCP server lives in `mcp/` — it exposes the Moomora API to Claude Code so
+An optional local MCP server lives in `mcp/` — it exposes the Prax API to Claude Code so
 you can query and edit tasks and documents interactively on a Claude subscription. See
 [mcp/README.md](mcp/README.md).
 
 ## Shared Memory CLI
 
-The `moomora` CLI lets any shell-capable AI tool or human pull a bounded, trust-aware context
+The `prax` CLI lets any shell-capable AI tool or human pull a bounded, trust-aware context
 pack from project memory, search and read documents, write new memory, and verify or supersede
-it. `npm link` in the repo gives a global `moomora` command. See [docs/cli.md](docs/cli.md)
+it. `npm link` in the repo gives a global `prax` command. See [docs/cli.md](docs/cli.md)
 for the full guide.
 
 ```bash
-moomora context "how do we restore postgres"
+prax context "how do we restore postgres"
 ```
 
 Documents written by agents (via the CLI or MCP) are **unverified** by default. A human runs
-`moomora verify <id>` to bless them. Retrieval is active-only and keeps unverified memory in a
+`prax verify <id>` to bless them. Retrieval is active-only and keeps unverified memory in a
 clearly-labelled section so AI tools can see it while treating it with appropriate caution.
 
 ## Backup & Restore
@@ -207,7 +207,7 @@ See [docs/backup-restore.md](docs/backup-restore.md) for backup, restore, and up
 
 ## Import And Export
 
-Task backups use the current Moomora format:
+Task backups use the current Prax format:
 
 ```json
 {
@@ -224,12 +224,12 @@ Import modes:
 - `append`: imports everything as new tasks.
 - `replace`: clears the selected project and imports the file after confirmation.
 
-Legacy TaskBoard export envelopes are not supported. This project is treated as a greenfield Moomora Console app.
+Legacy TaskBoard export envelopes are not supported. This project is treated as a greenfield Prax app.
 
 ## Data Formats
 
 The export/import formats (`moomora.tasks` task backups and library `.md` front-matter) and the
-MCP tool surface are documented in [docs/contract.md](docs/contract.md). Moomora Console is
+MCP tool surface are documented in [docs/contract.md](docs/contract.md). Prax is
 pre-1.0 and these shapes are still evolving; a regression-test suite under `tests/contract/`
 locks the current shapes so changes are made deliberately rather than by accident. The HTTP API
 is internal and may change between releases — for durable integration prefer the export formats
@@ -248,14 +248,12 @@ deploy/overlays/{dev,staging,prod}/   # per-env image tag + hostname
 These are **sanitized example manifests** — the hostnames (`*.example.com`), the Ollama endpoint,
 and the gateway are placeholders to adapt to your own cluster (the maintainer's live config is kept
 in a separate private GitOps repo). A GitOps tool such as Argo CD renders `deploy/overlays/<env>`
-into a namespace like `moomora-console-<env>`; no manifest hard-codes a namespace.
+into a namespace like `prax-<env>`; no manifest hard-codes a namespace.
 
-Each environment provisions its own CloudNativePG `Cluster` (`moomora-console-db`) running the
-stock PostgreSQL 18 operand image with `pgvector` mounted from the public
-`ghcr.io/cloudnative-pg/pgvector` image as an ImageVolume extension. CNPG generates the
-`moomora-console-db-app` secret; the app reads its `uri` key as `DATABASE_URL`. Semantic search is enabled through the
-ConfigMap (`EMBEDDING_BACKEND=ollama`, `OLLAMA_URL`, `EMBEDDING_MODEL`), and the app is exposed via a
-Gateway API `HTTPRoute` attached to the cluster's external gateway.
+Each environment provisions a `PersistentVolumeClaim` (`prax-data`) that holds the embedded
+SQLite database at `/data/prax.db` (`PRAX_DB_FILE`); the Deployment uses a `Recreate` strategy
+and a single replica because SQLite is single-writer. The app is exposed via a Gateway API
+`HTTPRoute` attached to the cluster's external gateway.
 
 Render any environment locally (no cluster needed):
 
@@ -264,12 +262,12 @@ kubectl kustomize deploy/overlays/dev
 ```
 
 See [docs/deployment.md](docs/deployment.md) for the full notes, including the cluster-side
-prerequisites (Gateway `allowedRoutes`/TLS, DNS, Ollama reachability).
+prerequisites (a default StorageClass, Gateway `allowedRoutes`/TLS, DNS).
 
 ## Health Checks
 
 - `GET /healthz` confirms the Node process is alive.
-- `GET /readyz` confirms database connectivity when running with PostgreSQL.
+- `GET /readyz` confirms the embedded database answers queries.
 
 ## Project Direction
 
@@ -298,5 +296,5 @@ MIT. See [LICENSE](LICENSE).
 GitHub:
 
 ```text
-https://github.com/awaybreaktoday/moomora-console
+https://github.com/awaybreaktoday/prax
 ```

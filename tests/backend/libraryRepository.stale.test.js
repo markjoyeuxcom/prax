@@ -32,12 +32,12 @@ test('normalizeDocumentRow exposes stale=false when column false', () => {
   assert.equal(normalizeDocumentRow(row).stale, false);
 });
 
-test('listDocuments query contains the stale lateral join', async () => {
+test('listDocuments query computes stale via an EXISTS subquery', async () => {
   let captured;
   const db = { query: async (text, values) => { captured = { text, values }; return { rows: [] }; } };
   await createLibraryRepository(db).listDocuments({});
-  assert.match(captured.text, /left join lateral/i);
+  assert.match(captured.text, /exists \(/i);
   assert.match(captured.text, /relation = 'derived-from'/);
   assert.match(captured.text, /tgt\.content_hash is distinct from dl\.target_hash/);
-  assert.match(captured.text, /coalesce\(s\.is_stale, false\) as stale/);
+  assert.match(captured.text, /\) as stale/);
 });

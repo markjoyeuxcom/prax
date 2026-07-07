@@ -1,9 +1,9 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: moomora-console
+  name: prax
   labels:
-    app.kubernetes.io/name: moomora-console
+    app.kubernetes.io/name: prax
   annotations:
     argocd.argoproj.io/sync-wave: "1"
 spec:
@@ -12,11 +12,11 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      app.kubernetes.io/name: moomora-console
+      app.kubernetes.io/name: prax
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: moomora-console
+        app.kubernetes.io/name: prax
     spec:
       securityContext:
         runAsNonRoot: true
@@ -26,9 +26,12 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: data
+          persistentVolumeClaim:
+            claimName: prax-data
       containers:
-        - name: moomora-console
-          image: ghcr.io/awaybreaktoday/moomora-console:v0.15.0
+        - name: prax
+          image: ghcr.io/awaybreaktoday/prax:v0.15.0
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
@@ -38,13 +41,10 @@ spec:
                 - ALL
           envFrom:
             - configMapRef:
-                name: moomora-console-config
+                name: prax-config
           env:
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: moomora-console-db-app
-                  key: uri
+            - name: PRAX_DB_FILE
+              value: /data/prax.db
           ports:
             - containerPort: 3000
               name: http
@@ -67,6 +67,8 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: data
+              mountPath: /data
           resources:
             requests:
               cpu: 50m

@@ -20,7 +20,20 @@ function fakes() {
   };
 }
 
-test('POST document stamps updatedBy=agent from x-moomora-origin header', async () => {
+test('POST document stamps updatedBy=agent from x-prax-origin header', async () => {
+  const f = fakes();
+  const app = await buildApp(f);
+  const res = await app.inject({
+    method: 'POST', url: '/api/library/documents',
+    headers: { 'x-prax-origin': 'agent' },
+    payload: { title: 'T', body: 'b', documentType: 'note', project: 'homelab' },
+  });
+  assert.equal(res.statusCode, 201);
+  assert.equal(f._seen().updatedBy, 'agent');
+  await app.close();
+});
+
+test('POST document still stamps updatedBy=agent from the legacy x-moomora-origin header', async () => {
   const f = fakes();
   const app = await buildApp(f);
   const res = await app.inject({
@@ -49,7 +62,7 @@ test('PATCH document threads updatedBy from the header', async () => {
   const app = await buildApp(f);
   await app.inject({
     method: 'PATCH', url: `/api/library/documents/${DOC_ID}`,
-    headers: { 'x-moomora-origin': 'agent' },
+    headers: { 'x-prax-origin': 'agent' },
     payload: { title: 'renamed' },
   });
   assert.equal(f._seen().updatedBy, 'agent');

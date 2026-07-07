@@ -47,7 +47,7 @@ export function buildUpdateProject(id, fields) {
   return {
     text: `
       update projects
-      set ${assignments.join(', ')}, updated_at = now()
+      set ${assignments.join(', ')}, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
       where id = $1
       returning *
     `,
@@ -57,7 +57,7 @@ export function buildUpdateProject(id, fields) {
 
 export function buildArchiveProject(id) {
   return {
-    text: `update projects set status = 'archived', updated_at = now() where id = $1 returning *`,
+    text: `update projects set status = 'archived', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') where id = $1 returning *`,
     values: [id],
   };
 }
@@ -68,7 +68,7 @@ export function buildCountProjectDependents(id) {
       select (
         (select count(*) from tasks where project_id = $1)
         + (select count(*) from markdown_documents where project_id = $1)
-      )::int as count
+      ) as count
     `,
     values: [id],
   };
@@ -79,6 +79,15 @@ export function buildDeleteProject(id) {
     text: `delete from projects where id = $1 returning *`,
     values: [id],
   };
+}
+
+// pg surfaced unique violations as code 23505; node:sqlite raises
+// SQLITE_CONSTRAINT_UNIQUE with a descriptive message.
+function isUniqueViolation(err) {
+  if (!err) return false;
+  if (err.code === '23505') return true;
+  if (err.errcode === 2067 /* SQLITE_CONSTRAINT_UNIQUE */) return true;
+  return /UNIQUE constraint failed/i.test(err.message || '');
 }
 
 function isUuid(value) {
@@ -103,7 +112,7 @@ export function createProjectsRepository(db) {
           const result = await db.query(q.text, q.values);
           return normalizeProjectRow(result.rows[0]);
         } catch (err) {
-          if (err && err.code === '23505' && attempt < 4) continue;
+          if (isUniqueViolation(err) && attempt < 4) continue;
           throw err;
         }
       }

@@ -17,7 +17,7 @@ test('request maps a network failure to a friendly not-reachable error', async (
   const client = createClient({ baseUrl: 'http://x' });
   await assert.rejects(
     client.getDocument('d1'),
-    /Moomora not reachable at http:\/\/x — is the app running\? \(fetch failed\)/,
+    /Prax not reachable at http:\/\/x — is the app running\? \(fetch failed\)/,
   );
 });
 

@@ -12,7 +12,7 @@ export function createTaskTools(client) {
       name: 'search_tasks',
       title: 'Search tasks',
       description:
-        'Search active Moomora tasks. Returns summaries (id, title, status, priority, projectId, dueDate). Call get_task for the full record.',
+        'Search active Prax tasks. Returns summaries (id, title, status, priority, projectId, dueDate). Call get_task for the full record.',
       annotations: { readOnlyHint: true },
       inputSchema: {
         query: z.string().optional().describe('Text matched against task title.'),

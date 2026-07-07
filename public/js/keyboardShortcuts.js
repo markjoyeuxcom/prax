@@ -1,9 +1,18 @@
 // Pure: given a keydown-like descriptor and the pending chord prefix,
 // return { action, view, pending } where action/view may be null and
 // pending is the next chord-prefix state ('' or 'g').
-export function matchShortcut({ key, hasModifier }, pending = '') {
-  // Modifiers (cmd/ctrl/alt) never trigger app shortcuts.
-  if (hasModifier) return { action: null, view: null, pending: '' };
+//
+// The Prax keymap: ⌘K palette · ⌘J theme · N capture · E done · ↑↓/↵ list
+// navigation · Esc close-cascade · '/' also opens the palette · plus the
+// legacy g-chord view navigation (g t/b/k/a/l).
+export function matchShortcut({ key, metaOrCtrl = false, alt = false }, pending = '') {
+  if (metaOrCtrl) {
+    const k = String(key || '').toLowerCase();
+    if (k === 'k') return { action: 'palette', view: null, pending: '' };
+    if (k === 'j') return { action: 'theme', view: null, pending: '' };
+    return { action: null, view: null, pending: '' };
+  }
+  if (alt) return { action: null, view: null, pending: '' };
 
   // Chord: 'g' then a view letter.
   if (pending === 'g') {
@@ -13,16 +22,18 @@ export function matchShortcut({ key, hasModifier }, pending = '') {
   if (key === 'g') return { action: null, view: null, pending: 'g' };
 
   const actions = {
-    '/': 'focus-search',
-    n: 'new',
-    e: 'edit',
-    d: 'archive',
+    '/': 'palette',
+    n: 'capture',
+    e: 'toggle-done',
     Escape: 'escape',
+    ArrowDown: 'nav-down',
+    ArrowUp: 'nav-up',
+    Enter: 'open-selected',
   };
   return { action: actions[key] || null, view: null, pending: '' };
 }
 
-export function installKeyboardShortcuts({ getState, handlers }) {
+export function installKeyboardShortcuts({ handlers }) {
   let pending = '';
   let pendingTimer = null;
 
@@ -44,12 +55,13 @@ export function installKeyboardShortcuts({ getState, handlers }) {
   }
 
   document.addEventListener('keydown', (event) => {
-    // Escape always allowed (to close things / blur), even from inputs.
+    const metaOrCtrl = event.metaKey || event.ctrlKey;
+    // ⌘K/⌘J work everywhere, Escape works everywhere; other shortcuts are
+    // suppressed while typing.
     const typing = isTypingTarget(event.target);
-    if (typing && event.key !== 'Escape') return;
+    if (typing && event.key !== 'Escape' && !metaOrCtrl) return;
 
-    const hasModifier = event.metaKey || event.ctrlKey || event.altKey;
-    const result = matchShortcut({ key: event.key, hasModifier }, pending);
+    const result = matchShortcut({ key: event.key, metaOrCtrl, alt: event.altKey }, pending);
 
     if (result.pending === 'g') {
       pending = 'g';
@@ -60,13 +72,18 @@ export function installKeyboardShortcuts({ getState, handlers }) {
     clearPending();
 
     if (result.view) { event.preventDefault(); handlers.switchView(result.view); return; }
+    if (!result.action) return;
 
+    if (result.action === 'escape') { handlers.escape(); return; }
+    event.preventDefault();
     switch (result.action) {
-      case 'focus-search': event.preventDefault(); handlers.focusSearch(); break;
-      case 'new': event.preventDefault(); handlers.newItem(); break;
-      case 'edit': event.preventDefault(); handlers.editSelected(); break;
-      case 'archive': event.preventDefault(); handlers.archiveSelected(); break;
-      case 'escape': handlers.escape(); break;
+      case 'palette': handlers.openPalette(); break;
+      case 'theme': handlers.toggleTheme(); break;
+      case 'capture': handlers.openCapture(); break;
+      case 'toggle-done': handlers.toggleDoneSelected(); break;
+      case 'nav-down': handlers.navigate(1); break;
+      case 'nav-up': handlers.navigate(-1); break;
+      case 'open-selected': handlers.openSelected(); break;
       default: break;
     }
   });

@@ -1,6 +1,6 @@
-# Moomora Desktop — Planning Docs
+# Prax Desktop — Planning Docs
 
-Planning material for turning Moomora Console (today a self-hosted web app) into a
+Planning material for turning Prax (today a self-hosted web app) into a
 local, double-click-to-run desktop app for macOS and Windows with a modern, non-console UI.
 
 ## Decisions so far

@@ -3,10 +3,10 @@ const TASK_EXPORT_FORMAT = 'moomora.tasks';
 export function tasksFromImportPayload(payload) {
   if (Array.isArray(payload)) return payload;
   if (payload?.format !== undefined && payload.format !== TASK_EXPORT_FORMAT) {
-    throw new Error('Moomora Console import file format is not supported');
+    throw new Error('Prax import file format is not supported');
   }
   if (payload && Array.isArray(payload.tasks)) return payload.tasks;
-  throw new Error('Moomora Console import file must contain a tasks array');
+  throw new Error('Prax import file must contain a tasks array');
 }
 
 export function normalizeImportMode(value) {
@@ -44,5 +44,5 @@ export function exportFilename(context, date = new Date()) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '') || 'tasks';
   const day = date.toISOString().slice(0, 10);
-  return `moomora-console-${safeContext}-${day}.json`;
+  return `prax-${safeContext}-${day}.json`;
 }

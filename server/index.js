@@ -10,13 +10,13 @@ import { registerChecklistRoutes } from './checklistRoutes.js';
 import { createLibraryRepository } from './libraryRepository.js';
 import { createAppSettingsRepository } from './appSettingsRepository.js';
 import { createEmbedder } from './embedder/index.js';
-import { createEmbeddingService } from './embeddingService.js';
+import { createEmbedderProvider } from './embedderProvider.js';
 import { registerSettingsRoutes } from './settingsRoutes.js';
 
 export async function buildApp(options = {}) {
   const config = options.config || loadConfig();
   const app = Fastify({ logger: options.logger || false });
-  const db = options.db || (options.skipDb ? null : createDb(config.databaseUrl));
+  const db = options.db || (options.skipDb ? null : createDb(config.databaseFile));
 
   if (db && !options.skipDb && !options.db) {
     await runMigrations(db, { logger: app.log });
@@ -25,7 +25,13 @@ export async function buildApp(options = {}) {
   const libraryRepository = options.libraryRepository || (db ? createLibraryRepository(db) : null);
   const embedder = options.embedder ?? createEmbedder(config);
   const appSettingsRepository = options.appSettingsRepository || (db ? createAppSettingsRepository(db) : null);
-  const embeddingService = options.embeddingService ?? (embedder && libraryRepository ? createEmbeddingService({ repository: libraryRepository, embedder }) : null);
+  // Runtime provider config (app_settings) with env config as the defaults.
+  // Routes resolve their embedder through this per request; an embedder
+  // injected via options still wins inside the routes (test compatibility).
+  const embedderProvider = options.embedderProvider ?? createEmbedderProvider({ appSettingsRepository, config });
+  // The embedding service is built per use by the routes so it always binds
+  // the currently configured embedder; injected services are honoured as-is.
+  const embeddingService = options.embeddingService ?? null;
 
   app.decorate('db', db);
 
@@ -47,6 +53,7 @@ export async function buildApp(options = {}) {
   app.decorate('checklistRepository', options.checklistRepository || null);
   app.decorate('documentLinksRepository', options.documentLinksRepository || null);
   app.decorate('embedder', embedder);
+  app.decorate('embedderProvider', embedderProvider);
   app.decorate('appSettingsRepository', appSettingsRepository);
   app.decorate('embeddingService', embeddingService);
   app.decorate('embeddingSearch', {
@@ -57,7 +64,7 @@ export async function buildApp(options = {}) {
   await registerLibraryRoutes(app, options);
   await registerProjectsRoutes(app, options);
   await registerChecklistRoutes(app, options);
-  await registerSettingsRoutes(app, { appSettingsRepository, embedder, libraryRepository });
+  await registerSettingsRoutes(app, { appSettingsRepository, embedder: options.embedder, embedderProvider, libraryRepository });
 
   await app.register(fastifyStatic, {
     root: config.publicDir,
@@ -75,4 +82,17 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const config = loadConfig();
   const app = await buildApp({ config, logger: true });
   await app.listen({ host: config.host, port: config.port });
+
+  // Graceful shutdown: close Fastify (which closes the embedded database via
+  // the onClose hook) before exiting. The desktop wrapper and orchestrators
+  // send SIGTERM; Ctrl-C sends SIGINT.
+  for (const signal of ['SIGTERM', 'SIGINT']) {
+    process.once(signal, async () => {
+      try {
+        await app.close();
+      } finally {
+        process.exit(0);
+      }
+    });
+  }
 }

@@ -7,6 +7,12 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+// Set per-render by renderMarkdownHtml: (title) => { id, title } | null. Lets
+// renderInline (called deep in the parse) resolve [[wiki-links]] without
+// threading the document list through every call. Safe because rendering is
+// synchronous and single-threaded.
+let wikiResolver = null;
+
 function renderInline(value) {
   const codeSpans = [];
   let text = String(value ?? '').replace(/`([^`]+)`/g, (_match, code) => {
@@ -15,12 +21,44 @@ function renderInline(value) {
     return token;
   });
 
+  // Wiki-links [[Title]] are resolved on the RAW text (before escapeHtml) so
+  // the resolver sees the true title — titles with & ' \" < > would otherwise
+  // never match. The rendered HTML is protected by a token like code spans,
+  // and its display title / attributes are escaped explicitly.
+  const wikiSpans = [];
+  text = text.replace(/\[\[([^\]\n]+)\]\]/g, (_match, rawTitle) => {
+    const title = rawTitle.trim();
+    const doc = wikiResolver ? wikiResolver(title) : null;
+    const token = `\u0000WIKI${wikiSpans.length}\u0000`;
+    if (doc) {
+      wikiSpans.push(`<a class="wikilink" data-action="open-doc" data-document-id="${escapeHtml(doc.id)}" title="Open ${escapeHtml(doc.title || title)}">${escapeHtml(title)}</a>`);
+    } else {
+      wikiSpans.push(`<span class="wikilink wikilink--missing" title="No document named this yet">${escapeHtml(title)}</span>`);
+    }
+    return token;
+  });
+
   text = escapeHtml(text);
+  // Images ![alt](src) — before links, so the link rule doesn't eat the [..](..)
+  // and strand the leading "!". src is restricted to http(s)/relative (no
+  // javascript:) and alt is already escaped by escapeHtml above.
+  text = text.replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+|\/[^)\s]+)\)/g, '<img src="$2" alt="$1" loading="lazy">');
   text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+|\/[^)\s]+|#[^)\s]+)\)/g, '<a href="$2" rel="noreferrer">$1</a>');
   text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   text = text.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
+  // Underscore emphasis, with word-boundary guards so snake_case identifiers and
+  // file/paths with underscores are never turned into emphasis. Double first.
+  text = text.replace(/(^|[^\w])__(\S(?:[^_]*\S)?)__(?=[^\w]|$)/g, '$1<strong>$2</strong>');
+  text = text.replace(/(^|[^\w])_(\S(?:[^_]*\S)?)_(?=[^\w]|$)/g, '$1<em>$2</em>');
+  text = text.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+  // Function replacers: a string replacement arg would treat `$&`, `` $` ``,
+  // `$'`, `$$` in the HTML (reachable from user content with `$`) as
+  // replacement patterns and corrupt output; a function inserts it verbatim.
   codeSpans.forEach((code, index) => {
-    text = text.replace(`\u0000CODE${index}\u0000`, code);
+    text = text.replace(`\u0000CODE${index}\u0000`, () => code);
+  });
+  wikiSpans.forEach((wiki, index) => {
+    text = text.replace(`\u0000WIKI${index}\u0000`, () => wiki);
   });
   return text;
 }
@@ -31,16 +69,59 @@ function flushParagraph(output, paragraph) {
   paragraph.length = 0;
 }
 
+function renderListItem(item, childHtml) {
+  if (item.type === 'task') {
+    // Task items are clickable in Prax: main.js listens on [data-md-check]
+    // and rewrites `- [ ]`/`- [x]` at data-line in the markdown source.
+    return `<li class="task-item${item.checked ? ' is-done' : ''}" data-md-check data-line="${item.line}" title="Click to toggle">`
+      + `<span class="task-item__box">${item.checked ? '✓' : ''}</span> `
+      + `<span class="task-item__label">${renderInline(item.text)}</span>${childHtml}</li>`;
+  }
+  return `<li>${renderInline(item.text)}${childHtml}</li>`;
+}
+
+// Turn each item's raw indent into a nesting depth (0,1,2,…). Depth only ever
+// increments by one at a time (indent runs through a stack), so the builder
+// below can nest safely without infinite loops on inconsistent indentation.
+function assignListLevels(items) {
+  const indents = [];
+  return items.map((item) => {
+    while (indents.length && item.indent < indents[indents.length - 1]) indents.pop();
+    if (!indents.length || item.indent > indents[indents.length - 1]) indents.push(item.indent);
+    return { ...item, level: indents.length - 1 };
+  });
+}
+
+// Build nested <ul>/<ol> from level-annotated items. A run of same-kind items at
+// one level is one list; deeper items nest inside the preceding <li>; a change
+// of ordered/unordered kind at the same level starts a sibling list. Returns
+// [html, nextIndex].
+function buildListTree(items, start, level) {
+  let html = '';
+  let i = start;
+  while (i < items.length && items[i].level >= level) {
+    const ordered = items[i].type === 'ordered';
+    const tag = ordered ? 'ol' : 'ul';
+    let lis = '';
+    while (i < items.length && items[i].level === level && (items[i].type === 'ordered') === ordered) {
+      const item = items[i];
+      i += 1;
+      let childHtml = '';
+      if (i < items.length && items[i].level > level) {
+        const [nested, next] = buildListTree(items, i, level + 1);
+        childHtml = nested;
+        i = next;
+      }
+      lis += renderListItem(item, childHtml);
+    }
+    html += `<${tag}>${lis}</${tag}>`;
+  }
+  return [html, i];
+}
+
 function flushList(output, listItems) {
   if (!listItems.length) return;
-  const type = listItems[0].type;
-  const tag = type === 'ordered' ? 'ol' : 'ul';
-  output.push(`<${tag}>${listItems.map((item) => {
-    if (item.type === 'task') {
-      return `<li><input type="checkbox" disabled${item.checked ? ' checked' : ''}> ${renderInline(item.text)}</li>`;
-    }
-    return `<li>${renderInline(item.text)}</li>`;
-  }).join('')}</${tag}>`);
+  output.push(buildListTree(assignListLevels(listItems), 0, 0)[0]);
   listItems.length = 0;
 }
 
@@ -61,7 +142,16 @@ function flushTable(output, tableRows) {
   return true;
 }
 
-export function renderMarkdownHtml(markdown = '') {
+export function renderMarkdownHtml(markdown = '', options = {}) {
+  wikiResolver = typeof options.resolveWikiLink === 'function' ? options.resolveWikiLink : null;
+  try {
+    return renderMarkdownBody(markdown);
+  } finally {
+    wikiResolver = null;
+  }
+}
+
+function renderMarkdownBody(markdown) {
   const lines = String(markdown || '').split(/\r?\n/);
   const output = [];
   const paragraph = [];
@@ -70,7 +160,7 @@ export function renderMarkdownHtml(markdown = '') {
   let codeLines = null;
   let codeLanguage = '';
 
-  lines.forEach((line) => {
+  lines.forEach((line, lineIndex) => {
     if (line.trim().startsWith('```')) {
       if (codeLines) {
         flushParagraph(output, paragraph);
@@ -96,6 +186,8 @@ export function renderMarkdownHtml(markdown = '') {
     }
 
     const trimmed = line.trim();
+    // Leading-whitespace width (tabs → 4) drives list nesting depth.
+    const indent = line.slice(0, line.length - line.trimStart().length).replace(/\t/g, '    ').length;
     if (!trimmed) {
       flushParagraph(output, paragraph);
       flushList(output, listItems);
@@ -146,21 +238,21 @@ export function renderMarkdownHtml(markdown = '') {
     const taskItem = /^[-*]\s+\[([ xX])\]\s+(.+)$/.exec(trimmed);
     if (taskItem) {
       flushParagraph(output, paragraph);
-      listItems.push({ type: 'task', checked: taskItem[1].toLowerCase() === 'x', text: taskItem[2] });
+      listItems.push({ type: 'task', checked: taskItem[1].toLowerCase() === 'x', text: taskItem[2], line: lineIndex, indent });
       return;
     }
 
     const orderedItem = /^\d+\.\s+(.+)$/.exec(trimmed);
     if (orderedItem) {
       flushParagraph(output, paragraph);
-      listItems.push({ type: 'ordered', text: orderedItem[1] });
+      listItems.push({ type: 'ordered', text: orderedItem[1], indent });
       return;
     }
 
-    const listItem = /^[-*]\s+(.+)$/.exec(trimmed);
+    const listItem = /^[-*+]\s+(.+)$/.exec(trimmed);
     if (listItem) {
       flushParagraph(output, paragraph);
-      listItems.push({ type: 'unordered', text: listItem[1] });
+      listItems.push({ type: 'unordered', text: listItem[1], indent });
       return;
     }
 

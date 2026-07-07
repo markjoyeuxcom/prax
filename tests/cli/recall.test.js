@@ -43,7 +43,7 @@ test('recall falls back to keyword search on a 409 (semantic disabled)', async (
 });
 
 test('recall rethrows non-409 errors (e.g. not reachable)', async () => {
-  const client = fakeClient({ semanticSearch: async () => { throw new Error('Moomora not reachable at http://x'); } });
+  const client = fakeClient({ semanticSearch: async () => { throw new Error('Prax not reachable at http://x'); } });
   await assert.rejects(recall(client, { query: 'x' }), /not reachable/);
 });
 

@@ -11,7 +11,10 @@ export function loadConfig(env = process.env) {
   return {
     host: env.HOST || '0.0.0.0',
     port: Number(env.PORT || 3000),
-    databaseUrl: env.DATABASE_URL || '',
+    // Embedded SQLite file. PRAX_DB_FILE is canonical; DATABASE_URL is still
+    // read as a plain file path so pre-rename setups keep working. The
+    // desktop wrapper points this at the OS app-data directory.
+    databaseFile: env.PRAX_DB_FILE || env.DATABASE_URL || 'prax.db',
     publicDir: env.PUBLIC_DIR || new URL('../public', import.meta.url).pathname,
     embeddingBackend: env.EMBEDDING_BACKEND || 'none',
     embeddingModel: env.EMBEDDING_MODEL || '',

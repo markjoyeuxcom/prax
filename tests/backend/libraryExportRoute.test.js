@@ -119,7 +119,7 @@ test('GET /api/library/export?project=all returns a ZIP grouped by project slug'
 
   assert.equal(response.statusCode, 200);
   assert.equal(response.headers['content-type'], 'application/zip');
-  assert.match(response.headers['content-disposition'], /filename="moomora-console-library-all-\d{4}-\d{2}-\d{2}\.zip"/);
+  assert.match(response.headers['content-disposition'], /filename="prax-library-all-\d{4}-\d{2}-\d{2}\.zip"/);
 
   const entries = readZipEntries(response.rawPayload);
   const names = entries.map(e => e.name).sort();
@@ -138,7 +138,7 @@ test('GET /api/library/export?project=homelab returns flat entries for that proj
   await app.close();
 
   assert.equal(response.statusCode, 200);
-  assert.match(response.headers['content-disposition'], /filename="moomora-console-library-homelab-\d{4}-\d{2}-\d{2}\.zip"/);
+  assert.match(response.headers['content-disposition'], /filename="prax-library-homelab-\d{4}-\d{2}-\d{2}\.zip"/);
 
   const entries = readZipEntries(response.rawPayload);
   assert.deepEqual(entries.map(e => e.name), ['restore.md']);

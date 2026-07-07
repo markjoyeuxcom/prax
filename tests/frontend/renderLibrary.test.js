@@ -1,540 +1,488 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { renderDocumentFormHtml, renderLibraryHtml } from '../../public/js/renderLibrary.js';
+import { buildLibraryModel, renderLibraryHtml } from '../../public/js/renderLibrary.js';
 
-const documents = [
+const NOW = new Date('2026-07-06T12:00:00.000Z');
+
+const DOCS = [
   {
-    id: 'doc-1',
+    id: 'doc-restore',
     title: 'Restore CloudNativePG',
-    body: '# Restore CloudNativePG\n\nCheck backups.',
+    body: '# Restore CloudNativePG\n\nCheck backups nightly before promoting a replica.',
     documentType: 'runbook',
-    context: 'homelab',
     tags: ['postgres', 'backup'],
-    sourceFilename: 'restore.md',
     updatedAt: '2026-05-18T10:00:00.000Z',
-    archivedAt: null,
   },
   {
-    id: 'doc-2',
+    id: 'doc-ideas',
     title: 'Ideas',
-    body: 'General notes',
+    body: 'General notes about the homelab.',
     documentType: 'note',
-    context: 'homelab',
-    tags: [],
-    sourceFilename: null,
-    updatedAt: '2026-05-18T11:00:00.000Z',
-    archivedAt: null,
+    tags: ['homelab'],
+    updatedAt: '2026-06-02T11:00:00.000Z',
+  },
+  {
+    id: 'doc-dns',
+    title: 'DNS failover',
+    body: '# DNS\n\nSwitch resolvers when upstream dies.',
+    documentType: 'runbook',
+    tags: ['dns', 'postgres'],
+    updatedAt: '2026-04-01T09:00:00.000Z',
   },
 ];
 
-test('renderLibraryHtml renders document list and preview detail', () => {
-  const html = renderLibraryHtml({
-    documents,
-    selectedDocumentId: 'doc-1',
-    editorMode: 'preview',
-    availableTags: [
-      { tag: 'backup', count: 1 },
-      { tag: 'postgres', count: 1 },
+function makeState(overrides = {}) {
+  return {
+    documents: DOCS,
+    libraryQuery: '',
+    librarySemantic: false,
+    activeLibraryTags: [],
+    librarySortBy: 'updated',
+    libraryView: 'active',
+    semanticStatus: { available: false },
+    semanticResults: null,
+    ...overrides,
+  };
+}
+
+function build(overrides = {}) {
+  return buildLibraryModel(makeState(overrides), { now: NOW });
+}
+
+function render(overrides = {}) {
+  const state = makeState(overrides);
+  return renderLibraryHtml(state, buildLibraryModel(state, { now: NOW }));
+}
+
+// ---------------------------------------------------------------------------
+// buildLibraryModel — filtering, sorting, grouping, flags
+// ---------------------------------------------------------------------------
+
+test('model applies the tag filter as an AND across active tags', () => {
+  const model = build({ activeLibraryTags: ['postgres', 'backup'] });
+  assert.equal(model.visibleCount, 1);
+  assert.deepEqual(model.groups.flatMap((g) => g.docs.map((d) => d.id)), ['doc-restore']);
+});
+
+test('model keyword filter matches title, body, type, and tags case-insensitively', () => {
+  const byBody = build({ libraryQuery: 'REPLICA' });
+  assert.deepEqual(byBody.groups.flatMap((g) => g.docs.map((d) => d.id)), ['doc-restore']);
+
+  const byTitle = build({ libraryQuery: 'failover' });
+  assert.deepEqual(byTitle.groups.flatMap((g) => g.docs.map((d) => d.id)), ['doc-dns']);
+
+  const byTag = build({ libraryQuery: 'homelab' });
+  assert.deepEqual(byTag.groups.flatMap((g) => g.docs.map((d) => d.id)), ['doc-ideas']);
+
+  const byType = build({ libraryQuery: 'runbook' });
+  assert.equal(byType.visibleCount, 2);
+});
+
+test('model skips the keyword filter while semantic mode is on', () => {
+  const model = build({ libraryQuery: 'replica', librarySemantic: true });
+  assert.equal(model.visibleCount, DOCS.length);
+});
+
+test('model sorts by updatedAt (newest first) and by title', () => {
+  const updated = build({});
+  const runbooks = updated.groups.find((g) => g.label === 'Runbooks');
+  assert.deepEqual(runbooks.docs.map((d) => d.id), ['doc-restore', 'doc-dns']);
+
+  const titled = build({ librarySortBy: 'title' });
+  const titledRunbooks = titled.groups.find((g) => g.label === 'Runbooks');
+  assert.deepEqual(titledRunbooks.docs.map((d) => d.id), ['doc-dns', 'doc-restore']);
+});
+
+test('model groups documents Runbooks before Notes and drops empty groups', () => {
+  const model = build({});
+  assert.deepEqual(model.groups.map((g) => g.label), ['Runbooks', 'Notes']);
+
+  const onlyRunbooks = build({ documents: [DOCS[0], DOCS[2]] });
+  assert.deepEqual(onlyRunbooks.groups.map((g) => g.label), ['Runbooks']);
+});
+
+test('model tag chips come from the pre-filter set with counts', () => {
+  const model = build({ activeLibraryTags: ['backup'], libraryQuery: 'replica' });
+  const tags = Object.fromEntries(model.tagChips.map(({ tag, count }) => [tag, count]));
+  assert.equal(tags.postgres, 2);
+  assert.equal(tags.backup, 1);
+  assert.equal(tags.homelab, 1);
+  assert.equal(tags.dns, 1);
+});
+
+test('model semantic flags: idle without query, active only once results landed', () => {
+  const idle = build({ librarySemantic: true, libraryQuery: '' });
+  assert.equal(idle.semanticIdle, true);
+  assert.equal(idle.semanticActive, false);
+
+  const pending = build({ librarySemantic: true, libraryQuery: 'db dies', semanticResults: null });
+  assert.equal(pending.semanticIdle, false);
+  assert.equal(pending.semanticActive, false);
+
+  const active = build({ librarySemantic: true, libraryQuery: 'db dies', semanticResults: [] });
+  assert.equal(active.semanticActive, true);
+  assert.equal(active.semanticIdle, false);
+
+  const keyword = build({ libraryQuery: 'db dies', semanticResults: [] });
+  assert.equal(keyword.semanticActive, false);
+});
+
+test('model flags archive mode from state.libraryView', () => {
+  assert.equal(build({}).archive, false);
+  assert.equal(build({ libraryView: 'archive' }).archive, true);
+});
+
+// ---------------------------------------------------------------------------
+// renderLibraryHtml — header, search row, tag row
+// ---------------------------------------------------------------------------
+
+test('header renders title and import/export/archive/new actions', () => {
+  const html = render();
+  assert.match(html, /class="page-head__title">Library</);
+  assert.match(html, /data-action="import-documents"[^>]*>Import \.md</);
+  assert.match(html, /data-action="export-library"[^>]*>Export all</);
+  assert.match(html, /data-action="toggle-library-view"[^>]*>Archive</);
+  // ＋ New doc is a template chooser: the button toggles the menu; the menu's
+  // items carry the actual new-document action (only when open).
+  assert.match(html, /class="btn-primary"[^>]*data-action="toggle-new-doc-menu"[^>]*>＋ New doc</);
+  assert.doesNotMatch(html, /data-action="new-document"/); // closed by default
+});
+
+test('the ＋ New doc menu, when open, offers Blank note and Runbook templates', () => {
+  const html = render({ newDocMenuOpen: true });
+  assert.match(html, /class="menu__panel"/);
+  assert.match(html, /data-action="new-document" data-template-id="note"[\s\S]*?Blank note/);
+  assert.match(html, /data-action="new-document" data-template-id="runbook"[\s\S]*?Runbook/);
+});
+
+test('archive view flips the toggle label to Active', () => {
+  const html = render({ libraryView: 'archive' });
+  assert.match(html, /data-action="toggle-library-view"[^>]*aria-pressed="true"[^>]*>Active</);
+});
+
+test('search input uses the keyword placeholder and search action hooks', () => {
+  const html = render({ libraryQuery: 'backup' });
+  assert.match(html, /data-library-search/);
+  assert.match(html, /placeholder="Search titles, text, and tags…"/);
+  assert.match(html, /value="backup"/);
+  assert.match(html, /data-action="cycle-lib-sort"[^>]*>Sort: Updated</);
+  assert.doesNotMatch(html, /class="lib-search is-semantic"/);
+});
+
+test('semantic mode switches the placeholder and marks the search row', () => {
+  const html = render({
+    librarySemantic: true,
+    semanticStatus: { available: true, enabled: true },
+  });
+  assert.match(html, /class="lib-search is-semantic"/);
+  assert.match(html, /placeholder="Ask in plain language — e\.g\. &quot;what do I do when the database dies&quot;"/);
+});
+
+test('semantic toggle renders only when available AND enabled, with is-on state', () => {
+  const on = render({ semanticStatus: { available: true, enabled: true }, librarySemantic: true });
+  assert.match(on, /data-action="toggle-semantic"/);
+  assert.match(on, /class="btn-ghost is-on"[^>]*data-action="toggle-semantic"[^>]*aria-pressed="true"/);
+  assert.match(on, /toggle-semantic[^>]*>[\s\S]*?<span>Semantic<\/span>/);
+
+  const off = render({ semanticStatus: { available: true, enabled: true }, librarySemantic: false });
+  assert.match(off, /class="btn-ghost"[^>]*data-action="toggle-semantic"[^>]*aria-pressed="false"/);
+
+  assert.doesNotMatch(render({ semanticStatus: { available: false } }), /data-action="toggle-semantic"/);
+  assert.doesNotMatch(
+    render({ semanticStatus: { available: true, enabled: false } }),
+    /data-action="toggle-semantic"/,
+  );
+});
+
+test('sort cycler shows Title when sorting by title', () => {
+  assert.match(render({ librarySortBy: 'title' }), /data-action="cycle-lib-sort"[^>]*>Sort: Title</);
+});
+
+test('tag row renders pills with counts and marks active tags', () => {
+  const html = render({ activeLibraryTags: ['postgres'] });
+  assert.match(html, /class="tag-pill is-active"[^>]*data-action="toggle-lib-tag"[^>]*data-tag="postgres"[^>]*aria-pressed="true"[^>]*>#postgres <span class="tag-pill__count">2<\/span></);
+  assert.match(html, /class="tag-pill"[^>]*data-tag="homelab"[^>]*aria-pressed="false"/);
+});
+
+test('Save view pill appears only while tags are active', () => {
+  assert.match(render({ activeLibraryTags: ['postgres'] }), /data-action="save-library-view"[^>]*>＋ Save view</);
+  assert.doesNotMatch(render(), /data-action="save-library-view"/);
+});
+
+// ---------------------------------------------------------------------------
+// Keyword mode — grouped card grid
+// ---------------------------------------------------------------------------
+
+test('keyword mode renders group labels and doc cards with open-doc actions', () => {
+  const html = render();
+  assert.match(html, /class="group-label">Runbooks <span class="group-label__count">2<\/span></);
+  assert.match(html, /class="group-label">Notes <span class="group-label__count">1<\/span></);
+  assert.match(html, /class="doc-grid"/);
+  assert.match(html, /class="doc-card"[^>]*data-action="open-doc"[^>]*data-document-id="doc-restore"/);
+  assert.match(html, /class="doc-card__title">Restore CloudNativePG</);
+  assert.match(html, /class="chip chip--type-runbook"[^>]*>RUNBOOK</);
+  assert.match(html, /class="chip chip--type-note"[^>]*>NOTE</);
+});
+
+test('doc card excerpt is the first non-empty non-heading body line', () => {
+  const html = render();
+  assert.match(html, /class="doc-card__excerpt">Check backups nightly before promoting a replica\.</);
+  assert.doesNotMatch(html, /doc-card__excerpt"># Restore/);
+});
+
+test('doc card renders tag chips and a short updated date', () => {
+  const html = render();
+  assert.match(html, /class="chip chip--tag"[^>]*>#postgres</);
+  assert.match(html, /class="doc-card__updated">2026-05-18</);
+});
+
+test('trust chips render exactly on qualifying cards', () => {
+  const html = render({
+    documents: [
+      { ...DOCS[0], id: 'd-synth', kind: 'synthesized', stale: true },
+      { ...DOCS[1], id: 'd-plain', kind: 'source' },
+      { ...DOCS[2], id: 'd-trusted', verified: true, status: 'superseded' },
     ],
-    activeTags: ['backup'],
-    tagQuery: 'post',
-    areTagsExpanded: false,
-    savedViews: [
-      { id: 'cloudflare-cloudflare', label: 'Cloudflare', tags: ['cloudflare'] },
-      { id: 'postgres-backup-postgres', label: 'Postgres Backup', tags: ['backup', 'postgres'] },
+  });
+  assert.equal((html.match(/chip--synth/g) || []).length, 1);
+  assert.equal((html.match(/chip--stale/g) || []).length, 1);
+  assert.equal((html.match(/chip--verified/g) || []).length, 1);
+  assert.equal((html.match(/chip--superseded/g) || []).length, 1);
+  assert.match(html, /class="chip chip--synth"[^>]*>SYNTH</);
+  assert.match(html, /class="chip chip--stale"[^>]*>STALE</);
+  assert.match(html, /class="chip chip--verified"[^>]*>VERIFIED</);
+  assert.match(html, /class="chip chip--superseded"[^>]*>SUPERSEDED</);
+  // Both chips sit on the synthesized+stale card, before the next card starts.
+  const card = html.slice(html.indexOf('d-synth'), html.indexOf('d-plain'));
+  assert.match(card, /chip--synth[\s\S]*chip--stale/);
+});
+
+test('plain source card renders no trust chips', () => {
+  const html = render({ documents: [{ ...DOCS[1], kind: 'source', stale: false }] });
+  assert.doesNotMatch(html, /chip--synth|chip--stale|chip--verified|chip--superseded/);
+});
+
+// ---------------------------------------------------------------------------
+// Semantic states
+// ---------------------------------------------------------------------------
+
+test('semantic idle renders the ask-your-library empty state', () => {
+  const html = render({
+    librarySemantic: true,
+    semanticStatus: { available: true, enabled: true },
+  });
+  assert.match(html, /class="empty"/);
+  assert.match(html, /Ask your library a question/);
+  assert.match(html, /Semantic search runs against your local index — results are ranked by meaning\./);
+  assert.doesNotMatch(html, /class="doc-grid"/);
+  assert.doesNotMatch(html, /class="sem-card"/);
+});
+
+test('semantic results render rank + snippet cards without fabricated scores', () => {
+  const html = render({
+    librarySemantic: true,
+    libraryQuery: 'what do I do when the database dies',
+    semanticStatus: { available: true, enabled: true },
+    semanticResults: [
+      { id: 'doc-restore', title: 'Restore CloudNativePG', documentType: 'runbook', snippet: 'Check backups nightly before promoting a replica.' },
+      { id: 'doc-ideas', title: 'Ideas', documentType: 'note', snippet: 'General notes about the homelab.' },
     ],
-    activeSavedViewId: 'postgres-backup-postgres',
   });
-
-  assert.match(html, /Knowledge Library/);
-  assert.match(html, /Smart views/);
-  assert.match(html, /data-library-saved-view-id="postgres-backup-postgres"/);
-  assert.match(html, /aria-pressed="true">[\s\S]*Postgres Backup/);
-  assert.match(html, /data-action="delete-library-saved-view"/);
-  assert.match(html, /data-action="rename-library-saved-view"/);
-  assert.match(html, /data-library-saved-view-name/);
-  assert.match(html, /data-action="save-library-view"/);
-  assert.match(html, /class="library-active-filters"/);
-  assert.match(html, /Active filters/);
-  assert.match(html, /Postgres Backup/);
-  assert.match(html, /data-library-active-filter="backup"/);
-  assert.match(html, /2 documents shown/);
-  assert.match(html, /class="library-resizer"[^>]*data-library-resizer[^>]*role="separator"/);
-  assert.match(html, /class="library-workspace"/);
-  assert.match(html, /class="library-browser"/);
-  assert.match(html, /class="library-document-stage"/);
-  assert.match(html, /2 documents/);
-  assert.match(html, /data-action="clear-library-tags"/);
-  assert.match(html, /data-library-tag-search/);
-  assert.match(html, /value="post"/);
-  assert.match(html, /data-library-tag="backup"/);
-  assert.match(html, /aria-pressed="true">backup <span>1<\/span>/);
-  assert.match(html, /data-library-tag="postgres"/);
-  assert.match(html, /data-library-document-id="doc-1"/);
-  assert.match(html, /Restore CloudNativePG/);
-  assert.match(html, /Runbook/);
-  assert.match(html, /postgres/);
-  assert.match(html, /data-action="archive-document"/);
-  assert.match(html, /data-action="edit-document-info"/);
-  assert.match(html, /data-library-mode="edit"/);
-  assert.match(html, /data-library-mode="preview"/);
-  assert.match(html, /data-library-mode="split"/);
-  assert.doesNotMatch(html, /data-action="edit-document"/);
-  assert.match(html, /<h1>Restore CloudNativePG<\/h1>/);
+  assert.match(html, /class="sem-note">2 documents matched by meaning\.</);
+  assert.match(html, /class="sem-list"/);
+  assert.match(html, /class="sem-card"[^>]*data-action="open-doc"[^>]*data-document-id="doc-restore"/);
+  assert.match(html, /class="sem-card__pct">#1</);
+  assert.match(html, /class="sem-card__pct">#2</);
+  assert.match(html, /class="sem-card__reason">Check backups nightly before promoting a replica\.</);
+  assert.match(html, /sem-card[\s\S]*chip chip--type-runbook/);
+  // Fallback path: results carry no similarity, so the score label stays a
+  // rank (#N) — no fabricated percentage in the score block.
+  assert.doesNotMatch(html, /class="sem-card__pct">\d+%/);
+  assert.doesNotMatch(html, /class="doc-grid"/);
 });
 
-test('renderLibraryHtml renders inline document metadata editor', () => {
-  const html = renderLibraryHtml({
-    documents,
-    selectedDocumentId: 'doc-1',
-    isInfoEditing: true,
-    infoError: 'Title is required.',
-    isSaving: true,
+test('semantic results show the real similarity as a percentage, bar scaled to the top hit', () => {
+  const html = render({
+    librarySemantic: true,
+    libraryQuery: 'database recovery',
+    semanticStatus: { available: true, enabled: true },
+    semanticResults: [
+      { id: 'a', title: 'Restore', documentType: 'runbook', snippet: 'restore', similarity: 0.82 },
+      { id: 'b', title: 'Backups', documentType: 'note', snippet: 'backups', similarity: 0.41 },
+    ],
   });
-
-  assert.match(html, /data-document-info-form/);
-  assert.match(html, /Title is required\./);
-  assert.match(html, /name="title"/);
-  assert.match(html, /value="Restore CloudNativePG"/);
-  assert.match(html, /name="documentType"/);
-  assert.match(html, /value="runbook" selected/);
-  assert.match(html, /name="tags"/);
-  assert.match(html, /value="postgres, backup"/);
-  assert.match(html, /name="sourceFilename"/);
-  assert.match(html, /value="restore.md"/);
-  assert.match(html, /data-action="cancel-document-info"/);
-  assert.match(html, /\[s\] saving\.\.\./);
-  assert.doesNotMatch(html, /data-document-editor/);
+  // Real percentages (rounded), not ranks.
+  assert.match(html, /class="sem-card__pct">82%</);
+  assert.match(html, /class="sem-card__pct">41%</);
+  assert.doesNotMatch(html, /class="sem-card__pct">#/);
+  // Top hit fills the bar; the weaker one is scaled relative to it (0.41/0.82 = 50%).
+  assert.match(html, /width:100%/);
+  assert.match(html, /width:50%/);
 });
 
-test('renderLibraryHtml renders show-more control for collapsed long tag lists', () => {
-  const html = renderLibraryHtml({
-    documents,
-    availableTags: Array.from({ length: 14 }, (_, index) => ({
-      tag: `tag-${String(index + 1).padStart(2, '0')}`,
-      count: 1,
-    })),
-    activeTags: [],
-    areTagsExpanded: false,
+test('semantic results note is singular for one match and handles empty results', () => {
+  const one = render({
+    librarySemantic: true,
+    libraryQuery: 'dns',
+    semanticStatus: { available: true, enabled: true },
+    semanticResults: [{ id: 'doc-dns', title: 'DNS failover', documentType: 'runbook', snippet: 'Switch resolvers.' }],
   });
+  assert.match(one, /class="sem-note">1 document matched by meaning\.</);
 
-  assert.match(html, /data-action="toggle-library-tags"/);
-  assert.match(html, /Show 2 more/);
-  assert.doesNotMatch(html, /data-library-tag="tag-14"/);
-});
-
-test('renderLibraryHtml renders edit mode with editor and save controls', () => {
-  const html = renderLibraryHtml({
-    documents,
-    selectedDocumentId: 'doc-1',
-    editorMode: 'edit',
-    draftBody: '# Draft body',
-    isDirty: true,
-    saveStatus: 'Autosaving...',
+  const none = render({
+    librarySemantic: true,
+    libraryQuery: 'zzz',
+    semanticStatus: { available: true, enabled: true },
+    semanticResults: [],
   });
-
-  assert.match(html, /document-editor/);
-  assert.match(html, /data-document-editor/);
-  assert.match(html, /data-code-editor/);
-  assert.match(html, /document-editor--fallback/);
-  assert.match(html, /# Draft body/);
-  assert.match(html, /data-action="save-document-draft"/);
-  assert.match(html, /Autosaving\.\.\./);
-  assert.match(html, /data-markdown-action="bold"/);
-  assert.match(html, /data-markdown-action="bullet-list"/);
-  assert.match(html, /data-markdown-action="checklist"/);
-  assert.match(html, /data-markdown-action="code-block"/);
-  assert.match(html, /data-action="toggle-document-focus"/);
-  assert.match(html, /aria-label="Focus writing mode"/);
-  assert.doesNotMatch(html, /markdown-preview/);
+  assert.match(none, /class="sem-note">0 documents matched by meaning\.</);
+  assert.doesNotMatch(none, /class="sem-card"/);
 });
 
-test('renderLibraryHtml can render focused writing mode', () => {
-  const html = renderLibraryHtml({
-    documents,
-    selectedDocumentId: 'doc-1',
-    editorMode: 'edit',
-    isFocusMode: true,
+// ---------------------------------------------------------------------------
+// No-results + archive
+// ---------------------------------------------------------------------------
+
+test('keyword no-results renders empty state with clear filters and semantic hint', () => {
+  const withSemantic = render({
+    libraryQuery: 'zzz-no-match',
+    semanticStatus: { available: true, enabled: true },
   });
+  assert.match(withSemantic, /class="empty__title">No documents match</);
+  assert.match(withSemantic, /flip on Semantic to search by meaning/);
+  assert.match(withSemantic, /data-action="clear-lib-filters"[^>]*>Clear filters</);
 
-  assert.match(html, /library-workspace is-focus-mode/);
-  assert.match(html, /library-detail is-focus-mode/);
-  assert.match(html, /document-workspace document-workspace--edit document-workspace--focused/);
-  assert.match(html, /aria-pressed="true">\[f\] focus/);
+  const withoutSemantic = render({ libraryQuery: 'zzz-no-match', semanticStatus: { available: false } });
+  assert.match(withoutSemantic, /No documents match/);
+  assert.match(withoutSemantic, /data-action="clear-lib-filters"/);
+  assert.doesNotMatch(withoutSemantic, /Semantic/);
 });
 
-test('library renders a segmented mode toggle with active state', () => {
-  const docs = [{ id: 'a', title: 'Doc', body: '', documentType: 'note', context: 'homelab', tags: [], sourceFilename: null }];
-  const html = renderLibraryHtml({
-    documents: docs, selectedDocumentId: 'a',
-    editorMode: 'split', draftBody: '', isDirty: false,
-    availableTags: [], activeTags: [], tagQuery: '',
-    areTagsExpanded: false, savedViews: [], activeSavedViewId: null,
-    isInfoEditing: false, infoError: '', isSaving: false,
-    saveStatus: 'Saved', isFocusMode: false,
+test('archive mode renders dim plain rows with restore and delete actions', () => {
+  const html = render({
+    libraryView: 'archive',
+    documents: [{ ...DOCS[0], archivedAt: '2026-06-30T00:00:00.000Z' }],
   });
-  assert.match(html, /class="modes"/);
-  assert.match(html, /class="on"[^>]*data-library-mode="split"/);
+  assert.match(html, /class="rows"/);
+  assert.match(html, /class="plain-row is-dim"[^>]*data-action="open-doc"[^>]*data-document-id="doc-restore"/);
+  assert.match(html, /class="plain-row__title">Restore CloudNativePG</);
+  assert.match(html, /plain-row[\s\S]*chip chip--type-runbook/);
+  assert.match(html, /class="btn-outline"[^>]*data-action="restore-document"[^>]*data-document-id="doc-restore"[^>]*>Restore</);
+  assert.match(html, /class="btn-outline btn-outline--danger"[^>]*data-action="delete-archived-document"[^>]*data-document-id="doc-restore"[^>]*>Delete</);
+  assert.doesNotMatch(html, /class="doc-grid"/);
 });
 
-test('library actions use bracket buttons', () => {
-  const docs = [{ id: 'a', title: 'Doc', body: '', documentType: 'note', context: 'homelab', tags: [], sourceFilename: null }];
-  const html = renderLibraryHtml({
-    documents: docs, selectedDocumentId: 'a', editorMode: 'preview',
-    draftBody: '', isDirty: false, availableTags: [], activeTags: [],
-    tagQuery: '', areTagsExpanded: false, savedViews: [],
-    activeSavedViewId: null, isInfoEditing: false, infoError: '',
-    isSaving: false, saveStatus: 'Saved', isFocusMode: false,
-  });
-  assert.match(html, /data-action="archive-document"[^>]*><kbd>d<\/kbd> archive/);
-  assert.match(html, /data-action="edit-document-info"[^>]*><kbd>i<\/kbd> info/);
-});
-
-test('renderLibraryHtml renders split mode with editor and escaped preview', () => {
-  const html = renderLibraryHtml({
-    documents: [{
-      ...documents[0],
-      body: '# <script>alert("x")</script>',
-    }],
-    selectedDocumentId: 'doc-1',
-    editorMode: 'split',
-  });
-
-  assert.match(html, /document-editor/);
-  assert.match(html, /markdown-preview/);
-  assert.match(html, /&lt;script&gt;alert\(&quot;x&quot;\)&lt;\/script&gt;/);
-  assert.doesNotMatch(html, /<script>/);
-});
-
-test('renderLibraryHtml renders archived document restore and delete actions', () => {
-  const html = renderLibraryHtml({
-    documents: [{ ...documents[0], archivedAt: '2026-05-18T12:00:00.000Z' }],
-    selectedDocumentId: 'doc-1',
-  });
-
-  assert.match(html, /data-action="restore-document"/);
-  assert.match(html, /data-action="delete-archived-document"/);
-  assert.doesNotMatch(html, /data-action="archive-document"/);
-});
-
-test('renderLibraryHtml renders empty state', () => {
-  const html = renderLibraryHtml({ documents: [] });
-
-  assert.match(html, /No Markdown documents/);
-  assert.match(html, /Create or import Markdown/);
-});
-
-test('renderLibraryHtml list row meta shows type, project, and updater', () => {
-  const html = renderLibraryHtml({
-    documents: [{
-      id: 'doc-moomora',
-      title: 'Scratch note',
-      body: '# Scratch',
-      documentType: 'note',
-      projectId: 'p9',
-      updatedBy: 'agent',
-      tags: [],
-    }],
-    projects: [{ id: 'p9', name: 'Homelab', slug: 'homelab', status: 'active' }],
-    selectedDocumentId: 'doc-moomora',
-  });
-
-  assert.match(html, /<small>Note &middot; Homelab &middot; updated by agent<\/small>/);
-});
-
-test('renderLibraryHtml list row meta omits the project when unknown and defaults the updater', () => {
-  const html = renderLibraryHtml({
-    documents: [{
-      id: 'doc-moomora',
-      title: 'Scratch note',
-      body: '# Scratch',
-      documentType: 'note',
-      tags: [],
-    }],
-    selectedDocumentId: 'doc-moomora',
-  });
-
-  assert.match(html, /<small>Note &middot; updated by user<\/small>/);
-});
-
-test('library renders a tags drawer toggle in the docs header', () => {
-  const html = renderLibraryHtml({
-    documents: [], selectedDocumentId: null, editorMode: 'preview',
-    draftBody: '', isDirty: false,
-    availableTags: [{ tag: 'ingress', count: 1 }], activeTags: [], tagQuery: '',
-    areTagsExpanded: false, savedViews: [], activeSavedViewId: null,
-    isInfoEditing: false, infoError: '', isSaving: false,
-    saveStatus: 'Saved', isFocusMode: false, isLibraryTagsDrawerOpen: false,
-  });
-  assert.match(html, /data-action="toggle-library-tags-drawer"[^>]*aria-expanded="false"/);
-});
-
-test('library tags drawer is open when isLibraryTagsDrawerOpen is true', () => {
-  const html = renderLibraryHtml({
-    documents: [], selectedDocumentId: null, editorMode: 'preview',
-    draftBody: '', isDirty: false,
-    availableTags: [{ tag: 'ingress', count: 1 }], activeTags: [], tagQuery: '',
-    areTagsExpanded: false, savedViews: [], activeSavedViewId: null,
-    isInfoEditing: false, infoError: '', isSaving: false,
-    saveStatus: 'Saved', isFocusMode: false, isLibraryTagsDrawerOpen: true,
-  });
-  assert.match(html, /class="library-tag-filter__drawer is-open"/);
-});
-
-const TEST_PROJECTS = [
-  { id: 'p1', name: 'Homelab', slug: 'homelab', status: 'active' },
-  { id: 'p2', name: 'Work', slug: 'work', status: 'active' },
-];
-
-test('renderDocumentFormHtml renders create and edit fields', () => {
-  const html = renderDocumentFormHtml({
-    projects: TEST_PROJECTS,
-    values: { project: 'p1' },
-    document: documents[0],
-    error: 'Title is required.',
-  });
-
-  assert.match(html, /edit document/);
-  assert.match(html, /Title is required/);
-  assert.match(html, /name="title"/);
-  assert.match(html, /name="body"/);
-  assert.match(html, /name="documentType"/);
-  assert.match(html, /value="runbook" selected/);
-  assert.match(html, /name="tags"/);
-  assert.match(html, /postgres, backup/);
-  assert.match(html, /name="project"[\s\S]*value="p1" selected/);
-  assert.match(html, /<option value="p1"[^>]*>Homelab<\/option>/);
-  assert.match(html, /<option value="p2"[^>]*>Work<\/option>/);
-  assert.doesNotMatch(html, /name="context"/);
-});
-
-test('document form renders both desktop and mobile modal headers', () => {
-  const html = renderDocumentFormHtml({ document: null, projects: TEST_PROJECTS, error: '', isSaving: false });
-  assert.match(html, /class="modal-header--desktop"/);
-  assert.match(html, /class="modal-header--mobile"/);
-  assert.match(html, /<button[^>]*type="submit"[^>]*form="document-form"[^>]*>\[s\] save/);
-});
-
-test('renderLibraryHtml renders library-controls with type filter, sort, and group toggle', () => {
-  const html = renderLibraryHtml({
-    documents,
-    selectedDocumentId: 'doc-1',
-    typeFilter: 'all',
-    sortBy: 'updated',
-    groupByType: false,
-  });
-
-  assert.match(html, /class="library-controls"/);
-  assert.match(html, /data-library-type="all"/);
-  assert.match(html, /data-library-type="runbook"/);
-  assert.match(html, /data-library-type="note"/);
-  assert.match(html, /data-library-sort/);
-  assert.match(html, /data-action="toggle-library-group"/);
-  assert.match(html, /aria-pressed="false"[^>]*>group: off/);
-});
-
-test('renderLibraryHtml marks active type filter button with class on', () => {
-  const html = renderLibraryHtml({
-    documents,
-    typeFilter: 'runbook',
-  });
-  assert.match(html, /class="on"[^>]*data-library-type="runbook"/);
-  assert.doesNotMatch(html, /class="on"[^>]*data-library-type="all"/);
-});
-
-test('renderLibraryHtml shows correct selected sort option', () => {
-  const html = renderLibraryHtml({
-    documents,
-    sortBy: 'title',
-  });
-  assert.match(html, /<option value="title" selected>title<\/option>/);
-  assert.doesNotMatch(html, /<option value="updated" selected>/);
-});
-
-test('renderLibraryHtml renders group toggle as pressed when groupByType is true', () => {
-  const html = renderLibraryHtml({
-    documents,
-    groupByType: true,
-  });
-  assert.match(html, /aria-pressed="true"[^>]*>group: type/);
-});
-
-test('renderLibraryHtml renders document-group-header elements when groupByType is true', () => {
-  const html = renderLibraryHtml({
-    documents,
-    groupByType: true,
-  });
-  assert.match(html, /class="document-group-header"/);
-  assert.match(html, /Runbooks/);
-  assert.match(html, /Notes/);
-});
-
-test('renderLibraryHtml renders flat list when groupByType is false', () => {
-  const html = renderLibraryHtml({
-    documents,
-    groupByType: false,
-  });
-  assert.doesNotMatch(html, /class="document-group-header"/);
-  assert.match(html, /data-library-document-id="doc-1"/);
-  assert.match(html, /data-library-document-id="doc-2"/);
-});
-
-test('renderLibraryHtml shows [x] export on the editor toolbar for active docs', () => {
-  const html = renderLibraryHtml({
-    documents: [{
-      id: 'd1',
-      title: 'Restore',
-      body: '# r',
-      documentType: 'runbook',
-      projectId: 'p1',
-      tags: [],
-      sourceFilename: null,
-      archivedAt: null,
-      createdAt: 'now',
-      updatedAt: 'now',
-    }],
-    selectedDocumentId: 'd1',
-    editorMode: 'edit',
-  });
-  assert.match(html, /data-action="export-document"[^>]*data-document-id="d1"[^>]*>\[x\] export/);
-});
-
-test('renderLibraryHtml hides [x] export when the editor pane is not visible', () => {
-  const html = renderLibraryHtml({
-    documents: [{
-      id: 'd1',
-      title: 'Restore',
-      body: '',
-      documentType: 'note',
-      projectId: 'p1',
-      tags: [],
-      sourceFilename: null,
-      archivedAt: null,
-      createdAt: 'now',
-      updatedAt: 'now',
-    }],
-    selectedDocumentId: 'd1',
-    editorMode: 'preview',
-  });
-  assert.doesNotMatch(html, /data-action="export-document"/);
-});
-
-test('renderLibraryHtml hides [x] export when the document is archived (even in edit mode)', () => {
-  const html = renderLibraryHtml({
-    documents: [{
-      id: 'd1',
-      title: 'Old runbook',
-      body: '# old',
-      documentType: 'runbook',
-      projectId: 'p1',
-      tags: [],
-      sourceFilename: null,
-      archivedAt: '2026-05-01T00:00:00.000Z',
-      createdAt: 'then',
-      updatedAt: 'then',
-    }],
-    selectedDocumentId: 'd1',
-    editorMode: 'edit',
-  });
-  assert.doesNotMatch(html, /data-action="export-document"/);
-});
-
-const ACTIVE_DOC = {
-  id: 'd1', title: 'Live runbook', body: '# live', documentType: 'runbook',
-  projectId: 'p1', tags: [], sourceFilename: null, archivedAt: null,
-  createdAt: 'now', updatedAt: 'now',
-};
-const ARCHIVED_DOC = { ...ACTIVE_DOC, id: 'd2', title: 'Old runbook', archivedAt: '2026-05-01T00:00:00.000Z' };
-
-test('renderLibraryHtml detail panel shows the verify action for an unverified active doc', () => {
-  const html = renderLibraryHtml({ documents: [ACTIVE_DOC], selectedDocumentId: 'd1', libraryView: 'active' });
-  assert.match(html, /data-action="toggle-verify"[^>]*><kbd>v<\/kbd> verify/);
-});
-
-test('renderLibraryHtml detail panel shows unverify when the doc is verified', () => {
-  const html = renderLibraryHtml({
-    documents: [{ ...ACTIVE_DOC, verified: true, verifiedBy: 'user' }],
-    selectedDocumentId: 'd1', libraryView: 'active',
-  });
-  assert.match(html, /data-action="toggle-verify"[^>]*><kbd>v<\/kbd> unverify/);
-});
-
-test('renderLibraryHtml detail panel shows [s] supersede for an active doc and hides it once superseded', () => {
-  const active = renderLibraryHtml({ documents: [ACTIVE_DOC], selectedDocumentId: 'd1', libraryView: 'active' });
-  assert.match(active, /data-action="supersede-document"/);
-
-  const superseded = renderLibraryHtml({
-    documents: [{ ...ACTIVE_DOC, status: 'superseded' }],
-    selectedDocumentId: 'd1', libraryView: 'active',
-  });
-  assert.doesNotMatch(superseded, /data-action="supersede-document"/);
-  assert.match(superseded, /library-detail-meta[^>]*>[^<]*· superseded/);
-});
-
-test('renderLibraryHtml hides verify and supersede actions when the document is archived', () => {
-  const html = renderLibraryHtml({
-    documents: [ARCHIVED_DOC], selectedDocumentId: 'd2', libraryView: 'archive',
-  });
-  assert.doesNotMatch(html, /data-action="toggle-verify"/);
-  assert.doesNotMatch(html, /data-action="supersede-document"/);
-});
-
-test('renderLibraryHtml active view shows [a] archive toggle and plain document count', () => {
-  const html = renderLibraryHtml({ documents: [ACTIVE_DOC], selectedDocumentId: 'd1', libraryView: 'active' });
-  assert.match(html, /data-action="toggle-library-view"[^>]*>\[a\] archive/);
-  assert.match(html, /1 documents/);
-  assert.doesNotMatch(html, /class="detail-kicker">ARCHIVE</);
-});
-
-test('renderLibraryHtml archive view shows [back] toggle, ARCHIVE kicker, and archived count', () => {
-  const html = renderLibraryHtml({ documents: [ARCHIVED_DOC], selectedDocumentId: 'd2', libraryView: 'archive' });
-  assert.match(html, /data-action="toggle-library-view"[^>]*>\[←\] active/);
-  assert.match(html, /<span class="detail-kicker">ARCHIVE<\/span>/);
-  assert.match(html, /1 archived documents/);
-});
-
-test('renderLibraryHtml archive empty state reads "No archived documents" without the create CTA', () => {
-  const html = renderLibraryHtml({ documents: [], libraryView: 'archive' });
+test('archive mode renders its empty state when nothing is archived', () => {
+  const html = render({ libraryView: 'archive', documents: [] });
   assert.match(html, /No archived documents/);
-  assert.doesNotMatch(html, /Create or import Markdown/);
+  assert.doesNotMatch(html, /class="rows"/);
 });
 
-test('renderLibraryHtml active empty state keeps the create/import CTA', () => {
-  const html = renderLibraryHtml({ documents: [], libraryView: 'active' });
-  assert.match(html, /No Markdown documents/);
-  assert.match(html, /Create or import Markdown/);
+test('an empty library (no docs, no filters) shows the welcome, not the no-match dead end', () => {
+  assert.equal(build({ documents: [] }).welcome, true);
+  const html = render({ documents: [] });
+  assert.match(html, /class="empty__title">Your library is empty</);
+  assert.match(html, /data-action="new-document"/);
+  assert.match(html, /data-action="import-documents"/);
+  assert.doesNotMatch(html, /No documents match/);
+  assert.doesNotMatch(html, /Clear filters/);
 });
 
-test('renderLibraryHtml archive view detail panel is preview-only: no mode tabs, no editor toolbar, restore+delete present', () => {
-  const html = renderLibraryHtml({
-    documents: [ARCHIVED_DOC], selectedDocumentId: 'd2', editorMode: 'edit', libraryView: 'archive',
+test('welcome does NOT show once a query, tag, semantic mode, or archive is active', () => {
+  assert.equal(build({ documents: [], libraryQuery: 'x' }).welcome, false);
+  assert.equal(build({ documents: [], activeLibraryTags: ['ops'] }).welcome, false);
+  assert.equal(build({ documents: [], librarySemantic: true }).welcome, false);
+  assert.equal(build({ documents: [], libraryView: 'archive' }).welcome, false);
+  // And never when documents exist.
+  assert.equal(build({}).welcome, false);
+});
+
+// ---------------------------------------------------------------------------
+// XSS escaping
+// ---------------------------------------------------------------------------
+
+test('doc titles and tags are escaped', () => {
+  const html = render({
+    documents: [{
+      id: 'doc-evil',
+      title: '<script>alert("x")</script>',
+      body: 'Body <script>alert("b")</script> line.',
+      documentType: 'note',
+      tags: ['<script>bad</script>'],
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    }],
   });
-  assert.doesNotMatch(html, /data-library-mode="edit"/);
-  assert.doesNotMatch(html, /data-action="save-document-draft"/);
-  assert.doesNotMatch(html, /data-action="export-document"/);
-  assert.match(html, /data-action="restore-document"/);
-  assert.match(html, /data-action="delete-archived-document"/);
-  assert.match(html, /class="markdown-preview"/);
+  assert.doesNotMatch(html, /<script>/);
+  assert.match(html, /&lt;script&gt;alert\(&quot;x&quot;\)&lt;\/script&gt;/);
+  assert.match(html, /#&lt;script&gt;bad&lt;\/script&gt;/);
+  assert.match(html, /Body &lt;script&gt;alert\(&quot;b&quot;\)&lt;\/script&gt; line\./);
 });
 
-test('renderLibraryHtml active view detail panel keeps editor tabs, archive action, and export', () => {
-  const html = renderLibraryHtml({
-    documents: [ACTIVE_DOC], selectedDocumentId: 'd1', editorMode: 'edit', libraryView: 'active',
+test('semantic snippets and archive titles are escaped', () => {
+  const sem = render({
+    librarySemantic: true,
+    libraryQuery: 'evil',
+    semanticStatus: { available: true, enabled: true },
+    semanticResults: [{ id: 'r1', title: '<script>t</script>', documentType: 'note', snippet: '<script>s</script>' }],
   });
-  assert.match(html, /data-library-mode="edit"/);
-  assert.match(html, /data-action="archive-document"/);
-  assert.match(html, /data-action="export-document"/);
+  assert.doesNotMatch(sem, /<script>/);
+  assert.match(sem, /class="sem-card__reason">&lt;script&gt;s&lt;\/script&gt;</);
+
+  const archive = render({
+    libraryView: 'archive',
+    documents: [{ id: 'a1', title: '<script>a</script>', body: '', documentType: 'note', tags: [] }],
+  });
+  assert.doesNotMatch(archive, /<script>/);
+  assert.match(archive, /class="plain-row__title">&lt;script&gt;a&lt;\/script&gt;</);
 });
 
-test('renderLibraryHtml list row keeps trust chips outside the truncating title span', () => {
-  const longTitle = 'A very long agent-written memory title that will certainly truncate in the list panel';
-  const html = renderLibraryHtml({
-    documents: [{ ...ACTIVE_DOC, title: longTitle, kind: 'synthesized' }],
-    selectedDocumentId: 'd1', libraryView: 'active',
-  });
-  // The title is wrapped in its own span and the chips are siblings AFTER it,
-  // so CSS can ellipsize the title without clipping the chips off the row.
-  assert.match(html, new RegExp(`<span class="document-row-title">${longTitle}</span>`));
-  const fromTitle = html.slice(html.indexOf('document-row-title'));
-  assert.match(fromTitle, /<\/span>\s*<span class="chip chip-synth"/);
+// ---- type + trust facets -----------------------------------------------------
+
+test('facet row shows Type pills with counts while browsing', () => {
+  const html = render();
+  assert.match(html, /class="facet-row"/);
+  assert.match(html, /facet-group__label">Type</);
+  assert.match(html, /data-action="toggle-lib-type" data-facet="runbook"[^>]*>Runbooks <span class="facet-pill__count">2</);
+  assert.match(html, /data-action="toggle-lib-type" data-facet="note"[^>]*>Notes <span class="facet-pill__count">1</);
+});
+
+test('the Trust group is omitted when no document carries a trust flag', () => {
+  const html = render();
+  assert.doesNotMatch(html, /facet-group__label">Trust</);
+});
+
+test('Trust facets appear (with counts) once documents carry the flags, and mark active', () => {
+  const docs = [
+    { id: 'v', title: 'V', documentType: 'note', tags: [], verified: true },
+    { id: 's', title: 'S', documentType: 'note', tags: [], stale: true },
+    { id: 'p', title: 'P', documentType: 'note', tags: [] },
+  ];
+  const html = render({ documents: docs, libraryTrust: ['verified'] });
+  assert.match(html, /facet-group__label">Trust</);
+  assert.match(html, /class="facet-pill is-active"[^>]*data-facet="verified"[^>]*aria-pressed="true"[^>]*>Verified <span class="facet-pill__count">1</);
+  assert.match(html, /data-facet="stale"[^>]*aria-pressed="false"[^>]*>Stale <span class="facet-pill__count">1</);
+  assert.doesNotMatch(html, /data-facet="superseded"/); // none superseded
+});
+
+test('selecting one type facet filters the visible docs to that type', () => {
+  assert.equal(build().visibleCount, 3);
+  assert.deepEqual(build({ libraryTypes: ['note'] }).groups.flatMap(g => g.docs).map(d => d.id), ['doc-ideas']);
+  // both types selected = no narrowing (like "all")
+  assert.equal(build({ libraryTypes: ['note', 'runbook'] }).visibleCount, 3);
+});
+
+test('trust facet narrows to matching docs (AND across type + trust axes)', () => {
+  const docs = [
+    { id: 'vr', title: 'VR', documentType: 'runbook', tags: [], verified: true },
+    { id: 'vn', title: 'VN', documentType: 'note', tags: [], verified: true },
+    { id: 'pr', title: 'PR', documentType: 'runbook', tags: [] },
+  ];
+  assert.deepEqual(build({ documents: docs, libraryTrust: ['verified'] }).groups.flatMap(g => g.docs).map(d => d.id), ['vr', 'vn']);
+  // AND with type: verified runbooks only
+  assert.deepEqual(build({ documents: docs, libraryTrust: ['verified'], libraryTypes: ['runbook'] }).groups.flatMap(g => g.docs).map(d => d.id), ['vr']);
+});
+
+test('facet row is hidden in archive and semantic modes', () => {
+  assert.doesNotMatch(render({ libraryView: 'archive' }), /facet-row/);
+  assert.doesNotMatch(render({ librarySemantic: true, semanticStatus: { available: true, enabled: true } }), /facet-row/);
 });

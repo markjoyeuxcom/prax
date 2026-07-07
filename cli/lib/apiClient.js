@@ -1,12 +1,13 @@
-// Thin HTTP client over the Moomora API. No business logic — every method maps
+// Thin HTTP client over the Prax API. No business logic — every method maps
 // to one endpoint. Uses global fetch (Node 20+).
 export function createClient({ baseUrl, token } = {}) {
-  const base = (baseUrl || process.env.MOOMORA_API_URL || 'http://127.0.0.1:3000').replace(/\/$/, '');
+  // MOOMORA_API_URL is the pre-rename env var; still honoured so existing setups keep working.
+  const base = (baseUrl || process.env.PRAX_API_URL || process.env.MOOMORA_API_URL || 'http://127.0.0.1:3000').replace(/\/$/, '');
 
   async function request(method, path, { body, agent = false, accept } = {}) {
     const headers = {};
     if (body !== undefined) headers['content-type'] = 'application/json';
-    if (agent) headers['x-moomora-origin'] = 'agent';
+    if (agent) headers['x-prax-origin'] = 'agent';
     if (accept) headers['accept'] = accept;
     if (token) headers['authorization'] = `Bearer ${token}`;
     let res;
@@ -17,7 +18,7 @@ export function createClient({ baseUrl, token } = {}) {
         body: body === undefined ? undefined : JSON.stringify(body),
       });
     } catch (err) {
-      throw new Error(`Moomora not reachable at ${base} — is the app running? (${err.message})`);
+      throw new Error(`Prax not reachable at ${base} — is the app running? (${err.message})`);
     }
     const ct = res.headers.get('content-type') || '';
     const payload = ct.includes('application/json') ? await res.json() : await res.text();

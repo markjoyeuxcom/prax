@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
-import { createMoomoraClient } from './moomoraClient.js';
+import { createPraxClient } from './praxClient.js';
 import { createDocumentTools } from './tools/documents.js';
 import { createTaskTools } from './tools/tasks.js';
 import { createLinkTools } from './tools/links.js';
@@ -20,8 +20,8 @@ const { version: PACKAGE_VERSION } = JSON.parse(
 );
 
 export function buildServer({ server, client } = {}) {
-  const mcp = server || new McpServer({ name: 'moomora-console', version: PACKAGE_VERSION });
-  const apiClient = client || createMoomoraClient();
+  const mcp = server || new McpServer({ name: 'prax', version: PACKAGE_VERSION });
+  const apiClient = client || createPraxClient();
 
   const tools = [
     ...createDocumentTools(apiClient),
@@ -55,7 +55,7 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   // stdout is the JSON-RPC channel — log to stderr only.
-  console.error('Moomora MCP server running on stdio');
+  console.error('Prax MCP server running on stdio');
 }
 
 // Robust "is this the entry module?" check across platforms (handles Windows paths).

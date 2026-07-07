@@ -1,0 +1,9 @@
+# Rust build output
+/target/
+
+# Generated at prepare-sidecar time — never committed
+/binaries/
+/resources/app/
+
+# Tauri codegen
+/gen/schemas/

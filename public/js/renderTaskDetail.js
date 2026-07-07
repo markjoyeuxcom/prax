@@ -1,287 +1,223 @@
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
+import { escapeHtml, chip, prioDotClass } from './renderHelpers.js';
+import {
+  DESIGN_STATUSES,
+  designStatus,
+  apiStatus,
+  designPriority,
+  apiPriority,
+} from './statusMap.js';
+import { dueFlag } from './dueFlags.js';
+import { icon } from './icons.js';
 
-function labelFromValue(value) {
-  return String(value ?? '')
-    .split('-')
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
-}
+// Task drawer (right-side overlay panel) — pure state → HTML string, no DOM.
+// Tasks arrive with API field names (status 'high-priority', priority 'medium',
+// dueDate, archivedAt); statusMap translates for display, and every actionable
+// control emits API vocabulary in its data-* payload. Events bind in main.js
+// via delegated data-action attributes. readOnly = archived task.
+//
+// The drawer is the only task editor: title ([data-task-title]) and notes
+// ([data-task-notes]) autosave on debounced input in main.js, and a legacy
+// description renders as an editable field-row only when one already exists.
 
-function priorityClass(priority) {
-  const p = String(priority || 'medium').toLowerCase();
-  if (p === 'high') return 'hi';
-  if (p === 'low') return 'lo';
-  return 'md';
-}
+const STATUS_LABELS = {
+  priority: 'Priority',
+  inprogress: 'In progress',
+  planned: 'Planned',
+  completed: 'Completed',
+  backlog: 'Backlog',
+};
 
-function priorityLabel(priority) {
-  const p = String(priority || 'medium').toLowerCase();
-  if (p === 'high') return 'HIGH';
-  if (p === 'low') return 'LOW';
-  return 'MED';
-}
+const PRIORITY_PILLS = [
+  ['high', 'High'],
+  ['med', 'Medium'],
+  ['low', 'Low'],
+];
 
-function renderMetaItem(label, value) {
-  return `
-        <div>
-          <dt>${label}</dt>
-          <dd>${value}</dd>
-        </div>`;
-}
-
-function normalizedDetailTab(value) {
-  return ['summary', 'work', 'activity'].includes(value) ? value : 'work';
-}
-
-function normalizedDetailSection(value) {
-  return ['summary', 'docs', 'checklist', 'notes', 'activity'].includes(value) ? value : 'docs';
-}
-
-function renderDetailSectionRail(activeSection) {
-  const items = [
-    ['summary', 'Summary'],
-    ['docs', 'Docs'],
-    ['checklist', 'Checklist'],
-    ['notes', 'Notes'],
-    ['activity', 'Activity'],
-  ];
-  return `
-      <nav class="detail-section-rail" aria-label="Task sections">
-        ${items.map(([id, label]) => `<button class="detail-section-rail__item" type="button" data-action="set-task-detail-section" data-section="${id}" aria-pressed="${activeSection === id}">${escapeHtml(label)}</button>`).join('')}
-      </nav>`;
-}
-
-function renderDetailMobileTabs(activeTab) {
-  const tabs = [
-    ['summary', 'summary'],
-    ['work', 'work'],
-    ['activity', 'activity'],
-  ];
-  return `
-      <nav class="detail-mobile-tabs" aria-label="Task detail sections">
-        ${tabs.map(([tab, label]) => `<button class="detail-mobile-tabs__tab" type="button" data-action="set-task-detail-tab" data-tab="${tab}" aria-pressed="${activeTab === tab}">${label}</button>`).join('')}
-      </nav>`;
-}
-
-function pluralize(count, singular, plural = `${singular}s`) {
-  return `${count} ${count === 1 ? singular : plural}`;
-}
-
-function renderSummary(task, options = {}) {
-  const linkedDocuments = Array.isArray(options.linkedDocuments) ? options.linkedDocuments : [];
-  const checklistItems = Array.isArray(options.checklistItems) ? options.checklistItems : [];
-  const activityEvents = Array.isArray(options.activityEvents) ? options.activityEvents : [];
-  const done = checklistItems.filter(item => item.completed).length;
-  const status = labelFromValue(task.status || 'planned') || 'Planned';
-  const latestActivity = activityEvents[0]?.message || 'No activity yet.';
-  const notesState = (options.taskNotesDraft ?? task.notes ?? '').trim() ? 'notes captured' : 'no notes';
-
-  return `
-      <section class="detail-block detail-summary" id="detail-summary-panel" data-detail-section="summary" data-detail-tab="summary">
-        <div class="detail-block__head">
-          <h3>Summary</h3>
-          <span class="detail-block__count">${escapeHtml(status)}</span>
-        </div>
-        <p class="detail-summary__description">${escapeHtml(task.description || 'No description')}</p>
-        <dl class="detail-summary__grid" aria-label="Summary facts">
-          <div>
-            <dt>Status</dt>
-            <dd class="detail-summary__value">${escapeHtml(status)}</dd>
-          </div>
-          <div>
-            <dt>Due</dt>
-            <dd class="detail-summary__value">${escapeHtml(task.dueDate || '-')}</dd>
-          </div>
-          <div>
-            <dt>Checklist</dt>
-            <dd class="detail-summary__value">${done}/${checklistItems.length} done</dd>
-          </div>
-          <div>
-            <dt>Docs</dt>
-            <dd class="detail-summary__value">${pluralize(linkedDocuments.length, 'linked doc')}</dd>
-          </div>
-          <div>
-            <dt>Notes</dt>
-            <dd class="detail-summary__value">${notesState}</dd>
-          </div>
-          <div>
-            <dt>Latest</dt>
-            <dd class="detail-summary__value">${escapeHtml(latestActivity)}</dd>
-          </div>
-        </dl>
-      </section>`;
-}
-
-function renderLinkedDocs(linkedDocuments = [], options = {}) {
-  const readOnly = Boolean(options.readOnly);
-  const rows = linkedDocuments.length
-    ? linkedDocuments.map(doc => `
-        <div class="linked-doc" data-linked-doc-id="${escapeHtml(doc.id)}">
-          <button class="linked-doc__open" type="button" data-action="open-linked-doc" data-document-id="${escapeHtml(doc.id)}">
-            <strong>${escapeHtml(doc.title || 'Untitled document')}</strong>
-            <small>${escapeHtml(labelFromValue(doc.documentType || 'note'))}</small>
-          </button>
-          ${readOnly ? '' : `<button class="linked-doc__unlink bracket-button bracket-button--quiet" type="button" data-action="unlink-document" data-document-id="${escapeHtml(doc.id)}" aria-label="Unlink ${escapeHtml(doc.title || 'document')}">[x]</button>`}
-        </div>`).join('')
-    : '<p class="linked-docs__empty">No linked runbooks or notes.</p>';
-
-  return `
-      <section class="detail-block" id="detail-docs" data-detail-section="docs" data-detail-tab="work">
-        <div class="detail-block__head">
-          <h3>Linked docs</h3>
-          ${readOnly ? '' : '<button class="bracket-button bracket-button--quiet" type="button" data-action="open-link-picker">[+] link doc</button>'}
-        </div>
-        <div class="linked-docs">${rows}</div>
-      </section>`;
-}
-
-function renderChecklist(items = [], options = {}) {
-  const readOnly = Boolean(options.readOnly);
-  const done = items.filter(i => i.completed).length;
-  const rows = items.length
-    ? items.map(item => `
-        <div class="checklist-item${item.completed ? ' is-done' : ''}" data-checklist-id="${escapeHtml(item.id)}">
-          ${readOnly
-            ? `<span class="checklist-item__mark">${item.completed ? '[x]' : '[ ]'}</span>`
-            : `<button class="checklist-item__toggle bracket-button bracket-button--quiet" type="button" data-action="toggle-checklist-item" data-item-id="${escapeHtml(item.id)}" data-completed="${item.completed ? 'true' : 'false'}" aria-label="${item.completed ? 'Mark incomplete' : 'Mark complete'}: ${escapeHtml(item.label || '')}">${item.completed ? '[x]' : '[ ]'}</button>`}
-          <span class="checklist-item__label">${escapeHtml(item.label || '')}</span>
-          ${readOnly ? '' : `<button class="checklist-item__delete bracket-button bracket-button--quiet" type="button" data-action="delete-checklist-item" data-item-id="${escapeHtml(item.id)}" aria-label="Delete: ${escapeHtml(item.label || '')}">[del]</button>`}
-        </div>`).join('')
-    : '<p class="checklist__empty">No checklist items.</p>';
-  const adder = readOnly ? '' : `
-        <div class="checklist-add">
-          <input type="text" class="checklist-add__input" data-checklist-new placeholder="Add a checklist item" autocomplete="off">
-          <button class="bracket-button bracket-button--quiet" type="button" data-action="add-checklist-item">[+] add</button>
-        </div>`;
-  return `
-      <section class="detail-block" id="detail-checklist" data-detail-section="checklist" data-detail-tab="work">
-        <div class="detail-block__head">
-          <h3>Checklist</h3>
-          <span class="detail-block__count">${done}/${items.length}</span>
-        </div>
-        <div class="checklist">${rows}</div>${adder}
-      </section>`;
-}
-
-function formatActivityTime(createdAt) {
-  const value = String(createdAt || '');
+// "YYYY-MM-DD HH:MM" from an ISO timestamp; date-only strings stay date-only.
+function formatWhen(createdAt) {
+  const value = String(createdAt ?? '');
   if (value.length >= 16 && value.includes('T')) return value.slice(0, 16).replace('T', ' ');
   return value.slice(0, 10);
 }
 
-function renderActivity(events = []) {
-  const rows = events.length
-    ? events.map(e => `
-        <div class="activity-item">
-          <span class="activity-item__msg">${escapeHtml(e.message || '')}</span>
-          <span class="activity-item__time">${escapeHtml(formatActivityTime(e.createdAt))}</span>
-        </div>`).join('')
-    : '<p class="activity__empty">No activity yet.</p>';
-  return `
-      <section class="detail-block" id="detail-activity" data-detail-section="activity" data-detail-tab="activity">
-        <h3>Activity</h3>
-        <div class="activity">${rows}</div>
-      </section>`;
+function mutedText(text) {
+  return `<p style="margin:4px 0 0; font-size:12.5px; color:var(--ink3);">${escapeHtml(text)}</p>`;
 }
 
-function renderNotes(task, options = {}) {
-  const readOnly = Boolean(options.readOnly);
-  const notes = options.taskNotesDraft ?? task.notes ?? '';
-  const isDirty = Boolean(options.isTaskNotesDirty);
-  const status = isDirty ? 'dirty · local edit' : (options.taskNotesSaveStatus || 'saved');
-  const savedAt = options.taskNotesSavedAt ? `last saved ${escapeHtml(options.taskNotesSavedAt)}` : 'not saved this session';
-  if (readOnly) {
-    return `
-      <section class="detail-block" id="detail-notes" data-detail-section="notes" data-detail-tab="work">
-        <h3>Notes</h3>
-        <p>${notes ? escapeHtml(notes) : 'No notes.'}</p>
-      </section>`;
-  }
+function renderStatusPills(task, dis) {
+  const current = designStatus(task.status);
+  return DESIGN_STATUSES.map(key =>
+    `<button class="pill-btn${current === key ? ' is-active' : ''}" type="button" data-action="set-task-status" data-status="${apiStatus(key)}"${dis}>${STATUS_LABELS[key]}</button>`,
+  ).join('');
+}
+
+function renderPriorityPills(task, dis) {
+  const current = designPriority(task.priority);
+  return PRIORITY_PILLS.map(([key, label]) =>
+    `<button class="pill-btn${current === key ? ' is-active--outline' : ''}" type="button" data-action="set-task-priority" data-priority="${apiPriority(key)}"${dis}><span class="${prioDotClass(apiPriority(key))}" aria-hidden="true"></span>${label}</button>`,
+  ).join('');
+}
+
+// Legacy descriptions stay reachable/editable, but new tasks never grow one:
+// the row renders only when the task already carries a non-empty description.
+function renderDescriptionRow(task, ro) {
+  if (!String(task.description ?? '').trim()) return '';
   return `
-      <section class="detail-block" id="detail-notes" data-detail-section="notes" data-detail-tab="work">
-        <div class="detail-block__head">
-          <h3>Notes</h3>
-          <div class="detail-block__actions">
-            ${isDirty ? '<button class="bracket-button bracket-button--quiet" type="button" data-action="discard-task-notes">[esc] discard</button>' : ''}
-            <button class="bracket-button bracket-button--quiet" type="button" data-action="save-task-notes"${isDirty ? '' : ' disabled'}>[s] save</button>
-          </div>
+      <div class="field-row">
+        <span class="field-row__label">Description</span>
+        <div class="field-row__value">
+          <textarea class="drawer__notes" data-task-description rows="2" style="min-height:44px;"${ro}>${escapeHtml(task.description)}</textarea>
         </div>
-        <div class="detail-notes-shell${isDirty ? ' is-dirty' : ''}">
-          <textarea class="detail-notes" data-task-notes rows="4" placeholder="Operational notes and handoff context…">${escapeHtml(notes)}</textarea>
-          <div class="detail-notes-status">
-            <span data-task-notes-status>${escapeHtml(status)}</span>
-            <span>${savedAt}</span>
-          </div>
+      </div>`;
+}
+
+function renderFieldRows(task, dis, ro) {
+  return `
+      <div class="field-row">
+        <span class="field-row__label">Status</span>
+        <div class="field-row__value">${renderStatusPills(task, dis)}</div>
+      </div>
+      <div class="field-row">
+        <span class="field-row__label">Priority</span>
+        <div class="field-row__value">${renderPriorityPills(task, dis)}</div>
+      </div>
+      <div class="field-row">
+        <span class="field-row__label">Due</span>
+        <div class="field-row__value">
+          <input class="date-input" type="date" data-task-due value="${escapeHtml(task.dueDate || '')}"${dis}>
+          <button class="pill-btn" type="button" data-action="clear-task-due"${dis}>Clear</button>
         </div>
+      </div>${renderDescriptionRow(task, ro)}`;
+}
+
+// Notes value: the in-flight draft wins only when it belongs to this task
+// (autosave is debounced in main.js; re-renders must not clobber typing).
+function notesValue(state, task) {
+  if (state && state.taskNotesDraftId === task.id) return state.taskNotesDraft ?? '';
+  return task.notes ?? '';
+}
+
+function renderNotesSection(state, task, dis) {
+  return `
+      <section class="drawer-section">
+        <div class="drawer-section__head"><span>Notes</span></div>
+        <textarea class="drawer__notes" data-task-notes placeholder="Add notes…"${dis}>${escapeHtml(notesValue(state, task))}</textarea>
       </section>`;
 }
 
-function actionsFor(options) {
-  const readOnly = Boolean(options.readOnly);
-  const restoreAction = Boolean(options.restoreAction);
-  const deleteAction = Boolean(options.deleteAction);
-  if (restoreAction) {
+function renderChecklistSection(checklist, readOnly, dis) {
+  if (!checklist.length && readOnly) return '';
+  const done = checklist.filter(item => item.completed).length;
+  const pct = checklist.length ? Math.round((done / checklist.length) * 100) : 0;
+  const items = checklist.map(item => {
+    const isDone = Boolean(item.completed);
+    const remove = readOnly
+      ? ''
+      : `<span data-action="delete-checklist-item" data-item-id="${escapeHtml(item.id)}" title="Delete item">✕</span>`;
     return `
-        <div class="detail-actions">
-          <button class="bracket-button bracket-button--quiet" type="button" data-action="restore-task">[r] restore</button>
-          ${deleteAction ? '<button class="bracket-button bracket-button--danger" type="button" data-action="delete-archived-task">[!] delete</button>' : ''}
+        <button class="check-item${isDone ? ' is-done' : ''}" type="button" data-action="toggle-checklist-item" data-item-id="${escapeHtml(item.id)}" data-completed="${isDone ? 'true' : 'false'}"${dis}>
+          <span class="task-check${isDone ? ' is-done' : ''}" aria-hidden="true">${isDone ? '✓' : ''}</span>
+          <span class="check-item__label">${escapeHtml(item.label || '')}</span>${remove}
+        </button>`;
+  }).join('');
+  const adder = readOnly ? '' : `
+        <div style="display:flex; gap:6px; margin-top:6px;">
+          <input class="text-input" type="text" data-checklist-new placeholder="Add checklist item…" autocomplete="off" style="flex:1;">
+          <button class="pill-btn" type="button" data-action="add-checklist-item">Add</button>
         </div>`;
-  }
-  if (readOnly) return '';
   return `
-        <div class="detail-actions">
-          <button class="bracket-button" type="button" data-action="edit-task">[e] edit</button>
-          <button class="bracket-button bracket-button--danger" type="button" data-action="archive-task">[d] archive</button>
-        </div>`;
+      <section class="drawer-section">
+        <div class="drawer-section__head">
+          <span>Checklist</span>
+          <span>${done} of ${checklist.length}</span>
+          <div class="progress"><span style="width:${pct}%"></span></div>
+        </div>${items}${adder}
+      </section>`;
 }
 
-export function renderTaskDetailHtml(task, options = {}) {
-  if (!task) {
-    return `
-    <aside class="detail-panel detail-panel--empty" aria-label="Task detail">
-      <div class="detail-empty">
-        <h2>No task selected</h2>
-        <p>Select a task from the queue to inspect its operational context.</p>
-      </div>
-    </aside>`;
-  }
+function renderDocsSection(documents, readOnly) {
+  const rows = documents.length
+    ? documents.map(doc => {
+        const type = escapeHtml(doc.documentType || 'note');
+        const unlink = readOnly
+          ? ''
+          : `<span data-action="unlink-task-document" data-document-id="${escapeHtml(doc.id)}" title="Unlink document">✕</span>`;
+        return `
+        <button class="doc-row" type="button" data-action="open-linked-doc" data-document-id="${escapeHtml(doc.id)}">
+          ${icon('doc')}
+          <span class="doc-row__title">${escapeHtml(doc.title || 'Untitled document')}</span>
+          ${chip(doc.documentType || 'note', `type-${type}`)}${unlink}
+        </button>`;
+      }).join('')
+    : mutedText('No linked runbooks or notes.');
+  const linkButton = readOnly
+    ? ''
+    : '<button class="pill-btn" type="button" data-action="open-link-picker">＋ Link doc</button>';
+  return `
+      <section class="drawer-section">
+        <div class="drawer-section__head"><span>Linked documents</span>${linkButton}</div>${rows}
+      </section>`;
+}
 
-  const title = task.title || 'Untitled task';
-  const description = task.description || 'No description';
-  const pClass = priorityClass(task.priority);
-  const pLabel = priorityLabel(task.priority);
-  const status = labelFromValue(task.status || 'planned') || 'Planned';
-  const dueDate = task.dueDate || '-';
-  const activeTab = normalizedDetailTab(options.activeTaskDetailTab);
-  const activeSection = normalizedDetailSection(options.activeTaskDetailSection);
+function renderActivitySection(activity) {
+  const items = activity.length
+    ? `<div class="timeline">${activity.map(event => `
+          <div class="timeline__item">${escapeHtml(event.message || '')}<div class="timeline__when">${escapeHtml(formatWhen(event.createdAt))}</div></div>`).join('')}
+        </div>`
+    : mutedText('No activity yet.');
+  return `
+      <section class="drawer-section">
+        <div class="drawer-section__head"><span>Activity</span></div>${items}
+      </section>`;
+}
 
-  const priorityBadge = `<span class="bracket-badge bracket-badge--${pClass}">[ ${pLabel} ]</span>`;
+function renderFoot(task, readOnly) {
+  const taskId = escapeHtml(task.id);
+  const buttons = readOnly
+    ? `<button class="btn-outline" type="button" data-action="restore-task" data-task-id="${taskId}">Restore</button>
+        <button class="btn-outline btn-outline--danger" type="button" data-action="delete-archived-task" data-task-id="${taskId}">Delete permanently</button>`
+    : `<button class="btn-outline btn-outline--danger" type="button" data-action="archive-task" data-task-id="${taskId}">Archive task</button>`;
+  return `
+      <div class="drawer__foot" style="gap:8px;">
+        ${buttons}
+      </div>`;
+}
+
+function renderHead(task, context, isDone, readOnly) {
+  const project = context.project || null;
+  const projectColor = escapeHtml((project && project.color) || 'var(--accent)');
+  const projectChip = project
+    ? chip(project.name || 'Project', 'project',
+        `style="background:color-mix(in oklab, ${projectColor} 13%, transparent); color:${projectColor};"`)
+    : '';
+  const flag = dueFlag(task.dueDate, { done: isDone, now: context.now });
+  const dueChip = flag ? chip(flag.label, `due-${flag.bucket}`) : '';
+  const chips = `${projectChip}${dueChip}`;
+  return `
+      <div class="drawer__head">
+        <button class="task-check${isDone ? ' is-done' : ''}" type="button" data-action="toggle-task-done" data-task-id="${escapeHtml(task.id)}" aria-pressed="${isDone}" aria-label="Toggle done"${readOnly ? ' disabled' : ''}>${isDone ? '✓' : ''}</button>
+        <div style="flex:1; min-width:0;">
+          <input class="drawer__title-input${isDone ? ' is-done' : ''}" type="text" data-task-title value="${escapeHtml(task.title || '')}" aria-label="Task title" autocomplete="off" spellcheck="false"${readOnly ? ' readonly' : ''}>
+          ${chips ? `<div class="drawer__chips">${chips}</div>` : ''}
+        </div>
+        <button class="drawer__close" type="button" data-action="close-drawer" aria-label="Close drawer">✕</button>
+      </div>`;
+}
+
+export function renderTaskDrawerHtml(state, task, context = {}) {
+  if (!task) return '';
+  const readOnly = Boolean(context.readOnly);
+  const dis = readOnly ? ' disabled' : '';
+  const ro = readOnly ? ' readonly' : '';
+  const isDone = designStatus(task.status) === 'completed';
+  const documents = Array.isArray(context.documents) ? context.documents : [];
+  const checklist = Array.isArray(context.checklist) ? context.checklist : [];
+  const activity = Array.isArray(context.activity) ? context.activity : [];
 
   return `
-    <aside class="detail-panel" aria-labelledby="selected-task-title" data-active-detail-tab="${escapeHtml(activeTab)}" data-active-detail-section="${escapeHtml(activeSection)}">
-      <header class="detail-header" id="detail-summary" data-detail-section="summary" data-detail-tab="summary">
-        ${options.closeAction ? `<button class="detail-close bracket-button bracket-button--quiet" type="button" data-action="${escapeHtml(options.closeAction)}" aria-label="Close task detail">[x] close</button>` : ''}
-        ${options.mobileDetailOpen ? `<button class="detail-back bracket-button bracket-button--quiet" type="button" data-action="close-mobile-detail" aria-label="Back">← back</button>` : ''}
-        <span class="detail-kicker">Selected Task</span>
-        <h2 id="selected-task-title">${escapeHtml(title)}</h2>
-        <p>${escapeHtml(description)}</p>
-        ${actionsFor(options)}
-      </header>
-
-      <dl class="detail-meta" aria-label="Task metadata">${renderMetaItem('Priority', priorityBadge)}${renderMetaItem('Status', escapeHtml(status))}${renderMetaItem('Due', escapeHtml(dueDate))}
-      </dl>
-
-      ${renderDetailSectionRail(activeSection)}
-      ${renderDetailMobileTabs(activeTab)}
-      <div class="detail-body">${renderSummary(task, options)}${renderLinkedDocs(options.linkedDocuments, options)}${renderChecklist(options.checklistItems, options)}${renderNotes(task, options)}${renderActivity(options.activityEvents)}
-      </div>
+    <div class="scrim" data-action="close-drawer"></div>
+    <aside class="drawer" role="dialog" aria-modal="true" aria-label="Task detail" data-task-id="${escapeHtml(task.id)}">${renderHead(task, context, isDone, readOnly)}
+      <div class="drawer__scroll">${renderFieldRows(task, dis, ro)}${renderNotesSection(state, task, dis)}${renderChecklistSection(checklist, readOnly, dis)}${renderDocsSection(documents, readOnly)}${renderActivitySection(activity)}
+      </div>${renderFoot(task, readOnly)}
     </aside>`;
 }

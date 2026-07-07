@@ -1,0 +1,131 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { buildProjectGroups, renderAllProjectsHtml } from '../../public/js/renderAllProjects.js';
+
+const PROJECTS = [
+  { id: 'p1', name: 'Homelab', status: 'active', updatedAt: '2026-07-01T10:00:00.000Z' },
+  { id: 'p2', name: 'Work', status: 'on-hold', updatedAt: '2026-06-20T08:00:00.000Z' },
+  { id: 'p3', name: 'Old Sandbox', status: 'archived' },
+];
+
+const TASKS = [
+  { id: 't1', projectId: 'p1', status: 'planned', archivedAt: null },
+  { id: 't2', projectId: 'p1', status: 'in-progress', archivedAt: null },
+  { id: 't3', projectId: 'p1', status: 'completed', archivedAt: null },
+  { id: 't4', projectId: 'p1', status: 'completed', archivedAt: '2026-06-01T00:00:00.000Z' }, // archived → excluded
+  { id: 't5', projectId: 'p2', status: 'notes', archivedAt: null },
+  { id: 't6', projectId: 'other', status: 'planned', archivedAt: null },
+];
+
+// ---- buildProjectGroups -----------------------------------------------------
+
+test('groups projects in Active / On hold / Completed / Archived order, dropping empty groups', () => {
+  const groups = buildProjectGroups(PROJECTS, TASKS);
+  assert.deepEqual(groups.map(g => g.label), ['Active', 'On hold', 'Archived']); // no completed projects
+  assert.deepEqual(groups.map(g => g.state), ['active', 'on-hold', 'archived']);
+});
+
+test('derives open/done counts and pct, excluding archived tasks entirely', () => {
+  const groups = buildProjectGroups(PROJECTS, TASKS);
+  const homelab = groups[0].projects[0];
+  assert.equal(homelab.open, 2);       // planned + in-progress; archived completed task excluded
+  assert.equal(homelab.done, 1);       // one live completed
+  assert.equal(homelab.pct, 33);       // round(1/3 * 100)
+  const work = groups[1].projects[0];
+  assert.equal(work.open, 1);          // backlog ('notes') counts as open
+  assert.equal(work.done, 0);
+  assert.equal(work.pct, 0);
+});
+
+test('pct is 0 (not NaN) for a project with no tasks', () => {
+  const groups = buildProjectGroups(PROJECTS, TASKS);
+  const sandbox = groups.find(g => g.state === 'archived').projects[0];
+  assert.equal(sandbox.open, 0);
+  assert.equal(sandbox.done, 0);
+  assert.equal(sandbox.pct, 0);
+});
+
+test('updated label is the YYYY-MM-DD slice of updatedAt, or empty when missing', () => {
+  const groups = buildProjectGroups(PROJECTS, TASKS);
+  assert.equal(groups[0].projects[0].updated, '2026-07-01');
+  assert.equal(groups.find(g => g.state === 'archived').projects[0].updated, '');
+});
+
+test('an unrecognised project status falls back into the Active group', () => {
+  const groups = buildProjectGroups([{ id: 'px', name: 'Legacy', status: 'legacy-value' }], []);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].state, 'active');
+  assert.equal(groups[0].projects[0].project.id, 'px');
+});
+
+// ---- renderAllProjectsHtml ----------------------------------------------------
+
+function render(projects = PROJECTS, tasks = TASKS) {
+  return renderAllProjectsHtml({}, buildProjectGroups(projects, tasks), () => '#3aa17e');
+}
+
+test('renders the page head, subtitle, group labels and project cards', () => {
+  const html = render();
+  assert.match(html, /class="page-head__title">All projects</);
+  assert.match(html, /class="page-head__sub"/);
+  assert.match(html, /class="group-label">Active</);
+  assert.match(html, /class="group-label">On hold</);
+  assert.match(html, /class="proj-grid"/);
+  assert.match(html, /data-action="open-project" data-project-id="p1"/);
+  assert.match(html, /class="proj-card__name">Homelab</);
+});
+
+test('renders the state chip, progress bar width and meta counts', () => {
+  const html = render();
+  assert.match(html, /class="chip chip--state-active">Active</);
+  assert.match(html, /class="chip chip--state-on-hold">On hold</);
+  assert.match(html, /class="proj-card__bar"><span style="width:33%; --dot:#3aa17e"><\/span>/);
+  assert.match(html, /2 open · 1 done/);
+  assert.match(html, /2026-07-01/);
+});
+
+test('state-change chip buttons cover every state except the current one', () => {
+  const html = render([PROJECTS[0]], []);
+  assert.match(html, /data-action="set-project-state" data-project-id="p1" data-state="on-hold">Hold</);
+  assert.match(html, /data-action="set-project-state" data-project-id="p1" data-state="completed">Done</);
+  assert.match(html, /data-action="set-project-state" data-project-id="p1" data-state="archived">Archive</);
+  assert.doesNotMatch(html, /data-action="set-project-state" data-project-id="p1" data-state="active"/);
+});
+
+test('archived projects can be restored via a state-change chip (ported archive-restore intent)', () => {
+  const html = render([PROJECTS[2]], []);
+  assert.match(html, /data-action="set-project-state" data-project-id="p3" data-state="active">Active</);
+  assert.doesNotMatch(html, /data-state="archived"/);
+});
+
+test('every card renders a Delete chip last in the actions row', () => {
+  const html = render([PROJECTS[0]], TASKS);
+  assert.match(html, /data-action="delete-project" data-project-id="p1">Delete</);
+  const actions = html.slice(html.indexOf('proj-card__actions'));
+  assert.ok(actions.lastIndexOf('data-action="set-project-state"') < actions.indexOf('data-action="delete-project"'));
+});
+
+test('renders the create row (name input + primary button)', () => {
+  const html = render([], []);
+  assert.match(html, /class="text-input"[^>]*data-new-project-name/);
+  assert.match(html, /class="btn-primary"[^>]*data-action="create-project"[^>]*>＋ New project</);
+});
+
+test('archived group cards are dimmed', () => {
+  const html = render();
+  assert.match(html, /class="proj-card is-dim" data-action="open-project" data-project-id="p3"/);
+  assert.doesNotMatch(html, /class="proj-card is-dim" data-action="open-project" data-project-id="p1"/);
+});
+
+test('renders an overall empty state when there are no projects', () => {
+  const html = render([], []);
+  assert.match(html, /class="empty"/);
+  assert.match(html, /No projects yet/);
+  assert.doesNotMatch(html, /proj-grid/);
+});
+
+test('escapes project names', () => {
+  const html = render([{ id: 'p1', name: '<script>alert("x")</script>', status: 'active' }], []);
+  assert.doesNotMatch(html, /<script>alert/);
+  assert.match(html, /&lt;script&gt;alert\(&quot;x&quot;\)&lt;\/script&gt;/);
+});
