@@ -91,6 +91,15 @@ function openConfirm(confirm) {
   renderApp();
 }
 
+function newProjectDialog() {
+  return {
+    message: 'Name this project',
+    okLabel: 'Create project',
+    action: 'create-project',
+    input: { placeholder: 'Project name' },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Data loading
 // ---------------------------------------------------------------------------
@@ -988,6 +997,11 @@ function afterRender() {
     input?.setSelectionRange?.(input.value.length, input.value.length);
   } else if (state.captureOpen) {
     appRoot.querySelector('[data-capture-input]')?.focus();
+  } else if (state.confirm) {
+    // Focus the text field when there is one; otherwise Cancel — never the
+    // destructive action, so a stray Enter can't confirm a delete.
+    (appRoot.querySelector('[data-confirm-input]')
+      || appRoot.querySelector('.confirm button[data-action="confirm-cancel"]'))?.focus();
   } else if (state.navType === 'editor' && !state.drawerTaskId && !state.isDocumentInfoEditorOpen) {
     // Keep the caret in the document: an unfocused editor screen would let
     // plain letters fall through to the global shortcuts (n = capture…).
@@ -1088,7 +1102,11 @@ async function handleAction(action, el, event) {
   switch (action) {
     // ---- navigation ----
     case 'nav-today': setState({ navType: 'today', selectedTaskId: null, multiSelectIds: [] }); renderApp(); break;
-    case 'nav-all': case 'manage-projects': setState({ navType: 'all' }); renderApp(); break;
+    case 'nav-all': setState({ navType: 'all' }); renderApp(); break;
+    case 'manage-projects':
+      setState({ navType: 'all' });
+      openConfirm(newProjectDialog());
+      break;
     case 'nav-library': goLibrary(); break;
     case 'nav-settings': goSettings(); break;
     case 'nav-project': goProject(el.dataset.projectId); break;
@@ -1405,13 +1423,20 @@ async function handleAction(action, el, event) {
       break;
     }
     case 'create-project': {
-      const input = appRoot.querySelector('[data-new-project-name]');
-      const name = (input?.value || '').trim();
-      if (!name) break;
+      const confirmed = Boolean(el.dataset.confirmed);
+      const name = (appRoot.querySelector(confirmed ? '[data-confirm-input]' : '[data-new-project-name]')?.value || '').trim();
+      if (confirmed) setState({ confirm: null });
+      if (!name) {
+        // Empty name must never be a silent no-op: ask for one in-app.
+        if (confirmed) { renderApp(); break; }
+        openConfirm(newProjectDialog());
+        break;
+      }
       try {
         const project = await createProject(name);
         await loadProjects();
         goProject(project.id);
+        showToast(`Project "${name}" created`);
       } catch { alertError('create that project'); }
       break;
     }
@@ -1684,6 +1709,11 @@ function bindEvents() {
         event.preventDefault();
         runPaletteItem(paletteFlat[Math.min(state.paletteSelection, Math.max(0, paletteFlat.length - 1))]);
       }
+      return;
+    }
+    if (target.matches?.('[data-new-project-name]') && event.key === 'Enter') {
+      event.preventDefault();
+      handleAction('create-project', target, event);
       return;
     }
     if (target.matches?.('[data-confirm-input]') && event.key === 'Enter') {

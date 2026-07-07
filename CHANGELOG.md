@@ -66,6 +66,10 @@ fresh empty `[Unreleased]` section is started.
   uses the same dialog with a text field; and all error/status messages are
   toasts. Clicking inside the quick-capture or command-palette dialog no
   longer closes it (only true outside-clicks dismiss).
+- **"＋ New project" always answers.** With the name field empty the button
+  (and the sidebar ＋) now opens a small "Name this project" dialog instead
+  of silently doing nothing; Enter in the name field creates directly, and
+  a toast confirms creation.
 
 ### Changed
 
