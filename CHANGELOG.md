@@ -25,6 +25,10 @@ fresh empty `[Unreleased]` section is started.
 - **`[[wiki-links]]`.** Type `[[` to autocomplete a link to another document
   by title; the preview renders resolved links as clickable (they open the
   doc) and unresolved ones as a muted "missing" style.
+- **The Markdown preview renders images, `~~strikethrough~~`, and underscore
+  emphasis** (`_italic_` / `__bold__`). Underscore emphasis has word-boundary
+  guards, so `snake_case` identifiers and paths like `/etc/foo_bar` are left
+  alone; image `src` is restricted to http(s)/relative (no `javascript:`).
 - **The editor's "Referenced by N tasks" backlinks now actually populate.**
   The footer was wired but always fed an empty list; a new
   `GET /api/library/documents/:id/tasks` returns the non-archived tasks that

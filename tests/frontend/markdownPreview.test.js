@@ -137,3 +137,36 @@ test('renderMarkdownHtml nests deeper levels and returns to shallower ones', () 
   const html = renderMarkdownHtml(md);
   assert.match(html, /<ul><li>top<ul><li>mid<ul><li>deep<\/li><\/ul><\/li><\/ul><\/li><li>top2<\/li><\/ul>/);
 });
+
+// ---- images, strikethrough, underscore emphasis ------------------------------
+
+test('renderMarkdownHtml renders images (relative + http) with escaped alt and lazy loading', () => {
+  assert.match(renderMarkdownHtml('![logo](/img/x.png)'), /<img src="\/img\/x\.png" alt="logo" loading="lazy">/);
+  assert.match(renderMarkdownHtml('![a](https://ex.com/y.png)'), /<img src="https:\/\/ex\.com\/y\.png" alt="a" loading="lazy">/);
+});
+
+test('renderMarkdownHtml does not create an image for a javascript: (or other) unsafe src', () => {
+  const html = renderMarkdownHtml('![x](javascript:alert(1))');
+  assert.doesNotMatch(html, /<img/);
+  assert.ok(!html.includes('javascript:alert(1)') || html.includes('!['));
+});
+
+test('renderMarkdownHtml renders ~~strikethrough~~ as <del>', () => {
+  assert.match(renderMarkdownHtml('this is ~~gone~~ now'), /this is <del>gone<\/del> now/);
+});
+
+test('renderMarkdownHtml renders _underscore_ and __underscore__ emphasis', () => {
+  assert.match(renderMarkdownHtml('an _emphasised_ word'), /an <em>emphasised<\/em> word/);
+  assert.match(renderMarkdownHtml('a __strong__ word'), /a <strong>strong<\/strong> word/);
+});
+
+test('renderMarkdownHtml leaves snake_case identifiers and underscored paths untouched', () => {
+  assert.match(renderMarkdownHtml('my_var_name stays plain'), /my_var_name stays plain/);
+  assert.doesNotMatch(renderMarkdownHtml('my_var_name stays plain'), /<em>|<strong>/);
+  assert.match(renderMarkdownHtml('see /etc/foo_bar_baz/x here'), /\/etc\/foo_bar_baz\/x/);
+  assert.doesNotMatch(renderMarkdownHtml('see /etc/foo_bar_baz/x here'), /<em>|<strong>/);
+});
+
+test('renderMarkdownHtml keeps asterisk bold/italic working alongside the underscore rules', () => {
+  assert.match(renderMarkdownHtml('keep **star** and *em* going'), /keep <strong>star<\/strong> and <em>em<\/em> going/);
+});

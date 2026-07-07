@@ -39,9 +39,18 @@ function renderInline(value) {
   });
 
   text = escapeHtml(text);
+  // Images ![alt](src) — before links, so the link rule doesn't eat the [..](..)
+  // and strand the leading "!". src is restricted to http(s)/relative (no
+  // javascript:) and alt is already escaped by escapeHtml above.
+  text = text.replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+|\/[^)\s]+)\)/g, '<img src="$2" alt="$1" loading="lazy">');
   text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+|\/[^)\s]+|#[^)\s]+)\)/g, '<a href="$2" rel="noreferrer">$1</a>');
   text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   text = text.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
+  // Underscore emphasis, with word-boundary guards so snake_case identifiers and
+  // file/paths with underscores are never turned into emphasis. Double first.
+  text = text.replace(/(^|[^\w])__(\S(?:[^_]*\S)?)__(?=[^\w]|$)/g, '$1<strong>$2</strong>');
+  text = text.replace(/(^|[^\w])_(\S(?:[^_]*\S)?)_(?=[^\w]|$)/g, '$1<em>$2</em>');
+  text = text.replace(/~~([^~]+)~~/g, '<del>$1</del>');
   codeSpans.forEach((code, index) => {
     text = text.replace(`\u0000CODE${index}\u0000`, code);
   });
