@@ -84,6 +84,7 @@ export const state = {
   // ---- settings ----
   preferences: { ...DEFAULT_PREFERENCES },
   adminImportMode: 'skip',
+  settingsTab: 'appearance',    // 'appearance' | 'intelligence' | 'data'
 };
 
 export function setState(patch) {

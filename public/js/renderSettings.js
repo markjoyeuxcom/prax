@@ -326,15 +326,32 @@ function renderDataCard(state, model) {
   </section>`;
 }
 
+const SETTINGS_TABS = [
+  ['appearance', 'Appearance'],
+  ['intelligence', 'Intelligence'],
+  ['data', 'Data & admin'],
+];
+
 export function renderSettingsHtml(state, model = {}) {
   const preferences = state.preferences && typeof state.preferences === 'object' ? state.preferences : {};
+  const tab = SETTINGS_TABS.some(([key]) => key === state.settingsTab)
+    ? state.settingsTab
+    : 'appearance';
+  const card = tab === 'intelligence'
+    ? renderIntelligenceCard(state.semanticStatus)
+    : tab === 'data'
+      ? renderDataCard(state, model)
+      : renderAppearanceCard(preferences);
   return `
-  <div class="page-head">
-    <h1 class="page-head__title">Settings</h1>
-  </div>
-  <div class="settings">
-    ${renderAppearanceCard(preferences)}
-    ${renderIntelligenceCard(state.semanticStatus)}
-    ${renderDataCard(state, model)}
+  <div class="page page--settings">
+    <div class="page-head">
+      <h1 class="page-head__title">Settings</h1>
+    </div>
+    <nav class="tabs" aria-label="Settings sections">
+      ${SETTINGS_TABS.map(([key, label]) => `<button class="tabs__tab${tab === key ? ' is-active' : ''}" type="button" data-action="set-settings-tab" data-tab="${key}"${tab === key ? ' aria-current="true"' : ''}>${escapeHtml(label)}</button>`).join('')}
+    </nav>
+    <div class="settings">
+      ${card}
+    </div>
   </div>`;
 }

@@ -27,12 +27,46 @@ function baseModel(overrides = {}) {
   };
 }
 
-test('renders the Settings page head and the three cards', () => {
+test('renders the page head, section tabs, and one card per tab', () => {
   const html = renderSettingsHtml(baseState(), baseModel());
   assert.match(html, /class="page-head__title">Settings</);
+  // three tabs, appearance active by default
+  assert.match(html, /class="tabs__tab is-active"[^>]*data-action="set-settings-tab" data-tab="appearance"/);
+  assert.match(html, /data-action="set-settings-tab" data-tab="intelligence"/);
+  assert.match(html, /data-action="set-settings-tab" data-tab="data"/);
+  // only the active tab's card renders
   assert.match(html, /settings-card__title">Appearance</);
-  assert.match(html, /settings-card__title">Intelligence</);
-  assert.match(html, /settings-card__title">Data &amp; admin</);
+  assert.doesNotMatch(html, /settings-card__title">Intelligence</);
+  assert.doesNotMatch(html, /settings-card__title">Data &amp; admin</);
+  const intel = renderSettingsHtml(baseState({ settingsTab: 'intelligence' }), baseModel());
+  assert.match(intel, /settings-card__title">Intelligence</);
+  assert.doesNotMatch(intel, /settings-card__title">Appearance</);
+  const data = renderSettingsHtml(baseState({ settingsTab: 'data' }), baseModel());
+  assert.match(data, /settings-card__title">Data &amp; admin</);
+  assert.doesNotMatch(data, /settings-card__title">Appearance</);
+  // unknown tab falls back to appearance
+  const fallback = renderSettingsHtml(baseState({ settingsTab: 'nope' }), baseModel());
+  assert.match(fallback, /settings-card__title">Appearance</);
+});
+
+test('the active tab marker follows the selected tab (guards a stuck-active-nav regression)', () => {
+  // Each selected tab must be the ONLY one wearing is-active + aria-current,
+  // so a hardcoded "appearance is always active" bug cannot pass.
+  for (const [selected, others] of [
+    ['appearance', ['intelligence', 'data']],
+    ['intelligence', ['appearance', 'data']],
+    ['data', ['appearance', 'intelligence']],
+  ]) {
+    const html = renderSettingsHtml(baseState({ settingsTab: selected }), baseModel());
+    assert.match(html, new RegExp(`class="tabs__tab is-active"[^>]*data-tab="${selected}"[^>]*aria-current="true"`));
+    for (const other of others) {
+      assert.doesNotMatch(html, new RegExp(`class="tabs__tab is-active"[^>]*data-tab="${other}"`));
+      assert.doesNotMatch(html, new RegExp(`data-tab="${other}"[^>]*aria-current`));
+    }
+  }
+  // Invalid ARIA (aria-selected on a plain button) must be gone; the active
+  // state uses aria-current, matching the app-wide convention.
+  assert.doesNotMatch(renderSettingsHtml(baseState(), baseModel()), /aria-selected/);
 });
 
 // ---- Appearance ----------------------------------------------------------
@@ -99,7 +133,7 @@ test('reading scale range carries bounds, current value, and a percent label', (
 // ---- Intelligence ---------------------------------------------------------
 
 test('no provider configured: disabled switch, invitation copy, Off card active', () => {
-  const html = renderSettingsHtml(baseState({ semanticStatus: { available: false, backend: null } }), baseModel());
+  const html = renderSettingsHtml(baseState({ settingsTab: 'intelligence',  semanticStatus: { available: false, backend: null } }), baseModel());
   assert.match(html, /data-action="toggle-semantic-search"[^>]* disabled/);
   assert.doesNotMatch(html, /class="switch is-on" data-action="toggle-semantic-search"/);
   assert.match(html, /Pick a provider below to enable searching the library by meaning\./);
@@ -108,7 +142,7 @@ test('no provider configured: disabled switch, invitation copy, Off card active'
 });
 
 test('ollama provider selected: generic config fields without a key input', () => {
-  const html = renderSettingsHtml(baseState({
+  const html = renderSettingsHtml(baseState({ settingsTab: 'intelligence', 
     semanticStatus: { available: true, enabled: false, backend: 'ollama', connected: false, embeddedCount: 0, totalCount: 10, baseUrl: 'http://127.0.0.1:11434', model: 'nomic-embed-text', keyRequired: false },
   }), baseModel());
   assert.match(html, /provider-card is-active" data-action="set-ai-provider" data-backend="ollama"/);
@@ -123,7 +157,7 @@ test('ollama provider selected: generic config fields without a key input', () =
 
 test('key-required providers get a write-only key field that never echoes the key', () => {
   for (const backend of ['openai', 'gemini', 'voyage']) {
-    const html = renderSettingsHtml(baseState({
+    const html = renderSettingsHtml(baseState({ settingsTab: 'intelligence', 
       semanticStatus: { available: true, enabled: true, backend, connected: true, embeddedCount: 9, totalCount: 10, baseUrl: 'https://example.test/v1', model: 'some-model', hasApiKey: true, keyRequired: true },
     }), baseModel());
     assert.match(html, new RegExp(`provider-card is-active" data-action="set-ai-provider" data-backend="${backend}"`));
@@ -134,7 +168,7 @@ test('key-required providers get a write-only key field that never echoes the ke
 });
 
 test('llama.cpp shows an optional key field; reindex appears when enabled', () => {
-  const html = renderSettingsHtml(baseState({
+  const html = renderSettingsHtml(baseState({ settingsTab: 'intelligence', 
     semanticStatus: { available: true, enabled: true, backend: 'llamacpp', connected: true, embeddedCount: 2, totalCount: 2, baseUrl: 'http://127.0.0.1:8080/v1', model: '', keyRequired: false, hasApiKey: false },
   }), baseModel());
   assert.match(html, /provider-card is-active" data-action="set-ai-provider" data-backend="llamacpp"/);
@@ -143,7 +177,7 @@ test('llama.cpp shows an optional key field; reindex appears when enabled', () =
 });
 
 test('all six provider cards render as buttons with backend payloads', () => {
-  const html = renderSettingsHtml(baseState({ semanticStatus: { available: false, backend: null } }), baseModel());
+  const html = renderSettingsHtml(baseState({ settingsTab: 'intelligence',  semanticStatus: { available: false, backend: null } }), baseModel());
   for (const backend of ['none', 'ollama', 'openai', 'voyage', 'gemini', 'llamacpp']) {
     assert.match(html, new RegExp(`<button[^>]*data-action="set-ai-provider" data-backend="${backend}"`));
   }
@@ -152,7 +186,7 @@ test('all six provider cards render as buttons with backend payloads', () => {
 // ---- Data & admin ----------------------------------------------------------
 
 test('task export rows carry actions and the active project name', () => {
-  const html = renderSettingsHtml(baseState(), baseModel());
+  const html = renderSettingsHtml(baseState({ settingsTab: 'data' }), baseModel());
   assert.match(html, /Export tasks as JSON/);
   assert.match(html, /data-action="export-project-tasks"/);
   assert.match(html, /data-action="export-all-tasks"/);
@@ -160,7 +194,7 @@ test('task export rows carry actions and the active project name', () => {
 });
 
 test('library export row carries actions and the active document count', () => {
-  const html = renderSettingsHtml(baseState(), baseModel());
+  const html = renderSettingsHtml(baseState({ settingsTab: 'data' }), baseModel());
   assert.match(html, /Export library as Markdown/);
   assert.match(html, /data-action="export-library-project"/);
   assert.match(html, /data-action="export-library-all"/);
@@ -168,7 +202,7 @@ test('library export row carries actions and the active document count', () => {
 });
 
 test('import row: action, mode radios with checked state, file input, no replace confirm in skip mode', () => {
-  const html = renderSettingsHtml(baseState({ adminImportMode: 'skip' }), baseModel());
+  const html = renderSettingsHtml(baseState({ settingsTab: 'data',  adminImportMode: 'skip' }), baseModel());
   assert.match(html, /data-action="import-tasks"/);
   assert.match(html, /name="import-mode" value="skip" checked/);
   assert.match(html, /name="import-mode" value="append"/);
@@ -183,13 +217,13 @@ test('import row: action, mode radios with checked state, file input, no replace
 });
 
 test('import row marks the append mode checked', () => {
-  const html = renderSettingsHtml(baseState({ adminImportMode: 'append' }), baseModel());
+  const html = renderSettingsHtml(baseState({ settingsTab: 'data',  adminImportMode: 'append' }), baseModel());
   assert.match(html, /value="append" checked/);
   assert.doesNotMatch(html, /value="skip" checked/);
 });
 
 test('replace mode reveals the REPLACE confirmation input', () => {
-  const html = renderSettingsHtml(baseState({ adminImportMode: 'replace' }), baseModel());
+  const html = renderSettingsHtml(baseState({ settingsTab: 'data',  adminImportMode: 'replace' }), baseModel());
   assert.match(html, /value="replace" checked/);
   assert.match(html, /data-replace-confirm placeholder="REPLACE"/);
 });
@@ -197,7 +231,7 @@ test('replace mode reveals the REPLACE confirmation input', () => {
 // ---- Maintenance -----------------------------------------------------------
 
 test('maintenance block: group label, project filter with selected option, refresh action', () => {
-  const html = renderSettingsHtml(baseState({ maintenanceProjectFilter: 'p2' }), baseModel());
+  const html = renderSettingsHtml(baseState({ settingsTab: 'data',  maintenanceProjectFilter: 'p2' }), baseModel());
   assert.match(html, /class="group-label"[^>]*>MAINTENANCE</);
   assert.match(html, /data-maintenance-project-filter/);
   assert.match(html, /<option value="all">All projects<\/option>/);
@@ -207,18 +241,18 @@ test('maintenance block: group label, project filter with selected option, refre
 });
 
 test('maintenance filter defaults to the all option selected', () => {
-  const html = renderSettingsHtml(baseState(), baseModel());
+  const html = renderSettingsHtml(baseState({ settingsTab: 'data' }), baseModel());
   assert.match(html, /<option value="all" selected>All projects<\/option>/);
 });
 
 test('maintenance lists render empty states by default', () => {
-  const html = renderSettingsHtml(baseState(), baseModel());
+  const html = renderSettingsHtml(baseState({ settingsTab: 'data' }), baseModel());
   assert.match(html, /No stale documents\./);
   assert.match(html, /No orphan documents\./);
 });
 
 test('stale docs render as doc-rows with joined stale sources and an open button with both ids', () => {
-  const html = renderSettingsHtml(baseState({
+  const html = renderSettingsHtml(baseState({ settingsTab: 'data', 
     staleDocs: [{
       documentId: 'd1',
       projectId: 'p1',
@@ -234,7 +268,7 @@ test('stale docs render as doc-rows with joined stale sources and an open button
 });
 
 test('orphan docs render as doc-rows with open buttons carrying both ids', () => {
-  const html = renderSettingsHtml(baseState({
+  const html = renderSettingsHtml(baseState({ settingsTab: 'data', 
     orphanDocs: [{ documentId: 'd2', projectId: 'p2', title: 'Sprint notes' }],
   }), baseModel());
   assert.match(html, /doc-row__title">Sprint notes</);
@@ -245,19 +279,19 @@ test('orphan docs render as doc-rows with open buttons carrying both ids', () =>
 // ---- Footer ----------------------------------------------------------------
 
 test('stats footer joins task, project, and document counts', () => {
-  const html = renderSettingsHtml(baseState(), baseModel());
+  const html = renderSettingsHtml(baseState({ settingsTab: 'data' }), baseModel());
   assert.match(html, /class="stats-foot">12 tasks · 3 projects · 8 documents</);
 });
 
 test('reset preferences row carries the reset action', () => {
-  const html = renderSettingsHtml(baseState(), baseModel());
+  const html = renderSettingsHtml(baseState({ settingsTab: 'data' }), baseModel());
   assert.match(html, /data-action="reset-preferences"[^>]*>Reset preferences</);
 });
 
 // ---- XSS -------------------------------------------------------------------
 
 test('escapes backend name, doc titles, sources, and project names', () => {
-  const html = renderSettingsHtml(baseState({
+  const hostile = {
     semanticStatus: { available: true, enabled: true, backend: '<script>alert(1)</script>', connected: true, embeddedCount: 1, totalCount: 1 },
     projects: [{ id: 'p1', name: '<script>proj</script>' }],
     staleDocs: [{
@@ -267,14 +301,17 @@ test('escapes backend name, doc titles, sources, and project names', () => {
       staleSources: [{ title: '<script>src</script>' }],
     }],
     orphanDocs: [{ documentId: 'd2', title: '<script>orphan</script>' }],
-  }), baseModel({ activeProjectName: '<script>active</script>' }));
-  assert.ok(!html.includes('<script>'));
-  assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
-  assert.match(html, /&lt;script&gt;proj&lt;\/script&gt;/);
-  assert.match(html, /&lt;script&gt;stale&lt;\/script&gt;/);
-  assert.match(html, /&lt;script&gt;src&lt;\/script&gt;/);
-  assert.match(html, /&lt;script&gt;orphan&lt;\/script&gt;/);
-  assert.match(html, /&lt;script&gt;active&lt;\/script&gt;/);
+  };
+  const intel = renderSettingsHtml(baseState({ ...hostile, settingsTab: 'intelligence' }), baseModel({ activeProjectName: '<script>active</script>' }));
+  const data = renderSettingsHtml(baseState({ ...hostile, settingsTab: 'data' }), baseModel({ activeProjectName: '<script>active</script>' }));
+  assert.ok(!intel.includes('<script>'));
+  assert.ok(!data.includes('<script>'));
+  assert.match(intel, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.match(data, /&lt;script&gt;proj&lt;\/script&gt;/);
+  assert.match(data, /&lt;script&gt;stale&lt;\/script&gt;/);
+  assert.match(data, /&lt;script&gt;src&lt;\/script&gt;/);
+  assert.match(data, /&lt;script&gt;orphan&lt;\/script&gt;/);
+  assert.match(data, /&lt;script&gt;active&lt;\/script&gt;/);
 });
 
 test('appearance offers the editor line-numbers switch reflecting the preference', () => {
