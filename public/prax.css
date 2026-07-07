@@ -1744,6 +1744,7 @@ body.is-desktop .window {
    own — panes are the only scroll boundary in the editor view. */
 .main__scroll > .editor { height: 100%; }
 .code-editor { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.code-editor[hidden] { display: none; } /* display:flex would defeat [hidden] */
 .code-editor .cm-editor { flex: 1; min-height: 0; }
 
 .btn-ghost--toggle.is-on {
