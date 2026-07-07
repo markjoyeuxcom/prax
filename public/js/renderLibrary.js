@@ -3,6 +3,9 @@ import { icon } from './icons.js';
 import { DOCUMENT_TEMPLATES } from './documentTemplates.js';
 import {
   filterDocumentsByTags,
+  filterDocumentsByType,
+  filterDocumentsByTrust,
+  TRUST_PREDICATES,
   sortDocuments,
   groupDocumentsByType,
   tagsForDocuments,
@@ -71,19 +74,40 @@ function matchesQuery(doc, query) {
 export function buildLibraryModel(state, _options = {}) {
   const documents = Array.isArray(state.documents) ? state.documents : [];
   const activeTags = Array.isArray(state.activeLibraryTags) ? state.activeLibraryTags : [];
+  const types = Array.isArray(state.libraryTypes) ? state.libraryTypes : [];
+  const trust = Array.isArray(state.libraryTrust) ? state.libraryTrust : [];
   const query = String(state.libraryQuery || '').trim().toLowerCase();
   const semantic = Boolean(state.librarySemantic);
 
   // Tag chips come from the pre-filter set so narrowing never hides pills.
   const tagChips = tagsForDocuments(documents);
+  // Facet counts come from the full active set, so a pill always shows how many
+  // exist regardless of the other facets.
+  const facetCounts = {
+    type: {
+      runbook: documents.filter((doc) => docTypeKey(doc) === 'runbook').length,
+      note: documents.filter((doc) => docTypeKey(doc) === 'note').length,
+    },
+    trust: {
+      verified: documents.filter(TRUST_PREDICATES.verified).length,
+      stale: documents.filter(TRUST_PREDICATES.stale).length,
+      superseded: documents.filter(TRUST_PREDICATES.superseded).length,
+    },
+  };
 
   let filtered = filterDocumentsByTags(documents, activeTags);
+  // Type facet: two types, so exactly one selected filters; both/none = all.
+  if (types.length === 1) filtered = filterDocumentsByType(filtered, types[0]);
+  filtered = filterDocumentsByTrust(filtered, trust);
   if (query && !semantic) filtered = filtered.filter((doc) => matchesQuery(doc, query));
   filtered = sortDocuments(filtered, state.librarySortBy);
+
+  const anyFilter = Boolean(query) || activeTags.length > 0 || types.length > 0 || trust.length > 0;
 
   return {
     groups: groupDocumentsByType(filtered),
     tagChips,
+    facetCounts,
     semanticIdle: semantic && !query,
     semanticActive: semantic && Boolean(query) && state.semanticResults !== null
       && state.semanticResults !== undefined,
@@ -93,8 +117,8 @@ export function buildLibraryModel(state, _options = {}) {
     // A brand-new library (no documents at all, no filters/search active) gets
     // a coaching welcome instead of the "no documents match / Clear filters"
     // dead end, which only makes sense once something exists to filter.
-    welcome: documents.length === 0 && !semantic && !query
-      && activeTags.length === 0 && state.libraryView !== 'archive',
+    welcome: documents.length === 0 && !semantic && !anyFilter
+      && state.libraryView !== 'archive',
   };
 }
 
@@ -150,6 +174,38 @@ function renderTagRow(state, model) {
     pills.push('<button class="tag-pill tag-pill--save" type="button" data-action="save-library-view">＋ Save view</button>');
   }
   return pills.length ? `<div class="tag-row">${pills.join('')}</div>` : '';
+}
+
+const TYPE_FACETS = [['runbook', 'Runbooks'], ['note', 'Notes']];
+const TRUST_FACETS = [['verified', 'Verified'], ['stale', 'Stale'], ['superseded', 'Superseded']];
+
+function facetPill(action, key, label, count, isActive) {
+  return `<button class="facet-pill${isActive ? ' is-active' : ''}" type="button" data-action="${action}" data-facet="${escapeHtml(key)}" aria-pressed="${isActive}">`
+    + `${escapeHtml(label)} <span class="facet-pill__count">${Number(count) || 0}</span></button>`;
+}
+
+// Type + trust facets. Additive AND across the two axes; the type axis is
+// exactly-one-of-two, the trust axis is OR-within. Only shown while browsing
+// (not archive/semantic) once documents exist; trust facets that no document
+// carries (and aren't active) are omitted to avoid dead toggles.
+function renderFacetRow(state, model) {
+  if (model.welcome || model.archive || state.librarySemantic) return '';
+  const counts = model.facetCounts;
+  if (!counts) return '';
+  const activeTypes = new Set(state.libraryTypes || []);
+  const activeTrust = new Set(state.libraryTrust || []);
+
+  const typePills = TYPE_FACETS
+    .map(([key, label]) => facetPill('toggle-lib-type', key, label, counts.type[key], activeTypes.has(key)))
+    .join('');
+  const trustPills = TRUST_FACETS
+    .filter(([key]) => (counts.trust[key] || 0) > 0 || activeTrust.has(key))
+    .map(([key, label]) => facetPill('toggle-lib-trust', key, label, counts.trust[key], activeTrust.has(key)))
+    .join('');
+
+  const groups = [`<div class="facet-group"><span class="facet-group__label">Type</span>${typePills}</div>`];
+  if (trustPills) groups.push(`<div class="facet-group"><span class="facet-group__label">Trust</span>${trustPills}</div>`);
+  return `<div class="facet-row">${groups.join('')}</div>`;
 }
 
 function renderDocCard(doc) {
@@ -278,6 +334,7 @@ export function renderLibraryHtml(state, model) {
   <section class="page" aria-label="Library">
     ${renderPageHead(state, model)}
     ${renderSearchRow(state, semanticVisible)}
+    ${renderFacetRow(state, model)}
     ${renderTagRow(state, model)}
     ${renderBody(state, model, semanticVisible)}
   </section>`;

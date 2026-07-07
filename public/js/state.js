@@ -58,6 +58,8 @@ export const state = {
   libraryQuery: '',
   librarySemantic: false,       // semantic mode toggle (spark)
   activeLibraryTags: [],
+  libraryTypes: [],             // facet: active doc types ('runbook'/'note')
+  libraryTrust: [],             // facet: active trust flags ('verified'/'stale'/'superseded')
   librarySavedViews: [],
   librarySortBy: 'updated',     // 'updated' | 'title' cycler
   libraryView: 'active',        // 'active' | 'archive'

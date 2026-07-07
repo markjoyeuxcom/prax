@@ -1416,7 +1416,21 @@ async function handleAction(action, el, event) {
       renderApp();
       break;
     }
-    case 'clear-lib-filters': setState({ libraryQuery: '', activeLibraryTags: [], semanticResults: null }); renderApp(); break;
+    case 'toggle-lib-type': {
+      const key = el.dataset.facet;
+      const active = state.libraryTypes.includes(key);
+      setState({ libraryTypes: active ? state.libraryTypes.filter(t => t !== key) : [...state.libraryTypes, key] });
+      renderApp();
+      break;
+    }
+    case 'toggle-lib-trust': {
+      const key = el.dataset.facet;
+      const active = state.libraryTrust.includes(key);
+      setState({ libraryTrust: active ? state.libraryTrust.filter(t => t !== key) : [...state.libraryTrust, key] });
+      renderApp();
+      break;
+    }
+    case 'clear-lib-filters': setState({ libraryQuery: '', activeLibraryTags: [], libraryTypes: [], libraryTrust: [], semanticResults: null }); renderApp(); break;
     case 'toggle-new-doc-menu': setState({ newDocMenuOpen: !state.newDocMenuOpen }); renderApp(); break;
     case 'new-document': createNewDocument(el.dataset.templateId); break;
     case 'import-documents': importDocumentFiles(); break;
