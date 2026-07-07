@@ -39,7 +39,7 @@ export function createEmbeddingService({ repository, embedder, concurrency = 4, 
       if (!embedder) return { embedded: 0, failed: 0 };
       const pending = force
         ? await repository.listDocuments({})
-        : await repository.listDocumentsNeedingEmbedding(embedder.backend);
+        : await repository.listDocumentsNeedingEmbedding(embedder.backend, embedder.model);
       let embedded = 0;
       let failed = 0;
       for (let i = 0; i < pending.length; i += concurrency) {

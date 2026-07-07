@@ -14,6 +14,7 @@ export function createGeminiEmbedder({ baseUrl, apiKey, model, fetch = globalThi
 
   return {
     backend: 'gemini',
+    model: embedModel,
     async embed(text, opts = {}) {
       const res = await fetch(`${base}/models/${embedModel}:embedContent`, {
         method: 'POST',

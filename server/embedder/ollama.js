@@ -3,6 +3,7 @@ export function createOllamaEmbedder({ url, model, fetch = globalThis.fetch } = 
   const embedModel = model || 'nomic-embed-text';
   return {
     backend: 'ollama',
+    model: embedModel,
     async embed(text) {
       const res = await fetch(`${base}/api/embeddings`, {
         method: 'POST',

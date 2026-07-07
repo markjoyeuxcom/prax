@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
 export function createFakeEmbedder({ dim = 64 } = {}) {
   return {
     backend: 'fake',
+    model: `fake-${dim}`,
     async embed(text) {
       const vector = [];
       let i = 0;
