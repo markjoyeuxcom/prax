@@ -53,7 +53,7 @@ function createFakeLibrary(docs) {
     async updateDocument() { throw new Error('not used'); },
     async archiveDocument() { throw new Error('not used'); },
     async restoreDocument() { throw new Error('not used'); },
-    async deleteArchivedDocument() { throw new Error('not used'); },
+    async deleteDocument() { throw new Error('not used'); },
     async listActiveDocumentsForExport({ projectId } = {}) {
       return docs
         .filter(d => !d.archivedAt)
@@ -170,7 +170,7 @@ test('GET /api/library/export propagates listActiveDocumentsForExport errors as 
     async updateDocument() { throw new Error('not used'); },
     async archiveDocument() { throw new Error('not used'); },
     async restoreDocument() { throw new Error('not used'); },
-    async deleteArchivedDocument() { throw new Error('not used'); },
+    async deleteDocument() { throw new Error('not used'); },
     async listActiveDocumentsForExport() { throw new Error('database is down'); },
   };
   const app = await buildApp({

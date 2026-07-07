@@ -318,7 +318,7 @@ export async function registerLibraryRoutes(app, options = {}) {
       return { message: 'document id is invalid' };
     }
 
-    const document = await repository.deleteArchivedDocument(request.params.id);
+    const document = await repository.deleteDocument(request.params.id);
     if (!document) {
       reply.code(404);
       return { message: 'document not found' };

@@ -14,6 +14,12 @@ fresh empty `[Unreleased]` section is started.
 
 ### Added
 
+- **Delete a document outright, alongside Archive.** The document menu now
+  offers **Delete permanently…** next to Archive for active documents (not just
+  archived ones), so a document can be removed in one step instead of
+  archive-then-empty. It's guarded by the same in-app confirmation and hits the
+  existing `DELETE /api/library/documents/:id/permanent`, which now removes a
+  document in any state (archived or active) rather than only archived ones.
 - **Smart list continuation.** Pressing Enter in a Markdown bullet, numbered,
   task, or quote line continues the marker on the next line (numbers
   auto-increment, task boxes start fresh and unchecked, indentation is

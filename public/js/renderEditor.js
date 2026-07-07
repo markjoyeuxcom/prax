@@ -108,11 +108,12 @@ function renderDocMenu(state, doc, { readOnly }) {
 
   const items = readOnly ? `
         <button class="menu__item" type="button" data-action="restore-document">Restore</button>
-        <button class="menu__item menu__item--danger" type="button" data-action="delete-archived-document">Delete permanently</button>` : `
+        <button class="menu__item menu__item--danger" type="button" data-action="delete-document">Delete permanently…</button>` : `
         <button class="menu__item" type="button" data-action="edit-document-info">Document info…</button>
         <button class="menu__item" type="button" data-action="toggle-verify">${doc.verified ? 'Unverify' : 'Verify'}</button>
         ${doc.status === 'superseded' ? '' : '<button class="menu__item" type="button" data-action="supersede-document">Supersede…</button>'}
-        <button class="menu__item menu__item--danger" type="button" data-action="archive-document">Archive</button>`;
+        <button class="menu__item menu__item--danger" type="button" data-action="archive-document">Archive</button>
+        <button class="menu__item menu__item--danger" type="button" data-action="delete-document">Delete permanently…</button>`;
 
   return `
       <div class="menu">

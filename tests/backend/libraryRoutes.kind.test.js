@@ -24,7 +24,7 @@ function makeRepoStub() {
     getDocument: async () => null,
     archiveDocument: async () => null,
     restoreDocument: async () => null,
-    deleteArchivedDocument: async () => null,
+    deleteDocument: async () => null,
     listActiveDocumentsForExport: async () => [],
   };
   return { repo, calls };
