@@ -25576,6 +25576,16 @@ function mountCodeMirrorEditor({
     focus() {
       view.focus();
     },
+    scrollToLine(lineNumber) {
+      const line = view.state.doc.line(
+        Math.max(1, Math.min(view.state.doc.lines, Number(lineNumber) + 1))
+      );
+      view.dispatch({
+        selection: { anchor: line.from },
+        effects: EditorView.scrollIntoView(line.from, { y: "start" })
+      });
+      view.focus();
+    },
     applyFormat(action) {
       const currentValue = view.state.doc.toString();
       const selection = view.state.selection.main;

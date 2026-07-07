@@ -1278,7 +1278,13 @@ async function handleAction(action, el, event) {
       const index = Number(el.dataset.headingIndex);
       const preview = appRoot.querySelector('[data-markdown-preview]');
       const heading = preview?.querySelectorAll('h1, h2, h3')?.[index];
-      heading?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      if (heading) {
+        heading.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      } else if (documentEditorController?.scrollToLine) {
+        // Edit mode has no preview pane — jump the CodeMirror cursor to the
+        // heading's source line instead.
+        documentEditorController.scrollToLine(Number(el.dataset.line));
+      }
       break;
     }
     case 'toggle-md-check': toggleMarkdownCheck(Number(el.dataset.line)); break;

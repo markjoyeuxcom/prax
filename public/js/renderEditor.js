@@ -38,13 +38,14 @@ const DOCUMENT_TYPES = [
 // are stripped from labels, matching the design prototype.
 export function buildOutline(text) {
   const items = [];
-  String(text ?? '').split(/\r?\n/).forEach((line) => {
+  String(text ?? '').split(/\r?\n/).forEach((line, lineNumber) => {
     const match = /^(#{1,3})\s+(.*)$/.exec(line);
     if (!match) return;
     items.push({
       label: match[2].replace(/[*`_\[\]]/g, '').trim(),
       level: match[1].length,
       index: items.length,
+      line: lineNumber,
     });
   });
   return items;
@@ -179,10 +180,16 @@ function renderToolbar() {
 }
 
 function renderOutlineRail(outline) {
+  // With fewer than two headings there is nothing to navigate — but the rail
+  // still renders (an active toggle must visibly do something) with a hint
+  // that teaches how to populate it.
+  const hint = outline.length < 2
+    ? '<p class="outline__hint">Add <code>##</code> section headings and they appear here for quick jumps.</p>'
+    : '';
   return `
       <aside class="outline" aria-label="Document outline">
         <div class="outline__label">Outline</div>
-        ${outline.map((item) => `<button type="button" data-action="outline-jump" data-heading-index="${item.index}" style="padding-left:${8 + (item.level - 1) * 11}px">${escapeHtml(item.label)}</button>`).join('')}
+        ${outline.map((item) => `<button type="button" data-action="outline-jump" data-heading-index="${item.index}" data-line="${item.line}" style="padding-left:${8 + (item.level - 1) * 11}px">${escapeHtml(item.label)}</button>`).join('')}${hint}
       </aside>`;
 }
 
@@ -269,7 +276,7 @@ export function renderEditorHtml(state, doc, model = {}) {
 
   const backlinksHtml = showPreview ? renderBacklinksFooter(backlinks) : '';
   const linksHtml = renderLinksSection(links);
-  const outlineHtml = state.outlineOpen && outline.length > 1 && !focus
+  const outlineHtml = state.outlineOpen && !focus
     ? renderOutlineRail(outline)
     : '';
   const toolbarHtml = showEdit && !readOnly && !focus ? renderToolbar() : '';

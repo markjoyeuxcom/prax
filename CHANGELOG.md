@@ -35,6 +35,13 @@ fresh empty `[Unreleased]` section is started.
   letter repeats it in the editor instead of opening the diacritics popover.
   Only Prax is affected — the picker keeps working everywhere else
   (`defaults delete com.moomora.prax ApplePressAndHoldEnabled` restores it).
+- **The Outline toggle always answers the click.** The rail previously
+  auto-hid on documents with fewer than two headings, leaving the button
+  looking active while nothing appeared; it now always opens, showing a
+  hint ("add `##` section headings…") until the document has enough
+  structure to navigate. Outline entries also jump in **Edit** mode now —
+  the click moves the CodeMirror cursor to the heading's source line and
+  scrolls it to the top (previously jumps only worked in Split/Preview).
 
 ### Changed
 
