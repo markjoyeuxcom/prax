@@ -13,9 +13,33 @@ test('capture renders the overlay, input with current value and the ↵ hint', (
   assert.match(html, /class="kbd">↵<\/span> add task/);
 });
 
-test('capture footer shows the destination project with its color dot', () => {
+test('capture footer shows the destination project (as a picker button) with its color dot', () => {
   const html = renderCaptureHtml({ captureQuery: '' }, { id: 'p1', name: 'Homelab', color: '#3aa17e' });
-  assert.match(html, /class="capture__proj">Adding to <span class="proj-dot" style="--dot:#3aa17e"[^>]*><\/span>Homelab</);
+  assert.match(html, /class="capture__proj" data-action="toggle-capture-menu"/);
+  assert.match(html, /Adding to/);
+  assert.match(html, /<span class="proj-dot" style="--dot:#3aa17e"[^>]*><\/span>Homelab/);
+});
+
+test('capture project picker lists choices when open, flagging the selected one', () => {
+  const projects = [
+    { id: 'inbox', name: 'Inbox', color: '#888' },
+    { id: 'p1', name: 'Homelab', color: '#3aa17e' },
+  ];
+  const html = renderCaptureHtml({ captureMenuOpen: true }, projects[0], projects);
+  assert.match(html, /class="menu capture__menu"/);
+  assert.match(html, /data-action="set-capture-project" data-project-id="inbox"/);
+  assert.match(html, /data-action="set-capture-project" data-project-id="p1"/);
+  assert.match(html, /aria-selected="true"[^>]*data-project-id="inbox"/);
+});
+
+test('capture picker menu is absent when closed', () => {
+  const html = renderCaptureHtml({ captureMenuOpen: false }, { id: 'p1', name: 'Homelab' }, [{ id: 'p1', name: 'Homelab' }]);
+  assert.doesNotMatch(html, /capture__menu/);
+});
+
+test('capture shows a due-today hint only when a due date is pre-set (from Today)', () => {
+  assert.match(renderCaptureHtml({ captureDueDate: '2026-07-07' }, { id: 'p1', name: 'Homelab' }), /Due today/);
+  assert.doesNotMatch(renderCaptureHtml({}, { id: 'p1', name: 'Homelab' }), /Due today/);
 });
 
 test('capture escapes the project name and the draft value', () => {

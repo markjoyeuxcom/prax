@@ -27,10 +27,19 @@ export function projectColor(project) {
 // Shared derivations
 // ---------------------------------------------------------------------------
 
-// Sidebar/rail show only active + on-hold projects (API `status` field).
+// The reserved system project (migration 0002): pinned separately as a
+// top-level nav item, so it's excluded from the regular project list.
+const INBOX_SLUG = 'inbox';
+function inboxProject(state) {
+  return (state.projects || []).find((project) => project?.slug === INBOX_SLUG) || null;
+}
+
+// Sidebar/rail show only active + on-hold projects (API `status` field),
+// excluding the pinned Inbox.
 function sidebarProjects(state) {
   return (state.projects || []).filter(
-    (project) => project?.status === 'active' || project?.status === 'on-hold',
+    (project) => project?.slug !== INBOX_SLUG
+      && (project?.status === 'active' || project?.status === 'on-hold'),
   );
 }
 
@@ -114,6 +123,20 @@ function sideNavItem({ label, iconName, action, active, badge = 0 }) {
     + '</button>';
 }
 
+// Inbox as a pinned top-level item (its own icon + open count), navigating like
+// any project. Renders nothing until the Inbox project exists (fresh seed).
+function sidebarInboxItem(state, counts) {
+  const inbox = inboxProject(state);
+  if (!inbox) return '';
+  const active = isCurrentProject(state, inbox.id);
+  const openCount = counts?.projectOpen?.[inbox.id] || 0;
+  return `<button type="button" class="side-item${active ? ' is-active is-active--nav' : ''}" data-action="nav-project" data-project-id="${escapeHtml(inbox.id)}"${active ? ' aria-current="true"' : ''}>`
+    + icon('inbox')
+    + '<span class="side-item__label">Inbox</span>'
+    + (openCount > 0 ? `<span class="badge">${openCount}</span>` : '')
+    + '</button>';
+}
+
 function sidebarProjectItem(state, project, counts) {
   const active = isCurrentProject(state, project.id);
   const openCount = counts?.projectOpen?.[project.id] || 0;
@@ -151,6 +174,7 @@ export function renderSidebarHtml(state, counts = {}) {
 
   const nav = [
     sideNavItem({ label: 'Today', iconName: 'check', action: 'nav-today', active: state.navType === 'today', badge: counts.todayBadge }),
+    sidebarInboxItem(state, counts),
     sideNavItem({ label: 'All projects', iconName: 'grid', action: 'nav-all', active: state.navType === 'all' }),
     sideNavItem({ label: 'Library', iconName: 'book', action: 'nav-library', active: isLibraryNav(state) }),
   ].join('');
@@ -181,13 +205,15 @@ export function renderSidebarHtml(state, counts = {}) {
 // ---------------------------------------------------------------------------
 
 export function renderRailHtml(state) {
+  const inbox = inboxProject(state);
   const navs = [
     { title: 'Today', iconName: 'check', action: 'nav-today', active: state.navType === 'today' },
+    ...(inbox ? [{ title: 'Inbox', iconName: 'inbox', action: 'nav-project', active: isCurrentProject(state, inbox.id), projectId: inbox.id }] : []),
     { title: 'All projects', iconName: 'grid', action: 'nav-all', active: state.navType === 'all' },
     { title: 'Library', iconName: 'book', action: 'nav-library', active: isLibraryNav(state) },
     { title: 'Settings', iconName: 'sliders', action: 'nav-settings', active: state.navType === 'settings' },
-  ].map(({ title, iconName, action, active }) => (
-    `<button type="button" class="rail__btn${active ? ' is-active' : ''}" title="${title}" data-action="${action}"${active ? ' aria-current="true"' : ''}>${icon(iconName, 16)}</button>`
+  ].map(({ title, iconName, action, active, projectId }) => (
+    `<button type="button" class="rail__btn${active ? ' is-active' : ''}" title="${title}" data-action="${action}"${projectId ? ` data-project-id="${escapeHtml(projectId)}"` : ''}${active ? ' aria-current="true"' : ''}>${icon(iconName, 16)}</button>`
   )).join('');
 
   const projects = sidebarProjects(state).map((project) => {

@@ -13,7 +13,20 @@ function fakeRepository(overrides = {}) {
     async archiveProject(id) { return id === PROJECT_ID ? { id, name: 'Work', slug: 'work', status: 'archived', sortOrder: 0 } : null; },
     async countProjectDependents() { return 0; },
     async deleteProject(id) { return id === PROJECT_ID ? { id, name: 'Work', slug: 'work', status: 'active', sortOrder: 0 } : null; },
+    async resolveProject(id) { return id === PROJECT_ID ? { id, name: 'Work', slug: 'work', status: 'active', sortOrder: 0 } : null; },
     ...overrides,
+  };
+}
+
+const INBOX_ID = '00000000-0000-4000-8000-000000000001';
+// Reports every id as the reserved Inbox, and blows up if any mutation slips
+// past the guard.
+function inboxOverrides() {
+  return {
+    async resolveProject() { return { id: INBOX_ID, name: 'Inbox', slug: 'inbox', status: 'active', sortOrder: -1 }; },
+    async updateProject() { throw new Error('guard failed: reached updateProject for Inbox'); },
+    async archiveProject() { throw new Error('guard failed: reached archiveProject for Inbox'); },
+    async deleteProject() { throw new Error('guard failed: reached deleteProject for Inbox'); },
   };
 }
 
@@ -64,6 +77,15 @@ test('DELETE /permanent succeeds only when empty (409 otherwise)', async () => {
 
   const busy = await build({ async countProjectDependents() { return 3; } });
   assert.equal((await busy.inject({ method: 'DELETE', url: `/api/projects/${PROJECT_ID}/permanent` })).statusCode, 409);
+});
+
+test('the reserved Inbox project is protected from rename, archive, and delete', async () => {
+  const app = await build(inboxOverrides());
+  const patch = await app.inject({ method: 'PATCH', url: `/api/projects/${INBOX_ID}`, payload: { name: 'Renamed' } });
+  assert.equal(patch.statusCode, 403);
+  assert.match(patch.json().message, /Inbox/);
+  assert.equal((await app.inject({ method: 'DELETE', url: `/api/projects/${INBOX_ID}` })).statusCode, 403);
+  assert.equal((await app.inject({ method: 'DELETE', url: `/api/projects/${INBOX_ID}/permanent` })).statusCode, 403);
 });
 
 test('DELETE /permanent returns 409 if a dependent FK blocks the delete', async () => {

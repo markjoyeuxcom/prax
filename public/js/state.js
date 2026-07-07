@@ -47,6 +47,10 @@ export const state = {
   paletteSelection: 0,
   captureOpen: false,
   captureQuery: '',
+  captureProjectId: null,       // destination for the new task (context-derived, user-overridable)
+  captureDueDate: null,         // pre-set due date (today when capturing from the Today view)
+  captureStatus: 'planned',     // pre-set status (backlog when capturing from a Backlog tab)
+  captureMenuOpen: false,       // capture project-picker dropdown
   toast: null,                  // { message, undo: fn|null }
   isLinkPickerOpen: false,
   pickerMode: 'link',           // 'link' (task↔doc) | 'supersede' (pick a replacement)

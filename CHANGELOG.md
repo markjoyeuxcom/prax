@@ -14,6 +14,16 @@ fresh empty `[Unreleased]` section is started.
 
 ### Added
 
+- **Inbox + context-aware quick capture.** New tasks no longer silently land in
+  whichever project happened to be first. A reserved **Inbox** project (pinned in
+  the sidebar, protected from rename/archive/delete) is the default home for
+  tasks captured without a project context. Quick capture now derives its
+  destination from the view you're in — a project view targets that project;
+  Today targets Inbox *and* pre-sets a due-today so the task shows up where you
+  made it; a Backlog tab pre-sets backlog status — and a footer picker lets you
+  redirect to any project before adding. Triage an Inbox task later by moving it
+  to a project.
+
 - **Smart list continuation.** Pressing Enter in a Markdown bullet, numbered,
   task, or quote line continues the marker on the next line (numbers
   auto-increment, task boxes start fresh and unchecked, indentation is

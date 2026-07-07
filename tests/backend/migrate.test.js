@@ -99,9 +99,9 @@ test('runMigrations applies the real consolidated schema against real SQLite', a
   const { createDb } = await import('../../server/db.js');
   const db = createDb(':memory:');
   const result = await runMigrations(db, { logger: SILENT });
-  assert.deepEqual(result.applied, ['0001_init.sql']);
+  assert.deepEqual(result.applied, ['0001_init.sql', '0002_add_inbox_project.sql']);
   const { rows } = await db.query('select slug from projects order by sort_order');
-  assert.deepEqual(rows.map(r => r.slug), ['personal', 'work', 'homelab']);
+  assert.deepEqual(rows.map(r => r.slug), ['inbox', 'personal', 'work', 'homelab']);
   // idempotent second run
   const again = await runMigrations(db, { logger: SILENT });
   assert.deepEqual(again.applied, []);

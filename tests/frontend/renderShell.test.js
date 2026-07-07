@@ -166,6 +166,29 @@ test('sidebar hides projects that are not active or on-hold', () => {
   assert.doesNotMatch(html, /data-project-id="p3"/);
 });
 
+const INBOX = { id: 'inbox-id', name: 'Inbox', slug: 'inbox', status: 'active' };
+
+test('sidebar pins Inbox as a top-level item with its count, not duplicated in the project list', () => {
+  const html = renderSidebarHtml(
+    makeState({ projects: [INBOX, ...PROJECTS] }),
+    { todayBadge: 0, projectOpen: { 'inbox-id': 3 } },
+  );
+  assert.match(html, /data-action="nav-project" data-project-id="inbox-id"[^>]*>[\s\S]*?Inbox/);
+  assert.match(html, /class="badge">3<\/span>/);
+  // Pinned once; excluded from the regular Projects section.
+  assert.equal(html.match(/data-project-id="inbox-id"/g).length, 1);
+});
+
+test('sidebar omits the Inbox item until the Inbox project exists', () => {
+  const html = renderSidebarHtml(makeState({ projects: PROJECTS }), { todayBadge: 0, projectOpen: {} });
+  assert.doesNotMatch(html, /side-item__label">Inbox</);
+});
+
+test('rail includes an Inbox button navigating to the Inbox project', () => {
+  const html = renderRailHtml(makeState({ projects: [INBOX, ...PROJECTS] }));
+  assert.match(html, /class="rail__btn[^"]*" title="Inbox" data-action="nav-project" data-project-id="inbox-id"/);
+});
+
 test('sidebar saved views render only when present', () => {
   const none = renderSidebarHtml(makeState(), { todayBadge: 0, projectOpen: {} });
   assert.doesNotMatch(none, /Saved views/);
