@@ -1,5 +1,6 @@
 import { escapeHtml, chip } from './renderHelpers.js';
 import { icon } from './icons.js';
+import { DOCUMENT_TEMPLATES } from './documentTemplates.js';
 import {
   filterDocumentsByTags,
   sortDocuments,
@@ -97,7 +98,22 @@ export function buildLibraryModel(state, _options = {}) {
   };
 }
 
-function renderPageHead(model) {
+function renderNewDocMenu(state) {
+  const open = Boolean(state.newDocMenuOpen);
+  return `
+      <div class="menu">
+        <button class="btn-primary" type="button" data-action="toggle-new-doc-menu" aria-haspopup="true" aria-expanded="${open}">＋ New doc</button>
+        ${open ? `<div class="menu__panel" role="menu">
+          ${DOCUMENT_TEMPLATES.map((template) => `
+          <button class="menu__item" type="button" data-action="new-document" data-template-id="${escapeHtml(template.id)}">
+            ${escapeHtml(template.label)}
+            <span class="menu__item-sub">${escapeHtml(template.hint)}</span>
+          </button>`).join('')}
+        </div>` : ''}
+      </div>`;
+}
+
+function renderPageHead(state, model) {
   return `
     <header class="page-head">
       <h1 class="page-head__title">Library</h1>
@@ -105,7 +121,7 @@ function renderPageHead(model) {
         <button class="btn-ghost" type="button" data-action="import-documents">Import .md</button>
         <button class="btn-ghost" type="button" data-action="export-library">Export all</button>
         <button class="btn-ghost" type="button" data-action="toggle-library-view" aria-pressed="${model.archive}">${model.archive ? 'Active' : 'Archive'}</button>
-        <button class="btn-primary" type="button" data-action="new-document">＋ New doc</button>
+        ${renderNewDocMenu(state)}
       </div>
     </header>`;
 }
@@ -260,7 +276,7 @@ export function renderLibraryHtml(state, model) {
   const semanticVisible = Boolean(state.semanticStatus?.available && state.semanticStatus?.enabled);
   return `
   <section class="page" aria-label="Library">
-    ${renderPageHead(model)}
+    ${renderPageHead(state, model)}
     ${renderSearchRow(state, semanticVisible)}
     ${renderTagRow(state, model)}
     ${renderBody(state, model, semanticVisible)}

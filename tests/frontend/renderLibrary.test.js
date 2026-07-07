@@ -142,7 +142,17 @@ test('header renders title and import/export/archive/new actions', () => {
   assert.match(html, /data-action="import-documents"[^>]*>Import \.md</);
   assert.match(html, /data-action="export-library"[^>]*>Export all</);
   assert.match(html, /data-action="toggle-library-view"[^>]*>Archive</);
-  assert.match(html, /class="btn-primary"[^>]*data-action="new-document"[^>]*>＋ New doc</);
+  // ＋ New doc is a template chooser: the button toggles the menu; the menu's
+  // items carry the actual new-document action (only when open).
+  assert.match(html, /class="btn-primary"[^>]*data-action="toggle-new-doc-menu"[^>]*>＋ New doc</);
+  assert.doesNotMatch(html, /data-action="new-document"/); // closed by default
+});
+
+test('the ＋ New doc menu, when open, offers Blank note and Runbook templates', () => {
+  const html = render({ newDocMenuOpen: true });
+  assert.match(html, /class="menu__panel"/);
+  assert.match(html, /data-action="new-document" data-template-id="note"[\s\S]*?Blank note/);
+  assert.match(html, /data-action="new-document" data-template-id="runbook"[\s\S]*?Runbook/);
 });
 
 test('archive view flips the toggle label to Active', () => {

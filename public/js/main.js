@@ -51,6 +51,7 @@ import { renderBacklogHtml, renderArchiveHtml } from './renderBacklog.js';
 import { renderTaskDrawerHtml } from './renderTaskDetail.js';
 import { renderLinkPickerHtml } from './renderLinkPicker.js';
 import { renderLibraryHtml, buildLibraryModel } from './renderLibrary.js';
+import { templateById } from './documentTemplates.js';
 import { renderEditorHtml, buildOutline, buildBacklinks } from './renderEditor.js';
 import { renderSearchPanelHtml, searchCountLabel } from './renderSearchPanel.js';
 import { renderAllProjectsHtml, buildProjectGroups } from './renderAllProjects.js';
@@ -779,12 +780,14 @@ function defaultProjectId() {
   return state.projects[0]?.id || null;
 }
 
-async function createNewDocument() {
+async function createNewDocument(templateId) {
+  setState({ newDocMenuOpen: false });
   const project = defaultProjectId();
-  if (!project) { showToast('Create a project first.'); return; }
+  if (!project) { showToast('Create a project first.'); renderApp(); return; }
+  const template = templateById(templateId);
   try {
     const doc = await createDocument({
-      title: 'Untitled', body: '# Untitled\n\n', documentType: 'note', project, tags: [],
+      title: template.title, body: template.body, documentType: template.documentType, project, tags: [],
     });
     await loadDocuments();
     seedEditorDraft(state.documents.find(d => d.id === doc.id) || doc);
@@ -1414,7 +1417,8 @@ async function handleAction(action, el, event) {
       break;
     }
     case 'clear-lib-filters': setState({ libraryQuery: '', activeLibraryTags: [], semanticResults: null }); renderApp(); break;
-    case 'new-document': createNewDocument(); break;
+    case 'toggle-new-doc-menu': setState({ newDocMenuOpen: !state.newDocMenuOpen }); renderApp(); break;
+    case 'new-document': createNewDocument(el.dataset.templateId); break;
     case 'import-documents': importDocumentFiles(); break;
     case 'export-library': window.location.href = '/api/library/export?project=all'; break;
     case 'save-library-view': {
@@ -1735,8 +1739,8 @@ async function handleAction(action, el, event) {
 
 function bindEvents() {
   appRoot.addEventListener('click', (event) => {
-    if (state.docMenuOpen && !event.target.closest?.('.menu')) {
-      setState({ docMenuOpen: false });
+    if ((state.docMenuOpen || state.newDocMenuOpen) && !event.target.closest?.('.menu')) {
+      setState({ docMenuOpen: false, newDocMenuOpen: false });
       renderApp();
       return;
     }

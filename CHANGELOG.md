@@ -25,6 +25,9 @@ fresh empty `[Unreleased]` section is started.
 - **`[[wiki-links]]`.** Type `[[` to autocomplete a link to another document
   by title; the preview renders resolved links as clickable (they open the
   doc) and unresolved ones as a muted "missing" style.
+- **New-doc templates.** "＋ New doc" is now a small chooser: **Blank note**
+  or **Runbook**, the latter seeding a `## Symptoms / Diagnosis / Resolution /
+  Verification / Rollback` skeleton so the outline is ready to fill in.
 - **Related documents in the editor.** A "Related documents" panel (Preview
   and Split modes) lists the docs most similar to the one you're reading,
   reusing its own stored embedding — no new embedding call. `GET
