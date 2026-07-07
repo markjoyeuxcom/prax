@@ -286,7 +286,7 @@ export function renderEditorHtml(state, doc, model = {}) {
     panesHtml = `
       <section class="pane" aria-label="Markdown editor">
         <div class="pane__label">Markdown</div>
-        <div class="pane__scroll">${editContent(body)}
+        <div class="pane__scroll pane__scroll--edit">${editContent(body)}
         </div>
       </section>
       <section class="pane" aria-label="Markdown preview">
@@ -295,12 +295,18 @@ export function renderEditorHtml(state, doc, model = {}) {
         </div>
       </section>`;
   } else {
-    const sheetContent = showPreview ? previewContent(previewHtml, backlinksHtml) : editContent(body);
+    // The sheet is a fixed page; its content scrolls inside (prose in
+    // .sheet__scroll, CodeMirror via its own scroller). Doc links render in
+    // preview contexts only — while writing, the page holds just the text.
+    const sheetContent = showPreview
+      ? `<div class="sheet__scroll">${previewContent(previewHtml, backlinksHtml)}${linksHtml}
+          </div>`
+      : editContent(body);
     panesHtml = `
       <section class="pane pane--sheet${focus ? ' pane--focus' : ''}" aria-label="${showPreview ? 'Markdown preview' : 'Markdown editor'}">
         <div class="pane__scroll">
           <div class="sheet">${sheetContent}
-          </div>${linksHtml}
+          </div>
         </div>
       </section>`;
   }

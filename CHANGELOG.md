@@ -47,6 +47,13 @@ fresh empty `[Unreleased]` section is started.
   so the page scrolled the whole editor while the pane scrolled the
   content. The editor is now pinned to the viewport; the pane is the
   only scroller.
+- **Writing happens directly on the page.** The Markdown editing surface
+  was an opaque box (the old terminal theme's background) sitting inside
+  the white sheet; it is now transparent — the page *is* the surface,
+  matching the design comp. The page itself is fixed (like a sheet of
+  paper in a frame) and the text scrolls inside it, in every mode: Edit,
+  Preview (prose and document links scroll together), Split (each pane
+  fixed, content scrolling), and Focus.
 
 ### Changed
 
