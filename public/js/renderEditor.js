@@ -239,6 +239,22 @@ function renderLinksSection(links) {
         </section>`;
 }
 
+// "More like this" — documents most similar by embedding. null/undefined = not
+// fetched yet; [] or none = render nothing (semantic search may be off).
+function renderRelatedSection(related) {
+  const list = Array.isArray(related) ? related : [];
+  if (!list.length) return '';
+  return `
+        <section class="doc-related" aria-label="Related documents">
+          <div class="doc-related__label">Related documents</div>
+          ${list.map((doc) => `
+          <button class="doc-row doc-related__row" type="button" data-action="open-doc" data-document-id="${escapeHtml(doc.id)}">
+            <span class="doc-row__title">${escapeHtml(doc.title || 'Untitled')}</span>
+            ${Number.isFinite(doc.similarity) ? `<span class="doc-related__score">${Math.round(doc.similarity * 100)}%</span>` : ''}
+          </button>`).join('')}
+        </section>`;
+}
+
 function editContent(body) {
   return `
             <div class="code-editor" data-code-editor hidden></div>
@@ -274,7 +290,9 @@ export function renderEditorHtml(state, doc, model = {}) {
   const showPreview = mode === 'preview' || mode === 'split';
   const split = mode === 'split';
 
+  const related = model.related === undefined ? state.documentSimilar : model.related;
   const backlinksHtml = showPreview ? renderBacklinksFooter(backlinks) : '';
+  const relatedHtml = showPreview ? renderRelatedSection(related) : '';
   const linksHtml = renderLinksSection(links);
   const outlineHtml = state.outlineOpen && !focus
     ? renderOutlineRail(outline)
@@ -291,7 +309,7 @@ export function renderEditorHtml(state, doc, model = {}) {
       </section>
       <section class="pane" aria-label="Markdown preview">
         <div class="pane__label">Preview</div>
-        <div class="pane__scroll">${previewContent(previewHtml, backlinksHtml)}${linksHtml}
+        <div class="pane__scroll">${previewContent(previewHtml, backlinksHtml)}${relatedHtml}${linksHtml}
         </div>
       </section>`;
   } else {
@@ -299,7 +317,7 @@ export function renderEditorHtml(state, doc, model = {}) {
     // .sheet__scroll, CodeMirror via its own scroller). Doc links render in
     // preview contexts only — while writing, the page holds just the text.
     const sheetContent = showPreview
-      ? `<div class="sheet__scroll">${previewContent(previewHtml, backlinksHtml)}${linksHtml}
+      ? `<div class="sheet__scroll">${previewContent(previewHtml, backlinksHtml)}${relatedHtml}${linksHtml}
           </div>`
       : editContent(body);
     panesHtml = `

@@ -483,6 +483,29 @@ export function createLibraryRepository(db) {
       return kept.map((row) => ({ ...normalizeDocumentRow(row), similarity: row.similarity }));
     },
 
+    // "More like this": rank documents by similarity to one document's OWN
+    // stored embedding — no new embedding call, just reuse the vector we saved.
+    // Returns [] when the document has no embedding for `backend`.
+    async findSimilarDocuments(id, backend, opts = {}) {
+      const q = buildSearchDocumentsSemantic(backend, { projectId: opts.projectId, includeRetired: opts.includeRetired });
+      const result = await db.query(q.text, q.values);
+      const rows = result.rows;
+      const self = rows.find((row) => row.id === id);
+      const queryVector = self ? parseEmbedding(self.embedding) : null;
+      if (!queryVector) return [];
+      const limit = Number.isFinite(Number(opts.limit)) && Number(opts.limit) > 0 ? Number(opts.limit) : 5;
+      const ranked = [];
+      for (const row of rows) {
+        if (row.id === id) continue; // never suggest the document itself
+        const similarity = cosineSimilarity(queryVector, parseEmbedding(row.embedding));
+        if (similarity === null || !Number.isFinite(similarity)) continue;
+        ranked.push({ ...row, similarity });
+      }
+      ranked.sort((a, b) => b.similarity - a.similarity);
+      const kept = applyRelevanceCutoff(ranked.slice(0, limit), { minSimilarity: opts.minSimilarity, topDrop: opts.topDrop });
+      return kept.map((row) => ({ ...normalizeDocumentRow(row), similarity: row.similarity }));
+    },
+
     async listDocumentsNeedingEmbedding(backend) {
       const q = buildListDocumentsNeedingEmbedding(backend);
       const result = await db.query(q.text, q.values);

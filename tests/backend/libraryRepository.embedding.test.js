@@ -163,3 +163,25 @@ test('normalizeDocumentRow never leaks the embedding vector or tracking columns'
   assert.equal(out.id, 'd1');
   assert.equal(out.body, 'body');
 });
+
+test('findSimilarDocuments ranks other docs by the target doc\'s own embedding, excluding self', async () => {
+  const mk = (id, x, y) => ({ id, title: id, document_type: 'note', project_id: 'p1', tags: '[]', body: 'b', kind: 'source', verified: 0, status: 'active', embedding: JSON.stringify([x, y]) });
+  const rows = [mk('self', 1, 0), mk('near', 0.95, 0.05), mk('far', 0, 1), mk('mid', 0.7, 0.3)];
+  const db = { query: async () => ({ rows }) };
+  const repo = createLibraryRepository(db);
+  const docs = await repo.findSimilarDocuments('self', 'fake', { minSimilarity: 0.5, topDrop: 1, limit: 5 });
+  assert.equal(docs.find((d) => d.id === 'self'), undefined);   // never suggests itself
+  assert.deepEqual(docs.map((d) => d.id), ['near', 'mid']);      // ranked desc; 'far' below cutoff
+  assert.ok(docs[0].similarity > docs[1].similarity);
+  for (const d of docs) assert.ok(!('embedding' in d));
+});
+
+test('findSimilarDocuments returns [] when the target document has no embedding', async () => {
+  const rows = [
+    { id: 'other', title: 'Other', document_type: 'note', project_id: 'p1', tags: '[]', body: 'b', kind: 'source', verified: 0, status: 'active', embedding: JSON.stringify([1, 0]) },
+  ];
+  const db = { query: async () => ({ rows }) };
+  const repo = createLibraryRepository(db);
+  const docs = await repo.findSimilarDocuments('missing-id', 'fake', {});
+  assert.deepEqual(docs, []);
+});

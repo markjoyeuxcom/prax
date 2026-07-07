@@ -439,3 +439,48 @@ test('GET /api/library/documents/:id/tasks rejects an invalid id and degrades wh
 
   await app.close();
 });
+
+test('GET /api/library/documents/:id/similar returns embedding-ranked docs when semantic is on', async () => {
+  const seen = [];
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: { listTasks: async () => [] },
+    libraryRepository: {
+      ...createFakeLibraryRepository(),
+      async findSimilarDocuments(id, backend) {
+        seen.push({ id, backend });
+        return [{ id: 'sim-1', title: 'Similar One', documentType: 'note', projectId: PROJECT_UUID, tags: [], verified: false, status: 'active', body: 'x', similarity: 0.77 }];
+      },
+    },
+    projectsRepository: createFakeProjectsRepository(),
+    embedder: { backend: 'fake', embed: async () => ({ vector: [] }) },
+    appSettingsRepository: { getSetting: async () => true },
+  });
+
+  const res = await app.inject({ method: 'GET', url: `/api/library/documents/${DOCUMENT_ID}/similar` });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(seen, [{ id: DOCUMENT_ID, backend: 'fake' }]);
+  const body = res.json();
+  assert.equal(body[0].id, 'sim-1');
+  assert.equal(body[0].similarity, 0.77);
+
+  await app.close();
+});
+
+test('GET /api/library/documents/:id/similar returns [] when semantic search is off (no embedder)', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: { listTasks: async () => [] },
+    libraryRepository: createFakeLibraryRepository(),
+    projectsRepository: createFakeProjectsRepository(),
+  });
+
+  const res = await app.inject({ method: 'GET', url: `/api/library/documents/${DOCUMENT_ID}/similar` });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json(), []);
+
+  const bad = await app.inject({ method: 'GET', url: '/api/library/documents/not-a-uuid/similar' });
+  assert.equal(bad.statusCode, 400);
+
+  await app.close();
+});
