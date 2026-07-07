@@ -107,3 +107,33 @@ test('renderMarkdownHtml resolves wiki-links whose titles contain & \' " < >', (
   assert.doesNotMatch(html, /wikilink--missing/);
   assert.ok(!html.includes('<script>'));
 });
+
+// ---- nested lists ------------------------------------------------------------
+
+test('renderMarkdownHtml nests indented bullets under an ordered item without renumbering', () => {
+  const md = [
+    '1. First',
+    '2. Second:',
+    '  - sub a',
+    '  - sub b',
+    '3. Third',
+  ].join('\n');
+  const html = renderMarkdownHtml(md);
+  // Exactly three top-level <ol> items; the sub-bullets are a nested <ul>.
+  const ol = html.match(/<ol>([\s\S]*)<\/ol>/)[1];
+  const topLevelLis = ol.replace(/<ul>[\s\S]*?<\/ul>/g, '').match(/<li>/g) || [];
+  assert.equal(topLevelLis.length, 3);
+  assert.match(html, /<li>Second:<ul><li>sub a<\/li><li>sub b<\/li><\/ul><\/li>/);
+  assert.match(html, /<li>Third<\/li><\/ol>/);
+});
+
+test('renderMarkdownHtml keeps a contiguous ordered then unordered block as two lists', () => {
+  const html = renderMarkdownHtml('1. one\n2. two\n- a\n- b');
+  assert.match(html, /<ol><li>one<\/li><li>two<\/li><\/ol><ul><li>a<\/li><li>b<\/li><\/ul>/);
+});
+
+test('renderMarkdownHtml nests deeper levels and returns to shallower ones', () => {
+  const md = ['- top', '  - mid', '    - deep', '- top2'].join('\n');
+  const html = renderMarkdownHtml(md);
+  assert.match(html, /<ul><li>top<ul><li>mid<ul><li>deep<\/li><\/ul><\/li><\/ul><\/li><li>top2<\/li><\/ul>/);
+});
