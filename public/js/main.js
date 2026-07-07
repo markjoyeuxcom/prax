@@ -775,9 +775,49 @@ async function openDocumentInEditor(documentId) {
 // Library helpers
 // ---------------------------------------------------------------------------
 
+const INBOX_SLUG = 'inbox';
+function inboxProject() {
+  return (state.projects || []).find((p) => p.slug === INBOX_SLUG) || null;
+}
+function inboxProjectId() {
+  return inboxProject()?.id || null;
+}
+
+function todayISODate(now = new Date()) {
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 function defaultProjectId() {
   if (state.navType === 'project' && state.navId) return state.navId;
-  return state.projects[0]?.id || null;
+  return inboxProjectId() || state.projects[0]?.id || null;
+}
+
+// Context-derived capture defaults: destination + due/status reflect the view
+// you're in, so a new task lands where you'd expect — a project view targets
+// that project; Today targets Inbox and pre-sets a due-today; a Backlog tab
+// pre-sets backlog status; everything else falls to Inbox.
+function captureDefaults() {
+  const fromProject = state.navType === 'project' ? state.navId : null;
+  const onBacklog = state.navType === 'project' && state.tab === 'backlog';
+  return {
+    captureProjectId: fromProject || inboxProjectId() || state.projects[0]?.id || null,
+    captureDueDate: state.navType === 'today' ? todayISODate() : null,
+    captureStatus: onBacklog ? 'backlog' : 'planned',
+    captureMenuOpen: false,
+  };
+}
+
+// Projects offered in the capture picker: Inbox first, then active/on-hold user
+// projects, each carrying its dot color for the menu.
+function captureProjectChoices() {
+  const inbox = inboxProject();
+  const rest = (state.projects || []).filter(
+    (p) => p.slug !== INBOX_SLUG && (p.status === 'active' || p.status === 'on-hold'),
+  );
+  return (inbox ? [inbox, ...rest] : rest).map((p) => ({ ...p, color: projectColor(p) }));
 }
 
 async function createNewDocument(templateId) {
@@ -1104,10 +1144,17 @@ function renderOverlaysHtml() {
     html += renderPaletteHtml(state, built);
   }
   if (state.captureOpen) {
-    const project = state.navType === 'project' ? projectsById()[state.navId] : state.projects[0];
+    const choices = captureProjectChoices();
+    const selectedId = state.captureProjectId || defaultProjectId();
+    const raw = selectedId ? projectsById()[selectedId] : null;
+    const selected = raw ? { ...raw, color: projectColor(raw) } : null;
+    // Keep the chosen project visible in the picker even if it's not in the
+    // default list (e.g. capturing while viewing a completed project).
+    if (selected && !choices.some((p) => p.id === selected.id)) choices.unshift(selected);
     html += renderCaptureHtml(
       state,
-      project ? { ...project, color: projectColor(project) } : { name: 'No project', color: 'var(--ink3)' },
+      selected || { name: 'No project', color: 'var(--ink3)' },
+      choices,
     );
   }
   if (state.confirm) html += renderConfirmHtml(state.confirm);
@@ -1176,7 +1223,7 @@ function afterRender() {
 // ---------------------------------------------------------------------------
 
 const paletteCommands = {
-  'new-task': () => { setState({ paletteOpen: false, captureOpen: true, captureQuery: '' }); renderApp(); },
+  'new-task': () => { setState({ paletteOpen: false, captureOpen: true, captureQuery: '', ...captureDefaults() }); renderApp(); },
   'new-document': () => { setState({ paletteOpen: false }); createNewDocument(); },
   'toggle-theme': () => { setState({ paletteOpen: false }); toggleTheme(); },
   'go-board': () => {
@@ -1286,7 +1333,9 @@ async function handleAction(action, el, event) {
       break;
     }
     case 'open-palette': setState({ paletteOpen: true, paletteQuery: '', paletteSelection: 0, captureOpen: false }); renderApp(); break;
-    case 'open-capture': setState({ captureOpen: true, captureQuery: '', paletteOpen: false }); renderApp(); break;
+    case 'open-capture': setState({ captureOpen: true, captureQuery: '', paletteOpen: false, ...captureDefaults() }); renderApp(); break;
+    case 'toggle-capture-menu': setState({ captureMenuOpen: !state.captureMenuOpen }); renderApp(); break;
+    case 'set-capture-project': setState({ captureProjectId: el.dataset.projectId, captureMenuOpen: false }); renderApp(); break;
     case 'toggle-theme': toggleTheme(); break;
 
     // ---- tasks ----
@@ -1647,7 +1696,7 @@ async function handleAction(action, el, event) {
     // ---- palette / capture / toast ----
     case 'palette-run': runPaletteItem(paletteFlat[Number(el.dataset.paletteIndex)]); break;
     case 'close-palette': setState({ paletteOpen: false }); renderApp(); break;
-    case 'close-capture': setState({ captureOpen: false }); renderApp(); break;
+    case 'close-capture': setState({ captureOpen: false, captureMenuOpen: false }); renderApp(); break;
     case 'confirm-cancel': setState({ confirm: null }); renderApp(); break;
     case 'toast-undo': state.toast?.undo?.(); break;
 
@@ -1756,8 +1805,8 @@ async function handleAction(action, el, event) {
 
 function bindEvents() {
   appRoot.addEventListener('click', (event) => {
-    if ((state.docMenuOpen || state.newDocMenuOpen) && !event.target.closest?.('.menu')) {
-      setState({ docMenuOpen: false, newDocMenuOpen: false });
+    if ((state.docMenuOpen || state.newDocMenuOpen || state.captureMenuOpen) && !event.target.closest?.('.menu')) {
+      setState({ docMenuOpen: false, newDocMenuOpen: false, captureMenuOpen: false });
       renderApp();
       return;
     }
@@ -2000,14 +2049,15 @@ async function handleLinkPickerPick(documentId) {
 
 async function addQuickTask(title) {
   if (!title) return;
-  const project = defaultProjectId();
+  const project = state.captureProjectId || defaultProjectId();
   if (!project) { showToast('Create a project first.'); return; }
   try {
     await createTask({
       title, description: '', notes: '', priority: 'medium',
-      status: 'planned', project, dueDate: null, sortOrder: state.tasks.length,
+      status: state.captureStatus || 'planned', project,
+      dueDate: state.captureDueDate || null, sortOrder: state.tasks.length,
     });
-    setState({ captureOpen: false, captureQuery: '' });
+    setState({ captureOpen: false, captureQuery: '', captureMenuOpen: false });
     await loadTasks();
     const name = state.projects.find(p => p.id === project)?.name || 'project';
     showToast(`Added to ${name}`);
@@ -2031,7 +2081,7 @@ function installShortcuts() {
       },
       toggleTheme,
       openCapture() {
-        setState({ captureOpen: true, captureQuery: '', paletteOpen: false });
+        setState({ captureOpen: true, captureQuery: '', paletteOpen: false, ...captureDefaults() });
         renderApp();
       },
       toggleDoneSelected() {
