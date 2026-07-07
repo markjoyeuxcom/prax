@@ -42,6 +42,16 @@ test('cosineSimilarity ranks aligned vectors above orthogonal ones and rejects j
   assert.equal(cosineSimilarity([], []), null);
 });
 
+test('cosineSimilarity rejects vectors with null/NaN/non-number entries instead of scoring them as 0', () => {
+  // `null * null === 0` would otherwise yield a finite-but-wrong similarity that
+  // ranks and passes the relevance cutoff normally.
+  assert.equal(cosineSimilarity([0.1, null, 0.3], [0.1, 0.2, 0.3]), null);
+  assert.equal(cosineSimilarity([0.1, 0.2, 0.3], [0.1, null, 0.3]), null);
+  assert.equal(cosineSimilarity([0.1, NaN, 0.3], [0.1, 0.2, 0.3]), null);
+  assert.equal(cosineSimilarity([0.1, undefined, 0.3], [0.1, 0.2, 0.3]), null);
+  assert.equal(cosineSimilarity([0.1, '0.2', 0.3], [0.1, 0.2, 0.3]), null);
+});
+
 test('searchDocumentsSemantic ranks by cosine in JS, applies limit + cutoff, never leaks embeddings', async () => {
   const rows = [
     { id: 'near', title: 'Near', document_type: 'note', project_id: 'p1', tags: '["a"]', body: 'b', kind: 'source', verified: 1, status: 'active', embedding: JSON.stringify([1, 0]) },

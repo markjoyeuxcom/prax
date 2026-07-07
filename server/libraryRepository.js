@@ -284,9 +284,14 @@ export function cosineSimilarity(a, b) {
   let normA = 0;
   let normB = 0;
   for (let i = 0; i < a.length; i += 1) {
-    dot += a[i] * b[i];
-    normA += a[i] * a[i];
-    normB += b[i] * b[i];
+    const x = a[i];
+    const y = b[i];
+    // A single null/NaN/non-number entry makes the vector unusable — bail rather
+    // than let `null * null === 0` yield a finite-but-wrong score.
+    if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) return null;
+    dot += x * y;
+    normA += x * x;
+    normB += y * y;
   }
   const denominator = Math.sqrt(normA) * Math.sqrt(normB);
   if (!denominator) return null;
