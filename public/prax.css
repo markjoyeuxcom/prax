@@ -1044,6 +1044,20 @@ a { color: var(--accent); }
 .editor-search__toggle:hover { border-color: var(--line2); color: var(--ink2); }
 .editor-search__toggle.is-on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
 
+/* [[wiki-links]] in the Markdown preview */
+.prose .wikilink {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in oklab, var(--accent) 35%, transparent);
+  cursor: pointer;
+}
+.prose a.wikilink:hover { background: var(--accent-soft); border-radius: 3px; }
+.prose .wikilink--missing {
+  color: var(--ink3);
+  border-bottom: 1px dashed var(--line2);
+  cursor: default;
+}
+
 .outline {
   width: 192px;
   flex: none;

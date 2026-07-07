@@ -26,9 +26,10 @@ import {
   keymap,
   lineNumbers,
 } from '@codemirror/view';
+import { autocompletion, startCompletion } from '@codemirror/autocomplete';
 import { tags } from '@lezer/highlight';
 
-import { applyMarkdownFormat } from '../public/js/markdownEditor.js';
+import { applyMarkdownFormat, continueListOnEnter } from '../public/js/markdownEditor.js';
 
 // Colors reference CSS custom properties so the editor follows the active
 // palette (console / graphite / daylight). CodeMirror injects these as real
@@ -54,6 +55,20 @@ const operatorTheme = EditorView.theme({
   '.cm-searchMatch': { backgroundColor: 'color-mix(in srgb, var(--accent) 22%, transparent)', borderRadius: '2px' },
   '.cm-searchMatch.cm-searchMatch-selected': { backgroundColor: 'color-mix(in srgb, var(--accent) 45%, transparent)' },
   '.cm-selectionMatch': { backgroundColor: 'color-mix(in srgb, var(--accent) 14%, transparent)' },
+  // Autocomplete popup (slash menu + wiki-links), themed to the Prax palette.
+  '.cm-tooltip.cm-tooltip-autocomplete': {
+    backgroundColor: 'var(--surface)',
+    border: '1px solid var(--line2)',
+    borderRadius: '10px',
+    boxShadow: 'var(--pop, 0 12px 32px rgba(0,0,0,.18))',
+    overflow: 'hidden',
+    fontFamily: 'var(--font-ui, system-ui)',
+  },
+  '.cm-tooltip-autocomplete ul': { fontFamily: 'var(--font-ui, system-ui)', maxHeight: '15em' },
+  '.cm-tooltip-autocomplete ul li': { padding: '4px 10px', color: 'var(--text-body)', lineHeight: '1.5' },
+  '.cm-tooltip-autocomplete ul li[aria-selected]': { backgroundColor: 'color-mix(in srgb, var(--accent) 16%, transparent)', color: 'var(--text-body)' },
+  '.cm-completionLabel': { fontSize: '12.5px' },
+  '.cm-completionDetail': { color: 'var(--text-dimmer)', fontStyle: 'normal', marginLeft: '10px', fontSize: '11px' },
 }, { dark: true });
 
 const operatorHighlight = HighlightStyle.define([
@@ -116,15 +131,127 @@ function searchMatchInfo(view) {
   return { total, current, valid: true };
 }
 
+// Apply a Markdown formatting action at the current selection. Shared by the
+// toolbar (controller.applyFormat) and the slash menu.
+function runFormat(view, action) {
+  const value = view.state.doc.toString();
+  const sel = view.state.selection.main;
+  const result = applyMarkdownFormat(value, sel.from, sel.to, action);
+  view.dispatch({
+    changes: { from: 0, to: value.length, insert: result.value },
+    selection: { anchor: result.selectionStart, head: result.selectionEnd },
+    scrollIntoView: true,
+  });
+  view.focus();
+}
+
+// Slash menu: type "/" at the start of a line for a block/inline formatting
+// command. Each option deletes the "/query" and runs the shared format path,
+// so there is no new formatting logic to maintain.
+const SLASH_COMMANDS = [
+  { key: 'heading', action: 'heading', detail: 'H2 heading' },
+  { key: 'bullet', action: 'bullet-list', detail: '• bullet list' },
+  { key: 'numbered', action: 'numbered-list', detail: '1. numbered list' },
+  { key: 'task', action: 'checklist', detail: '☐ to-do item' },
+  { key: 'quote', action: 'quote', detail: '❝ blockquote' },
+  { key: 'code', action: 'code-block', detail: '‹⁄› code block' },
+  { key: 'bold', action: 'bold', detail: 'bold text' },
+  { key: 'italic', action: 'italic', detail: 'italic text' },
+  { key: 'inline-code', action: 'code', detail: 'inline code' },
+  { key: 'link', action: 'link', detail: 'link' },
+];
+
+function slashCompletionSource(context) {
+  const line = context.state.doc.lineAt(context.pos);
+  const before = line.text.slice(0, context.pos - line.from);
+  const match = /^\s*\/(\w*)$/.exec(before);
+  if (!match) return null;
+  const from = context.pos - match[1].length - 1; // include the leading '/'
+  return {
+    from,
+    to: context.pos,
+    validFor: /^\/\w*$/,
+    options: SLASH_COMMANDS.map((cmd) => ({
+      label: `/${cmd.key}`,
+      detail: cmd.detail,
+      apply: (view, _completion, fromPos, toPos) => {
+        view.dispatch({ changes: { from: fromPos, to: toPos, insert: '' }, selection: { anchor: fromPos } });
+        runFormat(view, cmd.action);
+      },
+    })),
+  };
+}
+
+// Wiki-links: typing "[[" offers document titles; selecting one inserts
+// "[[Title]]". Titles come from the provider (the app's current document list).
+function makeWikiCompletionSource(documentsProvider) {
+  return function wikiCompletionSource(context) {
+    const before = context.state.sliceDoc(Math.max(0, context.pos - 160), context.pos);
+    const match = /\[\[([^\]\n[]*)$/.exec(before);
+    if (!match) return null;
+    const from = context.pos - match[1].length;
+    const docs = (typeof documentsProvider === 'function' ? documentsProvider() : []) || [];
+    const options = docs
+      .filter((doc) => doc && doc.title)
+      .slice(0, 200)
+      .map((doc) => ({
+        label: doc.title,
+        type: 'text',
+        apply: (view, _completion, fromPos, toPos) => {
+          const after = view.state.sliceDoc(toPos, Math.min(view.state.doc.length, toPos + 2));
+          const close = after === ']]' ? '' : ']]';
+          view.dispatch({
+            changes: { from: fromPos, to: toPos, insert: doc.title + close },
+            selection: { anchor: fromPos + doc.title.length + close.length },
+          });
+        },
+      }));
+    if (!options.length) return null;
+    return { from, options, validFor: /^[^\]\n[]*$/ };
+  };
+}
+
+// Enter inside a Markdown list/quote continues the marker (or exits an empty
+// item). Only acts with a collapsed caret at the end of the line — otherwise it
+// returns false and the default Enter (newline) runs.
+function listContinuationEnter(view) {
+  const sel = view.state.selection.main;
+  if (!sel.empty) return false;
+  const line = view.state.doc.lineAt(sel.head);
+  if (sel.head !== line.to) return false;
+  const result = continueListOnEnter(line.text);
+  if (result.action === 'none') return false;
+  if (result.action === 'exit') {
+    // Empty item: clear the marker and drop out of the list.
+    view.dispatch({
+      changes: { from: line.from, to: line.to, insert: '' },
+      selection: { anchor: line.from },
+      userEvent: 'delete',
+    });
+    return true;
+  }
+  const insert = `\n${result.prefix}`;
+  view.dispatch({
+    changes: { from: sel.head, insert },
+    selection: { anchor: sel.head + insert.length },
+    scrollIntoView: true,
+    userEvent: 'input',
+  });
+  return true;
+}
+
 export function mountCodeMirrorEditor({
   host,
   value = '',
   onChange,
   onSave,
+  documentsProvider,
   lineNumbers: showLineNumbers = false,
   cursorToEnd = true,
 } = {}) {
   if (!host) return null;
+
+  const wikiCompletionSource = makeWikiCompletionSource(documentsProvider);
 
   const doc = String(value ?? '');
   const view = new EditorView({
@@ -149,12 +276,27 @@ export function mountCodeMirrorEditor({
         // CM's panel exists only to keep highlighting alive (see openSearchPanel
         // below).
         search({ createPanel: hiddenSearchPanel }),
+        autocompletion({ override: [slashCompletionSource, wikiCompletionSource], icons: false, defaultKeymap: true }),
         EditorView.lineWrapping,
         EditorView.updateListener.of((update) => {
           if (!update.docChanged) return;
           onChange?.(update.state.doc.toString());
+          // Slash menu ("/" at line start) and wiki-link ("[[") triggers aren't
+          // word characters, so autocomplete won't auto-open — nudge it here.
+          if (!update.transactions.some((tr) => tr.isUserEvent('input.type'))) return;
+          const sel = update.state.selection.main;
+          if (!sel.empty) return;
+          const line = update.state.doc.lineAt(sel.head);
+          const lineBefore = update.state.doc.sliceString(line.from, sel.head);
+          const lastTwo = update.state.doc.sliceString(Math.max(0, sel.head - 2), sel.head);
+          if (/^\s*\/$/.test(lineBefore) || lastTwo === '[[') {
+            Promise.resolve().then(() => startCompletion(update.view));
+          }
         }),
         operatorTheme,
+        // Higher precedence than the default keymap (earlier in the array), so
+        // Enter continues a list before the default newline runs.
+        keymap.of([{ key: 'Enter', run: listContinuationEnter }]),
         // Note: Mod-f (open search) is handled by Prax's own keydown listener
         // so it works from the panel inputs too, not just the focused editor.
         keymap.of([...defaultKeymap, ...historyKeymap]),
@@ -191,16 +333,7 @@ export function mountCodeMirrorEditor({
       view.focus();
     },
     applyFormat(action) {
-      const currentValue = view.state.doc.toString();
-      const selection = view.state.selection.main;
-      const result = applyMarkdownFormat(currentValue, selection.from, selection.to, action);
-
-      view.dispatch({
-        changes: { from: 0, to: currentValue.length, insert: result.value },
-        selection: { anchor: result.selectionStart, head: result.selectionEnd },
-        scrollIntoView: true,
-      });
-      view.focus();
+      runFormat(view, action);
     },
 
     // ---- Search (driven by the Prax-native panel) --------------------------

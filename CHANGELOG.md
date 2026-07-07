@@ -14,6 +14,17 @@ fresh empty `[Unreleased]` section is started.
 
 ### Added
 
+- **Smart list continuation.** Pressing Enter in a Markdown bullet, numbered,
+  task, or quote line continues the marker on the next line (numbers
+  auto-increment, task boxes start fresh and unchecked, indentation is
+  preserved); Enter on an empty item exits the list.
+- **Slash menu.** Type `/` at the start of a line for a filterable menu of the
+  formatting actions (heading, lists, task, quote, code block, bold, italic,
+  inline code, link) — giving every toolbar command a keyboard path. It reuses
+  the existing format logic, so there's nothing new to keep in sync.
+- **`[[wiki-links]]`.** Type `[[` to autocomplete a link to another document
+  by title; the preview renders resolved links as clickable (they open the
+  doc) and unresolved ones as a muted "missing" style.
 - **The editor's "Referenced by N tasks" backlinks now actually populate.**
   The footer was wired but always fed an empty list; a new
   `GET /api/library/documents/:id/tasks` returns the non-archived tasks that
