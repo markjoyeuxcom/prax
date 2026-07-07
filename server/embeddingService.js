@@ -42,6 +42,8 @@ export function createEmbeddingService({ repository, embedder, concurrency = 4, 
         : await repository.listDocumentsNeedingEmbedding(embedder.backend, embedder.model);
       let embedded = 0;
       let failed = 0;
+      let sampleError = null; // first failure's message, surfaced so a systemic
+      // cause (e.g. a gateway timeout) is visible instead of a bare "N failed".
       for (let i = 0; i < pending.length; i += concurrency) {
         const batch = pending.slice(i, i + concurrency);
         const results = await Promise.allSettled(
@@ -53,12 +55,13 @@ export function createEmbeddingService({ repository, embedder, concurrency = 4, 
           } else {
             failed += 1;
             if (r.status === 'rejected') {
+              if (!sampleError) sampleError = String(r.reason?.message || r.reason);
               logger.error('reindex item failed', { err: String(r.reason) });
             }
           }
         }
       }
-      return { embedded, failed };
+      return sampleError ? { embedded, failed, sampleError } : { embedded, failed };
     },
   };
 }

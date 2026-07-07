@@ -154,4 +154,6 @@ test('reindex isolates failures: one bad doc counts as failed, the rest embed', 
   assert.equal(repo.stored.length, 1);
   assert.equal(repo.stored[0].id, 'a');
   assert.equal(errors.length, 1);
+  // The first failure's message is surfaced so a systemic cause is visible.
+  assert.equal(result.sampleError, 'embed exploded');
 });

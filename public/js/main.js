@@ -78,6 +78,7 @@ let descriptionSaveTimer = null;
 let titleSaveTimer = null;        // editor document title
 let taskTitleSaveTimer = null;    // drawer task title
 let toastTimer = null;
+let isReindexing = false;         // guards the reindex/rebuild handler from double-runs
 let dragIndicator = null;
 
 // Native window.alert/confirm/prompt do not exist in the desktop webview
@@ -236,13 +237,13 @@ async function ensureBoardExtras(tasks) {
 // Toasts & undo
 // ---------------------------------------------------------------------------
 
-function showToast(message, undo = null) {
+function showToast(message, undo = null, duration = undo ? 5000 : 2400) {
   clearTimeout(toastTimer);
   setState({ toast: { message, undo } });
   toastTimer = setTimeout(() => {
     setState({ toast: null });
     renderApp();
-  }, undo ? 5000 : 2400);
+  }, duration);
   renderApp();
 }
 
@@ -881,12 +882,16 @@ function persistSavedViews() {
 
 async function runSemanticSearch() {
   const query = state.libraryQuery.trim();
-  if (!query) { setState({ semanticResults: null }); renderApp(); return; }
+  if (!query) { setState({ semanticResults: null, semanticError: false }); renderApp(); return; }
   try {
     const results = await semanticSearch(query, undefined);
-    setState({ semanticResults: results });
+    setState({ semanticResults: results, semanticError: false });
   } catch {
-    setState({ semanticResults: [] });
+    // A thrown error means the request itself failed (e.g. the embedding
+    // backend is unreachable — a 503) — distinct from a successful search with
+    // no matches. Surface it so it doesn't look like an empty result set.
+    setState({ semanticResults: [], semanticError: true });
+    showToast('Semantic search failed — the embedding backend is unreachable. Check the provider in Settings ▸ Intelligence.');
   }
   renderApp();
 }
@@ -1774,12 +1779,29 @@ async function handleAction(action, el, event) {
         });
         break;
       }
-      if (force) setState({ confirm: null });
-      el.disabled = true;
+      if (isReindexing) break; // ignore repeat clicks while one is running
+      isReindexing = true;
+      // Close the confirm dialog immediately and show progress — a rebuild can
+      // take a while against a remote/large model, and leaving the dialog up (it
+      // only closed after the whole run finished) read as "the button did
+      // nothing". showToast re-renders, so the dialog is gone right away.
+      if (state.confirm) setState({ confirm: null });
+      showToast(force ? 'Rebuilding every embedding…' : 'Re-indexing…');
       try {
-        await reindexEmbeddings(force);
+        const result = await reindexEmbeddings(force);
         await loadSemanticStatus();
+        const embedded = Number(result?.embedded) || 0;
+        const failed = Number(result?.failed) || 0;
+        if (failed) {
+          const reason = result?.sampleError ? ` (${result.sampleError})` : '';
+          showToast(`Re-index: embedded ${embedded}, ${failed} failed${reason}`, null, 6000);
+        } else if (embedded) {
+          showToast(`Re-indexed ${embedded} document${embedded === 1 ? '' : 's'}.`);
+        } else {
+          showToast('Embeddings are already up to date.');
+        }
       } catch { alertError('reindex embeddings'); }
+      finally { isReindexing = false; }
       renderApp();
       break;
     }
@@ -1856,8 +1878,18 @@ function bindEvents() {
       return;
     }
     if (target.matches?.('[data-library-search]')) {
+      // Keyword search filters live, which re-renders and replaces this input —
+      // restore focus and the caret so typing isn't interrupted after each key.
+      const caret = target.selectionStart;
       setState({ libraryQuery: target.value });
-      if (!state.librarySemantic) renderApp();
+      if (!state.librarySemantic) {
+        renderApp();
+        const next = appRoot.querySelector('[data-library-search]');
+        if (next) {
+          next.focus();
+          if (caret != null) next.setSelectionRange(caret, caret);
+        }
+      }
       return;
     }
     if (target.matches?.('[data-task-notes]')) {
