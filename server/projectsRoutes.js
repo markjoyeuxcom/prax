@@ -11,8 +11,24 @@ function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+// The reserved system project (see migration 0002): a home for un-triaged
+// tasks. It must not be renamed (its slug is the marker), archived, or deleted.
+const SYSTEM_PROJECT_SLUG = 'inbox';
+
 export async function registerProjectsRoutes(app, options = {}) {
   const repository = options.projectsRepository || app.projectsRepository || createProjectsRepository(app.db);
+
+  // Refuse mutations to the reserved Inbox project. Returns a response body when
+  // blocked (caller returns it), or null when the id is a normal project. A
+  // missing project falls through so the normal 404 path still applies.
+  async function refuseSystemProject(id, reply, verb) {
+    const project = await repository.resolveProject(id);
+    if (project && project.slug === SYSTEM_PROJECT_SLUG) {
+      reply.code(403);
+      return { message: `The Inbox project is protected and can’t be ${verb}.` };
+    }
+    return null;
+  }
 
   app.get('/api/projects', async (request) => {
     return repository.listProjects(request.query.status);
@@ -68,6 +84,8 @@ export async function registerProjectsRoutes(app, options = {}) {
       reply.code(400);
       return { message: 'project update requires at least one field' };
     }
+    const blocked = await refuseSystemProject(request.params.id, reply, 'renamed or changed');
+    if (blocked) return blocked;
     const project = await repository.updateProject(request.params.id, fields);
     if (!project) {
       reply.code(404);
@@ -81,6 +99,8 @@ export async function registerProjectsRoutes(app, options = {}) {
       reply.code(400);
       return { message: 'project id is invalid' };
     }
+    const blocked = await refuseSystemProject(request.params.id, reply, 'archived');
+    if (blocked) return blocked;
     const project = await repository.archiveProject(request.params.id);
     if (!project) {
       reply.code(404);
@@ -94,6 +114,8 @@ export async function registerProjectsRoutes(app, options = {}) {
       reply.code(400);
       return { message: 'project id is invalid' };
     }
+    const blocked = await refuseSystemProject(request.params.id, reply, 'deleted');
+    if (blocked) return blocked;
     const dependents = await repository.countProjectDependents(request.params.id);
     if (dependents > 0) {
       reply.code(409);

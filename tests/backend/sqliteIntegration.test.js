@@ -25,7 +25,7 @@ test('readyz reports ready against the embedded database', async () => {
 test('projects: seeds exist, create/update/archive/delete work', async () => {
   const list = await app.inject({ method: 'GET', url: '/api/projects' });
   assert.equal(list.statusCode, 200);
-  assert.deepEqual(list.json().map(p => p.slug).sort(), ['homelab', 'personal', 'work']);
+  assert.deepEqual(list.json().map(p => p.slug).sort(), ['homelab', 'inbox', 'personal', 'work']);
 
   const created = await app.inject({ method: 'POST', url: '/api/projects', payload: { name: 'Skunkworks' } });
   assert.equal(created.statusCode, 201);
