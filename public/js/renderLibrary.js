@@ -112,6 +112,9 @@ export function buildLibraryModel(state, _options = {}) {
     semanticActive: semantic && Boolean(query) && state.semanticResults !== null
       && state.semanticResults !== undefined,
     semanticResults: state.semanticResults ?? null,
+    semanticError: Boolean(state.semanticError),
+    embeddedCount: Number(state.semanticStatus?.embeddedCount) || 0,
+    totalCount: Number(state.semanticStatus?.totalCount) || 0,
     archive: state.libraryView === 'archive',
     visibleCount: filtered.length,
     // A brand-new library (no documents at all, no filters/search active) gets
@@ -289,8 +292,43 @@ function renderSemCard(result, index, maxSim = 0) {
     </button>`;
 }
 
-function renderSemanticResults(results) {
+// The empty semantic result has three very different meanings — distinguish
+// them so "connected but nothing" isn't a dead end: a backend error, nothing
+// embedded yet for the active provider (the usual cause after switching
+// providers without re-indexing), or a genuine no-match.
+function renderSemanticEmpty(model) {
+  if (model.semanticError) {
+    return `
+      <div class="empty" role="status">
+        ${icon('spark', 24)}
+        <h2 class="empty__title">Semantic search is unavailable</h2>
+        <p class="empty__sub">The embedding backend couldn't be reached. Check the provider in <strong>Settings ▸ Intelligence</strong>.</p>
+        <button class="btn-ghost" type="button" data-action="nav-settings">Open Settings</button>
+      </div>`;
+  }
+  if (!model.embeddedCount) {
+    return `
+      <div class="empty" role="status">
+        ${icon('spark', 24)}
+        <h2 class="empty__title">Nothing is embedded yet</h2>
+        <p class="empty__sub">Semantic search only matches documents embedded with the active provider — ${model.totalCount ? `<strong>0 of ${model.totalCount}</strong> so far` : 'none so far'}. Re-index to build the index (needed after switching providers).</p>
+        <div class="empty__actions">
+          <button class="btn-primary" type="button" data-action="reindex-embeddings">Re-index now</button>
+          <button class="btn-ghost" type="button" data-action="nav-settings">Open Settings</button>
+        </div>
+      </div>`;
+  }
+  return `
+    <div class="empty" role="status">
+      ${icon('spark', 24)}
+      <h2 class="empty__title">No matches by meaning</h2>
+      <p class="empty__sub">None of your ${model.embeddedCount} embedded document${model.embeddedCount === 1 ? '' : 's'} matched. Try rephrasing, or turn off Semantic for a keyword search.</p>
+    </div>`;
+}
+
+function renderSemanticResults(results, model = {}) {
   const list = Array.isArray(results) ? results : [];
+  if (!list.length) return renderSemanticEmpty(model);
   const maxSim = list.reduce((m, r) => (Number.isFinite(r.similarity) && r.similarity > m ? r.similarity : m), 0);
   return `
     <p class="sem-note">${list.length} ${list.length === 1 ? 'document' : 'documents'} matched by meaning.</p>
@@ -322,7 +360,7 @@ function renderBody(state, model, semanticVisible) {
   if (model.archive) return renderArchiveRows(model);
   if (state.librarySemantic) {
     // Idle covers both "no query yet" and "results not back yet".
-    return model.semanticActive ? renderSemanticResults(model.semanticResults) : renderSemanticIdle();
+    return model.semanticActive ? renderSemanticResults(model.semanticResults, model) : renderSemanticIdle();
   }
   if (!model.visibleCount) return renderNoResults(semanticVisible);
   return renderGroups(model.groups);

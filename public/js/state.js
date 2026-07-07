@@ -69,6 +69,7 @@ export const state = {
   libraryView: 'active',        // 'active' | 'archive'
   semanticStatus: { available: false },
   semanticResults: null,        // null = no search ran; [] = ran, empty
+  semanticError: false,         // last semantic search failed (backend unreachable), not just empty
   documentLinks: null,          // null = not yet fetched; [] = fetched, empty
   staleDocs: [],
   orphanDocs: [],

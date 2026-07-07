@@ -55,11 +55,41 @@ test('ollama embedder parses the embeddings response', async () => {
   assert.equal(out.dim, 3);
 });
 
-test('ollama isAvailable maps reachability', async () => {
-  const up = createOllamaEmbedder({ url: 'http://x', model: 'm', fetch: async () => ({ ok: true }) });
+test('ollama strips a trailing /v1 from the base URL (native API lives at root, not /v1)', async () => {
+  const urls = [];
+  const fakeFetch = async (url) => { urls.push(url); return { ok: true, json: async () => ({ embedding: [0.1], models: [{ name: 'm' }] }) }; };
+  const e = createOllamaEmbedder({ url: 'https://ollama.example/v1', model: 'm', fetch: fakeFetch });
+  await e.embed('hi');
+  await e.isAvailable();
+  assert.equal(urls[0], 'https://ollama.example/api/embeddings');
+  assert.equal(urls[1], 'https://ollama.example/api/tags');
+  assert.doesNotMatch(urls.join(' '), /\/v1\//);
+});
+
+test('ollama isAvailable requires the configured model to be pulled, not just reachability', async () => {
+  const tags = (models) => async () => ({ ok: true, json: async () => ({ models: models.map((name) => ({ name })) }) });
+
+  // Reachable AND the model is pulled -> available.
+  const present = createOllamaEmbedder({ url: 'http://x', model: 'qwen3-embedding:8b', fetch: tags(['qwen3-embedding:8b']) });
+  assert.equal(await present.isAvailable(), true);
+
+  // Reachable but the configured model is NOT pulled -> unavailable (the
+  // "connected but embeds 404" trap). A bare name resolves to :latest.
+  const missing = createOllamaEmbedder({ url: 'http://x', model: 'nomic-embed-text', fetch: tags(['qwen3-embedding:8b']) });
+  assert.equal(await missing.isAvailable(), false);
+
+  const bareToLatest = createOllamaEmbedder({ url: 'http://x', model: 'nomic-embed-text', fetch: tags(['nomic-embed-text:latest']) });
+  assert.equal(await bareToLatest.isAvailable(), true);
+
+  // Reachable but the tags list can't be read -> fall back to reachability.
+  const unreadable = createOllamaEmbedder({ url: 'http://x', model: 'm', fetch: async () => ({ ok: true, json: async () => { throw new Error('bad json'); } }) });
+  assert.equal(await unreadable.isAvailable(), true);
+
+  // Not reachable at all -> unavailable.
   const down = createOllamaEmbedder({ url: 'http://x', model: 'm', fetch: async () => { throw new Error('refused'); } });
-  assert.equal(await up.isAvailable(), true);
   assert.equal(await down.isAvailable(), false);
+  const notOk = createOllamaEmbedder({ url: 'http://x', model: 'm', fetch: async () => ({ ok: false }) });
+  assert.equal(await notOk.isAvailable(), false);
 });
 
 test('createEmbedder resolves backends and null for none', () => {
@@ -75,6 +105,12 @@ test('createEmbedder throws on unknown backend', () => {
 test('ollama embed throws on a non-ok response', async () => {
   const e = createOllamaEmbedder({ url: 'http://x', model: 'm', fetch: async () => ({ ok: false, status: 500 }) });
   await assert.rejects(e.embed('hi'), /ollama embed failed: 500/);
+  assert.doesNotMatch((await e.embed('hi').catch((err) => err.message)), /timed out/);
+});
+
+test('ollama embed labels a 504 as a timeout (gateway/model slower than the request timeout)', async () => {
+  const e = createOllamaEmbedder({ url: 'http://x', model: 'm', fetch: async () => ({ ok: false, status: 504 }) });
+  await assert.rejects(e.embed('hi'), /ollama embed failed: 504 \(timed out/);
 });
 
 test('ollama embed throws on a malformed response (no embedding array)', async () => {

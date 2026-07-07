@@ -158,6 +158,44 @@ fresh empty `[Unreleased]` section is started.
 
 ### Fixed
 
+- **Re-index surfaces *why* embeddings failed.** A failed re-index reported a bare
+  "N failed"; it now includes the first failure's message, and Ollama labels a
+  504/408/524 as a timeout ("the model is slower than the gateway/proxy request
+  timeout; raise the timeout or use a smaller embedding model") — the usual cause
+  of a large model (e.g. `qwen3-embedding:8b`) behind an Envoy/nginx gateway
+  failing every embed while the connection test still passes.
+- **"Rebuild all" embeddings no longer looks like it did nothing.** The confirm
+  dialog only closed *after* the whole rebuild finished, so against a remote or
+  large model it sat on screen for the entire run and read as a dead button. It
+  now dismisses immediately with a "Rebuilding every embedding…" toast, reports
+  the result when done, and ignores repeat clicks while one run is in flight.
+- **Typing in the Library search no longer loses focus after each letter.**
+  Keyword search filters live, which re-renders and replaced the `<input>`
+  element, so focus (and the caret) were lost after every keystroke — you could
+  only enter one character at a time. The search input now re-focuses and
+  restores the caret after the live re-render, like the palette input.
+- **Semantic search no longer looks broken when nothing is embedded.** The most
+  common "semantic search isn't working" was configuring a provider (e.g. Ollama)
+  but never re-indexing: search only matches documents embedded with the *active*
+  provider, so it silently returned an empty list. The empty state now
+  distinguishes three cases — **nothing embedded yet** (shows "0 of N" with a
+  **Re-index now** button — the fix for the switch-provider gap), a **backend
+  error** (a toast + "unavailable" message pointing at Settings ▸ Intelligence,
+  instead of swallowing the failure into empty results), and a **genuine
+  no-match**. Re-index also now reports its outcome ("Re-indexed N documents", or
+  "embedded X, Y failed — check the provider/model") so a provider that's
+  reachable but missing its embedding model no longer fails invisibly.
+- **Ollama's connection test now checks the model is actually pulled.** It only
+  probed `/api/tags` (is Ollama up?), so it reported "connected" even when the
+  configured embedding model wasn't pulled — every embed then 404'd with "model
+  not found". The check now requires the configured model to be present in the
+  tag list (resolving a bare name to `:latest`), so a missing model reads as
+  disconnected at configure time instead of silently failing at search time.
+- **Ollama tolerates a `/v1` on the base URL.** Ollama's native API lives at the
+  root (`/api/…`); `/v1` is its OpenAI-compatible surface (that's the llama.cpp
+  provider). A base URL like `https://host/v1` therefore 404'd at
+  `/v1/api/embeddings`. The Ollama adapter now strips a trailing `/v1`, so a URL
+  copied from an OpenAI-style config still works.
 - **Database writes are isolated across the shared SQLite handle again.** The
   engine swap put every repository on one `node:sqlite` handle, and `connect()`'s
   session mutex only ordered sessions against each other — a direct `db.query()`
