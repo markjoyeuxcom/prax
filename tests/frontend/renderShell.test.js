@@ -200,6 +200,20 @@ test('sidebar saved views render only when present', () => {
   assert.match(withViews, /<span>Saved views<\/span>/);
   assert.match(withViews, /data-action="select-saved-view" data-view-index="0"/);
   assert.match(withViews, /Deploy notes/);
+  // Each saved view carries a delete control scoped to its index.
+  assert.match(withViews, /data-action="delete-library-view" data-view-index="0"/);
+});
+
+test('sidebar saved-view delete control is per-index and escapes the label', () => {
+  const html = renderSidebarHtml(makeState({
+    librarySavedViews: [
+      { label: 'Deploy notes', tags: ['deploy'] },
+      { label: '<script>x</script>', tags: ['x'] },
+    ],
+  }), { todayBadge: 0, projectOpen: {} });
+  assert.match(html, /data-action="delete-library-view" data-view-index="0"/);
+  assert.match(html, /data-action="delete-library-view" data-view-index="1"/);
+  assert.doesNotMatch(html, /<script>x<\/script>/);
 });
 
 test('sidebar settings item is pinned and active on the settings view', () => {
