@@ -42,6 +42,7 @@ import { tasksFromImportPayload, exportFilename, normalizeImportMode } from './i
 import { createSavedLibraryView, savedLibraryViewsFromJson } from './librarySavedViews.js';
 import { parseCaptureShorthand } from './captureShorthand.js';
 import { computeDueReminders, isOverdue } from './dueReminders.js';
+import { normalizeLabel } from './labels.js';
 import { mountCodeMirrorEditor } from '../vendor/codemirror-editor.js';
 
 import {
@@ -387,6 +388,17 @@ async function patchTask(id, apiPatch, { failure = 'update this task' } = {}) {
   } finally {
     renderApp();
   }
+}
+
+// Add a normalized label to the open task (deduped). Shares the label
+// convention with the server and the filter grammar via normalizeLabel.
+function addTaskLabel(raw) {
+  const label = normalizeLabel(raw);
+  const task = taskById(state.drawerTaskId);
+  if (!label || !task) return;
+  const current = Array.isArray(task.labels) ? task.labels : [];
+  if (current.includes(label)) return;
+  patchTask(state.drawerTaskId, { labels: [...current, label] });
 }
 
 async function toggleTaskDone(id) {
@@ -1635,6 +1647,11 @@ async function handleAction(action, el, event) {
     case 'set-task-status': await patchTask(state.drawerTaskId, { status: el.dataset.status }); break;
     case 'set-task-priority': await patchTask(state.drawerTaskId, { priority: el.dataset.priority }); break;
     case 'set-task-recurrence': await patchTask(state.drawerTaskId, { recurrence: el.dataset.recurrence }); break;
+    case 'remove-task-label': {
+      const task = taskById(state.drawerTaskId);
+      if (task) await patchTask(state.drawerTaskId, { labels: (task.labels || []).filter(l => l !== el.dataset.label) });
+      break;
+    }
     case 'clear-task-due': await patchTask(state.drawerTaskId, { dueDate: null }); break;
     case 'snooze-task':
       await patchTask(el.dataset.taskId || state.drawerTaskId, { deferredUntil: snoozeUntil(el.dataset.snooze) }, { failure: 'snooze the task' });
@@ -2338,6 +2355,12 @@ function bindEvents() {
     if (target.matches?.('[data-checklist-new]') && event.key === 'Enter') {
       event.preventDefault();
       handleAction('add-checklist-item', target, event);
+      return;
+    }
+    if (target.matches?.('[data-task-label-input]') && event.key === 'Enter') {
+      event.preventDefault();
+      addTaskLabel(target.value);
+      target.value = '';
       return;
     }
     if (target.matches?.('[data-library-search]') && event.key === 'Enter' && state.librarySemantic) {
