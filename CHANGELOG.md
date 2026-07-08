@@ -158,6 +158,11 @@ fresh empty `[Unreleased]` section is started.
 
 ### Fixed
 
+- **The Library no longer blinks on every keystroke while searching.** The
+  main-content fade-in is a view-transition cue, but `renderApp` rebuilds the DOM
+  on every state change, so it replayed on same-view re-renders too — a strobe
+  while typing in keyword search (or toggling a filter). The fade now plays only
+  when the view identity actually changes.
 - **Confirm dialogs launched from a menu no longer need a double-click.** A
   confirm opened from an open menu (e.g. the doc menu's "Delete permanently…")
   left the menu open, so the "click outside a menu closes it" handler ate the
