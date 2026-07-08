@@ -258,6 +258,31 @@ function dismissToast() {
   setState({ toast: null });
 }
 
+// Copy text to the clipboard, resolving true/false. Prefers the async Clipboard
+// API (works on localhost/Tauri, which count as secure contexts) and falls back
+// to a hidden-textarea execCommand for older webviews.
+async function copyToClipboard(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch { /* fall through */ }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Task mutations
 // ---------------------------------------------------------------------------
@@ -1579,6 +1604,11 @@ async function handleAction(action, el, event) {
     case 'search-toggle-regexp': toggleSearchOption('searchRegexp', el); break;
     case 'toggle-focus': destroyEditorController(); setState({ editorFocus: !state.editorFocus }); renderApp(); break;
     case 'export-doc': triggerLibraryDocumentDownload(state.editorDocId); break;
+    case 'copy-code': {
+      const code = el.closest('.code-block')?.querySelector('code')?.textContent ?? '';
+      copyToClipboard(code).then((ok) => showToast(ok ? 'Copied to clipboard' : 'Could not copy'));
+      break;
+    }
     case 'md-format': applyEditorFormat(el.dataset.mdAction); break;
     case 'outline-jump': {
       const index = Number(el.dataset.headingIndex);
