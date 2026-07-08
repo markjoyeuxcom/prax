@@ -16,6 +16,18 @@ const THEME_PREVIEWS = {
   dark: { bg: '#1C2220', bar: '#39423F', bar2: '#2C3331' },
 };
 
+// Reminders default to an in-app toast. Offer to upgrade to native desktop
+// notifications when the platform supports them and hasn't decided yet; confirm
+// when already granted. Guarded so the pure render is safe where Notification
+// is undefined (Node tests, older webviews).
+function remindersNotifHint(preferences) {
+  if (!preferences.reminders) return '';
+  const perm = typeof Notification !== 'undefined' ? Notification.permission : 'unsupported';
+  if (perm === 'default') return ' <button class="settings-link" type="button" data-action="enable-desktop-notifications">Enable desktop notifications</button>';
+  if (perm === 'granted') return ' Desktop notifications are on.';
+  return '';
+}
+
 const ACCENT_TITLES = {
   fern: 'Fern (default)',
   indigo: 'Indigo',
@@ -101,6 +113,13 @@ function renderAppearanceCard(preferences) {
           <div class="settings-row__desc">Show a line-number gutter in the Markdown editor.</div>
         </div>
         <button class="switch${preferences.lineNumbers ? ' is-on' : ''}" type="button" data-action="toggle-line-numbers" role="switch" aria-checked="${Boolean(preferences.lineNumbers)}" aria-label="Editor line numbers"><span></span></button>
+      </div>
+      <div class="settings-row">
+        <div class="settings-row__text">
+          <div class="settings-row__label">Due-date reminders</div>
+          <div class="settings-row__desc">Nudge you when a task is due or overdue while Prax is open.${remindersNotifHint(preferences)}</div>
+        </div>
+        <button class="switch${preferences.reminders ? ' is-on' : ''}" type="button" data-action="toggle-reminders" role="switch" aria-checked="${Boolean(preferences.reminders)}" aria-label="Due-date reminders"><span></span></button>
       </div>
       <div class="settings-row">
       <div class="settings-row__text">

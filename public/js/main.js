@@ -41,6 +41,7 @@ import { triggerLibraryDocumentDownload } from './libraryExport.js';
 import { tasksFromImportPayload, exportFilename, normalizeImportMode } from './importExport.js';
 import { createSavedLibraryView, savedLibraryViewsFromJson } from './librarySavedViews.js';
 import { parseCaptureShorthand } from './captureShorthand.js';
+import { computeDueReminders, isOverdue } from './dueReminders.js';
 import { mountCodeMirrorEditor } from '../vendor/codemirror-editor.js';
 
 import {
@@ -128,6 +129,40 @@ async function loadProjects() {
 async function loadTasks() {
   const tasks = await fetchTasks({});
   setState({ tasks: tasks.map(normalizeTask), apiStatus: 'connected' });
+  checkDueReminders();
+}
+
+// Due-date reminders: announce tasks that are due/overdue. A native desktop
+// notification when the user has granted permission, otherwise a single in-app
+// toast per batch. Deduped by task id for the session so a task is announced
+// once. Runs after every task load and on a heartbeat (for an app left open
+// across midnight). See dueReminders.js for the pure selection.
+const notifiedDueIds = new Set();
+
+function fireNativeReminder(task) {
+  try {
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return false;
+    const title = isOverdue(task.dueDate) ? 'Task overdue' : 'Task due today';
+    // eslint-disable-next-line no-new
+    new Notification(title, { body: task.title, tag: `prax-due-${task.id}` });
+    return true;
+  } catch { return false; }
+}
+
+function checkDueReminders() {
+  if (!state.preferences?.reminders) return;
+  const fresh = computeDueReminders(state.tasks, { now: new Date() }).filter((t) => !notifiedDueIds.has(t.id));
+  if (!fresh.length) return;
+  fresh.forEach((t) => notifiedDueIds.add(t.id));
+
+  if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+    fresh.forEach(fireNativeReminder);
+    return;
+  }
+  const overdue = fresh.filter((t) => isOverdue(t.dueDate)).length;
+  const n = fresh.length;
+  const word = overdue === n ? 'overdue' : 'due';
+  showToast(`⏰ ${n} task${n > 1 ? 's' : ''} ${word}`, null, 6000);
 }
 
 async function loadArchivedTasks() {
@@ -1960,6 +1995,22 @@ async function handleAction(action, el, event) {
       renderApp();
       break;
     }
+    case 'toggle-reminders': {
+      const enabled = !state.preferences.reminders;
+      const preferences = savePreferences({ ...state.preferences, reminders: enabled });
+      setState({ preferences });
+      if (enabled) checkDueReminders();
+      renderApp();
+      break;
+    }
+    case 'enable-desktop-notifications': {
+      // A user gesture — the only context in which the browser will show the
+      // permission prompt. Once granted, checkDueReminders fires native ones.
+      try { if (typeof Notification !== 'undefined') await Notification.requestPermission(); }
+      catch { /* unsupported / dismissed */ }
+      renderApp();
+      break;
+    }
     case 'reset-preferences': {
       const preferences = resetPreferences();
       setState({ preferences });
@@ -2447,6 +2498,9 @@ async function init() {
     loadSemanticStatus().then(renderApp);
     bindEvents();
     installShortcuts();
+    // Heartbeat so a task that ticks over to "due" while the app sits open still
+    // gets a reminder (e.g. across midnight). Cheap: a filter over state.tasks.
+    if (typeof setInterval === 'function') setInterval(checkDueReminders, 15 * 60 * 1000);
     renderApp();
   } catch (err) {
     appRoot.innerHTML = `<main class="empty" style="height:100vh"><h2 class="empty__title">Prax could not load</h2><p class="empty__sub">${escapeHtml(err?.message || 'Unknown error')}</p></main>`;
