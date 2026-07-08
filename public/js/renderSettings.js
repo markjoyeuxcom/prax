@@ -145,6 +145,18 @@ function renderAppearanceCard(preferences) {
       </div>
       <div class="settings-row">
         <div class="settings-row__text">
+          <div class="settings-row__label">Preview font</div>
+          <div class="settings-row__desc">Font for the rendered preview. Serif reads like a document; sans matches the app; mono suits code-heavy runbooks. Headings stay sans.</div>
+        </div>
+        <div class="seg">
+          ${[['serif', 'Serif'], ['sans', 'Sans'], ['mono', 'Mono']].map(([font, label]) => {
+            const on = (preferences.previewFont || 'serif') === font;
+            return `<button type="button"${on ? ' class="is-active"' : ''} data-action="set-preview-font" data-font="${font}" aria-pressed="${on}">${label}</button>`;
+          }).join('')}
+        </div>
+      </div>
+      <div class="settings-row">
+        <div class="settings-row__text">
           <div class="settings-row__label">Due-date reminders</div>
           <div class="settings-row__desc">Nudge you when a task is due or overdue while Prax is open.${remindersNotifHint(preferences)}</div>
         </div>
