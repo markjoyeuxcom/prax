@@ -178,3 +178,15 @@ test('filterDocumentsByTrust is OR within the axis (union of selected facets)', 
 test('filterDocumentsByTrust ignores unknown facet keys', () => {
   assert.deepEqual(filterDocumentsByTrust(trustDocs, ['bogus']).map(d => d.id), ['v', 's', 'sup', 'vs', 'plain']);
 });
+
+test('filterDocumentsByTrust "agent" matches synthesized docs and agent-edited docs', () => {
+  const docs = [
+    { id: 'synth', kind: 'synthesized', updatedBy: 'user', status: 'active' },
+    { id: 'edited', kind: 'source', updatedBy: 'agent', status: 'active' },
+    { id: 'human', kind: 'source', updatedBy: 'user', status: 'active' },
+  ];
+  assert.deepEqual(filterDocumentsByTrust(docs, ['agent']).map(d => d.id), ['synth', 'edited']);
+  // OR within the axis: verified OR agent-written.
+  const withVerified = [...docs, { id: 'v', verified: true, kind: 'source', updatedBy: 'user', status: 'active' }];
+  assert.deepEqual(filterDocumentsByTrust(withVerified, ['verified', 'agent']).map(d => d.id), ['synth', 'edited', 'v']);
+});
