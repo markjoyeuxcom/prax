@@ -58,3 +58,22 @@ updates:
       - dependencies
       - docker-compose
     open-pull-requests-limit: 5
+
+  # The Tauri desktop shell's Rust crates (Cargo.toml/Cargo.lock live here).
+  # Tracks the gtk-rs/glib stack so a fixed glib (0.20+) lands when Tauri moves.
+  - package-ecosystem: cargo
+    directory: /src-tauri
+    schedule:
+      interval: weekly
+      day: monday
+      time: "10:00"
+      timezone: Europe/London
+    labels:
+      - dependencies
+      - rust
+    open-pull-requests-limit: 5
+    groups:
+      cargo-minor-and-patch:
+        update-types:
+          - minor
+          - patch
