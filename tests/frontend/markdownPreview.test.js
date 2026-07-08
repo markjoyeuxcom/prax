@@ -187,3 +187,20 @@ test('renderMarkdownHtml resolves a [[wiki-link]] whose title contains $ without
   assert.match(html, />A\$&amp;B<\/a>/);
   assert.ok(!html.includes('\u0000'));
 });
+
+
+test('renderMarkdownHtml wraps a fenced code block with a language label and a Copy button', () => {
+  const html = renderMarkdownHtml('```bash\nkubectl get pods\n```');
+  assert.match(html, /class="code-block"/);
+  assert.match(html, /class="code-block__lang">bash</);
+  assert.match(html, /data-action="copy-code"[^>]*>Copy</);
+  // The inner <pre><code data-language> shape is unchanged.
+  assert.match(html, /<pre><code data-language="bash">kubectl get pods<\/code><\/pre>/);
+});
+
+test('a fenced code block without a language still gets a Copy button and an empty label', () => {
+  const html = renderMarkdownHtml('```\nplain text\n```');
+  assert.match(html, /class="code-block__lang"><\/span>/);
+  assert.match(html, /data-action="copy-code"/);
+  assert.match(html, /<pre><code>plain text<\/code><\/pre>/);
+});

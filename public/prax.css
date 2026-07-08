@@ -1243,6 +1243,31 @@ a { color: var(--accent); }
   margin: 12px 0;
 }
 .prose pre code { background: none; padding: 0; font-size: inherit; }
+/* Fenced code block with a Copy bar. The bar and the <pre> read as one unit. */
+.code-block { margin: 12px 0; }
+.code-block__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 6px 4px 12px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  font-family: var(--font-ui);
+}
+.code-block__lang { font-size: 10.5px; color: var(--ink3); text-transform: uppercase; letter-spacing: .05em; }
+.code-block__copy {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--ink3);
+  padding: 2px 9px;
+  border-radius: 5px;
+  transition: background .15s ease, color .15s ease;
+}
+.code-block__copy:hover { background: var(--accent-soft); color: var(--ink); }
+.prose .code-block pre { margin: 0; border-top-left-radius: 0; border-top-right-radius: 0; }
 .prose hr { border: none; border-top: 1px solid var(--line); margin: 20px 0; }
 .prose .task-item {
   display: flex;

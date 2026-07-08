@@ -7,6 +7,20 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+// A fenced code block with a bar: the language label (when present) and a Copy
+// button. The button carries no data — the click handler reads the sibling
+// <code>'s textContent — so the code is never double-escaped into an attribute.
+// The inner <pre><code …> shape (with data-language) is unchanged.
+function renderCodeBlock(code, language) {
+  const languageAttr = language ? ` data-language="${escapeHtml(language)}"` : '';
+  const langLabel = language ? escapeHtml(language) : '';
+  return '<div class="code-block">'
+    + `<div class="code-block__bar"><span class="code-block__lang">${langLabel}</span>`
+    + '<button type="button" class="code-block__copy" data-action="copy-code" aria-label="Copy code to clipboard">Copy</button></div>'
+    + `<pre><code${languageAttr}>${escapeHtml(code)}</code></pre>`
+    + '</div>';
+}
+
 // Set per-render by renderMarkdownHtml: (title) => { id, title } | null. Lets
 // renderInline (called deep in the parse) resolve [[wiki-links]] without
 // threading the document list through every call. Safe because rendering is
@@ -166,8 +180,7 @@ function renderMarkdownBody(markdown) {
         flushParagraph(output, paragraph);
         flushList(output, listItems);
         flushTable(output, tableRows);
-        const languageAttr = codeLanguage ? ` data-language="${escapeHtml(codeLanguage)}"` : '';
-        output.push(`<pre><code${languageAttr}>${escapeHtml(codeLines.join('\n'))}</code></pre>`);
+        output.push(renderCodeBlock(codeLines.join('\n'), codeLanguage));
         codeLines = null;
         codeLanguage = '';
       } else {
@@ -260,7 +273,7 @@ function renderMarkdownBody(markdown) {
     paragraph.push(trimmed);
   });
 
-  if (codeLines) output.push(`<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`);
+  if (codeLines) output.push(renderCodeBlock(codeLines.join('\n'), ''));
   if (tableRows.length && !flushTable(output, tableRows)) paragraph.push(...tableRows);
   flushParagraph(output, paragraph);
   flushList(output, listItems);
