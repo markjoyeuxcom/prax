@@ -30,7 +30,12 @@ function remindersNotifHint(preferences) {
 
 const ACCENT_TITLES = {
   fern: 'Fern (default)',
+  teal: 'Teal',
+  sky: 'Sky',
   indigo: 'Indigo',
+  plum: 'Plum',
+  rose: 'Rose',
+  amber: 'Amber',
   clay: 'Clay',
   moss: 'Moss',
 };
