@@ -121,6 +121,18 @@ function renderAppearanceCard(preferences) {
       </div>
       <div class="settings-row">
         <div class="settings-row__text">
+          <div class="settings-row__label">Editor engine <span class="settings-badge">experimental</span></div>
+          <div class="settings-row__desc">CodeMirror is the default; “Plain” is a lightweight textarea spike (no 275&nbsp;KB dependency).</div>
+        </div>
+        <div class="seg">
+          ${['codemirror', 'plain'].map((eng) => {
+            const on = (preferences.editorEngine || 'codemirror') === eng;
+            return `<button type="button"${on ? ' class="is-active"' : ''} data-action="set-editor-engine" data-engine="${eng}" aria-pressed="${on}">${eng === 'plain' ? 'Plain' : 'CodeMirror'}</button>`;
+          }).join('')}
+        </div>
+      </div>
+      <div class="settings-row">
+        <div class="settings-row__text">
           <div class="settings-row__label">Due-date reminders</div>
           <div class="settings-row__desc">Nudge you when a task is due or overdue while Prax is open.${remindersNotifHint(preferences)}</div>
         </div>
