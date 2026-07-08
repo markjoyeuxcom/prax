@@ -38,8 +38,14 @@
 
   /* Editor/preview reading size; multiplied by the user font-scale (0.85–1.25). */
   --reading-scale: 1;
+}
 
-  /* Aliases consumed by the pre-built CodeMirror bundle (legacy var names). */
+/* Aliases consumed by the pre-built CodeMirror bundle (legacy var names).
+   Declared on `body` — which carries the [data-theme] override — so each var()
+   source re-resolves per theme. On :root they were substituted once against the
+   light tokens and frozen, which rendered the dark-mode editor text dark-on-dark
+   (--text-body stayed the light #1F2624 even though --ink flipped to #E6EAE8). */
+body {
   --caret: var(--accent);
   --bg-deep: var(--bg);
   --border: var(--line2);
