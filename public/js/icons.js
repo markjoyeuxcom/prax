@@ -15,6 +15,7 @@ const SHAPES = {
   group: '<line x1="2" y1="3.5" x2="13" y2="3.5"/><line x1="2" y1="7.5" x2="10" y2="7.5"/><line x1="2" y1="11.5" x2="13" y2="11.5"/>',
   cmd: '<rect x="2" y="2" width="11" height="11" rx="2.5"/><line x1="5" y1="7.5" x2="10" y2="7.5"/>',
   inbox: '<rect x="1.8" y="3" width="11.4" height="9" rx="2"/><line x1="1.8" y1="8.2" x2="5.2" y2="8.2"/><line x1="9.8" y1="8.2" x2="13.2" y2="8.2"/><circle cx="7.5" cy="8.2" r="1.6"/>',
+  filter: '<path d="M2 3.2 h11 l-4.1 4.9 v3.9 l-2.8 1.4 v-5.3 z"/>',
 };
 
 export function icon(name, size = 15) {
