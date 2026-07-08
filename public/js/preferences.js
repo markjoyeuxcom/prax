@@ -12,10 +12,16 @@ export const DEFAULT_PREFERENCES = Object.freeze({
   lineNumbers: false,
   reminders: true,
   editorEngine: 'codemirror',
+  editorFont: 'proportional',
 });
 
 export const THEME_OPTIONS = Object.freeze(['light', 'dark']);
 export const EDITOR_ENGINE_OPTIONS = Object.freeze(['codemirror', 'plain']);
+// The editor's text font. 'monospace' lets the plain editor keep real bold/
+// italic (width-neutral in a mono face); 'proportional' keeps Instrument Sans
+// and shows emphasis by colour + a metrics-safe faux-bold so the textarea caret
+// never drifts off the styled text. Applies to both engines.
+export const EDITOR_FONT_OPTIONS = Object.freeze(['proportional', 'monospace']);
 export const ACCENT_OPTIONS = Object.freeze(['fern', 'teal', 'sky', 'indigo', 'plum', 'rose', 'amber', 'clay', 'moss']);
 export const CHROME_OPTIONS = Object.freeze(['mac', 'win']);
 export const READING_SCALE_MIN = 0.85;
@@ -66,6 +72,7 @@ export function normalizePreferences(value = {}) {
     lineNumbers: source.lineNumbers === true,
     reminders: source.reminders !== false, // opt-out; defaults on
     editorEngine: isAllowed(source.editorEngine, EDITOR_ENGINE_OPTIONS) ? source.editorEngine : DEFAULT_PREFERENCES.editorEngine,
+    editorFont: isAllowed(source.editorFont, EDITOR_FONT_OPTIONS) ? source.editorFont : DEFAULT_PREFERENCES.editorFont,
   };
 }
 
@@ -103,6 +110,7 @@ export function resetPreferences(storage = globalThis.localStorage) {
 export function applyPreferences(preferences, body = globalThis.document?.body) {
   const normalized = normalizePreferences(preferences);
   body?.setAttribute?.('data-theme', normalized.theme);
+  body?.setAttribute?.('data-editor-font', normalized.editorFont);
   const accentCss = ACCENT_CSS[normalized.accent];
   if (accentCss) body?.style?.setProperty?.('--accent', accentCss);
   else body?.style?.removeProperty?.('--accent');

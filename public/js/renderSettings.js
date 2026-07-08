@@ -133,6 +133,18 @@ function renderAppearanceCard(preferences) {
       </div>
       <div class="settings-row">
         <div class="settings-row__text">
+          <div class="settings-row__label">Editor font</div>
+          <div class="settings-row__desc">Proportional (Instrument&nbsp;Sans) reads like prose; monospace aligns code and keeps bold&nbsp;/&nbsp;italic. In proportional mode the plain editor shows emphasis by colour so its caret stays exact.</div>
+        </div>
+        <div class="seg">
+          ${['proportional', 'monospace'].map((font) => {
+            const on = (preferences.editorFont || 'proportional') === font;
+            return `<button type="button"${on ? ' class="is-active"' : ''} data-action="set-editor-font" data-font="${font}" aria-pressed="${on}">${font === 'monospace' ? 'Monospace' : 'Proportional'}</button>`;
+          }).join('')}
+        </div>
+      </div>
+      <div class="settings-row">
+        <div class="settings-row__text">
           <div class="settings-row__label">Due-date reminders</div>
           <div class="settings-row__desc">Nudge you when a task is due or overdue while Prax is open.${remindersNotifHint(preferences)}</div>
         </div>
