@@ -105,13 +105,14 @@ test('window-controls segmented pair reflects the chrome preference via aria-pre
   assert.match(win, /data-chrome="mac" aria-pressed="false"/);
 });
 
-test('renders the four accent swatches and marks the active one', () => {
+test('renders the nine accent swatches (incl blue + red) and marks the active one', () => {
   const html = renderSettingsHtml(baseState({ preferences: { theme: 'light', accent: 'clay', chromeOS: 'mac', readingScale: 1 } }), baseModel());
-  assert.equal((html.match(/data-action="set-accent"/g) || []).length, 4);
-  assert.match(html, /data-accent="fern"/);
-  assert.match(html, /data-accent="indigo"/);
-  assert.match(html, /data-accent="clay"/);
-  assert.match(html, /data-accent="moss"/);
+  assert.equal((html.match(/data-action="set-accent"/g) || []).length, 9);
+  for (const a of ['fern', 'teal', 'sky', 'indigo', 'plum', 'rose', 'amber', 'clay', 'moss']) {
+    assert.match(html, new RegExp(`data-accent="${a}"`), `swatch ${a}`);
+  }
+  assert.match(html, /data-accent="sky"[^>]*background:oklch\(0\.60 0\.13 240\)/);  // blue
+  assert.match(html, /data-accent="rose"[^>]*background:oklch\(0\.58 0\.16 18\)/);   // red
   assert.match(html, /class="swatch is-active" data-action="set-accent" data-accent="clay"/);
   assert.doesNotMatch(html, /class="swatch is-active" data-action="set-accent" data-accent="fern"/);
   // fern has no --accent override; its swatch falls back to the token value

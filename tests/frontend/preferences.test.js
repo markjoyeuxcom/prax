@@ -71,7 +71,7 @@ test('normalizePreferences preserves valid theme, accent, and chrome values', ()
 
 test('the option sets are the design set', () => {
   assert.deepEqual([...THEME_OPTIONS], ['light', 'dark']);
-  assert.deepEqual([...ACCENT_OPTIONS], ['fern', 'indigo', 'clay', 'moss']);
+  assert.deepEqual([...ACCENT_OPTIONS], ['fern', 'teal', 'sky', 'indigo', 'plum', 'rose', 'amber', 'clay', 'moss']);
   assert.deepEqual([...CHROME_OPTIONS], ['mac', 'win']);
 });
 

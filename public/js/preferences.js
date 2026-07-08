@@ -14,15 +14,22 @@ export const DEFAULT_PREFERENCES = Object.freeze({
 });
 
 export const THEME_OPTIONS = Object.freeze(['light', 'dark']);
-export const ACCENT_OPTIONS = Object.freeze(['fern', 'indigo', 'clay', 'moss']);
+export const ACCENT_OPTIONS = Object.freeze(['fern', 'teal', 'sky', 'indigo', 'plum', 'rose', 'amber', 'clay', 'moss']);
 export const CHROME_OPTIONS = Object.freeze(['mac', 'win']);
 export const READING_SCALE_MIN = 0.85;
 export const READING_SCALE_MAX = 1.25;
 
-// Fern is the token default in prax.css (per theme); the others override it.
+// Fern is the token default in prax.css (per theme); the others override --accent
+// with a single oklch tuned to read on both light and dark. A full spread from
+// green through blue/violet to red so "colour mode" is a real choice.
 export const ACCENT_CSS = Object.freeze({
   fern: null,
+  teal: 'oklch(0.62 0.10 200)',
+  sky: 'oklch(0.60 0.13 240)',
   indigo: 'oklch(0.60 0.11 265)',
+  plum: 'oklch(0.56 0.14 320)',
+  rose: 'oklch(0.58 0.16 18)',
+  amber: 'oklch(0.68 0.13 65)',
   clay: 'oklch(0.62 0.11 40)',
   moss: 'oklch(0.58 0.10 130)',
 });
