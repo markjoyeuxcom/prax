@@ -295,6 +295,15 @@ function applyTaskPatchLocal(id, patch) {
   setState({ tasks: state.tasks.map(t => (t.id === id ? { ...t, ...patch } : t)) });
 }
 
+// Snooze target for a preset: tomorrow / next week, at 9am local so the task
+// reappears in the morning rather than at midnight. Returns an ISO timestamp.
+function snoozeUntil(preset) {
+  const d = new Date();
+  d.setDate(d.getDate() + (preset === 'week' ? 7 : 1));
+  d.setHours(9, 0, 0, 0);
+  return d.toISOString();
+}
+
 async function patchTask(id, apiPatch, { failure = 'update this task' } = {}) {
   if (!id) return null;
   try {
@@ -1072,9 +1081,9 @@ function renderMainHtml() {
   const now = new Date();
   switch (state.navType) {
     case 'today': {
-      const { groups, flatIds: ids } = buildTodayGroups(state.tasks, state.projects, { now });
+      const { groups, flatIds: ids, snoozedCount } = buildTodayGroups(state.tasks, state.projects, { now });
       flatIds = ids;
-      return renderTodayHtml(state, groups, { now });
+      return renderTodayHtml(state, groups, { now, snoozedCount });
     }
     case 'all': {
       const groups = buildProjectGroups(state.managedProjects, state.tasks);
@@ -1433,6 +1442,14 @@ async function handleAction(action, el, event) {
     case 'set-task-status': await patchTask(state.drawerTaskId, { status: el.dataset.status }); break;
     case 'set-task-priority': await patchTask(state.drawerTaskId, { priority: el.dataset.priority }); break;
     case 'clear-task-due': await patchTask(state.drawerTaskId, { dueDate: null }); break;
+    case 'snooze-task':
+      await patchTask(el.dataset.taskId || state.drawerTaskId, { deferredUntil: snoozeUntil(el.dataset.snooze) }, { failure: 'snooze the task' });
+      renderApp();
+      break;
+    case 'unsnooze-task':
+      await patchTask(el.dataset.taskId || state.drawerTaskId, { deferredUntil: '' }, { failure: 'unsnooze the task' });
+      renderApp();
+      break;
     case 'add-checklist-item': {
       const input = appRoot.querySelector('[data-checklist-new]');
       const label = (input?.value || '').trim();

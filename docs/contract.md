@@ -55,6 +55,7 @@ may add fields over time.
 | `status` | `"high-priority"` \| `"in-progress"` \| `"planned"` \| `"completed"` \| `"notes"` |
 | `projectId` | UUID |
 | `dueDate` | `"YYYY-MM-DD"` \| `null` |
+| `deferredUntil` | ISO-8601 timestamp \| `null` (snooze target; hidden from Today until it passes) |
 | `sortOrder` | 32-bit signed integer |
 | `createdAt` | ISO-8601 timestamp |
 | `updatedAt` | ISO-8601 timestamp |

@@ -14,6 +14,7 @@ fresh empty `[Unreleased]` section is started.
 
 ### Added
 
+- **Snooze / defer tasks.** A task can be snoozed until tomorrow or next week (the drawer offers presets); it drops out of Today until then and reappears automatically, with a "N snoozed" note so nothing is forgotten. New nullable `deferred_until` on tasks (additive to the API task shape; not part of the import field set).
 - **Inbox + context-aware quick capture.** New tasks no longer silently land in
   whichever project happened to be first. A reserved **Inbox** project (pinned in
   the sidebar, protected from rename/archive/delete) is the default home for
