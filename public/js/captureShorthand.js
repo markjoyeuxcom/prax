@@ -1,3 +1,5 @@
+import { isoDate, addDays, nextWeekday } from './dateHelpers.js';
+
 // Parse lightweight shorthand out of a quick-capture title.
 //
 //   priority — a `!` sigil: !high / !hi / !p1, !medium / !med / !p2, !low / !lo / !p3
@@ -21,27 +23,6 @@ const DOW = {
 };
 
 const DATE_KEYWORDS = /(^|\s)(today|tod|tomorrow|tmr|tom|next\s?week|nextweek|sunday|monday|tuesday|wednesday|thursday|friday|saturday|sun|mon|tue|wed|thu|fri|sat)(?=\s|$)/i;
-
-function isoDate(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-
-function addDays(now, n) {
-  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  d.setDate(d.getDate() + n);
-  return d;
-}
-
-// The next occurrence of weekday `target` (0=Sun) strictly after today; if today
-// already is that weekday, jump a full week rather than resolving to today.
-function nextWeekday(now, target) {
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getDay();
-  const delta = ((target - today + 7) % 7) || 7;
-  return addDays(now, delta);
-}
 
 export function parseCaptureShorthand(raw, now = new Date()) {
   let title = String(raw || '');
