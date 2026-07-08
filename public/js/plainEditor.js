@@ -150,6 +150,11 @@ export function mountPlainEditor({ host, value = '', onChange, onSave, documents
   ta.setAttribute('autocomplete', 'off');
   ta.setAttribute('autocorrect', 'off');
   ta.value = String(value ?? '');
+  // A subtle highlight behind the line the caret is on (like CodeMirror).
+  const activeLine = doc.createElement('div');
+  activeLine.className = 'pe__activeline';
+  activeLine.setAttribute('aria-hidden', 'true');
+  activeLine.hidden = true;
   // Our own caret (the native one is hidden via caret-color). It's positioned
   // from the highlight layer's real geometry, so it stays exact on engines
   // (WebKit webviews) that render a <textarea>'s caret off the styled text.
@@ -157,7 +162,7 @@ export function mountPlainEditor({ host, value = '', onChange, onSave, documents
   caret.className = 'pe__caret';
   caret.setAttribute('aria-hidden', 'true');
   caret.hidden = true;
-  stack.append(marks, lines, ta, caret);
+  stack.append(activeLine, marks, lines, ta, caret);
   scroll.append(stack);
   host.append(scroll);
 
@@ -228,7 +233,7 @@ export function mountPlainEditor({ host, value = '', onChange, onSave, documents
     const r = caretRect(ta.selectionStart);
     if (!r) return;
     pop.style.left = `${Math.round(r.left)}px`;
-    pop.style.top = `${Math.round(r.top + r.height)}px`;
+    pop.style.top = `${Math.round(r.lineTop + r.lineHeight)}px`;
   }
   function updateComp() {
     if (ta.selectionStart !== ta.selectionEnd) { closeComp(); return; }
@@ -273,8 +278,26 @@ export function mountPlainEditor({ host, value = '', onChange, onSave, documents
     }
     return node ? { node, offset: node.nodeValue.length } : null;
   }
-  // Viewport-space {left, top, height} of the caret at a source offset, derived
-  // from the corresponding highlight line (wrap-aware via Range client rects).
+  // One consistent caret height: the text glyph line (not the full line box),
+  // measured from a real character so an empty/new line's caret matches a text
+  // line's instead of falling back to the taller line-box height.
+  function glyphHeight(lineH) {
+    for (const el of lines.children) {
+      if (!el.textContent) continue;
+      const walker = doc.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+      const node = walker.nextNode();
+      if (node && node.nodeValue.length) {
+        const rg = doc.createRange();
+        rg.setStart(node, 0); rg.setEnd(node, 1);
+        const h = rg.getBoundingClientRect().height;
+        if (h) return Math.round(h);
+      }
+    }
+    return Math.round(lineH * 0.82);
+  }
+  // Viewport-space caret + line geometry at a source offset, from the highlight
+  // layer (wrap-aware). The caret is a fixed glyphHeight tall, centred in its
+  // visual row, so it's identical on text, empty, and wrapped lines.
   function caretRect(offset) {
     const before = ta.value.slice(0, offset);
     const lineIndex = (before.match(/\n/g) || []).length;
@@ -282,22 +305,31 @@ export function mountPlainEditor({ host, value = '', onChange, onSave, documents
     const lineEl = lines.children[lineIndex];
     if (!lineEl) return null;
     const lineBox = lineEl.getBoundingClientRect();
-    const fallbackH = lineBox.height || parseFloat(getComputedStyle(ta).lineHeight) || 20;
-    if (col <= 0) return { left: lineBox.left, top: lineBox.top, height: fallbackH };
-    const pos = nodeAtColumn(lineEl, col);
-    if (!pos) return { left: lineBox.left, top: lineBox.top, height: fallbackH };
-    const range = doc.createRange();
-    range.setStart(lineEl, 0);
-    range.setEnd(pos.node, pos.offset);
-    const rects = range.getClientRects();
-    const r = rects.length ? rects[rects.length - 1] : lineBox;
-    return { left: r.right, top: r.top, height: r.height || fallbackH };
+    const lineH = parseFloat(getComputedStyle(ta).lineHeight) || lineBox.height || 20;
+    const h = glyphHeight(lineH);
+    let left = lineBox.left;
+    let rowIndex = 0;
+    const pos = col > 0 ? nodeAtColumn(lineEl, col) : null;
+    if (pos) {
+      const range = doc.createRange();
+      range.setStart(lineEl, 0);
+      range.setEnd(pos.node, pos.offset);
+      const rects = range.getClientRects();
+      const r = rects.length ? rects[rects.length - 1] : lineBox;
+      left = r.right;
+      rowIndex = Math.max(0, Math.round((r.top - lineBox.top) / lineH));
+    }
+    const top = lineBox.top + rowIndex * lineH + (lineH - h) / 2;
+    return { left, top, height: h, lineTop: lineBox.top, lineHeight: lineBox.height };
   }
-  // Paint our caret, or hide it when the textarea is unfocused or has a range.
+  // Paint our caret + active-line highlight, or hide both when the textarea is
+  // unfocused or has a (non-empty) selection.
   function updateCaret() {
-    if (doc.activeElement !== ta || ta.selectionStart !== ta.selectionEnd) { caret.hidden = true; return; }
+    if (doc.activeElement !== ta || ta.selectionStart !== ta.selectionEnd) {
+      caret.hidden = true; activeLine.hidden = true; return;
+    }
     const r = caretRect(ta.selectionStart);
-    if (!r) { caret.hidden = true; return; }
+    if (!r) { caret.hidden = true; activeLine.hidden = true; return; }
     const box = stack.getBoundingClientRect();
     caret.style.left = `${r.left - box.left}px`;
     caret.style.top = `${r.top - box.top}px`;
@@ -305,6 +337,9 @@ export function mountPlainEditor({ host, value = '', onChange, onSave, documents
     caret.hidden = false;
     // Restart the blink so the caret is solid immediately after it moves.
     caret.classList.remove('pe__caret--on'); void caret.offsetWidth; caret.classList.add('pe__caret--on');
+    activeLine.style.top = `${r.lineTop - box.top}px`;
+    activeLine.style.height = `${r.lineHeight}px`;
+    activeLine.hidden = false;
   }
 
   function onKeydown(e) {
@@ -369,7 +404,7 @@ export function mountPlainEditor({ host, value = '', onChange, onSave, documents
   ta.addEventListener('keydown', onKeydown);
   ta.addEventListener('click', updateComp);
   ta.addEventListener('focus', updateCaret);
-  ta.addEventListener('blur', () => { caret.hidden = true; setTimeout(closeComp, 120); });
+  ta.addEventListener('blur', () => { caret.hidden = true; activeLine.hidden = true; setTimeout(closeComp, 120); });
   doc.addEventListener('selectionchange', onSelectionChange);
   globalThis.addEventListener?.('resize', updateCaret);
   scroll.addEventListener('scroll', () => { if (comp) positionPop(); });
@@ -417,6 +452,7 @@ export function mountPlainEditor({ host, value = '', onChange, onSave, documents
       globalThis.removeEventListener?.('resize', updateCaret);
       pop.remove();
       caret.remove();
+      activeLine.remove();
       host.classList.remove('pe-host', 'pe-has-gutter');
       host.innerHTML = '';
     },
