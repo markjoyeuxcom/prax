@@ -53,7 +53,12 @@ body {
   --text-dimmer: var(--ink3);
   --accent-amber: var(--med);
   --accent-cyan: var(--lo);
+  /* The editor text font (both engines). Proportional by default; the
+     'monospace' preference swaps it so the plain editor can use real bold/
+     italic (width-neutral in a mono face) without drifting its textarea caret. */
+  --pe-font: var(--font-ui);
 }
+body[data-editor-font="monospace"] { --pe-font: var(--font-mono); }
 
 body[data-theme="dark"] {
   --desk: linear-gradient(160deg, #101413 0%, #0C100F 60%, #0A0D0C 100%);
@@ -1452,7 +1457,7 @@ a { color: var(--accent); }
 /* CodeMirror host */
 .code-editor .cm-editor { font-size: calc(15px * var(--reading-scale)); }
 .code-editor .cm-editor.cm-focused { outline: none; }
-.code-editor .cm-scroller { font-family: var(--font-ui); line-height: 1.7; overflow-y: auto; }
+.code-editor .cm-scroller { font-family: var(--pe-font); line-height: 1.7; overflow-y: auto; }
 .code-editor .cm-gutters { background: transparent; border-right: 1px solid var(--line); color: var(--ink3); }
 
 .backlinks__title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -2285,7 +2290,7 @@ body.is-desktop-mac .titlebar { padding-left: 84px; }
 .pe__marks,
 .pe__input {
   margin: 0;
-  font-family: var(--font-ui);
+  font-family: var(--pe-font);
   font-size: calc(15px * var(--reading-scale, 1));
   line-height: 1.7;
   padding: 24px 20px 60px var(--pe-pad-left);
@@ -2359,15 +2364,29 @@ body.is-desktop-mac .titlebar { padding-left: 84px; }
 .pe__pop-label { font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
 .pe__pop-detail { margin-left: auto; font-size: 11px; color: var(--ink3); flex: none; }
 
-/* Token colours mirror the CodeMirror highlight (theme-aware via the aliases). */
-.pe-t-heading { color: var(--accent); font-weight: 700; }
-.pe-t-strong { color: var(--accent-amber); font-weight: 700; }
-.pe-t-em { color: var(--text-body); font-style: italic; }
+/* Token colours mirror the CodeMirror highlight (theme-aware via the aliases).
+   The plain editor paints its caret from a transparent <textarea> that only
+   knows normal-weight, upright metrics, so in a PROPORTIONAL font any real
+   font-weight/font-style on these tokens would widen the glyphs and drift the
+   caret off the text. Default styling therefore keeps weight 400 / upright and
+   conveys emphasis by colour, with a text-shadow "faux-bold" that thickens
+   headings and strong text WITHOUT changing glyph advances (a paint effect, not
+   layout). In a MONOSPACE font bold/italic are width-neutral, so the mono
+   preference restores the real weight and slant below. */
+.pe-t-heading { color: var(--accent); font-weight: 400; text-shadow: 0.4px 0 0 currentColor, -0.4px 0 0 currentColor; }
+.pe-t-strong { color: var(--accent-amber); font-weight: 400; text-shadow: 0.4px 0 0 currentColor, -0.4px 0 0 currentColor; }
+.pe-t-em { color: var(--accent-amber); font-style: normal; }
 .pe-t-code, .pe-t-codeblock { color: var(--accent-amber); }
 .pe-t-code { background: var(--bg-deep); border-radius: 3px; }
 .pe-t-link { color: var(--accent-cyan); text-decoration: underline; }
 .pe-t-quote { color: var(--accent-cyan); }
 .pe-t-marker { color: var(--ink3); }
+
+/* Monospace face → bold/italic keep the same advance width, so restore the real
+   weight and slant (and drop the faux-bold shadow) for a richer look. */
+body[data-editor-font="monospace"] .pe-t-heading,
+body[data-editor-font="monospace"] .pe-t-strong { font-weight: 700; text-shadow: none; }
+body[data-editor-font="monospace"] .pe-t-em { font-style: italic; color: var(--text-body); }
 
 /* "experimental" pill next to a settings label */
 .settings-badge {

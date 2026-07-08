@@ -2098,6 +2098,14 @@ async function handleAction(action, el, event) {
       renderApp();
       break;
     }
+    case 'set-editor-font': {
+      const preferences = savePreferences({ ...state.preferences, editorFont: el.dataset.font });
+      setState({ preferences });
+      applyPreferences(preferences); // flips <body data-editor-font> → --pe-font
+      destroyEditorController(); // remount so CodeMirror re-measures the new font
+      renderApp();
+      break;
+    }
     case 'enable-desktop-notifications': {
       // A user gesture — the only context in which the browser will show the
       // permission prompt. Once granted, checkDueReminders fires native ones.

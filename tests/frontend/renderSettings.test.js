@@ -131,6 +131,18 @@ test('reading scale range carries bounds, current value, and a percent label', (
   assert.match(html, /Applies to the editor and preview only\./);
 });
 
+test('editor-font segmented pair reflects the preference via aria-pressed, default proportional', () => {
+  const def = renderSettingsHtml(baseState(), baseModel());
+  assert.match(def, /data-action="set-editor-font" data-font="proportional" aria-pressed="true"/);
+  assert.match(def, /data-action="set-editor-font" data-font="monospace" aria-pressed="false"/);
+  assert.match(def, />Proportional</);
+  assert.match(def, />Monospace</);
+
+  const mono = renderSettingsHtml(baseState({ preferences: { theme: 'light', accent: 'fern', chromeOS: 'mac', readingScale: 1, editorFont: 'monospace' } }), baseModel());
+  assert.match(mono, /data-font="monospace" aria-pressed="true"/);
+  assert.match(mono, /data-font="proportional" aria-pressed="false"/);
+});
+
 // ---- Intelligence ---------------------------------------------------------
 
 test('no provider configured: disabled switch, invitation copy, Off card active', () => {
