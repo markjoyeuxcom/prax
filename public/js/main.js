@@ -79,6 +79,7 @@ let titleSaveTimer = null;        // editor document title
 let taskTitleSaveTimer = null;    // drawer task title
 let toastTimer = null;
 let isReindexing = false;         // guards the reindex/rebuild handler from double-runs
+let prevViewKey = null;           // suppress the main-content fade on same-view re-renders
 let dragIndicator = null;
 
 // Native window.alert/confirm/prompt do not exist in the desktop webview
@@ -1185,13 +1186,20 @@ function renderApp() {
   const nav = chrome
     ? (narrow ? renderRailHtml(state) : renderSidebarHtml(state, counts))
     : '';
+  // The main-content fade-in is a *view-transition* cue. renderApp rebuilds the
+  // DOM on every state change, so without this the fade replays on same-view
+  // re-renders too — a strobe while typing in the library search / filtering.
+  // Only animate when the view identity actually changes.
+  const viewKey = `${state.navType}|${state.navId}|${state.tab}|${state.libraryView}|${state.editorDocId}|${state.settingsTab}`;
+  const flatMain = viewKey === prevViewKey;
+  prevViewKey = viewKey;
   appRoot.innerHTML = `
     <div class="desk">
       <div class="window">
         ${chrome ? renderTitlebarHtml(state) : ''}
         <div class="window__body">
           ${nav}
-          <main class="main"><div class="main__scroll">${renderMainHtml()}</div></main>
+          <main class="main"><div class="main__scroll${flatMain ? ' main__scroll--flat' : ''}">${renderMainHtml()}</div></main>
         </div>
         ${chrome ? renderStatusbarHtml(state) : ''}
       </div>

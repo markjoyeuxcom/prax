@@ -159,6 +159,9 @@ a { color: var(--accent); }
   min-height: 0;
   animation: mmFade .28s ease;
 }
+/* Same-view re-render (typing in search, toggling a filter): skip the
+   view-transition fade so the content doesn't blink on every keystroke. */
+.main__scroll--flat { animation: none; }
 
 /* ---- Titlebar ---------------------------------------------------------- */
 
