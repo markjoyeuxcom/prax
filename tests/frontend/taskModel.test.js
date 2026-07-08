@@ -18,6 +18,13 @@ test('normalizeTask maps backend fields into UI task shape', () => {
   assert.equal(task.column, 'planned');
   assert.equal(task.projectId, 'homelab-id');
   assert.equal(task.order, 3);
+  assert.equal(task.recurrence, null);
+});
+
+test('normalizeTask carries recurrence through the round-trip', () => {
+  // Regression: a PATCH response that carried recurrence must survive
+  // normalization, or the drawer renders a stale (one-off) state.
+  assert.equal(normalizeTask({ id: 't', title: 'x', recurrence: 'weekly' }).recurrence, 'weekly');
 });
 
 test('normalizeTask maps backend completed timestamp', () => {

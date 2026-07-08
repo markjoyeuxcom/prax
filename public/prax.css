@@ -310,6 +310,31 @@ a { color: var(--accent); }
 }
 .side-item__count { font-size: 11px; color: var(--ink3); }
 
+/* Saved-view row: the × delete sits over the row's right edge, hidden until
+   the row (or the button itself) is hovered/focused. */
+.side-item-row { position: relative; }
+.side-item--saved { padding-right: 26px; }
+.side-item__del {
+  position: absolute;
+  top: 50%;
+  right: 5px;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--ink3);
+  opacity: 0;
+  transition: opacity .12s ease, background .12s ease, color .12s ease;
+}
+.side-item-row:hover .side-item__del,
+.side-item__del:focus-visible { opacity: 1; }
+.side-item__del:hover { background: var(--hi-soft); color: var(--hi); }
+
 .badge {
   font-size: 10.5px;
   font-weight: 600;
@@ -2106,3 +2131,70 @@ body.is-desktop-mac .titlebar { padding-left: 84px; }
 .run-row:hover { background: var(--accent-soft); }
 .run-row__title { flex: 1; font-size: 12.5px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .run-row__meta { flex: none; font-size: 11px; color: var(--ink3); font-variant-numeric: tabular-nums; }
+
+/* ---- "Brief me" overlay --------------------------------------------------- */
+.brief {
+  margin-top: 12vh;
+  width: 680px;
+  max-width: calc(100vw - 40px);
+  max-height: 76vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--line2);
+  border-radius: 14px;
+  box-shadow: var(--pop);
+  overflow: hidden;
+  animation: mmPop .18s cubic-bezier(.2, .8, .25, 1);
+}
+.brief__row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.brief__input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  font-size: 15px;
+  color: var(--ink);
+}
+.brief__input:focus { outline: none; }
+.brief__status {
+  padding: 22px 18px;
+  font-size: 13px;
+  color: var(--ink3);
+  text-align: center;
+}
+.brief__status--hint { color: var(--ink3); }
+.brief__status--error { color: var(--hi); }
+.brief__result {
+  overflow-y: auto;
+  padding: 6px 20px 14px;
+}
+.brief__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 16px;
+  border-top: 1px solid var(--line);
+  font-size: 11.5px;
+  color: var(--ink3);
+}
+.brief__hint-k .kbd { margin: 0 1px; }
+
+/* Recurrence chip on the task drawer */
+.chip--recur { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+
+/* Inline link-style button (Settings reminders → enable notifications) */
+.settings-link {
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.settings-link:hover { filter: brightness(1.1); }

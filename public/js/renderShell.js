@@ -154,10 +154,15 @@ function sidebarSavedViews(state) {
   const items = views.map((view, index) => {
     const active = state.navType === 'library'
       && (state.activeLibraryTags || []).join() === (view?.tags || []).join();
-    return `<button type="button" class="side-item${active ? ' is-active' : ''}" data-action="select-saved-view" data-view-index="${index}"${active ? ' aria-current="true"' : ''}>`
+    // A wrapper holds two sibling buttons (a button can't nest a button): the
+    // row selects the view, the × (revealed on hover) deletes it.
+    return '<div class="side-item-row">'
+      + `<button type="button" class="side-item side-item--saved${active ? ' is-active' : ''}" data-action="select-saved-view" data-view-index="${index}"${active ? ' aria-current="true"' : ''}>`
       + icon('tag')
       + `<span class="side-item__label">${escapeHtml(view?.label)}</span>`
-      + '</button>';
+      + '</button>'
+      + `<button type="button" class="side-item__del" data-action="delete-library-view" data-view-index="${index}" title="Delete saved view" aria-label="Delete saved view ${escapeHtml(view?.label || '')}">×</button>`
+      + '</div>';
   }).join('');
   return `<div class="side-section"><span>Saved views</span></div>${items}`;
 }

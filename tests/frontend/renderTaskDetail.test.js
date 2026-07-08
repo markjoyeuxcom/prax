@@ -101,7 +101,8 @@ test('status row renders five pills carrying API values in data-status', () => {
 test('status row marks only the current design status active', () => {
   const html = render({ task: makeTask({ status: 'in-progress' }) });
   assert.match(html, /class="pill-btn is-active"[^>]*data-status="in-progress"/);
-  assert.equal((html.match(/class="pill-btn is-active"/g) || []).length, 1);
+  // exactly one active *status* pill (recurrence presets also use is-active)
+  assert.equal((html.match(/class="pill-btn is-active"[^>]*data-status=/g) || []).length, 1);
 });
 
 test('the notes API status maps onto the active Backlog pill', () => {
@@ -319,4 +320,27 @@ test('drawer offers snooze presets, and shows the target + unsnooze when snoozed
   assert.match(snoozed, /Until 2099-01-01/);
   assert.match(snoozed, /data-action="unsnooze-task"/);
   assert.doesNotMatch(snoozed, /data-snooze="tomorrow"/);
+});
+
+// ---- recurrence -------------------------------------------------------------
+
+test('drawer renders recurrence presets, marking the active one', () => {
+  const html = render({ task: makeTask({ recurrence: 'weekly' }) });
+  assert.match(html, /field-row__label">Repeat/);
+  assert.match(html, /data-action="set-task-recurrence" data-recurrence=""[^>]*>None/);
+  assert.match(html, /class="pill-btn is-active" type="button" data-action="set-task-recurrence" data-recurrence="weekly"/);
+  // the recurrence is surfaced as a head chip too
+  assert.match(html, /↻ Weekly/);
+});
+
+test('drawer shows no active recurrence preset and no chip for a one-off task', () => {
+  const html = render({ task: makeTask({ recurrence: null }) });
+  assert.match(html, /data-recurrence="daily"/);
+  assert.doesNotMatch(html, /pill-btn is-active[^>]*data-recurrence="(daily|weekly|monthly)"/);
+  assert.doesNotMatch(html, /↻/);
+});
+
+test('drawer renders a friendly label for a custom every:Nd recurrence', () => {
+  const html = render({ task: makeTask({ recurrence: 'every:3d' }) });
+  assert.match(html, /↻ Every 3 days/);
 });

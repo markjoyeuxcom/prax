@@ -24,6 +24,7 @@ import {
   setSemanticEnabled, putSemanticSettings, reindexEmbeddings, semanticSearch,
   verifyDocument, supersedeDocument,
   startRun, fetchRuns, fetchRun, setRunStep, setRunStatus,
+  fetchContextPack,
 } from './libraryApi.js';
 import { normalizeTask } from './taskModel.js';
 import { apiStatus, designStatus, isOpen } from './statusMap.js';
@@ -39,6 +40,8 @@ import {
 import { triggerLibraryDocumentDownload } from './libraryExport.js';
 import { tasksFromImportPayload, exportFilename, normalizeImportMode } from './importExport.js';
 import { createSavedLibraryView, savedLibraryViewsFromJson } from './librarySavedViews.js';
+import { parseCaptureShorthand } from './captureShorthand.js';
+import { computeDueReminders, isOverdue } from './dueReminders.js';
 import { mountCodeMirrorEditor } from '../vendor/codemirror-editor.js';
 
 import {
@@ -55,6 +58,7 @@ import { renderLibraryHtml, buildLibraryModel } from './renderLibrary.js';
 import { templateById } from './documentTemplates.js';
 import { renderEditorHtml, buildOutline, buildBacklinks } from './renderEditor.js';
 import { renderRunHtml, buildChronicle } from './renderRun.js';
+import { renderBriefHtml } from './renderBrief.js';
 import { renderSearchPanelHtml, searchCountLabel } from './renderSearchPanel.js';
 import { renderAllProjectsHtml, buildProjectGroups } from './renderAllProjects.js';
 import { renderPaletteHtml, buildPaletteGroups } from './renderPalette.js';
@@ -125,6 +129,40 @@ async function loadProjects() {
 async function loadTasks() {
   const tasks = await fetchTasks({});
   setState({ tasks: tasks.map(normalizeTask), apiStatus: 'connected' });
+  checkDueReminders();
+}
+
+// Due-date reminders: announce tasks that are due/overdue. A native desktop
+// notification when the user has granted permission, otherwise a single in-app
+// toast per batch. Deduped by task id for the session so a task is announced
+// once. Runs after every task load and on a heartbeat (for an app left open
+// across midnight). See dueReminders.js for the pure selection.
+const notifiedDueIds = new Set();
+
+function fireNativeReminder(task) {
+  try {
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return false;
+    const title = isOverdue(task.dueDate) ? 'Task overdue' : 'Task due today';
+    // eslint-disable-next-line no-new
+    new Notification(title, { body: task.title, tag: `prax-due-${task.id}` });
+    return true;
+  } catch { return false; }
+}
+
+function checkDueReminders() {
+  if (!state.preferences?.reminders) return;
+  const fresh = computeDueReminders(state.tasks, { now: new Date() }).filter((t) => !notifiedDueIds.has(t.id));
+  if (!fresh.length) return;
+  fresh.forEach((t) => notifiedDueIds.add(t.id));
+
+  if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+    fresh.forEach(fireNativeReminder);
+    return;
+  }
+  const overdue = fresh.filter((t) => isOverdue(t.dueDate)).length;
+  const n = fresh.length;
+  const word = overdue === n ? 'overdue' : 'due';
+  showToast(`⏰ ${n} task${n > 1 ? 's' : ''} ${word}`, null, 6000);
 }
 
 async function loadArchivedTasks() {
@@ -336,6 +374,11 @@ async function patchTask(id, apiPatch, { failure = 'update this task' } = {}) {
     const updated = await updateTask(id, apiPatch);
     const normalized = normalizeTask(updated);
     applyTaskPatchLocal(id, normalized);
+    // Completing a recurring task spawns its next instance server-side; refetch
+    // so the freshly scheduled task appears without a manual reload.
+    if (normalized.recurrence && normalized.status === 'completed') {
+      await loadTasks();
+    }
     return normalized;
   } catch {
     alertError(failure);
@@ -841,6 +884,36 @@ async function openDocumentInEditor(documentId) {
 }
 
 // ---------------------------------------------------------------------------
+// "Brief me" — human-facing library context pack
+// ---------------------------------------------------------------------------
+
+function openBrief() {
+  // Keep the last query (handy to re-run) but clear any prior result.
+  setState({ briefOpen: true, briefMarkdown: null, briefError: false, briefLoading: false, paletteOpen: false });
+  renderApp();
+}
+
+async function runBrief(rawQuery) {
+  const query = String(rawQuery || '').trim();
+  if (!query) return;
+  setState({ briefQuery: query, briefLoading: true, briefError: false, briefMarkdown: null });
+  renderApp();
+  try {
+    const markdown = await fetchContextPack(query, 'all');
+    setState({ briefLoading: false, briefMarkdown: markdown });
+  } catch {
+    setState({ briefLoading: false, briefError: true });
+  }
+  renderApp();
+}
+
+async function copyBrief() {
+  if (typeof state.briefMarkdown !== 'string') return;
+  const ok = await copyToClipboard(state.briefMarkdown);
+  showToast(ok ? 'Brief copied' : 'Could not copy brief');
+}
+
+// ---------------------------------------------------------------------------
 // Runbook execution (runs)
 // ---------------------------------------------------------------------------
 
@@ -1122,6 +1195,7 @@ function goSettings() {
 
 function escapeCascade() {
   if (state.editorSearchOpen) { closeEditorSearch(); return; }
+  if (state.briefOpen) { setState({ briefOpen: false }); renderApp(); return; }
   if (state.confirm) { setState({ confirm: null }); renderApp(); return; }
   if (state.docMenuOpen) { setState({ docMenuOpen: false }); renderApp(); return; }
   if (state.paletteOpen) { setState({ paletteOpen: false }); renderApp(); return; }
@@ -1312,6 +1386,11 @@ function renderOverlaysHtml() {
       choices,
     );
   }
+  if (state.briefOpen) {
+    html += renderBriefHtml(state, {
+      bodyHtml: typeof state.briefMarkdown === 'string' ? renderMarkdownHtml(state.briefMarkdown, { resolveWikiLink }) : '',
+    });
+  }
   if (state.confirm) html += renderConfirmHtml(state.confirm);
   html += renderToastHtml(state);
   return html;
@@ -1360,6 +1439,10 @@ function afterRender() {
     input?.setSelectionRange?.(input.value.length, input.value.length);
   } else if (state.captureOpen) {
     appRoot.querySelector('[data-capture-input]')?.focus();
+  } else if (state.briefOpen && !state.briefLoading) {
+    const input = appRoot.querySelector('[data-brief-input]');
+    input?.focus();
+    input?.setSelectionRange?.(input.value.length, input.value.length);
   } else if (state.confirm) {
     // Focus the text field when there is one; otherwise Cancel — never the
     // destructive action, so a stray Enter can't confirm a delete.
@@ -1551,6 +1634,7 @@ async function handleAction(action, el, event) {
     case 'close-drawer': setState({ drawerTaskId: null }); renderApp(); break;
     case 'set-task-status': await patchTask(state.drawerTaskId, { status: el.dataset.status }); break;
     case 'set-task-priority': await patchTask(state.drawerTaskId, { priority: el.dataset.priority }); break;
+    case 'set-task-recurrence': await patchTask(state.drawerTaskId, { recurrence: el.dataset.recurrence }); break;
     case 'clear-task-due': await patchTask(state.drawerTaskId, { dueDate: null }); break;
     case 'snooze-task':
       await patchTask(el.dataset.taskId || state.drawerTaskId, { deferredUntil: snoozeUntil(el.dataset.snooze) }, { failure: 'snooze the task' });
@@ -1622,6 +1706,10 @@ async function handleAction(action, el, event) {
 
     // ---- library ----
     case 'open-doc': openDocumentInEditor(el.dataset.documentId); break;
+    case 'open-brief': openBrief(); break;
+    case 'close-brief': setState({ briefOpen: false }); renderApp(); break;
+    case 'run-brief': runBrief(appRoot.querySelector('[data-brief-input]')?.value); break;
+    case 'copy-brief': copyBrief(); break;
     case 'toggle-semantic': setState({ librarySemantic: !state.librarySemantic, semanticResults: null }); renderApp(); break;
     case 'cycle-lib-sort': setState({ librarySortBy: state.librarySortBy === 'updated' ? 'title' : 'updated' }); renderApp(); break;
     case 'toggle-lib-tag': {
@@ -1904,6 +1992,22 @@ async function handleAction(action, el, event) {
     case 'toggle-line-numbers': {
       const preferences = savePreferences({ ...state.preferences, lineNumbers: !state.preferences.lineNumbers });
       setState({ preferences });
+      renderApp();
+      break;
+    }
+    case 'toggle-reminders': {
+      const enabled = !state.preferences.reminders;
+      const preferences = savePreferences({ ...state.preferences, reminders: enabled });
+      setState({ preferences });
+      if (enabled) checkDueReminders();
+      renderApp();
+      break;
+    }
+    case 'enable-desktop-notifications': {
+      // A user gesture — the only context in which the browser will show the
+      // permission prompt. Once granted, checkDueReminders fires native ones.
+      try { if (typeof Notification !== 'undefined') await Notification.requestPermission(); }
+      catch { /* unsupported / dismissed */ }
       renderApp();
       break;
     }
@@ -2226,6 +2330,11 @@ function bindEvents() {
       addQuickTask(state.captureQuery.trim());
       return;
     }
+    if (target.matches?.('[data-brief-input]') && event.key === 'Enter') {
+      event.preventDefault();
+      runBrief(target.value);
+      return;
+    }
     if (target.matches?.('[data-checklist-new]') && event.key === 'Enter') {
       event.preventDefault();
       handleAction('add-checklist-item', target, event);
@@ -2279,15 +2388,18 @@ async function handleLinkPickerPick(documentId) {
   renderApp();
 }
 
-async function addQuickTask(title) {
+async function addQuickTask(rawTitle) {
+  // Shorthand (!high, tomorrow, fri, 2026-09-01) is parsed out of the typed
+  // text; an explicit token wins over the view-derived capture default.
+  const { title, priority, dueDate } = parseCaptureShorthand(rawTitle);
   if (!title) return;
   const project = state.captureProjectId || defaultProjectId();
   if (!project) { showToast('Create a project first.'); return; }
   try {
     await createTask({
-      title, description: '', notes: '', priority: 'medium',
+      title, description: '', notes: '', priority: priority || 'medium',
       status: state.captureStatus || 'planned', project,
-      dueDate: state.captureDueDate || null, sortOrder: state.tasks.length,
+      dueDate: dueDate || state.captureDueDate || null, sortOrder: state.tasks.length,
     });
     setState({ captureOpen: false, captureQuery: '', captureMenuOpen: false });
     await loadTasks();
@@ -2386,6 +2498,9 @@ async function init() {
     loadSemanticStatus().then(renderApp);
     bindEvents();
     installShortcuts();
+    // Heartbeat so a task that ticks over to "due" while the app sits open still
+    // gets a reminder (e.g. across midnight). Cheap: a filter over state.tasks.
+    if (typeof setInterval === 'function') setInterval(checkDueReminders, 15 * 60 * 1000);
     renderApp();
   } catch (err) {
     appRoot.innerHTML = `<main class="empty" style="height:100vh"><h2 class="empty__title">Prax could not load</h2><p class="empty__sub">${escapeHtml(err?.message || 'Unknown error')}</p></main>`;
