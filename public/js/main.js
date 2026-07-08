@@ -42,6 +42,7 @@ import { tasksFromImportPayload, exportFilename, normalizeImportMode } from './i
 import { createSavedLibraryView, savedLibraryViewsFromJson } from './librarySavedViews.js';
 import { parseCaptureShorthand } from './captureShorthand.js';
 import { computeDueReminders, isOverdue } from './dueReminders.js';
+import { normalizeLabel } from './labels.js';
 import { mountCodeMirrorEditor } from '../vendor/codemirror-editor.js';
 
 import {
@@ -50,6 +51,10 @@ import {
 } from './renderShell.js';
 import { renderListHtml, renderBulkBarHtml, buildListGroups } from './renderList.js';
 import { renderTodayHtml, buildTodayGroups } from './renderToday.js';
+import { renderUpcomingHtml, buildUpcomingGroups } from './renderUpcoming.js';
+import { renderFilterHtml, buildFilterGroups } from './renderFilter.js';
+import { parseTaskFilter, projectResolver } from './taskFilter.js';
+import { createSmartView, smartViewsFromJson } from './taskSmartViews.js';
 import { renderBoardHtml, buildBoardColumns } from './renderBoard.js';
 import { renderBacklogHtml, renderArchiveHtml } from './renderBacklog.js';
 import { renderTaskDrawerHtml } from './renderTaskDetail.js';
@@ -69,6 +74,7 @@ import { renderSettingsHtml } from './renderSettings.js';
 import { escapeHtml } from './renderHelpers.js';
 
 const SAVED_LIBRARY_VIEWS_KEY = 'moomora.librarySavedViews.v1';
+const SMART_VIEWS_KEY = 'moomora.taskSmartViews.v1';
 const DOCUMENT_AUTOSAVE_DELAY_MS = 1200;
 const NOTES_AUTOSAVE_DELAY_MS = 1200;
 const TITLE_SAVE_DELAY_MS = 600;
@@ -387,6 +393,17 @@ async function patchTask(id, apiPatch, { failure = 'update this task' } = {}) {
   } finally {
     renderApp();
   }
+}
+
+// Add a normalized label to the open task (deduped). Shares the label
+// convention with the server and the filter grammar via normalizeLabel.
+function addTaskLabel(raw) {
+  const label = normalizeLabel(raw);
+  const task = taskById(state.drawerTaskId);
+  if (!label || !task) return;
+  const current = Array.isArray(task.labels) ? task.labels : [];
+  if (current.includes(label)) return;
+  patchTask(state.drawerTaskId, { labels: [...current, label] });
 }
 
 async function toggleTaskDone(id) {
@@ -1083,6 +1100,19 @@ function persistSavedViews() {
   } catch { /* non-critical */ }
 }
 
+function persistSmartViews() {
+  try {
+    localStorage.setItem(SMART_VIEWS_KEY, JSON.stringify(state.taskSmartViews));
+  } catch { /* non-critical */ }
+}
+
+// Open the task filter view. An expression + optional saved-view id (null =
+// ad-hoc). Clears task selection like the other top-level views.
+function goFilter({ expr = '', smartViewId = null } = {}) {
+  setState({ navType: 'filter', activeFilterExpr: expr, activeSmartViewId: smartViewId, selectedTaskId: null, multiSelectIds: [] });
+  renderApp();
+}
+
 async function runSemanticSearch() {
   const query = state.libraryQuery.trim();
   if (!query) { setState({ semanticResults: null, semanticError: false }); renderApp(); return; }
@@ -1247,8 +1277,10 @@ function sidebarCounts() {
     if (!isOpen(task)) continue;
     projectOpen[task.projectId] = (projectOpen[task.projectId] || 0) + 1;
   }
-  const { badge } = buildTodayGroups(state.tasks, state.projects, { now: new Date() });
-  return { todayBadge: badge, projectOpen };
+  const now = new Date();
+  const { badge } = buildTodayGroups(state.tasks, state.projects, { now });
+  const { badge: upcomingBadge } = buildUpcomingGroups(state.tasks, state.projects, { now });
+  return { todayBadge: badge, upcomingBadge, projectOpen };
 }
 
 function projectTasks() {
@@ -1291,6 +1323,18 @@ function renderMainHtml() {
       const run = state.activeRun;
       const doc = (state.documents || []).find((d) => d.id === (run?.documentId || state.runReturnDocId));
       return renderRunHtml(state, run, { docTitle: doc?.title || run?.title || 'Runbook', now });
+    }
+    case 'filter': {
+      // Live typing → best-effort (partial) parse so the list never empties.
+      const { predicate, error } = parseTaskFilter(state.activeFilterExpr || '', { partial: true });
+      const built = buildFilterGroups(state.tasks, state.projects, predicate || (() => true), { now });
+      flatIds = built.flatIds;
+      return renderFilterHtml(state, { groups: built.groups, count: built.count, error });
+    }
+    case 'upcoming': {
+      const { groups, flatIds: ids } = buildUpcomingGroups(state.tasks, state.projects, { now });
+      flatIds = ids;
+      return renderUpcomingHtml(state, groups, { now });
     }
     case 'settings': {
       const model = {
@@ -1558,7 +1602,42 @@ async function handleAction(action, el, event) {
       openConfirm(newProjectDialog());
       break;
     case 'nav-library': goLibrary(); break;
+    case 'nav-upcoming': setState({ navType: 'upcoming', selectedTaskId: null, multiSelectIds: [] }); renderApp(); break;
+    case 'nav-filter': goFilter(); break;
     case 'nav-settings': goSettings(); break;
+    case 'select-smart-view': {
+      const view = (state.taskSmartViews || []).find(v => v.id === el.dataset.viewId);
+      if (view) goFilter({ expr: view.expr, smartViewId: view.id });
+      break;
+    }
+    case 'delete-smart-view': {
+      event.stopPropagation();
+      const id = el.dataset.viewId;
+      setState({ taskSmartViews: state.taskSmartViews.filter(v => v.id !== id) });
+      if (state.activeSmartViewId === id) setState({ activeSmartViewId: null });
+      persistSmartViews();
+      renderApp();
+      break;
+    }
+    case 'save-smart-view': {
+      if (!el.dataset.confirmed) {
+        openConfirm({
+          message: 'Name this smart view',
+          okLabel: 'Save view', action: 'save-smart-view',
+          input: { value: '', placeholder: 'View name' },
+        });
+        break;
+      }
+      const name = (appRoot.querySelector('[data-confirm-input]')?.value || '').trim();
+      setState({ confirm: null });
+      const view = name ? createSmartView(name, state.activeFilterExpr) : null;
+      if (view) {
+        setState({ taskSmartViews: [...state.taskSmartViews.filter(v => v.id !== view.id), view], activeSmartViewId: view.id });
+        persistSmartViews();
+      }
+      renderApp();
+      break;
+    }
     case 'set-settings-tab': setState({ settingsTab: el.dataset.tab }); renderApp(); break;
     case 'nav-project': goProject(el.dataset.projectId); break;
     case 'set-tab': {
@@ -1635,6 +1714,11 @@ async function handleAction(action, el, event) {
     case 'set-task-status': await patchTask(state.drawerTaskId, { status: el.dataset.status }); break;
     case 'set-task-priority': await patchTask(state.drawerTaskId, { priority: el.dataset.priority }); break;
     case 'set-task-recurrence': await patchTask(state.drawerTaskId, { recurrence: el.dataset.recurrence }); break;
+    case 'remove-task-label': {
+      const task = taskById(state.drawerTaskId);
+      if (task) await patchTask(state.drawerTaskId, { labels: (task.labels || []).filter(l => l !== el.dataset.label) });
+      break;
+    }
     case 'clear-task-due': await patchTask(state.drawerTaskId, { dueDate: null }); break;
     case 'snooze-task':
       await patchTask(el.dataset.taskId || state.drawerTaskId, { deferredUntil: snoozeUntil(el.dataset.snooze) }, { failure: 'snooze the task' });
@@ -2181,6 +2265,19 @@ function bindEvents() {
       }
       return;
     }
+    if (target.matches?.('[data-filter-input]')) {
+      // Live filter: re-render (updates the list + count) and restore the caret.
+      // Editing the expression detaches it from any saved smart view.
+      const caret = target.selectionStart;
+      setState({ activeFilterExpr: target.value, activeSmartViewId: null });
+      renderApp();
+      const next = appRoot.querySelector('[data-filter-input]');
+      if (next) {
+        next.focus();
+        if (caret != null) next.setSelectionRange(caret, caret);
+      }
+      return;
+    }
     if (target.matches?.('[data-project-oncall]') || target.matches?.('[data-project-handoff]')) {
       // Debounced save; don't re-render (would steal focus from the input the
       // user is typing in). Local state updates silently so it persists.
@@ -2340,6 +2437,12 @@ function bindEvents() {
       handleAction('add-checklist-item', target, event);
       return;
     }
+    if (target.matches?.('[data-task-label-input]') && event.key === 'Enter') {
+      event.preventDefault();
+      addTaskLabel(target.value);
+      target.value = '';
+      return;
+    }
     if (target.matches?.('[data-library-search]') && event.key === 'Enter' && state.librarySemantic) {
       event.preventDefault();
       runSemanticSearch();
@@ -2389,17 +2492,22 @@ async function handleLinkPickerPick(documentId) {
 }
 
 async function addQuickTask(rawTitle) {
-  // Shorthand (!high, tomorrow, fri, 2026-09-01) is parsed out of the typed
-  // text; an explicit token wins over the view-derived capture default.
-  const { title, priority, dueDate } = parseCaptureShorthand(rawTitle);
+  // Shorthand (!high, tomorrow, fri, 2026-09-01, #project, @label) is parsed out
+  // of the typed text; an explicit token wins over the view-derived defaults.
+  const { title, priority, dueDate, project: projectToken, labels } = parseCaptureShorthand(rawTitle);
   if (!title) return;
-  const project = state.captureProjectId || defaultProjectId();
+  let project = state.captureProjectId || defaultProjectId();
+  if (projectToken) {
+    const resolved = projectResolver(state.projects)(projectToken);
+    if (resolved) project = resolved; // a valid #project overrides the default
+  }
   if (!project) { showToast('Create a project first.'); return; }
   try {
     await createTask({
       title, description: '', notes: '', priority: priority || 'medium',
       status: state.captureStatus || 'planned', project,
-      dueDate: dueDate || state.captureDueDate || null, sortOrder: state.tasks.length,
+      dueDate: dueDate || state.captureDueDate || null, labels: labels || [],
+      sortOrder: state.tasks.length,
     });
     setState({ captureOpen: false, captureQuery: '', captureMenuOpen: false });
     await loadTasks();
@@ -2435,7 +2543,7 @@ function installShortcuts() {
       },
       navigate(direction) {
         const listContext = (state.navType === 'project' && (state.tab === 'list' || state.tab === 'board'))
-          || state.navType === 'today';
+          || state.navType === 'today' || state.navType === 'filter' || state.navType === 'upcoming';
         if (!listContext || state.paletteOpen || state.captureOpen || state.drawerTaskId) return;
         if (!flatIds.length) return;
         const current = flatIds.indexOf(state.selectedTaskId);
@@ -2467,6 +2575,14 @@ function loadSavedViews() {
   }
 }
 
+function loadSmartViews() {
+  try {
+    return smartViewsFromJson(localStorage.getItem(SMART_VIEWS_KEY));
+  } catch {
+    return [];
+  }
+}
+
 async function init() {
   appRoot = document.getElementById('app');
   const preferences = loadPreferences();
@@ -2479,7 +2595,7 @@ async function init() {
   // macOS merges the native titlebar into the app's top bar (overlay style) —
   // inset the bar so the traffic lights sit inside it.
   document.body.classList.toggle('is-desktop-mac', desktopShell && desktopPlatform === 'macos');
-  setState({ preferences, librarySavedViews: loadSavedViews(), winW: window.innerWidth, desktopShell, desktopPlatform });
+  setState({ preferences, librarySavedViews: loadSavedViews(), taskSmartViews: loadSmartViews(), winW: window.innerWidth, desktopShell, desktopPlatform });
   applyPreferences(preferences);
   appRoot.innerHTML = '<main class="empty" style="height:100vh"><p class="empty__sub">Loading Prax…</p></main>';
   try {

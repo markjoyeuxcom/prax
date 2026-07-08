@@ -25,6 +25,7 @@ export function toTaskRef(task) {
     priority: task.priority,
     projectId: task.projectId,
     dueDate: task.dueDate ?? null,
+    labels: task.labels ?? [],
   };
 }
 

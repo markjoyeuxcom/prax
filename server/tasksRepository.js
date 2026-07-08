@@ -1,6 +1,6 @@
 import { toIso } from './columnTypes.js';
 
-const ALLOWED_CREATE_FIELDS = ['title', 'description', 'priority', 'status', 'projectId', 'dueDate', 'sortOrder', 'notes', 'recurrence'];
+const ALLOWED_CREATE_FIELDS = ['title', 'description', 'priority', 'status', 'projectId', 'dueDate', 'sortOrder', 'notes', 'recurrence', 'labels'];
 const IMPORT_FIELDS = ['title', 'description', 'priority', 'status', 'projectId', 'dueDate', 'sortOrder', 'archivedAt'];
 const UPDATE_COLUMN_MAP = {
   title: 'title',
@@ -11,9 +11,28 @@ const UPDATE_COLUMN_MAP = {
   dueDate: 'due_date',
   deferredUntil: 'deferred_until',
   recurrence: 'recurrence',
+  labels: 'labels',
   sortOrder: 'sort_order',
   notes: 'notes',
 };
+
+// Labels are a JSON text array (like markdown_documents.tags). Local copies of
+// the library's helpers — the codebase already duplicates these small pure
+// functions rather than coupling the task and document repositories.
+function parseJsonArray(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string' || value === '') return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function serializeLabels(labels) {
+  return JSON.stringify(Array.isArray(labels) ? labels : []);
+}
 
 // SQLite stores due_date as TEXT 'YYYY-MM-DD', which passes through unchanged.
 // Date objects are still normalised defensively (the pg era returned DATE
@@ -36,6 +55,7 @@ export function normalizeTaskRow(row) {
     dueDate: toDateOnly(row.due_date),
     deferredUntil: toIso(row.deferred_until) ?? null,
     recurrence: row.recurrence ?? null,
+    labels: parseJsonArray(row.labels),
     sortOrder: row.sort_order,
     archivedAt: toIso(row.archived_at),
     createdAt: toIso(row.created_at),
@@ -46,11 +66,13 @@ export function normalizeTaskRow(row) {
 export function buildCreateTask(task) {
   return {
     text: `
-      insert into tasks (title, description, priority, status, project_id, due_date, sort_order, notes, recurrence)
-      values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      insert into tasks (title, description, priority, status, project_id, due_date, sort_order, notes, recurrence, labels)
+      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       returning *
     `,
-    values: ALLOWED_CREATE_FIELDS.map(field => task[field] ?? null),
+    values: ALLOWED_CREATE_FIELDS.map(field =>
+      field === 'labels' ? serializeLabels(task.labels) : (task[field] ?? null),
+    ),
   };
 }
 
@@ -124,7 +146,7 @@ export function buildUpdateTask(id, fields) {
       where id = $1 and archived_at is null
       returning *
     `,
-    values: [id, ...entries.map(([, value]) => value)],
+    values: [id, ...entries.map(([key, value]) => (key === 'labels' ? serializeLabels(value) : value))],
   };
 }
 

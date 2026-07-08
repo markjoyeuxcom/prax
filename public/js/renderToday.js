@@ -46,7 +46,8 @@ export function buildTodayGroups(tasks, projects, { now = new Date() } = {}) {
 
 // Project chip tinted with the project color (13% wash bg / full-color text,
 // per the prototype); chip--project only carries the weight in prax.css.
-function projectChipHtml(task) {
+// Exported so the Filter and Upcoming views render the same cross-project chip.
+export function projectChipHtml(task) {
   const color = escapeHtml(task.projColor || 'var(--ink3)');
   return chip(task.projName || 'No project', 'project',
     `style="background:color-mix(in oklab, ${color} 13%, transparent);color:${color}"`);

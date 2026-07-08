@@ -25,7 +25,7 @@ export function renderCaptureHtml(state, project, projects = []) {
       <div class="capture" role="dialog" aria-label="Quick capture">
         <div class="capture__row">
           ${icon('check')}
-          <input class="capture__input" type="text" data-capture-input placeholder="What needs doing?  —  try “rotate certs !high fri”" value="${escapeHtml(state?.captureQuery ?? '')}" autocomplete="off" spellcheck="false">
+          <input class="capture__input" type="text" data-capture-input placeholder="What needs doing?  —  try “rotate certs #homelab @cert !high fri”" value="${escapeHtml(state?.captureQuery ?? '')}" autocomplete="off" spellcheck="false">
         </div>
         <div class="capture__foot">
           <button type="button" class="capture__proj" data-action="toggle-capture-menu" aria-haspopup="listbox" aria-expanded="${state?.captureMenuOpen ? 'true' : 'false'}">

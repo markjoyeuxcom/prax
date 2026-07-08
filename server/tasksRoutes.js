@@ -6,7 +6,32 @@ const PRIORITIES = new Set(['high', 'medium', 'low']);
 const STATUSES = new Set(['high-priority', 'in-progress', 'planned', 'completed', 'notes']);
 // 'project' (slug-or-id) is the client-facing field; 'projectId' is resolved
 // server-side and injected into the patch by the handler — never accepted raw.
-const PATCH_FIELDS = ['title', 'description', 'notes', 'priority', 'status', 'project', 'dueDate', 'deferredUntil', 'recurrence', 'sortOrder'];
+const PATCH_FIELDS = ['title', 'description', 'notes', 'priority', 'status', 'project', 'dueDate', 'deferredUntil', 'recurrence', 'labels', 'sortOrder'];
+
+const MAX_LABELS = 25;
+
+function isValidLabels(value) {
+  if (value === undefined || value === null) return true;
+  return Array.isArray(value) && value.length <= MAX_LABELS && value.every((l) => typeof l === 'string');
+}
+
+// Normalize labels to lowercase slugs: trim, strip a leading '@', lowercase,
+// drop empties, dedupe, cap. Shared by the create and patch paths so a filter's
+// @label matches a task regardless of how the label was typed.
+function normalizeLabels(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const raw of value) {
+    if (typeof raw !== 'string') continue;
+    const label = raw.trim().replace(/^@+/, '').toLowerCase();
+    if (!label || seen.has(label)) continue;
+    seen.add(label);
+    out.push(label);
+    if (out.length >= MAX_LABELS) break;
+  }
+  return out;
+}
 
 // Snooze target: '' (or null) clears it; otherwise any string a Date can parse
 // (the client sends an ISO timestamp).
@@ -58,6 +83,7 @@ function validateTaskPayload(payload) {
   if (!STATUSES.has(payload.status)) return 'status is invalid';
   if (typeof payload.project !== 'string' || payload.project.trim() === '') return 'project is required';
   if (!isValidDateString(payload.dueDate)) return 'dueDate is invalid';
+  if (!isValidLabels(payload.labels)) return 'labels is invalid';
   if (!isValidSortOrder(payload.sortOrder)) {
     return 'sortOrder is invalid';
   }
@@ -142,6 +168,7 @@ function cleanTaskPayload(payload) {
     status: payload.status,
     projectId: payload.projectId,
     dueDate: payload.dueDate || null,
+    labels: normalizeLabels(payload.labels),
     sortOrder: Number.isFinite(payload.sortOrder) ? payload.sortOrder : 0,
   };
 }
@@ -211,6 +238,12 @@ function validateTaskPatchPayload(payload) {
     return 'recurrence is invalid';
   }
   if (
+    Object.prototype.hasOwnProperty.call(payload, 'labels') &&
+    !isValidLabels(payload.labels)
+  ) {
+    return 'labels is invalid';
+  }
+  if (
     Object.prototype.hasOwnProperty.call(payload, 'sortOrder') &&
     !isValidSortOrder(payload.sortOrder)
   ) {
@@ -230,6 +263,10 @@ function cleanTaskPatchPayload(payload) {
     }
     if ((field === 'dueDate' || field === 'deferredUntil' || field === 'recurrence') && payload[field] === '') {
       fields[field] = null;
+      return fields;
+    }
+    if (field === 'labels') {
+      fields.labels = normalizeLabels(payload.labels);
       return fields;
     }
     fields[field] = payload[field];

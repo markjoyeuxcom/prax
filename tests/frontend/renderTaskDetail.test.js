@@ -344,3 +344,25 @@ test('drawer renders a friendly label for a custom every:Nd recurrence', () => {
   const html = render({ task: makeTask({ recurrence: 'every:3d' }) });
   assert.match(html, /↻ Every 3 days/);
 });
+
+// ---- labels ------------------------------------------------------------------
+
+test('drawer renders label chips with remove controls and an add input', () => {
+  const html = render({ task: makeTask({ labels: ['waiting', 'cert-rotation'] }) });
+  assert.match(html, /field-row__label">Labels/);
+  assert.match(html, /class="task-label">@waiting<button[^>]*data-action="remove-task-label" data-label="waiting"/);
+  assert.match(html, /data-label="cert-rotation"/);
+  assert.match(html, /data-task-label-input/);
+});
+
+test('drawer label input is omitted (read-only) for an archived task, chips stay', () => {
+  const html = render({ task: makeTask({ labels: ['waiting'], archivedAt: '2026-01-01T00:00:00Z' }), context: makeContext({ readOnly: true }) });
+  assert.match(html, /@waiting/);
+  assert.doesNotMatch(html, /data-task-label-input/);
+});
+
+test('drawer escapes hostile label text', () => {
+  const html = render({ task: makeTask({ labels: ['<script>'] }) });
+  assert.doesNotMatch(html, /data-label="<script>"/);
+  assert.match(html, /&lt;script&gt;/);
+});
