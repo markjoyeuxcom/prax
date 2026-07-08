@@ -2,6 +2,10 @@ import { z } from 'zod';
 import { isValidUuid } from '../validate.js';
 import { okResult, errorResult, withErrorHandling } from '../toolResult.js';
 import { toTaskRef, capResults } from '../shape.js';
+// The SAME filter grammar the desktop smart views use — imported across the
+// tree so a human smart view and an agent query are evaluated identically. It
+// depends only on pure modules (no DOM).
+import { parseTaskFilter, projectResolver } from '../../public/js/taskFilter.js';
 
 const STATUS = z.enum(['high-priority', 'in-progress', 'planned', 'completed', 'notes']);
 const PRIORITY = z.enum(['high', 'medium', 'low']);
@@ -12,17 +16,26 @@ export function createTaskTools(client) {
       name: 'search_tasks',
       title: 'Search tasks',
       description:
-        'Search active Prax tasks. Returns summaries (id, title, status, priority, projectId, dueDate). Call get_task for the full record.',
+        'Search active Prax tasks. Returns summaries (id, title, status, priority, projectId, dueDate, labels). Call get_task for the full record. Pass `filter` for a cross-project query in the same language as the desktop smart views.',
       annotations: { readOnlyHint: true },
       inputSchema: {
         query: z.string().optional().describe('Text matched against task title.'),
         project: z.string().optional().describe('Limit to one project (slug or id); omit for all.'),
         status: STATUS.optional().describe('Limit to one status.'),
+        filter: z.string().optional().describe('Prax filter expression, e.g. "p1 & overdue", "@waiting & #homelab", "due:today", "is:recurring". Atoms: @label, #project, p1-3/priority:, status:, done/open, overdue, due:today|tomorrow|soon|week|none|YYYY-MM-DD, is:snoozed, is:recurring, bareword=title; operators & | - ( ).'),
       },
-      handler: withErrorHandling(async ({ query, project, status }) => {
+      handler: withErrorHandling(async ({ query, project, status, filter }) => {
         const tasks = await client.listTasks({ q: query, project, status });
-        const refs = (Array.isArray(tasks) ? tasks : []).map(toTaskRef);
-        return okResult(capResults(refs));
+        let list = Array.isArray(tasks) ? tasks : [];
+        if (filter && filter.trim()) {
+          const { ok, predicate, error } = parseTaskFilter(filter);
+          if (!ok) return errorResult(`Invalid filter: ${error}`);
+          // #project needs slug→id resolution; fetch the projects for the ctx.
+          const projects = await client.listProjects().catch(() => []);
+          const ctx = { now: new Date(), resolveProjectId: projectResolver(projects) };
+          list = list.filter((task) => predicate(task, ctx));
+        }
+        return okResult(capResults(list.map(toTaskRef)));
       }),
     },
     {
@@ -51,6 +64,7 @@ export function createTaskTools(client) {
         priority: PRIORITY.optional(),
         status: STATUS.optional(),
         dueDate: z.string().optional().describe('ISO date (YYYY-MM-DD) or empty.'),
+        labels: z.array(z.string()).optional().describe('Cross-cutting labels (e.g. ["waiting","cert-rotation"]); normalized lowercase.'),
       },
       handler: withErrorHandling(async (args) => {
         // The API requires priority and status on create; apply the documented
@@ -72,6 +86,7 @@ export function createTaskTools(client) {
         status: STATUS.optional(),
         project: z.string().optional().describe('Project slug or id.'),
         dueDate: z.string().optional(),
+        labels: z.array(z.string()).optional().describe('Replace the task\'s labels (normalized lowercase).'),
       },
       handler: withErrorHandling(async ({ id, ...patch }) => {
         if (!isValidUuid(id)) return errorResult('id must be a valid UUID.');

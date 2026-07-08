@@ -14,7 +14,7 @@
     "migrate": "node scripts/migrate.js",
     "test": "node scripts/run-tests.js",
     "test:e2e": "playwright test",
-    "check": "node --check server/index.js && node --check scripts/demo-server.js && node --check public/js/main.js && node --check mcp/server.js && node --check server/migrate.js && node --check scripts/migrate.js && node --check server/documentLinksRepository.js && node --check server/settingsRoutes.js && node --check cli/prax.js && node --check cli/lib/detectProject.js && node --check cli/lib/apiClient.js && node --check cli/lib/format.js && node --check cli/lib/recall.js && node --check cli/lib/remember.js",
+    "check": "node --check server/index.js && node --check scripts/demo-server.js && node --check public/js/main.js && node --check public/js/taskFilter.js && node --check mcp/server.js && node --check server/migrate.js && node --check scripts/migrate.js && node --check server/documentLinksRepository.js && node --check server/settingsRoutes.js && node --check cli/prax.js && node --check cli/lib/detectProject.js && node --check cli/lib/apiClient.js && node --check cli/lib/format.js && node --check cli/lib/recall.js && node --check cli/lib/remember.js",
     "prepare:sidecar": "node scripts/prepare-sidecar.mjs",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build",

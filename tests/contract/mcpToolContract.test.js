@@ -13,10 +13,10 @@ import { toTaskRef, toDocumentRef, capResults } from '../../mcp/shape.js';
 
 // The current MCP tool surface this regression test locks: tool name -> required + optional input fields.
 const FROZEN_TOOLS = {
-  search_tasks: { required: [], optional: ['query', 'project', 'status'] },
+  search_tasks: { required: [], optional: ['query', 'project', 'status', 'filter'] },
   get_task: { required: ['id'], optional: [] },
-  create_task: { required: ['title', 'project'], optional: ['description', 'priority', 'status', 'dueDate'] },
-  update_task: { required: ['id'], optional: ['title', 'description', 'notes', 'priority', 'status', 'project', 'dueDate'] },
+  create_task: { required: ['title', 'project'], optional: ['description', 'priority', 'status', 'dueDate', 'labels'] },
+  update_task: { required: ['id'], optional: ['title', 'description', 'notes', 'priority', 'status', 'project', 'dueDate', 'labels'] },
   search_documents: { required: [], optional: ['query', 'project', 'documentType', 'tags', 'kind', 'status'] },
   get_document: { required: ['id'], optional: [] },
   create_document: { required: ['title', 'body', 'documentType', 'project'], optional: ['tags', 'kind'] },
@@ -121,7 +121,7 @@ test('SHAPE: MCP-owned ref shapes are locked', () => {
     id: '1', title: 't', status: 'planned', priority: 'high',
     projectId: 'p', dueDate: '2026-05-12', description: 'x', notes: 'y',
   });
-  assert.deepEqual(Object.keys(taskRef).sort(), ['dueDate', 'id', 'priority', 'projectId', 'status', 'title'].sort());
+  assert.deepEqual(Object.keys(taskRef).sort(), ['dueDate', 'id', 'labels', 'priority', 'projectId', 'status', 'title'].sort());
 
   const docRef = toDocumentRef({
     id: '1', title: 't', documentType: 'note', projectId: 'p', tags: ['a'], body: 'long body',
