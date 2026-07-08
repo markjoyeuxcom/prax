@@ -80,6 +80,17 @@ export async function registerProjectsRoutes(app, options = {}) {
       }
       fields.sortOrder = body.sortOrder;
     }
+    // On-call owner + handoff notes are free text; '' clears them to null.
+    for (const key of ['onCall', 'handoffNotes']) {
+      if (body[key] !== undefined) {
+        if (typeof body[key] !== 'string') {
+          reply.code(400);
+          return { message: `${key} is invalid` };
+        }
+        const trimmed = body[key].trim();
+        fields[key] = trimmed === '' ? null : trimmed;
+      }
+    }
     if (Object.keys(fields).length === 0) {
       reply.code(400);
       return { message: 'project update requires at least one field' };

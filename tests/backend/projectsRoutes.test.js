@@ -64,6 +64,20 @@ test('PATCH updates; 404 for missing; 400 for bad uuid', async () => {
   assert.equal((await app.inject({ method: 'PATCH', url: '/api/projects/22222222-2222-4222-8222-222222222222', payload: { status: 'on-hold' } })).statusCode, 404);
 });
 
+test('PATCH accepts onCall + handoffNotes (trimmed), clears on empty, rejects non-string', async () => {
+  const app = await build();
+  const ok = await app.inject({ method: 'PATCH', url: `/api/projects/${PROJECT_ID}`, payload: { onCall: 'Ada', handoffNotes: '  watch the DB  ' } });
+  assert.equal(ok.statusCode, 200);
+  assert.equal(ok.json().onCall, 'Ada');
+  assert.equal(ok.json().handoffNotes, 'watch the DB');
+
+  const cleared = await app.inject({ method: 'PATCH', url: `/api/projects/${PROJECT_ID}`, payload: { onCall: '' } });
+  assert.equal(cleared.json().onCall, null);
+
+  const bad = await app.inject({ method: 'PATCH', url: `/api/projects/${PROJECT_ID}`, payload: { onCall: 123 } });
+  assert.equal(bad.statusCode, 400);
+});
+
 test('DELETE archives the project', async () => {
   const app = await build();
   const res = await app.inject({ method: 'DELETE', url: `/api/projects/${PROJECT_ID}` });

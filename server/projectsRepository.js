@@ -5,6 +5,8 @@ const UPDATE_COLUMN_MAP = {
   name: 'name',
   status: 'status',
   sortOrder: 'sort_order',
+  onCall: 'on_call',
+  handoffNotes: 'handoff_notes',
 };
 
 export function normalizeProjectRow(row) {
@@ -14,6 +16,8 @@ export function normalizeProjectRow(row) {
     slug: row.slug,
     status: row.status,
     sortOrder: row.sort_order,
+    onCall: row.on_call ?? null,
+    handoffNotes: row.handoff_notes ?? null,
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
   };
