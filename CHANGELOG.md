@@ -14,7 +14,7 @@ fresh empty `[Unreleased]` section is started.
 
 ### Added
 
-- **Plain editor engine (experimental).** Settings ▸ Appearance now offers a lightweight, dependency-free Markdown editor to A/B against CodeMirror — a transparent `<textarea>` (all the hard editing: cursor, selection, undo, IME, mobile, a11y — for free) layered over a synced, syntax-highlighted layer, with line numbers and the existing find/replace panel repurposed. A spike toward dropping CodeMirror's 275 KB dependency; defaults off (CodeMirror stays the default).
+- **Plain editor engine (experimental).** Settings ▸ Appearance now offers a lightweight, dependency-free Markdown editor to A/B against CodeMirror — a transparent `<textarea>` (all the hard editing: cursor, selection, undo, IME, mobile, a11y — for free) layered over a synced, syntax-highlighted layer, with line numbers and the existing find/replace panel repurposed. Now at feature parity: `[[wiki-link]]` and `/slash` command autocomplete (same triggers and doc-title source as CodeMirror) plus painted find-match highlights with current-match tracking, so it's a drop-in candidate to replace CodeMirror's 275 KB dependency. Defaults off (CodeMirror stays the default) pending a decision to flip.
 - **Nine accent colours.** The Settings ▸ Appearance accent picker grows from 4 to 9 — a full spread from Fern green through Teal, **Sky (blue)**, Indigo, Plum, **Rose (red)**, Amber, Clay, to Moss — each tuned to read on both light and dark themes.
 - **Labels, filters, smart views, and Upcoming** — a Todoist-inspired task milestone.
   - **Labels** on tasks: cross-cutting `@labels` (`@waiting`, `@pagerduty`, `@cert-rotation`), normalized to lowercase, edited as chips in the task drawer. New additive `labels` column (migration `0007`).

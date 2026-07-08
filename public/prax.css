@@ -2279,9 +2279,10 @@ body.is-desktop-mac .titlebar { padding-left: 84px; }
 .pe__scroll { flex: 1; min-height: 0; overflow: auto; position: relative; }
 .pe__doc { position: relative; min-height: 100%; }
 
-/* The highlight layer and the textarea MUST share identical text metrics so
-   they stay aligned, including soft-wrapping. */
+/* The highlight layer, the match layer, and the textarea MUST share identical
+   text metrics so they stay aligned, including soft-wrapping. */
 .pe__lines,
+.pe__marks,
 .pe__input {
   margin: 0;
   font-family: var(--font-ui);
@@ -2294,7 +2295,13 @@ body.is-desktop-mac .titlebar { padding-left: 84px; }
   tab-size: 2;
   box-sizing: border-box;
 }
-.pe__lines { color: var(--text-body); }
+.pe__lines { color: var(--text-body); position: relative; z-index: 1; }
+/* Painted search-match backgrounds sit under the coloured text; text here is
+   transparent so only the <mark> rectangles show. */
+.pe__marks { position: absolute; inset: 0; z-index: 0; color: transparent; pointer-events: none; }
+.pe__marks .pe__line { min-height: 1.7em; }
+.pe-m { background: color-mix(in srgb, var(--accent) 22%, transparent); border-radius: 2px; }
+.pe-m-current { background: color-mix(in srgb, var(--accent) 48%, transparent); }
 .pe__line { position: relative; min-height: 1.7em; }
 .pe-has-gutter .pe__line::before {
   content: attr(data-ln);
@@ -2318,8 +2325,39 @@ body.is-desktop-mac .titlebar { padding-left: 84px; }
   color: transparent;
   caret-color: var(--caret);
   overflow: hidden;
+  z-index: 2;
 }
 .pe__input::selection { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+
+/* [[wiki]] + /slash completion popup (positioned at the caret) */
+.pe__pop {
+  position: fixed;
+  z-index: 60;
+  min-width: 190px;
+  max-width: 340px;
+  max-height: 244px;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--line2);
+  border-radius: 10px;
+  box-shadow: var(--pop);
+  font-family: var(--font-ui);
+}
+.pe__pop-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pe__pop-item.is-sel { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.pe__pop-label { font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
+.pe__pop-detail { margin-left: auto; font-size: 11px; color: var(--ink3); flex: none; }
 
 /* Token colours mirror the CodeMirror highlight (theme-aware via the aliases). */
 .pe-t-heading { color: var(--accent); font-weight: 700; }
