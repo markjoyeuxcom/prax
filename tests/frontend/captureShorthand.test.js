@@ -44,3 +44,24 @@ test('leaves possessives and mid-word lookalikes alone', () => {
 test('returns an empty title when the input is only modifiers', () => {
   assert.equal(parseCaptureShorthand('!high tomorrow', WED).title, '');
 });
+
+test('extracts repeatable @labels and a #project, stripping them from the title', () => {
+  const r = parseCaptureShorthand('deploy audit #homelab @cert @waiting !high fri', WED);
+  assert.equal(r.title, 'deploy audit');
+  assert.equal(r.project, 'homelab');
+  assert.deepEqual(r.labels, ['cert', 'waiting']);
+  assert.equal(r.priority, 'high');
+  assert.equal(r.dueDate, '2026-07-10');
+});
+
+test('#project keeps the last one; @labels dedupe + lowercase', () => {
+  const r = parseCaptureShorthand('thing #a #b @Cert @cert', WED);
+  assert.equal(r.project, 'b');
+  assert.deepEqual(r.labels, ['cert']);
+});
+
+test('leaves emails and c# alone (leading-boundary guard)', () => {
+  assert.deepEqual(parseCaptureShorthand('email foo@bar.com about c#', WED), { title: 'email foo@bar.com about c#' });
+  // a leading @/# still tokenizes
+  assert.equal(parseCaptureShorthand('#work fix it', WED).project, 'work');
+});

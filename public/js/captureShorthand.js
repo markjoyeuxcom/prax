@@ -5,11 +5,14 @@ import { isoDate, addDays, nextWeekday } from './dateHelpers.js';
 //   priority — a `!` sigil: !high / !hi / !p1, !medium / !med / !p2, !low / !lo / !p3
 //   due date — a curated keyword (today, tomorrow, a weekday, next week) or an
 //              explicit YYYY-MM-DD, matched only as a whole standalone token
+//   labels   — @label (repeatable), lowercased + deduped
+//   project  — #project (last one wins)
 //
-// Returns { title, priority?, dueDate? }: priority/dueDate appear only when a
-// token matched, and the matched tokens are stripped from the returned title.
-// The `!` sigil keeps priority unambiguous; the `(?=\s|$)` guard on date words
-// means possessives and mid-word hits (e.g. "Monday's", "highway") are left alone.
+// Returns { title, priority?, dueDate?, project?, labels? }: fields appear only
+// when a token matched, and the matched tokens are stripped from the returned
+// title. The leading `(^|\s)` boundary keeps emails (foo@bar) and c# from
+// matching; the `(?=\s|$)` guard on date words leaves possessives and mid-word
+// hits (e.g. "Monday's", "highway") alone.
 
 const PRIORITY = [
   [/(^|\s)!(?:high|hi|p1)(?=\s|$)/i, 'high'],
@@ -48,6 +51,21 @@ export function parseCaptureShorthand(raw, now = new Date()) {
       if (date) { result.dueDate = isoDate(date); title = title.replace(kw[0], ' '); }
     }
   }
+
+  // @labels (repeatable) and #project — whole tokens with a leading boundary.
+  const labels = [];
+  title = title.replace(/(^|\s)@([a-z0-9][a-z0-9-]*)(?=\s|$)/gi, (m, pre, name) => {
+    labels.push(name.toLowerCase());
+    return pre;
+  });
+  if (labels.length) result.labels = Array.from(new Set(labels));
+
+  let project;
+  title = title.replace(/(^|\s)#([a-z0-9][a-z0-9-]*)(?=\s|$)/gi, (m, pre, name) => {
+    project = name.toLowerCase(); // last one wins
+    return pre;
+  });
+  if (project) result.project = project;
 
   result.title = title.replace(/\s+/g, ' ').trim();
   return result;
