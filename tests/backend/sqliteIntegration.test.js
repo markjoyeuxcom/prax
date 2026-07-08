@@ -193,6 +193,52 @@ test('library: query-scoped context-pack gathers relevant docs (semantic off →
   assert.equal((await app.inject({ method: 'GET', url: '/api/library/context-pack?q=x&project=no-such-project' })).statusCode, 400);
 });
 
+test('library: runbook execution — start snapshots steps, check timestamps, finish', async () => {
+  const created = await app.inject({
+    method: 'POST',
+    url: '/api/library/documents',
+    payload: {
+      title: 'Failover runbook',
+      body: '# Failover\n\n- [ ] Stop writes\n- [ ] Promote replica\n- [ ] Repoint app\n',
+      documentType: 'runbook',
+      project: 'homelab',
+    },
+  });
+  const runbookId = created.json().id;
+
+  // Start a run — steps are snapshotted from the checkbox lines.
+  const start = await app.inject({ method: 'POST', url: `/api/library/documents/${runbookId}/runs`, payload: { title: 'DR drill' } });
+  assert.equal(start.statusCode, 201);
+  const run = start.json();
+  assert.equal(run.status, 'running');
+  assert.equal(run.title, 'DR drill');
+  assert.deepEqual(run.steps.map(s => s.text), ['Stop writes', 'Promote replica', 'Repoint app']);
+  assert.ok(run.steps.every(s => s.checkedAt === null));
+
+  // Check the first step → it gets a timestamp; the source doc is untouched.
+  const check = await app.inject({ method: 'PATCH', url: `/api/library/runs/${run.id}/steps/${run.steps[0].id}`, payload: { checked: true } });
+  assert.equal(check.statusCode, 200);
+  assert.match(check.json().checkedAt, /^\d{4}-\d{2}-\d{2}T/);
+  const docAfter = await app.inject({ method: 'GET', url: `/api/library/documents/${runbookId}` });
+  assert.ok(docAfter.json().body.includes('- [ ] Stop writes'), 'the runbook source is not rewritten by a run');
+
+  // Bad payloads are rejected.
+  assert.equal((await app.inject({ method: 'PATCH', url: `/api/library/runs/${run.id}/steps/${run.steps[0].id}`, payload: {} })).statusCode, 400);
+  assert.equal((await app.inject({ method: 'PATCH', url: `/api/library/runs/${run.id}`, payload: { status: 'bogus' } })).statusCode, 400);
+
+  // Finish the run.
+  const finish = await app.inject({ method: 'PATCH', url: `/api/library/runs/${run.id}`, payload: { status: 'completed' } });
+  assert.equal(finish.statusCode, 200);
+  assert.match(finish.json().finishedAt, /^\d{4}-\d{2}-\d{2}T/);
+
+  // List + fetch reflect the run with counts.
+  const list = await app.inject({ method: 'GET', url: `/api/library/documents/${runbookId}/runs` });
+  assert.equal(list.json()[0].stepCount, 3);
+  assert.equal(list.json()[0].doneCount, 1);
+  assert.equal((await app.inject({ method: 'GET', url: `/api/library/runs/${run.id}` })).json().status, 'completed');
+  assert.equal((await app.inject({ method: 'GET', url: '/api/library/runs/11111111-1111-4111-8111-111111111111' })).statusCode, 404);
+});
+
 test('library: links, stale detection, orphans, maintenance', async () => {
   const link = await app.inject({
     method: 'POST',

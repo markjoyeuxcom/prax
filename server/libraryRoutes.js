@@ -3,6 +3,8 @@ import { createLibraryRepository } from './libraryRepository.js';
 import { createProjectsRepository } from './projectsRepository.js';
 import { createTasksRepository } from './tasksRepository.js';
 import { createDocumentLinksRepository, DOCUMENT_LINK_RELATIONS } from './documentLinksRepository.js';
+import { createRunbookRunsRepository } from './runbookRunsRepository.js';
+import { parseRunbookSteps } from './runbookSteps.js';
 import {
   documentFilename,
   renderDocumentMarkdown,
@@ -96,6 +98,7 @@ export async function registerLibraryRoutes(app, options = {}) {
   const repository = options.libraryRepository || app.libraryRepository || createLibraryRepository(app.db);
   const projectsRepository = options.projectsRepository || app.projectsRepository || createProjectsRepository(app.db);
   const tasksRepository = options.tasksRepository || app.tasksRepository || (app.db ? createTasksRepository(app.db) : null);
+  const runbookRunsRepository = options.runbookRunsRepository || app.runbookRunsRepository || (app.db ? createRunbookRunsRepository(app.db) : null);
   const documentLinksRepository = options.documentLinksRepository || app.documentLinksRepository || createDocumentLinksRepository(app.db);
 
   // Behavioral tests may inject an embedder/embeddingService directly — those
@@ -390,6 +393,63 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (!isValidUuid(request.params.id)) { reply.code(400); return { message: 'document id is invalid' }; }
     if (typeof tasksRepository?.listTasksForDocument !== 'function') return [];
     return tasksRepository.listTasksForDocument(request.params.id);
+  });
+
+  // ---- Runbook execution (runs) ----------------------------------------------
+  // A run snapshots the document's checkbox steps at start time; checking them
+  // off timestamps an incident chronicle without touching the source document.
+
+  app.post('/api/library/documents/:id/runs', async (request, reply) => {
+    if (!isValidUuid(request.params.id)) { reply.code(400); return { message: 'document id is invalid' }; }
+    if (!runbookRunsRepository) { reply.code(409); return { message: 'runs are not available' }; }
+    const doc = await repository.getDocument(request.params.id);
+    if (!doc || doc.archivedAt) { reply.code(404); return { message: 'document not found' }; }
+    const steps = parseRunbookSteps(doc.body);
+    const title = isPlainObject(request.body) && typeof request.body.title === 'string' ? request.body.title.trim() : '';
+    const run = await runbookRunsRepository.createRun({ documentId: doc.id, title, startedBy: originFrom(request), steps });
+    reply.code(201);
+    return run;
+  });
+
+  app.get('/api/library/documents/:id/runs', async (request, reply) => {
+    if (!isValidUuid(request.params.id)) { reply.code(400); return { message: 'document id is invalid' }; }
+    if (!runbookRunsRepository) return [];
+    return runbookRunsRepository.listRunsForDocument(request.params.id);
+  });
+
+  app.get('/api/library/runs/:runId', async (request, reply) => {
+    if (!isValidUuid(request.params.runId)) { reply.code(400); return { message: 'run id is invalid' }; }
+    if (!runbookRunsRepository) { reply.code(404); return { message: 'run not found' }; }
+    const run = await runbookRunsRepository.getRun(request.params.runId);
+    if (!run) { reply.code(404); return { message: 'run not found' }; }
+    return run;
+  });
+
+  app.patch('/api/library/runs/:runId/steps/:stepId', async (request, reply) => {
+    if (!isValidUuid(request.params.runId) || !isValidUuid(request.params.stepId)) {
+      reply.code(400); return { message: 'id is invalid' };
+    }
+    if (!runbookRunsRepository) { reply.code(404); return { message: 'run not found' }; }
+    if (!isPlainObject(request.body) || typeof request.body.checked !== 'boolean') {
+      reply.code(400); return { message: 'checked (boolean) is required' };
+    }
+    const step = await runbookRunsRepository.setStepChecked(request.params.runId, request.params.stepId, {
+      checked: request.body.checked, checkedBy: originFrom(request),
+    });
+    if (!step) { reply.code(404); return { message: 'step not found' }; }
+    return step;
+  });
+
+  app.patch('/api/library/runs/:runId', async (request, reply) => {
+    if (!isValidUuid(request.params.runId)) { reply.code(400); return { message: 'run id is invalid' }; }
+    if (!runbookRunsRepository) { reply.code(404); return { message: 'run not found' }; }
+    const status = isPlainObject(request.body) ? request.body.status : undefined;
+    if (!['running', 'completed', 'aborted'].includes(status)) {
+      reply.code(400); return { message: 'status must be running, completed, or aborted' };
+    }
+    const run = await runbookRunsRepository.setRunStatus(request.params.runId, status);
+    if (!run) { reply.code(404); return { message: 'run not found' }; }
+    return run;
   });
 
   // "More like this" — documents most similar to this one by embedding. Reuses
