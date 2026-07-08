@@ -5,7 +5,14 @@ const PRIORITIES = new Set(['high', 'medium', 'low']);
 const STATUSES = new Set(['high-priority', 'in-progress', 'planned', 'completed', 'notes']);
 // 'project' (slug-or-id) is the client-facing field; 'projectId' is resolved
 // server-side and injected into the patch by the handler — never accepted raw.
-const PATCH_FIELDS = ['title', 'description', 'notes', 'priority', 'status', 'project', 'dueDate', 'sortOrder'];
+const PATCH_FIELDS = ['title', 'description', 'notes', 'priority', 'status', 'project', 'dueDate', 'deferredUntil', 'sortOrder'];
+
+// Snooze target: '' (or null) clears it; otherwise any string a Date can parse
+// (the client sends an ISO timestamp).
+function isValidDeferredUntil(value) {
+  if (value === '' || value === null || value === undefined) return true;
+  return typeof value === 'string' && !Number.isNaN(Date.parse(value));
+}
 const IMPORT_MODES = new Set(['append', 'skip', 'replace']);
 const TASK_EXPORT_FORMAT = 'moomora.tasks';
 const MIN_SORT_ORDER = -2147483648;
@@ -191,6 +198,12 @@ function validateTaskPatchPayload(payload) {
     return 'dueDate is invalid';
   }
   if (
+    Object.prototype.hasOwnProperty.call(payload, 'deferredUntil') &&
+    !isValidDeferredUntil(payload.deferredUntil)
+  ) {
+    return 'deferredUntil is invalid';
+  }
+  if (
     Object.prototype.hasOwnProperty.call(payload, 'sortOrder') &&
     !isValidSortOrder(payload.sortOrder)
   ) {
@@ -208,7 +221,7 @@ function cleanTaskPatchPayload(payload) {
       fields[field] = payload[field].trim();
       return fields;
     }
-    if (field === 'dueDate' && payload[field] === '') {
+    if ((field === 'dueDate' || field === 'deferredUntil') && payload[field] === '') {
       fields[field] = null;
       return fields;
     }

@@ -55,6 +55,7 @@ may add fields over time.
 | `status` | `"high-priority"` \| `"in-progress"` \| `"planned"` \| `"completed"` \| `"notes"` |
 | `projectId` | UUID |
 | `dueDate` | `"YYYY-MM-DD"` \| `null` |
+| `deferredUntil` | ISO-8601 timestamp \| `null` (snooze target; hidden from Today until it passes) |
 | `sortOrder` | 32-bit signed integer |
 | `createdAt` | ISO-8601 timestamp |
 | `updatedAt` | ISO-8601 timestamp |
@@ -186,6 +187,7 @@ required/optional status, and enum option sets. Shared enums: `STATUS`
 | `create_task` | `title`, `project`, `description?`, `priority?:PRIORITY`, `status?:STATUS`, `dueDate?` | — |
 | `update_task` | `id`, `title?`, `description?`, `notes?`, `priority?:PRIORITY`, `status?:STATUS`, `project?`, `dueDate?` | — |
 | `search_documents` | `query?`, `project?`, `documentType?:DOCUMENT_TYPE`, `tags?`, `kind?:KIND`, `status?:{active\|superseded\|deprecated\|all}` | yes |
+| `ask_library` | `query`, `project?`, `limit?` → Markdown context pack (semantic when configured, keyword otherwise) | yes |
 | `get_document` | `id` | yes |
 | `create_document` | `title`, `body`, `documentType:DOCUMENT_TYPE`, `project`, `tags?`, `kind?:KIND` | — |
 | `update_document` | `id`, `title?`, `body?`, `documentType?:DOCUMENT_TYPE`, `project?`, `tags?`, `kind?:KIND` | — |

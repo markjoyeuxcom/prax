@@ -176,6 +176,23 @@ test('library: create with tags, FTS search, filters', async () => {
   assert.deepEqual(byKind.json().map(d => d.id), [docDerived.id]);
 });
 
+test('library: query-scoped context-pack gathers relevant docs (semantic off → keyword fallback)', async () => {
+  // Markdown by default — includes the matching verified runbook.
+  const md = await app.inject({ method: 'GET', url: '/api/library/context-pack?q=pgbouncer' });
+  assert.equal(md.statusCode, 200);
+  assert.match(md.headers['content-type'], /markdown/);
+  assert.match(md.body, /Postgres restore runbook/);
+
+  // format=json returns the structured pack object.
+  const json = await app.inject({ method: 'GET', url: '/api/library/context-pack?q=pgbouncer&format=json' });
+  assert.equal(json.statusCode, 200);
+  assert.equal(typeof json.json(), 'object');
+
+  // q is required; an unknown project is a 400.
+  assert.equal((await app.inject({ method: 'GET', url: '/api/library/context-pack' })).statusCode, 400);
+  assert.equal((await app.inject({ method: 'GET', url: '/api/library/context-pack?q=x&project=no-such-project' })).statusCode, 400);
+});
+
 test('library: links, stale detection, orphans, maintenance', async () => {
   const link = await app.inject({
     method: 'POST',

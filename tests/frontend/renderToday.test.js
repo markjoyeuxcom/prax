@@ -121,3 +121,23 @@ test('renderTodayHtml escapes task titles and project names', () => {
   assert.match(html, /Reading &amp; &quot;Notes&quot;/);
   assert.doesNotMatch(html, /<script>/);
 });
+
+test('buildTodayGroups hides snoozed (future deferral) tasks, counts them, and shows elapsed ones', () => {
+  const tasks = [
+    task({ id: 'over', dueDate: '2026-07-04' }),
+    task({ id: 'snoozed', dueDate: '2026-07-04', deferredUntil: '2026-07-08T09:00:00Z' }),
+    task({ id: 'woke', dueDate: '2026-07-04', deferredUntil: '2026-07-05T09:00:00Z' }),
+  ];
+  const { flatIds, snoozedCount } = buildTodayGroups(tasks, PROJECTS, { now: NOW });
+  assert.ok(flatIds.includes('over'));
+  assert.ok(!flatIds.includes('snoozed'), 'a task deferred into the future is hidden from Today');
+  assert.ok(flatIds.includes('woke'), 'an elapsed snooze reappears');
+  assert.equal(snoozedCount, 1);
+});
+
+test('renderTodayHtml notes the snoozed count in the subheading', () => {
+  const html = renderTodayHtml(baseState(), [], { now: NOW, snoozedCount: 3 });
+  assert.match(html, /3 snoozed/);
+  const none = renderTodayHtml(baseState(), [], { now: NOW, snoozedCount: 0 });
+  assert.doesNotMatch(none, /snoozed/);
+});

@@ -49,6 +49,7 @@ test('normalizeTaskRow maps database fields to API task fields', () => {
     status: 'planned',
     projectId: PROJECT_ID,
     dueDate: '2026-05-11',
+    deferredUntil: null,
     sortOrder: 2,
     archivedAt: null,
     createdAt: '2026-05-10T10:00:00.000Z',

@@ -9,6 +9,7 @@ const UPDATE_COLUMN_MAP = {
   status: 'status',
   projectId: 'project_id',
   dueDate: 'due_date',
+  deferredUntil: 'deferred_until',
   sortOrder: 'sort_order',
   notes: 'notes',
 };
@@ -32,6 +33,7 @@ export function normalizeTaskRow(row) {
     status: row.status,
     projectId: row.project_id,
     dueDate: toDateOnly(row.due_date),
+    deferredUntil: toIso(row.deferred_until) ?? null,
     sortOrder: row.sort_order,
     archivedAt: toIso(row.archived_at),
     createdAt: toIso(row.created_at),

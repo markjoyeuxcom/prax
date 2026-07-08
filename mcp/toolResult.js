@@ -4,6 +4,12 @@ export function okResult(data) {
   return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
 }
 
+// For text/Markdown payloads (e.g. a rendered context pack) — returned verbatim
+// rather than JSON-stringified, so the agent reads clean prose.
+export function textResult(text) {
+  return { content: [{ type: 'text', text: String(text ?? '') }] };
+}
+
 export function errorResult(message) {
   return { content: [{ type: 'text', text: message }], isError: true };
 }

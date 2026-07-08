@@ -92,6 +92,7 @@ export function buildLibraryModel(state, _options = {}) {
       verified: documents.filter(TRUST_PREDICATES.verified).length,
       stale: documents.filter(TRUST_PREDICATES.stale).length,
       superseded: documents.filter(TRUST_PREDICATES.superseded).length,
+      agent: documents.filter(TRUST_PREDICATES.agent).length,
     },
   };
 
@@ -180,7 +181,7 @@ function renderTagRow(state, model) {
 }
 
 const TYPE_FACETS = [['runbook', 'Runbooks'], ['note', 'Notes']];
-const TRUST_FACETS = [['verified', 'Verified'], ['stale', 'Stale'], ['superseded', 'Superseded']];
+const TRUST_FACETS = [['verified', 'Verified'], ['stale', 'Stale'], ['superseded', 'Superseded'], ['agent', 'Agent-written']];
 
 function facetPill(action, key, label, count, isActive) {
   return `<button class="facet-pill${isActive ? ' is-active' : ''}" type="button" data-action="${action}" data-facet="${escapeHtml(key)}" aria-pressed="${isActive}">`
