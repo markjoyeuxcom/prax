@@ -2348,6 +2348,17 @@ body.is-desktop-mac .titlebar { padding-left: 84px; }
 }
 .pe__input::selection { background: color-mix(in srgb, var(--accent) 22%, transparent); }
 
+/* Subtle current-line highlight (behind the text), like CodeMirror. */
+.pe__activeline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 0;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  pointer-events: none;
+}
+.pe__activeline[hidden] { display: none; }
+
 /* Our own caret, positioned over the highlight layer. */
 .pe__caret {
   position: absolute;
