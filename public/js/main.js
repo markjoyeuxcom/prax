@@ -23,6 +23,7 @@ import {
   fetchStaleDocuments, fetchOrphanDocuments, fetchSemanticStatus,
   setSemanticEnabled, putSemanticSettings, reindexEmbeddings, semanticSearch,
   verifyDocument, supersedeDocument,
+  startRun, fetchRuns, fetchRun, setRunStep, setRunStatus,
 } from './libraryApi.js';
 import { normalizeTask } from './taskModel.js';
 import { apiStatus, designStatus, isOpen } from './statusMap.js';
@@ -53,6 +54,7 @@ import { renderLinkPickerHtml } from './renderLinkPicker.js';
 import { renderLibraryHtml, buildLibraryModel } from './renderLibrary.js';
 import { templateById } from './documentTemplates.js';
 import { renderEditorHtml, buildOutline, buildBacklinks } from './renderEditor.js';
+import { renderRunHtml, buildChronicle } from './renderRun.js';
 import { renderSearchPanelHtml, searchCountLabel } from './renderSearchPanel.js';
 import { renderAllProjectsHtml, buildProjectGroups } from './renderAllProjects.js';
 import { renderPaletteHtml, buildPaletteGroups } from './renderPalette.js';
@@ -207,6 +209,20 @@ async function loadDocumentLinks(documentId) {
     }
   } catch {
     /* links section stays unfetched */
+  }
+}
+
+// Past runs of a runbook, shown in the editor sidebar. Notes have no runs.
+async function loadDocumentRuns(doc) {
+  if (!doc || doc.documentType !== 'runbook') { setState({ documentRuns: null }); return; }
+  try {
+    const runs = await fetchRuns(doc.id);
+    if (state.editorDocId === doc.id) {
+      setState({ documentRuns: runs });
+      renderApp();
+    }
+  } catch {
+    /* runs section stays hidden */
   }
 }
 
@@ -554,6 +570,7 @@ function seedEditorDraft(doc) {
     documentLinks: null,
     documentTaskBacklinks: null,
     documentSimilar: null,
+    documentRuns: null,
     isDocumentInfoEditorOpen: false,
     documentInfoError: '',
     // A new document starts with find/replace closed and cleared.
@@ -820,6 +837,69 @@ async function openDocumentInEditor(documentId) {
   loadDocumentLinks(doc.id);
   loadDocumentTaskBacklinks(doc.id);
   loadSimilarDocuments(doc.id);
+  loadDocumentRuns(doc);
+}
+
+// ---------------------------------------------------------------------------
+// Runbook execution (runs)
+// ---------------------------------------------------------------------------
+
+// Snapshot the runbook's checkbox steps into a fresh run and open the run view.
+// The run is a chronicle: checking a step stamps a time without touching the doc.
+async function startRunForDocument(documentId) {
+  const doc = state.documents.find((d) => d.id === documentId) || currentDocument();
+  if (!doc) { alertError('start a run'); return; }
+  try {
+    const run = await startRun(doc.id, '');
+    setState({ navType: 'run', activeRun: run, runReturnDocId: doc.id, docMenuOpen: false });
+    renderApp();
+    if (!run.steps || run.steps.length === 0) showToast('This runbook has no checkbox steps yet — add “- [ ] step” lines.');
+  } catch { alertError('start a run'); }
+}
+
+async function openRun(runId, returnDocId) {
+  try {
+    const run = await fetchRun(runId);
+    setState({ navType: 'run', activeRun: run, runReturnDocId: returnDocId || run.documentId });
+    renderApp();
+  } catch { alertError('open that run'); }
+}
+
+async function toggleRunStep(stepId, nowChecked) {
+  const run = state.activeRun;
+  if (!run || run.status !== 'running') return;
+  try {
+    const updated = await setRunStep(run.id, stepId, nowChecked);
+    const steps = run.steps.map((s) => (s.id === stepId ? { ...s, checkedAt: updated.checkedAt, checkedBy: updated.checkedBy } : s));
+    setState({ activeRun: { ...run, steps } });
+    renderApp();
+  } catch { alertError('update that step'); }
+}
+
+async function endRun(status) {
+  const run = state.activeRun;
+  if (!run) return;
+  try {
+    const updated = await setRunStatus(run.id, status);
+    setState({ activeRun: { ...run, status: updated.status, finishedAt: updated.finishedAt }, confirm: null });
+    showToast(status === 'completed' ? 'Run completed' : 'Run aborted');
+    renderApp();
+  } catch { alertError(status === 'completed' ? 'complete the run' : 'abort the run'); }
+}
+
+async function copyRunChronicle() {
+  const run = state.activeRun;
+  if (!run) return;
+  const doc = (state.documents || []).find((d) => d.id === run.documentId);
+  const ok = await copyToClipboard(buildChronicle(run, doc?.title || ''));
+  showToast(ok ? 'Chronicle copied' : 'Could not copy chronicle');
+}
+
+function backFromRun() {
+  const docId = state.runReturnDocId || state.activeRun?.documentId;
+  setState({ activeRun: null });
+  if (docId) openDocumentInEditor(docId);
+  else goLibrary();
 }
 
 // ---------------------------------------------------------------------------
@@ -1058,7 +1138,9 @@ function escapeCascade() {
     destroyEditorController();
     setState({ editorFocus: false });
     renderApp();
+    return;
   }
+  if (state.navType === 'run') backFromRun();
 }
 
 // ---------------------------------------------------------------------------
@@ -1130,6 +1212,11 @@ function renderMainHtml() {
         previewHtml: renderMarkdownHtml(text, { resolveWikiLink }),
       };
       return renderEditorHtml(state, doc, model);
+    }
+    case 'run': {
+      const run = state.activeRun;
+      const doc = (state.documents || []).find((d) => d.id === (run?.documentId || state.runReturnDocId));
+      return renderRunHtml(state, run, { docTitle: doc?.title || run?.title || 'Runbook', now });
     }
     case 'settings': {
       const model = {
@@ -1729,6 +1816,21 @@ async function handleAction(action, el, event) {
       } catch { alertError('archive the selected document'); }
       break;
     }
+
+    // ---- runbook execution ----
+    case 'start-run': startRunForDocument(state.editorDocId); break;
+    case 'open-run': openRun(el.dataset.runId, el.dataset.documentId || state.editorDocId); break;
+    case 'toggle-run-step':
+      event.stopPropagation();
+      toggleRunStep(el.dataset.stepId, el.dataset.checked !== '1');
+      break;
+    case 'finish-run': endRun('completed'); break;
+    case 'abort-run':
+      if (el.dataset.confirmed === '1') { endRun('aborted'); break; }
+      openConfirm({ message: 'Abort this run? The chronicle so far is kept, but the run is marked aborted.', action: 'abort-run', okLabel: 'Abort run', danger: true });
+      break;
+    case 'copy-chronicle': copyRunChronicle(); break;
+    case 'back-from-run': backFromRun(); break;
 
     // ---- all projects ----
     case 'open-project': goProject(el.dataset.projectId); break;
