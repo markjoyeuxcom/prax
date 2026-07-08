@@ -52,3 +52,43 @@ test('findMatches flags an invalid regex rather than throwing', () => {
   assert.deepEqual(findMatches('x', { search: '(', regexp: true }), { valid: false, matches: [] });
   assert.deepEqual(findMatches('x', {}).matches, []); // empty query → no matches
 });
+
+import { detectCompletion, renderMarks, SLASH_COMMANDS } from '../../public/js/plainEditor.js';
+
+test('detectCompletion finds an open [[wiki context at the caret', () => {
+  const text = 'see [[Runb';
+  const c = detectCompletion(text, text.length);
+  assert.deepEqual(c, { kind: 'wiki', from: 6, to: 10, query: 'Runb' });
+  // a closed link is not an open context
+  assert.equal(detectCompletion('see [[Runbook]] now', 19), null);
+  // empty query right after [[
+  assert.equal(detectCompletion('x [[', 4).query, '');
+});
+
+test('detectCompletion finds a /slash only at line start', () => {
+  const c = detectCompletion('/head', 5);
+  assert.deepEqual(c, { kind: 'slash', from: 0, to: 5, query: 'head' });
+  assert.deepEqual(detectCompletion('  /b', 4), { kind: 'slash', from: 2, to: 4, query: 'b' });
+  // a slash mid-line is not a command
+  assert.equal(detectCompletion('a/b', 3), null);
+  // slash commands include the documented set
+  assert.ok(SLASH_COMMANDS.some((c2) => c2.key === 'task' && c2.action === 'checklist'));
+});
+
+test('renderMarks paints match ranges per line, marking the current one', () => {
+  const text = 'cat and cat\ncat';        // three "cat" at 0, 8, 12
+  const matches = [{ start: 0, end: 3 }, { start: 8, end: 11 }, { start: 12, end: 15 }];
+  const html = renderMarks(text, matches, 1);
+  assert.equal((html.match(/<mark/g) || []).length, 3);
+  assert.equal((html.match(/pe-m-current/g) || []).length, 1);
+  // the current mark wraps the 2nd occurrence (after " and ")
+  assert.match(html, /and <mark class="pe-m pe-m-current">cat<\/mark>/);
+  // two lines rendered
+  assert.equal((html.match(/class="pe__line"/g) || []).length, 2);
+});
+
+test('renderMarks with no matches still renders the lines (no marks)', () => {
+  const html = renderMarks('a\nb', []);
+  assert.equal((html.match(/<mark/g) || []).length, 0);
+  assert.equal((html.match(/class="pe__line"/g) || []).length, 2);
+});
