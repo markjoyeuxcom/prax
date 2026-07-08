@@ -11,9 +11,22 @@ export const DEFAULT_PREFERENCES = Object.freeze({
   readingScale: 1,
   lineNumbers: false,
   reminders: true,
+  editorEngine: 'codemirror',
+  editorFont: 'proportional',
+  previewFont: 'serif',
 });
 
 export const THEME_OPTIONS = Object.freeze(['light', 'dark']);
+export const EDITOR_ENGINE_OPTIONS = Object.freeze(['codemirror', 'plain']);
+// The editor's text font. 'monospace' lets the plain editor keep real bold/
+// italic (width-neutral in a mono face); 'proportional' keeps Instrument Sans
+// and shows emphasis by colour + a metrics-safe faux-bold so the textarea caret
+// never drifts off the styled text. Applies to both engines.
+export const EDITOR_FONT_OPTIONS = Object.freeze(['proportional', 'monospace']);
+// The rendered-preview body font. Serif (Source Serif 4) is the reading default;
+// sans matches the app chrome; mono suits code-heavy runbooks. Headings stay the
+// clean sans face in every mode.
+export const PREVIEW_FONT_OPTIONS = Object.freeze(['serif', 'sans', 'mono']);
 export const ACCENT_OPTIONS = Object.freeze(['fern', 'teal', 'sky', 'indigo', 'plum', 'rose', 'amber', 'clay', 'moss']);
 export const CHROME_OPTIONS = Object.freeze(['mac', 'win']);
 export const READING_SCALE_MIN = 0.85;
@@ -63,6 +76,9 @@ export function normalizePreferences(value = {}) {
     readingScale: clampReadingScale(source.readingScale),
     lineNumbers: source.lineNumbers === true,
     reminders: source.reminders !== false, // opt-out; defaults on
+    editorEngine: isAllowed(source.editorEngine, EDITOR_ENGINE_OPTIONS) ? source.editorEngine : DEFAULT_PREFERENCES.editorEngine,
+    editorFont: isAllowed(source.editorFont, EDITOR_FONT_OPTIONS) ? source.editorFont : DEFAULT_PREFERENCES.editorFont,
+    previewFont: isAllowed(source.previewFont, PREVIEW_FONT_OPTIONS) ? source.previewFont : DEFAULT_PREFERENCES.previewFont,
   };
 }
 
@@ -100,9 +116,15 @@ export function resetPreferences(storage = globalThis.localStorage) {
 export function applyPreferences(preferences, body = globalThis.document?.body) {
   const normalized = normalizePreferences(preferences);
   body?.setAttribute?.('data-theme', normalized.theme);
+  body?.setAttribute?.('data-editor-font', normalized.editorFont);
+  body?.setAttribute?.('data-preview-font', normalized.previewFont);
   const accentCss = ACCENT_CSS[normalized.accent];
   if (accentCss) body?.style?.setProperty?.('--accent', accentCss);
   else body?.style?.removeProperty?.('--accent');
   body?.style?.setProperty?.('--reading-scale', String(normalized.readingScale));
+  // Integer-pixel editor line-height (base 15px × 1.7, scaled), so the plain
+  // editor's <textarea> caret and the highlight layers round identically on
+  // every engine — a half-pixel line-height drifts the caret on WebKit webviews.
+  body?.style?.setProperty?.('--pe-lh', `${Math.round(15 * normalized.readingScale * 1.7)}px`);
   return normalized;
 }
