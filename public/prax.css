@@ -2340,11 +2340,27 @@ body.is-desktop-mac .titlebar { padding-left: 84px; }
   resize: none;
   background: transparent;
   color: transparent;
-  caret-color: var(--caret);
+  /* Native caret hidden — we paint .pe__caret from the highlight layer's
+     geometry so it stays exact on WebKit webviews (see plainEditor.js). */
+  caret-color: transparent;
   overflow: hidden;
   z-index: 2;
 }
 .pe__input::selection { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+
+/* Our own caret, positioned over the highlight layer. */
+.pe__caret {
+  position: absolute;
+  width: 2px;
+  background: var(--caret);
+  border-radius: 1px;
+  z-index: 3;
+  pointer-events: none;
+}
+.pe__caret[hidden] { display: none; }
+.pe__caret--on { animation: pe-caret-blink 1.1s steps(1, end) infinite; }
+@keyframes pe-caret-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .pe__caret--on { animation: none; } }
 
 /* [[wiki]] + /slash completion popup (positioned at the caret) */
 .pe__pop {

@@ -150,7 +150,14 @@ export function mountPlainEditor({ host, value = '', onChange, onSave, documents
   ta.setAttribute('autocomplete', 'off');
   ta.setAttribute('autocorrect', 'off');
   ta.value = String(value ?? '');
-  stack.append(marks, lines, ta);
+  // Our own caret (the native one is hidden via caret-color). It's positioned
+  // from the highlight layer's real geometry, so it stays exact on engines
+  // (WebKit webviews) that render a <textarea>'s caret off the styled text.
+  const caret = doc.createElement('div');
+  caret.className = 'pe__caret';
+  caret.setAttribute('aria-hidden', 'true');
+  caret.hidden = true;
+  stack.append(marks, lines, ta, caret);
   scroll.append(stack);
   host.append(scroll);
 
@@ -176,6 +183,7 @@ export function mountPlainEditor({ host, value = '', onChange, onSave, documents
     paintMarks();
     if (typeof onChange === 'function') onChange(ta.value);
     updateComp();
+    updateCaret();
   }
 
   function replaceRange(start, end, insert, caretStart, caretEnd) {
@@ -217,9 +225,10 @@ export function mountPlainEditor({ host, value = '', onChange, onSave, documents
     if (sel) sel.scrollIntoView({ block: 'nearest' });
   }
   function positionPop() {
-    const c = caretCoords();
-    pop.style.left = `${Math.round(c.left)}px`;
-    pop.style.top = `${Math.round(c.top)}px`;
+    const r = caretRect(ta.selectionStart);
+    if (!r) return;
+    pop.style.left = `${Math.round(r.left)}px`;
+    pop.style.top = `${Math.round(r.top + r.height)}px`;
   }
   function updateComp() {
     if (ta.selectionStart !== ta.selectionEnd) { closeComp(); return; }
@@ -248,32 +257,54 @@ export function mountPlainEditor({ host, value = '', onChange, onSave, documents
     }
   }
 
-  // Caret pixel position via a hidden mirror that replicates the textarea layout.
-  function caretCoords() {
-    const rect = ta.getBoundingClientRect();
-    const cs = getComputedStyle(ta);
-    const mirror = doc.createElement('div');
-    for (const p of ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'textTransform',
-      'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'borderTopWidth', 'borderLeftWidth',
-      'whiteSpace', 'overflowWrap', 'wordBreak', 'tabSize', 'boxSizing']) mirror.style[p] = cs[p];
-    mirror.style.position = 'absolute';
-    mirror.style.visibility = 'hidden';
-    mirror.style.width = cs.width;
-    mirror.style.left = '-9999px';
-    mirror.textContent = ta.value.slice(0, ta.selectionStart);
-    const marker = doc.createElement('span');
-    marker.textContent = '​';
-    mirror.append(marker);
-    doc.body.append(mirror);
-    const mRect = mirror.getBoundingClientRect();
-    const kRect = marker.getBoundingClientRect();
-    const top = kRect.top - mRect.top;
-    const left = kRect.left - mRect.left;
-    mirror.remove();
-    return {
-      top: rect.top - ta.scrollTop + top + parseFloat(cs.lineHeight),
-      left: rect.left - ta.scrollLeft + left,
-    };
+  // Caret + popup positioning read the HIGHLIGHT layer's real geometry (what the
+  // user sees) rather than the <textarea>'s own metrics — WebKit webviews place
+  // a textarea's caret/line box a little differently than a <div>, drifting a
+  // native caret off the styled text. Measuring the visible layer is pixel-exact
+  // on every engine. The native caret is hidden (caret-color: transparent) and
+  // we paint our own from these coordinates.
+  function nodeAtColumn(lineEl, col) {
+    const walker = doc.createTreeWalker(lineEl, NodeFilter.SHOW_TEXT, null);
+    let acc = 0; let node = null;
+    while ((node = walker.nextNode())) {
+      const len = node.nodeValue.length;
+      if (acc + len >= col) return { node, offset: col - acc };
+      acc += len;
+    }
+    return node ? { node, offset: node.nodeValue.length } : null;
+  }
+  // Viewport-space {left, top, height} of the caret at a source offset, derived
+  // from the corresponding highlight line (wrap-aware via Range client rects).
+  function caretRect(offset) {
+    const before = ta.value.slice(0, offset);
+    const lineIndex = (before.match(/\n/g) || []).length;
+    const col = offset - (before.lastIndexOf('\n') + 1);
+    const lineEl = lines.children[lineIndex];
+    if (!lineEl) return null;
+    const lineBox = lineEl.getBoundingClientRect();
+    const fallbackH = lineBox.height || parseFloat(getComputedStyle(ta).lineHeight) || 20;
+    if (col <= 0) return { left: lineBox.left, top: lineBox.top, height: fallbackH };
+    const pos = nodeAtColumn(lineEl, col);
+    if (!pos) return { left: lineBox.left, top: lineBox.top, height: fallbackH };
+    const range = doc.createRange();
+    range.setStart(lineEl, 0);
+    range.setEnd(pos.node, pos.offset);
+    const rects = range.getClientRects();
+    const r = rects.length ? rects[rects.length - 1] : lineBox;
+    return { left: r.right, top: r.top, height: r.height || fallbackH };
+  }
+  // Paint our caret, or hide it when the textarea is unfocused or has a range.
+  function updateCaret() {
+    if (doc.activeElement !== ta || ta.selectionStart !== ta.selectionEnd) { caret.hidden = true; return; }
+    const r = caretRect(ta.selectionStart);
+    if (!r) { caret.hidden = true; return; }
+    const box = stack.getBoundingClientRect();
+    caret.style.left = `${r.left - box.left}px`;
+    caret.style.top = `${r.top - box.top}px`;
+    caret.style.height = `${r.height}px`;
+    caret.hidden = false;
+    // Restart the blink so the caret is solid immediately after it moves.
+    caret.classList.remove('pe__caret--on'); void caret.offsetWidth; caret.classList.add('pe__caret--on');
   }
 
   function onKeydown(e) {
@@ -333,10 +364,14 @@ export function mountPlainEditor({ host, value = '', onChange, onSave, documents
     scroll.scrollTop = Math.max(0, line * lineH - scroll.clientHeight / 2);
   }
 
+  const onSelectionChange = () => { if (doc.activeElement === ta) updateCaret(); };
   ta.addEventListener('input', emitChange);
   ta.addEventListener('keydown', onKeydown);
   ta.addEventListener('click', updateComp);
-  ta.addEventListener('blur', () => setTimeout(closeComp, 120));
+  ta.addEventListener('focus', updateCaret);
+  ta.addEventListener('blur', () => { caret.hidden = true; setTimeout(closeComp, 120); });
+  doc.addEventListener('selectionchange', onSelectionChange);
+  globalThis.addEventListener?.('resize', updateCaret);
   scroll.addEventListener('scroll', () => { if (comp) positionPop(); });
   pop.addEventListener('mousedown', (e) => {
     const item = e.target.closest('[data-i]');
@@ -378,7 +413,10 @@ export function mountPlainEditor({ host, value = '', onChange, onSave, documents
       ta.removeEventListener('input', emitChange);
       ta.removeEventListener('keydown', onKeydown);
       ta.removeEventListener('click', updateComp);
+      doc.removeEventListener('selectionchange', onSelectionChange);
+      globalThis.removeEventListener?.('resize', updateCaret);
       pop.remove();
+      caret.remove();
       host.classList.remove('pe-host', 'pe-has-gutter');
       host.innerHTML = '';
     },
