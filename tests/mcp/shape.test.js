@@ -22,15 +22,17 @@ test('toDocumentRef drops the body and adds a snippet', () => {
   assert.equal('body' in ref, false);
 });
 
-test('toTaskRef keeps summary fields only', () => {
+test('toTaskRef keeps summary fields only (incl labels)', () => {
   const task = {
     id: 't1', title: 'Backup', description: 'long', status: 'planned',
-    priority: 'high', projectId: 'homelab', dueDate: '2026-05-12', sortOrder: 3,
+    priority: 'high', projectId: 'homelab', dueDate: '2026-05-12', sortOrder: 3, labels: ['waiting'],
   };
   assert.deepEqual(toTaskRef(task), {
     id: 't1', title: 'Backup', status: 'planned',
-    priority: 'high', projectId: 'homelab', dueDate: '2026-05-12',
+    priority: 'high', projectId: 'homelab', dueDate: '2026-05-12', labels: ['waiting'],
   });
+  // labels default to [] when absent
+  assert.deepEqual(toTaskRef({ id: 't2' }).labels, []);
 });
 
 test('capResults limits array length', () => {

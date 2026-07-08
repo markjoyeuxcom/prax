@@ -111,6 +111,8 @@ export function createPraxClient({
     listTasks: ({ q, project, status } = {}) =>
       request('GET', '/api/tasks', { query: { q, project, status } }),
 
+    listProjects: () => request('GET', '/api/projects', {}),
+
     getTask: (id) => getOrNull(`/api/tasks/${id}`),
 
     createTask: (payload) =>

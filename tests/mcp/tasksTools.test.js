@@ -31,6 +31,32 @@ test('search_tasks maps args and returns task summaries', async () => {
   assert.equal(data[0].priority, 'high');
 });
 
+test('search_tasks applies a shared filter expression over the fetched tasks', async () => {
+  const tasks = [
+    { id: 'a', title: 'Rotate cert', status: 'planned', priority: 'high', projectId: 'h', dueDate: '2026-01-01', labels: ['waiting'] },
+    { id: 'b', title: 'Other', status: 'planned', priority: 'low', projectId: 'w', dueDate: null, labels: [] },
+    { id: 'c', title: 'Waiting low', status: 'planned', priority: 'low', projectId: 'h', dueDate: null, labels: ['waiting'] },
+  ];
+  const client = {
+    listTasks: async () => tasks,
+    listProjects: async () => [{ id: 'h', slug: 'homelab', name: 'Homelab' }],
+  };
+  const tool = byName(createTaskTools(client), 'search_tasks');
+
+  const res = await tool.handler({ filter: '@waiting & #homelab' });
+  const data = JSON.parse(res.content[0].text);
+  assert.deepEqual(data.map((t) => t.id), ['a', 'c']);
+  assert.deepEqual(data[0].labels, ['waiting']); // labels surfaced in the ref
+
+  // p1 restricts to the high-priority one
+  assert.deepEqual(JSON.parse((await tool.handler({ filter: '@waiting & p1' })).content[0].text).map((t) => t.id), ['a']);
+
+  // an invalid filter is a friendly error, not a crash
+  const bad = await tool.handler({ filter: '(p1' });
+  assert.equal(bad.isError, true);
+  assert.match(bad.content[0].text, /Invalid filter/);
+});
+
 test('get_task validates UUID and handles missing', async () => {
   const present = { getTask: async () => SAMPLE_TASK };
   const tools = createTaskTools(present);
