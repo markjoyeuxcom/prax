@@ -131,6 +131,44 @@ export async function semanticSearch(query, project) {
   return res.json();
 }
 
+// ---- Runbook execution (runs) ----------------------------------------------
+
+export async function startRun(documentId, title = '') {
+  const res = await fetch(`/api/library/documents/${documentId}/runs`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title }),
+  });
+  if (!res.ok) throw new Error('Failed to start run');
+  return res.json();
+}
+
+export async function fetchRuns(documentId) {
+  const res = await fetch(`/api/library/documents/${documentId}/runs`);
+  if (!res.ok) throw new Error('Failed to load runs');
+  return res.json();
+}
+
+export async function fetchRun(runId) {
+  const res = await fetch(`/api/library/runs/${runId}`);
+  if (!res.ok) throw new Error('Failed to load run');
+  return res.json();
+}
+
+export async function setRunStep(runId, stepId, checked) {
+  const res = await fetch(`/api/library/runs/${runId}/steps/${stepId}`, {
+    method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ checked }),
+  });
+  if (!res.ok) throw new Error('Failed to update step');
+  return res.json();
+}
+
+export async function setRunStatus(runId, status) {
+  const res = await fetch(`/api/library/runs/${runId}`, {
+    method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status }),
+  });
+  if (!res.ok) throw new Error('Failed to update run');
+  return res.json();
+}
+
 export async function verifyDocument(id, verified, as = 'user') {
   const response = await fetch(`/api/library/documents/${id}/verify`, {
     method: 'POST',

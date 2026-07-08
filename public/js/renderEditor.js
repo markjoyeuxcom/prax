@@ -138,6 +138,7 @@ function renderHead(state, doc, { mode, readOnly }) {
       <input class="editor-head__title" type="text" data-doc-title value="${escapeHtml(doc.title || '')}" aria-label="Document title" autocomplete="off" spellcheck="false"${readOnly ? ' readonly' : ''}>
       <div class="editor-head__tags">${tags.map((tag) => chip(`#${tag}`, 'tag')).join('')}${trustChips(doc)}</div>
       <button class="btn-ghost btn-ghost--toggle${state.outlineOpen ? ' is-on' : ''}" type="button" data-action="toggle-outline" aria-pressed="${Boolean(state.outlineOpen)}">Outline</button>
+      ${!readOnly && doc.documentType === 'runbook' ? '<button class="btn-primary btn-primary--sm" type="button" data-action="start-run" title="Start a run — track each step with a timestamp">▶ Run</button>' : ''}
       <button class="btn-ghost" type="button" data-action="export-doc" title="Download this document as .md">Export</button>
       ${seg}
       <button class="btn-ghost${state.editorFocus ? ' is-on' : ''}" type="button" data-action="toggle-focus" title="Focus mode (Esc to exit)" aria-pressed="${Boolean(state.editorFocus)}">Focus</button>
@@ -256,6 +257,26 @@ function renderRelatedSection(related) {
         </section>`;
 }
 
+// Past runs of a runbook, newest first. Hidden for notes and until fetched
+// (state.documentRuns is null before the first fetch, [] when there are none).
+function renderRunsSection(state, doc) {
+  if (!doc || doc.documentType !== 'runbook') return '';
+  const runs = Array.isArray(state.documentRuns) ? state.documentRuns : [];
+  if (!runs.length) return '';
+  return `
+        <section class="doc-runs-section" aria-label="Past runs">
+          <div class="doc-related__label">Past runs</div>
+          <div class="doc-runs">
+          ${runs.map((run) => `
+            <button class="run-row" type="button" data-action="open-run" data-run-id="${escapeHtml(run.id)}" data-document-id="${escapeHtml(doc.id)}">
+              <span class="chip chip--run-${escapeHtml(run.status)}">${escapeHtml(run.status)}</span>
+              <span class="run-row__title">${escapeHtml(run.title || String(run.startedAt || '').slice(0, 10))}</span>
+              <span class="run-row__meta">${Number(run.doneCount) || 0}/${Number(run.stepCount) || 0}</span>
+            </button>`).join('')}
+          </div>
+        </section>`;
+}
+
 function editContent(body) {
   return `
             <div class="code-editor" data-code-editor hidden></div>
@@ -294,6 +315,7 @@ export function renderEditorHtml(state, doc, model = {}) {
   const related = model.related === undefined ? state.documentSimilar : model.related;
   const backlinksHtml = showPreview ? renderBacklinksFooter(backlinks) : '';
   const relatedHtml = showPreview ? renderRelatedSection(related) : '';
+  const runsHtml = showPreview ? renderRunsSection(state, doc) : '';
   const linksHtml = renderLinksSection(links);
   const outlineHtml = state.outlineOpen && !focus
     ? renderOutlineRail(outline)
@@ -310,7 +332,7 @@ export function renderEditorHtml(state, doc, model = {}) {
       </section>
       <section class="pane" aria-label="Markdown preview">
         <div class="pane__label">Preview</div>
-        <div class="pane__scroll">${previewContent(previewHtml, backlinksHtml)}${relatedHtml}${linksHtml}
+        <div class="pane__scroll">${previewContent(previewHtml, backlinksHtml)}${runsHtml}${relatedHtml}${linksHtml}
         </div>
       </section>`;
   } else {
@@ -318,7 +340,7 @@ export function renderEditorHtml(state, doc, model = {}) {
     // .sheet__scroll, CodeMirror via its own scroller). Doc links render in
     // preview contexts only — while writing, the page holds just the text.
     const sheetContent = showPreview
-      ? `<div class="sheet__scroll">${previewContent(previewHtml, backlinksHtml)}${relatedHtml}${linksHtml}
+      ? `<div class="sheet__scroll">${previewContent(previewHtml, backlinksHtml)}${runsHtml}${relatedHtml}${linksHtml}
           </div>`
       : editContent(body);
     panesHtml = `
