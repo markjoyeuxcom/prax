@@ -438,6 +438,23 @@ a { color: var(--accent); }
 
 .page-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
 .page-head__dot { width: 10px; height: 10px; border-radius: 50%; background: var(--dot, var(--accent)); flex: none; }
+/* Inline on-call / handoff ops metadata, pushed to the right of a project header. */
+.proj-ops { display: flex; align-items: center; gap: 14px; margin-left: auto; flex-wrap: wrap; }
+.proj-ops__field { display: inline-flex; align-items: center; gap: 6px; }
+.proj-ops__label { font-size: 10.5px; color: var(--ink3); text-transform: uppercase; letter-spacing: .05em; }
+.proj-ops__input {
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-size: 12.5px;
+  color: var(--ink);
+  width: 110px;
+  transition: border-color .15s ease, background .15s ease;
+}
+.proj-ops__input:hover { border-color: var(--line); }
+.proj-ops__input:focus { outline: none; border-color: var(--accent); background: var(--surface); }
+.proj-ops__field--notes .proj-ops__input { width: 200px; }
 .page-head__title {
   font-size: 19px;
   font-weight: 650;
@@ -1243,6 +1260,31 @@ a { color: var(--accent); }
   margin: 12px 0;
 }
 .prose pre code { background: none; padding: 0; font-size: inherit; }
+/* Fenced code block with a Copy bar. The bar and the <pre> read as one unit. */
+.code-block { margin: 12px 0; }
+.code-block__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 6px 4px 12px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  font-family: var(--font-ui);
+}
+.code-block__lang { font-size: 10.5px; color: var(--ink3); text-transform: uppercase; letter-spacing: .05em; }
+.code-block__copy {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--ink3);
+  padding: 2px 9px;
+  border-radius: 5px;
+  transition: background .15s ease, color .15s ease;
+}
+.code-block__copy:hover { background: var(--accent-soft); color: var(--ink); }
+.prose .code-block pre { margin: 0; border-top-left-radius: 0; border-top-right-radius: 0; }
 .prose hr { border: none; border-top: 1px solid var(--line); margin: 20px 0; }
 .prose .task-item {
   display: flex;
@@ -1486,6 +1528,8 @@ a { color: var(--accent); }
 }
 .pill-btn:hover { border-color: var(--line2); color: var(--ink); }
 .pill-btn.is-active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.snooze-until { font-size: 12.5px; color: var(--ink2); margin-right: 8px; }
+.today-snoozed { color: var(--ink3); }
 .pill-btn.is-active--outline { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); }
 
 .date-input {

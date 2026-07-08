@@ -40,6 +40,9 @@ export const TRUST_PREDICATES = {
   verified: (doc) => doc.verified === true,
   stale: (doc) => doc.stale === true,
   superseded: (doc) => doc.status === 'superseded',
+  // Agent-written: synthesized derivations or documents last edited by an agent
+  // — the curation set to review and verify.
+  agent: (doc) => doc.kind === 'synthesized' || doc.updatedBy === 'agent',
 };
 
 // OR within the trust axis: a document passes if it matches ANY selected facet

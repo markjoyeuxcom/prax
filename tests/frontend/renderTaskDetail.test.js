@@ -308,3 +308,15 @@ test('title, description, notes, checklist, docs, and activity all escape HTML',
   assert.doesNotMatch(html, /<\/textarea><script/);
   assert.match(html, /&lt;\/textarea&gt;&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
 });
+
+test('drawer offers snooze presets, and shows the target + unsnooze when snoozed', () => {
+  const open = render({ task: makeTask() });
+  assert.match(open, /data-action="snooze-task" data-snooze="tomorrow"/);
+  assert.match(open, /data-action="snooze-task" data-snooze="week"/);
+  assert.doesNotMatch(open, /data-action="unsnooze-task"/);
+
+  const snoozed = render({ task: makeTask({ deferredUntil: '2099-01-01T09:00:00Z' }) });
+  assert.match(snoozed, /Until 2099-01-01/);
+  assert.match(snoozed, /data-action="unsnooze-task"/);
+  assert.doesNotMatch(snoozed, /data-snooze="tomorrow"/);
+});

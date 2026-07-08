@@ -17,9 +17,16 @@ const TODAY_GROUPS = [
 
 // Pure. API-shaped tasks across ALL projects → { groups, flatIds, badge }.
 // Open tasks only (statusMap.isOpen); empty buckets are dropped.
+// A task snoozed until a future moment is hidden from Today (it reappears once
+// the moment passes). Counted separately so the view can note how many.
+export function isSnoozed(task, now = new Date()) {
+  return Boolean(task?.deferredUntil) && new Date(task.deferredUntil) > now;
+}
+
 export function buildTodayGroups(tasks, projects, { now = new Date() } = {}) {
   const projectById = new Map((projects || []).map((project) => [project.id, project]));
-  const open = (tasks || []).filter((task) => isOpen(task)).map((task) => {
+  const snoozedCount = (tasks || []).filter((task) => isOpen(task) && isSnoozed(task, now)).length;
+  const open = (tasks || []).filter((task) => isOpen(task) && !isSnoozed(task, now)).map((task) => {
     const project = projectById.get(task.projectId);
     return {
       ...task,
@@ -34,7 +41,7 @@ export function buildTodayGroups(tasks, projects, { now = new Date() } = {}) {
     .map(([key, label, tone]) => ({ key, label, tone, tasks: open.filter((task) => bucketOf(task) === key) }))
     .filter((group) => group.tasks.length);
   const badge = open.filter((task) => bucketOf(task) === 'overdue' || bucketOf(task) === 'today').length;
-  return { groups, flatIds: groups.flatMap((group) => group.tasks.map((task) => task.id)), badge };
+  return { groups, flatIds: groups.flatMap((group) => group.tasks.map((task) => task.id)), badge, snoozedCount };
 }
 
 // Project chip tinted with the project color (13% wash bg / full-color text,
@@ -45,12 +52,15 @@ function projectChipHtml(task) {
     `style="background:color-mix(in oklab, ${color} 13%, transparent);color:${color}"`);
 }
 
-export function renderTodayHtml(state, groups, { now = new Date() } = {}) {
+export function renderTodayHtml(state, groups, { now = new Date(), snoozedCount = 0 } = {}) {
   const dateLabel = new Date(now).toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric',
   });
+  const snoozedNote = snoozedCount > 0
+    ? ` <span class="today-snoozed">· ${snoozedCount} snoozed</span>`
+    : '';
   const head = '<header class="page-head"><h1 class="page-head__title">Today</h1></header>'
-    + `<p class="page-head__sub">${escapeHtml(dateLabel)} — everything due or slipping across your projects.</p>`;
+    + `<p class="page-head__sub">${escapeHtml(dateLabel)} — everything due or slipping across your projects.${snoozedNote}</p>`;
   // Wrap in .page so the heading and rows share the same inset as every other
   // top-level view (All projects, Library, Settings, project List/Board).
   const body = (!groups || !groups.length)

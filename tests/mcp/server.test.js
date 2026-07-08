@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildServer } from '../../mcp/server.js';
 
-const EXPECTED_TOOL_COUNT = 23; // 4 document + 4 task + 3 link + 4 checklist + 1 activity + 4 document-link + 2 graph-maintenance + 1 semantic-search tools
+const EXPECTED_TOOL_COUNT = 24; // 5 document (incl ask_library) + 4 task + 3 link + 4 checklist + 1 activity + 4 document-link + 2 graph-maintenance + 1 semantic-search tools
 
 test('registers all 23 tools with unique names', () => {
   const registered = [];
@@ -17,7 +17,7 @@ test('registers all 23 tools with unique names', () => {
   assert.equal(names.length, EXPECTED_TOOL_COUNT);
   assert.equal(new Set(names).size, EXPECTED_TOOL_COUNT, 'tool names must be unique');
   for (const expected of [
-    'search_documents', 'get_document', 'create_document', 'update_document',
+    'search_documents', 'ask_library', 'get_document', 'create_document', 'update_document',
     'search_tasks', 'get_task', 'create_task', 'update_task',
     'list_task_documents', 'link_task_document', 'unlink_task_document',
     'list_task_checklist', 'add_checklist_item', 'set_checklist_item', 'delete_checklist_item',

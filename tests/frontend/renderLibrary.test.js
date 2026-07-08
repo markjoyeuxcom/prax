@@ -506,6 +506,15 @@ test('Trust facets appear (with counts) once documents carry the flags, and mark
   assert.doesNotMatch(html, /data-facet="superseded"/); // none superseded
 });
 
+test('the Agent-written trust facet appears (with count) when a doc is synthesized or agent-edited', () => {
+  const docs = [
+    { id: 'synth', title: 'S', documentType: 'note', tags: [], kind: 'synthesized', updatedBy: 'agent' },
+    { id: 'human', title: 'H', documentType: 'note', tags: [], kind: 'source', updatedBy: 'user' },
+  ];
+  const html = render({ documents: docs, libraryTrust: ['agent'] });
+  assert.match(html, /class="facet-pill is-active"[^>]*data-facet="agent"[^>]*aria-pressed="true"[^>]*>Agent-written <span class="facet-pill__count">1</);
+});
+
 test('selecting one type facet filters the visible docs to that type', () => {
   assert.equal(build().visibleCount, 3);
   assert.deepEqual(build({ libraryTypes: ['note'] }).groups.flatMap(g => g.docs).map(d => d.id), ['doc-ideas']);

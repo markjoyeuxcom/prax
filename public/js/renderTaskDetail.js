@@ -87,7 +87,25 @@ function renderFieldRows(task, dis, ro) {
           <input class="date-input" type="date" data-task-due value="${escapeHtml(task.dueDate || '')}"${dis}>
           <button class="pill-btn" type="button" data-action="clear-task-due"${dis}>Clear</button>
         </div>
+      </div>
+      <div class="field-row">
+        <span class="field-row__label">Snooze</span>
+        <div class="field-row__value">${renderSnoozeControls(task, dis)}</div>
       </div>${renderDescriptionRow(task, ro)}`;
+}
+
+// Snooze hides a task from Today until a future moment. When snoozed, show the
+// target date + Unsnooze; otherwise offer quick presets. Dates are sliced to
+// YYYY-MM-DD so the markup is deterministic (regex-over-HTML tests).
+function renderSnoozeControls(task, dis) {
+  const id = escapeHtml(task.id);
+  const snoozed = Boolean(task.deferredUntil) && new Date(task.deferredUntil) > new Date();
+  if (snoozed) {
+    return `<span class="snooze-until">Until ${escapeHtml(String(task.deferredUntil).slice(0, 10))}</span>`
+      + `<button class="pill-btn" type="button" data-action="unsnooze-task" data-task-id="${id}"${dis}>Unsnooze</button>`;
+  }
+  return `<button class="pill-btn" type="button" data-action="snooze-task" data-snooze="tomorrow" data-task-id="${id}"${dis}>Tomorrow</button>`
+    + `<button class="pill-btn" type="button" data-action="snooze-task" data-snooze="week" data-task-id="${id}"${dis}>Next week</button>`;
 }
 
 // Notes value: the in-flight draft wins only when it belongs to this task
