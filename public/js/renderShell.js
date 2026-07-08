@@ -197,6 +197,7 @@ export function renderSidebarHtml(state, counts = {}) {
 
   const nav = [
     sideNavItem({ label: 'Today', iconName: 'check', action: 'nav-today', active: state.navType === 'today', badge: counts.todayBadge }),
+    sideNavItem({ label: 'Upcoming', iconName: 'calendar', action: 'nav-upcoming', active: state.navType === 'upcoming', badge: counts.upcomingBadge }),
     sidebarInboxItem(state, counts),
     sideNavItem({ label: 'All projects', iconName: 'grid', action: 'nav-all', active: state.navType === 'all' }),
     sideNavItem({ label: 'Library', iconName: 'book', action: 'nav-library', active: isLibraryNav(state) }),
@@ -232,9 +233,11 @@ export function renderRailHtml(state) {
   const inbox = inboxProject(state);
   const navs = [
     { title: 'Today', iconName: 'check', action: 'nav-today', active: state.navType === 'today' },
+    { title: 'Upcoming', iconName: 'calendar', action: 'nav-upcoming', active: state.navType === 'upcoming' },
     ...(inbox ? [{ title: 'Inbox', iconName: 'inbox', action: 'nav-project', active: isCurrentProject(state, inbox.id), projectId: inbox.id }] : []),
     { title: 'All projects', iconName: 'grid', action: 'nav-all', active: state.navType === 'all' },
     { title: 'Library', iconName: 'book', action: 'nav-library', active: isLibraryNav(state) },
+    { title: 'Filter', iconName: 'filter', action: 'nav-filter', active: state.navType === 'filter' },
     { title: 'Settings', iconName: 'sliders', action: 'nav-settings', active: state.navType === 'settings' },
   ].map(({ title, iconName, action, active, projectId }) => (
     `<button type="button" class="rail__btn${active ? ' is-active' : ''}" title="${title}" data-action="${action}"${projectId ? ` data-project-id="${escapeHtml(projectId)}"` : ''}${active ? ' aria-current="true"' : ''}>${icon(iconName, 16)}</button>`
