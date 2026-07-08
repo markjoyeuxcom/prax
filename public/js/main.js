@@ -39,6 +39,7 @@ import {
 import { triggerLibraryDocumentDownload } from './libraryExport.js';
 import { tasksFromImportPayload, exportFilename, normalizeImportMode } from './importExport.js';
 import { createSavedLibraryView, savedLibraryViewsFromJson } from './librarySavedViews.js';
+import { parseCaptureShorthand } from './captureShorthand.js';
 import { mountCodeMirrorEditor } from '../vendor/codemirror-editor.js';
 
 import {
@@ -2279,15 +2280,18 @@ async function handleLinkPickerPick(documentId) {
   renderApp();
 }
 
-async function addQuickTask(title) {
+async function addQuickTask(rawTitle) {
+  // Shorthand (!high, tomorrow, fri, 2026-09-01) is parsed out of the typed
+  // text; an explicit token wins over the view-derived capture default.
+  const { title, priority, dueDate } = parseCaptureShorthand(rawTitle);
   if (!title) return;
   const project = state.captureProjectId || defaultProjectId();
   if (!project) { showToast('Create a project first.'); return; }
   try {
     await createTask({
-      title, description: '', notes: '', priority: 'medium',
+      title, description: '', notes: '', priority: priority || 'medium',
       status: state.captureStatus || 'planned', project,
-      dueDate: state.captureDueDate || null, sortOrder: state.tasks.length,
+      dueDate: dueDate || state.captureDueDate || null, sortOrder: state.tasks.length,
     });
     setState({ captureOpen: false, captureQuery: '', captureMenuOpen: false });
     await loadTasks();
