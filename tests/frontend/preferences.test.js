@@ -134,6 +134,17 @@ test('applyPreferences writes the theme attribute and property overrides', () =>
   assert.equal(body.getAttribute('data-theme'), 'dark');
   assert.equal(body.style.getPropertyValue('--accent'), ACCENT_CSS.indigo);
   assert.equal(body.style.getPropertyValue('--reading-scale'), '1.1');
+  // integer-pixel editor line-height: round(15 * 1.1 * 1.7) = round(28.05) = 28
+  assert.equal(body.style.getPropertyValue('--pe-lh'), '28px');
+});
+
+test('applyPreferences rounds --pe-lh to an integer pixel across reading scales', () => {
+  const b1 = bodyStub();
+  applyPreferences({ theme: 'light', readingScale: 1 }, b1);
+  assert.equal(b1.style.getPropertyValue('--pe-lh'), '26px'); // round(25.5)
+  const b2 = bodyStub();
+  applyPreferences({ theme: 'light', readingScale: 1.25 }, b2);
+  assert.equal(b2.style.getPropertyValue('--pe-lh'), '32px'); // round(31.875)
 });
 
 test('editor font preference defaults to proportional and validates against the option set', () => {
