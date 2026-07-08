@@ -12,7 +12,7 @@ export const state = {
   managedProjects: [],          // all statuses (All-projects view)
 
   // ---- routing ----
-  navType: 'project',           // 'today' | 'project' | 'all' | 'library' | 'editor' | 'settings'
+  navType: 'project',           // 'today' | 'project' | 'all' | 'library' | 'editor' | 'run' | 'settings'
   navId: null,                  // project id when navType === 'project'
   tab: 'list',                  // project tab: 'list' | 'board' | 'backlog' | 'archive'
   groupBy: 'due',               // list grouping cycler: 'due' | 'priority' | 'status'
@@ -88,6 +88,11 @@ export const state = {
   documentInfoError: '',
   docMenuOpen: false,           // editor ••• actions dropdown
   newDocMenuOpen: false,        // Library "＋ New doc" template chooser
+  documentRuns: null,           // past runs of the open runbook (null = not fetched)
+
+  // ---- runbook execution (run view) ----
+  activeRun: null,              // the run being viewed: { id, documentId, title, status, startedAt, finishedAt, steps: [...] }
+  runReturnDocId: null,         // runbook doc to return to via "← back" (also used to look up its title)
 
   // ---- editor find/replace (Prax-native panel; see renderSearchPanel.js) ----
   editorSearchOpen: false,
