@@ -438,6 +438,23 @@ a { color: var(--accent); }
 
 .page-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
 .page-head__dot { width: 10px; height: 10px; border-radius: 50%; background: var(--dot, var(--accent)); flex: none; }
+/* Inline on-call / handoff ops metadata, pushed to the right of a project header. */
+.proj-ops { display: flex; align-items: center; gap: 14px; margin-left: auto; flex-wrap: wrap; }
+.proj-ops__field { display: inline-flex; align-items: center; gap: 6px; }
+.proj-ops__label { font-size: 10.5px; color: var(--ink3); text-transform: uppercase; letter-spacing: .05em; }
+.proj-ops__input {
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-size: 12.5px;
+  color: var(--ink);
+  width: 110px;
+  transition: border-color .15s ease, background .15s ease;
+}
+.proj-ops__input:hover { border-color: var(--line); }
+.proj-ops__input:focus { outline: none; border-color: var(--accent); background: var(--surface); }
+.proj-ops__field--notes .proj-ops__input { width: 200px; }
 .page-head__title {
   font-size: 19px;
   font-weight: 650;

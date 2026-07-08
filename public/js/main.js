@@ -80,6 +80,7 @@ let taskTitleSaveTimer = null;    // drawer task title
 let toastTimer = null;
 let isReindexing = false;         // guards the reindex/rebuild handler from double-runs
 let prevViewKey = null;           // suppress the main-content fade on same-view re-renders
+let projectOpsSaveTimer = null;   // debounce on-call / handoff-note edits
 let dragIndicator = null;
 
 // Native window.alert/confirm/prompt do not exist in the desktop webview
@@ -293,6 +294,15 @@ function taskById(id) {
 
 function applyTaskPatchLocal(id, patch) {
   setState({ tasks: state.tasks.map(t => (t.id === id ? { ...t, ...patch } : t)) });
+}
+
+// Update a project in both the sidebar and managed sets without re-rendering
+// (the on-call/handoff inputs are mid-edit; a render would steal focus).
+function applyProjectPatchLocal(id, patch) {
+  setState({
+    projects: state.projects.map(p => (p.id === id ? { ...p, ...patch } : p)),
+    managedProjects: state.managedProjects.map(p => (p.id === id ? { ...p, ...patch } : p)),
+  });
 }
 
 // Snooze target for a preset: tomorrow / next week, at 9am local so the task
@@ -1063,6 +1073,18 @@ function projectsById() {
   return map;
 }
 
+// Ops metadata inline in a project header: who's on call + handoff notes for
+// the next shift. Both are inline-editable; input events debounce a PATCH.
+function renderProjectOps(project) {
+  const id = escapeHtml(project.id);
+  return `<div class="proj-ops">
+    <label class="proj-ops__field"><span class="proj-ops__label">On call</span>
+      <input class="proj-ops__input" type="text" data-project-oncall data-project-id="${id}" value="${escapeHtml(project.onCall || '')}" placeholder="—" aria-label="On-call owner"></label>
+    <label class="proj-ops__field proj-ops__field--notes"><span class="proj-ops__label">Handoff</span>
+      <input class="proj-ops__input" type="text" data-project-handoff data-project-id="${id}" value="${escapeHtml(project.handoffNotes || '')}" placeholder="notes for the next shift…" aria-label="Handoff notes"></label>
+  </div>`;
+}
+
 function sidebarCounts() {
   const projectOpen = {};
   for (const task of state.tasks) {
@@ -1157,6 +1179,7 @@ function renderMainHtml() {
           <span class="page-head__dot" style="--dot:${project ? projectColor(project) : 'var(--accent)'}"></span>
           <h1 class="page-head__title">${escapeHtml(project?.name || 'Tasks')}</h1>
           <span class="chip ${chipClass}">${escapeHtml((project?.status || 'active').replace('-', ' '))}</span>
+          ${project && project.slug !== INBOX_SLUG ? renderProjectOps(project) : ''}
         </header>
         <nav class="tabs">${tabs}${right}</nav>
         ${body}
@@ -1950,6 +1973,21 @@ function bindEvents() {
           if (caret != null) next.setSelectionRange(caret, caret);
         }
       }
+      return;
+    }
+    if (target.matches?.('[data-project-oncall]') || target.matches?.('[data-project-handoff]')) {
+      // Debounced save; don't re-render (would steal focus from the input the
+      // user is typing in). Local state updates silently so it persists.
+      const id = target.dataset.projectId;
+      const field = target.matches('[data-project-oncall]') ? 'onCall' : 'handoffNotes';
+      const value = target.value;
+      clearTimeout(projectOpsSaveTimer);
+      projectOpsSaveTimer = setTimeout(async () => {
+        try {
+          const updated = await updateProject(id, { [field]: value });
+          applyProjectPatchLocal(id, { [field]: updated ? updated[field] : (value.trim() || null) });
+        } catch { /* next load reconciles */ }
+      }, 600);
       return;
     }
     if (target.matches?.('[data-task-notes]')) {
