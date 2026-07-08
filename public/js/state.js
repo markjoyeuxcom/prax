@@ -12,10 +12,15 @@ export const state = {
   managedProjects: [],          // all statuses (All-projects view)
 
   // ---- routing ----
-  navType: 'project',           // 'today' | 'project' | 'all' | 'library' | 'editor' | 'run' | 'settings'
+  navType: 'project',           // 'today' | 'project' | 'all' | 'library' | 'editor' | 'run' | 'filter' | 'upcoming' | 'settings'
   navId: null,                  // project id when navType === 'project'
   tab: 'list',                  // project tab: 'list' | 'board' | 'backlog' | 'archive'
   groupBy: 'due',               // list grouping cycler: 'due' | 'priority' | 'status'
+
+  // ---- task filter + smart views ----
+  taskSmartViews: [],           // saved named filter expressions (localStorage)
+  activeFilterExpr: '',         // the current filter view's expression
+  activeSmartViewId: null,      // id of the saved view being shown (null = ad-hoc filter)
 
   // ---- chrome / status ----
   desktopShell: false,          // true when served inside the Tauri shell (?shell=desktop)

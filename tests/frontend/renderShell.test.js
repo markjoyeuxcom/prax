@@ -204,6 +204,21 @@ test('sidebar saved views render only when present', () => {
   assert.match(withViews, /data-action="delete-library-view" data-view-index="0"/);
 });
 
+test('sidebar has a Filter nav item and renders task smart views with delete', () => {
+  const plain = renderSidebarHtml(makeState(), { todayBadge: 0, projectOpen: {} });
+  assert.match(plain, /data-action="nav-filter"/);
+  assert.doesNotMatch(plain, /Smart views/); // section hidden when there are none
+
+  const withViews = renderSidebarHtml(makeState({
+    navType: 'filter', activeSmartViewId: 'p1-overdue',
+    taskSmartViews: [{ id: 'p1-overdue', label: 'P1 overdue', expr: 'p1 & overdue' }],
+  }), { todayBadge: 0, projectOpen: {} });
+  assert.match(withViews, /<span>Smart views<\/span>/);
+  assert.match(withViews, /data-action="select-smart-view" data-view-id="p1-overdue"/);
+  assert.match(withViews, /data-action="delete-smart-view" data-view-id="p1-overdue"/);
+  assert.match(withViews, /class="side-item side-item--saved is-active"/); // active view highlighted
+});
+
 test('sidebar saved-view delete control is per-index and escapes the label', () => {
   const html = renderSidebarHtml(makeState({
     librarySavedViews: [
