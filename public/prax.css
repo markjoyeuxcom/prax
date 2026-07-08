@@ -310,6 +310,31 @@ a { color: var(--accent); }
 }
 .side-item__count { font-size: 11px; color: var(--ink3); }
 
+/* Saved-view row: the × delete sits over the row's right edge, hidden until
+   the row (or the button itself) is hovered/focused. */
+.side-item-row { position: relative; }
+.side-item--saved { padding-right: 26px; }
+.side-item__del {
+  position: absolute;
+  top: 50%;
+  right: 5px;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--ink3);
+  opacity: 0;
+  transition: opacity .12s ease, background .12s ease, color .12s ease;
+}
+.side-item-row:hover .side-item__del,
+.side-item__del:focus-visible { opacity: 1; }
+.side-item__del:hover { background: var(--hi-soft); color: var(--hi); }
+
 .badge {
   font-size: 10.5px;
   font-weight: 600;
