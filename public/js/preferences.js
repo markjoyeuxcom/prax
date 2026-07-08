@@ -122,5 +122,9 @@ export function applyPreferences(preferences, body = globalThis.document?.body) 
   if (accentCss) body?.style?.setProperty?.('--accent', accentCss);
   else body?.style?.removeProperty?.('--accent');
   body?.style?.setProperty?.('--reading-scale', String(normalized.readingScale));
+  // Integer-pixel editor line-height (base 15px × 1.7, scaled), so the plain
+  // editor's <textarea> caret and the highlight layers round identically on
+  // every engine — a half-pixel line-height drifts the caret on WebKit webviews.
+  body?.style?.setProperty?.('--pe-lh', `${Math.round(15 * normalized.readingScale * 1.7)}px`);
   return normalized;
 }

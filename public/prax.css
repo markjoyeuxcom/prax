@@ -2299,11 +2299,10 @@ body.is-desktop-mac .titlebar { padding-left: 84px; }
   /* Integer-pixel line-height. 1.7 × 15px = 25.5px — a half-pixel that some
      engines (notably WebKit webviews) round differently for a <textarea>'s
      line box than for the highlight <div>s, drifting the caret a little more
-     each line down the document. round() snaps both layers to the SAME integer
-     so they can't diverge; the unitless 1.7 is the fallback where round() is
-     unsupported (the declaration is then dropped at parse time). */
-  line-height: 1.7;
-  line-height: round(calc(15px * var(--reading-scale, 1) * 1.7), 1px);
+     each line down the document. --pe-lh is the SAME rounded integer for every
+     layer (computed in applyPreferences, so it tracks the reading scale and
+     works on every engine); the unitless 1.7 is only a pre-boot fallback. */
+  line-height: var(--pe-lh, 1.7);
   padding: 24px 20px 60px var(--pe-pad-left);
   white-space: pre-wrap;
   overflow-wrap: break-word;
@@ -2317,10 +2316,10 @@ body.is-desktop-mac .titlebar { padding-left: 84px; }
 .pe__marks { position: absolute; inset: 0; z-index: 0; color: transparent; pointer-events: none; }
 /* Empty lines take their height from min-height; it MUST equal the integer
    line-height above so a blank line is exactly as tall as a text line. */
-.pe__marks .pe__line { min-height: 1.7em; min-height: round(calc(15px * var(--reading-scale, 1) * 1.7), 1px); }
+.pe__marks .pe__line { min-height: var(--pe-lh, 1.7em); }
 .pe-m { background: color-mix(in srgb, var(--accent) 22%, transparent); border-radius: 2px; }
 .pe-m-current { background: color-mix(in srgb, var(--accent) 48%, transparent); }
-.pe__line { position: relative; min-height: 1.7em; min-height: round(calc(15px * var(--reading-scale, 1) * 1.7), 1px); }
+.pe__line { position: relative; min-height: var(--pe-lh, 1.7em); }
 .pe-has-gutter .pe__line::before {
   content: attr(data-ln);
   position: absolute;
