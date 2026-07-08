@@ -53,7 +53,7 @@ import { renderListHtml, renderBulkBarHtml, buildListGroups } from './renderList
 import { renderTodayHtml, buildTodayGroups } from './renderToday.js';
 import { renderUpcomingHtml, buildUpcomingGroups } from './renderUpcoming.js';
 import { renderFilterHtml, buildFilterGroups } from './renderFilter.js';
-import { parseTaskFilter } from './taskFilter.js';
+import { parseTaskFilter, projectResolver } from './taskFilter.js';
 import { createSmartView, smartViewsFromJson } from './taskSmartViews.js';
 import { renderBoardHtml, buildBoardColumns } from './renderBoard.js';
 import { renderBacklogHtml, renderArchiveHtml } from './renderBacklog.js';
@@ -2492,17 +2492,22 @@ async function handleLinkPickerPick(documentId) {
 }
 
 async function addQuickTask(rawTitle) {
-  // Shorthand (!high, tomorrow, fri, 2026-09-01) is parsed out of the typed
-  // text; an explicit token wins over the view-derived capture default.
-  const { title, priority, dueDate } = parseCaptureShorthand(rawTitle);
+  // Shorthand (!high, tomorrow, fri, 2026-09-01, #project, @label) is parsed out
+  // of the typed text; an explicit token wins over the view-derived defaults.
+  const { title, priority, dueDate, project: projectToken, labels } = parseCaptureShorthand(rawTitle);
   if (!title) return;
-  const project = state.captureProjectId || defaultProjectId();
+  let project = state.captureProjectId || defaultProjectId();
+  if (projectToken) {
+    const resolved = projectResolver(state.projects)(projectToken);
+    if (resolved) project = resolved; // a valid #project overrides the default
+  }
   if (!project) { showToast('Create a project first.'); return; }
   try {
     await createTask({
       title, description: '', notes: '', priority: priority || 'medium',
       status: state.captureStatus || 'planned', project,
-      dueDate: dueDate || state.captureDueDate || null, sortOrder: state.tasks.length,
+      dueDate: dueDate || state.captureDueDate || null, labels: labels || [],
+      sortOrder: state.tasks.length,
     });
     setState({ captureOpen: false, captureQuery: '', captureMenuOpen: false });
     await loadTasks();
