@@ -51,6 +51,7 @@ import {
 } from './renderShell.js';
 import { renderListHtml, renderBulkBarHtml, buildListGroups } from './renderList.js';
 import { renderTodayHtml, buildTodayGroups } from './renderToday.js';
+import { renderUpcomingHtml, buildUpcomingGroups } from './renderUpcoming.js';
 import { renderFilterHtml, buildFilterGroups } from './renderFilter.js';
 import { parseTaskFilter } from './taskFilter.js';
 import { createSmartView, smartViewsFromJson } from './taskSmartViews.js';
@@ -1276,8 +1277,10 @@ function sidebarCounts() {
     if (!isOpen(task)) continue;
     projectOpen[task.projectId] = (projectOpen[task.projectId] || 0) + 1;
   }
-  const { badge } = buildTodayGroups(state.tasks, state.projects, { now: new Date() });
-  return { todayBadge: badge, projectOpen };
+  const now = new Date();
+  const { badge } = buildTodayGroups(state.tasks, state.projects, { now });
+  const { badge: upcomingBadge } = buildUpcomingGroups(state.tasks, state.projects, { now });
+  return { todayBadge: badge, upcomingBadge, projectOpen };
 }
 
 function projectTasks() {
@@ -1327,6 +1330,11 @@ function renderMainHtml() {
       const built = buildFilterGroups(state.tasks, state.projects, predicate || (() => true), { now });
       flatIds = built.flatIds;
       return renderFilterHtml(state, { groups: built.groups, count: built.count, error });
+    }
+    case 'upcoming': {
+      const { groups, flatIds: ids } = buildUpcomingGroups(state.tasks, state.projects, { now });
+      flatIds = ids;
+      return renderUpcomingHtml(state, groups, { now });
     }
     case 'settings': {
       const model = {
@@ -1594,6 +1602,7 @@ async function handleAction(action, el, event) {
       openConfirm(newProjectDialog());
       break;
     case 'nav-library': goLibrary(); break;
+    case 'nav-upcoming': setState({ navType: 'upcoming', selectedTaskId: null, multiSelectIds: [] }); renderApp(); break;
     case 'nav-filter': goFilter(); break;
     case 'nav-settings': goSettings(); break;
     case 'select-smart-view': {
