@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildServer } from '../../mcp/server.js';
 
-const EXPECTED_TOOL_COUNT = 24; // 5 document (incl ask_library) + 4 task + 3 link + 4 checklist + 1 activity + 4 document-link + 2 graph-maintenance + 1 semantic-search tools
+const EXPECTED_TOOL_COUNT = 29; // 5 document (incl ask_library) + 4 task + 3 link + 4 checklist + 1 activity + 4 document-link + 2 graph-maintenance + 1 semantic-search + 5 runbook-run tools
 
-test('registers all 23 tools with unique names', () => {
+test('registers all tools with unique names', () => {
   const registered = [];
   const fakeServer = {
     registerTool: (name, config, handler) => {
@@ -25,6 +25,7 @@ test('registers all 23 tools with unique names', () => {
     'list_document_links', 'link_documents', 'unlink_documents', 'supersede_document',
     'list_stale_documents', 'list_orphan_documents',
     'search_documents_semantic',
+    'start_runbook_run', 'list_runbook_runs', 'get_runbook_run', 'set_run_step', 'set_run_status',
   ]) {
     assert.ok(names.includes(expected), `missing tool ${expected}`);
   }

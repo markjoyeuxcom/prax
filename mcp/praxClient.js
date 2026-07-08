@@ -163,5 +163,24 @@ export function createPraxClient({
 
     listTaskActivity: (taskId) =>
       request('GET', `/api/tasks/${taskId}/activity`, {}),
+
+    // ---- Runbook execution (runs) ----
+    // Writes stamp the agent as the actor via x-prax-origin; getRunbookRun /
+    // setRunStep / setRunStatus null-coalesce a 404 so the tools can message it.
+    startRunbookRun: (documentId, title) =>
+      request('POST', `/api/library/documents/${documentId}/runs`, {
+        body: { title }, headers: { 'x-prax-origin': 'agent' },
+      }),
+
+    listRunbookRuns: (documentId) =>
+      request('GET', `/api/library/documents/${documentId}/runs`, {}),
+
+    getRunbookRun: (runId) => getOrNull(`/api/library/runs/${runId}`),
+
+    setRunStep: (runId, stepId, checked) =>
+      patchOrNull(`/api/library/runs/${runId}/steps/${stepId}`, { checked }, { 'x-prax-origin': 'agent' }),
+
+    setRunStatus: (runId, status) =>
+      patchOrNull(`/api/library/runs/${runId}`, { status }, { 'x-prax-origin': 'agent' }),
   };
 }
