@@ -55,7 +55,7 @@ export function buildContextPack(docs, { project = null, query = '', limit = DEF
 export function renderContextPackMarkdown(pack) {
   const lines = [];
   const p = pack.project;
-  lines.push(`# Context: ${p ? p.name : 'Unknown project'}${p && p.status ? ` (${p.status})` : ''}`);
+  lines.push(`# Context: ${p ? p.name : 'Library'}${p && p.status ? ` (${p.status})` : ''}`);
   if (pack.query) lines.push(`\n_Query: ${pack.query}_`);
   for (const section of pack.sections) {
     lines.push(`\n## ${section.title}`);

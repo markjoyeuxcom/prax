@@ -1,6 +1,6 @@
 import { toIso } from './columnTypes.js';
 
-const ALLOWED_CREATE_FIELDS = ['title', 'description', 'priority', 'status', 'projectId', 'dueDate', 'sortOrder', 'notes'];
+const ALLOWED_CREATE_FIELDS = ['title', 'description', 'priority', 'status', 'projectId', 'dueDate', 'sortOrder', 'notes', 'recurrence'];
 const IMPORT_FIELDS = ['title', 'description', 'priority', 'status', 'projectId', 'dueDate', 'sortOrder', 'archivedAt'];
 const UPDATE_COLUMN_MAP = {
   title: 'title',
@@ -10,6 +10,7 @@ const UPDATE_COLUMN_MAP = {
   projectId: 'project_id',
   dueDate: 'due_date',
   deferredUntil: 'deferred_until',
+  recurrence: 'recurrence',
   sortOrder: 'sort_order',
   notes: 'notes',
 };
@@ -34,6 +35,7 @@ export function normalizeTaskRow(row) {
     projectId: row.project_id,
     dueDate: toDateOnly(row.due_date),
     deferredUntil: toIso(row.deferred_until) ?? null,
+    recurrence: row.recurrence ?? null,
     sortOrder: row.sort_order,
     archivedAt: toIso(row.archived_at),
     createdAt: toIso(row.created_at),
@@ -44,8 +46,8 @@ export function normalizeTaskRow(row) {
 export function buildCreateTask(task) {
   return {
     text: `
-      insert into tasks (title, description, priority, status, project_id, due_date, sort_order, notes)
-      values ($1, $2, $3, $4, $5, $6, $7, $8)
+      insert into tasks (title, description, priority, status, project_id, due_date, sort_order, notes, recurrence)
+      values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       returning *
     `,
     values: ALLOWED_CREATE_FIELDS.map(field => task[field] ?? null),

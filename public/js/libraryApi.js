@@ -131,6 +131,16 @@ export async function semanticSearch(query, project) {
   return res.json();
 }
 
+// A library-wide "what do we know about X?" brief — the same query-scoped
+// context pack the ask_library MCP tool uses, returned as Markdown for humans.
+export async function fetchContextPack(query, project = 'all') {
+  const params = new URLSearchParams({ q: query });
+  if (project && project !== 'all') params.set('project', project);
+  const res = await fetch(`/api/library/context-pack?${params.toString()}`);
+  if (!res.ok) throw new Error('Failed to build brief');
+  return res.text();
+}
+
 // ---- Runbook execution (runs) ----------------------------------------------
 
 export async function startRun(documentId, title = '') {

@@ -10,6 +10,7 @@ export const DEFAULT_PREFERENCES = Object.freeze({
   chromeOS: 'mac',
   readingScale: 1,
   lineNumbers: false,
+  reminders: true,
 });
 
 export const THEME_OPTIONS = Object.freeze(['light', 'dark']);
@@ -54,6 +55,7 @@ export function normalizePreferences(value = {}) {
     chromeOS: isAllowed(source.chromeOS, CHROME_OPTIONS) ? source.chromeOS : DEFAULT_PREFERENCES.chromeOS,
     readingScale: clampReadingScale(source.readingScale),
     lineNumbers: source.lineNumbers === true,
+    reminders: source.reminders !== false, // opt-out; defaults on
   };
 }
 

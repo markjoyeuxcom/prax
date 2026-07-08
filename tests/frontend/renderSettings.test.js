@@ -321,3 +321,11 @@ test('appearance offers the editor line-numbers switch reflecting the preference
   const on = renderSettingsHtml(baseState({ preferences: { ...baseState().preferences, lineNumbers: true } }), baseModel());
   assert.match(on, /class="switch is-on"[^>]*data-action="toggle-line-numbers"/);
 });
+
+test('appearance offers the due-date reminders switch reflecting the preference', () => {
+  const on = renderSettingsHtml(baseState({ preferences: { ...baseState().preferences, reminders: true } }), baseModel());
+  assert.match(on, /class="switch is-on"[^>]*data-action="toggle-reminders"/);
+  const off = renderSettingsHtml(baseState({ preferences: { ...baseState().preferences, reminders: false } }), baseModel());
+  assert.match(off, /data-action="toggle-reminders"/);
+  assert.doesNotMatch(off, /toggle-reminders"[^>]*aria-checked="true"/);
+});

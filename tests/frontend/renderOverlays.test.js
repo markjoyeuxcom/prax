@@ -9,7 +9,7 @@ test('capture renders the overlay, input with current value and the ↵ hint', (
   const html = renderCaptureHtml({ captureQuery: 'Rotate certs' }, { id: 'p1', name: 'Homelab', color: '#3aa17e' });
   assert.match(html, /class="overlay-center"[^>]*data-action="close-capture"/);
   assert.match(html, /class="capture"/);
-  assert.match(html, /data-capture-input[^>]*placeholder="What needs doing\?"[^>]*value="Rotate certs"/);
+  assert.match(html, /data-capture-input[^>]*placeholder="What needs doing\?[^"]*"[^>]*value="Rotate certs"/);
   assert.match(html, /class="kbd">↵<\/span> add task/);
 });
 
