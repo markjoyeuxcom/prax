@@ -8,14 +8,15 @@ import { createActivityTools } from '../../mcp/tools/activity.js';
 import { createDocumentLinkTools } from '../../mcp/tools/documentLinks.js';
 import { createGraphMaintenanceTools } from '../../mcp/tools/graphMaintenance.js';
 import { createSemanticSearchTools } from '../../mcp/tools/semanticSearch.js';
+import { createRunTools } from '../../mcp/tools/runs.js';
 import { toTaskRef, toDocumentRef, capResults } from '../../mcp/shape.js';
 
 // The current MCP tool surface this regression test locks: tool name -> required + optional input fields.
 const FROZEN_TOOLS = {
-  search_tasks: { required: [], optional: ['query', 'project', 'status'] },
+  search_tasks: { required: [], optional: ['query', 'project', 'status', 'filter'] },
   get_task: { required: ['id'], optional: [] },
-  create_task: { required: ['title', 'project'], optional: ['description', 'priority', 'status', 'dueDate'] },
-  update_task: { required: ['id'], optional: ['title', 'description', 'notes', 'priority', 'status', 'project', 'dueDate'] },
+  create_task: { required: ['title', 'project'], optional: ['description', 'priority', 'status', 'dueDate', 'labels'] },
+  update_task: { required: ['id'], optional: ['title', 'description', 'notes', 'priority', 'status', 'project', 'dueDate', 'labels'] },
   search_documents: { required: [], optional: ['query', 'project', 'documentType', 'tags', 'kind', 'status'] },
   get_document: { required: ['id'], optional: [] },
   create_document: { required: ['title', 'body', 'documentType', 'project'], optional: ['tags', 'kind'] },
@@ -35,6 +36,11 @@ const FROZEN_TOOLS = {
   list_stale_documents: { required: [], optional: ['project'] },
   list_orphan_documents: { required: [], optional: ['project'] },
   search_documents_semantic: { required: ['query'], optional: ['project'] },
+  start_runbook_run: { required: ['documentId'], optional: ['title'] },
+  list_runbook_runs: { required: ['documentId'], optional: [] },
+  get_runbook_run: { required: ['runId'], optional: [] },
+  set_run_step: { required: ['runId', 'stepId', 'checked'], optional: [] },
+  set_run_status: { required: ['runId', 'status'], optional: [] },
 };
 
 function allTools(client = {}) {
@@ -47,6 +53,7 @@ function allTools(client = {}) {
     ...createDocumentLinkTools(client),
     ...createGraphMaintenanceTools(client),
     ...createSemanticSearchTools(client),
+    ...createRunTools(client),
   ];
 }
 
@@ -114,7 +121,7 @@ test('SHAPE: MCP-owned ref shapes are locked', () => {
     id: '1', title: 't', status: 'planned', priority: 'high',
     projectId: 'p', dueDate: '2026-05-12', description: 'x', notes: 'y',
   });
-  assert.deepEqual(Object.keys(taskRef).sort(), ['dueDate', 'id', 'priority', 'projectId', 'status', 'title'].sort());
+  assert.deepEqual(Object.keys(taskRef).sort(), ['dueDate', 'id', 'labels', 'priority', 'projectId', 'status', 'title'].sort());
 
   const docRef = toDocumentRef({
     id: '1', title: 't', documentType: 'note', projectId: 'p', tags: ['a'], body: 'long body',

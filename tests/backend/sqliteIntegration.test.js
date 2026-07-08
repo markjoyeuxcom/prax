@@ -140,6 +140,26 @@ test('tasks: completing a recurring task spawns the next instance with an advanc
   assert.equal((await app.inject({ method: 'PATCH', url: `/api/tasks/${task.id}`, payload: { recurrence: 'yearly' } })).statusCode, 400);
 });
 
+test('tasks: labels round-trip and normalize (lowercase, strip @, dedupe) on create + patch', async () => {
+  const created = await app.inject({
+    method: 'POST',
+    url: '/api/tasks',
+    payload: { title: 'Renew cert', priority: 'high', status: 'planned', project: 'homelab', labels: ['@Waiting', 'waiting', 'Cert-Rotation'] },
+  });
+  assert.equal(created.statusCode, 201);
+  assert.deepEqual(created.json().labels, ['waiting', 'cert-rotation'], 'normalized + deduped on create');
+  const id = created.json().id;
+
+  const listed = (await app.inject({ method: 'GET', url: '/api/tasks?project=homelab' })).json().find(t => t.id === id);
+  assert.deepEqual(listed.labels, ['waiting', 'cert-rotation']);
+
+  const patched = await app.inject({ method: 'PATCH', url: `/api/tasks/${id}`, payload: { labels: ['@PagerDuty', ' pagerduty '] } });
+  assert.deepEqual(patched.json().labels, ['pagerduty']);
+
+  assert.deepEqual((await app.inject({ method: 'PATCH', url: `/api/tasks/${id}`, payload: { labels: [] } })).json().labels, []);
+  assert.equal((await app.inject({ method: 'PATCH', url: `/api/tasks/${id}`, payload: { labels: 'nope' } })).statusCode, 400);
+});
+
 test('checklist: add, toggle, list, delete', async () => {
   const add = await app.inject({ method: 'POST', url: `/api/tasks/${taskA.id}/checklist`, payload: { label: 'Verify snapshot' } });
   assert.equal(add.statusCode, 201);

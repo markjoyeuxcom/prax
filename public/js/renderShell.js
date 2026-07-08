@@ -167,6 +167,24 @@ function sidebarSavedViews(state) {
   return `<div class="side-section"><span>Saved views</span></div>${items}`;
 }
 
+// Saved task smart views — a filter expression per row, opened via
+// select-smart-view; a hover-× deletes. Mirrors sidebarSavedViews.
+function sidebarSmartViews(state) {
+  const views = state.taskSmartViews || [];
+  if (!views.length) return '';
+  const items = views.map((view) => {
+    const active = state.navType === 'filter' && state.activeSmartViewId === view.id;
+    return '<div class="side-item-row">'
+      + `<button type="button" class="side-item side-item--saved${active ? ' is-active' : ''}" data-action="select-smart-view" data-view-id="${escapeHtml(view.id)}"${active ? ' aria-current="true"' : ''}>`
+      + icon('filter')
+      + `<span class="side-item__label">${escapeHtml(view.label)}</span>`
+      + '</button>'
+      + `<button type="button" class="side-item__del" data-action="delete-smart-view" data-view-id="${escapeHtml(view.id)}" title="Delete smart view" aria-label="Delete smart view ${escapeHtml(view.label || '')}">×</button>`
+      + '</div>';
+  }).join('');
+  return `<div class="side-section"><span>Smart views</span></div>${items}`;
+}
+
 export function renderSidebarHtml(state, counts = {}) {
   // In the desktop shell the macOS traffic lights overlay the top-left corner
   // — a full-size icon beneath them read as a fourth button, so the mark
@@ -179,9 +197,11 @@ export function renderSidebarHtml(state, counts = {}) {
 
   const nav = [
     sideNavItem({ label: 'Today', iconName: 'check', action: 'nav-today', active: state.navType === 'today', badge: counts.todayBadge }),
+    sideNavItem({ label: 'Upcoming', iconName: 'calendar', action: 'nav-upcoming', active: state.navType === 'upcoming', badge: counts.upcomingBadge }),
     sidebarInboxItem(state, counts),
     sideNavItem({ label: 'All projects', iconName: 'grid', action: 'nav-all', active: state.navType === 'all' }),
     sideNavItem({ label: 'Library', iconName: 'book', action: 'nav-library', active: isLibraryNav(state) }),
+    sideNavItem({ label: 'Filter', iconName: 'filter', action: 'nav-filter', active: state.navType === 'filter' && !state.activeSmartViewId }),
   ].join('');
 
   const projectsSection = '<div class="side-section">'
@@ -200,7 +220,7 @@ export function renderSidebarHtml(state, counts = {}) {
 
   return '<aside class="sidebar" aria-label="Navigation">'
     + brand
-    + `<div class="sidebar__scroll">${nav}${projectsSection}${sidebarSavedViews(state)}</div>`
+    + `<div class="sidebar__scroll">${nav}${projectsSection}${sidebarSmartViews(state)}${sidebarSavedViews(state)}</div>`
     + settings
     + '</aside>';
 }
@@ -213,9 +233,11 @@ export function renderRailHtml(state) {
   const inbox = inboxProject(state);
   const navs = [
     { title: 'Today', iconName: 'check', action: 'nav-today', active: state.navType === 'today' },
+    { title: 'Upcoming', iconName: 'calendar', action: 'nav-upcoming', active: state.navType === 'upcoming' },
     ...(inbox ? [{ title: 'Inbox', iconName: 'inbox', action: 'nav-project', active: isCurrentProject(state, inbox.id), projectId: inbox.id }] : []),
     { title: 'All projects', iconName: 'grid', action: 'nav-all', active: state.navType === 'all' },
     { title: 'Library', iconName: 'book', action: 'nav-library', active: isLibraryNav(state) },
+    { title: 'Filter', iconName: 'filter', action: 'nav-filter', active: state.navType === 'filter' },
     { title: 'Settings', iconName: 'sliders', action: 'nav-settings', active: state.navType === 'settings' },
   ].map(({ title, iconName, action, active, projectId }) => (
     `<button type="button" class="rail__btn${active ? ' is-active' : ''}" title="${title}" data-action="${action}"${projectId ? ` data-project-id="${escapeHtml(projectId)}"` : ''}${active ? ' aria-current="true"' : ''}>${icon(iconName, 16)}</button>`

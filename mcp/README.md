@@ -44,10 +44,11 @@ registration with `claude mcp list`. (Confirm the exact `claude mcp add` flag sy
 
 Reads: `search_documents`, `get_document`, `search_tasks`, `get_task`,
 `list_task_documents`, `list_task_checklist`, `list_task_activity`, `list_document_links`,
-`list_stale_documents`, `list_orphan_documents`.
+`list_stale_documents`, `list_orphan_documents`, `list_runbook_runs`, `get_runbook_run`.
 Writes: `create_document`, `update_document`, `create_task`, `update_task`,
 `link_task_document`, `unlink_task_document`, `add_checklist_item`, `set_checklist_item`,
-`delete_checklist_item`, `link_documents`, `unlink_documents`.
+`delete_checklist_item`, `link_documents`, `unlink_documents`,
+`start_runbook_run`, `set_run_step`, `set_run_status`.
 
 Document graph tools:
 - `link_documents` — create a typed, directional link (derived-from / supersedes) between two documents.
@@ -55,6 +56,13 @@ Document graph tools:
 - `list_document_links` — list a document's links and backlinks (direction: outbound / inbound / both).
 - `list_stale_documents` — list derived documents whose source changed since the last link snapshot (stale = derived doc whose source was updated after it was linked).
 - `list_orphan_documents` — list documents with no inbound or outbound links.
+
+Runbook execution tools:
+- `start_runbook_run` — snapshot a runbook's checkbox steps into a new timestamped run (an independent chronicle; checking steps never edits the source).
+- `list_runbook_runs` — list a runbook's runs, newest first, with status and step/done counts.
+- `get_runbook_run` — fetch a run with its ordered steps and per-step timestamps (the chronicle, for post-incident summaries).
+- `set_run_step` — check/uncheck a step (checking stamps the time + the agent as actor).
+- `set_run_status` — finish (`completed`/`aborted`) or reopen (`running`) a run.
 
 No archive, delete, reorder, or import tools are exposed.
 

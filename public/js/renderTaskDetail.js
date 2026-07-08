@@ -95,7 +95,23 @@ function renderFieldRows(task, dis, ro) {
       <div class="field-row">
         <span class="field-row__label">Snooze</span>
         <div class="field-row__value">${renderSnoozeControls(task, dis)}</div>
+      </div>
+      <div class="field-row">
+        <span class="field-row__label">Labels</span>
+        <div class="field-row__value">${renderLabelControls(task, dis)}</div>
       </div>${renderDescriptionRow(task, ro)}`;
+}
+
+// Cross-cutting labels (@waiting, @pagerduty). Chips with a × to remove; an
+// input adds one on Enter (handled in main.js). Stored lowercase; shown with a
+// leading @ to read like the filter grammar.
+function renderLabelControls(task, dis) {
+  const labels = Array.isArray(task.labels) ? task.labels : [];
+  const chips = labels.map((label) =>
+    `<span class="task-label">@${escapeHtml(label)}<button type="button" class="task-label__x" data-action="remove-task-label" data-label="${escapeHtml(label)}"${dis} aria-label="Remove label ${escapeHtml(label)}">×</button></span>`,
+  ).join('');
+  const input = dis ? '' : '<input class="task-label-input" type="text" data-task-label-input placeholder="add label…" autocomplete="off" spellcheck="false">';
+  return `<div class="task-labels">${chips}${input}</div>`;
 }
 
 // Recurrence presets. On completion the server spawns the next instance with an
