@@ -2185,3 +2185,6 @@ body.is-desktop-mac .titlebar { padding-left: 84px; }
   color: var(--ink3);
 }
 .brief__hint-k .kbd { margin: 0 1px; }
+
+/* Recurrence chip on the task drawer */
+.chip--recur { background: var(--accent-soft); color: var(--accent); font-weight: 600; }

@@ -51,6 +51,7 @@ export function normalizeTask(task) {
     projectId: task.projectId || null,
     dueDate: task.dueDate || task.due_date || null,
     deferredUntil: task.deferredUntil || task.deferred_until || null,
+    recurrence: task.recurrence || null,
     sortOrder: Number.isFinite(task.sortOrder) ? task.sortOrder : task.order || 0,
     order: Number.isFinite(task.sortOrder) ? task.sortOrder : task.order || 0,
     archivedAt: task.archivedAt || null,

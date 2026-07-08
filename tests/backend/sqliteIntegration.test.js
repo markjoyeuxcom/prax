@@ -100,6 +100,46 @@ test('tasks: reorder persists status + sortOrder in one call', async () => {
   assert.deepEqual(ordered.map(t => t.title), ['Rotate TLS certs', 'Swap NAS drive']);
 });
 
+test('tasks: completing a recurring task spawns the next instance with an advanced due date', async () => {
+  // A weekly cert rotation due far in the future, so the next instance is a
+  // clean +7 regardless of the real date this test runs on (the route advances
+  // from the real "now"; the roll-forward-past-today path is unit-tested).
+  const created = await app.inject({
+    method: 'POST',
+    url: '/api/tasks',
+    payload: { title: 'Rotate gateway cert', priority: 'medium', status: 'planned', project: 'homelab', dueDate: '2030-07-10' },
+  });
+  const task = created.json();
+  // Recurrence is set via PATCH (not accepted on create).
+  const setRec = await app.inject({ method: 'PATCH', url: `/api/tasks/${task.id}`, payload: { recurrence: 'weekly' } });
+  assert.equal(setRec.statusCode, 200);
+  assert.equal(setRec.json().recurrence, 'weekly');
+
+  const before = (await app.inject({ method: 'GET', url: '/api/tasks?project=homelab' })).json().filter(t => t.title === 'Rotate gateway cert').length;
+
+  // Complete it → the next weekly instance appears, due +7 days, still planned + recurring.
+  const done = await app.inject({ method: 'PATCH', url: `/api/tasks/${task.id}`, payload: { status: 'completed' } });
+  assert.equal(done.json().status, 'completed');
+
+  const rotations = (await app.inject({ method: 'GET', url: '/api/tasks?project=homelab' })).json().filter(t => t.title === 'Rotate gateway cert');
+  assert.equal(rotations.length, before + 1, 'a next instance was created');
+  const next = rotations.find(t => t.status === 'planned');
+  assert.ok(next, 'next instance is planned');
+  assert.equal(next.dueDate, '2030-07-17');
+  assert.equal(next.recurrence, 'weekly');
+  assert.notEqual(next.id, task.id);
+
+  // Completing a NON-recurring task spawns nothing.
+  const plain = (await app.inject({ method: 'POST', url: '/api/tasks', payload: { title: 'One-off chore', project: 'homelab', priority: 'low', status: 'planned' } })).json();
+  const countBefore = (await app.inject({ method: 'GET', url: '/api/tasks?project=homelab' })).json().length;
+  await app.inject({ method: 'PATCH', url: `/api/tasks/${plain.id}`, payload: { status: 'completed' } });
+  const countAfter = (await app.inject({ method: 'GET', url: '/api/tasks?project=homelab' })).json().length;
+  assert.equal(countAfter, countBefore, 'no spawn for a non-recurring task');
+
+  // An invalid recurrence token is rejected.
+  assert.equal((await app.inject({ method: 'PATCH', url: `/api/tasks/${task.id}`, payload: { recurrence: 'yearly' } })).statusCode, 400);
+});
+
 test('checklist: add, toggle, list, delete', async () => {
   const add = await app.inject({ method: 'POST', url: `/api/tasks/${taskA.id}/checklist`, payload: { label: 'Verify snapshot' } });
   assert.equal(add.statusCode, 201);
