@@ -50,6 +50,7 @@ test('normalizeTaskRow maps database fields to API task fields', () => {
     projectId: PROJECT_ID,
     dueDate: '2026-05-11',
     deferredUntil: null,
+    recurrence: null,
     sortOrder: 2,
     archivedAt: null,
     createdAt: '2026-05-10T10:00:00.000Z',
@@ -88,7 +89,7 @@ test('buildCreateTask returns parameterized insert query', () => {
   });
 
   assert.match(query.text, /insert into tasks/);
-  assert.equal(query.values.length, 8);
+  assert.equal(query.values.length, 9);
   assert.equal(query.values[0], 'Wire API adapter');
 });
 
@@ -98,7 +99,7 @@ test('buildCreateTask places notes at $8', () => {
     projectId: PROJECT_ID, dueDate: null, sortOrder: 0,
     notes: 'Handoff context',
   });
-  assert.match(query.text, /sort_order, notes\)/);
+  assert.match(query.text, /sort_order, notes, recurrence\)/);
   assert.equal(query.values[7], 'Handoff context');
 });
 

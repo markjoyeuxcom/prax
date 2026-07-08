@@ -89,9 +89,34 @@ function renderFieldRows(task, dis, ro) {
         </div>
       </div>
       <div class="field-row">
+        <span class="field-row__label">Repeat</span>
+        <div class="field-row__value">${renderRecurrenceControls(task, dis)}</div>
+      </div>
+      <div class="field-row">
         <span class="field-row__label">Snooze</span>
         <div class="field-row__value">${renderSnoozeControls(task, dis)}</div>
       </div>${renderDescriptionRow(task, ro)}`;
+}
+
+// Recurrence presets. On completion the server spawns the next instance with an
+// advanced due date (server/recurrence.js). A custom `every:Nd` value set by an
+// agent shows no active preset but is preserved until a pill is chosen.
+const RECURRENCE_OPTIONS = [['', 'None'], ['daily', 'Daily'], ['weekly', 'Weekly'], ['monthly', 'Monthly']];
+
+export function recurrenceLabel(recurrence) {
+  if (!recurrence) return '';
+  const preset = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' }[recurrence];
+  if (preset) return preset;
+  const m = /^every:(\d+)([dw])$/.exec(recurrence);
+  if (m) return `Every ${m[1]} ${m[2] === 'w' ? 'week' : 'day'}${Number(m[1]) > 1 ? 's' : ''}`;
+  return recurrence;
+}
+
+function renderRecurrenceControls(task, dis) {
+  const current = task.recurrence || '';
+  return RECURRENCE_OPTIONS.map(([value, label]) =>
+    `<button class="pill-btn${current === value ? ' is-active' : ''}" type="button" data-action="set-task-recurrence" data-recurrence="${value}"${dis}>${label}</button>`,
+  ).join('');
 }
 
 // Snooze hides a task from Today until a future moment. When snoozed, show the
@@ -210,7 +235,8 @@ function renderHead(task, context, isDone, readOnly) {
     : '';
   const flag = dueFlag(task.dueDate, { done: isDone, now: context.now });
   const dueChip = flag ? chip(flag.label, `due-${flag.bucket}`) : '';
-  const chips = `${projectChip}${dueChip}`;
+  const recurChip = task.recurrence ? chip(`↻ ${recurrenceLabel(task.recurrence)}`, 'recur') : '';
+  const chips = `${projectChip}${dueChip}${recurChip}`;
   return `
       <div class="drawer__head">
         <button class="task-check${isDone ? ' is-done' : ''}" type="button" data-action="toggle-task-done" data-task-id="${escapeHtml(task.id)}" aria-pressed="${isDone}" aria-label="Toggle done"${readOnly ? ' disabled' : ''}>${isDone ? '✓' : ''}</button>

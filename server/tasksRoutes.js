@@ -1,11 +1,12 @@
 import { createTasksRepository } from './tasksRepository.js';
 import { createProjectsRepository } from './projectsRepository.js';
+import { isValidRecurrence, nextDueDate } from './recurrence.js';
 
 const PRIORITIES = new Set(['high', 'medium', 'low']);
 const STATUSES = new Set(['high-priority', 'in-progress', 'planned', 'completed', 'notes']);
 // 'project' (slug-or-id) is the client-facing field; 'projectId' is resolved
 // server-side and injected into the patch by the handler — never accepted raw.
-const PATCH_FIELDS = ['title', 'description', 'notes', 'priority', 'status', 'project', 'dueDate', 'deferredUntil', 'sortOrder'];
+const PATCH_FIELDS = ['title', 'description', 'notes', 'priority', 'status', 'project', 'dueDate', 'deferredUntil', 'recurrence', 'sortOrder'];
 
 // Snooze target: '' (or null) clears it; otherwise any string a Date can parse
 // (the client sends an ISO timestamp).
@@ -204,6 +205,12 @@ function validateTaskPatchPayload(payload) {
     return 'deferredUntil is invalid';
   }
   if (
+    Object.prototype.hasOwnProperty.call(payload, 'recurrence') &&
+    !isValidRecurrence(payload.recurrence)
+  ) {
+    return 'recurrence is invalid';
+  }
+  if (
     Object.prototype.hasOwnProperty.call(payload, 'sortOrder') &&
     !isValidSortOrder(payload.sortOrder)
   ) {
@@ -221,7 +228,7 @@ function cleanTaskPatchPayload(payload) {
       fields[field] = payload[field].trim();
       return fields;
     }
-    if ((field === 'dueDate' || field === 'deferredUntil') && payload[field] === '') {
+    if ((field === 'dueDate' || field === 'deferredUntil' || field === 'recurrence') && payload[field] === '') {
       fields[field] = null;
       return fields;
     }
@@ -276,6 +283,28 @@ export async function registerTasksRoutes(app, options = {}) {
     if (value === undefined || value === null || value === '') return undefined;
     const project = await projectsRepository.resolveProject(String(value));
     return project ? project.id : null; // null signals "given but not found"
+  }
+
+  // A recurring task just transitioned into 'completed' → clone it as the next
+  // planned instance with an advanced due date. The completed one stays as the
+  // record of the done occurrence. Best-effort: never fail the completion itself.
+  async function maybeSpawnRecurrence(task, priorStatus) {
+    if (!task || !task.recurrence || !repository.createTask) return;
+    if (task.status !== 'completed' || priorStatus === 'completed') return;
+    try {
+      const next = await repository.createTask({
+        title: task.title,
+        description: task.description || '',
+        notes: task.notes || '',
+        priority: task.priority,
+        status: 'planned',
+        projectId: task.projectId,
+        dueDate: nextDueDate(task.recurrence, task.dueDate),
+        recurrence: task.recurrence,
+        sortOrder: 0,
+      });
+      if (next) await logActivity(next.id, 'created', 'Recurring task created');
+    } catch { /* spawning the next instance is best-effort */ }
   }
 
   app.get('/api/tasks/export', async (request, reply) => {
@@ -406,6 +435,7 @@ export async function registerTasksRoutes(app, options = {}) {
       if (priorStatus !== undefined && priorStatus !== task.status) {
         await logActivity(task.id, 'status', `Status → ${task.status}`);
       }
+      await maybeSpawnRecurrence(task, priorStatus);
     }
 
     return reordered;
@@ -530,6 +560,7 @@ export async function registerTasksRoutes(app, options = {}) {
     if (prior && prior.status !== task.status) {
       await logActivity(task.id, 'status', `Status → ${task.status}`);
     }
+    await maybeSpawnRecurrence(task, prior ? prior.status : undefined);
     return task;
   });
 

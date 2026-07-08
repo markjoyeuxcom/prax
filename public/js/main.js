@@ -339,6 +339,11 @@ async function patchTask(id, apiPatch, { failure = 'update this task' } = {}) {
     const updated = await updateTask(id, apiPatch);
     const normalized = normalizeTask(updated);
     applyTaskPatchLocal(id, normalized);
+    // Completing a recurring task spawns its next instance server-side; refetch
+    // so the freshly scheduled task appears without a manual reload.
+    if (normalized.recurrence && normalized.status === 'completed') {
+      await loadTasks();
+    }
     return normalized;
   } catch {
     alertError(failure);
@@ -1594,6 +1599,7 @@ async function handleAction(action, el, event) {
     case 'close-drawer': setState({ drawerTaskId: null }); renderApp(); break;
     case 'set-task-status': await patchTask(state.drawerTaskId, { status: el.dataset.status }); break;
     case 'set-task-priority': await patchTask(state.drawerTaskId, { priority: el.dataset.priority }); break;
+    case 'set-task-recurrence': await patchTask(state.drawerTaskId, { recurrence: el.dataset.recurrence }); break;
     case 'clear-task-due': await patchTask(state.drawerTaskId, { dueDate: null }); break;
     case 'snooze-task':
       await patchTask(el.dataset.taskId || state.drawerTaskId, { deferredUntil: snoozeUntil(el.dataset.snooze) }, { failure: 'snooze the task' });
