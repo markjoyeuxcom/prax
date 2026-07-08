@@ -44,6 +44,7 @@ import { parseCaptureShorthand } from './captureShorthand.js';
 import { computeDueReminders, isOverdue } from './dueReminders.js';
 import { normalizeLabel } from './labels.js';
 import { mountCodeMirrorEditor } from '../vendor/codemirror-editor.js';
+import { mountPlainEditor } from './plainEditor.js';
 
 import {
   renderTitlebarHtml, renderSidebarHtml, renderRailHtml, renderStatusbarHtml,
@@ -814,8 +815,11 @@ function mountEditorIfNeeded() {
   const fallback = appRoot.querySelector('[data-document-editor]');
   if (!host) { destroyEditorController(); return; }
   if (documentEditorController) return;
+  // Editor engine is user-selectable (Settings ▸ Appearance) so the plain
+  // textarea spike can be A/B'd against CodeMirror in the real app.
+  const mount = state.preferences.editorEngine === 'plain' ? mountPlainEditor : mountCodeMirrorEditor;
   try {
-    documentEditorController = mountCodeMirrorEditor({
+    documentEditorController = mount({
       host,
       value: state.documentDraftBody,
       lineNumbers: Boolean(state.preferences.lineNumbers),
@@ -2084,6 +2088,13 @@ async function handleAction(action, el, event) {
       const preferences = savePreferences({ ...state.preferences, reminders: enabled });
       setState({ preferences });
       if (enabled) checkDueReminders();
+      renderApp();
+      break;
+    }
+    case 'set-editor-engine': {
+      const preferences = savePreferences({ ...state.preferences, editorEngine: el.dataset.engine });
+      setState({ preferences });
+      destroyEditorController(); // remount the open editor with the chosen engine
       renderApp();
       break;
     }

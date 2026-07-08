@@ -11,9 +11,11 @@ export const DEFAULT_PREFERENCES = Object.freeze({
   readingScale: 1,
   lineNumbers: false,
   reminders: true,
+  editorEngine: 'codemirror',
 });
 
 export const THEME_OPTIONS = Object.freeze(['light', 'dark']);
+export const EDITOR_ENGINE_OPTIONS = Object.freeze(['codemirror', 'plain']);
 export const ACCENT_OPTIONS = Object.freeze(['fern', 'teal', 'sky', 'indigo', 'plum', 'rose', 'amber', 'clay', 'moss']);
 export const CHROME_OPTIONS = Object.freeze(['mac', 'win']);
 export const READING_SCALE_MIN = 0.85;
@@ -63,6 +65,7 @@ export function normalizePreferences(value = {}) {
     readingScale: clampReadingScale(source.readingScale),
     lineNumbers: source.lineNumbers === true,
     reminders: source.reminders !== false, // opt-out; defaults on
+    editorEngine: isAllowed(source.editorEngine, EDITOR_ENGINE_OPTIONS) ? source.editorEngine : DEFAULT_PREFERENCES.editorEngine,
   };
 }
 
