@@ -327,6 +327,28 @@ test('GET /api/tasks?project=<unknown> returns 400 (not a cross-project query)',
   await app.close();
 });
 
+test('PATCH /api/tasks/:id accepts deferredUntil (snooze) and clears it on empty string', async () => {
+  const fields = [];
+  const repository = {
+    ...createFakeRepository(),
+    async updateTask(id, patch) { fields.push(patch); return { id, ...patch }; },
+  };
+  const app = await buildApp({ skipDb: true, tasksRepository: repository, projectsRepository: createFakeProjectsRepository() });
+
+  const snooze = await app.inject({ method: 'PATCH', url: `/api/tasks/${TASK_ID}`, payload: { deferredUntil: '2026-07-09T09:00:00.000Z' } });
+  assert.equal(snooze.statusCode, 200);
+  assert.equal(fields[0].deferredUntil, '2026-07-09T09:00:00.000Z');
+
+  const clear = await app.inject({ method: 'PATCH', url: `/api/tasks/${TASK_ID}`, payload: { deferredUntil: '' } });
+  assert.equal(clear.statusCode, 200);
+  assert.equal(fields[1].deferredUntil, null); // '' clears the snooze
+
+  const bad = await app.inject({ method: 'PATCH', url: `/api/tasks/${TASK_ID}`, payload: { deferredUntil: 'not-a-date' } });
+  assert.equal(bad.statusCode, 400);
+
+  await app.close();
+});
+
 test('PATCH /api/tasks/:id rejects a raw projectId (must use project slug-or-id)', async () => {
   let updated = false;
   const repository = {
