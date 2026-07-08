@@ -93,6 +93,13 @@ export function createPraxClient({
     searchDocumentsSemantic: (query, project) =>
       request('GET', '/api/library/documents/semantic-search', { query: { q: query, project } }),
 
+    // Query-scoped, library-wide context pack (Markdown). request() wraps the
+    // non-JSON markdown body as { message }, so unwrap it to the raw string.
+    contextPack: async ({ q, project, limit } = {}) => {
+      const res = await request('GET', '/api/library/context-pack', { query: { q, project, limit } });
+      return typeof res === 'string' ? res : (res?.message ?? '');
+    },
+
     getDocument: (id) => getOrNull(`/api/library/documents/${id}`),
 
     createDocument: (payload) =>

@@ -488,6 +488,51 @@ export async function registerLibraryRoutes(app, options = {}) {
     return renderContextPackMarkdown(pack);
   });
 
+  // Library-wide, query-scoped context pack: "what do we know about X?" without
+  // needing document ids or a project. Semantic when configured (keyword FTS
+  // fallback otherwise), optionally narrowed to one project. Returns markdown by
+  // default (format=json for the structured pack) — the agent-facing MCP tool
+  // consumes the markdown.
+  app.get('/api/library/context-pack', async (request, reply) => {
+    const query = request.query.q ? String(request.query.q).trim() : '';
+    if (!query) { reply.code(400); return { message: 'q is required' }; }
+
+    let project = null;
+    let projectId;
+    if (request.query.project && request.query.project !== 'all') {
+      project = await projectsRepository.resolveProject(String(request.query.project));
+      if (!project) { reply.code(400); return { message: 'project is invalid' }; }
+      projectId = project.id;
+    }
+
+    const rawLimit = Number(request.query.limit);
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 50) : 12;
+
+    let docs = [];
+    const embedder = await resolveEmbedder();
+    if (embedder && await semanticEnabled()) {
+      try {
+        const { vector } = await embedder.embed(query, { query: true });
+        const search = app.embeddingSearch || {};
+        docs = await repository.searchDocumentsSemantic(vector, embedder.backend, {
+          projectId, limit: 50, minSimilarity: search.minSimilarity, topDrop: search.topDrop,
+        });
+      } catch (err) {
+        // Degrade to keyword rather than fail — FTS always works.
+        request.log.error({ err }, 'library context-pack semantic embed failed');
+        docs = [];
+      }
+    }
+    if (docs.length === 0) {
+      docs = await repository.listDocuments({ projectId, status: 'active', q: query });
+    }
+
+    const pack = buildContextPack(docs, { project, query, limit });
+    if (request.query.format === 'json') return pack;
+    reply.header('Content-Type', 'text/markdown; charset=utf-8');
+    return renderContextPackMarkdown(pack);
+  });
+
   app.post('/api/library/documents/:id/links', async (request, reply) => {
     const sourceId = request.params.id;
     const { targetId, relation } = request.body || {};

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { isValidUuid } from '../validate.js';
-import { okResult, errorResult, withErrorHandling } from '../toolResult.js';
+import { okResult, errorResult, textResult, withErrorHandling } from '../toolResult.js';
 import { toDocumentRef, capResults } from '../shape.js';
 
 const DOCUMENT_TYPE = z.enum(['runbook', 'note']);
@@ -38,6 +38,22 @@ export function createDocumentTools(client) {
         }
         // Cap AFTER tag filtering so the cap bounds what reaches the model, not the pre-filter set.
         return okResult(capResults(refs));
+      }),
+    },
+    {
+      name: 'ask_library',
+      title: 'Ask the library',
+      description:
+        'Gather a context pack for a question WITHOUT needing document ids: retrieves the most relevant library documents and returns their content as a bounded, trust-aware Markdown pack (semantic ranking when a provider is configured, keyword search otherwise). Use this to answer "what do we know about X?". Use search_documents for a bare id/title list, or get_document to read one full document.',
+      annotations: { readOnlyHint: true },
+      inputSchema: {
+        query: z.string().min(1).describe('The question or topic to gather context for.'),
+        project: z.string().optional().describe('Limit to one project (slug or id); omit for the whole library.'),
+        limit: z.number().int().positive().optional().describe('Max documents in the pack (default 12, capped at 50).'),
+      },
+      handler: withErrorHandling(async ({ query, project, limit }) => {
+        const markdown = await client.contextPack({ q: query, project, limit });
+        return textResult(markdown);
       }),
     },
     {
