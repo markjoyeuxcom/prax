@@ -14,12 +14,22 @@ const SAMPLE_DOC = {
   documentType: 'runbook', projectId: 'homelab', tags: ['k8s', 'upgrade'],
 };
 
-test('exposes the four document tools', () => {
+test('exposes the document tools', () => {
   const names = createDocumentTools({}).map((t) => t.name);
   assert.deepEqual(
     names.sort(),
-    ['create_document', 'get_document', 'search_documents', 'update_document'],
+    ['ask_library', 'create_document', 'get_document', 'search_documents', 'update_document'],
   );
+});
+
+test('ask_library returns the context-pack markdown verbatim', async () => {
+  const calls = [];
+  const client = { contextPack: async (args) => { calls.push(args); return '# Context\n\nrelevant stuff'; } };
+  const tool = createDocumentTools(client).find((t) => t.name === 'ask_library');
+  const result = await tool.handler({ query: 'database restore', project: 'homelab', limit: 5 });
+  assert.deepEqual(calls[0], { q: 'database restore', project: 'homelab', limit: 5 });
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content[0].text, '# Context\n\nrelevant stuff'); // verbatim, not JSON-stringified
 });
 
 test('search_documents maps args to listDocuments and returns refs without bodies', async () => {
