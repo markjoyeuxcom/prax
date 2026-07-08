@@ -6,6 +6,7 @@ import {
   CHROME_OPTIONS,
   DEFAULT_PREFERENCES,
   EDITOR_FONT_OPTIONS,
+  PREVIEW_FONT_OPTIONS,
   LOCAL_STORAGE_KEY,
   THEME_OPTIONS,
   applyPreferences,
@@ -66,7 +67,7 @@ test('normalizePreferences returns defaults for empty or invalid input', () => {
 test('normalizePreferences preserves valid theme, accent, and chrome values', () => {
   assert.deepEqual(
     normalizePreferences({ theme: 'dark', accent: 'indigo', chromeOS: 'win', readingScale: 1.1 }),
-    { theme: 'dark', accent: 'indigo', chromeOS: 'win', readingScale: 1.1, lineNumbers: false, reminders: true, editorEngine: 'codemirror', editorFont: 'proportional' },
+    { theme: 'dark', accent: 'indigo', chromeOS: 'win', readingScale: 1.1, lineNumbers: false, reminders: true, editorEngine: 'codemirror', editorFont: 'proportional', previewFont: 'serif' },
   );
 });
 
@@ -96,7 +97,7 @@ test('loadPreferences parses saved localStorage JSON', () => {
     [LOCAL_STORAGE_KEY]: JSON.stringify({ theme: 'dark', accent: 'moss' }),
   });
 
-  assert.deepEqual(loadPreferences(storage), { theme: 'dark', accent: 'moss', chromeOS: 'mac', readingScale: 1, lineNumbers: false, reminders: true, editorEngine: 'codemirror', editorFont: 'proportional' });
+  assert.deepEqual(loadPreferences(storage), { theme: 'dark', accent: 'moss', chromeOS: 'mac', readingScale: 1, lineNumbers: false, reminders: true, editorEngine: 'codemirror', editorFont: 'proportional', previewFont: 'serif' });
 });
 
 test('loadPreferences returns defaults for malformed saved JSON', () => {
@@ -110,7 +111,7 @@ test('savePreferences stores normalized preferences', () => {
 
   const saved = savePreferences({ theme: 'dark', accent: 'clay', readingScale: 1.25 }, storage);
 
-  assert.deepEqual(saved, { theme: 'dark', accent: 'clay', chromeOS: 'mac', readingScale: 1.25, lineNumbers: false, reminders: true, editorEngine: 'codemirror', editorFont: 'proportional' });
+  assert.deepEqual(saved, { theme: 'dark', accent: 'clay', chromeOS: 'mac', readingScale: 1.25, lineNumbers: false, reminders: true, editorEngine: 'codemirror', editorFont: 'proportional', previewFont: 'serif' });
   assert.equal(storage.getItem(LOCAL_STORAGE_KEY), JSON.stringify(saved));
 });
 
@@ -148,6 +149,21 @@ test('applyPreferences writes the editor-font attribute (drives --pe-font)', () 
   assert.equal(body.getAttribute('data-editor-font'), 'monospace');
   applyPreferences({ theme: 'light' }, body); // default
   assert.equal(body.getAttribute('data-editor-font'), 'proportional');
+});
+
+test('preview font preference defaults to serif and validates against the option set', () => {
+  assert.deepEqual([...PREVIEW_FONT_OPTIONS], ['serif', 'sans', 'mono']);
+  assert.equal(normalizePreferences({}).previewFont, 'serif');
+  assert.equal(normalizePreferences({ previewFont: 'mono' }).previewFont, 'mono');
+  assert.equal(normalizePreferences({ previewFont: 'wingdings' }).previewFont, 'serif');
+});
+
+test('applyPreferences writes the preview-font attribute (drives --prose-font)', () => {
+  const body = bodyStub();
+  applyPreferences({ theme: 'light', previewFont: 'mono' }, body);
+  assert.equal(body.getAttribute('data-preview-font'), 'mono');
+  applyPreferences({ theme: 'light' }, body); // default
+  assert.equal(body.getAttribute('data-preview-font'), 'serif');
 });
 
 test('applyPreferences clears the accent override for the default fern accent', () => {

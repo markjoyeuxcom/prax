@@ -57,8 +57,12 @@ body {
      'monospace' preference swaps it so the plain editor can use real bold/
      italic (width-neutral in a mono face) without drifting its textarea caret. */
   --pe-font: var(--font-ui);
+  /* The rendered-preview body font (serif reading default; sans/mono optional). */
+  --prose-font: var(--font-prose);
 }
 body[data-editor-font="monospace"] { --pe-font: var(--font-mono); }
+body[data-preview-font="sans"] { --prose-font: var(--font-ui); }
+body[data-preview-font="mono"] { --prose-font: var(--font-mono); }
 
 body[data-theme="dark"] {
   --desk: linear-gradient(160deg, #101413 0%, #0C100F 60%, #0A0D0C 100%);
@@ -1247,7 +1251,7 @@ a { color: var(--accent); }
 .editor-ta:focus { outline: none; }
 
 .prose {
-  font-family: var(--font-prose);
+  font-family: var(--prose-font);
   font-size: calc(15px * var(--reading-scale));
   line-height: 1.7;
   color: var(--ink);

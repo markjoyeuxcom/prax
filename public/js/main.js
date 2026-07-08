@@ -2106,6 +2106,13 @@ async function handleAction(action, el, event) {
       renderApp();
       break;
     }
+    case 'set-preview-font': {
+      const preferences = savePreferences({ ...state.preferences, previewFont: el.dataset.font });
+      setState({ preferences });
+      applyPreferences(preferences); // flips <body data-preview-font> → --prose-font (CSS-only)
+      renderApp();
+      break;
+    }
     case 'enable-desktop-notifications': {
       // A user gesture — the only context in which the browser will show the
       // permission prompt. Once granted, checkDueReminders fires native ones.
