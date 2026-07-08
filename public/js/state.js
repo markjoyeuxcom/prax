@@ -75,6 +75,13 @@ export const state = {
   orphanDocs: [],
   maintenanceProjectFilter: 'all',
 
+  // ---- "Brief me" (human-facing context pack over the library) ----
+  briefOpen: false,
+  briefQuery: '',
+  briefMarkdown: null,          // null = not run; string = the returned brief markdown
+  briefLoading: false,
+  briefError: false,
+
   // ---- editor ----
   editorDocId: null,
   editorMode: 'split',          // 'edit' | 'split' | 'preview'

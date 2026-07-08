@@ -24,6 +24,7 @@ import {
   setSemanticEnabled, putSemanticSettings, reindexEmbeddings, semanticSearch,
   verifyDocument, supersedeDocument,
   startRun, fetchRuns, fetchRun, setRunStep, setRunStatus,
+  fetchContextPack,
 } from './libraryApi.js';
 import { normalizeTask } from './taskModel.js';
 import { apiStatus, designStatus, isOpen } from './statusMap.js';
@@ -56,6 +57,7 @@ import { renderLibraryHtml, buildLibraryModel } from './renderLibrary.js';
 import { templateById } from './documentTemplates.js';
 import { renderEditorHtml, buildOutline, buildBacklinks } from './renderEditor.js';
 import { renderRunHtml, buildChronicle } from './renderRun.js';
+import { renderBriefHtml } from './renderBrief.js';
 import { renderSearchPanelHtml, searchCountLabel } from './renderSearchPanel.js';
 import { renderAllProjectsHtml, buildProjectGroups } from './renderAllProjects.js';
 import { renderPaletteHtml, buildPaletteGroups } from './renderPalette.js';
@@ -842,6 +844,36 @@ async function openDocumentInEditor(documentId) {
 }
 
 // ---------------------------------------------------------------------------
+// "Brief me" — human-facing library context pack
+// ---------------------------------------------------------------------------
+
+function openBrief() {
+  // Keep the last query (handy to re-run) but clear any prior result.
+  setState({ briefOpen: true, briefMarkdown: null, briefError: false, briefLoading: false, paletteOpen: false });
+  renderApp();
+}
+
+async function runBrief(rawQuery) {
+  const query = String(rawQuery || '').trim();
+  if (!query) return;
+  setState({ briefQuery: query, briefLoading: true, briefError: false, briefMarkdown: null });
+  renderApp();
+  try {
+    const markdown = await fetchContextPack(query, 'all');
+    setState({ briefLoading: false, briefMarkdown: markdown });
+  } catch {
+    setState({ briefLoading: false, briefError: true });
+  }
+  renderApp();
+}
+
+async function copyBrief() {
+  if (typeof state.briefMarkdown !== 'string') return;
+  const ok = await copyToClipboard(state.briefMarkdown);
+  showToast(ok ? 'Brief copied' : 'Could not copy brief');
+}
+
+// ---------------------------------------------------------------------------
 // Runbook execution (runs)
 // ---------------------------------------------------------------------------
 
@@ -1123,6 +1155,7 @@ function goSettings() {
 
 function escapeCascade() {
   if (state.editorSearchOpen) { closeEditorSearch(); return; }
+  if (state.briefOpen) { setState({ briefOpen: false }); renderApp(); return; }
   if (state.confirm) { setState({ confirm: null }); renderApp(); return; }
   if (state.docMenuOpen) { setState({ docMenuOpen: false }); renderApp(); return; }
   if (state.paletteOpen) { setState({ paletteOpen: false }); renderApp(); return; }
@@ -1313,6 +1346,11 @@ function renderOverlaysHtml() {
       choices,
     );
   }
+  if (state.briefOpen) {
+    html += renderBriefHtml(state, {
+      bodyHtml: typeof state.briefMarkdown === 'string' ? renderMarkdownHtml(state.briefMarkdown, { resolveWikiLink }) : '',
+    });
+  }
   if (state.confirm) html += renderConfirmHtml(state.confirm);
   html += renderToastHtml(state);
   return html;
@@ -1361,6 +1399,10 @@ function afterRender() {
     input?.setSelectionRange?.(input.value.length, input.value.length);
   } else if (state.captureOpen) {
     appRoot.querySelector('[data-capture-input]')?.focus();
+  } else if (state.briefOpen && !state.briefLoading) {
+    const input = appRoot.querySelector('[data-brief-input]');
+    input?.focus();
+    input?.setSelectionRange?.(input.value.length, input.value.length);
   } else if (state.confirm) {
     // Focus the text field when there is one; otherwise Cancel — never the
     // destructive action, so a stray Enter can't confirm a delete.
@@ -1623,6 +1665,10 @@ async function handleAction(action, el, event) {
 
     // ---- library ----
     case 'open-doc': openDocumentInEditor(el.dataset.documentId); break;
+    case 'open-brief': openBrief(); break;
+    case 'close-brief': setState({ briefOpen: false }); renderApp(); break;
+    case 'run-brief': runBrief(appRoot.querySelector('[data-brief-input]')?.value); break;
+    case 'copy-brief': copyBrief(); break;
     case 'toggle-semantic': setState({ librarySemantic: !state.librarySemantic, semanticResults: null }); renderApp(); break;
     case 'cycle-lib-sort': setState({ librarySortBy: state.librarySortBy === 'updated' ? 'title' : 'updated' }); renderApp(); break;
     case 'toggle-lib-tag': {
@@ -2225,6 +2271,11 @@ function bindEvents() {
     if (target.matches?.('[data-capture-input]') && event.key === 'Enter') {
       event.preventDefault();
       addQuickTask(state.captureQuery.trim());
+      return;
+    }
+    if (target.matches?.('[data-brief-input]') && event.key === 'Enter') {
+      event.preventDefault();
+      runBrief(target.value);
       return;
     }
     if (target.matches?.('[data-checklist-new]') && event.key === 'Enter') {
