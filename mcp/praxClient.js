@@ -100,6 +100,12 @@ export function createPraxClient({
       return typeof res === 'string' ? res : (res?.message ?? '');
     },
 
+    // Ask Prax: a grounded, cited answer synthesized from the context pack (or
+    // the raw pack when no chat model is configured). Returns the JSON envelope
+    // { query, answer, degraded, markdown, sources, model }.
+    ask: ({ q, project, limit } = {}) =>
+      request('POST', '/api/library/ask', { body: { q, project, limit } }),
+
     getDocument: (id) => getOrNull(`/api/library/documents/${id}`),
 
     createDocument: (payload) =>

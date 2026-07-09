@@ -42,9 +42,10 @@ registration with `claude mcp list`. (Confirm the exact `claude mcp add` flag sy
 
 ## Tools
 
-Reads: `search_documents`, `get_document`, `search_tasks`, `get_task`,
+Reads: `search_documents`, `ask_library`, `ask_prax`, `get_document`, `search_tasks`, `get_task`,
 `list_task_documents`, `list_task_checklist`, `list_task_activity`, `list_document_links`,
-`list_stale_documents`, `list_orphan_documents`, `list_runbook_runs`, `get_runbook_run`.
+`list_stale_documents`, `list_orphan_documents`, `list_runbook_runs`, `get_runbook_run`,
+`search_documents_semantic`.
 Writes: `create_document`, `update_document`, `create_task`, `update_task`,
 `link_task_document`, `unlink_task_document`, `add_checklist_item`, `set_checklist_item`,
 `delete_checklist_item`, `link_documents`, `unlink_documents`,
@@ -63,6 +64,10 @@ Runbook execution tools:
 - `get_runbook_run` — fetch a run with its ordered steps and per-step timestamps (the chronicle, for post-incident summaries).
 - `set_run_step` — check/uncheck a step (checking stamps the time + the agent as actor).
 - `set_run_status` — finish (`completed`/`aborted`) or reopen (`running`) a run.
+
+AI tools:
+- `ask_library` — retrieve the trust-aware context pack (Markdown) for a query, without ids.
+- `ask_prax` — a grounded, cited answer synthesized from the context pack when a chat model is configured (Settings ▸ Intelligence), degrading to the raw pack otherwise.
 
 No archive, delete, reorder, or import tools are exposed.
 
