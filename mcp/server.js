@@ -14,6 +14,7 @@ import { createDocumentLinkTools } from './tools/documentLinks.js';
 import { createGraphMaintenanceTools } from './tools/graphMaintenance.js';
 import { createSemanticSearchTools } from './tools/semanticSearch.js';
 import { createRunTools } from './tools/runs.js';
+import { createInsightTools } from './tools/insights.js';
 
 // Advertise the package version so the MCP serverInfo never drifts from releases.
 const { version: PACKAGE_VERSION } = JSON.parse(
@@ -34,6 +35,7 @@ export function buildServer({ server, client } = {}) {
     ...createGraphMaintenanceTools(apiClient),
     ...createSemanticSearchTools(apiClient),
     ...createRunTools(apiClient),
+    ...createInsightTools(apiClient),
   ];
 
   for (const tool of tools) {
