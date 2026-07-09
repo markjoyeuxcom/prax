@@ -24,5 +24,12 @@ export function loadConfig(env = process.env) {
     embeddingQueryPrefix: env.EMBEDDING_QUERY_PREFIX || '',
     embeddingSearchMinSimilarity: numberFromEnv(env.EMBEDDING_SEARCH_MIN_SIMILARITY, 0.45),
     embeddingSearchTopDrop: numberFromEnv(env.EMBEDDING_SEARCH_TOP_DROP, 0.20),
+    // Chat / LLM-answer provider (generation layer). Env supplies defaults; the
+    // runtime chatProvider persists per-backend overrides in app_settings.
+    // openai/ollama chat reuse the OPENAI_*/OLLAMA_URL vars above.
+    chatBackend: env.CHAT_BACKEND || 'none',
+    chatModel: env.CHAT_MODEL || '',
+    anthropicBaseUrl: env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com',
+    anthropicApiKey: env.ANTHROPIC_API_KEY || '',
   };
 }
