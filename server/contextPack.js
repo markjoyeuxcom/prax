@@ -1,5 +1,21 @@
 const DEFAULT_LIMIT = 12;
-const SNIPPET_LEN = 280;
+const SNIPPET_LEN = 200;
+const OVERVIEW_LEN = 600;
+// Empty / whitespace-only docs are scratch or placeholder noise ("Test 3",
+// "Untitled") — they carry nothing to brief or answer from, so they're kept out
+// of the pack. We drop only genuinely empty bodies (no length threshold), so a
+// terse-but-real note is never lost.
+export const MIN_CONTENT_CHARS = 1;
+
+export function contentLength(body) {
+  return String(body || '').replace(/\s+/g, '').length;
+}
+
+// A doc is worth retrieving only if it has body content to answer or summarize
+// from. Title-only / empty docs are dropped.
+export function isSubstantive(doc) {
+  return contentLength(doc && doc.body) >= MIN_CONTENT_CHARS;
+}
 
 function snippet(body) {
   return String(body || '').replace(/\s+/g, ' ').trim().slice(0, SNIPPET_LEN);
@@ -10,12 +26,15 @@ function hasTag(doc, tag) {
 }
 
 function toItem(doc, { full = false } = {}) {
+  const body = String(doc.body || '');
   return {
     id: doc.id,
     title: doc.title,
     documentType: doc.documentType,
     verified: Boolean(doc.verified),
-    text: full ? String(doc.body || '') : snippet(doc.body),
+    // Overview cards keep their (capped) formatted body; everything else gets a
+    // tight single-line snippet.
+    text: full ? (body.length > OVERVIEW_LEN ? `${body.slice(0, OVERVIEW_LEN)}…` : body) : snippet(body),
   };
 }
 
@@ -25,7 +44,9 @@ function toItem(doc, { full = false } = {}) {
 // `limit` is a single pack-wide budget, spent in section order (overview →
 // relevant → runbooks → unverified) so the pack can never exceed it.
 export function buildContextPack(docs, { project = null, query = '', limit = DEFAULT_LIMIT } = {}) {
-  const active = (Array.isArray(docs) ? docs : []).filter((d) => (d.status || 'active') === 'active');
+  const active = (Array.isArray(docs) ? docs : [])
+    .filter((d) => (d.status || 'active') === 'active')
+    .filter(isSubstantive); // drop scratch/empty docs ("Untitled", "Test 3")
   const cards = active.filter((d) => d.verified && hasTag(d, 'project-card'));
   const runbooks = active.filter((d) => d.verified && d.documentType === 'runbook' && !cards.includes(d));
   const relevant = active.filter((d) => d.verified && !cards.includes(d) && !runbooks.includes(d));

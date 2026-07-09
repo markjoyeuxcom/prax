@@ -1,3 +1,5 @@
+import { isSubstantive } from './contextPack.js';
+
 // Pure helpers for the "Ask Prax" grounded answer: turn a retrieved context pack
 // into an LLM prompt, and extract the cited source list. Kept pure and testable —
 // all IO (retrieval + the chat call) lives in the route.
@@ -36,7 +38,9 @@ export const ANSWER_DOC_LIMIT = 6;
 // docs are skipped. Pure. This is what makes runbook / how-to answers correct:
 // the model sees the actual steps, not just a title.
 export function buildAnswerContext(docs, { limit = ANSWER_DOC_LIMIT, totalChars = ANSWER_CONTEXT_CHARS, docChars = ANSWER_DOC_CHARS } = {}) {
-  const active = (Array.isArray(docs) ? docs : []).filter((d) => d && (d.status || 'active') === 'active');
+  const active = (Array.isArray(docs) ? docs : [])
+    .filter((d) => d && (d.status || 'active') === 'active')
+    .filter(isSubstantive); // same scratch/empty-doc filter as the context pack
   // Trust-aware ordering; retrieval order preserved within each group.
   const ordered = [...active.filter((d) => d.verified), ...active.filter((d) => !d.verified)].slice(0, limit);
   let remaining = totalChars;
