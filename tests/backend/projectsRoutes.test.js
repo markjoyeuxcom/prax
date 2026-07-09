@@ -93,6 +93,25 @@ test('DELETE /permanent succeeds only when empty (409 otherwise)', async () => {
   assert.equal((await busy.inject({ method: 'DELETE', url: `/api/projects/${PROJECT_ID}/permanent` })).statusCode, 409);
 });
 
+test('PATCH /api/projects/:id renames a non-reserved project (slug stays stable)', async () => {
+  let received;
+  const app = await build({
+    async updateProject(id, fields) { received = fields; return { id, name: fields.name, slug: 'work', status: 'active', sortOrder: 0 }; },
+  });
+  const res = await app.inject({ method: 'PATCH', url: `/api/projects/${PROJECT_ID}`, payload: { name: '  Terraform Labs  ' } });
+  assert.equal(res.statusCode, 200);
+  assert.equal(received.name, 'Terraform Labs'); // trimmed
+  assert.equal(res.json().name, 'Terraform Labs');
+  assert.equal(res.json().slug, 'work'); // slug is not re-derived on rename
+});
+
+test('PATCH /api/projects/:id rejects a blank rename', async () => {
+  const app = await build();
+  const res = await app.inject({ method: 'PATCH', url: `/api/projects/${PROJECT_ID}`, payload: { name: '   ' } });
+  assert.equal(res.statusCode, 400);
+  assert.match(res.json().message, /name is invalid/);
+});
+
 test('the reserved Inbox project is protected from rename, archive, and delete', async () => {
   const app = await build(inboxOverrides());
   const patch = await app.inject({ method: 'PATCH', url: `/api/projects/${INBOX_ID}`, payload: { name: 'Renamed' } });

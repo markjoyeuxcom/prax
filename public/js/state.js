@@ -14,6 +14,7 @@ export const state = {
   // ---- routing ----
   navType: 'project',           // 'today' | 'project' | 'all' | 'library' | 'editor' | 'run' | 'filter' | 'upcoming' | 'settings'
   navId: null,                  // project id when navType === 'project'
+  renamingProjectId: null,      // project whose header title is being inline-edited (null = none)
   tab: 'list',                  // project tab: 'list' | 'board' | 'backlog' | 'archive'
   groupBy: 'due',               // list grouping cycler: 'due' | 'priority' | 'status'
 
