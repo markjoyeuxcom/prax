@@ -90,7 +90,7 @@ function renderCard(state, task, projectsById, now) {
       `style="background: color-mix(in oklab, ${color} 13%, transparent); color: ${color};"`,
     ));
   }
-  const due = dueFlag(task.dueDate, { done: isDone, now });
+  const due = dueFlag(task.dueDate, { dueTime: task.dueTime, done: isDone, now });
   if (due) chips.push(chip(due.label, `due-${due.bucket}`));
 
   const signals = [];

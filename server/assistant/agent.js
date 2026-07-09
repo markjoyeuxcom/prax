@@ -36,8 +36,9 @@ export function currentDateContext(now = new Date()) {
   const d = String(now.getDate()).padStart(2, '0');
   return `The current date is ${WEEKDAYS[now.getDay()]}, ${y}-${m}-${d} (the user's local date). `
     + 'Resolve relative dates the user mentions ("today", "tomorrow", "next Friday", "in 3 days") '
-    + 'against this date and pass concrete YYYY-MM-DD values to tools. Tasks carry a due DATE only '
-    + '(no time of day), so fold any time like "12pm" into the task title or notes.';
+    + 'against this date and pass a concrete YYYY-MM-DD dueDate to tools. A task can also carry a '
+    + 'dueTime as "HH:MM" (24-hour, local) — convert a spoken time like "12pm" to "12:00", "9am" to '
+    + '"09:00" — but only alongside a dueDate.';
 }
 
 export function buildAssistantSystemPrompt(now = new Date()) {

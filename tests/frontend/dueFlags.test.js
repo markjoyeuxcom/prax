@@ -46,3 +46,15 @@ test('evening clock does not shift the bucket boundaries', () => {
 test('malformed dates yield no flag rather than NaN labels', () => {
   assert.equal(dueFlag('not-a-date', { now: NOW }), null);
 });
+
+test('dueFlag appends a dueTime to the label, keeping the date-only bucket', () => {
+  const today = dueFlag('2026-07-06', { now: NOW, dueTime: '12:00' });
+  assert.deepEqual(today, { label: 'Today 12:00', bucket: 'today' });
+
+  const overdue = dueFlag('2026-07-05', { now: NOW, dueTime: '09:00' });
+  assert.equal(overdue.bucket, 'overdue');
+  assert.match(overdue.label, /Jul 5 09:00 · overdue/);
+
+  // no dueTime → unchanged label
+  assert.equal(dueFlag('2026-07-06', { now: NOW }).label, 'Today');
+});

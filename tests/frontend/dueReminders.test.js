@@ -43,3 +43,20 @@ test('isOverdue distinguishes overdue from due-today', () => {
   assert.equal(isOverdue('2026-07-08', NOW), false); // due today is not overdue
   assert.equal(isOverdue(null, NOW), false);
 });
+
+// Time-of-day: a task due TODAY with a dueTime only warrants a reminder once its
+// time has arrived; an overdue timed task fires regardless. NOW is 2026-07-08 10:00.
+test('a task due today with a later dueTime is not reminded yet', () => {
+  const picked = computeDueReminders([task({ dueDate: '2026-07-08', dueTime: '12:00' })], { now: NOW });
+  assert.equal(picked.length, 0); // 10:00 < 12:00
+});
+
+test('a task due today whose dueTime has passed is reminded', () => {
+  const picked = computeDueReminders([task({ dueDate: '2026-07-08', dueTime: '09:00' })], { now: NOW });
+  assert.equal(picked.length, 1); // 10:00 >= 09:00
+});
+
+test('an overdue task with a dueTime is reminded regardless of the time', () => {
+  const picked = computeDueReminders([task({ dueDate: '2026-07-07', dueTime: '23:30' })], { now: NOW });
+  assert.equal(picked.length, 1); // date already past
+});

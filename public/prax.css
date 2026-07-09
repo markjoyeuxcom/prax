@@ -1590,7 +1590,8 @@ a { color: var(--accent); }
 .today-snoozed { color: var(--ink3); }
 .pill-btn.is-active--outline { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); }
 
-.date-input {
+.date-input,
+.time-input {
   height: 28px;
   border: 1px solid var(--line);
   border-radius: 7px;
@@ -1598,6 +1599,8 @@ a { color: var(--accent); }
   padding: 0 8px;
   font-size: 12px;
 }
+.time-input { width: 92px; }
+.time-input:disabled { opacity: .5; }
 
 .drawer__notes {
   width: 100%;

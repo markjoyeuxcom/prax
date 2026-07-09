@@ -22,7 +22,7 @@ export function buildFilterGroups(tasks, projects, predicate, { now = new Date()
     return {
       ...task,
       done,
-      dueInfo: dueFlag(task.dueDate, { done, now }),
+      dueInfo: dueFlag(task.dueDate, { dueTime: task.dueTime, done, now }),
       projName: project ? project.name : 'No project',
       projColor: project ? project.color : null,
     };

@@ -8,20 +8,23 @@
 const SOON_DAYS = 3;
 
 // `now` is injectable so tests are deterministic; production callers omit it.
-export function dueFlag(dueDate, { done = false, now = new Date() } = {}) {
+// `dueTime` ('HH:MM', optional) is appended to the label so a timed task reads
+// "Today 12:00" / "Jul 9 12:00 · overdue"; the bucket stays date-only.
+export function dueFlag(dueDate, { done = false, now = new Date(), dueTime = null } = {}) {
   if (!dueDate) return null;
   const due = new Date(`${dueDate}T12:00:00`);
   if (Number.isNaN(due.getTime())) return null;
   const today = new Date(now);
   today.setHours(12, 0, 0, 0);
   const diffDays = Math.round((due - today) / 86_400_000);
-  const label = due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const date = due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const t = dueTime ? ` ${dueTime}` : '';
 
-  if (done) return { label, bucket: 'done' };
-  if (diffDays < 0) return { label: `${label} · overdue`, bucket: 'overdue' };
-  if (diffDays === 0) return { label: 'Today', bucket: 'today' };
-  if (diffDays <= SOON_DAYS) return { label, bucket: 'soon' };
-  return { label, bucket: 'later' };
+  if (done) return { label: `${date}${t}`, bucket: 'done' };
+  if (diffDays < 0) return { label: `${date}${t} · overdue`, bucket: 'overdue' };
+  if (diffDays === 0) return { label: `Today${t}`, bucket: 'today' };
+  if (diffDays <= SOON_DAYS) return { label: `${date}${t}`, bucket: 'soon' };
+  return { label: `${date}${t}`, bucket: 'later' };
 }
 
 // Bucket a task for the Today view / sidebar badge without formatting a label.

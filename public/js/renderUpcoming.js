@@ -20,7 +20,7 @@ export function buildUpcomingGroups(tasks, projects, { now = new Date(), days = 
     return {
       ...task,
       done: false,
-      dueInfo: dueFlag(task.dueDate, { now }),
+      dueInfo: dueFlag(task.dueDate, { dueTime: task.dueTime, now }),
       projName: project ? project.name : 'No project',
       projColor: project ? project.color : null,
     };
