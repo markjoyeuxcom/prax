@@ -1,6 +1,6 @@
 # Knowledge-base health — the AI half (contradiction/gap detection + auto wiki-linking)
 
-**Status:** In progress
+**Status:** Shipped (both increments; increment 2 hardened via an adversarial review pass)
 **Date:** 2026-07-09
 **Branch:** `main` (incremental, verified per increment)
 **Tier:** 2 · item #5 (completes the partially-shipped Health feature)

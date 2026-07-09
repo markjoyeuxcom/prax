@@ -27,7 +27,7 @@ import {
   startRun, fetchRuns, fetchRun, setRunStep, setRunStatus, createPostMortem,
   askPrax, generateRunbook, fetchHealth, narrateBrief,
   assistantChat, fetchAssistantStatus,
-  fetchLinkSuggestions, applyWikiLink,
+  fetchLinkSuggestions, applyWikiLink, runAiReview,
 } from './libraryApi.js';
 import { normalizeTask } from './taskModel.js';
 import { apiStatus, designStatus, isOpen } from './statusMap.js';
@@ -236,10 +236,39 @@ async function loadHealth() {
   }
 }
 
+// Generation token so an in-flight scan whose Health view was left and re-entered
+// (or superseded by a newer scan) drops its result instead of clobbering state.
+let aiReviewToken = 0;
+
 function goHealth() {
-  setState({ navType: 'health' });
+  // Clear any prior AI review and invalidate any in-flight scan on re-entry.
+  aiReviewToken += 1;
+  setState({ navType: 'health', healthAiReview: null, healthAiReviewError: null, healthAiReviewLoading: false });
   renderApp();
   loadHealth().then(renderApp);
+}
+
+// On-demand AI review (contradictions + gaps). Advisory; spends model tokens.
+async function scanLibraryWithAi() {
+  if (state.healthAiReviewLoading || !state.chatStatus?.available) return;
+  const token = (aiReviewToken += 1);
+  setState({ healthAiReviewLoading: true, healthAiReviewError: null });
+  renderApp();
+  try {
+    const review = await runAiReview('');
+    if (token !== aiReviewToken) return; // superseded by a newer scan or navigation
+    if (review.reason === 'no-chat-model') {
+      setState({ healthAiReviewLoading: false, healthAiReview: null, healthAiReviewError: 'No AI model configured — set one in Settings ▸ Intelligence.' });
+    } else if (review.reason === 'ai-review-failed') {
+      setState({ healthAiReviewLoading: false, healthAiReview: null, healthAiReviewError: 'The AI review could not complete. Please try again.' });
+    } else {
+      setState({ healthAiReviewLoading: false, healthAiReview: review });
+    }
+  } catch {
+    if (token !== aiReviewToken) return;
+    setState({ healthAiReviewLoading: false, healthAiReviewError: 'Could not complete the AI review.' });
+  }
+  if (token === aiReviewToken) renderApp();
 }
 
 function openDailyBrief() {
@@ -2549,6 +2578,7 @@ async function handleAction(action, el, event) {
     case 'open-health-doc': openDocumentInEditor(el.dataset.docId); break;
     case 'verify-health-doc': verifyHealthDoc(el.dataset.docId); break;
     case 'apply-wiki-link': await acceptLinkSuggestion(el.dataset.docId, el.dataset.title); break;
+    case 'run-ai-review': await scanLibraryWithAi(); break;
     case 'open-library-doc': openDocumentInEditor(el.dataset.libraryDocumentId); break;
 
     default: break;

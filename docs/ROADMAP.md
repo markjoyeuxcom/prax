@@ -46,15 +46,16 @@ Ollama / llama.cpp) + trust guardrails.
 - [x] **Auto post-mortem** from a runbook-run chronicle.
 - [x] **Runbook generation** from an alert/incident description.
 
-**Tier 2 — high value — ⏳ 2.5/3**
+**Tier 2 — high value — ✅ 3/3**
 - [x] **In-app agentic assistant** over the 32-tool MCP tree (reads free, writes confirmed).
-- [~] **Knowledge-base health.** *Deterministic half shipped* (Health view: needs-review / stale /
-  empty / orphan buckets). **The AI half is the active build:** contradiction/gap detection +
-  auto wiki-linking. See
+- [x] **Knowledge-base health.** Deterministic buckets (needs-review / stale / empty / orphan) +
+  the AI half: **auto wiki-linking** (deterministic title-mention suggestions) and **AI
+  contradiction/gap detection** (a bounded, advisory "Scan with AI" pass with a verbatim-quote
+  grounding gate). See
   [`specs/2026-07-09-kb-health-ai-design.md`](superpowers/specs/2026-07-09-kb-health-ai-design.md).
 - [x] **Daily brief / on-call handoff** generator.
 
-**Tier 3 — solid, less differentiated — ☐ 0/2 (next after #5)**
+**Tier 3 — solid, less differentiated — ☐ 0/2 (next up)**
 - [ ] **Editor writing actions** — draft / summarize / rewrite / notes→checklist. *(medium)*
 - [ ] **Natural-language capture & NL→filter** — "p1 in homelab due this week." *(small–medium)*
 

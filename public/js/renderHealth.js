@@ -52,12 +52,70 @@ function suggestionsSection(suggestions) {
   </section>`;
 }
 
+// AI review (Tier-2 #5, part 2): an on-demand, advisory contradiction + gap scan.
+// Read-only — the only actions are opening a cited doc and re-running the scan.
+function contradictionRow(c) {
+  const sev = c.severity === 'high' ? '<span class="health-tag health-tag--warn">high</span>' : '<span class="health-tag">low</span>';
+  const side = (d) => `<div class="aireview__side">
+    <button class="health-row__title" type="button" data-action="open-health-doc" data-doc-id="${escapeHtml(d.id || '')}">${escapeHtml(d.title || 'Untitled')}</button>
+    <blockquote class="aireview__quote"><mark>${escapeHtml(d.quote || '')}</mark></blockquote>
+  </div>`;
+  return `<div class="aireview__contradiction">
+    <div class="aireview__issue">${sev}${escapeHtml(c.issue || 'Possible conflict')}</div>
+    <div class="aireview__pair">${side(c.a || {})}${side(c.b || {})}</div>
+  </div>`;
+}
+
+function aiReviewSection(state) {
+  const r = state.healthAiReview;
+  const hasModel = Boolean(state.chatStatus?.available);
+  let body;
+  if (state.healthAiReviewLoading) {
+    body = '<p class="health-empty">Reading the library for conflicts and coverage gaps…</p>';
+  } else if (state.healthAiReviewError) {
+    body = `<p class="health-empty health-empty--error">${escapeHtml(state.healthAiReviewError)}</p>`;
+  } else if (!r) {
+    body = `<p class="aireview__intro">An AI model reads the library for <strong>conflicting documents</strong> and <strong>coverage gaps</strong>. Advisory only — nothing is changed. Costs model tokens; runs on demand.${hasModel ? '' : ' <span class="aireview__hint">No AI model configured — set one in Settings ▸ Intelligence.</span>'}</p>`;
+  } else if (r.reason === 'ai-review-failed') {
+    // Defensive: a crashed scan must never render as a green "all clear".
+    body = '<p class="health-empty health-empty--error">The AI review could not complete. Please try again.</p>';
+  } else if (r.contradictionScan?.reason === 'empty') {
+    body = '<p class="health-empty">No documents to scan yet — add some to the library first.</p>';
+  } else {
+    // Contradictions
+    const cNote = r.contradictionScan?.reason === 'no-embedder'
+      ? '<p class="health-empty">Contradiction scan needs semantic search (embeddings) enabled — showing coverage gaps only.</p>'
+      : r.contradictionScan?.reason === 'embed-failed'
+        ? '<p class="health-empty">Contradiction scan could not read embeddings — showing coverage gaps only.</p>'
+        : '';
+    const contradictions = r.contradictions?.length
+      ? r.contradictions.map(contradictionRow).join('')
+      : (cNote || '<p class="health-empty">✓ No contradictions found among similar documents.</p>');
+    // Gaps
+    const gapNote = r.gapScan?.reason === 'generation-failed' ? '<p class="health-empty">Gap detection could not complete this run.</p>' : '';
+    const gaps = r.gaps?.length
+      ? r.gaps.map((g) => `<div class="aireview__gap"><div class="aireview__gap-topic">${escapeHtml(g.topic || '')}</div><div class="aireview__gap-why">${escapeHtml(g.rationale || '')}</div>${g.evidence ? `<div class="aireview__gap-ev">${escapeHtml(g.evidence)}</div>` : ''}</div>`).join('')
+      : (gapNote || '<p class="health-empty">✓ No obvious coverage gaps.</p>');
+    const banner = `<p class="aireview__banner">Agent-generated · advisory${r.model ? ` · ${escapeHtml(r.model)}` : ''} — suggestions to review; nothing has been changed.</p>`;
+    body = `${banner}
+      <h3 class="aireview__sub">Contradictions</h3>${cNote && r.contradictions?.length ? cNote : ''}${contradictions}
+      <h3 class="aireview__sub">Coverage gaps</h3>${gaps}`;
+  }
+  return `<section class="health-card">
+    <h2 class="health-card__title">AI review</h2>
+    ${body}
+  </section>`;
+}
+
 export function renderHealthHtml(state) {
   const h = state.healthData;
   const head = `<header class="page-head">
       <button class="btn-ghost" type="button" data-action="back-to-library" title="Back to the Library">← Library</button>
       <h1 class="page-head__title">Library health</h1>
-      <div class="page-head__actions"><button class="btn-ghost" type="button" data-action="refresh-health"${state.healthLoading ? ' disabled' : ''}>${state.healthLoading ? 'Refreshing…' : 'Refresh'}</button></div>
+      <div class="page-head__actions">
+        <button class="btn-outline btn-outline--sm" type="button" data-action="run-ai-review"${state.healthAiReviewLoading || !state.chatStatus?.available ? ' disabled' : ''}${!state.chatStatus?.available ? ' title="Set an AI model in Settings ▸ Intelligence"' : ''}>${state.healthAiReviewLoading ? 'Scanning…' : 'Scan with AI'}</button>
+        <button class="btn-ghost" type="button" data-action="refresh-health"${state.healthLoading ? ' disabled' : ''}>${state.healthLoading ? 'Refreshing…' : 'Refresh'}</button>
+      </div>
     </header>`;
   if (!h) {
     return `<div class="page health">${head}<p class="view-hint">${state.healthLoading ? 'Checking the library…' : 'Could not load library health.'}</p></div>`;
@@ -71,5 +129,6 @@ export function renderHealthHtml(state) {
       ${section('Stale derivations', h.stale, { empty: 'No stale documents.' })}
       ${section('Orphans — no links', h.orphans, { empty: 'No orphaned documents.' })}
       ${suggestionsSection(state.healthLinkSuggestions)}
+      ${aiReviewSection(state)}
     </div>`;
 }
