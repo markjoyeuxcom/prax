@@ -11,6 +11,7 @@ import { createLibraryRepository } from './libraryRepository.js';
 import { createAppSettingsRepository } from './appSettingsRepository.js';
 import { createEmbedder } from './embedder/index.js';
 import { createEmbedderProvider } from './embedderProvider.js';
+import { createChatProvider } from './chatProvider.js';
 import { registerSettingsRoutes } from './settingsRoutes.js';
 
 export async function buildApp(options = {}) {
@@ -29,6 +30,9 @@ export async function buildApp(options = {}) {
   // Routes resolve their embedder through this per request; an embedder
   // injected via options still wins inside the routes (test compatibility).
   const embedderProvider = options.embedderProvider ?? createEmbedderProvider({ appSettingsRepository, config });
+  // Runtime chat (LLM-answer) provider — the generation-side mirror of the
+  // embedder provider. Routes resolve their chat model through this per request.
+  const chatProvider = options.chatProvider ?? createChatProvider({ appSettingsRepository, config });
   // The embedding service is built per use by the routes so it always binds
   // the currently configured embedder; injected services are honoured as-is.
   const embeddingService = options.embeddingService ?? null;
@@ -54,6 +58,7 @@ export async function buildApp(options = {}) {
   app.decorate('documentLinksRepository', options.documentLinksRepository || null);
   app.decorate('embedder', embedder);
   app.decorate('embedderProvider', embedderProvider);
+  app.decorate('chatProvider', chatProvider);
   app.decorate('appSettingsRepository', appSettingsRepository);
   app.decorate('embeddingService', embeddingService);
   app.decorate('embeddingSearch', {
