@@ -60,7 +60,8 @@ export function renderTodayHtml(state, groups, { now = new Date(), snoozedCount 
   const snoozedNote = snoozedCount > 0
     ? ` <span class="today-snoozed">· ${snoozedCount} snoozed</span>`
     : '';
-  const head = '<header class="page-head"><h1 class="page-head__title">Today</h1></header>'
+  const head = '<header class="page-head"><h1 class="page-head__title">Today</h1>'
+    + '<div class="page-head__actions"><button class="btn-ghost" type="button" data-action="open-daily-brief" title="Daily brief / on-call handoff">✦ Brief</button></div></header>'
     + `<p class="page-head__sub">${escapeHtml(dateLabel)} — everything due or slipping across your projects.${snoozedNote}</p>`;
   // Wrap in .page so the heading and rows share the same inset as every other
   // top-level view (All projects, Library, Settings, project List/Board).

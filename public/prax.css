@@ -2200,6 +2200,7 @@ body.is-desktop-mac .titlebar { padding-left: 84px; }
   color: var(--ink3);
 }
 .brief__hint-k .kbd { margin: 0 1px; }
+.brief__title-text { flex: 1; font-size: 15px; font-weight: 600; color: var(--ink); }
 
 /* Ask Prax result extras (reuses the .brief overlay/dialog shell) */
 .askprax__notice {

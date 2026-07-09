@@ -218,6 +218,16 @@ export async function createPostMortem(runId) {
 // Generate a runbook from an incident/alert description. Returns { document,
 // model }. Throws with the server's message (e.g. "no AI model is configured")
 // so the panel can surface why it failed.
+// Narrate a structured daily brief into a stand-up. Returns { narrative, model,
+// degraded } — narrative is null (degraded) when no chat model is configured.
+export async function narrateBrief(text) {
+  const res = await fetch('/api/brief/narrate', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }),
+  });
+  if (!res.ok) throw new Error('Failed to narrate the brief');
+  return res.json();
+}
+
 // Library health: docs needing attention (needsReview / empty / stale / orphans + counts).
 export async function fetchHealth(project = '') {
   const params = project && project !== 'all' ? `?project=${encodeURIComponent(project)}` : '';
