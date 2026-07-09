@@ -204,3 +204,85 @@ test('a fenced code block without a language still gets a Copy button and an emp
   assert.match(html, /data-action="copy-code"/);
   assert.match(html, /<pre><code>plain text<\/code><\/pre>/);
 });
+
+// ---------------------------------------------------------------------------
+// Table-detection misfire: a line containing a shell pipe ("|") that is really
+// a list/task/heading/blockquote/ordered item must NOT be captured as a table
+// row (which failed validation and dumped the line into a <p> as literal text).
+// The guard is applied only to the table START, so genuine borderless tables
+// whose data cell begins with a marker keep working. See markdownPreview.js.
+// ---------------------------------------------------------------------------
+
+test('task item with a shell pipe stays a task (not a <p>/table)', () => {
+  const html = renderMarkdownHtml('- [ ] Identify the pod: `kubectl get pods -A | grep foo`');
+  assert.match(html, /class="task-item"/);
+  assert.match(html, /kubectl get pods -A \| grep foo/);
+  assert.ok(!html.includes('<p>'), `unexpected paragraph: ${html}`);
+});
+
+test('checked task with a pipe renders the done box', () => {
+  const html = renderMarkdownHtml('- [x] cat access.log | grep 500');
+  assert.match(html, /class="task-item is-done"/);
+  assert.match(html, /task-item__box">✓<\/span>/);
+  assert.ok(!html.includes('<p>'));
+});
+
+test('a pipe in the MIDDLE item does not split one task list into pieces', () => {
+  const html = renderMarkdownHtml('- [ ] first task\n- [ ] run foo | bar\n- [ ] third task');
+  // exactly one <ul>, all three items present, no stray paragraph
+  assert.equal(html.match(/<ul>/g)?.length, 1, `expected one <ul>: ${html}`);
+  assert.match(html, /first task/);
+  assert.match(html, /run foo \| bar/);
+  assert.match(html, /third task/);
+  assert.ok(!html.includes('<p>'));
+});
+
+test('plain unordered/ordered list items with a pipe stay lists', () => {
+  assert.match(renderMarkdownHtml('- kubectl get pods | grep x'), /<ul><li>kubectl get pods \| grep x<\/li><\/ul>/);
+  assert.match(renderMarkdownHtml('1. Pipe stdout | into file'), /<ol><li>Pipe stdout \| into file<\/li><\/ol>/);
+  assert.match(renderMarkdownHtml('* grep foo | sort'), /<ul><li>grep foo \| sort<\/li><\/ul>/);
+});
+
+test('heading and blockquote containing a pipe keep their block type', () => {
+  assert.match(renderMarkdownHtml('# Section A | Section B'), /<h1>Section A \| Section B<\/h1>/);
+  const bq = renderMarkdownHtml('> note foo | bar');
+  assert.match(bq, /<blockquote><p>note foo \| bar<\/p><\/blockquote>/);
+  assert.ok(!bq.includes('<table>'));
+});
+
+test('a list item that is entirely a pipe-bearing code span stays a list', () => {
+  const html = renderMarkdownHtml('- `kubectl get pods | grep Running`');
+  assert.match(html, /<ul><li><code>kubectl get pods \| grep Running<\/code><\/li><\/ul>/);
+  assert.ok(!html.includes('<p>'));
+});
+
+// ---- must-preserve: real tables (incl. the red-team's marker-first-cell cases) ----
+
+test('PRESERVE: a basic bordered GFM table still renders as a table', () => {
+  const html = renderMarkdownHtml('| Col A | Col B |\n| --- | --- |\n| 1 | 2 |');
+  assert.match(html, /<table><thead><tr><th>Col A<\/th><th>Col B<\/th><\/tr><\/thead>/);
+  assert.match(html, /<tbody><tr><td>1<\/td><td>2<\/td><\/tr><\/tbody>/);
+  assert.ok(!html.includes('<p>'));
+});
+
+test('PRESERVE: borderless table whose data cell begins with a dash/plus marker', () => {
+  // Regression guard: the earlier (rejected) fix corrupted this into an empty
+  // <tbody> + a stray <ul>. The start-only guard keeps it a real table.
+  const html = renderMarkdownHtml('Sign | Meaning\n--- | ---\n- | negative\n+ | positive');
+  assert.match(html, /<tbody><tr><td>-<\/td><td>negative<\/td><\/tr><tr><td>\+<\/td><td>positive<\/td><\/tr><\/tbody>/);
+  assert.ok(!html.includes('<ul>'), `marker-first cell must not become a list: ${html}`);
+});
+
+test('PRESERVE: borderless table whose data cell begins with an "N." ordered marker', () => {
+  const html = renderMarkdownHtml('Step | Action\n---- | ------\n1. | Start\n2. | Stop');
+  assert.match(html, /<tbody><tr><td>1\.<\/td><td>Start<\/td><\/tr><tr><td>2\.<\/td><td>Stop<\/td><\/tr><\/tbody>/);
+  assert.ok(!html.includes('<ol>'), `digit-dot cell must not become an ordered list: ${html}`);
+});
+
+test('PRESERVE: a task ending in a colon or code span (no pipe) is still a task', () => {
+  assert.match(renderMarkdownHtml('- [ ] Configure the following:'), /class="task-item"/);
+  const code = renderMarkdownHtml('- [ ] Run `npm test`\n- [ ] Then `npm run build`');
+  assert.match(code, /Run <code>npm test<\/code>/);
+  assert.match(code, /Then <code>npm run build<\/code>/);
+  assert.ok(!code.includes('<p>'));
+});
