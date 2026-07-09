@@ -21,22 +21,29 @@ const { version: PACKAGE_VERSION } = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
 );
 
+// The full Prax tool tree bound to a client. Shared by the MCP server (below)
+// and the in-app AI assistant (server/assistant), so agents and the built-in
+// assistant expose exactly the same capabilities.
+export function buildToolset(client) {
+  return [
+    ...createDocumentTools(client),
+    ...createTaskTools(client),
+    ...createLinkTools(client),
+    ...createChecklistTools(client),
+    ...createActivityTools(client),
+    ...createDocumentLinkTools(client),
+    ...createGraphMaintenanceTools(client),
+    ...createSemanticSearchTools(client),
+    ...createRunTools(client),
+    ...createInsightTools(client),
+  ];
+}
+
 export function buildServer({ server, client } = {}) {
   const mcp = server || new McpServer({ name: 'prax', version: PACKAGE_VERSION });
   const apiClient = client || createPraxClient();
 
-  const tools = [
-    ...createDocumentTools(apiClient),
-    ...createTaskTools(apiClient),
-    ...createLinkTools(apiClient),
-    ...createChecklistTools(apiClient),
-    ...createActivityTools(apiClient),
-    ...createDocumentLinkTools(apiClient),
-    ...createGraphMaintenanceTools(apiClient),
-    ...createSemanticSearchTools(apiClient),
-    ...createRunTools(apiClient),
-    ...createInsightTools(apiClient),
-  ];
+  const tools = buildToolset(apiClient);
 
   for (const tool of tools) {
     mcp.registerTool(

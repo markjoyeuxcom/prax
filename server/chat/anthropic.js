@@ -1,4 +1,5 @@
-import { splitSystem } from './messages.js';
+import { splitSystem, splitSystemRich } from './messages.js';
+import { anthropicMessages, anthropicTools, parseAnthropic } from './toolProtocol.js';
 
 // Anthropic Messages API (Claude). The key travels in the x-api-key header with
 // a pinned anthropic-version; the system prompt is a top-level field, not a turn,
@@ -21,15 +22,20 @@ export function createAnthropicChat({ baseUrl, apiKey, model, fetch = globalThis
   return {
     backend: 'anthropic',
     model: chatModel,
+    supportsTools: true,
     async complete(messages, opts = {}) {
-      const { system, turns } = splitSystem(messages);
+      const tools = Array.isArray(opts.tools) && opts.tools.length ? opts.tools : null;
+      const { system, turns } = tools ? splitSystemRich(messages) : splitSystem(messages);
       const body = {
         model: chatModel,
         max_tokens: opts.maxTokens ?? 1024,
-        messages: turns.map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
+        messages: tools
+          ? anthropicMessages(turns)
+          : turns.map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
       };
       if (system) body.system = system;
       if (opts.temperature != null) body.temperature = opts.temperature;
+      if (tools) body.tools = anthropicTools(tools);
       const res = await fetch(`${base}/v1/messages`, {
         method: 'POST',
         headers: headers({ 'content-type': 'application/json' }),
@@ -37,6 +43,11 @@ export function createAnthropicChat({ baseUrl, apiKey, model, fetch = globalThis
       });
       if (!res.ok) throw new Error(`anthropic chat failed: ${res.status}`);
       const data = await res.json();
+      if (tools) {
+        const { text, toolCalls } = parseAnthropic(data);
+        if (!text && !toolCalls.length) throw new Error('anthropic returned no content');
+        return { text, model: chatModel, toolCalls: toolCalls.length ? toolCalls : null, stopReason: data?.stop_reason };
+      }
       const text = Array.isArray(data?.content)
         ? data.content.filter((b) => b?.type === 'text').map((b) => b.text).join('')
         : undefined;

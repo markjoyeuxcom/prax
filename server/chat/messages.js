@@ -24,3 +24,34 @@ export function splitSystem(messages) {
   const turns = all.filter((m) => m.role !== 'system');
   return { system, turns };
 }
+
+// ---- Tool-calling protocol -------------------------------------------------
+// The plain-completion path above speaks in { role, content:string } turns. The
+// agentic path adds two richer canonical turn kinds that carry no plain string
+// content (so toMessages would drop them):
+//   { role:'assistant', content?, toolCalls:[{ id, name, input }] }  — the model asked to call tools
+//   { role:'tool', results:[{ id, name, content, isError? }] }       — tool outputs fed back
+// Provider adapters translate these to each wire format (see toolProtocol.js).
+
+export function isToolCallTurn(m) {
+  return Boolean(m) && m.role === 'assistant' && Array.isArray(m.toolCalls) && m.toolCalls.length > 0;
+}
+
+export function isToolResultTurn(m) {
+  return Boolean(m) && m.role === 'tool' && Array.isArray(m.results) && m.results.length > 0;
+}
+
+// Like splitSystem but tool-call/tool-result turns survive (they have no string
+// `content`, so the toMessages filter would otherwise discard them). Used only on
+// the agentic path where the full canonical history must round-trip.
+export function splitSystemRich(input) {
+  const all = Array.isArray(input)
+    ? input.filter(Boolean)
+    : (typeof input === 'string' && input.trim() ? [{ role: 'user', content: input }] : []);
+  const system = all
+    .filter((m) => m.role === 'system' && typeof m.content === 'string')
+    .map((m) => m.content)
+    .join('\n\n');
+  const turns = all.filter((m) => m.role !== 'system');
+  return { system, turns };
+}

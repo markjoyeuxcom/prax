@@ -105,6 +105,14 @@ export const state = {
   dailyBriefLoading: false,
   dailyBriefError: false,       // false | error message string
 
+  // ---- AI assistant (agentic chat over the whole tool tree) ----
+  assistantOpen: false,
+  assistantStatus: null,        // null = not fetched; { available, model, backend, supportsTools, toolCount }
+  assistantMessages: [],        // canonical conversation echoed to the server (user/assistant/tool turns)
+  assistantLoading: false,      // a turn is in flight
+  assistantPending: null,       // null, or [{ id, name, input, summary }] writes awaiting confirmation
+  assistantError: null,         // null | error message string
+
   // ---- editor ----
   editorDocId: null,
   editorMode: 'split',          // 'edit' | 'split' | 'preview'

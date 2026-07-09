@@ -98,6 +98,7 @@ export function renderTitlebarHtml(state) {
   // matching the prototype) is hidden; traffic lights / logo + crumb stay.
   const actions = state.editorFocus ? '' : '<div class="titlebar__actions">'
     + `<button type="button" class="searchpill" data-action="open-palette">${icon('search', 13)}<span>Search or jump to…</span><span class="kbd">⌘K</span></button>`
+    + `<button type="button" class="btn-icon" data-action="open-assistant" title="Assistant (⌘I)">${icon('chat', 14)}</button>`
     + `<button type="button" class="btn-primary" data-action="open-capture" title="Quick capture (N)">${icon('plus', 12)}<span>New task</span></button>`
     + '<button type="button" class="btn-icon" data-action="toggle-theme" title="Toggle theme (⌘J)">◐</button>'
     + (isMac || state.desktopShell ? '' : WIN_CONTROLS)

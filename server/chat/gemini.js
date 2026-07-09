@@ -1,4 +1,5 @@
-import { splitSystem } from './messages.js';
+import { splitSystem, splitSystemRich } from './messages.js';
+import { geminiContents, geminiTools, parseGemini } from './toolProtocol.js';
 
 // Google Gemini chat (Generative Language API, :generateContent). The key travels
 // in the x-goog-api-key header; the system prompt is a top-level systemInstruction
@@ -17,12 +18,17 @@ export function createGeminiChat({ baseUrl, apiKey, model, fetch = globalThis.fe
   return {
     backend: 'gemini',
     model: chatModel,
+    supportsTools: true,
     async complete(messages, opts = {}) {
-      const { system, turns } = splitSystem(messages);
+      const tools = Array.isArray(opts.tools) && opts.tools.length ? opts.tools : null;
+      const { system, turns } = tools ? splitSystemRich(messages) : splitSystem(messages);
       const body = {
-        contents: turns.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
+        contents: tools
+          ? geminiContents(turns)
+          : turns.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
       };
       if (system) body.systemInstruction = { parts: [{ text: system }] };
+      if (tools) body.tools = geminiTools(tools);
       const generationConfig = {};
       if (opts.temperature != null) generationConfig.temperature = opts.temperature;
       if (opts.maxTokens != null) generationConfig.maxOutputTokens = opts.maxTokens;
@@ -34,6 +40,11 @@ export function createGeminiChat({ baseUrl, apiKey, model, fetch = globalThis.fe
       });
       if (!res.ok) throw new Error(`gemini chat failed: ${res.status}`);
       const data = await res.json();
+      if (tools) {
+        const { text, toolCalls } = parseGemini(data);
+        if (!text && !toolCalls.length) throw new Error('gemini returned no content');
+        return { text, model: chatModel, toolCalls: toolCalls.length ? toolCalls : null, stopReason: data?.candidates?.[0]?.finishReason };
+      }
       const parts = data?.candidates?.[0]?.content?.parts;
       const text = Array.isArray(parts) ? parts.map((p) => p?.text || '').join('') : undefined;
       if (typeof text !== 'string' || !text) throw new Error('gemini returned no text content');

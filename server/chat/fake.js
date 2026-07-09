@@ -4,11 +4,41 @@ import { toMessages } from './messages.js';
 // chat mirror of the fake embedder. It echoes a bounded, deterministic string
 // derived from the last user turn, so the whole ask → generate pipeline is
 // testable with no external LLM and identical input yields identical output.
+//
+// On the tool-calling path (opts.tools present) it becomes a scriptable agent so
+// the loop and the write-confirmation flow can be tested without an LLM:
+//   - a user turn `call <tool> {json}` → emits that exact tool call
+//   - after a tool-result turn → returns `[fake-chat] done: <first result line>`
+//   - otherwise → the plain echo (no tool call), i.e. a final text answer
 export function createFakeChat({ model = 'fake-chat' } = {}) {
   return {
     backend: 'fake',
     model,
-    async complete(messages) {
+    supportsTools: true,
+    async complete(messages, opts = {}) {
+      const raw = Array.isArray(messages) ? messages : toMessages(messages);
+      const tools = Array.isArray(opts.tools) && opts.tools.length ? opts.tools : null;
+
+      if (tools) {
+        const last = raw[raw.length - 1];
+        // We just fed tool results back → answer with a summary (ends the loop).
+        if (last && last.role === 'tool' && Array.isArray(last.results)) {
+          const line = String(last.results[0]?.content ?? '').split('\n')[0].slice(0, 200);
+          return { text: `[fake-chat] done: ${line}`, model, toolCalls: null };
+        }
+        // A `call <tool> {json}` directive in the latest user turn → that call.
+        const lastUser = [...raw].reverse().find((m) => m && m.role === 'user' && typeof m.content === 'string');
+        const directive = lastUser && /^call\s+([a-z_]+)\s*(\{[\s\S]*\})?\s*$/i.exec(lastUser.content.trim());
+        if (directive) {
+          let input = {};
+          try { input = directive[2] ? JSON.parse(directive[2]) : {}; } catch { input = {}; }
+          return { text: '', model, toolCalls: [{ id: `fake_${directive[1]}`, name: directive[1], input }] };
+        }
+        // No directive → plain text answer, no tool call.
+        const firstLine = (lastUser?.content || '').split('\n')[0].slice(0, 200);
+        return { text: `[fake-chat] ${firstLine}`, model, toolCalls: null };
+      }
+
       const all = toMessages(messages);
       const lastUser = [...all].reverse().find((m) => m.role === 'user');
       const firstLine = (lastUser ? lastUser.content : '').split('\n')[0].slice(0, 200);
