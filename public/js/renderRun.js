@@ -58,7 +58,10 @@ export function renderRunHtml(state, run, { docTitle = '', now = new Date() } = 
         <button class="btn-ghost" type="button" data-action="back-from-run" title="Back to the runbook">← ${escapeHtml(docTitle || 'Runbook')}</button>
         <span class="chip chip--run-${escapeHtml(run.status)}">${escapeHtml(run.status)}</span>
         <span class="run-meta">Started ${escapeHtml(hm(run.startedAt))} · ${escapeHtml(elapsed(run.startedAt, endIso))}</span>
-        <div class="run-actions"><button class="btn-ghost" type="button" data-action="copy-chronicle" data-run-id="${escapeHtml(run.id)}">Copy chronicle</button></div>
+        <div class="run-actions">
+          ${running ? '' : `<button class="btn-ghost" type="button" data-action="generate-post-mortem" data-run-id="${escapeHtml(run.id)}"${state.postMortemLoading ? ' disabled' : ''}>${state.postMortemLoading ? 'Generating…' : '✦ Post-mortem'}</button>`}
+          <button class="btn-ghost" type="button" data-action="copy-chronicle" data-run-id="${escapeHtml(run.id)}">Copy chronicle</button>
+        </div>
       </header>
       ${run.title ? `<p class="page-head__sub">${escapeHtml(run.title)}</p>` : ''}
       <div class="run-progress"><div class="run-progress__bar"><span style="width:${pct}%"></span></div><span class="run-progress__label">${done} of ${total} steps</span></div>
