@@ -215,6 +215,22 @@ export async function createPostMortem(runId) {
   return res.json();
 }
 
+// Generate a runbook from an incident/alert description. Returns { document,
+// model }. Throws with the server's message (e.g. "no AI model is configured")
+// so the panel can surface why it failed.
+export async function generateRunbook(description, project) {
+  const res = await fetch('/api/library/runbooks/generate', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ description, project }),
+  });
+  if (!res.ok) {
+    const payload = await res.json().catch(() => null);
+    throw new Error(payload?.message || 'Failed to generate the runbook');
+  }
+  return res.json();
+}
+
 export async function verifyDocument(id, verified, as = 'user') {
   const response = await fetch(`/api/library/documents/${id}/verify`, {
     method: 'POST',

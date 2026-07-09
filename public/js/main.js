@@ -25,7 +25,7 @@ import {
   fetchChatStatus, putChatSettings,
   verifyDocument, supersedeDocument,
   startRun, fetchRuns, fetchRun, setRunStep, setRunStatus, createPostMortem,
-  askPrax,
+  askPrax, generateRunbook,
 } from './libraryApi.js';
 import { normalizeTask } from './taskModel.js';
 import { apiStatus, designStatus, isOpen } from './statusMap.js';
@@ -66,6 +66,7 @@ import { templateById } from './documentTemplates.js';
 import { renderEditorHtml, buildOutline, buildBacklinks } from './renderEditor.js';
 import { renderRunHtml, buildChronicle } from './renderRun.js';
 import { renderAskPraxHtml } from './renderAskPrax.js';
+import { renderGenerateRunbookHtml } from './renderGenerateRunbook.js';
 import { renderSearchPanelHtml, searchCountLabel } from './renderSearchPanel.js';
 import { renderAllProjectsHtml, buildProjectGroups } from './renderAllProjects.js';
 import { renderPaletteHtml, buildPaletteGroups } from './renderPalette.js';
@@ -946,6 +947,30 @@ async function copyAskPrax() {
   showToast(ok ? 'Answer copied' : 'Could not copy');
 }
 
+function openGenerateRunbook() {
+  const projects = captureProjectChoices().filter((p) => p.slug !== INBOX_SLUG);
+  setState({ genRbOpen: true, genRbLoading: false, genRbError: false, genRbDescription: '', genRbProject: projects[0]?.id || null, paletteOpen: false });
+  renderApp();
+}
+
+async function runGenerateRunbook() {
+  const description = String(appRoot.querySelector('[data-genrb-input]')?.value || '').trim();
+  const project = appRoot.querySelector('[data-genrb-project]')?.value || '';
+  if (!description) { setState({ genRbError: 'Describe the alert or incident first.' }); renderApp(); return; }
+  if (!project) { setState({ genRbError: 'Pick a project for the runbook.' }); renderApp(); return; }
+  setState({ genRbLoading: true, genRbError: false, genRbDescription: description, genRbProject: project });
+  renderApp();
+  try {
+    const res = await generateRunbook(description, project);
+    setState({ genRbOpen: false, genRbLoading: false });
+    showToast('Runbook drafted — review, edit, and verify');
+    await openDocumentInEditor(res.document.id); // open the agent-written draft for review
+  } catch (err) {
+    setState({ genRbLoading: false, genRbError: err?.message || 'Could not generate the runbook.' });
+    renderApp();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Runbook execution (runs)
 // ---------------------------------------------------------------------------
@@ -1260,6 +1285,7 @@ function goSettings() {
 function escapeCascade() {
   if (state.editorSearchOpen) { closeEditorSearch(); return; }
   if (state.askPraxOpen) { setState({ askPraxOpen: false }); renderApp(); return; }
+  if (state.genRbOpen) { setState({ genRbOpen: false }); renderApp(); return; }
   if (state.confirm) { setState({ confirm: null }); renderApp(); return; }
   if (state.docMenuOpen) { setState({ docMenuOpen: false }); renderApp(); return; }
   if (state.paletteOpen) { setState({ paletteOpen: false }); renderApp(); return; }
@@ -1470,6 +1496,9 @@ function renderOverlaysHtml() {
     const md = r ? ((typeof r.answer === 'string' && r.answer.trim()) ? r.answer : (r.markdown || '')) : '';
     html += renderAskPraxHtml(state, { bodyHtml: md ? renderMarkdownHtml(md, { resolveWikiLink }) : '' });
   }
+  if (state.genRbOpen) {
+    html += renderGenerateRunbookHtml(state, { projects: captureProjectChoices().filter((p) => p.slug !== INBOX_SLUG) });
+  }
   if (state.confirm) html += renderConfirmHtml(state.confirm);
   html += renderToastHtml(state);
   return html;
@@ -1520,6 +1549,10 @@ function afterRender() {
     appRoot.querySelector('[data-capture-input]')?.focus();
   } else if (state.askPraxOpen && !state.askPraxLoading) {
     const input = appRoot.querySelector('[data-ask-prax-input]');
+    input?.focus();
+    input?.setSelectionRange?.(input.value.length, input.value.length);
+  } else if (state.genRbOpen && !state.genRbLoading) {
+    const input = appRoot.querySelector('[data-genrb-input]');
     input?.focus();
     input?.setSelectionRange?.(input.value.length, input.value.length);
   } else if (state.confirm) {
@@ -1829,6 +1862,9 @@ async function handleAction(action, el, event) {
     case 'close-ask-prax': setState({ askPraxOpen: false }); renderApp(); break;
     case 'run-ask-prax': runAskPrax(appRoot.querySelector('[data-ask-prax-input]')?.value); break;
     case 'copy-ask-prax': copyAskPrax(); break;
+    case 'open-generate-runbook': openGenerateRunbook(); break;
+    case 'close-generate-runbook': setState({ genRbOpen: false }); renderApp(); break;
+    case 'run-generate-runbook': runGenerateRunbook(); break;
     case 'toggle-semantic': setState({ librarySemantic: !state.librarySemantic, semanticResults: null }); renderApp(); break;
     case 'cycle-lib-sort': setState({ librarySortBy: state.librarySortBy === 'updated' ? 'title' : 'updated' }); renderApp(); break;
     case 'toggle-lib-tag': {
