@@ -24,6 +24,26 @@ export const ASSISTANT_SYSTEM_PROMPT = [
   "  doesn't cover it, ask a short clarifying question rather than guessing.",
 ].join('\n');
 
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+// The model has no clock — give it today's date (as the user's LOCAL date, the
+// same convention the desktop capture uses: getFullYear/Month/Date, not UTC) so
+// it can resolve "today"/"tomorrow"/"next Friday" into concrete YYYY-MM-DD due
+// dates. The server is the local sidecar, so its clock is the user's clock.
+export function currentDateContext(now = new Date()) {
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `The current date is ${WEEKDAYS[now.getDay()]}, ${y}-${m}-${d} (the user's local date). `
+    + 'Resolve relative dates the user mentions ("today", "tomorrow", "next Friday", "in 3 days") '
+    + 'against this date and pass concrete YYYY-MM-DD values to tools. Tasks carry a due DATE only '
+    + '(no time of day), so fold any time like "12pm" into the task title or notes.';
+}
+
+export function buildAssistantSystemPrompt(now = new Date()) {
+  return `${ASSISTANT_SYSTEM_PROMPT}\n\n${currentDateContext(now)}`;
+}
+
 const MAX_STEPS = 8;          // model round-trips per request (bounds tool loops)
 const MAX_TURNS = 120;        // incoming history length cap
 const MAX_CONTENT = 20_000;   // per-turn text cap
@@ -96,7 +116,10 @@ function pendingFrom(toolCalls, byName) {
 // Returns one of:
 //   { status:'done', messages, answer, model }
 //   { status:'awaiting_confirmation', messages, pending, model }
-export async function runAssistant({ chat, tools, system = ASSISTANT_SYSTEM_PROMPT, messages, decisions = null, maxSteps = MAX_STEPS }) {
+export async function runAssistant({ chat, tools, system, messages, decisions = null, maxSteps = MAX_STEPS, now = new Date() }) {
+  // The system prompt carries today's date so the model can resolve relative
+  // due dates; recomputed per request so it never goes stale.
+  const sys = system || buildAssistantSystemPrompt(now);
   const byName = new Map(tools.map((t) => [t.name, t]));
   const schemas = tools.map((t) => ({ name: t.name, description: t.description, parameters: t.parameters }));
   const history = messages.slice();
@@ -117,7 +140,7 @@ export async function runAssistant({ chat, tools, system = ASSISTANT_SYSTEM_PROM
 
   let model = chat.model;
   for (let step = 0; step < maxSteps; step++) {
-    const forModel = system ? [{ role: 'system', content: system }, ...history] : history;
+    const forModel = sys ? [{ role: 'system', content: sys }, ...history] : history;
     const res = await chat.complete(forModel, { tools: schemas, temperature: 0.2, maxTokens: 1500 });
     model = res.model || model;
 

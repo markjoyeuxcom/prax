@@ -1,6 +1,6 @@
 import { createInjectClient } from './assistant/injectClient.js';
 import { buildAgentTools } from './assistant/tools.js';
-import { runAssistant, sanitizeMessages, ASSISTANT_SYSTEM_PROMPT } from './assistant/agent.js';
+import { runAssistant, sanitizeMessages, buildAssistantSystemPrompt } from './assistant/agent.js';
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -48,7 +48,7 @@ export function registerAssistantRoutes(app, options = {}) {
     // grounded-conversation completion — no tools, no writes.
     if (!chat.supportsTools) {
       try {
-        const note = `${ASSISTANT_SYSTEM_PROMPT}\n\n(You have no tools available in this session — answer conversationally from what the user tells you and ask them to enable a tool-capable model for actions.)`;
+        const note = `${buildAssistantSystemPrompt()}\n\n(You have no tools available in this session — answer conversationally from what the user tells you and ask them to enable a tool-capable model for actions.)`;
         const { text, model } = await chat.complete([{ role: 'system', content: note }, ...messages], { temperature: 0.3, maxTokens: 1200 });
         return { status: 'done', degraded: true, reason: 'no-tools', answer: text, model, messages: [...messages, { role: 'assistant', content: text }] };
       } catch (err) {
