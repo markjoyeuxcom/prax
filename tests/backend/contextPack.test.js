@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildContextPack, renderContextPackMarkdown } from '../../server/contextPack.js';
+import { buildContextPack, renderContextPackMarkdown, isSubstantive } from '../../server/contextPack.js';
 
 const project = { id: 'p1', slug: 'demo', name: 'Demo', status: 'active' };
 
@@ -22,6 +22,32 @@ test('buildContextPack quarantines unverified, excludes superseded, sorts sectio
   assert.deepEqual(pack.sections.find((s) => s.kind === 'unverified').items.map((i) => i.id), ['u']);
   const allIds = pack.sections.flatMap((s) => s.items.map((i) => i.id));
   assert.ok(!allIds.includes('s'));
+});
+
+test('buildContextPack drops empty/whitespace-only docs ("Untitled", "Test 3") but keeps terse real ones', () => {
+  const noisy = [
+    { id: 'good', title: 'A decision', body: 'we chose X', documentType: 'note', tags: [], verified: true, status: 'active' },
+    { id: 'empty', title: 'Test 3', body: '', documentType: 'note', tags: [], verified: true, status: 'active' },
+    { id: 'blank', title: '', body: '   \n  ', documentType: 'note', tags: [], verified: true, status: 'active' },
+  ];
+  const ids = buildContextPack(noisy, { query: 'x' }).sections.flatMap((s) => s.items.map((i) => i.id));
+  assert.deepEqual(ids, ['good']);                    // junk excluded, terse doc kept
+  assert.equal(isSubstantive({ body: 'we chose X' }), true);
+  assert.equal(isSubstantive({ body: '' }), false);
+  assert.equal(isSubstantive({ body: '  \t\n ' }), false);
+  assert.equal(isSubstantive({}), false);
+});
+
+test('buildContextPack trims snippets to 200 chars and caps overview bodies', () => {
+  const long = 'word '.repeat(200); // 1000 chars
+  const pack = buildContextPack([
+    { id: 'card', title: 'Card', body: long, documentType: 'note', tags: ['project-card'], verified: true, status: 'active' },
+    { id: 'note', title: 'Note', body: long, documentType: 'note', tags: [], verified: true, status: 'active' },
+  ], { query: 'x' });
+  const noteText = pack.sections.find((s) => s.kind === 'relevant').items[0].text;
+  assert.equal(noteText.length, 200);                 // snippet capped at 200
+  const cardText = pack.sections.find((s) => s.kind === 'overview').items[0].text;
+  assert.ok(cardText.length <= 601 && cardText.endsWith('…')); // overview capped ~600
 });
 
 test('buildContextPack limit is a pack-wide budget, not per-section', () => {
