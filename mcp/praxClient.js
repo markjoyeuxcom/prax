@@ -106,6 +106,11 @@ export function createPraxClient({
     ask: ({ q, project, limit } = {}) =>
       request('POST', '/api/library/ask', { body: { q, project, limit } }),
 
+    // Generate a post-mortem document from a runbook run's chronicle. Returns
+    // { document, generated, model }. Agent-authored → stamped agent-written.
+    generatePostMortem: (runId) =>
+      request('POST', `/api/library/runs/${runId}/post-mortem`, { headers: { 'x-prax-origin': 'agent' } }),
+
     getDocument: (id) => getOrNull(`/api/library/documents/${id}`),
 
     createDocument: (payload) =>

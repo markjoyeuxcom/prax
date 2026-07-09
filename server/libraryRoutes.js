@@ -15,6 +15,7 @@ import {
 import { createEmbeddingService } from './embeddingService.js';
 import { buildContextPack, renderContextPackMarkdown } from './contextPack.js';
 import { buildAskMessages, buildAnswerContext, collectSources } from './askLibrary.js';
+import { buildRunSummary, buildPostMortemMessages, fallbackPostMortem, postMortemTitle } from './postMortem.js';
 
 const DOCUMENT_TYPES = new Set(['runbook', 'note']);
 const DOCUMENT_KINDS = new Set(['source', 'synthesized']);
@@ -463,6 +464,46 @@ export async function registerLibraryRoutes(app, options = {}) {
     const run = await runbookRunsRepository.setRunStatus(request.params.runId, status);
     if (!run) { reply.code(404); return { message: 'run not found' }; }
     return run;
+  });
+
+  // Auto post-mortem: turn a run's chronicle into a drafted post-mortem document
+  // (agent-written, unverified — a human reviews/verifies it). Uses the chat
+  // model to narrate when configured; falls back to a deterministic template
+  // built from the chronicle otherwise. Never 500s on the AI path.
+  app.post('/api/library/runs/:runId/post-mortem', async (request, reply) => {
+    if (!isValidUuid(request.params.runId)) { reply.code(400); return { message: 'run id is invalid' }; }
+    if (!runbookRunsRepository) { reply.code(404); return { message: 'run not found' }; }
+    const run = await runbookRunsRepository.getRun(request.params.runId);
+    if (!run) { reply.code(404); return { message: 'run not found' }; }
+    const doc = await repository.getDocument(run.documentId);
+    if (!doc) { reply.code(409); return { message: 'the runbook this run came from no longer exists' }; }
+
+    const summary = buildRunSummary(run, doc.title);
+    let body = fallbackPostMortem(run, summary, doc.title);
+    let generated = false;
+    let model = null;
+    const chat = await resolveChat();
+    if (chat) {
+      try {
+        const res = await chat.complete(buildPostMortemMessages(run, summary, doc.title), { temperature: 0.3, maxTokens: 1500 });
+        if (res && typeof res.text === 'string' && res.text.trim()) { body = res.text; generated = true; model = res.model || chat.model || null; }
+      } catch (err) {
+        request.log.error({ err }, 'post-mortem generation failed');
+      }
+    }
+
+    reply.code(201);
+    const created = await repository.createDocument({
+      title: postMortemTitle(run, doc.title),
+      body,
+      documentType: 'note',
+      projectId: doc.projectId,
+      tags: ['post-mortem'],
+      kind: 'synthesized',
+      updatedBy: 'agent', // AI-authored → lands agent-written, needs human verify
+    });
+    await embedOnWrite(created.id);
+    return { document: created, generated, model };
   });
 
   // "More like this" — documents most similar to this one by embedding. Reuses

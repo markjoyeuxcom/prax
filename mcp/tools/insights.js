@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { textResult, withErrorHandling } from '../toolResult.js';
+import { isValidUuid } from '../validate.js';
+import { okResult, errorResult, textResult, withErrorHandling } from '../toolResult.js';
 
 // AI "insight" tools that synthesize over the library. ask_prax answers a
 // question with a grounded, cited answer (degrading to the raw context pack when
@@ -30,6 +31,20 @@ export function createInsightTools(client) {
         }
         const pack = res && typeof res.markdown === 'string' ? res.markdown : '';
         return textResult(pack || 'No matching documents in the library.');
+      }),
+    },
+    {
+      name: 'generate_post_mortem',
+      title: 'Generate a post-mortem',
+      description:
+        'Draft a post-mortem document from a completed runbook run’s chronicle (steps, timestamps, actors). Creates an agent-written, unverified note in the runbook’s project for a human to review and verify. Uses the configured chat model to narrate, or a deterministic template when none is set.',
+      inputSchema: {
+        runId: z.string().describe('UUID of the runbook run to summarize (from list_runbook_runs / get_runbook_run).'),
+      },
+      handler: withErrorHandling(async ({ runId }) => {
+        if (!isValidUuid(runId)) return errorResult('runId must be a valid UUID.');
+        const res = await client.generatePostMortem(runId);
+        return okResult(res);
       }),
     },
   ];

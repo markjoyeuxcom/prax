@@ -24,7 +24,7 @@ import {
   setSemanticEnabled, putSemanticSettings, reindexEmbeddings, semanticSearch,
   fetchChatStatus, putChatSettings,
   verifyDocument, supersedeDocument,
-  startRun, fetchRuns, fetchRun, setRunStep, setRunStatus,
+  startRun, fetchRuns, fetchRun, setRunStep, setRunStatus, createPostMortem,
   askPrax,
 } from './libraryApi.js';
 import { normalizeTask } from './taskModel.js';
@@ -999,6 +999,23 @@ async function copyRunChronicle() {
   const doc = (state.documents || []).find((d) => d.id === run.documentId);
   const ok = await copyToClipboard(buildChronicle(run, doc?.title || ''));
   showToast(ok ? 'Chronicle copied' : 'Could not copy chronicle');
+}
+
+async function generatePostMortem(runId) {
+  if (!runId || state.postMortemLoading) return;
+  setState({ postMortemLoading: true });
+  renderApp();
+  try {
+    const res = await createPostMortem(runId);
+    setState({ postMortemLoading: false });
+    showToast(res.generated ? 'Post-mortem drafted — review & verify' : 'Draft created (no AI model) — fill in the narrative');
+    // Open the new agent-written doc so the human can review + verify it.
+    await openDocumentInEditor(res.document.id);
+  } catch {
+    setState({ postMortemLoading: false });
+    renderApp();
+    showToast('Could not generate the post-mortem');
+  }
 }
 
 function backFromRun() {
@@ -2020,6 +2037,7 @@ async function handleAction(action, el, event) {
       openConfirm({ message: 'Abort this run? The chronicle so far is kept, but the run is marked aborted.', action: 'abort-run', okLabel: 'Abort run', danger: true });
       break;
     case 'copy-chronicle': copyRunChronicle(); break;
+    case 'generate-post-mortem': generatePostMortem(el.dataset.runId); break;
     case 'back-from-run': backFromRun(); break;
 
     // ---- all projects ----

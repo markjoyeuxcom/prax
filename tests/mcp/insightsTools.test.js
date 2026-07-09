@@ -35,3 +35,16 @@ test('ask_prax surfaces an API failure as an error result', async () => {
   assert.equal(res.isError, true);
   assert.match(res.content[0].text, /unavailable/);
 });
+
+function pmTool(client) { return createInsightTools(client).find((t) => t.name === 'generate_post_mortem'); }
+
+test('generate_post_mortem validates the run id and returns the created doc', async () => {
+  const t = pmTool({});
+  assert.ok(t);
+  assert.equal((await t.handler({ runId: 'nope' })).isError, true);            // bad uuid
+  const client = { generatePostMortem: async (id) => ({ document: { id: 'pm1', title: 'Post-mortem: X' }, generated: true, model: 'gemini-2.5-flash' }) };
+  const res = await pmTool(client).handler({ runId: '11111111-1111-4111-8111-111111111111' });
+  assert.ok(!res.isError);
+  assert.match(res.content[0].text, /"title": ?"Post-mortem: X"/);
+  assert.match(res.content[0].text, /"generated": ?true/);
+});

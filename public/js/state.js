@@ -106,6 +106,7 @@ export const state = {
   // ---- runbook execution (run view) ----
   activeRun: null,              // the run being viewed: { id, documentId, title, status, startedAt, finishedAt, steps: [...] }
   runReturnDocId: null,         // runbook doc to return to via "← back" (also used to look up its title)
+  postMortemLoading: false,     // true while a post-mortem is being generated for the active run
 
   // ---- editor find/replace (Prax-native panel; see renderSearchPanel.js) ----
   editorSearchOpen: false,

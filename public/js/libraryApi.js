@@ -206,6 +206,15 @@ export async function setRunStatus(runId, status) {
   return res.json();
 }
 
+// Generate a post-mortem doc from a run's chronicle (agent-written, unverified).
+// Returns { document, generated, model } — generated=false means the fallback
+// template was used (no chat model configured or generation failed).
+export async function createPostMortem(runId) {
+  const res = await fetch(`/api/library/runs/${runId}/post-mortem`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to generate the post-mortem');
+  return res.json();
+}
+
 export async function verifyDocument(id, verified, as = 'user') {
   const response = await fetch(`/api/library/documents/${id}/verify`, {
     method: 'POST',
