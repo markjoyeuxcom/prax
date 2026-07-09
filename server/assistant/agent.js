@@ -100,6 +100,10 @@ export async function runAssistant({ chat, tools, system = ASSISTANT_SYSTEM_PROM
   const byName = new Map(tools.map((t) => [t.name, t]));
   const schemas = tools.map((t) => ({ name: t.name, description: t.description, parameters: t.parameters }));
   const history = messages.slice();
+  // Whether any WRITE tool actually mutated data this request. The client uses
+  // it to refresh its cached tasks/documents so approved changes appear at once
+  // (writes only ever execute via an approval, below).
+  let didWrite = false;
 
   // Resume: the tail is a proposed-but-unexecuted assistant tool-call turn and
   // the client sent its decisions — execute it (approved writes + any reads),
@@ -107,6 +111,7 @@ export async function runAssistant({ chat, tools, system = ASSISTANT_SYSTEM_PROM
   const tail = history[history.length - 1];
   if (decisions && isToolCallTurn(tail)) {
     const results = await executeToolCalls(tail.toolCalls, byName, decisions);
+    if (tail.toolCalls.some((c) => !byName.get(c.name)?.readOnly && decisions[c.id] === 'approve')) didWrite = true;
     history.push({ role: 'tool', results });
   }
 
@@ -121,7 +126,7 @@ export async function runAssistant({ chat, tools, system = ASSISTANT_SYSTEM_PROM
       // Any write in the turn suspends the WHOLE turn for confirmation (a
       // provider requires every tool_use in a turn to be answered together).
       if (res.toolCalls.some((c) => !byName.get(c.name)?.readOnly)) {
-        return { status: 'awaiting_confirmation', messages: history, pending: pendingFrom(res.toolCalls, byName), model };
+        return { status: 'awaiting_confirmation', messages: history, pending: pendingFrom(res.toolCalls, byName), model, didWrite };
       }
       const results = await executeToolCalls(res.toolCalls, byName, {});
       history.push({ role: 'tool', results });
@@ -129,10 +134,10 @@ export async function runAssistant({ chat, tools, system = ASSISTANT_SYSTEM_PROM
     }
 
     history.push({ role: 'assistant', content: res.text });
-    return { status: 'done', messages: history, answer: res.text, model };
+    return { status: 'done', messages: history, answer: res.text, model, didWrite };
   }
 
   const answer = 'I hit my step limit for this turn — ask me to continue if there is more to do.';
   history.push({ role: 'assistant', content: answer });
-  return { status: 'done', messages: history, answer, model };
+  return { status: 'done', messages: history, answer, model, didWrite };
 }
