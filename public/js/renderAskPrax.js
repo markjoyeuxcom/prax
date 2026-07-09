@@ -3,7 +3,7 @@ import { icon } from './icons.js';
 
 // "Ask Prax" overlay — ask a question and get a grounded, cited answer
 // synthesized from the library (or, when no chat model is configured, the raw
-// context pack, like "Brief me"). Pure state->HTML; the caller passes bodyHtml
+// retrieved context pack as a fallback). Pure state->HTML; the caller passes bodyHtml
 // (the answer or pack markdown already run through the markdown renderer,
 // trusted, not re-escaped). The input is uncontrolled between renders.
 function renderSources(sources) {

@@ -152,16 +152,6 @@ export async function semanticSearch(query, project) {
   return res.json();
 }
 
-// A library-wide "what do we know about X?" brief — the same query-scoped
-// context pack the ask_library MCP tool uses, returned as Markdown for humans.
-export async function fetchContextPack(query, project = 'all') {
-  const params = new URLSearchParams({ q: query });
-  if (project && project !== 'all') params.set('project', project);
-  const res = await fetch(`/api/library/context-pack?${params.toString()}`);
-  if (!res.ok) throw new Error('Failed to build brief');
-  return res.text();
-}
-
 // Ask Prax: a grounded, cited answer over the library. Returns the JSON envelope
 // { query, answer, degraded, reason, markdown, sources, model } — answer is null
 // (degraded) when no chat model is configured or generation failed, in which
