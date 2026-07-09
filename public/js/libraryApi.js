@@ -141,6 +141,22 @@ export async function fetchContextPack(query, project = 'all') {
   return res.text();
 }
 
+// Ask Prax: a grounded, cited answer over the library. Returns the JSON envelope
+// { query, answer, degraded, reason, markdown, sources, model } — answer is null
+// (degraded) when no chat model is configured or generation failed, in which
+// case `markdown` carries the retrieved context pack instead.
+export async function askPrax(query, project = 'all') {
+  const body = { q: query };
+  if (project && project !== 'all') body.project = project;
+  const res = await fetch('/api/library/ask', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error('Failed to get an answer');
+  return res.json();
+}
+
 // ---- Runbook execution (runs) ----------------------------------------------
 
 export async function startRun(documentId, title = '') {

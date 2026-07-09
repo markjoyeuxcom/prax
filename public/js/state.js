@@ -87,6 +87,13 @@ export const state = {
   briefLoading: false,
   briefError: false,
 
+  // ---- "Ask Prax" (grounded, cited answer over the library) ----
+  askPraxOpen: false,
+  askPraxQuery: '',
+  askPraxResult: null,          // null = not run; { answer, degraded, reason, markdown, sources, model }
+  askPraxLoading: false,
+  askPraxError: false,
+
   // ---- editor ----
   editorDocId: null,
   editorMode: 'split',          // 'edit' | 'split' | 'preview'
