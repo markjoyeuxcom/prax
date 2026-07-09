@@ -49,6 +49,7 @@ test('normalizeTaskRow maps database fields to API task fields', () => {
     status: 'planned',
     projectId: PROJECT_ID,
     dueDate: '2026-05-11',
+    dueTime: null,
     deferredUntil: null,
     recurrence: null,
     labels: [],
@@ -90,20 +91,20 @@ test('buildCreateTask returns parameterized insert query', () => {
   });
 
   assert.match(query.text, /insert into tasks/);
-  assert.equal(query.values.length, 10);
+  assert.equal(query.values.length, 11); // + due_time
   assert.equal(query.values[0], 'Wire API adapter');
-  assert.equal(query.values[9], '[]'); // labels default, serialized
+  assert.equal(query.values[10], '[]'); // labels default, serialized (now last)
 });
 
-test('buildCreateTask places notes at $8 and serializes labels at $10', () => {
+test('buildCreateTask places notes at $9 and serializes labels at $11', () => {
   const query = buildCreateTask({
     title: 'T', description: '', priority: 'low', status: 'planned',
-    projectId: PROJECT_ID, dueDate: null, sortOrder: 0,
+    projectId: PROJECT_ID, dueDate: null, dueTime: null, sortOrder: 0,
     notes: 'Handoff context', labels: ['waiting', 'cert'],
   });
-  assert.match(query.text, /sort_order, notes, recurrence, labels\)/);
-  assert.equal(query.values[7], 'Handoff context');
-  assert.equal(query.values[9], '["waiting","cert"]');
+  assert.match(query.text, /due_time, sort_order, notes, recurrence, labels\)/);
+  assert.equal(query.values[8], 'Handoff context');
+  assert.equal(query.values[10], '["waiting","cert"]');
 });
 
 test('buildUpdateTask maps notes to the notes column', () => {

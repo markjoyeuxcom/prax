@@ -11,13 +11,22 @@ function isoDateOnly(now) {
   return `${y}-${m}-${d}`;
 }
 
+function localHHMM(now) {
+  return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+}
+
 export function computeDueReminders(tasks, { now = new Date() } = {}) {
   const today = isoDateOnly(now);
+  const time = localHHMM(now);
   return (tasks || []).filter((task) => {
     if (!task || task.archivedAt) return false;
     if (task.status === 'completed') return false;
     if (!task.dueDate) return false;
     if (task.dueDate > today) return false; // due in the future
+    // A task with a time-of-day that is due TODAY only warrants a reminder once
+    // its time has arrived; an overdue timed task (its date already past) fires
+    // regardless. Zero-padded 'HH:MM' compares correctly as strings.
+    if (task.dueTime && task.dueDate === today && time < task.dueTime) return false;
     if (task.deferredUntil && new Date(task.deferredUntil) > now) return false; // snoozed
     return true;
   });

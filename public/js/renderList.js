@@ -38,7 +38,7 @@ const STATUS_GROUPS = [
 // kept untouched (same idiom as the prototype's decor()).
 function decorate(task, now) {
   const done = designStatus(task.status) === 'completed';
-  return { ...task, done, dueInfo: dueFlag(task.dueDate, { done, now }) };
+  return { ...task, done, dueInfo: dueFlag(task.dueDate, { dueTime: task.dueTime, done, now }) };
 }
 
 // Pure. Project-scoped API-shaped tasks → { groups, flatIds }. Excludes

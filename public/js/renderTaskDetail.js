@@ -85,6 +85,7 @@ function renderFieldRows(task, dis, ro) {
         <span class="field-row__label">Due</span>
         <div class="field-row__value">
           <input class="date-input" type="date" data-task-due value="${escapeHtml(task.dueDate || '')}"${dis}>
+          <input class="time-input" type="time" data-task-due-time value="${escapeHtml(task.dueTime || '')}" title="Time of day (optional)" aria-label="Due time"${task.dueDate ? '' : ' disabled'}${dis}>
           <button class="pill-btn" type="button" data-action="clear-task-due"${dis}>Clear</button>
         </div>
       </div>
@@ -249,7 +250,7 @@ function renderHead(task, context, isDone, readOnly) {
     ? chip(project.name || 'Project', 'project',
         `style="background:color-mix(in oklab, ${projectColor} 13%, transparent); color:${projectColor};"`)
     : '';
-  const flag = dueFlag(task.dueDate, { done: isDone, now: context.now });
+  const flag = dueFlag(task.dueDate, { dueTime: task.dueTime, done: isDone, now: context.now });
   const dueChip = flag ? chip(flag.label, `due-${flag.bucket}`) : '';
   const recurChip = task.recurrence ? chip(`↻ ${recurrenceLabel(task.recurrence)}`, 'recur') : '';
   const chips = `${projectChip}${dueChip}${recurChip}`;

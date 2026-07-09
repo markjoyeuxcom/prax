@@ -11,7 +11,7 @@ test('currentDateContext states the LOCAL date + weekday (not UTC)', () => {
   const ctx = currentDateContext(now);
   assert.match(ctx, /Thursday, 2026-07-09/);
   assert.match(ctx, /YYYY-MM-DD/);
-  assert.match(ctx, /due DATE only/i); // tells the model tasks have no time-of-day
+  assert.match(ctx, /dueTime as "HH:MM"/i); // tells the model tasks support a time-of-day
 });
 
 test('buildAssistantSystemPrompt appends the date to the base prompt', () => {

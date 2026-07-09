@@ -50,6 +50,7 @@ export function normalizeTask(task) {
     column: task.status || task.column || 'planned',
     projectId: task.projectId || null,
     dueDate: task.dueDate || task.due_date || null,
+    dueTime: task.dueTime || task.due_time || null,
     deferredUntil: task.deferredUntil || task.deferred_until || null,
     recurrence: task.recurrence || null,
     labels: Array.isArray(task.labels) ? task.labels : [],

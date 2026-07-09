@@ -487,6 +487,25 @@ test('POST /api/tasks passes recurrence through to createTask (repeating task)',
   await app.close();
 });
 
+test('POST /api/tasks passes a valid dueTime through, and rejects an invalid one', async () => {
+  const calls = [];
+  const repository = {
+    ...createFakeRepository(),
+    async createTask(task) { calls.push(task); return { id: CREATED_TASK_ID, ...task, createdAt: 'now', updatedAt: 'now', archivedAt: null }; },
+  };
+  const app = await buildApp({ skipDb: true, tasksRepository: repository, projectsRepository: createFakeProjectsRepository() });
+
+  const ok = await app.inject({ method: 'POST', url: '/api/tasks', payload: { title: 'Take tablet', priority: 'medium', status: 'planned', project: 'homelab', dueDate: '2026-07-09', dueTime: '12:00' } });
+  assert.equal(ok.statusCode, 201);
+  assert.equal(calls[0].dueTime, '12:00');
+  assert.equal(ok.json().dueTime, '12:00');
+
+  const bad = await app.inject({ method: 'POST', url: '/api/tasks', payload: { title: 'x', priority: 'medium', status: 'planned', project: 'homelab', dueTime: '25:99' } });
+  assert.equal(bad.statusCode, 400);
+  assert.equal(bad.json().message, 'dueTime is invalid');
+  await app.close();
+});
+
 test('POST /api/tasks rejects an invalid recurrence with 400', async () => {
   const app = await buildApp({ skipDb: true, tasksRepository: createFakeRepository(), projectsRepository: createFakeProjectsRepository() });
   const response = await app.inject({

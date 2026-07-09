@@ -6,7 +6,7 @@ const PRIORITIES = new Set(['high', 'medium', 'low']);
 const STATUSES = new Set(['high-priority', 'in-progress', 'planned', 'completed', 'notes']);
 // 'project' (slug-or-id) is the client-facing field; 'projectId' is resolved
 // server-side and injected into the patch by the handler — never accepted raw.
-const PATCH_FIELDS = ['title', 'description', 'notes', 'priority', 'status', 'project', 'dueDate', 'deferredUntil', 'recurrence', 'labels', 'sortOrder'];
+const PATCH_FIELDS = ['title', 'description', 'notes', 'priority', 'status', 'project', 'dueDate', 'dueTime', 'deferredUntil', 'recurrence', 'labels', 'sortOrder'];
 
 const MAX_LABELS = 25;
 
@@ -53,6 +53,12 @@ function isValidDateString(value) {
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
+// An optional wall-clock time as 'HH:MM' (24-hour). Empty/null clears it.
+function isValidTimeString(value) {
+  if (value === null || value === undefined || value === '') return true;
+  return typeof value === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+}
+
 function isValidUuid(value) {
   return (
     typeof value === 'string' &&
@@ -83,6 +89,7 @@ function validateTaskPayload(payload) {
   if (!STATUSES.has(payload.status)) return 'status is invalid';
   if (typeof payload.project !== 'string' || payload.project.trim() === '') return 'project is required';
   if (!isValidDateString(payload.dueDate)) return 'dueDate is invalid';
+  if (!isValidTimeString(payload.dueTime)) return 'dueTime is invalid';
   if (!isValidLabels(payload.labels)) return 'labels is invalid';
   if (!isValidRecurrence(payload.recurrence)) return 'recurrence is invalid';
   if (!isValidSortOrder(payload.sortOrder)) {
@@ -169,6 +176,7 @@ function cleanTaskPayload(payload) {
     status: payload.status,
     projectId: payload.projectId,
     dueDate: payload.dueDate || null,
+    dueTime: payload.dueTime || null,
     recurrence: payload.recurrence || null,
     labels: normalizeLabels(payload.labels),
     sortOrder: Number.isFinite(payload.sortOrder) ? payload.sortOrder : 0,
@@ -228,6 +236,12 @@ function validateTaskPatchPayload(payload) {
     return 'dueDate is invalid';
   }
   if (
+    Object.prototype.hasOwnProperty.call(payload, 'dueTime') &&
+    !isValidTimeString(payload.dueTime)
+  ) {
+    return 'dueTime is invalid';
+  }
+  if (
     Object.prototype.hasOwnProperty.call(payload, 'deferredUntil') &&
     !isValidDeferredUntil(payload.deferredUntil)
   ) {
@@ -263,7 +277,7 @@ function cleanTaskPatchPayload(payload) {
       fields[field] = payload[field].trim();
       return fields;
     }
-    if ((field === 'dueDate' || field === 'deferredUntil' || field === 'recurrence') && payload[field] === '') {
+    if ((field === 'dueDate' || field === 'dueTime' || field === 'deferredUntil' || field === 'recurrence') && payload[field] === '') {
       fields[field] = null;
       return fields;
     }

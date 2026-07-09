@@ -1987,7 +1987,7 @@ async function handleAction(action, el, event) {
       if (task) await patchTask(state.drawerTaskId, { labels: (task.labels || []).filter(l => l !== el.dataset.label) });
       break;
     }
-    case 'clear-task-due': await patchTask(state.drawerTaskId, { dueDate: null }); break;
+    case 'clear-task-due': await patchTask(state.drawerTaskId, { dueDate: null, dueTime: null }); break;
     case 'snooze-task':
       await patchTask(el.dataset.taskId || state.drawerTaskId, { deferredUntil: snoozeUntil(el.dataset.snooze) }, { failure: 'snooze the task' });
       renderApp();
@@ -2708,7 +2708,13 @@ function bindEvents() {
   appRoot.addEventListener('change', (event) => {
     const target = event.target;
     if (target.matches?.('[data-task-due]')) {
-      patchTask(state.drawerTaskId, { dueDate: target.value || null });
+      // Clearing the date clears the time too (a time with no date is meaningless).
+      const dueDate = target.value || null;
+      patchTask(state.drawerTaskId, dueDate ? { dueDate } : { dueDate: null, dueTime: null });
+      return;
+    }
+    if (target.matches?.('[data-task-due-time]')) {
+      patchTask(state.drawerTaskId, { dueTime: target.value || null });
       return;
     }
     if (target.matches?.('[data-reading-scale]')) {
