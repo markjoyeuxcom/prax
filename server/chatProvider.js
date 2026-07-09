@@ -106,7 +106,7 @@ export function createChatProvider({ appSettingsRepository = null, config = {} }
       model: 'claude-haiku-4-5-20251001',
       apiKey: typeof config.anthropicApiKey === 'string' ? config.anthropicApiKey : '',
     },
-    gemini: { baseUrl: 'https://generativelanguage.googleapis.com/v1beta', model: 'gemini-1.5-flash' },
+    gemini: { baseUrl: 'https://generativelanguage.googleapis.com/v1beta', model: 'gemini-2.5-flash' },
   };
   // CHAT_MODEL follows the env-selected backend so an env-only deployment keeps
   // its exact model.

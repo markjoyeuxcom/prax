@@ -658,7 +658,7 @@ export async function registerLibraryRoutes(app, options = {}) {
       return { query, answer: text, degraded: false, markdown, sources, model };
     } catch (err) {
       request.log.error({ err }, 'library ask generation failed');
-      return { query, answer: null, degraded: true, reason: 'generation-failed', markdown, sources, model: chat.model || null };
+      return { query, answer: null, degraded: true, reason: 'generation-failed', error: err?.message || 'generation failed', markdown, sources, model: chat.model || null };
     }
   });
 

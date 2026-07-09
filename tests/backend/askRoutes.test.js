@@ -85,7 +85,7 @@ test('POST /api/library/ask degrades to the pack when no chat model is configure
 });
 
 test('POST /api/library/ask still returns sources when generation fails', async () => {
-  const chat = { backend: 'fake', model: 'boom', async complete() { throw new Error('provider 500'); } };
+  const chat = { backend: 'fake', model: 'boom', async complete() { throw new Error('gemini chat failed: 404'); } };
   const app = await makeApp({ chat, docs: DOCS });
   const res = await app.inject({ method: 'POST', url: '/api/library/ask', payload: { q: 'failover?' } });
   assert.equal(res.statusCode, 200);              // never 500s on the AI path
@@ -93,6 +93,7 @@ test('POST /api/library/ask still returns sources when generation fails', async 
   assert.equal(body.answer, null);
   assert.equal(body.degraded, true);
   assert.equal(body.reason, 'generation-failed');
+  assert.match(body.error, /404/);                // the real failure reason is surfaced
   assert.ok(body.sources.length >= 1);
   await app.close();
 });

@@ -143,5 +143,5 @@ test('every chat adapter exposes .model equal to what complete() reports', async
   assert.equal(createOpenAiChat({ backend: 'llamacpp', defaultModel: '' }).model, '');
   assert.equal(createAnthropicChat({}).model, 'claude-haiku-4-5-20251001');
   assert.equal(createOllamaChat({}).model, 'llama3.1');
-  assert.equal(createGeminiChat({}).model, 'gemini-1.5-flash');
+  assert.equal(createGeminiChat({}).model, 'gemini-2.5-flash');
 });
