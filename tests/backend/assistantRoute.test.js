@@ -70,8 +70,24 @@ test('a write tool suspends for confirmation and does NOT mutate until approved'
   const pendingId = first.body.pending[0].id;
   const second = await post(app, { messages: first.body.messages, decisions: { [pendingId]: 'approve' } });
   assert.equal(second.body.status, 'done');
+  // didWrite tells the client to refresh its cached tasks/documents
+  assert.equal(second.body.didWrite, true);
   const titles = await listTaskTitles(app);
   assert.ok(titles.includes('From assistant'), `expected the task to be created, got ${JSON.stringify(titles)}`);
+  await app.close();
+});
+
+test('didWrite is false for read-only turns and declined writes', async () => {
+  const app = await makeApp();
+  // a pure read turn never mutates
+  const read = await post(app, { messages: [{ role: 'user', content: 'call search_tasks {}' }] });
+  assert.equal(read.body.status, 'done');
+  assert.ok(!read.body.didWrite);
+  // a declined write does not mutate either
+  const proposed = await post(app, { messages: [{ role: 'user', content: 'call create_task {"title":"X","project":"inbox"}' }] });
+  const declined = await post(app, { messages: proposed.body.messages, decisions: { [proposed.body.pending[0].id]: 'deny' } });
+  assert.equal(declined.body.status, 'done');
+  assert.ok(!declined.body.didWrite);
   await app.close();
 });
 

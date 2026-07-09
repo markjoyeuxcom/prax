@@ -280,6 +280,19 @@ async function loadAssistantStatus() {
 }
 
 // Apply one turn's response envelope to state (shared by send + confirm resume).
+// After the assistant executes an approved write, the server has mutated data
+// the human UI holds a cached copy of (tasks/projects/documents). Reload it so
+// the change shows immediately instead of only after a manual refresh/nav.
+async function refreshAfterAssistantWrite() {
+  try {
+    await Promise.all([loadTasks(), loadProjects(), loadDocuments()]);
+    if (state.healthData) await loadHealth();
+  } catch {
+    /* a background refresh failure must not surface as an assistant error */
+  }
+  renderApp();
+}
+
 function applyAssistantResult(res) {
   if (res.status === 'awaiting_confirmation') {
     setState({ assistantMessages: res.messages, assistantPending: res.pending || [], assistantLoading: false, assistantError: null });
@@ -291,6 +304,8 @@ function applyAssistantResult(res) {
     // done
     setState({ assistantMessages: res.messages, assistantLoading: false, assistantPending: null, assistantError: null });
   }
+  // A write mutated cached data — reload it so the app reflects the change.
+  if (res.didWrite) refreshAfterAssistantWrite();
 }
 
 async function sendAssistant(rawText) {
