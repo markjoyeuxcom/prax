@@ -98,6 +98,7 @@ export const state = {
 
   // ---- Library health view ----
   healthData: null,             // null = not loaded; { needsReview, empty, stale, orphans, counts }
+  healthLinkSuggestions: null,  // null = not loaded; [{ sourceId, sourceTitle, targetId, targetTitle, snippet }]
   healthLoading: false,
 
   // ---- Daily brief / on-call handoff ----

@@ -29,6 +29,29 @@ function section(title, docs, { empty, rowAction, showTrust = false } = {}) {
   </section>`;
 }
 
+// Auto wiki-link suggestions: a plain-text mention of another doc's title that
+// isn't linked yet. One click rewrites the first mention to a [[wiki-link]].
+function suggestionsSection(suggestions) {
+  const list = Array.isArray(suggestions) ? suggestions : [];
+  const rows = list.slice(0, CAP).map((s) => `<div class="health-row health-suggest">
+    <div class="health-suggest__body">
+      <div class="health-suggest__head">
+        <button class="health-row__title" type="button" data-action="open-health-doc" data-doc-id="${escapeHtml(s.sourceId || '')}">${escapeHtml(s.sourceTitle || 'Untitled')}</button>
+        <span class="health-suggest__arrow">→ link</span>
+        <span class="wikilink">${escapeHtml(s.targetTitle || '')}</span>
+      </div>
+      <div class="health-suggest__snippet">${escapeHtml(s.snippet?.pre || '')}<mark>${escapeHtml(s.snippet?.hit || '')}</mark>${escapeHtml(s.snippet?.post || '')}</div>
+    </div>
+    <button class="btn-outline btn-outline--sm" type="button" data-action="apply-wiki-link" data-doc-id="${escapeHtml(s.sourceId || '')}" data-title="${escapeHtml(s.targetTitle || '')}">Link</button>
+  </div>`).join('');
+  const more = list.length > CAP ? `<p class="health-more">and ${list.length - CAP} more…</p>` : '';
+  const body = list.length ? `${rows}${more}` : '<p class="health-empty">✓ No unlinked mentions — the library is well cross-linked.</p>';
+  return `<section class="health-card">
+    <h2 class="health-card__title">Suggested links<span class="health-count${list.length ? '' : ' is-zero'}">${list.length}</span></h2>
+    ${body}
+  </section>`;
+}
+
 export function renderHealthHtml(state) {
   const h = state.healthData;
   const head = `<header class="page-head">
@@ -47,5 +70,6 @@ export function renderHealthHtml(state) {
       ${section('Empty stubs', h.empty, { empty: 'No empty documents.' })}
       ${section('Stale derivations', h.stale, { empty: 'No stale documents.' })}
       ${section('Orphans — no links', h.orphans, { empty: 'No orphaned documents.' })}
+      ${suggestionsSection(state.healthLinkSuggestions)}
     </div>`;
 }
