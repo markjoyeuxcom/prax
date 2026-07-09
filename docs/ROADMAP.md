@@ -31,6 +31,35 @@ spec → plan → review workflow under [`docs/superpowers/`](superpowers/) befo
 
 ---
 
+## AI feature tiers
+
+The generative-AI direction, shortlisted by value into three tiers on a shared **chat-completion
+provider layer** + **trust guardrails** (citations-only, provenance shown, AI output lands
+`agent-written` and needs human verify). All Tier-1 and most of Tier-2 shipped in the current
+`[Unreleased]` cycle; see the CHANGELOG for details.
+
+**Enabler (cross-cutting) — ✅ shipped:** local-first chat provider (OpenAI / Claude / Gemini /
+Ollama / llama.cpp) + trust guardrails.
+
+**Tier 1 — flagship — ✅ 3/3**
+- [x] **Ask Prax** — grounded, trust-aware Q&A over the library (cited, verified-first).
+- [x] **Auto post-mortem** from a runbook-run chronicle.
+- [x] **Runbook generation** from an alert/incident description.
+
+**Tier 2 — high value — ⏳ 2.5/3**
+- [x] **In-app agentic assistant** over the 32-tool MCP tree (reads free, writes confirmed).
+- [~] **Knowledge-base health.** *Deterministic half shipped* (Health view: needs-review / stale /
+  empty / orphan buckets). **The AI half is the active build:** contradiction/gap detection +
+  auto wiki-linking. See
+  [`specs/2026-07-09-kb-health-ai-design.md`](superpowers/specs/2026-07-09-kb-health-ai-design.md).
+- [x] **Daily brief / on-call handoff** generator.
+
+**Tier 3 — solid, less differentiated — ☐ 0/2 (next after #5)**
+- [ ] **Editor writing actions** — draft / summarize / rewrite / notes→checklist. *(medium)*
+- [ ] **Natural-language capture & NL→filter** — "p1 in homelab due this week." *(small–medium)*
+
+---
+
 The shared-memory direction (slice 1 → slice 2 → skills/CLI convergence) is now complete. Candidate
 next steps, by value:
 
