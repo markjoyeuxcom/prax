@@ -18,6 +18,7 @@ const SHAPES = {
   filter: '<path d="M2 3.2 h11 l-4.1 4.9 v3.9 l-2.8 1.4 v-5.3 z"/>',
   calendar: '<rect x="2" y="3" width="11" height="10.5" rx="1.5"/><line x1="2" y1="6" x2="13" y2="6"/><line x1="5" y1="1.5" x2="5" y2="4"/><line x1="10" y1="1.5" x2="10" y2="4"/>',
   chat: '<path d="M2 4 a2 2 0 0 1 2 -2 h7 a2 2 0 0 1 2 2 v4 a2 2 0 0 1 -2 2 h-4 l-3.5 2.7 v-2.7 h-0.5 a2 2 0 0 1 -2 -2 z"/><line x1="5" y1="5.6" x2="10" y2="5.6"/><line x1="5" y1="7.8" x2="8.5" y2="7.8"/>',
+  pencil: '<path d="M10.5 2.5 l2 2 -7 7 -2.6 0.6 0.6 -2.6 z"/><line x1="9" y1="4" x2="11" y2="6"/>',
 };
 
 export function icon(name, size = 15) {

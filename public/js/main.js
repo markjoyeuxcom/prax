@@ -80,6 +80,7 @@ import { renderToastHtml } from './renderToast.js';
 import { renderConfirmHtml } from './renderConfirm.js';
 import { renderSettingsHtml } from './renderSettings.js';
 import { escapeHtml } from './renderHelpers.js';
+import { icon } from './icons.js';
 
 const SAVED_LIBRARY_VIEWS_KEY = 'moomora.librarySavedViews.v1';
 const SMART_VIEWS_KEY = 'moomora.taskSmartViews.v1';
@@ -514,6 +515,32 @@ function applyProjectPatchLocal(id, patch) {
     projects: state.projects.map(p => (p.id === id ? { ...p, ...patch } : p)),
     managedProjects: state.managedProjects.map(p => (p.id === id ? { ...p, ...patch } : p)),
   });
+}
+
+// Inline project rename from the header title. The slug stays stable (name is a
+// display label); resolveProject matches the new name, so nothing breaks.
+function startRenameProject(id) {
+  setState({ renamingProjectId: id });
+  renderApp();
+}
+
+async function saveRenameProject(id, rawValue) {
+  if (state.renamingProjectId !== id) return; // already committed/cancelled
+  const value = (rawValue || '').trim();
+  const project = projectsById()[id];
+  setState({ renamingProjectId: null });
+  if (!value || !project || value === project.name) { renderApp(); return; }
+  applyProjectPatchLocal(id, { name: value }); // optimistic
+  renderApp();
+  try {
+    const updated = await updateProject(id, { name: value });
+    if (updated) applyProjectPatchLocal(id, { name: updated.name });
+    showToast('Project renamed');
+  } catch {
+    await loadProjects(); // reconcile on failure
+    alertError('rename this project');
+  }
+  renderApp();
 }
 
 // Snooze target for a preset: tomorrow / next week, at 9am local so the task
@@ -1583,10 +1610,15 @@ function renderMainHtml() {
         flatIds = built.flatIds;
         body = renderListHtml(state, built.groups) + renderBulkBarHtml(state);
       }
+      const canRename = project && project.slug !== INBOX_SLUG;
+      const titleHtml = (canRename && state.renamingProjectId === project.id)
+        ? `<input class="page-head__rename" type="text" data-project-rename data-project-id="${escapeHtml(project.id)}" value="${escapeHtml(project.name)}" aria-label="Rename project" autocomplete="off" spellcheck="false">`
+        : `<h1 class="page-head__title">${escapeHtml(project?.name || 'Tasks')}</h1>`
+          + (canRename ? `<button class="page-head__rename-btn" type="button" data-action="rename-project" data-project-id="${escapeHtml(project.id)}" title="Rename project" aria-label="Rename project">${icon('pencil', 13)}</button>` : '');
       return `<div class="page">
         <header class="page-head">
           <span class="page-head__dot" style="--dot:${project ? projectColor(project) : 'var(--accent)'}"></span>
-          <h1 class="page-head__title">${escapeHtml(project?.name || 'Tasks')}</h1>
+          ${titleHtml}
           <span class="chip ${chipClass}">${escapeHtml((project?.status || 'active').replace('-', ' '))}</span>
           ${project && project.slug !== INBOX_SLUG ? renderProjectOps(project) : ''}
         </header>
@@ -1694,6 +1726,10 @@ function renderApp() {
 
 function afterRender() {
   mountEditorIfNeeded();
+  if (state.renamingProjectId) {
+    const input = appRoot.querySelector('[data-project-rename]');
+    if (input && document.activeElement !== input) { input.focus(); input.select(); }
+  }
   if (state.paletteOpen) {
     const input = appRoot.querySelector('[data-palette-input]');
     input?.focus();
@@ -1871,6 +1907,7 @@ async function handleAction(action, el, event) {
     }
     case 'set-settings-tab': setState({ settingsTab: el.dataset.tab }); renderApp(); break;
     case 'nav-project': goProject(el.dataset.projectId); break;
+    case 'rename-project': startRenameProject(el.dataset.projectId); break;
     case 'set-tab': {
       const tab = el.dataset.tab;
       setState({ tab, selectedTaskId: null, multiSelectIds: [] });
@@ -2532,6 +2569,13 @@ function bindEvents() {
     }
   });
 
+  // Commit an inline project rename when its input loses focus (Enter blurs it;
+  // Esc clears renamingProjectId first, so the commit below no-ops).
+  appRoot.addEventListener('focusout', (event) => {
+    const t = event.target;
+    if (t?.matches?.('[data-project-rename]')) saveRenameProject(t.dataset.projectId, t.value);
+  });
+
   appRoot.addEventListener('input', (event) => {
     const target = event.target;
     if (target.matches?.('[data-search-find]')) {
@@ -2743,6 +2787,11 @@ function bindEvents() {
     if (target.matches?.('[data-assistant-input]') && event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       sendAssistant(target.value);
+      return;
+    }
+    if (target.matches?.('[data-project-rename]')) {
+      if (event.key === 'Enter') { event.preventDefault(); target.blur(); return; } // blur commits
+      if (event.key === 'Escape') { event.preventDefault(); setState({ renamingProjectId: null }); renderApp(); return; }
       return;
     }
     if (target.matches?.('[data-checklist-new]') && event.key === 'Enter') {

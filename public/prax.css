@@ -507,6 +507,24 @@ a { color: var(--accent); }
 .page-head__sub { font-size: 12.5px; color: var(--ink3); margin: 2px 0 0; }
 .page-head__actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 
+/* Inline project rename: a pencil that reveals on header hover, and the edit input. */
+.page-head__rename-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; padding: 0;
+  border: none; border-radius: 6px; background: transparent; cursor: pointer;
+  color: var(--ink3); opacity: 0; transition: opacity .12s, color .12s, background .12s;
+}
+.page-head:hover .page-head__rename-btn { opacity: 1; }
+.page-head__rename-btn:hover { color: var(--accent); background: var(--accent-soft); }
+.page-head__rename-btn:focus-visible { opacity: 1; outline: 2px solid var(--accent); outline-offset: 1px; }
+.page-head__rename {
+  font-size: 19px; font-weight: 650; letter-spacing: -0.015em;
+  color: var(--ink); background: var(--surface);
+  border: 1px solid var(--accent); border-radius: 7px;
+  padding: 1px 7px; margin: 0; min-width: 160px; max-width: 420px;
+}
+.page-head__rename:focus { outline: none; }
+
 .chip {
   display: inline-flex;
   align-items: center;
