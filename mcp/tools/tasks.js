@@ -20,7 +20,7 @@ export function createTaskTools(client) {
       annotations: { readOnlyHint: true },
       inputSchema: {
         query: z.string().optional().describe('Text matched against task title.'),
-        project: z.string().optional().describe('Limit to one project (slug or id); omit for all.'),
+        project: z.string().optional().describe('Limit to one project (name, slug, or id); omit for all.'),
         status: STATUS.optional().describe('Limit to one status.'),
         filter: z.string().optional().describe('Prax filter expression, e.g. "p1 & overdue", "@waiting & #homelab", "due:today", "is:recurring". Atoms: @label, #project, p1-3/priority:, status:, done/open, overdue, due:today|tomorrow|soon|week|none|YYYY-MM-DD, is:snoozed, is:recurring, bareword=title; operators & | - ( ).'),
       },
@@ -56,14 +56,15 @@ export function createTaskTools(client) {
     {
       name: 'create_task',
       title: 'Create task',
-      description: 'Create a new task. priority defaults to medium and status to planned if omitted.',
+      description: 'Create a new task. priority defaults to medium and status to planned if omitted. For a repeating task, set recurrence (e.g. "daily").',
       inputSchema: {
         title: z.string().min(1).describe('Task title.'),
-        project: z.string().describe('Project slug or id.'),
+        project: z.string().describe('Project name, slug, or id (a name is matched case-insensitively, spaces or hyphens).'),
         description: z.string().optional(),
         priority: PRIORITY.optional(),
         status: STATUS.optional(),
         dueDate: z.string().optional().describe('ISO date (YYYY-MM-DD) or empty.'),
+        recurrence: z.string().optional().describe('Repeat cadence: "daily", "weekly", "monthly", or "every:Nd"/"every:Nw" (e.g. "every:3d"). Omit for a one-off task.'),
         labels: z.array(z.string()).optional().describe('Cross-cutting labels (e.g. ["waiting","cert-rotation"]); normalized lowercase.'),
       },
       handler: withErrorHandling(async (args) => {
@@ -84,8 +85,9 @@ export function createTaskTools(client) {
         notes: z.string().optional().describe('Free-form operational notes / handoff context for the task.'),
         priority: PRIORITY.optional(),
         status: STATUS.optional(),
-        project: z.string().optional().describe('Project slug or id.'),
+        project: z.string().optional().describe('Move to a project (name, slug, or id).'),
         dueDate: z.string().optional(),
+        recurrence: z.string().optional().describe('Repeat cadence: "daily"/"weekly"/"monthly"/"every:Nd"/"every:Nw", or "" to clear.'),
         labels: z.array(z.string()).optional().describe('Replace the task\'s labels (normalized lowercase).'),
       },
       handler: withErrorHandling(async ({ id, ...patch }) => {

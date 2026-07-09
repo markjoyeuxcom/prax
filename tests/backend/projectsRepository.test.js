@@ -96,3 +96,26 @@ test('createProject re-derives and retries on a slug unique-violation', async ()
   assert.equal(project.slug, 'work-2');
   assert.equal(inserts, 2);
 });
+
+// resolveProject accepts what humans and LLMs naturally provide — id, exact
+// slug, or the display NAME (case-insensitive, spaces or hyphens). Real DB so
+// the lower()/CASE SQL actually runs.
+test('resolveProject matches by id, slug, and display name (case/space tolerant)', async (t) => {
+  const { createDb } = await import('../../server/db.js');
+  const { runMigrations } = await import('../../server/migrate.js');
+  const db = createDb(':memory:');
+  await runMigrations(db, { logger: { info() {}, error() {} } });
+  t.after(() => db.close());
+  const repo = createProjectsRepository(db);
+  const p = await repo.createProject({ name: 'Terrafrom Labs' });
+  assert.equal(p.slug, 'terrafrom-labs');
+
+  for (const input of ['Terrafrom Labs', 'terrafrom labs', 'terrafrom-labs', 'TERRAFROM-LABS', p.slug, p.id]) {
+    const r = await repo.resolveProject(input);
+    assert.equal(r?.id, p.id, `expected "${input}" to resolve to the project`);
+  }
+  // a genuinely different name (or nonsense) still returns null
+  assert.equal(await repo.resolveProject('Terraform Labs'), null); // note: different spelling
+  assert.equal(await repo.resolveProject('does-not-exist'), null);
+  assert.equal(await repo.resolveProject(''), null);
+});

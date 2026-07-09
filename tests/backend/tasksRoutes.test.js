@@ -465,6 +465,40 @@ test('POST /api/tasks creates a task with project slug resolved to projectId', a
   await app.close();
 });
 
+test('POST /api/tasks passes recurrence through to createTask (repeating task)', async () => {
+  const calls = [];
+  const repository = {
+    ...createFakeRepository(),
+    async createTask(task) {
+      calls.push(task);
+      return { id: CREATED_TASK_ID, ...task, createdAt: 'now', updatedAt: 'now', archivedAt: null };
+    },
+  };
+  const app = await buildApp({ skipDb: true, tasksRepository: repository, projectsRepository: createFakeProjectsRepository() });
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/tasks',
+    payload: { title: 'Take tablet', priority: 'medium', status: 'planned', project: 'homelab', dueDate: '2026-07-09', recurrence: 'daily' },
+  });
+  assert.equal(response.statusCode, 201);
+  assert.equal(calls[0].recurrence, 'daily'); // create path now carries recurrence
+  assert.equal(response.json().recurrence, 'daily');
+  await app.close();
+});
+
+test('POST /api/tasks rejects an invalid recurrence with 400', async () => {
+  const app = await buildApp({ skipDb: true, tasksRepository: createFakeRepository(), projectsRepository: createFakeProjectsRepository() });
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/tasks',
+    payload: { title: 'x', priority: 'medium', status: 'planned', project: 'homelab', recurrence: 'hourly' },
+  });
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json().message, 'recurrence is invalid');
+  await app.close();
+});
+
 test('POST /api/tasks rejects unknown project with 400', async () => {
   const app = await buildApp({
     skipDb: true,

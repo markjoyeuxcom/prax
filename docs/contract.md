@@ -184,8 +184,8 @@ required/optional status, and enum option sets. Shared enums: `STATUS`
 |------|--------|-----------|
 | `search_tasks` | `query?`, `project?`, `status?:STATUS` | yes |
 | `get_task` | `id` | yes |
-| `create_task` | `title`, `project`, `description?`, `priority?:PRIORITY`, `status?:STATUS`, `dueDate?` | — |
-| `update_task` | `id`, `title?`, `description?`, `notes?`, `priority?:PRIORITY`, `status?:STATUS`, `project?`, `dueDate?` | — |
+| `create_task` | `title`, `project`, `description?`, `priority?:PRIORITY`, `status?:STATUS`, `dueDate?`, `recurrence?` | — |
+| `update_task` | `id`, `title?`, `description?`, `notes?`, `priority?:PRIORITY`, `status?:STATUS`, `project?`, `dueDate?`, `recurrence?` | — |
 | `search_documents` | `query?`, `project?`, `documentType?:DOCUMENT_TYPE`, `tags?`, `kind?:KIND`, `status?:{active\|superseded\|deprecated\|all}` | yes |
 | `ask_library` | `query`, `project?`, `limit?` → Markdown context pack (semantic when configured, keyword otherwise) | yes |
 | `get_document` | `id` | yes |
