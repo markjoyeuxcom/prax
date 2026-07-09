@@ -220,7 +220,15 @@ function renderMarkdownBody(markdown) {
       return;
     }
 
-    if (trimmed.includes('|') && (tableRows.length || /^\|?.+\|.+/.test(trimmed))) {
+    // A line that STARTS another block construct — heading (#), blockquote (>),
+    // bullet/task item (-, *, +) or ordered item (N.) — may legitimately carry a
+    // "|" (a shell pipe such as `- kubectl get pods | grep x`), so it must not be
+    // allowed to *start* a table. The guard is applied ONLY to the table-start
+    // test: a row that CONTINUES an already-open table (tableRows.length) is still
+    // accepted, so a genuine borderless table whose data cell begins with a marker
+    // (e.g. `- | negative` in a symbol table) keeps rendering as a table.
+    const startsBlock = /^(#{1,6}\s|>|[-*+]\s|\d+\.\s)/.test(trimmed);
+    if (trimmed.includes('|') && (tableRows.length || (!startsBlock && /^\|?.+\|.+/.test(trimmed)))) {
       flushParagraph(output, paragraph);
       flushList(output, listItems);
       tableRows.push(trimmed);
