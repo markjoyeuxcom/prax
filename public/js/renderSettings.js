@@ -184,17 +184,79 @@ const AI_PROVIDERS = [
   { key: 'llamacpp', label: 'llama.cpp', desc: 'Your llama-server (OpenAI-compatible)' },
 ];
 
-function providerCard(provider, activeBackend) {
+// Chat (AI-answer) providers for Ask Prax / post-mortems / runbook generation.
+const CHAT_PROVIDERS = [
+  { key: 'none', label: 'Off', desc: 'Ask Prax returns sources only — no written answer' },
+  { key: 'gemini', label: 'Gemini', desc: 'Google — fast + cheap, needs an API key' },
+  { key: 'anthropic', label: 'Claude', desc: 'Anthropic — strong grounding, needs an API key' },
+  { key: 'openai', label: 'OpenAI', desc: 'GPT models — needs an API key' },
+  { key: 'ollama', label: 'Ollama', desc: 'Local model — private, no key' },
+  { key: 'llamacpp', label: 'llama.cpp', desc: 'Your llama-server (OpenAI-compatible)' },
+];
+
+function providerCard(provider, activeBackend, action = 'set-ai-provider') {
   const active = activeBackend === provider.key
     || (provider.key === 'none' && (!activeBackend || activeBackend === 'none'));
   return `
-          <button type="button" class="provider-card${active ? ' is-active' : ''}" data-action="set-ai-provider" data-backend="${provider.key}">
+          <button type="button" class="provider-card${active ? ' is-active' : ''}" data-action="${action}" data-backend="${provider.key}">
             <div class="provider-card__label">${provider.label}</div>
             <div class="provider-card__desc">${provider.desc}</div>
           </button>`;
 }
 
-function renderIntelligenceCard(semanticStatus) {
+// The "AI answers" sub-section — the chat provider that powers Ask Prax. Mirrors
+// the semantic provider block; its config inputs use data-ai-chat-* so they
+// don't collide with the embedding ones.
+function renderChatSection(chatStatus) {
+  const status = chatStatus && typeof chatStatus === 'object' ? chatStatus : { available: false };
+  const backend = status.backend || 'none';
+  const meta = CHAT_PROVIDERS.find((p) => p.key === backend);
+  const available = status.available === true;
+  const statusLine = available
+    ? `${escapeHtml(meta ? meta.label : backend)}${status.model ? ` · ${escapeHtml(status.model)}` : ''} · ${status.connected ? 'connected' : 'not reachable'}`
+    : 'Off — Ask Prax shows the relevant sources without a written answer. Pick a model to synthesize grounded, cited answers.';
+
+  const providers = `
+    <div class="settings-row">
+      <div class="settings-row__text">
+        <div class="settings-row__label">Answer model</div>
+        <div class="provider-grid">
+          ${CHAT_PROVIDERS.map((provider) => providerCard(provider, backend, 'set-ai-chat-provider')).join('')}
+        </div>
+      </div>
+    </div>`;
+
+  let configRows = '';
+  if (backend !== 'none' && backend !== 'fake') {
+    const keyRequired = status.keyRequired === true;
+    const showKey = keyRequired || backend === 'llamacpp';
+    const keyLabel = keyRequired ? 'API key' : 'API key (optional)';
+    const keyPlaceholder = status.hasApiKey ? '•••••••• saved — enter to replace' : (keyRequired ? 'required' : 'none');
+    configRows = `
+    <div class="settings-row">
+      <div class="settings-row__text" style="display:flex; flex-direction:column; gap:8px;">
+        <div class="settings-row__label">${meta ? meta.label : escapeHtml(backend)} configuration</div>
+        <div class="editor-info__field"><label>Base URL</label><input class="text-input" type="text" data-ai-chat-base-url value="${escapeHtml(status.baseUrl || '')}"></div>
+        <div class="editor-info__field"><label>Model</label><input class="text-input" type="text" data-ai-chat-model value="${escapeHtml(status.model || '')}"></div>
+        ${showKey ? `<div class="editor-info__field"><label>${keyLabel}</label><input class="text-input" type="password" data-ai-chat-key value="" placeholder="${keyPlaceholder}" autocomplete="off"></div>
+        <div class="settings-row__desc">The key is stored in the local database and never returned by the API.</div>` : ''}
+        <div style="display:flex; justify-content:flex-end;"><button class="btn-outline" type="button" data-action="save-ai-chat">Save &amp; test connection</button></div>
+      </div>
+    </div>`;
+  }
+
+  return `
+    <div class="settings-row" style="border-top:1px solid var(--line2); margin-top:10px; padding-top:16px;">
+      <div class="settings-row__text">
+        <div class="settings-row__label">AI answers</div>
+        <div class="settings-row__desc">${statusLine}</div>
+      </div>
+    </div>
+    ${providers}
+    ${configRows}`;
+}
+
+function renderIntelligenceCard(semanticStatus, chatStatus) {
   const status = semanticStatus && typeof semanticStatus === 'object' ? semanticStatus : { available: false };
   const available = status.available === true;
   const enabled = available && status.enabled === true;
@@ -261,6 +323,7 @@ function renderIntelligenceCard(semanticStatus) {
     ${providers}
     ${configRows}
     ${indexRow}
+    ${renderChatSection(chatStatus)}
   </section>`;
 }
 
@@ -398,7 +461,7 @@ export function renderSettingsHtml(state, model = {}) {
     ? state.settingsTab
     : 'appearance';
   const card = tab === 'intelligence'
-    ? renderIntelligenceCard(state.semanticStatus)
+    ? renderIntelligenceCard(state.semanticStatus, state.chatStatus)
     : tab === 'data'
       ? renderDataCard(state, model)
       : renderAppearanceCard(preferences);

@@ -109,6 +109,27 @@ export async function putSemanticSettings(patch) {
   return response.json();
 }
 
+// Chat (AI-answers) provider status + configuration — the generation-side twin
+// of the semantic-search settings.
+export async function fetchChatStatus() {
+  const res = await fetch('/api/settings/ai-answers');
+  if (!res.ok) throw new Error('Failed to load AI answers status');
+  return res.json();
+}
+
+export async function putChatSettings(patch) {
+  const response = await fetch('/api/settings/ai-answers', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(patch || {}),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.message || 'Failed to update AI answers settings');
+  }
+  return response.json();
+}
+
 export async function setSemanticEnabled(enabled) {
   const res = await fetch('/api/settings/semantic-search', {
     method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled }),

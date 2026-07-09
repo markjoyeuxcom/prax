@@ -22,6 +22,7 @@ import {
   restoreDocument, deleteDocumentPermanently, fetchDocumentLinks, fetchDocumentTaskBacklinks, fetchSimilarDocuments,
   fetchStaleDocuments, fetchOrphanDocuments, fetchSemanticStatus,
   setSemanticEnabled, putSemanticSettings, reindexEmbeddings, semanticSearch,
+  fetchChatStatus, putChatSettings,
   verifyDocument, supersedeDocument,
   startRun, fetchRuns, fetchRun, setRunStep, setRunStatus,
   fetchContextPack,
@@ -193,6 +194,14 @@ async function loadSemanticStatus() {
     setState({ semanticStatus: await fetchSemanticStatus() });
   } catch {
     setState({ semanticStatus: { available: false } });
+  }
+}
+
+async function loadChatStatus() {
+  try {
+    setState({ chatStatus: await fetchChatStatus() });
+  } catch {
+    setState({ chatStatus: { available: false } });
   }
 }
 
@@ -1254,6 +1263,7 @@ function goLibrary(extra = {}) {
 function goSettings() {
   setState({ navType: 'settings' });
   loadSemanticStatus().then(renderApp);
+  loadChatStatus().then(renderApp);
   loadMaintenance().then(renderApp);
   renderApp();
 }
@@ -2215,6 +2225,36 @@ async function handleAction(action, el, event) {
       renderApp();
       break;
     }
+    case 'set-ai-chat-provider': {
+      try {
+        const status = await putChatSettings({ backend: el.dataset.backend });
+        setState({ chatStatus: status });
+      } catch (err) {
+        showToast(err?.message || 'Prax could not switch the answer model.');
+      }
+      renderApp();
+      break;
+    }
+    case 'save-ai-chat': {
+      const patch = {};
+      const model = appRoot.querySelector('[data-ai-chat-model]');
+      if (model) patch.model = model.value.trim();
+      const baseUrl = appRoot.querySelector('[data-ai-chat-base-url]');
+      if (baseUrl && baseUrl.value.trim()) patch.baseUrl = baseUrl.value.trim();
+      const key = appRoot.querySelector('[data-ai-chat-key]');
+      if (key && key.value.trim()) patch.apiKey = key.value.trim();
+      try {
+        const status = await putChatSettings(patch);
+        setState({ chatStatus: status });
+        showToast(status.connected
+          ? `Connected to ${status.backend} — Ask Prax can write answers.`
+          : `Saved, but ${status.backend || 'the model'} is not reachable yet.`);
+      } catch (err) {
+        showToast(err?.message || 'Prax could not save the answer-model settings.');
+      }
+      renderApp();
+      break;
+    }
     case 'reindex-embeddings': case 'force-reindex-embeddings': {
       const force = action === 'force-reindex-embeddings';
       if (force && !el.dataset.confirmed) {
@@ -2689,6 +2729,7 @@ async function init() {
     await loadTasks();
     await loadDocuments();
     loadSemanticStatus().then(renderApp);
+    loadChatStatus().then(renderApp);
     bindEvents();
     installShortcuts();
     // Heartbeat so a task that ticks over to "due" while the app sits open still
