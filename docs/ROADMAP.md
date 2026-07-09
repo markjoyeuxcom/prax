@@ -36,9 +36,11 @@ next steps, by value:
 
 ## High-value, low-cost
 
-- [ ] **Retrieval eval harness.** A fixed set of `query → expected-doc` pairs run in CI to catch
-  recall regressions (e.g. the title-vs-body miss fixed in v0.14.1). For a product whose whole
-  value is retrieval, this earns its keep. *(small–medium)*
+- [x] **Retrieval eval harness.** A fixed set of `query → expected-doc` pairs run through the real
+  FTS keyword + context-pack pipeline (the Ask Prax fallback path) to catch recall regressions
+  (e.g. the title-vs-body miss fixed in v0.14.1). Shipped: fixtures + cases in `tests/eval/`, a
+  CI recall gate (`tests/backend/retrievalEval.test.js`), and a `npm run eval` report. Deterministic
+  (no live embeddings); a semantic mode over a configured embedder is a future extension.
 
 ## Bigger product bets (shared-memory direction)
 
