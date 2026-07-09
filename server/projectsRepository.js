@@ -142,9 +142,28 @@ export function createProjectsRepository(db) {
       const result = await db.query(q.text, q.values);
       return result.rows[0] ? normalizeProjectRow(result.rows[0]) : null;
     },
+    // Resolve a project from whatever a human or an LLM naturally provides: an
+    // id, an exact slug, or the display NAME (case-insensitive, and tolerant of
+    // spaces vs. hyphens — "Terrafrom Labs" resolves the "terrafrom-labs" slug).
+    // Precedence: exact slug (case-insensitive) > slugified input > exact name.
     async resolveProject(idOrSlug) {
-      const column = isUuid(idOrSlug) ? 'id' : 'slug';
-      const result = await db.query(`select * from projects where ${column} = $1 limit 1`, [idOrSlug]);
+      const raw = String(idOrSlug ?? '').trim();
+      if (!raw) return null;
+      if (isUuid(raw)) {
+        const byId = await db.query('select * from projects where id = $1 limit 1', [raw]);
+        return byId.rows[0] ? normalizeProjectRow(byId.rows[0]) : null;
+      }
+      const slugGuess = deriveSlug(raw); // same slugifier used to mint slugs
+      const result = await db.query(
+        `select * from projects
+           where lower(slug) = lower($1) or slug = $2 or lower(name) = lower($1)
+           order by case
+             when lower(slug) = lower($1) then 0
+             when slug = $2 then 1
+             else 2 end
+           limit 1`,
+        [raw, slugGuess],
+      );
       return result.rows[0] ? normalizeProjectRow(result.rows[0]) : null;
     },
   };

@@ -84,6 +84,7 @@ function validateTaskPayload(payload) {
   if (typeof payload.project !== 'string' || payload.project.trim() === '') return 'project is required';
   if (!isValidDateString(payload.dueDate)) return 'dueDate is invalid';
   if (!isValidLabels(payload.labels)) return 'labels is invalid';
+  if (!isValidRecurrence(payload.recurrence)) return 'recurrence is invalid';
   if (!isValidSortOrder(payload.sortOrder)) {
     return 'sortOrder is invalid';
   }
@@ -168,6 +169,7 @@ function cleanTaskPayload(payload) {
     status: payload.status,
     projectId: payload.projectId,
     dueDate: payload.dueDate || null,
+    recurrence: payload.recurrence || null,
     labels: normalizeLabels(payload.labels),
     sortOrder: Number.isFinite(payload.sortOrder) ? payload.sortOrder : 0,
   };

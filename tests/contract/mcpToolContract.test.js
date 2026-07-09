@@ -15,8 +15,8 @@ import { toTaskRef, toDocumentRef, capResults } from '../../mcp/shape.js';
 const FROZEN_TOOLS = {
   search_tasks: { required: [], optional: ['query', 'project', 'status', 'filter'] },
   get_task: { required: ['id'], optional: [] },
-  create_task: { required: ['title', 'project'], optional: ['description', 'priority', 'status', 'dueDate', 'labels'] },
-  update_task: { required: ['id'], optional: ['title', 'description', 'notes', 'priority', 'status', 'project', 'dueDate', 'labels'] },
+  create_task: { required: ['title', 'project'], optional: ['description', 'priority', 'status', 'dueDate', 'recurrence', 'labels'] },
+  update_task: { required: ['id'], optional: ['title', 'description', 'notes', 'priority', 'status', 'project', 'dueDate', 'recurrence', 'labels'] },
   search_documents: { required: [], optional: ['query', 'project', 'documentType', 'tags', 'kind', 'status'] },
   get_document: { required: ['id'], optional: [] },
   create_document: { required: ['title', 'body', 'documentType', 'project'], optional: ['tags', 'kind'] },
