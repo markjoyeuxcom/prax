@@ -1,17 +1,22 @@
 import { isEmbedderSettingsError } from './embedderProvider.js';
+import { isChatSettingsError } from './chatProvider.js';
 
 const SETTING_KEY = 'semantic_search_enabled';
 // Generic fields plus the legacy aliases the shipped UI still sends; the
 // provider maps aliases onto the right backend's config.
 const PROVIDER_FIELDS = ['backend', 'model', 'baseUrl', 'apiKey', 'ollamaUrl', 'openaiBaseUrl', 'openaiApiKey'];
+// Chat provider fields (no legacy aliases — the chat provider is greenfield).
+const CHAT_FIELDS = ['backend', 'model', 'baseUrl', 'apiKey'];
 
 export async function registerSettingsRoutes(app, options = {}) {
   const appSettings = options.appSettingsRepository || app.appSettingsRepository;
   const library = options.libraryRepository || app.libraryRepository;
   const embedderProvider = options.embedderProvider ?? app.embedderProvider ?? null;
+  const chatProvider = options.chatProvider ?? app.chatProvider ?? null;
   // Behavioral tests may inject an embedder directly — it wins over the
   // runtime provider; the boot-time decorated embedder stays as the fallback.
   const injectedEmbedder = options.embedder ?? null;
+  const injectedChat = options.chat ?? null;
 
   async function resolveEmbedder() {
     if (injectedEmbedder) return injectedEmbedder;
@@ -55,6 +60,52 @@ export async function registerSettingsRoutes(app, options = {}) {
       openaiBaseUrl: settings ? settings.openaiBaseUrl : '',
     };
   }
+
+  async function resolveChat() {
+    if (injectedChat) return injectedChat;
+    if (chatProvider) {
+      try { return await chatProvider.getChat(); } catch { return null; }
+    }
+    return null;
+  }
+
+  // Status of the chat (LLM-answer) provider. `available` means a chat model is
+  // configured (backend !== 'none'); `connected` means its host answered a cheap
+  // reachability probe. Mirrors semanticStatus.
+  async function chatStatus() {
+    const chat = await resolveChat();
+    const settings = chatProvider ? await chatProvider.getSettings().catch(() => null) : null;
+    const available = Boolean(chat);
+    const connected = available ? await chat.isAvailable().catch(() => false) : false;
+    return {
+      available,
+      backend: settings ? settings.backend : (available ? chat.backend : 'none'),
+      connected,
+      model: settings ? settings.model : (available ? chat.model : ''),
+      baseUrl: settings ? settings.baseUrl : '',
+      keyRequired: settings ? settings.keyRequired : false,
+      hasApiKey: settings ? settings.hasApiKey : false,
+    };
+  }
+
+  app.get('/api/settings/ai-answers', async () => chatStatus());
+
+  app.put('/api/settings/ai-answers', async (request, reply) => {
+    const body = request.body && typeof request.body === 'object' && !Array.isArray(request.body) ? request.body : {};
+    const patch = {};
+    for (const field of CHAT_FIELDS) {
+      if (body[field] !== undefined) patch[field] = body[field];
+    }
+    if (Object.keys(patch).length === 0) { reply.code(400); return { message: 'no settings provided' }; }
+    if (!chatProvider) { reply.code(409); return { message: 'AI answers are not configured' }; }
+    try {
+      await chatProvider.putSettings(patch);
+    } catch (err) {
+      if (isChatSettingsError(err)) { reply.code(400); return { message: err.message }; }
+      throw err;
+    }
+    return chatStatus();
+  });
 
   app.get('/api/settings/semantic-search', async () => semanticStatus());
 

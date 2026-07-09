@@ -14,6 +14,7 @@ import {
 } from './libraryExport.js';
 import { createEmbeddingService } from './embeddingService.js';
 import { buildContextPack, renderContextPackMarkdown } from './contextPack.js';
+import { buildAskMessages, collectSources } from './askLibrary.js';
 
 const DOCUMENT_TYPES = new Set(['runbook', 'note']);
 const DOCUMENT_KINDS = new Set(['source', 'synthesized']);
@@ -107,6 +108,8 @@ export async function registerLibraryRoutes(app, options = {}) {
   const injectedEmbedder = options.embedder ?? null;
   const injectedEmbeddingService = options.embeddingService ?? app.embeddingService ?? null;
   const embedderProvider = options.embedderProvider ?? app.embedderProvider ?? null;
+  const chatProvider = options.chatProvider ?? app.chatProvider ?? null;
+  const injectedChat = options.chat ?? null;
   const appSettings = options.appSettingsRepository || app.appSettingsRepository;
 
   async function resolveEmbedder() {
@@ -127,6 +130,16 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (injectedEmbeddingService) return injectedEmbeddingService;
     if (!embedder) return null;
     return createEmbeddingService({ repository, embedder });
+  }
+
+  // The active chat model (for grounded answers), mirroring resolveEmbedder:
+  // injected wins, then the runtime provider, else null (feature degrades).
+  async function resolveChat() {
+    if (injectedChat) return injectedChat;
+    if (chatProvider) {
+      try { return await chatProvider.getChat(); } catch { return null; }
+    }
+    return null;
   }
 
   async function semanticEnabled() {
@@ -591,6 +604,62 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (request.query.format === 'json') return pack;
     reply.header('Content-Type', 'text/markdown; charset=utf-8');
     return renderContextPackMarkdown(pack);
+  });
+
+  // Ask Prax: retrieve the trust-aware context pack (same pipeline as the pack
+  // route) and, when a chat model is configured, generate a grounded, cited
+  // answer from it. Degrades to returning the raw pack (what "Brief me" shows)
+  // when no chat model is set or generation fails — never 500s on the AI path.
+  app.post('/api/library/ask', async (request, reply) => {
+    const body = isPlainObject(request.body) ? request.body : null;
+    if (!body) { reply.code(400); return { message: 'body is invalid' }; }
+    const query = typeof body.q === 'string' ? body.q.trim()
+      : (typeof body.query === 'string' ? body.query.trim() : '');
+    if (!query) { reply.code(400); return { message: 'q is required' }; }
+
+    let project = null;
+    let projectId;
+    if (body.project && body.project !== 'all') {
+      project = await projectsRepository.resolveProject(String(body.project));
+      if (!project) { reply.code(400); return { message: 'project is invalid' }; }
+      projectId = project.id;
+    }
+    const rawLimit = Number(body.limit);
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 50) : 12;
+
+    let docs = [];
+    const embedder = await resolveEmbedder();
+    if (embedder && await semanticEnabled()) {
+      try {
+        const { vector } = await embedder.embed(query, { query: true });
+        const search = app.embeddingSearch || {};
+        docs = await repository.searchDocumentsSemantic(vector, embedder.backend, {
+          projectId, limit: 50, minSimilarity: search.minSimilarity, topDrop: search.topDrop,
+        });
+      } catch (err) {
+        request.log.error({ err }, 'library ask semantic embed failed');
+        docs = [];
+      }
+    }
+    if (docs.length === 0) {
+      docs = await repository.listDocuments({ projectId, status: 'active', q: query });
+    }
+
+    const pack = buildContextPack(docs, { project, query, limit });
+    const markdown = renderContextPackMarkdown(pack);
+    const sources = collectSources(pack);
+
+    const chat = await resolveChat();
+    if (!chat) {
+      return { query, answer: null, degraded: true, reason: 'no-chat-model', markdown, sources, model: null };
+    }
+    try {
+      const { text, model } = await chat.complete(buildAskMessages(query, markdown), { temperature: 0.2, maxTokens: 1024 });
+      return { query, answer: text, degraded: false, markdown, sources, model };
+    } catch (err) {
+      request.log.error({ err }, 'library ask generation failed');
+      return { query, answer: null, degraded: true, reason: 'generation-failed', markdown, sources, model: chat.model || null };
+    }
   });
 
   app.post('/api/library/documents/:id/links', async (request, reply) => {
