@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildApp } from '../../server/index.js';
-import { buildAskMessages, collectSources } from '../../server/askLibrary.js';
+import { buildAskMessages, buildAnswerContext, collectSources } from '../../server/askLibrary.js';
 
 const PROJECT_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -33,6 +33,31 @@ test('collectSources de-dupes across sections in order', () => {
   assert.deepEqual(collectSources(null), []);
 });
 
+test('buildAnswerContext feeds full bodies (not snippets), verified-first, marks trust, skips junk', () => {
+  const long = 'STEP-line. '.repeat(60); // ~600 chars, well beyond a 280-char snippet
+  const docs = [
+    { id: 'u', title: 'Draft', documentType: 'note', verified: false, status: 'active', body: 'unverified body' },
+    { id: 'v', title: 'Runbook A', documentType: 'runbook', verified: true, status: 'active', body: long },
+    { id: 'e', title: 'Empty', documentType: 'note', verified: true, status: 'active', body: '   ' },
+    { id: 'arch', title: 'Archived', documentType: 'note', verified: true, status: 'archived', body: 'nope' },
+  ];
+  const ctx = buildAnswerContext(docs);
+  assert.ok(ctx.includes(long.trim()));                          // FULL body, not a snippet
+  assert.ok(ctx.indexOf('Runbook A') < ctx.indexOf('Draft'));   // verified first
+  assert.match(ctx, /Runbook A \(runbook · verified\)/);
+  assert.match(ctx, /Draft \(note · UNVERIFIED/);
+  assert.doesNotMatch(ctx, /Empty/);                            // empty-body doc skipped
+  assert.doesNotMatch(ctx, /Archived/);                         // non-active doc skipped
+});
+
+test('buildAnswerContext respects the total + per-doc budget', () => {
+  const huge = 'x'.repeat(50000);
+  const docs = Array.from({ length: 10 }, (_, i) => ({ id: `d${i}`, title: `Doc ${i}`, documentType: 'note', verified: true, status: 'active', body: huge }));
+  const ctx = buildAnswerContext(docs, { totalChars: 5000, docChars: 1000, limit: 6 });
+  assert.ok(ctx.length <= 6000);                                // bounded near the total budget
+  assert.match(ctx, /…\(truncated\)/);                          // per-doc cap applied
+});
+
 // ---- route ----
 function makeApp({ chat, docs } = {}) {
   const library = {
@@ -51,7 +76,9 @@ function makeApp({ chat, docs } = {}) {
   });
 }
 
-const DOCS = [{ id: 'd1', title: 'Postgres failover', documentType: 'runbook', projectId: PROJECT_ID, tags: [], body: 'Promote the standby.', verified: true, status: 'active', kind: 'source' }];
+// A body long enough that a 280-char pack snippet would drop the end marker.
+const LONG_BODY = `Promote the standby. ${'Step detail. '.repeat(40)} END_OF_RUNBOOK_MARKER`;
+const DOCS = [{ id: 'd1', title: 'Postgres failover', documentType: 'runbook', projectId: PROJECT_ID, tags: [], body: LONG_BODY, verified: true, status: 'active', kind: 'source' }];
 
 test('POST /api/library/ask generates a grounded answer when a chat model is set', async () => {
   let seenMessages;
@@ -65,9 +92,10 @@ test('POST /api/library/ask generates a grounded answer when a chat model is set
   assert.equal(body.model, 'fake-chat');
   assert.ok(body.sources.some((s) => s.title === 'Postgres failover'));
   assert.ok(body.markdown.includes('Postgres failover'));
-  // the chat saw the system contract + the pack
+  // the chat saw the system contract + the FULL body (not just the pack snippet)
   assert.equal(seenMessages[0].role, 'system');
   assert.match(seenMessages[1].content, /Postgres failover/);
+  assert.match(seenMessages[1].content, /END_OF_RUNBOOK_MARKER/);  // full body reached the model
   await app.close();
 });
 
