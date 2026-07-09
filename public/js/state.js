@@ -95,6 +95,10 @@ export const state = {
   genRbLoading: false,
   genRbError: false,            // false | error message string
 
+  // ---- Library health view ----
+  healthData: null,             // null = not loaded; { needsReview, empty, stale, orphans, counts }
+  healthLoading: false,
+
   // ---- editor ----
   editorDocId: null,
   editorMode: 'split',          // 'edit' | 'split' | 'preview'

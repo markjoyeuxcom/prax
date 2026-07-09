@@ -218,6 +218,14 @@ export async function createPostMortem(runId) {
 // Generate a runbook from an incident/alert description. Returns { document,
 // model }. Throws with the server's message (e.g. "no AI model is configured")
 // so the panel can surface why it failed.
+// Library health: docs needing attention (needsReview / empty / stale / orphans + counts).
+export async function fetchHealth(project = '') {
+  const params = project && project !== 'all' ? `?project=${encodeURIComponent(project)}` : '';
+  const res = await fetch(`/api/library/health${params}`);
+  if (!res.ok) throw new Error('Failed to load library health');
+  return res.json();
+}
+
 export async function generateRunbook(description, project) {
   const res = await fetch('/api/library/runbooks/generate', {
     method: 'POST',

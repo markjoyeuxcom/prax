@@ -25,7 +25,7 @@ import {
   fetchChatStatus, putChatSettings,
   verifyDocument, supersedeDocument,
   startRun, fetchRuns, fetchRun, setRunStep, setRunStatus, createPostMortem,
-  askPrax, generateRunbook,
+  askPrax, generateRunbook, fetchHealth,
 } from './libraryApi.js';
 import { normalizeTask } from './taskModel.js';
 import { apiStatus, designStatus, isOpen } from './statusMap.js';
@@ -67,6 +67,7 @@ import { renderEditorHtml, buildOutline, buildBacklinks } from './renderEditor.j
 import { renderRunHtml, buildChronicle } from './renderRun.js';
 import { renderAskPraxHtml } from './renderAskPrax.js';
 import { renderGenerateRunbookHtml } from './renderGenerateRunbook.js';
+import { renderHealthHtml } from './renderHealth.js';
 import { renderSearchPanelHtml, searchCountLabel } from './renderSearchPanel.js';
 import { renderAllProjectsHtml, buildProjectGroups } from './renderAllProjects.js';
 import { renderPaletteHtml, buildPaletteGroups } from './renderPalette.js';
@@ -214,6 +215,33 @@ async function loadMaintenance() {
     staleDocs: stale.status === 'fulfilled' ? stale.value : [],
     orphanDocs: orphans.status === 'fulfilled' ? orphans.value : [],
   });
+}
+
+async function loadHealth() {
+  setState({ healthLoading: true });
+  try {
+    setState({ healthData: await fetchHealth(''), healthLoading: false });
+  } catch {
+    setState({ healthData: null, healthLoading: false });
+  }
+}
+
+function goHealth() {
+  setState({ navType: 'health' });
+  renderApp();
+  loadHealth().then(renderApp);
+}
+
+async function verifyHealthDoc(id) {
+  if (!id) return;
+  try {
+    await verifyDocument(id, true, 'user');
+    showToast('Verified');
+    await loadHealth();
+  } catch {
+    showToast('Could not verify');
+  }
+  renderApp();
 }
 
 async function loadDrawerContext(taskId) {
@@ -1384,6 +1412,8 @@ function renderMainHtml() {
       const doc = (state.documents || []).find((d) => d.id === (run?.documentId || state.runReturnDocId));
       return renderRunHtml(state, run, { docTitle: doc?.title || run?.title || 'Runbook', now });
     }
+    case 'health':
+      return renderHealthHtml(state);
     case 'filter': {
       // Live typing → best-effort (partial) parse so the list never empties.
       const { predicate, error } = parseTaskFilter(state.activeFilterExpr || '', { partial: true });
@@ -2312,6 +2342,11 @@ async function handleAction(action, el, event) {
     }
     case 'export-library-all': window.location.href = '/api/library/export?project=all'; break;
     case 'refresh-maintenance': await loadMaintenance(); renderApp(); break;
+    case 'open-health': goHealth(); break;
+    case 'back-to-library': goLibrary(); break;
+    case 'refresh-health': await loadHealth(); renderApp(); break;
+    case 'open-health-doc': openDocumentInEditor(el.dataset.docId); break;
+    case 'verify-health-doc': verifyHealthDoc(el.dataset.docId); break;
     case 'open-library-doc': openDocumentInEditor(el.dataset.libraryDocumentId); break;
 
     default: break;

@@ -13,7 +13,7 @@ import {
   buildLinksFromGroups,
 } from './libraryExport.js';
 import { createEmbeddingService } from './embeddingService.js';
-import { buildContextPack, renderContextPackMarkdown } from './contextPack.js';
+import { buildContextPack, renderContextPackMarkdown, contentLength } from './contextPack.js';
 import { buildAskMessages, buildAnswerContext, collectSources } from './askLibrary.js';
 import { buildRunSummary, buildPostMortemMessages, fallbackPostMortem, postMortemTitle } from './postMortem.js';
 import { buildRunbookMessages, parseGeneratedRunbook } from './generateRunbook.js';
@@ -789,5 +789,39 @@ export async function registerLibraryRoutes(app, options = {}) {
       if (projectId === null) { reply.code(400); return { message: 'project is invalid' }; }
     }
     return documentLinksRepository.listOrphanDocuments(projectId);
+  });
+
+  // Knowledge-base health: one call that surfaces the docs needing attention —
+  // unverified drafts to review (esp. agent-written), stale derivations, orphans
+  // with no links, and empty stubs. A curation dashboard over signals the
+  // Library already tracks.
+  app.get('/api/library/health', async (request, reply) => {
+    let projectId;
+    if (request.query.project) {
+      projectId = await resolveProjectId(request.query.project);
+      if (projectId === null) { reply.code(400); return { message: 'project is invalid' }; }
+    }
+    // listDocuments uses `id`; the link repo's stale/orphan rows use `documentId`.
+    const healthRef = (d) => ({
+      id: d.id ?? d.documentId, title: d.title, documentType: d.documentType, projectId: d.projectId,
+      verified: Boolean(d.verified), updatedBy: d.updatedBy || null,
+    });
+    const [active, stale, orphans] = await Promise.all([
+      repository.listDocuments({ projectId, status: 'active' }),
+      documentLinksRepository.listStaleDocuments(projectId),
+      documentLinksRepository.listOrphanDocuments(projectId),
+    ]);
+    const needsReview = active.filter((d) => !d.verified).map(healthRef);
+    const empty = active.filter((d) => contentLength(d.body) === 0).map(healthRef);
+    const sections = {
+      needsReview,
+      stale: (stale || []).map(healthRef),
+      orphans: (orphans || []).map(healthRef),
+      empty,
+    };
+    return {
+      ...sections,
+      counts: Object.fromEntries(Object.entries(sections).map(([k, v]) => [k, v.length])),
+    };
   });
 }
