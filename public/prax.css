@@ -2246,6 +2246,7 @@ body.is-desktop-mac .titlebar { padding-left: 84px; }
   color: var(--ink3);
   font-style: italic;
 }
+.askprax__err { color: var(--hi); font-family: var(--font-mono); font-size: 11.5px; }
 
 /* Recurrence chip on the task drawer */
 .chip--recur { background: var(--accent-soft); color: var(--accent); font-weight: 600; }

@@ -26,7 +26,7 @@ export function renderAskPraxHtml(state, { bodyHtml = '' } = {}) {
   } else if (r) {
     const degradedNotice = r.degraded
       ? `<div class="askprax__notice">${r.reason === 'generation-failed'
-          ? 'The AI model failed to answer — showing the relevant sources instead.'
+          ? `The AI model failed to answer — showing the relevant sources instead.${r.error ? ` <span class="askprax__err">(${escapeHtml(r.error)})</span>` : ''} Check the model and API key in Settings ▸ Intelligence.`
           : 'No AI model is set, so here are the most relevant sources. Configure one in Settings ▸ Intelligence for a written answer.'}</div>`
       : '';
     const modelNote = (!r.degraded && r.model)

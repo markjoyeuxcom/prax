@@ -5,7 +5,7 @@ import { splitSystem } from './messages.js';
 // and assistant turns use the role 'model'. Mirrors the gemini embedder's shape.
 export function createGeminiChat({ baseUrl, apiKey, model, fetch = globalThis.fetch } = {}) {
   const base = String(baseUrl || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/+$/, '');
-  const chatModel = model || 'gemini-1.5-flash';
+  const chatModel = model || 'gemini-2.5-flash';
   const key = String(apiKey || '');
 
   function headers(extra = {}) {
