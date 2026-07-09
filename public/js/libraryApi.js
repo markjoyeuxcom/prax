@@ -244,6 +244,19 @@ export async function fetchLinkSuggestions(project = '') {
   return res.json();
 }
 
+// On-demand AI review of the library: contradiction + coverage-gap scan. Returns
+// the advisory envelope { contradictions, gaps, contradictionScan, gapScan, model,
+// degraded, reason, stats }. Never 409/500 on the AI path — only a 400 for a bad
+// project throws here.
+export async function runAiReview(project = '') {
+  const body = project && project !== 'all' ? { project } : {};
+  const res = await fetch('/api/library/health/ai-review', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error('Failed to run AI review');
+  return res.json();
+}
+
 // Accept a suggestion: link the first plain mention of `title` in the doc's body.
 export async function applyWikiLink(documentId, title) {
   const res = await fetch(`/api/library/documents/${documentId}/wiki-link`, {

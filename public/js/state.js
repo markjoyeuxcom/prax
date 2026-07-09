@@ -100,6 +100,9 @@ export const state = {
   healthData: null,             // null = not loaded; { needsReview, empty, stale, orphans, counts }
   healthLinkSuggestions: null,  // null = not loaded; [{ sourceId, sourceTitle, targetId, targetTitle, snippet }]
   healthLoading: false,
+  healthAiReview: null,         // null = not run; the AI-review envelope { contradictions, gaps, ... }
+  healthAiReviewLoading: false,
+  healthAiReviewError: null,    // null | error message string
 
   // ---- Daily brief / on-call handoff ----
   dailyBriefOpen: false,

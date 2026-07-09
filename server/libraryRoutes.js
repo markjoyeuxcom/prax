@@ -13,11 +13,16 @@ import {
   buildLinksFromGroups,
 } from './libraryExport.js';
 import { createEmbeddingService } from './embeddingService.js';
-import { buildContextPack, renderContextPackMarkdown, contentLength } from './contextPack.js';
+import { buildContextPack, renderContextPackMarkdown, contentLength, isSubstantive } from './contextPack.js';
 import { buildAskMessages, buildAnswerContext, collectSources } from './askLibrary.js';
 import { buildRunSummary, buildPostMortemMessages, fallbackPostMortem, postMortemTitle } from './postMortem.js';
 import { buildRunbookMessages, parseGeneratedRunbook } from './generateRunbook.js';
 import { suggestWikiLinks, applyWikiLink } from './wikiLinkSuggest.js';
+import {
+  MAX_SEED_DOCS, NEIGHBORS_PER_SEED, MAX_PAIRS, CONTRADICTION_MAXTOKENS, GAP_MAXTOKENS,
+  selectContradictionPairs, buildContradictionMessages, parseContradiction, quoteIsGrounded,
+  buildGapDigest, buildGapMessages, parseGaps,
+} from './kbHealthReview.js';
 
 const DOCUMENT_TYPES = new Set(['runbook', 'note']);
 const DOCUMENT_KINDS = new Set(['source', 'synthesized']);
@@ -870,5 +875,120 @@ export async function registerLibraryRoutes(app, options = {}) {
     const body = applyWikiLink(doc.body, title);
     if (body === null) { reply.code(409); return { message: 'no unlinked mention of that title remains' }; }
     return repository.updateDocument(request.params.id, { body, updatedBy: originFrom(request) });
+  });
+
+  // AI review (Tier-2 #5, part 2): on-demand contradiction + coverage-gap scan.
+  // Advisory only — nothing mutates. Costs model tokens; bounded to ≤13 calls per
+  // scan (MAX_PAIRS + 1). Never 500s on the AI path — every failure degrades to a
+  // 200 the panel renders a reason from. See kbHealthReview.js for the pure parts.
+  app.post('/api/library/health/ai-review', async (request, reply) => {
+    const zeros = () => ({ documentsScanned: 0, pairsConsidered: 0, pairsJudged: 0, contradictionsFound: 0, gapsFound: 0 });
+    try {
+      // Project resolution lives INSIDE the try so a transient DB error degrades
+      // to a 200 (never-500 contract); only an explicit invalid-project 400s.
+      let projectId;
+      if (request.body && typeof request.body === 'object' && request.body.project) {
+        projectId = await resolveProjectId(request.body.project);
+        if (projectId === null) { reply.code(400); return { message: 'project is invalid' }; }
+      }
+      const chat = await resolveChat();
+      if (!chat) {
+        return { model: null, degraded: true, reason: 'no-chat-model', contradictions: [], gaps: [],
+          contradictionScan: { ran: false, degraded: true, reason: 'no-chat-model' },
+          gapScan: { ran: false, reason: 'no-chat-model' }, stats: zeros() };
+      }
+      const active = await repository.listDocuments({ projectId, status: 'active' });
+      const docs = (Array.isArray(active) ? active : []).filter(isSubstantive);
+      const byId = new Map(docs.map((d) => [d.id, d]));
+      if (docs.length === 0) {
+        return { model: chat.model || null, degraded: false, reason: null, contradictions: [], gaps: [],
+          contradictionScan: { ran: false, degraded: false, reason: 'empty' },
+          gapScan: { ran: false, reason: 'empty' }, stats: zeros() };
+      }
+
+      let usedModel = null;
+      // ---- contradictions (candidates from embeddings, judged pairwise) ----
+      let contradictionScan = { ran: false, degraded: false, reason: null };
+      const contradictions = [];
+      let pairs = [];
+      let pairsJudged = 0;
+      const embedder = await resolveEmbedder();
+      if (!embedder || !(await semanticEnabled())) {
+        contradictionScan = { ran: false, degraded: true, reason: 'no-embedder' };
+      } else {
+        try {
+          const search = app.embeddingSearch || {};
+          const rawPairs = [];
+          for (const seed of docs.slice(0, MAX_SEED_DOCS)) {
+            const neighbors = await repository.findSimilarDocuments(seed.id, embedder.backend, {
+              limit: NEIGHBORS_PER_SEED, projectId, minSimilarity: search.minSimilarity, topDrop: search.topDrop,
+            });
+            for (const n of neighbors || []) rawPairs.push({ aId: seed.id, bId: n.id, similarity: n.similarity });
+          }
+          pairs = selectContradictionPairs(rawPairs, byId, { maxPairs: MAX_PAIRS });
+          for (const { a, b, similarity } of pairs) {
+            try {
+              const res = await chat.complete(buildContradictionMessages(a, b), { temperature: 0, maxTokens: CONTRADICTION_MAXTOKENS });
+              pairsJudged += 1;
+              usedModel = usedModel || res.model;
+              const parsed = parseContradiction(res.text);
+              if (parsed?.contradicts && quoteIsGrounded(a.body, parsed.quoteA) && quoteIsGrounded(b.body, parsed.quoteB)) {
+                contradictions.push({
+                  severity: parsed.severity, issue: parsed.issue, similarity,
+                  a: { id: a.id, title: a.title, documentType: a.documentType, verified: Boolean(a.verified), quote: parsed.quoteA },
+                  b: { id: b.id, title: b.title, documentType: b.documentType, verified: Boolean(b.verified), quote: parsed.quoteB },
+                });
+              }
+            } catch (err) { request.log?.error?.({ err }, 'ai-review pair failed'); }
+          }
+          // If we had pairs to judge but every judgment call failed (chat outage
+          // while embeddings were fine), that's a degraded scan, not "all clear".
+          contradictionScan = (pairs.length > 0 && pairsJudged === 0)
+            ? { ran: false, degraded: true, reason: 'judge-failed' }
+            : { ran: true, degraded: false, reason: null };
+        } catch (err) {
+          request.log?.error?.({ err }, 'ai-review candidate generation failed');
+          contradictionScan = { ran: false, degraded: true, reason: 'embed-failed' };
+        }
+      }
+
+      // ---- coverage gaps (one call, from a trust-aware digest) ----
+      let openTasks = [];
+      if (tasksRepository?.listTasks) {
+        try {
+          const t = await tasksRepository.listTasks({ projectId });
+          openTasks = (Array.isArray(t) ? t : []).filter((x) => !['completed', 'notes'].includes(x.status));
+        } catch { openTasks = []; }
+      }
+      let gaps = [];
+      let gapScan = { ran: false, reason: null };
+      try {
+        const res = await chat.complete(buildGapMessages(buildGapDigest(docs, openTasks)), { temperature: 0.2, maxTokens: GAP_MAXTOKENS });
+        usedModel = usedModel || res.model;
+        gaps = parseGaps(res.text);
+        gapScan = { ran: true, reason: null };
+      } catch (err) {
+        request.log?.error?.({ err }, 'ai-review gaps failed');
+        gapScan = { ran: false, reason: 'generation-failed' };
+      }
+
+      return {
+        model: usedModel || chat.model || null,
+        degraded: contradictionScan.degraded === true,
+        reason: contradictionScan.degraded ? contradictionScan.reason : null,
+        contradictions, gaps, contradictionScan, gapScan,
+        stats: {
+          documentsScanned: docs.length,
+          pairsConsidered: pairs.length,
+          pairsJudged,
+          contradictionsFound: contradictions.length,
+          gapsFound: gaps.length,
+        },
+      };
+    } catch (err) {
+      request.log?.error?.({ err }, 'ai-review failed');
+      return { model: null, degraded: true, reason: 'ai-review-failed', contradictions: [], gaps: [],
+        contradictionScan: { ran: false, degraded: true, reason: null }, gapScan: { ran: false, reason: null }, stats: zeros() };
+    }
   });
 }
