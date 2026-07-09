@@ -2,13 +2,14 @@
 // return { action, view, pending } where action/view may be null and
 // pending is the next chord-prefix state ('' or 'g').
 //
-// The Prax keymap: ⌘K palette · ⌘J theme · N capture · E done · ↑↓/↵ list
-// navigation · Esc close-cascade · '/' also opens the palette · plus the
-// legacy g-chord view navigation (g t/b/k/a/l).
+// The Prax keymap: ⌘K palette · ⌘I assistant · ⌘J theme · N capture · E done ·
+// ↑↓/↵ list navigation · Esc close-cascade · '/' also opens the palette · plus
+// the legacy g-chord view navigation (g t/b/k/a/l).
 export function matchShortcut({ key, metaOrCtrl = false, alt = false }, pending = '') {
   if (metaOrCtrl) {
     const k = String(key || '').toLowerCase();
     if (k === 'k') return { action: 'palette', view: null, pending: '' };
+    if (k === 'i') return { action: 'assistant', view: null, pending: '' };
     if (k === 'j') return { action: 'theme', view: null, pending: '' };
     return { action: null, view: null, pending: '' };
   }
@@ -78,6 +79,7 @@ export function installKeyboardShortcuts({ handlers }) {
     event.preventDefault();
     switch (result.action) {
       case 'palette': handlers.openPalette(); break;
+      case 'assistant': handlers.openAssistant?.(); break;
       case 'theme': handlers.toggleTheme(); break;
       case 'capture': handlers.openCapture(); break;
       case 'toggle-done': handlers.toggleDoneSelected(); break;

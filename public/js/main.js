@@ -26,6 +26,7 @@ import {
   verifyDocument, supersedeDocument,
   startRun, fetchRuns, fetchRun, setRunStep, setRunStatus, createPostMortem,
   askPrax, generateRunbook, fetchHealth, narrateBrief,
+  assistantChat, fetchAssistantStatus,
 } from './libraryApi.js';
 import { normalizeTask } from './taskModel.js';
 import { apiStatus, designStatus, isOpen } from './statusMap.js';
@@ -70,6 +71,7 @@ import { renderGenerateRunbookHtml } from './renderGenerateRunbook.js';
 import { renderHealthHtml } from './renderHealth.js';
 import { renderDailyBriefHtml } from './renderDailyBrief.js';
 import { buildDailyBrief } from './brief.js';
+import { renderAssistantHtml } from './renderAssistant.js';
 import { renderSearchPanelHtml, searchCountLabel } from './renderSearchPanel.js';
 import { renderAllProjectsHtml, buildProjectGroups } from './renderAllProjects.js';
 import { renderPaletteHtml, buildPaletteGroups } from './renderPalette.js';
@@ -257,6 +259,74 @@ async function copyDailyBrief() {
   const text = state.dailyBriefNarrative || buildDailyBrief(state);
   const ok = await copyToClipboard(text);
   showToast(ok ? 'Brief copied' : 'Could not copy');
+}
+
+// ---- AI assistant (agentic tool-calling chat) -----------------------------
+
+function openAssistant() {
+  setState({ assistantOpen: true, assistantError: null, paletteOpen: false, captureOpen: false });
+  renderApp();
+  loadAssistantStatus();
+}
+
+async function loadAssistantStatus() {
+  try {
+    const status = await fetchAssistantStatus();
+    setState({ assistantStatus: status });
+  } catch {
+    setState({ assistantStatus: { available: false, toolCount: 0 } });
+  }
+  if (state.assistantOpen) renderApp();
+}
+
+// Apply one turn's response envelope to state (shared by send + confirm resume).
+function applyAssistantResult(res) {
+  if (res.status === 'awaiting_confirmation') {
+    setState({ assistantMessages: res.messages, assistantPending: res.pending || [], assistantLoading: false, assistantError: null });
+  } else if (res.status === 'no_model') {
+    setState({ assistantLoading: false, assistantPending: null, assistantError: 'No AI model configured — set one in Settings ▸ Intelligence ▸ AI answers.', assistantStatus: { available: false, toolCount: state.assistantStatus?.toolCount || 0 } });
+  } else if (res.status === 'error') {
+    setState({ assistantMessages: res.messages || state.assistantMessages, assistantLoading: false, assistantPending: null, assistantError: res.error ? `The assistant hit an error: ${res.error}` : 'The assistant hit an error. Please try again.' });
+  } else {
+    // done
+    setState({ assistantMessages: res.messages, assistantLoading: false, assistantPending: null, assistantError: null });
+  }
+}
+
+async function sendAssistant(rawText) {
+  const text = (rawText || '').trim();
+  if (!text || state.assistantLoading || (state.assistantPending && state.assistantPending.length)) return;
+  const messages = [...state.assistantMessages, { role: 'user', content: text }];
+  setState({ assistantMessages: messages, assistantInput: '', assistantLoading: true, assistantError: null });
+  renderApp();
+  try {
+    const res = await assistantChat(messages);
+    applyAssistantResult(res);
+  } catch (err) {
+    setState({ assistantLoading: false, assistantError: err?.message || 'The assistant request failed.' });
+  }
+  renderApp();
+}
+
+async function resolveAssistantWrites(decision) {
+  const pending = state.assistantPending;
+  if (!pending || !pending.length || state.assistantLoading) return;
+  const decisions = {};
+  for (const p of pending) decisions[p.id] = decision; // batch approve/decline
+  setState({ assistantPending: null, assistantLoading: true, assistantError: null });
+  renderApp();
+  try {
+    const res = await assistantChat(state.assistantMessages, decisions);
+    applyAssistantResult(res);
+  } catch (err) {
+    setState({ assistantLoading: false, assistantError: err?.message || 'The assistant request failed.' });
+  }
+  renderApp();
+}
+
+function clearAssistant() {
+  setState({ assistantMessages: [], assistantPending: null, assistantError: null, assistantInput: '', assistantLoading: false });
+  renderApp();
 }
 
 async function verifyHealthDoc(id) {
@@ -1339,6 +1409,7 @@ function goSettings() {
 
 function escapeCascade() {
   if (state.editorSearchOpen) { closeEditorSearch(); return; }
+  if (state.assistantOpen) { setState({ assistantOpen: false }); renderApp(); return; }
   if (state.askPraxOpen) { setState({ askPraxOpen: false }); renderApp(); return; }
   if (state.genRbOpen) { setState({ genRbOpen: false }); renderApp(); return; }
   if (state.dailyBriefOpen) { setState({ dailyBriefOpen: false }); renderApp(); return; }
@@ -1563,6 +1634,9 @@ function renderOverlaysHtml() {
       narrativeHtml: state.dailyBriefNarrative ? renderMarkdownHtml(state.dailyBriefNarrative, { resolveWikiLink }) : '',
     });
   }
+  if (state.assistantOpen) {
+    html += renderAssistantHtml(state, { renderMarkdown: (md) => renderMarkdownHtml(md, { resolveWikiLink }) });
+  }
   if (state.confirm) html += renderConfirmHtml(state.confirm);
   html += renderToastHtml(state);
   return html;
@@ -1611,6 +1685,16 @@ function afterRender() {
     input?.setSelectionRange?.(input.value.length, input.value.length);
   } else if (state.captureOpen) {
     appRoot.querySelector('[data-capture-input]')?.focus();
+  } else if (state.assistantOpen) {
+    // Keep the transcript pinned to the latest turn, and (when idle) the caret
+    // in the composer.
+    const scroll = appRoot.querySelector('[data-assistant-scroll]');
+    if (scroll) scroll.scrollTop = scroll.scrollHeight;
+    if (!state.assistantLoading && !(state.assistantPending && state.assistantPending.length)) {
+      const input = appRoot.querySelector('[data-assistant-input]');
+      input?.focus();
+      input?.setSelectionRange?.(input.value.length, input.value.length);
+    }
   } else if (state.askPraxOpen && !state.askPraxLoading) {
     const input = appRoot.querySelector('[data-ask-prax-input]');
     input?.focus();
@@ -1933,6 +2017,13 @@ async function handleAction(action, el, event) {
     case 'close-daily-brief': setState({ dailyBriefOpen: false }); renderApp(); break;
     case 'draft-daily-brief': draftDailyBrief(); break;
     case 'copy-daily-brief': copyDailyBrief(); break;
+    case 'open-assistant': openAssistant(); break;
+    case 'close-assistant': setState({ assistantOpen: false }); renderApp(); break;
+    case 'assistant-send': sendAssistant(appRoot.querySelector('[data-assistant-input]')?.value); break;
+    case 'assistant-suggest': sendAssistant(el.dataset.suggest); break;
+    case 'assistant-approve': resolveAssistantWrites('approve'); break;
+    case 'assistant-decline': resolveAssistantWrites('deny'); break;
+    case 'assistant-clear': clearAssistant(); break;
     case 'toggle-semantic': setState({ librarySemantic: !state.librarySemantic, semanticResults: null }); renderApp(); break;
     case 'cycle-lib-sort': setState({ librarySortBy: state.librarySortBy === 'updated' ? 'title' : 'updated' }); renderApp(); break;
     case 'toggle-lib-tag': {
@@ -2447,6 +2538,11 @@ function bindEvents() {
       setState({ captureQuery: target.value });
       return;
     }
+    if (target.matches?.('[data-assistant-input]')) {
+      // Mirror to state (no re-render) so the composer survives re-renders.
+      setState({ assistantInput: target.value });
+      return;
+    }
     if (target.matches?.('[data-library-search]')) {
       // Keyword search filters live, which re-renders and replaces this input —
       // restore focus and the caret so typing isn't interrupted after each key.
@@ -2629,6 +2725,11 @@ function bindEvents() {
       runAskPrax(target.value);
       return;
     }
+    if (target.matches?.('[data-assistant-input]') && event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      sendAssistant(target.value);
+      return;
+    }
     if (target.matches?.('[data-checklist-new]') && event.key === 'Enter') {
       event.preventDefault();
       handleAction('add-checklist-item', target, event);
@@ -2728,6 +2829,7 @@ function installShortcuts() {
         setState({ paletteOpen: true, paletteQuery: '', paletteSelection: 0, captureOpen: false });
         renderApp();
       },
+      openAssistant,
       toggleTheme,
       openCapture() {
         setState({ captureOpen: true, captureQuery: '', paletteOpen: false, ...captureDefaults() });

@@ -1,4 +1,5 @@
 import { toMessages } from './messages.js';
+import { openaiMessages, openaiTools, parseOpenai } from './toolProtocol.js';
 
 // OpenAI-compatible chat completions (real OpenAI, llama.cpp, vLLM, LiteLLM, …).
 // baseUrl includes /v1; the Authorization header is omitted when apiKey is empty
@@ -19,11 +20,17 @@ export function createOpenAiChat({ baseUrl, apiKey, model, backend = 'openai', d
   return {
     backend,
     model: chatModel,
+    // Only real OpenAI is wired for tool-calling; llama.cpp (backend 'llamacpp')
+    // reuses this client for plain completion and degrades to a read-only turn.
+    supportsTools: backend === 'openai',
     async complete(messages, opts = {}) {
-      const body = { messages: toMessages(messages) };
+      const tools = Array.isArray(opts.tools) && opts.tools.length ? opts.tools : null;
+      const canonical = Array.isArray(messages) ? messages : toMessages(messages);
+      const body = { messages: tools ? openaiMessages(canonical) : toMessages(messages) };
       if (chatModel) body.model = chatModel;
       if (opts.temperature != null) body.temperature = opts.temperature;
       if (opts.maxTokens != null) body.max_tokens = opts.maxTokens;
+      if (tools) body.tools = openaiTools(tools);
       const res = await fetch(`${base}/chat/completions`, {
         method: 'POST',
         headers: headers({ 'content-type': 'application/json' }),
@@ -31,7 +38,13 @@ export function createOpenAiChat({ baseUrl, apiKey, model, backend = 'openai', d
       });
       if (!res.ok) throw new Error(`${backend} chat failed: ${res.status}`);
       const data = await res.json();
-      const text = data?.choices?.[0]?.message?.content;
+      const message = data?.choices?.[0]?.message;
+      if (tools) {
+        const { text, toolCalls } = parseOpenai(message);
+        if (!text && !toolCalls.length) throw new Error(`${backend} returned no message content`);
+        return { text, model: chatModel, toolCalls: toolCalls.length ? toolCalls : null, stopReason: data?.choices?.[0]?.finish_reason };
+      }
+      const text = message?.content;
       if (typeof text !== 'string') throw new Error(`${backend} returned no message content`);
       return { text, model: chatModel };
     },

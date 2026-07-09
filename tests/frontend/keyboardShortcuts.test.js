@@ -6,9 +6,11 @@ import { matchShortcut } from '../../public/js/keyboardShortcuts.js';
 // ⌘J theme, N capture, E done, ↑↓/↵ list navigation, Esc cascade, '/' palette,
 // plus the legacy g-chord view navigation.
 
-test('cmd/ctrl+K opens the palette and cmd/ctrl+J toggles the theme', () => {
+test('cmd/ctrl+K opens the palette, ⌘I the assistant, and cmd/ctrl+J toggles the theme', () => {
   assert.equal(matchShortcut({ key: 'k', metaOrCtrl: true }).action, 'palette');
   assert.equal(matchShortcut({ key: 'K', metaOrCtrl: true }).action, 'palette');
+  assert.equal(matchShortcut({ key: 'i', metaOrCtrl: true }).action, 'assistant');
+  assert.equal(matchShortcut({ key: 'I', metaOrCtrl: true }).action, 'assistant');
   assert.equal(matchShortcut({ key: 'j', metaOrCtrl: true }).action, 'theme');
 });
 

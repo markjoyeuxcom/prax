@@ -13,6 +13,7 @@ import { createEmbedder } from './embedder/index.js';
 import { createEmbedderProvider } from './embedderProvider.js';
 import { createChatProvider } from './chatProvider.js';
 import { registerSettingsRoutes } from './settingsRoutes.js';
+import { registerAssistantRoutes } from './assistantRoutes.js';
 
 export async function buildApp(options = {}) {
   const config = options.config || loadConfig();
@@ -70,6 +71,7 @@ export async function buildApp(options = {}) {
   await registerProjectsRoutes(app, options);
   await registerChecklistRoutes(app, options);
   await registerSettingsRoutes(app, { appSettingsRepository, embedder: options.embedder, embedderProvider, chat: options.chat, chatProvider, libraryRepository });
+  registerAssistantRoutes(app, options);
 
   await app.register(fastifyStatic, {
     root: config.publicDir,

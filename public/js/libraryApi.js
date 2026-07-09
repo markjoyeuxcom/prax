@@ -249,6 +249,33 @@ export async function generateRunbook(description, project) {
   return res.json();
 }
 
+// ---- AI assistant (agentic tool-calling chat) ------------------------------
+
+// Provider status for the assistant: { available, model, backend, supportsTools, toolCount }.
+export async function fetchAssistantStatus() {
+  const res = await fetch('/api/assistant/status');
+  if (!res.ok) throw new Error('Failed to load assistant status');
+  return res.json();
+}
+
+// Drive one assistant turn. `messages` is the full canonical conversation
+// (user/assistant/tool turns); `decisions` (optional) approves/declines the
+// writes proposed in a suspended tail turn. Returns the envelope
+// { status, messages, answer?/pending?, model, degraded?, reason? } where status
+// is 'done' | 'awaiting_confirmation' | 'no_model' | 'error'.
+export async function assistantChat(messages, decisions = null) {
+  const body = { messages };
+  if (decisions) body.decisions = decisions;
+  const res = await fetch('/api/assistant/chat', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const payload = await res.json().catch(() => null);
+    throw new Error(payload?.message || 'The assistant request failed');
+  }
+  return res.json();
+}
+
 export async function verifyDocument(id, verified, as = 'user') {
   const response = await fetch(`/api/library/documents/${id}/verify`, {
     method: 'POST',
