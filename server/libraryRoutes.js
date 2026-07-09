@@ -16,6 +16,7 @@ import { createEmbeddingService } from './embeddingService.js';
 import { buildContextPack, renderContextPackMarkdown } from './contextPack.js';
 import { buildAskMessages, buildAnswerContext, collectSources } from './askLibrary.js';
 import { buildRunSummary, buildPostMortemMessages, fallbackPostMortem, postMortemTitle } from './postMortem.js';
+import { buildRunbookMessages, parseGeneratedRunbook } from './generateRunbook.js';
 
 const DOCUMENT_TYPES = new Set(['runbook', 'note']);
 const DOCUMENT_KINDS = new Set(['source', 'synthesized']);
@@ -504,6 +505,44 @@ export async function registerLibraryRoutes(app, options = {}) {
     });
     await embedOnWrite(created.id);
     return { document: created, generated, model };
+  });
+
+  // Generate a runbook from an alert/incident description. Unlike ask/post-mortem
+  // there's nothing to fall back to without a model (there's no source content to
+  // template), so this requires a chat model (409) and surfaces a generation
+  // failure (502). The draft lands agent-written + unverified for human review.
+  app.post('/api/library/runbooks/generate', async (request, reply) => {
+    const body = isPlainObject(request.body) ? request.body : null;
+    if (!body) { reply.code(400); return { message: 'body is invalid' }; }
+    const description = typeof body.description === 'string' ? body.description.trim() : '';
+    if (!description) { reply.code(400); return { message: 'description is required' }; }
+    const projectId = await resolveProjectId(body.project);
+    if (projectId === null) { reply.code(400); return { message: 'project is invalid' }; }
+    if (projectId === undefined) { reply.code(400); return { message: 'project is required' }; }
+
+    const chat = await resolveChat();
+    if (!chat) { reply.code(409); return { message: 'no AI model is configured — set one in Settings ▸ Intelligence' }; }
+    let generated;
+    try {
+      generated = await chat.complete(buildRunbookMessages(description), { temperature: 0.3, maxTokens: 1500 });
+    } catch (err) {
+      request.log.error({ err }, 'runbook generation failed');
+      reply.code(502); return { message: `generation failed: ${err?.message || 'unknown error'}` };
+    }
+    const { title, body: docBody } = parseGeneratedRunbook(generated?.text, description);
+
+    reply.code(201);
+    const created = await repository.createDocument({
+      title,
+      body: docBody,
+      documentType: 'runbook',
+      projectId,
+      tags: ['draft'],
+      kind: 'synthesized',
+      updatedBy: 'agent', // AI-authored → agent-written, needs human verify
+    });
+    await embedOnWrite(created.id);
+    return { document: created, model: generated?.model || chat.model || null };
   });
 
   // "More like this" — documents most similar to this one by embedding. Reuses

@@ -69,6 +69,7 @@ AI tools:
 - `ask_library` — retrieve the trust-aware context pack (Markdown) for a query, without ids.
 - `ask_prax` — a grounded, cited answer synthesized from the context pack when a chat model is configured (Settings ▸ Intelligence), degrading to the raw pack otherwise.
 - `generate_post_mortem` — draft an agent-written post-mortem note from a runbook run's chronicle (falls back to a deterministic template when no chat model is set).
+- `generate_runbook` — draft an agent-written runbook from an alert/incident description (requires a chat model).
 
 No archive, delete, reorder, or import tools are exposed.
 

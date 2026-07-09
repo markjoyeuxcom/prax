@@ -48,3 +48,25 @@ test('generate_post_mortem validates the run id and returns the created doc', as
   assert.match(res.content[0].text, /"title": ?"Post-mortem: X"/);
   assert.match(res.content[0].text, /"generated": ?true/);
 });
+
+function rbTool(client) { return createInsightTools(client).find((t) => t.name === 'generate_runbook'); }
+
+test('generate_runbook requires description + project and returns the created runbook', () => {
+  const t = rbTool({});
+  assert.ok(t);
+  assert.equal(t.inputSchema.description.safeParse(undefined).success, false);
+  assert.equal(t.inputSchema.project.safeParse(undefined).success, false);
+});
+
+test('generate_runbook returns the created doc; surfaces the "no model" error', async () => {
+  const ok = { generateRunbook: async ({ description }) => ({ document: { id: 'rb1', title: 'Postgres failover', documentType: 'runbook' }, model: 'gemini-2.5-flash' }) };
+  const res = await rbTool(ok).handler({ description: 'pg down', project: 'homelab' });
+  assert.ok(!res.isError);
+  assert.match(res.content[0].text, /"title": ?"Postgres failover"/);
+
+  const { PraxApiError } = await import('../../mcp/errors.js');
+  const bad = { generateRunbook: async () => { throw new PraxApiError(409, 'no AI model is configured'); } };
+  const err = await rbTool(bad).handler({ description: 'x', project: 'homelab' });
+  assert.equal(err.isError, true);
+  assert.match(err.content[0].text, /no AI model is configured/);
+});

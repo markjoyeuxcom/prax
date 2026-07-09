@@ -47,5 +47,19 @@ export function createInsightTools(client) {
         return okResult(res);
       }),
     },
+    {
+      name: 'generate_runbook',
+      title: 'Generate a runbook',
+      description:
+        'Draft a runnable runbook from an alert or incident description. The server’s chat model writes it (checkbox steps, commands, rollback); the result is an agent-written, unverified runbook in the given project for a human to review and verify. Requires a chat model configured (Settings ▸ Intelligence).',
+      inputSchema: {
+        description: z.string().min(1).describe('The alert or incident to write a runbook for.'),
+        project: z.string().describe('Project slug or id to file the runbook under.'),
+      },
+      handler: withErrorHandling(async ({ description, project }) => {
+        const res = await client.generateRunbook({ description, project });
+        return okResult(res);
+      }),
+    },
   ];
 }

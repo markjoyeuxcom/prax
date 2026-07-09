@@ -111,6 +111,11 @@ export function createPraxClient({
     generatePostMortem: (runId) =>
       request('POST', `/api/library/runs/${runId}/post-mortem`, { headers: { 'x-prax-origin': 'agent' } }),
 
+    // Generate a runbook from an alert/incident description. Returns
+    // { document, model }. Requires a chat model configured on the server.
+    generateRunbook: ({ description, project } = {}) =>
+      request('POST', '/api/library/runbooks/generate', { body: { description, project }, headers: { 'x-prax-origin': 'agent' } }),
+
     getDocument: (id) => getOrNull(`/api/library/documents/${id}`),
 
     createDocument: (payload) =>

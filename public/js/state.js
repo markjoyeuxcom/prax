@@ -88,6 +88,13 @@ export const state = {
   askPraxLoading: false,
   askPraxError: false,
 
+  // ---- "Generate runbook" (draft a runbook from an incident description) ----
+  genRbOpen: false,
+  genRbDescription: '',         // preserved across the loading re-render
+  genRbProject: null,           // selected project id (the select's default)
+  genRbLoading: false,
+  genRbError: false,            // false | error message string
+
   // ---- editor ----
   editorDocId: null,
   editorMode: 'split',          // 'edit' | 'split' | 'preview'
