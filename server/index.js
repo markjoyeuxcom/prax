@@ -69,7 +69,7 @@ export async function buildApp(options = {}) {
   await registerLibraryRoutes(app, options);
   await registerProjectsRoutes(app, options);
   await registerChecklistRoutes(app, options);
-  await registerSettingsRoutes(app, { appSettingsRepository, embedder: options.embedder, embedderProvider, libraryRepository });
+  await registerSettingsRoutes(app, { appSettingsRepository, embedder: options.embedder, embedderProvider, chat: options.chat, chatProvider, libraryRepository });
 
   await app.register(fastifyStatic, {
     root: config.publicDir,
