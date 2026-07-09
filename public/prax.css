@@ -2201,6 +2201,52 @@ body.is-desktop-mac .titlebar { padding-left: 84px; }
 }
 .brief__hint-k .kbd { margin: 0 1px; }
 
+/* Ask Prax result extras (reuses the .brief overlay/dialog shell) */
+.askprax__notice {
+  margin: 0 0 12px;
+  padding: 8px 11px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--ink2);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.askprax__sources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.askprax__sources-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink3);
+  margin-right: 2px;
+}
+.askprax__src {
+  font-size: 12px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--surface2, var(--bg-deep));
+  border: 1px solid var(--line2);
+  color: var(--ink2);
+}
+.askprax__src.is-verified {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line2));
+  color: var(--ink);
+}
+.askprax__model {
+  margin-top: 12px;
+  font-size: 11.5px;
+  color: var(--ink3);
+  font-style: italic;
+}
+
 /* Recurrence chip on the task drawer */
 .chip--recur { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 

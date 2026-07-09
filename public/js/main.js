@@ -25,6 +25,7 @@ import {
   verifyDocument, supersedeDocument,
   startRun, fetchRuns, fetchRun, setRunStep, setRunStatus,
   fetchContextPack,
+  askPrax,
 } from './libraryApi.js';
 import { normalizeTask } from './taskModel.js';
 import { apiStatus, designStatus, isOpen } from './statusMap.js';
@@ -65,6 +66,7 @@ import { templateById } from './documentTemplates.js';
 import { renderEditorHtml, buildOutline, buildBacklinks } from './renderEditor.js';
 import { renderRunHtml, buildChronicle } from './renderRun.js';
 import { renderBriefHtml } from './renderBrief.js';
+import { renderAskPraxHtml } from './renderAskPrax.js';
 import { renderSearchPanelHtml, searchCountLabel } from './renderSearchPanel.js';
 import { renderAllProjectsHtml, buildProjectGroups } from './renderAllProjects.js';
 import { renderPaletteHtml, buildPaletteGroups } from './renderPalette.js';
@@ -934,6 +936,35 @@ async function copyBrief() {
   showToast(ok ? 'Brief copied' : 'Could not copy brief');
 }
 
+function openAskPrax() {
+  // Keep the last query (handy to re-run) but clear any prior answer.
+  setState({ askPraxOpen: true, askPraxResult: null, askPraxError: false, askPraxLoading: false, paletteOpen: false });
+  renderApp();
+}
+
+async function runAskPrax(rawQuery) {
+  const query = String(rawQuery || '').trim();
+  if (!query) return;
+  setState({ askPraxQuery: query, askPraxLoading: true, askPraxError: false, askPraxResult: null });
+  renderApp();
+  try {
+    const result = await askPrax(query, 'all');
+    setState({ askPraxLoading: false, askPraxResult: result });
+  } catch {
+    setState({ askPraxLoading: false, askPraxError: true });
+  }
+  renderApp();
+}
+
+async function copyAskPrax() {
+  const r = state.askPraxResult;
+  if (!r) return;
+  const text = (typeof r.answer === 'string' && r.answer.trim()) ? r.answer : (r.markdown || '');
+  if (!text) return;
+  const ok = await copyToClipboard(text);
+  showToast(ok ? 'Answer copied' : 'Could not copy');
+}
+
 // ---------------------------------------------------------------------------
 // Runbook execution (runs)
 // ---------------------------------------------------------------------------
@@ -1229,6 +1260,7 @@ function goSettings() {
 
 function escapeCascade() {
   if (state.editorSearchOpen) { closeEditorSearch(); return; }
+  if (state.askPraxOpen) { setState({ askPraxOpen: false }); renderApp(); return; }
   if (state.briefOpen) { setState({ briefOpen: false }); renderApp(); return; }
   if (state.confirm) { setState({ confirm: null }); renderApp(); return; }
   if (state.docMenuOpen) { setState({ docMenuOpen: false }); renderApp(); return; }
@@ -1439,6 +1471,12 @@ function renderOverlaysHtml() {
       bodyHtml: typeof state.briefMarkdown === 'string' ? renderMarkdownHtml(state.briefMarkdown, { resolveWikiLink }) : '',
     });
   }
+  if (state.askPraxOpen) {
+    const r = state.askPraxResult;
+    // Render the written answer when there is one, else the retrieved pack.
+    const md = r ? ((typeof r.answer === 'string' && r.answer.trim()) ? r.answer : (r.markdown || '')) : '';
+    html += renderAskPraxHtml(state, { bodyHtml: md ? renderMarkdownHtml(md, { resolveWikiLink }) : '' });
+  }
   if (state.confirm) html += renderConfirmHtml(state.confirm);
   html += renderToastHtml(state);
   return html;
@@ -1489,6 +1527,10 @@ function afterRender() {
     appRoot.querySelector('[data-capture-input]')?.focus();
   } else if (state.briefOpen && !state.briefLoading) {
     const input = appRoot.querySelector('[data-brief-input]');
+    input?.focus();
+    input?.setSelectionRange?.(input.value.length, input.value.length);
+  } else if (state.askPraxOpen && !state.askPraxLoading) {
+    const input = appRoot.querySelector('[data-ask-prax-input]');
     input?.focus();
     input?.setSelectionRange?.(input.value.length, input.value.length);
   } else if (state.confirm) {
@@ -1798,6 +1840,10 @@ async function handleAction(action, el, event) {
     case 'close-brief': setState({ briefOpen: false }); renderApp(); break;
     case 'run-brief': runBrief(appRoot.querySelector('[data-brief-input]')?.value); break;
     case 'copy-brief': copyBrief(); break;
+    case 'open-ask-prax': openAskPrax(); break;
+    case 'close-ask-prax': setState({ askPraxOpen: false }); renderApp(); break;
+    case 'run-ask-prax': runAskPrax(appRoot.querySelector('[data-ask-prax-input]')?.value); break;
+    case 'copy-ask-prax': copyAskPrax(); break;
     case 'toggle-semantic': setState({ librarySemantic: !state.librarySemantic, semanticResults: null }); renderApp(); break;
     case 'cycle-lib-sort': setState({ librarySortBy: state.librarySortBy === 'updated' ? 'title' : 'updated' }); renderApp(); break;
     case 'toggle-lib-tag': {
@@ -2451,6 +2497,11 @@ function bindEvents() {
     if (target.matches?.('[data-capture-input]') && event.key === 'Enter') {
       event.preventDefault();
       addQuickTask(state.captureQuery.trim());
+      return;
+    }
+    if (target.matches?.('[data-ask-prax-input]') && event.key === 'Enter') {
+      event.preventDefault();
+      runAskPrax(target.value);
       return;
     }
     if (target.matches?.('[data-brief-input]') && event.key === 'Enter') {
