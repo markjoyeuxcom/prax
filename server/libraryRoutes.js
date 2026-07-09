@@ -745,6 +745,27 @@ export async function registerLibraryRoutes(app, options = {}) {
     }
   });
 
+  // Narrate a structured daily brief into a short stand-up update. The brief is
+  // built client-side from loaded state; this only rewrites it in prose when a
+  // chat model is configured (degrades to no narrative otherwise). Facts-only.
+  app.post('/api/brief/narrate', async (request, reply) => {
+    const body = isPlainObject(request.body) ? request.body : null;
+    const text = body && typeof body.text === 'string' ? body.text.trim() : '';
+    if (!text) { reply.code(400); return { message: 'text is required' }; }
+    const chat = await resolveChat();
+    if (!chat) return { narrative: null, degraded: true, reason: 'no-chat-model', model: null };
+    try {
+      const { text: narrative, model } = await chat.complete([
+        { role: 'system', content: 'You are an SRE lead writing a short daily stand-up update from the structured brief below. Keep it to a few tight sentences and/or bullets in Markdown: what is on fire (overdue), the day\'s focus, and any on-call handoff worth flagging. Use ONLY the facts in the brief — do not invent tasks, owners, or status.' },
+        { role: 'user', content: text },
+      ], { temperature: 0.3, maxTokens: 600 });
+      return { narrative, degraded: false, model };
+    } catch (err) {
+      request.log.error({ err }, 'brief narrate failed');
+      return { narrative: null, degraded: true, reason: 'generation-failed', error: err?.message || 'failed', model: chat.model || null };
+    }
+  });
+
   app.post('/api/library/documents/:id/links', async (request, reply) => {
     const sourceId = request.params.id;
     const { targetId, relation } = request.body || {};

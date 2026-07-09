@@ -25,7 +25,7 @@ import {
   fetchChatStatus, putChatSettings,
   verifyDocument, supersedeDocument,
   startRun, fetchRuns, fetchRun, setRunStep, setRunStatus, createPostMortem,
-  askPrax, generateRunbook, fetchHealth,
+  askPrax, generateRunbook, fetchHealth, narrateBrief,
 } from './libraryApi.js';
 import { normalizeTask } from './taskModel.js';
 import { apiStatus, designStatus, isOpen } from './statusMap.js';
@@ -68,6 +68,8 @@ import { renderRunHtml, buildChronicle } from './renderRun.js';
 import { renderAskPraxHtml } from './renderAskPrax.js';
 import { renderGenerateRunbookHtml } from './renderGenerateRunbook.js';
 import { renderHealthHtml } from './renderHealth.js';
+import { renderDailyBriefHtml } from './renderDailyBrief.js';
+import { buildDailyBrief } from './brief.js';
 import { renderSearchPanelHtml, searchCountLabel } from './renderSearchPanel.js';
 import { renderAllProjectsHtml, buildProjectGroups } from './renderAllProjects.js';
 import { renderPaletteHtml, buildPaletteGroups } from './renderPalette.js';
@@ -230,6 +232,31 @@ function goHealth() {
   setState({ navType: 'health' });
   renderApp();
   loadHealth().then(renderApp);
+}
+
+function openDailyBrief() {
+  setState({ dailyBriefOpen: true, dailyBriefNarrative: null, dailyBriefError: false, dailyBriefLoading: false });
+  renderApp();
+}
+
+async function draftDailyBrief() {
+  if (state.dailyBriefLoading) return;
+  setState({ dailyBriefLoading: true, dailyBriefError: false });
+  renderApp();
+  try {
+    const res = await narrateBrief(buildDailyBrief(state));
+    if (res.narrative) setState({ dailyBriefLoading: false, dailyBriefNarrative: res.narrative });
+    else setState({ dailyBriefLoading: false, dailyBriefError: res.reason === 'no-chat-model' ? 'No AI model configured — set one in Settings ▸ Intelligence. Showing the plain brief.' : 'Could not draft with AI. Showing the plain brief.' });
+  } catch {
+    setState({ dailyBriefLoading: false, dailyBriefError: 'Could not reach the AI model. Showing the plain brief.' });
+  }
+  renderApp();
+}
+
+async function copyDailyBrief() {
+  const text = state.dailyBriefNarrative || buildDailyBrief(state);
+  const ok = await copyToClipboard(text);
+  showToast(ok ? 'Brief copied' : 'Could not copy');
 }
 
 async function verifyHealthDoc(id) {
@@ -1314,6 +1341,7 @@ function escapeCascade() {
   if (state.editorSearchOpen) { closeEditorSearch(); return; }
   if (state.askPraxOpen) { setState({ askPraxOpen: false }); renderApp(); return; }
   if (state.genRbOpen) { setState({ genRbOpen: false }); renderApp(); return; }
+  if (state.dailyBriefOpen) { setState({ dailyBriefOpen: false }); renderApp(); return; }
   if (state.confirm) { setState({ confirm: null }); renderApp(); return; }
   if (state.docMenuOpen) { setState({ docMenuOpen: false }); renderApp(); return; }
   if (state.paletteOpen) { setState({ paletteOpen: false }); renderApp(); return; }
@@ -1528,6 +1556,12 @@ function renderOverlaysHtml() {
   }
   if (state.genRbOpen) {
     html += renderGenerateRunbookHtml(state, { projects: captureProjectChoices().filter((p) => p.slug !== INBOX_SLUG) });
+  }
+  if (state.dailyBriefOpen) {
+    html += renderDailyBriefHtml(state, {
+      briefHtml: renderMarkdownHtml(buildDailyBrief(state), { resolveWikiLink }),
+      narrativeHtml: state.dailyBriefNarrative ? renderMarkdownHtml(state.dailyBriefNarrative, { resolveWikiLink }) : '',
+    });
   }
   if (state.confirm) html += renderConfirmHtml(state.confirm);
   html += renderToastHtml(state);
@@ -1895,6 +1929,10 @@ async function handleAction(action, el, event) {
     case 'open-generate-runbook': openGenerateRunbook(); break;
     case 'close-generate-runbook': setState({ genRbOpen: false }); renderApp(); break;
     case 'run-generate-runbook': runGenerateRunbook(); break;
+    case 'open-daily-brief': openDailyBrief(); break;
+    case 'close-daily-brief': setState({ dailyBriefOpen: false }); renderApp(); break;
+    case 'draft-daily-brief': draftDailyBrief(); break;
+    case 'copy-daily-brief': copyDailyBrief(); break;
     case 'toggle-semantic': setState({ librarySemantic: !state.librarySemantic, semanticResults: null }); renderApp(); break;
     case 'cycle-lib-sort': setState({ librarySortBy: state.librarySortBy === 'updated' ? 'title' : 'updated' }); renderApp(); break;
     case 'toggle-lib-tag': {

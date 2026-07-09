@@ -99,6 +99,12 @@ export const state = {
   healthData: null,             // null = not loaded; { needsReview, empty, stale, orphans, counts }
   healthLoading: false,
 
+  // ---- Daily brief / on-call handoff ----
+  dailyBriefOpen: false,
+  dailyBriefNarrative: null,    // null = not drafted; string = the AI stand-up
+  dailyBriefLoading: false,
+  dailyBriefError: false,       // false | error message string
+
   // ---- editor ----
   editorDocId: null,
   editorMode: 'split',          // 'edit' | 'split' | 'preview'
