@@ -147,7 +147,6 @@ function renderPageHead(state, model) {
       <h1 class="page-head__title">Library</h1>
       <div class="page-head__actions">
         <button class="btn-ghost" type="button" data-action="open-ask-prax" title="Ask Prax a question, answered from your library">${icon('spark', 13)}<span>Ask Prax</span></button>
-        <button class="btn-ghost" type="button" data-action="open-brief" title="Ask the library a question">${icon('spark', 13)}<span>Brief me</span></button>
         <button class="btn-ghost" type="button" data-action="import-documents">Import .md</button>
         <button class="btn-ghost" type="button" data-action="export-library">Export all</button>
         <button class="btn-ghost" type="button" data-action="toggle-library-view" aria-pressed="${model.archive}">${model.archive ? 'Active' : 'Archive'}</button>

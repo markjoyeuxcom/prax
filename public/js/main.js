@@ -25,7 +25,6 @@ import {
   fetchChatStatus, putChatSettings,
   verifyDocument, supersedeDocument,
   startRun, fetchRuns, fetchRun, setRunStep, setRunStatus,
-  fetchContextPack,
   askPrax,
 } from './libraryApi.js';
 import { normalizeTask } from './taskModel.js';
@@ -66,7 +65,6 @@ import { renderLibraryHtml, buildLibraryModel } from './renderLibrary.js';
 import { templateById } from './documentTemplates.js';
 import { renderEditorHtml, buildOutline, buildBacklinks } from './renderEditor.js';
 import { renderRunHtml, buildChronicle } from './renderRun.js';
-import { renderBriefHtml } from './renderBrief.js';
 import { renderAskPraxHtml } from './renderAskPrax.js';
 import { renderSearchPanelHtml, searchCountLabel } from './renderSearchPanel.js';
 import { renderAllProjectsHtml, buildProjectGroups } from './renderAllProjects.js';
@@ -916,34 +914,8 @@ async function openDocumentInEditor(documentId) {
 }
 
 // ---------------------------------------------------------------------------
-// "Brief me" — human-facing library context pack
+// "Ask Prax" — grounded, cited answers over the library
 // ---------------------------------------------------------------------------
-
-function openBrief() {
-  // Keep the last query (handy to re-run) but clear any prior result.
-  setState({ briefOpen: true, briefMarkdown: null, briefError: false, briefLoading: false, paletteOpen: false });
-  renderApp();
-}
-
-async function runBrief(rawQuery) {
-  const query = String(rawQuery || '').trim();
-  if (!query) return;
-  setState({ briefQuery: query, briefLoading: true, briefError: false, briefMarkdown: null });
-  renderApp();
-  try {
-    const markdown = await fetchContextPack(query, 'all');
-    setState({ briefLoading: false, briefMarkdown: markdown });
-  } catch {
-    setState({ briefLoading: false, briefError: true });
-  }
-  renderApp();
-}
-
-async function copyBrief() {
-  if (typeof state.briefMarkdown !== 'string') return;
-  const ok = await copyToClipboard(state.briefMarkdown);
-  showToast(ok ? 'Brief copied' : 'Could not copy brief');
-}
 
 function openAskPrax() {
   // Keep the last query (handy to re-run) but clear any prior answer.
@@ -1271,7 +1243,6 @@ function goSettings() {
 function escapeCascade() {
   if (state.editorSearchOpen) { closeEditorSearch(); return; }
   if (state.askPraxOpen) { setState({ askPraxOpen: false }); renderApp(); return; }
-  if (state.briefOpen) { setState({ briefOpen: false }); renderApp(); return; }
   if (state.confirm) { setState({ confirm: null }); renderApp(); return; }
   if (state.docMenuOpen) { setState({ docMenuOpen: false }); renderApp(); return; }
   if (state.paletteOpen) { setState({ paletteOpen: false }); renderApp(); return; }
@@ -1476,11 +1447,6 @@ function renderOverlaysHtml() {
       choices,
     );
   }
-  if (state.briefOpen) {
-    html += renderBriefHtml(state, {
-      bodyHtml: typeof state.briefMarkdown === 'string' ? renderMarkdownHtml(state.briefMarkdown, { resolveWikiLink }) : '',
-    });
-  }
   if (state.askPraxOpen) {
     const r = state.askPraxResult;
     // Render the written answer when there is one, else the retrieved pack.
@@ -1535,10 +1501,6 @@ function afterRender() {
     input?.setSelectionRange?.(input.value.length, input.value.length);
   } else if (state.captureOpen) {
     appRoot.querySelector('[data-capture-input]')?.focus();
-  } else if (state.briefOpen && !state.briefLoading) {
-    const input = appRoot.querySelector('[data-brief-input]');
-    input?.focus();
-    input?.setSelectionRange?.(input.value.length, input.value.length);
   } else if (state.askPraxOpen && !state.askPraxLoading) {
     const input = appRoot.querySelector('[data-ask-prax-input]');
     input?.focus();
@@ -1846,10 +1808,6 @@ async function handleAction(action, el, event) {
 
     // ---- library ----
     case 'open-doc': openDocumentInEditor(el.dataset.documentId); break;
-    case 'open-brief': openBrief(); break;
-    case 'close-brief': setState({ briefOpen: false }); renderApp(); break;
-    case 'run-brief': runBrief(appRoot.querySelector('[data-brief-input]')?.value); break;
-    case 'copy-brief': copyBrief(); break;
     case 'open-ask-prax': openAskPrax(); break;
     case 'close-ask-prax': setState({ askPraxOpen: false }); renderApp(); break;
     case 'run-ask-prax': runAskPrax(appRoot.querySelector('[data-ask-prax-input]')?.value); break;
@@ -2542,11 +2500,6 @@ function bindEvents() {
     if (target.matches?.('[data-ask-prax-input]') && event.key === 'Enter') {
       event.preventDefault();
       runAskPrax(target.value);
-      return;
-    }
-    if (target.matches?.('[data-brief-input]') && event.key === 'Enter') {
-      event.preventDefault();
-      runBrief(target.value);
       return;
     }
     if (target.matches?.('[data-checklist-new]') && event.key === 'Enter') {
