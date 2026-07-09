@@ -17,6 +17,7 @@ import { buildContextPack, renderContextPackMarkdown, contentLength } from './co
 import { buildAskMessages, buildAnswerContext, collectSources } from './askLibrary.js';
 import { buildRunSummary, buildPostMortemMessages, fallbackPostMortem, postMortemTitle } from './postMortem.js';
 import { buildRunbookMessages, parseGeneratedRunbook } from './generateRunbook.js';
+import { suggestWikiLinks, applyWikiLink } from './wikiLinkSuggest.js';
 
 const DOCUMENT_TYPES = new Set(['runbook', 'note']);
 const DOCUMENT_KINDS = new Set(['source', 'synthesized']);
@@ -844,5 +845,30 @@ export async function registerLibraryRoutes(app, options = {}) {
       ...sections,
       counts: Object.fromEntries(Object.entries(sections).map(([k, v]) => [k, v.length])),
     };
+  });
+
+  // Auto wiki-linking (Tier-2 #5): plain-text mentions of one doc's title inside
+  // another that aren't yet [[linked]]. Deterministic; the human accepts each.
+  app.get('/api/library/health/link-suggestions', async (request, reply) => {
+    let projectId;
+    if (request.query.project) {
+      projectId = await resolveProjectId(request.query.project);
+      if (projectId === null) { reply.code(400); return { message: 'project is invalid' }; }
+    }
+    const active = await repository.listDocuments({ projectId, status: 'active' });
+    return suggestWikiLinks(active);
+  });
+
+  // Accept one suggestion: rewrite the first eligible plain-text mention of
+  // `title` in this doc's body to a [[wiki-link]]. A user edit (verified stays).
+  app.post('/api/library/documents/:id/wiki-link', async (request, reply) => {
+    if (!isValidUuid(request.params.id)) { reply.code(400); return { message: 'document id is invalid' }; }
+    const title = request.body && typeof request.body.title === 'string' ? request.body.title.trim() : '';
+    if (!title) { reply.code(400); return { message: 'title is required' }; }
+    const doc = await repository.getDocument(request.params.id);
+    if (!doc) { reply.code(404); return { message: 'document not found' }; }
+    const body = applyWikiLink(doc.body, title);
+    if (body === null) { reply.code(409); return { message: 'no unlinked mention of that title remains' }; }
+    return repository.updateDocument(request.params.id, { body, updatedBy: originFrom(request) });
   });
 }

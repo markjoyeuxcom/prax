@@ -27,6 +27,7 @@ import {
   startRun, fetchRuns, fetchRun, setRunStep, setRunStatus, createPostMortem,
   askPrax, generateRunbook, fetchHealth, narrateBrief,
   assistantChat, fetchAssistantStatus,
+  fetchLinkSuggestions, applyWikiLink,
 } from './libraryApi.js';
 import { normalizeTask } from './taskModel.js';
 import { apiStatus, designStatus, isOpen } from './statusMap.js';
@@ -225,7 +226,11 @@ async function loadMaintenance() {
 async function loadHealth() {
   setState({ healthLoading: true });
   try {
-    setState({ healthData: await fetchHealth(''), healthLoading: false });
+    const [healthData, healthLinkSuggestions] = await Promise.all([
+      fetchHealth(''),
+      fetchLinkSuggestions('').catch(() => []), // suggestions are a bonus; never fail the page
+    ]);
+    setState({ healthData, healthLinkSuggestions, healthLoading: false });
   } catch {
     setState({ healthData: null, healthLoading: false });
   }
@@ -353,6 +358,21 @@ async function verifyHealthDoc(id) {
     await loadHealth();
   } catch {
     showToast('Could not verify');
+  }
+  renderApp();
+}
+
+// Accept a suggested wiki-link: link the first plain mention, then reload so the
+// suggestion (now satisfied) drops off the list.
+async function acceptLinkSuggestion(id, title) {
+  if (!id || !title) return;
+  try {
+    await applyWikiLink(id, title);
+    showToast(`Linked [[${title}]]`);
+    await loadDocuments(); // the doc body changed
+    await loadHealth();
+  } catch (err) {
+    showToast(err?.message || 'Could not add the link');
   }
   renderApp();
 }
@@ -2528,6 +2548,7 @@ async function handleAction(action, el, event) {
     case 'refresh-health': await loadHealth(); renderApp(); break;
     case 'open-health-doc': openDocumentInEditor(el.dataset.docId); break;
     case 'verify-health-doc': verifyHealthDoc(el.dataset.docId); break;
+    case 'apply-wiki-link': await acceptLinkSuggestion(el.dataset.docId, el.dataset.title); break;
     case 'open-library-doc': openDocumentInEditor(el.dataset.libraryDocumentId); break;
 
     default: break;

@@ -236,6 +236,26 @@ export async function fetchHealth(project = '') {
   return res.json();
 }
 
+// Auto wiki-link suggestions: plain-text title mentions that aren't yet linked.
+export async function fetchLinkSuggestions(project = '') {
+  const params = project && project !== 'all' ? `?project=${encodeURIComponent(project)}` : '';
+  const res = await fetch(`/api/library/health/link-suggestions${params}`);
+  if (!res.ok) throw new Error('Failed to load link suggestions');
+  return res.json();
+}
+
+// Accept a suggestion: link the first plain mention of `title` in the doc's body.
+export async function applyWikiLink(documentId, title) {
+  const res = await fetch(`/api/library/documents/${documentId}/wiki-link`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title }),
+  });
+  if (!res.ok) {
+    const payload = await res.json().catch(() => null);
+    throw new Error(payload?.message || 'Failed to add the link');
+  }
+  return res.json();
+}
+
 export async function generateRunbook(description, project) {
   const res = await fetch('/api/library/runbooks/generate', {
     method: 'POST',
