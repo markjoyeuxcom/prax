@@ -14,7 +14,7 @@ import {
 } from './libraryExport.js';
 import { createEmbeddingService } from './embeddingService.js';
 import { buildContextPack, renderContextPackMarkdown } from './contextPack.js';
-import { buildAskMessages, collectSources } from './askLibrary.js';
+import { buildAskMessages, buildAnswerContext, collectSources } from './askLibrary.js';
 
 const DOCUMENT_TYPES = new Set(['runbook', 'note']);
 const DOCUMENT_KINDS = new Set(['source', 'synthesized']);
@@ -654,7 +654,10 @@ export async function registerLibraryRoutes(app, options = {}) {
       return { query, answer: null, degraded: true, reason: 'no-chat-model', markdown, sources, model: null };
     }
     try {
-      const { text, model } = await chat.complete(buildAskMessages(query, markdown), { temperature: 0.2, maxTokens: 1024 });
+      // Generate from the FULL bodies of the top docs (not the snippet pack), so
+      // the answer is grounded in complete content — runbook steps, commands, etc.
+      const context = buildAnswerContext(docs);
+      const { text, model } = await chat.complete(buildAskMessages(query, context), { temperature: 0.2, maxTokens: 1024 });
       return { query, answer: text, degraded: false, markdown, sources, model };
     } catch (err) {
       request.log.error({ err }, 'library ask generation failed');
