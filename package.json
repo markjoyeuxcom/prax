@@ -13,6 +13,7 @@
     "start": "node server/index.js",
     "migrate": "node scripts/migrate.js",
     "eval": "node scripts/retrieval-eval.js",
+    "eval:nl": "node scripts/nl-eval.js",
     "test": "node scripts/run-tests.js",
     "test:e2e": "playwright test",
     "check": "node --check server/index.js && node --check scripts/demo-server.js && node --check public/js/main.js && node --check public/js/taskFilter.js && node --check mcp/server.js && node --check server/migrate.js && node --check scripts/migrate.js && node --check server/documentLinksRepository.js && node --check server/settingsRoutes.js && node --check cli/prax.js && node --check cli/lib/detectProject.js && node --check cli/lib/apiClient.js && node --check cli/lib/format.js && node --check cli/lib/recall.js && node --check cli/lib/remember.js",
