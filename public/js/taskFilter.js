@@ -218,6 +218,8 @@ export function projectResolver(projects) {
   return (slugOrName) => bySlug.get(String(slugOrName || '').toLowerCase()) ?? null;
 }
 
-function slugify(name) {
+// How #project matches a project name — exported so other layers (e.g. the
+// NL-parse audit) resolve names to slugs identically.
+export function slugify(name) {
   return String(name || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }

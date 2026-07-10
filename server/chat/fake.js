@@ -41,6 +41,12 @@ export function createFakeChat({ model = 'fake-chat' } = {}) {
 
       const all = toMessages(messages);
       const lastUser = [...all].reverse().find((m) => m.role === 'user');
+      // A `>>{...}` directive at the end of the user turn → echo exactly that
+      // JSON as the completion, so JSON-output features (NL parse, etc.) can be
+      // driven deterministically in browser verification. Without a directive
+      // the plain echo exercises their degraded (unparseable-output) path.
+      const jsonDirective = lastUser && String(lastUser.content).match(/>>\s*(\{[\s\S]*\})\s*$/);
+      if (jsonDirective) return { text: jsonDirective[1], model };
       const firstLine = (lastUser ? lastUser.content : '').split('\n')[0].slice(0, 200);
       return { text: `[fake-chat] ${firstLine}`, model };
     },

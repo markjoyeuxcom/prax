@@ -55,14 +55,20 @@ Ollama / llama.cpp) + trust guardrails.
   [`specs/2026-07-09-kb-health-ai-design.md`](superpowers/specs/2026-07-09-kb-health-ai-design.md).
 - [x] **Daily brief / on-call handoff** generator.
 
-**Tier 3 — solid, less differentiated — ☐ 1/2**
+**Tier 3 — solid, less differentiated — ✅ 2/2 (completes the AI tier roadmap)**
 - [x] **Editor writing actions** — draft / summarize / rewrite / notes→checklist. A **✦ AI**
   toolbar dropdown; results open in a preview overlay and only touch the doc on **Apply** (a
   normal user edit, so `verified` is preserved). Rewrite/checklist act on the selection when
   there is one (captured at menu-open, spliced back by exact offset so `$`-sequences and
   duplicate lines can't corrupt the apply). `POST /api/library/writing-action` +
-  `server/writingActions.js`. *(next up: #8)*
-- [ ] **Natural-language capture & NL→filter** — "p1 in homelab due this week." *(small–medium)*
+  `server/writingActions.js`.
+- [x] **Natural-language capture & NL→filter** — "p1 in homelab due this week." Capture:
+  ⌘↵ smart add → removable-chips preview → ↵ confirms (plain ↵ stays deterministic; sigils
+  override the model). Filter: ✦ Translate emits a **grammar string** into the existing
+  input — transparent, editable, saveable — with provenance + restore and a semantic lint
+  for silently-dead atoms. Two never-500 parse routes + pure `server/nlParse.js`; output
+  coerced against whitelists and validated by the shared `parseTaskFilter`. See
+  [`specs/2026-07-10-nl-capture-filter-design.md`](superpowers/specs/2026-07-10-nl-capture-filter-design.md).
 
 ---
 

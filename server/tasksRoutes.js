@@ -1,6 +1,10 @@
 import { createTasksRepository } from './tasksRepository.js';
 import { createProjectsRepository } from './projectsRepository.js';
 import { isValidRecurrence, nextDueDate } from './recurrence.js';
+import {
+  cleanNlText, boundGrounding, buildNlCaptureMessages, coerceNlCaptureFields,
+  buildNlFilterMessages, coerceNlFilterExpr, auditFilterExpr,
+} from './nlParse.js';
 
 const PRIORITIES = new Set(['high', 'medium', 'low']);
 const STATUSES = new Set(['high-priority', 'in-progress', 'planned', 'completed', 'notes']);
@@ -327,6 +331,18 @@ export async function registerTasksRoutes(app, options = {}) {
   const repository = options.tasksRepository || app.tasksRepository || createTasksRepository(app.db);
   const projectsRepository = options.projectsRepository || app.projectsRepository || createProjectsRepository(app.db);
 
+  // The active chat model for the NL-parse routes, mirroring libraryRoutes:
+  // injected wins, then the runtime provider, else null (feature degrades).
+  const chatProvider = options.chatProvider ?? app.chatProvider ?? null;
+  const injectedChat = options.chat ?? null;
+  async function resolveChat() {
+    if (injectedChat) return injectedChat;
+    if (chatProvider) {
+      try { return await chatProvider.getChat(); } catch { return null; }
+    }
+    return null;
+  }
+
   const logActivity = async (taskId, eventType, message) => {
     try { if (repository.recordActivity) await repository.recordActivity(taskId, eventType, message); }
     catch { /* activity logging is best-effort; never fail the mutation */ }
@@ -630,5 +646,64 @@ export async function registerTasksRoutes(app, options = {}) {
     }
     await logActivity(task.id, 'archived', 'Task archived');
     return task;
+  });
+
+  // ---- NL parsing (Tier-3 #8) -----------------------------------------------
+  // Stateless parse-and-return: the client previews the result and creates the
+  // task (or applies the filter) through the normal endpoints. Both routes
+  // follow the advisory-AI regime — they NEVER 500 on the AI path; every
+  // failure is a 200 { degraded, reason } the UI renders a message from.
+  // Grounding (projects/labels) is client-sent and bounded in nlParse.js.
+
+  // NL → capture fields. { text, date?, projects?, labels? } →
+  // { fields|null, dropped[], degraded, reason?, model }.
+  app.post('/api/tasks/nl-capture', async (request, reply) => {
+    const b = request.body && typeof request.body === 'object' && !Array.isArray(request.body) ? request.body : {};
+    const text = cleanNlText(b.text);
+    if (!text) { reply.code(400); return { message: 'text is required' }; }
+    const { projects, labels } = boundGrounding(b.projects, b.labels);
+    const chat = await resolveChat();
+    if (!chat) return { fields: null, dropped: [], degraded: true, reason: 'no-chat-model', model: null };
+    try {
+      const messages = buildNlCaptureMessages({ text, date: typeof b.date === 'string' ? b.date : null, projects, labels });
+      const { text: out, model } = await chat.complete(messages, { temperature: 0, maxTokens: 300 });
+      const parsed = coerceNlCaptureFields(out, { projectSlugs: projects.map((p) => p.slug), knownLabels: labels, rawText: text });
+      if (!parsed) {
+        request.log?.info?.({ reason: 'generation-failed' }, 'nl-capture degraded');
+        return { fields: null, dropped: [], degraded: true, reason: 'generation-failed', model: model || chat.model || null };
+      }
+      return { fields: parsed.fields, dropped: parsed.dropped, degraded: false, model: model || chat.model || null };
+    } catch (err) {
+      request.log?.error?.({ err }, 'nl-capture failed');
+      return { fields: null, dropped: [], degraded: true, reason: 'generation-failed', model: chat.model || null };
+    }
+  });
+
+  // NL → filter expression. { text, date?, projects?, labels? } →
+  // { expr|null, valid, parseError, warnings[], degraded, reason?, model }.
+  // An extracted-but-invalid expr is still returned (valid:false) — it lands in
+  // the filter input where the existing error hint explains it; hand-fixing a
+  // near-miss beats silently discarding it.
+  app.post('/api/tasks/nl-filter', async (request, reply) => {
+    const b = request.body && typeof request.body === 'object' && !Array.isArray(request.body) ? request.body : {};
+    const text = cleanNlText(b.text);
+    if (!text) { reply.code(400); return { message: 'text is required' }; }
+    const { projects, labels } = boundGrounding(b.projects, b.labels);
+    const chat = await resolveChat();
+    if (!chat) return { expr: null, valid: false, parseError: null, warnings: [], degraded: true, reason: 'no-chat-model', model: null };
+    try {
+      const messages = buildNlFilterMessages({ text, date: typeof b.date === 'string' ? b.date : null, projects, labels });
+      const { text: out, model } = await chat.complete(messages, { temperature: 0, maxTokens: 200 });
+      const expr = coerceNlFilterExpr(out);
+      if (!expr) {
+        request.log?.info?.({ reason: 'generation-failed' }, 'nl-filter degraded');
+        return { expr: null, valid: false, parseError: null, warnings: [], degraded: true, reason: 'generation-failed', model: model || chat.model || null };
+      }
+      const audit = auditFilterExpr(expr, { projects, labels });
+      return { expr, valid: audit.ok, parseError: audit.parseError, warnings: audit.warnings, degraded: false, model: model || chat.model || null };
+    } catch (err) {
+      request.log?.error?.({ err }, 'nl-filter failed');
+      return { expr: null, valid: false, parseError: null, warnings: [], degraded: true, reason: 'generation-failed', model: chat.model || null };
+    }
   });
 }

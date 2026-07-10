@@ -1842,6 +1842,36 @@ a { color: var(--accent); }
 .capture__caret { font-size: 9px; opacity: .65; }
 .capture__foot-right { display: inline-flex; align-items: center; gap: 12px; }
 .capture__due { color: var(--accent); font-weight: 600; }
+.capture__hint--busy { color: var(--accent); font-weight: 600; }
+
+/* NL capture preview (Tier-3 #8) — parsed-field chips between input and footer */
+.capture__preview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px 2px;
+}
+.capture__preview-none { font-size: 12px; color: var(--ink3); }
+.nlchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg2);
+  color: var(--ink2);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.nlchip:hover { border-color: var(--hi); }
+.nlchip:hover .nlchip__x { color: var(--hi); }
+.nlchip--warn { border-color: var(--hi); color: var(--hi); }
+.nlchip__x { color: var(--ink3); font-size: 11px; }
+.capture__ignored { padding: 4px 14px 0; font-size: 11px; color: var(--ink3); font-style: italic; }
+.capture__nl-error { padding: 6px 14px 0; font-size: 12px; color: var(--hi); }
 .capture__menu {
   position: absolute;
   left: 10px;
@@ -2617,6 +2647,26 @@ body.is-desktop-mac .titlebar { padding-left: 84px; }
   font-variant-numeric: tabular-nums;
 }
 .filter-bar__hint--error { color: var(--hi); }
+.filter-bar__hint--busy { color: var(--accent); font-weight: 600; }
+
+/* NL→filter (Tier-3 #8) — translate button + provenance/warnings line */
+.filter-bar__ai { color: var(--accent); font-weight: 600; white-space: nowrap; }
+.filter-bar__ai:disabled { opacity: .45; cursor: default; }
+.filter-bar__prov {
+  margin: -6px 0 12px;
+  font-size: 11.5px;
+  color: var(--ink3);
+}
+.filter-bar__restore {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
+.filter-bar__warn { color: var(--hi); margin-left: 8px; }
 
 /* ---- Plain editor spike (highlight-behind-textarea A/B vs CodeMirror) ------ */
 .pe-host { display: flex; flex-direction: column; --pe-pad-left: 20px; --pe-gutter: 0px; }

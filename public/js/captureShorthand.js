@@ -70,3 +70,35 @@ export function parseCaptureShorthand(raw, now = new Date()) {
   result.title = title.replace(/\s+/g, ' ').trim();
   return result;
 }
+
+// Merge AI-parsed capture fields with the deterministic tokens in the typed
+// text (Tier-3 #8). Sigiled tokens are explicit user intent, so they WIN over
+// the model: !priority, #project, @labels (union), and an explicit YYYY-MM-DD.
+// Date KEYWORDS are deliberately NOT honored here — in the AI path the model
+// owns date words ("next friday" would otherwise trip the bare-weekday keyword
+// and resolve to THIS Friday). When the model gave no title, the sigil-stripped
+// text stands in.
+export function mergeNlCapture(raw, fields = {}, now = new Date()) {
+  const sh = parseCaptureShorthand(raw, now);
+  const merged = { ...fields };
+  if (!merged.title) {
+    // Title fallback strips ONLY the sigiled tokens (and an explicit ISO date)
+    // — NOT date keywords. parseCaptureShorthand's title would delete a bare
+    // "friday"/"today" from the text while this path deliberately ignores its
+    // keyword-resolved date, silently losing the word ("prep friday retro" →
+    // "prep retro"). Keywords stay in the title; the model owns them here.
+    let title = String(raw ?? '');
+    for (const [re] of PRIORITY) title = title.replace(re, ' ');
+    title = title.replace(/(^|\s)@([a-z0-9][a-z0-9-]*)(?=\s|$)/gi, '$1');
+    title = title.replace(/(^|\s)#([a-z0-9][a-z0-9-]*)(?=\s|$)/gi, '$1');
+    title = title.replace(/(^|\s)(\d{4}-\d{2}-\d{2})(?=\s|$)/, ' ');
+    merged.title = title.replace(/\s+/g, ' ').trim();
+  }
+  if (sh.priority) merged.priority = sh.priority;
+  if (sh.project) merged.project = sh.project;
+  const iso = String(raw ?? '').match(/(^|\s)(\d{4}-\d{2}-\d{2})(?=\s|$)/);
+  if (iso) merged.dueDate = iso[2];
+  if (sh.labels) merged.labels = Array.from(new Set([...sh.labels, ...(merged.labels || [])]));
+  if (!merged.dueDate) delete merged.dueTime; // a time is only meaningful with a date
+  return merged;
+}

@@ -28,6 +28,31 @@ export async function createTask(task) {
   return response.json();
 }
 
+// NL parsing (Tier-3 #8). Degraded results arrive as successful JSON with
+// { degraded, reason } — callers branch on those; only transport errors throw.
+// `signal` lets the caller abort (Esc / timeout) a slow model.
+async function postNlParse(url, payload, { signal } = {}) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload || {}),
+    signal,
+  });
+  if (!response.ok) {
+    const p = await response.json().catch(() => null);
+    throw new Error(p?.message || 'NL parse failed');
+  }
+  return response.json();
+}
+
+export function parseNlCapture(payload, opts) {
+  return postNlParse('/api/tasks/nl-capture', payload, opts);
+}
+
+export function parseNlFilter(payload, opts) {
+  return postNlParse('/api/tasks/nl-filter', payload, opts);
+}
+
 export async function importTasks({ project, mode = 'skip', tasks }) {
   const response = await fetch('/api/tasks/import', {
     method: 'POST',
