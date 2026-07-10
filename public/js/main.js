@@ -59,6 +59,7 @@ import {
 import { renderListHtml, renderBulkBarHtml, buildListGroups } from './renderList.js';
 import { renderTodayHtml, buildTodayGroups } from './renderToday.js';
 import { renderUpcomingHtml, buildUpcomingGroups } from './renderUpcoming.js';
+import { renderCalendarHtml, buildCalendarModel, monthKeyOf, shiftMonthKey } from './renderCalendar.js';
 import { renderFilterHtml, buildFilterGroups } from './renderFilter.js';
 import { parseTaskFilter, projectResolver } from './taskFilter.js';
 import { createSmartView, smartViewsFromJson } from './taskSmartViews.js';
@@ -1694,6 +1695,11 @@ function escapeCascade() {
   if (state.isLinkPickerOpen) { setState({ isLinkPickerOpen: false }); renderApp(); return; }
   if (state.isDocumentInfoEditorOpen) { setState({ isDocumentInfoEditorOpen: false }); renderApp(); return; }
   if (state.drawerTaskId) { setState({ drawerTaskId: null }); renderApp(); return; }
+  if (state.navType === 'calendar' && state.calendarSelectedDay) {
+    setState({ calendarSelectedDay: null });
+    renderApp();
+    return;
+  }
   if (state.multiSelectIds.length || state.selectedTaskId) {
     setState({ multiSelectIds: [], selectedTaskId: null });
     renderApp();
@@ -1802,6 +1808,14 @@ function renderMainHtml() {
       const { groups, flatIds: ids } = buildUpcomingGroups(state.tasks, state.projects, { now });
       flatIds = ids;
       return renderUpcomingHtml(state, groups, { now });
+    }
+    case 'calendar': {
+      const model = buildCalendarModel(state.tasks, state.projects, { month: state.calendarMonth, now });
+      // The desktop shell serves on a fresh ephemeral port every launch, so a
+      // copied subscription URL would silently die on the next restart — only
+      // advertise the feed where the origin is durable (server/docker).
+      const feedUrl = state.desktopShell ? '' : `${window.location.origin}/api/calendar.ics`;
+      return renderCalendarHtml(state, model, { feedUrl });
     }
     case 'settings': {
       const model = {
@@ -2126,6 +2140,26 @@ async function handleAction(action, el, event) {
       break;
     case 'nav-library': goLibrary(); break;
     case 'nav-upcoming': setState({ navType: 'upcoming', selectedTaskId: null, multiSelectIds: [] }); renderApp(); break;
+    case 'nav-calendar': setState({ navType: 'calendar', selectedTaskId: null, multiSelectIds: [], calendarSelectedDay: null }); renderApp(); break;
+    case 'calendar-prev':
+    case 'calendar-next': {
+      const current = state.calendarMonth || monthKeyOf(new Date());
+      setState({ calendarMonth: shiftMonthKey(current, action === 'calendar-next' ? 1 : -1), calendarSelectedDay: null });
+      renderApp();
+      break;
+    }
+    case 'calendar-today': setState({ calendarMonth: null, calendarSelectedDay: null }); renderApp(); break;
+    case 'calendar-select-day': {
+      const day = el.dataset.day;
+      setState({ calendarSelectedDay: state.calendarSelectedDay === day ? null : day });
+      renderApp();
+      break;
+    }
+    case 'copy-ics-url': {
+      const ok = await copyToClipboard(el.dataset.url || '');
+      showToast(ok ? 'Feed URL copied' : 'Could not copy');
+      break;
+    }
     case 'nav-filter': goFilter(); break;
     case 'nav-settings': goSettings(); break;
     case 'select-smart-view': {

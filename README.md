@@ -20,6 +20,7 @@ file, created on first launch. Building from source:
 - Organises work into user-creatable **Projects** (active / on-hold / completed / archived) that group both tasks and documents, with an **All projects** overview and a cross-project **Today** view of everything due or slipping.
 - Tracks tasks across Tasks, Board, Backlog, and Archive views, with create, edit, archive, restore, permanent delete, and drag/drop board reordering.
 - Surfaces at-a-glance board signals: a priority dot, overdue / due-soon date flags, and a project chip on each card in the All-projects view.
+- Shows dated tasks on a month **Calendar** (Monday-start grid, day detail strip, month paging) and serves them as an **ICS feed** (`GET /api/calendar.ics`) that Apple Calendar or Thunderbird can subscribe to — all-day and timed events, project categories, `?project=` scoping.
 - Links tasks to library runbooks and notes, so operational work points at the documents that support it.
 - Provides a Markdown Library with runbooks, notes, `.md` import, tags, saved tag views, type/sort/group controls, and full-text search.
 - Includes an Obsidian-style editor workspace with edit, preview, split, focus mode, live preview updates, CodeMirror editing, and Markdown helper buttons.

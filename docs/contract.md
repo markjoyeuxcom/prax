@@ -346,6 +346,29 @@ Results are filtered by a gap-based relevance cutoff: only documents scoring wit
 query can return few or no results rather than the whole ranked library. Both thresholds are
 env-tunable (defaults calibrated for `qwen3-embedding:0.6b`).
 
+## Format 4 — iCalendar task feed (`GET /api/calendar.ics`)
+
+An RFC 5545 `VCALENDAR` of open dated tasks (`text/calendar; charset=utf-8`), for subscription
+from Apple Calendar, Thunderbird, or any consumer that takes a URL. Inclusion matches the in-app
+calendar grid: a task appears iff it has a `dueDate`, is not `completed`, not `notes`
+(design-vocab backlog), not archived, and not snoozed (`deferredUntil` in the future).
+`?project=<slug|id>` scopes the feed to one project and names the calendar
+`Prax — <Project>` (400 on an unknown project); unscoped feeds are named `Prax`.
+
+Event shape (one `VEVENT` per task instance; serialization in `server/icsFeed.js`):
+
+- `UID` is `<taskId>@prax` — **stable across refreshes**, so consumers update events in place.
+- A task without `dueTime` is an **all-day event** (`DTSTART;VALUE=DATE` + exclusive next-day
+  `DTEND`; the `DTEND` is omitted for a due date whose next day cannot be expressed as an
+  8-digit RFC date, i.e. `9999-12-31` — the spec default of a one-day event applies).
+- A task with `dueTime` uses a **floating local** `DTSTART` (no `TZID`, no `Z`): Prax stores
+  wall-clock times, and floating means "09:00 wherever the reader is", matching the app.
+- `SUMMARY` = title, `DESCRIPTION` = description (both RFC-escaped), `CATEGORIES` = project
+  name, `PRIORITY` maps high/medium/low → 1/5/9, `DTSTAMP` from `updatedAt`.
+- Recurring tasks carry **no `RRULE`** deliberately: Prax spawns the next instance server-side
+  on completion, so an `RRULE` would double-count future occurrences.
+- Lines are CRLF-terminated and folded at 75 octets (multibyte-safe).
+
 ## Regression tests
 
 The shapes above are locked by characterization tests under `tests/contract/`, run by

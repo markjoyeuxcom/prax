@@ -12,8 +12,10 @@ export const state = {
   managedProjects: [],          // all statuses (All-projects view)
 
   // ---- routing ----
-  navType: 'project',           // 'today' | 'project' | 'all' | 'library' | 'editor' | 'run' | 'filter' | 'upcoming' | 'settings'
+  navType: 'project',           // 'today' | 'project' | 'all' | 'library' | 'editor' | 'run' | 'filter' | 'upcoming' | 'calendar' | 'settings'
   navId: null,                  // project id when navType === 'project'
+  calendarMonth: null,          // 'YYYY-MM' shown in the Calendar view; null = current month
+  calendarSelectedDay: null,    // ISO day whose tasks show in the calendar detail strip (null = none)
   renamingProjectId: null,      // project whose header title is being inline-edited (null = none)
   tab: 'list',                  // project tab: 'list' | 'board' | 'backlog' | 'archive'
   groupBy: 'due',               // list grouping cycler: 'due' | 'priority' | 'status'

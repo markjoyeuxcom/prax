@@ -2509,9 +2509,9 @@ body.is-desktop-mac .titlebar { padding-left: 84px; }
 .asst__tool-dot.is-ok { background: var(--accent); }
 .asst__tool-dot.is-error { background: var(--hi); }
 .asst__tool-dot.is-declined { background: var(--ink3); }
-.asst__tool-name { font-weight: 600; color: var(--ink2); font-family: var(--mono, ui-monospace, monospace); }
+.asst__tool-name { font-weight: 600; color: var(--ink2); font-family: var(--mono); }
 .asst__tool-args {
-  font-family: var(--mono, ui-monospace, monospace);
+  font-family: var(--mono);
   font-size: 11px; color: var(--ink3);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%;
 }
@@ -2846,4 +2846,104 @@ body[data-editor-font="monospace"] .pe-t-em { font-style: italic; color: var(--t
   color: var(--med);
   vertical-align: middle;
   margin-left: 6px;
+}
+
+/* ---------------------------------------------------------------------------
+   Calendar view — Monday-start month grid; chips open the task drawer,
+   clicking a day opens the detail strip (standard task rows) below.
+   --------------------------------------------------------------------------- */
+.page--calendar .page-head { display: flex; align-items: center; justify-content: space-between; }
+.cal-nav { display: flex; align-items: center; gap: 4px; }
+.cal-nav__btn { font-size: 16px; line-height: 1; padding: 4px 10px; }
+.cal-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  margin: 14px 0 6px;
+}
+.cal-weekdays__day {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--ink3);
+  padding: 0 6px;
+}
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+.cal-cell {
+  min-height: 92px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 5px 6px;
+  background: var(--card);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  overflow: hidden;
+  transition: border-color .12s ease;
+}
+.cal-cell:hover { border-color: var(--accent); }
+.cal-cell.is-outside { opacity: .45; background: transparent; }
+.cal-cell.is-selected { border-color: var(--accent); background: var(--accent-soft); }
+.cal-cell__num { font-size: 11.5px; font-weight: 600; color: var(--ink2); }
+.cal-cell.is-today .cal-cell__num {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-radius: 6px;
+  padding: 0 5px;
+  align-self: flex-start;
+}
+.cal-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  border: 0;
+  background: var(--accent-soft);
+  border-radius: 6px;
+  padding: 2px 6px;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+  min-width: 0;
+}
+.cal-chip:hover { background: var(--accent-soft2); }
+.cal-chip__time { flex: none; font-variant-numeric: tabular-nums; font-size: 10.5px; color: var(--ink3); }
+.cal-chip__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cal-cell__more { font-size: 10.5px; color: var(--ink3); padding-left: 2px; }
+.cal-detail { margin-top: 16px; }
+.cal-feed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 22px;
+  padding: 8px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 9px;
+  color: var(--ink3);
+  font-size: 12px;
+}
+.cal-feed__url {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink2);
+  background: var(--line);
+  border-radius: 5px;
+  padding: 2px 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+@media (max-width: 720px) {
+  .cal-cell { min-height: 64px; }
+  .cal-chip__title { display: none; }
+  .cal-chip { width: auto; }
 }
