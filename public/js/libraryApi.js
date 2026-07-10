@@ -257,6 +257,19 @@ export async function runAiReview(project = '') {
   return res.json();
 }
 
+// Editor writing action (draft/summarize/rewrite/checklist). Stateless text
+// transform — returns { text, model, degraded, reason }. Never mutates a doc.
+export async function runWritingAction(payload) {
+  const res = await fetch('/api/library/writing-action', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload || {}),
+  });
+  if (!res.ok) {
+    const p = await res.json().catch(() => null);
+    throw new Error(p?.message || 'Writing action failed');
+  }
+  return res.json();
+}
+
 // Accept a suggestion: link the first plain mention of `title` in the doc's body.
 export async function applyWikiLink(documentId, title) {
   const res = await fetch(`/api/library/documents/${documentId}/wiki-link`, {
