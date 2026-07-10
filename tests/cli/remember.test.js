@@ -73,3 +73,36 @@ test('remember de-duplicates the passed tags', async () => {
   await remember(client, { title: 'T', body: 'B', project: 'memory', tags: ['memory', 'memory', 'a'] });
   assert.deepEqual(created.tags, ['memory', 'a']);
 });
+
+test('remember: explicit --type sets documentType on create and retypes on update', async () => {
+  let created; let patch;
+  const existing = { id: 'e1', title: 'Use SQLite', documentType: 'decision' };
+  const client = fakeClient({
+    listDocuments: async () => [existing],
+    updateMemory: async (id, p) => { patch = p; return { id, ...p }; },
+  });
+  // update with an explicit type -> retype
+  await remember(client, { title: 'Use SQLite', body: 'B', project: 'm', type: 'reference' });
+  assert.equal(patch.documentType, 'reference');
+  // create with an explicit type
+  const c2 = fakeClient({ createMemory: async (d) => { created = d; return { id: 'n', ...d }; } });
+  await remember(c2, { title: 'New', body: 'B', project: 'm', type: 'runbook' });
+  assert.equal(created.documentType, 'runbook');
+});
+
+test('remember: a re-remember WITHOUT --type preserves the stored type (no silent demotion)', async () => {
+  let patch;
+  const client = fakeClient({
+    listDocuments: async () => [{ id: 'e1', title: 'Use SQLite', documentType: 'decision' }],
+    updateMemory: async (id, p) => { patch = p; return { id, ...p }; },
+  });
+  await remember(client, { title: 'Use SQLite', body: 'refreshed', project: 'm' }); // no type
+  assert.equal('documentType' in patch, false); // stored 'decision' left untouched
+});
+
+test('remember: create WITHOUT --type defaults to note', async () => {
+  let created;
+  const client = fakeClient({ createMemory: async (d) => { created = d; return { id: 'n', ...d }; } });
+  await remember(client, { title: 'Plain', body: 'B', project: 'm' });
+  assert.equal(created.documentType, 'note');
+});

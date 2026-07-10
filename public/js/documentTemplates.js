@@ -36,6 +36,48 @@ export const DOCUMENT_TEMPLATES = [
       '',
     ].join('\n'),
   },
+  {
+    id: 'decision',
+    label: 'Decision',
+    hint: 'Context · Decision · Consequences',
+    documentType: 'decision',
+    title: 'Untitled decision',
+    body: [
+      '# Untitled decision',
+      '',
+      '## Context',
+      '',
+      '## Decision',
+      '',
+      '## Consequences',
+      '',
+    ].join('\n'),
+  },
+  {
+    id: 'known-issue',
+    label: 'Known issue',
+    hint: 'Symptoms · Workaround · Root cause',
+    documentType: 'known-issue',
+    title: 'Untitled known issue',
+    body: [
+      '# Untitled known issue',
+      '',
+      '## Symptoms',
+      '',
+      '## Workaround',
+      '',
+      '## Root cause',
+      '',
+    ].join('\n'),
+  },
+  {
+    id: 'reference',
+    label: 'Reference',
+    hint: 'Links, tables, lookup material',
+    documentType: 'reference',
+    title: 'Untitled reference',
+    body: '# Untitled reference\n\n',
+  },
 ];
 
 // Look up a template by id; falls back to the first (blank note) for an unknown

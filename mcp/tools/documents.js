@@ -2,8 +2,11 @@ import { z } from 'zod';
 import { isValidUuid } from '../validate.js';
 import { okResult, errorResult, textResult, withErrorHandling } from '../toolResult.js';
 import { toDocumentRef, capResults } from '../shape.js';
+import { DOCUMENT_TYPE_VALUES } from '../../public/js/documentTypes.js';
 
-const DOCUMENT_TYPE = z.enum(['runbook', 'note']);
+// The shared taxonomy registry drives the zod enum — this schema reaches both
+// external MCP agents and the in-app assistant (buildAgentTools wraps it).
+const DOCUMENT_TYPE = z.enum(DOCUMENT_TYPE_VALUES);
 const DOCUMENT_KIND = z.enum(['source', 'synthesized']);
 
 export function createDocumentTools(client) {
@@ -17,7 +20,7 @@ export function createDocumentTools(client) {
       inputSchema: {
         query: z.string().optional().describe('Search text matched against title, body, and tags. Omit to browse by project/tags alone.'),
         project: z.string().optional().describe('Limit to one project (slug or id); omit to search all.'),
-        documentType: DOCUMENT_TYPE.optional().describe('Limit to runbooks or notes.'),
+        documentType: DOCUMENT_TYPE.optional().describe('Limit to one document type (note, runbook, decision, known-issue, reference, post-mortem).'),
         tags: z.array(z.string()).optional().describe('Require all of these tags.'),
         kind: DOCUMENT_KIND.optional().describe('Limit to hand-authored sources or agent-synthesized derivations.'),
         status: z.enum(['active', 'superseded', 'deprecated', 'all']).optional()
@@ -74,7 +77,7 @@ export function createDocumentTools(client) {
     {
       name: 'create_document',
       title: 'Create document',
-      description: 'Create a new library runbook or note. Pass kind: "synthesized" for agent-generated derivations.',
+      description: 'Create a new library document (documentType: note, runbook, decision, known-issue, reference, or post-mortem). Pass kind: "synthesized" for agent-generated derivations.',
       inputSchema: {
         title: z.string().min(1).describe('Document title.'),
         body: z.string().describe('Markdown body.'),

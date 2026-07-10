@@ -3,6 +3,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { detectProject, detectRepoUrl } from './lib/detectProject.js';
 import { matchProjectByRepoUrl, normalizeRepoUrl } from '../server/repoUrl.js';
+import { DOCUMENT_TYPE_VALUES, isDocumentType } from '../public/js/documentTypes.js';
 import { createClient } from './lib/apiClient.js';
 import { formatSearchResults, formatDocument } from './lib/format.js';
 import { recall, formatRecall } from './lib/recall.js';
@@ -62,7 +63,7 @@ Usage:
   prax search <query> [--all] [--json]
   prax recall [query...] [--project <slug>] [--limit <n>] [--recent [n]] [--json]
   prax get <id> [--json]
-  prax remember <title> [--body <text>] [--memory] [--type runbook|note] [--tag a,b]
+  prax remember <title> [--body <text>] [--memory] [--type note|runbook|decision|known-issue|reference|post-mortem] [--tag a,b]
   prax verify <id> [--as <name>]
   prax unverify <id>
   prax supersede <oldId> --with <newId>
@@ -172,7 +173,12 @@ async function main(argv) {
     const title = positionals[1];
     if (!title) throw new Error('remember requires a title.');
     const body = flags.body !== undefined && flags.body !== true ? String(flags.body) : '';
-    const type = flags.type === 'runbook' ? 'runbook' : 'note';
+    // undefined = --type not given (create defaults to note; update keeps the
+    // stored type). A given value is validated against the shared registry.
+    const type = flags.type === undefined || flags.type === true ? undefined : String(flags.type);
+    if (type !== undefined && !isDocumentType(type)) {
+      throw new Error(`Unknown --type "${type}". Types: ${DOCUMENT_TYPE_VALUES.join(', ')}.`);
+    }
     const project = flags.memory ? 'memory' : (await resolveProjectName(flags, client)).project;
     const userTags = flags.tag ? String(flags.tag).split(',').map((t) => t.trim()).filter(Boolean) : [];
     const tags = [...userTags, ...(flags.memory ? ['memory'] : [])];

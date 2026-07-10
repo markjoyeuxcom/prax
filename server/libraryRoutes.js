@@ -24,8 +24,11 @@ import {
   buildGapDigest, buildGapMessages, parseGaps,
 } from './kbHealthReview.js';
 import { isWritingAction, buildWritingMessages, stripCodeFence, WRITING_ACTIONS } from './writingActions.js';
+import { DOCUMENT_TYPE_VALUES } from '../public/js/documentTypes.js';
 
-const DOCUMENT_TYPES = new Set(['runbook', 'note']);
+// The taxonomy lives in the shared registry (public/js/documentTypes.js) —
+// the DB CHECK was dropped in migration 0010; this is the enforcement point.
+const DOCUMENT_TYPES = new Set(DOCUMENT_TYPE_VALUES);
 const DOCUMENT_KINDS = new Set(['source', 'synthesized']);
 // 'project' (slug-or-id) is the client-facing field; 'projectId' is resolved
 // server-side and injected into the patch by the handler — never accepted raw.
@@ -504,7 +507,8 @@ export async function registerLibraryRoutes(app, options = {}) {
     const created = await repository.createDocument({
       title: postMortemTitle(run, doc.title),
       body,
-      documentType: 'note',
+      // First-class type since migration 0010; the tag stays for continuity.
+      documentType: 'post-mortem',
       projectId: doc.projectId,
       tags: ['post-mortem'],
       kind: 'synthesized',

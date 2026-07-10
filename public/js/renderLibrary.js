@@ -3,13 +3,15 @@ import { icon } from './icons.js';
 import { DOCUMENT_TEMPLATES } from './documentTemplates.js';
 import {
   filterDocumentsByTags,
-  filterDocumentsByType,
+  filterDocumentsByTypes,
   filterDocumentsByTrust,
   TRUST_PREDICATES,
   sortDocuments,
   groupDocumentsByType,
   tagsForDocuments,
+  docTypeKey as sharedDocTypeKey,
 } from './libraryFilters.js';
+import { DOCUMENT_TYPES, documentTypeLabel } from './documentTypes.js';
 
 // Library page (Prax design): header actions, keyword/semantic search row,
 // tag-pill filters, Runbooks/Notes card grid, semantic idle/result states and
@@ -28,12 +30,12 @@ function normalizedTag(value) {
 }
 
 function docTypeKey(doc) {
-  return (doc?.documentType || 'note') === 'runbook' ? 'runbook' : 'note';
+  return sharedDocTypeKey(doc); // registry-aware; unknown/legacy values key as 'note'
 }
 
 function typeChip(doc) {
   const key = docTypeKey(doc);
-  return chip(key.toUpperCase(), `type-${key}`);
+  return chip(documentTypeLabel(key).toUpperCase(), `type-${key}`);
 }
 
 // Trust chips survive the redesign: SYNTH / STALE / VERIFIED / SUPERSEDED.
@@ -84,10 +86,7 @@ export function buildLibraryModel(state, _options = {}) {
   // Facet counts come from the full active set, so a pill always shows how many
   // exist regardless of the other facets.
   const facetCounts = {
-    type: {
-      runbook: documents.filter((doc) => docTypeKey(doc) === 'runbook').length,
-      note: documents.filter((doc) => docTypeKey(doc) === 'note').length,
-    },
+    type: Object.fromEntries(DOCUMENT_TYPES.map((t) => [t.value, documents.filter((doc) => docTypeKey(doc) === t.value).length])),
     trust: {
       verified: documents.filter(TRUST_PREDICATES.verified).length,
       stale: documents.filter(TRUST_PREDICATES.stale).length,
@@ -97,13 +96,19 @@ export function buildLibraryModel(state, _options = {}) {
   };
 
   let filtered = filterDocumentsByTags(documents, activeTags);
-  // Type facet: two types, so exactly one selected filters; both/none = all.
-  if (types.length === 1) filtered = filterDocumentsByType(filtered, types[0]);
-  filtered = filterDocumentsByTrust(filtered, trust);
+  // Type + trust facets only apply where their pills are shown (the browse
+  // view). In archive/semantic the facet row is hidden, so a leftover selection
+  // would be an invisible, unclearable filter — ignore it there.
+  const facetsShown = state.libraryView !== 'archive' && !semantic;
+  if (facetsShown) {
+    filtered = filterDocumentsByTypes(filtered, types); // OR within the axis (like trust)
+    filtered = filterDocumentsByTrust(filtered, trust);
+  }
   if (query && !semantic) filtered = filtered.filter((doc) => matchesQuery(doc, query));
   filtered = sortDocuments(filtered, state.librarySortBy);
 
-  const anyFilter = Boolean(query) || activeTags.length > 0 || types.length > 0 || trust.length > 0;
+  const anyFilter = Boolean(query) || activeTags.length > 0
+    || (facetsShown && (types.length > 0 || trust.length > 0));
 
   return {
     groups: groupDocumentsByType(filtered),
@@ -183,7 +188,7 @@ function renderTagRow(state, model) {
   return pills.length ? `<div class="tag-row">${pills.join('')}</div>` : '';
 }
 
-const TYPE_FACETS = [['runbook', 'Runbooks'], ['note', 'Notes']];
+const TYPE_FACETS = DOCUMENT_TYPES.map((t) => [t.value, t.plural]);
 const TRUST_FACETS = [['verified', 'Verified'], ['stale', 'Stale'], ['superseded', 'Superseded'], ['agent', 'Agent-written']];
 
 function facetPill(action, key, label, count, isActive) {
@@ -191,8 +196,8 @@ function facetPill(action, key, label, count, isActive) {
     + `${escapeHtml(label)} <span class="facet-pill__count">${Number(count) || 0}</span></button>`;
 }
 
-// Type + trust facets. Additive AND across the two axes; the type axis is
-// exactly-one-of-two, the trust axis is OR-within. Only shown while browsing
+// Type + trust facets. Additive AND across the two axes; both axes are
+// OR-within. Only shown while browsing
 // (not archive/semantic) once documents exist; trust facets that no document
 // carries (and aren't active) are omitted to avoid dead toggles.
 function renderFacetRow(state, model) {
@@ -203,6 +208,7 @@ function renderFacetRow(state, model) {
   const activeTrust = new Set(state.libraryTrust || []);
 
   const typePills = TYPE_FACETS
+    .filter(([key]) => (counts.type[key] || 0) > 0 || activeTypes.has(key))
     .map(([key, label]) => facetPill('toggle-lib-type', key, label, counts.type[key], activeTypes.has(key)))
     .join('');
   const trustPills = TRUST_FACETS
@@ -210,8 +216,10 @@ function renderFacetRow(state, model) {
     .map(([key, label]) => facetPill('toggle-lib-trust', key, label, counts.trust[key], activeTrust.has(key)))
     .join('');
 
-  const groups = [`<div class="facet-group"><span class="facet-group__label">Type</span>${typePills}</div>`];
+  const groups = [];
+  if (typePills) groups.push(`<div class="facet-group"><span class="facet-group__label">Type</span>${typePills}</div>`);
   if (trustPills) groups.push(`<div class="facet-group"><span class="facet-group__label">Trust</span>${trustPills}</div>`);
+  if (!groups.length) return ''; // nothing to show (e.g. an empty library with a query)
   return `<div class="facet-row">${groups.join('')}</div>`;
 }
 
