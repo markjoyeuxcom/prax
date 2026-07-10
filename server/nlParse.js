@@ -92,7 +92,8 @@ const CAPTURE_SYSTEM_HEAD = [
   'project: ONLY when the text names a listed project (by slug or name) — NEVER infer one from the topic; the app has its own destination default. When unsure, omit.',
   'priority: ONLY from explicit words ("urgent", "high priority", "low priority", "p1") — NEVER from how important the task sounds. When unsure, omit.',
   'dueTime only when a time of day is stated (morning→09:00, noon→12:00, afternoon→14:00, evening→18:00, night/tonight→20:00); a time with no date means today.',
-  'recurrence only for explicit repetition ("every day", "weekly"); "every friday" → recurrence "weekly" with dueDate on the next Friday.',
+  'A bare weekday name means its next occurrence, counting today ("friday" said on a Friday = today); "next <weekday>" always means the following week\'s.',
+  'recurrence only for explicit repetition ("every day", "weekly"); "every friday" → recurrence "weekly" with dueDate on that weekday\'s next occurrence (counting today).',
   'labels: only labels from KNOWN LABELS, or words used as labels verbatim in the text.',
 ].join(' ');
 
@@ -185,7 +186,7 @@ export function buildNlFilterMessages({ text, date, projects = [], labels = [], 
     'You translate one line of natural language into a task-filter expression for a task manager.',
     `The grammar: ${FILTER_CHEATSHEET}`,
     `Today is ${weekday}, ${iso} (the user's local date). Map relative phrases to due: atoms ("this week"→due:week, "today"→due:today, "no due date"→due:none, a specific day→due:YYYY-MM-DD).`,
-    'Use ONLY #project slugs and @labels from the lists below; a name that is not listed is title text (bareword), not a tag.',
+    'Use #project slugs and @labels from the lists below. When the text clearly names something AS a project ("in the X project") that is not listed, still emit #x (slugified) — the app warns about unknown projects, which beats a silent title-text mismatch. A plain word that is not a listed tag is title text (bareword).',
     'If the input is already a valid filter expression, return it unchanged.',
     'Output ONLY {"expr":"..."} — no prose, no code fence.',
     '',
