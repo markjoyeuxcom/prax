@@ -227,6 +227,21 @@ between documents, created/removed/listed via the tools above and the
 `GET /api/tasks/:id` fetch a single record by id (returning archived records too). Outbound
 links are serialized into the `links:` block of every exported `.md` file (see Format 2).
 
+External references: `document_external_refs` attach outside URLs (a PR, a dashboard, an
+upstream issue) to a document without copying the content. Each ref is
+`{ id, documentId, url, label, createdAt }`, unique per `(document, url)`, deleted with the
+document. Served at `GET`/`POST`/`DELETE /api/library/documents/:id/external-refs` and the
+`list_external_refs` / `add_external_ref` / `remove_external_ref` MCP tools; `prax remember
+--ref <url>` attaches one from the CLI. The POST is an **idempotent upsert**: `201` on first
+attach, `200` when the URL is already present (the label is refreshed either way — re-adding
+without a label clears it), `404` for a missing or archived document, `400` for an empty URL.
+URLs are stored **as entered** (no format validation; caps: URL ≤ 2048 chars, label ≤ 200),
+except that control whitespace is stripped — a newline inside a URL or label would corrupt
+the editor's line-per-ref round-trip. Display kind (GitHub / GitLab / Link) is derived from
+the host at render time and never stored; the UI only renders `http(s)`/`mailto` URLs as
+clickable links. Refs are runtime metadata, **not** part of the portable `.md` export
+(like the trust fields).
+
 Document provenance: documents expose `contentHash` (SHA-256 of the body) and `updatedBy`
 (`"user"` | `"agent"`). Every document write stamps `updatedBy` from the `x-prax-origin`
 request header; the MCP client sends `"agent"` automatically. `derived-from` links snapshot

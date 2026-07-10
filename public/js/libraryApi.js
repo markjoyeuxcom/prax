@@ -58,6 +58,27 @@ export async function fetchDocumentLinks(id, direction = 'both') {
   return response.json();
 }
 
+// External references — [{ id, documentId, url, label, createdAt }].
+export async function fetchExternalRefs(id) {
+  const response = await fetch(`/api/library/documents/${id}/external-refs`);
+  if (!response.ok) throw new Error('Failed to load external references');
+  return response.json();
+}
+
+export async function addExternalRef(id, { url, label }) {
+  const response = await fetch(`/api/library/documents/${id}/external-refs`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url, label }),
+  });
+  if (!response.ok) { const p = await response.json().catch(() => null); throw new Error(p?.message || 'Failed to add reference'); }
+  return response.json();
+}
+
+export async function removeExternalRef(id, refId) {
+  const response = await fetch(`/api/library/documents/${id}/external-refs/${refId}`, { method: 'DELETE' });
+  if (!response.ok) throw new Error('Failed to remove reference');
+  return response.json();
+}
+
 // Non-archived tasks that reference this document — [{ id, title, priority, projectId }].
 export async function fetchDocumentTaskBacklinks(id) {
   const response = await fetch(`/api/library/documents/${id}/tasks`);

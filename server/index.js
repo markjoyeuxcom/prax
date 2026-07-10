@@ -57,6 +57,7 @@ export async function buildApp(options = {}) {
   app.decorate('projectsRepository', options.projectsRepository || null);
   app.decorate('checklistRepository', options.checklistRepository || null);
   app.decorate('documentLinksRepository', options.documentLinksRepository || null);
+  app.decorate('documentExternalRefsRepository', options.documentExternalRefsRepository || null);
   app.decorate('embedder', embedder);
   app.decorate('embedderProvider', embedderProvider);
   app.decorate('chatProvider', chatProvider);

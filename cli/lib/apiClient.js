@@ -77,6 +77,9 @@ export function createClient({ baseUrl, token } = {}) {
     listProjects() {
       return request('GET', '/api/projects');
     },
+    addExternalRef(documentId, { url, label } = {}) {
+      return request('POST', `/api/library/documents/${encodeURIComponent(documentId)}/external-refs`, { body: { url, label } });
+    },
     updateProject(id, patch) {
       return request('PATCH', `/api/projects/${encodeURIComponent(id)}`, { body: patch });
     },

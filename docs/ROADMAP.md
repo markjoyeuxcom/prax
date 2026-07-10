@@ -85,8 +85,12 @@ next steps, by value:
 
 ## Bigger product bets (shared-memory direction)
 
-- [ ] **External references.** Link a memory to a GitHub/GitLab/URL without copying the content
-  (`memory_external_refs`). *(medium–large)*
+- [x] **External references.** Link a memory to a GitHub/GitLab/URL without copying the content.
+  Shipped: `document_external_refs` (migration 0011; unique per document+URL, cascade on delete);
+  `GET/POST/DELETE /api/library/documents/:id/external-refs` (idempotent upsert POST); MCP
+  `list/add/remove_external_ref`; `prax remember --ref <url>`; an **External references** section
+  in the editor sidebar with derived GitHub/GitLab/Link kind chips (only safe-scheme URLs become
+  clickable), edited as `url | label` lines in Document info.
 - [x] **Repo-URL project detection.** `prax` auto-detects the project from the git remote URL
   (projects gain a repo-URL field). Shipped: `repo_url` (migration 0009) + a **Repo** field in
   the project header; one shared normalizer (`server/repoUrl.js`) matches any spelling of the

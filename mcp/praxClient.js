@@ -161,6 +161,18 @@ export function createPraxClient({
     unlinkDocuments: (sourceId, targetId, relation) =>
       request('DELETE', `/api/library/documents/${sourceId}/links/${targetId}`, { query: { relation } }),
 
+    listExternalRefs: (documentId) =>
+      request('GET', `/api/library/documents/${documentId}/external-refs`),
+
+    addExternalRef: (documentId, url, label) =>
+      request('POST', `/api/library/documents/${documentId}/external-refs`, {
+        body: { url, label },
+        headers: { 'x-prax-origin': 'agent' },
+      }),
+
+    removeExternalRef: (documentId, refId) =>
+      request('DELETE', `/api/library/documents/${documentId}/external-refs/${refId}`),
+
     supersedeDocument: (id, supersededBy) =>
       request('POST', `/api/library/documents/${id}/supersede`, {
         body: { supersededBy },

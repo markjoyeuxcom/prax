@@ -3,6 +3,7 @@ import { createLibraryRepository } from './libraryRepository.js';
 import { createProjectsRepository } from './projectsRepository.js';
 import { createTasksRepository } from './tasksRepository.js';
 import { createDocumentLinksRepository, DOCUMENT_LINK_RELATIONS } from './documentLinksRepository.js';
+import { createDocumentExternalRefsRepository, sanitizeUrl, sanitizeLabel } from './documentExternalRefsRepository.js';
 import { createRunbookRunsRepository } from './runbookRunsRepository.js';
 import { parseRunbookSteps } from './runbookSteps.js';
 import {
@@ -113,6 +114,7 @@ export async function registerLibraryRoutes(app, options = {}) {
   const tasksRepository = options.tasksRepository || app.tasksRepository || (app.db ? createTasksRepository(app.db) : null);
   const runbookRunsRepository = options.runbookRunsRepository || app.runbookRunsRepository || (app.db ? createRunbookRunsRepository(app.db) : null);
   const documentLinksRepository = options.documentLinksRepository || app.documentLinksRepository || createDocumentLinksRepository(app.db);
+  const documentExternalRefsRepository = options.documentExternalRefsRepository || app.documentExternalRefsRepository || createDocumentExternalRefsRepository(app.db);
 
   // Behavioral tests may inject an embedder/embeddingService directly — those
   // win. Otherwise the runtime provider resolves the current settings (cached
@@ -803,6 +805,35 @@ export async function registerLibraryRoutes(app, options = {}) {
       await repository.revertSupersededIfOrphan(targetId);
     }
     return documentLinksRepository.listDocumentLinks(sourceId, 'outbound');
+  });
+
+  // External references — a document points at outside material (a PR, a
+  // dashboard, an upstream bug) without copying it. Separate table from
+  // document_links (the target is a URL, not a local doc row).
+  app.get('/api/library/documents/:id/external-refs', async (request, reply) => {
+    if (!isValidUuid(request.params.id)) { reply.code(400); return { message: 'document id is invalid' }; }
+    return documentExternalRefsRepository.listExternalRefs(request.params.id);
+  });
+
+  app.post('/api/library/documents/:id/external-refs', async (request, reply) => {
+    const documentId = request.params.id;
+    if (!isValidUuid(documentId)) { reply.code(400); return { message: 'document id is invalid' }; }
+    const url = sanitizeUrl(isPlainObject(request.body) ? request.body.url : null);
+    if (!url) { reply.code(400); return { message: 'url is required' }; }
+    const label = sanitizeLabel(isPlainObject(request.body) ? request.body.label : null);
+    const { ref, alreadyExisted } = await documentExternalRefsRepository.addExternalRef(documentId, url, label);
+    if (!ref) { reply.code(404); return { message: 'document not found' }; } // absent or archived
+    reply.code(alreadyExisted ? 200 : 201);
+    return documentExternalRefsRepository.listExternalRefs(documentId);
+  });
+
+  app.delete('/api/library/documents/:id/external-refs/:refId', async (request, reply) => {
+    const documentId = request.params.id;
+    if (!isValidUuid(documentId)) { reply.code(400); return { message: 'document id is invalid' }; }
+    if (!isValidUuid(request.params.refId)) { reply.code(400); return { message: 'ref id is invalid' }; }
+    const removed = await documentExternalRefsRepository.removeExternalRef(documentId, request.params.refId);
+    if (!removed) { reply.code(404); return { message: 'reference not found' }; }
+    return documentExternalRefsRepository.listExternalRefs(documentId);
   });
 
   app.get('/api/library/maintenance/stale', async (request, reply) => {

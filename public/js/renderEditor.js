@@ -1,4 +1,5 @@
 import { DOCUMENT_TYPES, isDocumentType } from './documentTypes.js';
+import { externalRefKind, EXTERNAL_REF_KIND_LABELS, isSafeHttpUrl, refsToLines } from './externalRefKind.js';
 import { escapeHtml, chip, prioDotClass } from './renderHelpers.js';
 
 // Prax document editor — pure render module (docs/desktop/phase1-actions.md).
@@ -164,6 +165,9 @@ function renderInfoForm(state, doc) {
       <label class="editor-info__field"><span>Source file</span>
         <input class="text-input" type="text" data-doc-info-source value="${escapeHtml(doc.sourceFilename || '')}" autocomplete="off">
       </label>
+      <label class="editor-info__field"><span>External references</span>
+        <textarea class="text-input editor-info__refs" data-doc-info-refs rows="3" placeholder="https://github.com/org/repo/pull/42 | The PR&#10;one URL per line, optional  | label" autocomplete="off" spellcheck="false">${escapeHtml(refsToLines(state.docInfoRefsSeed))}</textarea>
+      </label>
       <div class="editor-info__actions">
         <button class="btn-ghost" type="button" data-action="save-document-info">Save</button>
         <button class="btn-ghost" type="button" data-action="cancel-document-info">Cancel</button>
@@ -256,6 +260,44 @@ function renderLinksSection(links) {
         </section>`;
 }
 
+// External references — outside URLs the document points at (a PR, a dashboard,
+// an upstream bug). Read-only here (rows open in a new tab); editing lives in
+// Document info. Tri-state like the links section: null = not fetched → nothing.
+function renderExternalRefsSection(refs) {
+  if (refs == null) return '';
+  const list = Array.isArray(refs) ? refs : [];
+  if (!list.length) return '';
+  const rows = list.map((ref) => {
+    const kind = externalRefKind(ref.url);
+    const text = ref.label || ref.url;
+    const chip = `<span class="doc-row__kind chip chip--ref-${kind}">${escapeHtml(EXTERNAL_REF_KIND_LABELS[kind] || 'Link')}</span>`;
+    const title = `<span class="doc-row__title">${escapeHtml(text)}</span>`;
+    // Only http(s)/mailto URLs become clickable anchors; anything else (e.g. a
+    // javascript: URL, or a bare scp-like git@host:path) renders as inert text
+    // so a stored URL can never execute or navigate somewhere unexpected.
+    if (!isSafeHttpUrl(ref.url)) {
+      return `
+            <div class="doc-row doc-row--external doc-row--inert" title="${escapeHtml(ref.url)}">
+              ${chip}
+              ${title}
+            </div>`;
+    }
+    return `
+            <a class="doc-row doc-row--external" href="${escapeHtml(ref.url)}" target="_blank" rel="noreferrer noopener" title="${escapeHtml(ref.url)}">
+              ${chip}
+              ${title}
+              <span class="doc-row__ext" aria-hidden="true">↗</span>
+            </a>`;
+  }).join('');
+  return `
+        <section class="doc-links" data-external-refs aria-label="External references">
+          <div class="doc-links__group">
+            <div class="doc-links__label">External references</div>
+            ${rows}
+          </div>
+        </section>`;
+}
+
 // "More like this" — documents most similar by embedding. null/undefined = not
 // fetched yet; [] or none = render nothing (semantic search may be off).
 function renderRelatedSection(related) {
@@ -332,6 +374,7 @@ export function renderEditorHtml(state, doc, model = {}) {
   const relatedHtml = showPreview ? renderRelatedSection(related) : '';
   const runsHtml = showPreview ? renderRunsSection(state, doc) : '';
   const linksHtml = renderLinksSection(links);
+  const extRefsHtml = renderExternalRefsSection(model.externalRefs === undefined ? state.documentExternalRefs : model.externalRefs);
   const outlineHtml = state.outlineOpen && !focus
     ? renderOutlineRail(outline)
     : '';
@@ -347,7 +390,7 @@ export function renderEditorHtml(state, doc, model = {}) {
       </section>
       <section class="pane" aria-label="Markdown preview">
         <div class="pane__label">Preview</div>
-        <div class="pane__scroll">${previewContent(previewHtml, backlinksHtml)}${runsHtml}${relatedHtml}${linksHtml}
+        <div class="pane__scroll">${previewContent(previewHtml, backlinksHtml)}${runsHtml}${relatedHtml}${linksHtml}${extRefsHtml}
         </div>
       </section>`;
   } else {
@@ -355,7 +398,7 @@ export function renderEditorHtml(state, doc, model = {}) {
     // .sheet__scroll, CodeMirror via its own scroller). Doc links render in
     // preview contexts only — while writing, the page holds just the text.
     const sheetContent = showPreview
-      ? `<div class="sheet__scroll">${previewContent(previewHtml, backlinksHtml)}${runsHtml}${relatedHtml}${linksHtml}
+      ? `<div class="sheet__scroll">${previewContent(previewHtml, backlinksHtml)}${runsHtml}${relatedHtml}${linksHtml}${extRefsHtml}
           </div>`
       : editContent(body);
     panesHtml = `

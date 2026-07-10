@@ -78,6 +78,8 @@ export const state = {
   semanticResults: null,        // null = no search ran; [] = ran, empty
   semanticError: false,         // last semantic search failed (backend unreachable), not just empty
   documentLinks: null,          // null = not yet fetched; [] = fetched, empty
+  documentExternalRefs: null,   // external URLs the doc points at; null = not yet fetched
+  docInfoRefsSeed: null,        // refs snapshot the open Document-info form was seeded from
   staleDocs: [],
   orphanDocs: [],
   maintenanceProjectFilter: 'all',

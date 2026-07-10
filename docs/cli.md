@@ -110,7 +110,7 @@ prax get c58d3108-4f93-4a50-ac42-0c1d61e61b08
 prax get c58d3108-4f93-4a50-ac42-0c1d61e61b08 --json
 ```
 
-### `remember <title> [--body <text>] [--type note|runbook|decision|known-issue|reference|post-mortem] [--tag <t>]`
+### `remember <title> [--body <text>] [--type note|runbook|decision|known-issue|reference|post-mortem] [--tag <t>] [--ref <url>]`
 
 Write a document to project memory. If a document with the same title already exists in the
 project it is updated in place; otherwise a new document is created. Agent-written documents
@@ -128,6 +128,7 @@ Flags:
 - `--body <text>` — document body (Markdown); defaults to empty string
 - `--type` — document type: `note` (default), `runbook`, `decision`, `known-issue`, `reference`, or `post-mortem`. On a re-remember (same title), omit it to keep the stored type; pass it to retype.
 - `--tag <t>` — a single tag to attach (repeated invocations replace the tag list)
+- `--ref <url>` — attach an external reference (a PR, dashboard, or issue URL) to the memory. Best-effort: a rejected URL warns on stderr but never fails the remember.
 
 ### `verify <id> [--as <name>]`
 
