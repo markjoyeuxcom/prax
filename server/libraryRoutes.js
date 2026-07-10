@@ -23,6 +23,7 @@ import {
   selectContradictionPairs, buildContradictionMessages, parseContradiction, quoteIsGrounded,
   buildGapDigest, buildGapMessages, parseGaps,
 } from './kbHealthReview.js';
+import { isWritingAction, buildWritingMessages, stripCodeFence, WRITING_ACTIONS } from './writingActions.js';
 
 const DOCUMENT_TYPES = new Set(['runbook', 'note']);
 const DOCUMENT_KINDS = new Set(['source', 'synthesized']);
@@ -875,6 +876,35 @@ export async function registerLibraryRoutes(app, options = {}) {
     const body = applyWikiLink(doc.body, title);
     if (body === null) { reply.code(409); return { message: 'no unlinked mention of that title remains' }; }
     return repository.updateDocument(request.params.id, { body, updatedBy: originFrom(request) });
+  });
+
+  // Editor writing actions (Tier-3 #7): draft / summarize / rewrite / checklist.
+  // Stateless text transform — the result is returned for the human to review and
+  // apply in the editor; this route NEVER touches a document. Degrades (no 500)
+  // when no chat model is configured.
+  app.post('/api/library/writing-action', async (request, reply) => {
+    const b = isPlainObject(request.body) ? request.body : {};
+    const action = typeof b.action === 'string' ? b.action : '';
+    if (!isWritingAction(action)) { reply.code(400); return { message: 'action is invalid' }; }
+    const text = typeof b.text === 'string' ? b.text : '';
+    const title = typeof b.title === 'string' ? b.title : '';
+    if (WRITING_ACTIONS[action].input === 'title' ? !title.trim() : !text.trim()) {
+      reply.code(400); return { message: `${WRITING_ACTIONS[action].input} is required` };
+    }
+    const chat = await resolveChat();
+    if (!chat) return { text: null, degraded: true, reason: 'no-chat-model', model: null };
+    try {
+      const messages = buildWritingMessages(action, { text, title, documentType: typeof b.documentType === 'string' ? b.documentType : '' });
+      // 4096 keeps whole-document rewrites/drafts from truncating mid-doc; the
+      // human reviews the full output in the preview before applying either way.
+      const { text: out, model } = await chat.complete(messages, { temperature: action === 'rewrite' ? 0.3 : 0.4, maxTokens: 4096 });
+      const clean = stripCodeFence(out);
+      if (!clean) return { text: null, degraded: true, reason: 'generation-failed', model: model || chat.model || null };
+      return { text: clean, degraded: false, model: model || chat.model || null };
+    } catch (err) {
+      request.log?.error?.({ err }, 'writing-action failed');
+      return { text: null, degraded: true, reason: 'generation-failed', error: err?.message || 'failed', model: chat.model || null };
+    }
   });
 
   // AI review (Tier-2 #5, part 2): on-demand contradiction + coverage-gap scan.

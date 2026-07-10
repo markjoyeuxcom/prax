@@ -27,7 +27,7 @@ import {
   startRun, fetchRuns, fetchRun, setRunStep, setRunStatus, createPostMortem,
   askPrax, generateRunbook, fetchHealth, narrateBrief,
   assistantChat, fetchAssistantStatus,
-  fetchLinkSuggestions, applyWikiLink, runAiReview,
+  fetchLinkSuggestions, applyWikiLink, runAiReview, runWritingAction,
 } from './libraryApi.js';
 import { normalizeTask } from './taskModel.js';
 import { apiStatus, designStatus, isOpen } from './statusMap.js';
@@ -65,7 +65,7 @@ import { renderTaskDrawerHtml } from './renderTaskDetail.js';
 import { renderLinkPickerHtml } from './renderLinkPicker.js';
 import { renderLibraryHtml, buildLibraryModel } from './renderLibrary.js';
 import { templateById } from './documentTemplates.js';
-import { renderEditorHtml, buildOutline, buildBacklinks } from './renderEditor.js';
+import { renderEditorHtml, buildOutline, buildBacklinks, WRITE_ACTIONS } from './renderEditor.js';
 import { renderRunHtml, buildChronicle } from './renderRun.js';
 import { renderAskPraxHtml } from './renderAskPrax.js';
 import { renderGenerateRunbookHtml } from './renderGenerateRunbook.js';
@@ -73,6 +73,7 @@ import { renderHealthHtml } from './renderHealth.js';
 import { renderDailyBriefHtml } from './renderDailyBrief.js';
 import { buildDailyBrief } from './brief.js';
 import { renderAssistantHtml } from './renderAssistant.js';
+import { renderWritingPreviewHtml } from './renderWritingPreview.js';
 import { renderSearchPanelHtml, searchCountLabel } from './renderSearchPanel.js';
 import { renderAllProjectsHtml, buildProjectGroups } from './renderAllProjects.js';
 import { renderPaletteHtml, buildPaletteGroups } from './renderPalette.js';
@@ -94,6 +95,7 @@ let appRoot = null;
 let flatIds = [];                 // keyboard-navigation order of the visible list
 let paletteFlat = [];             // flattened palette items for Enter/arrows
 let documentEditorController = null;
+let pendingEditorSelection = null; // {from,to} to restore after a renderApp re-mount (see renderApp)
 let documentAutosaveTimer = null;
 let notesAutosaveTimer = null;
 let descriptionSaveTimer = null;
@@ -1066,9 +1068,18 @@ function mountEditorIfNeeded() {
   if (documentEditorController) {
     host.hidden = false;
     if (fallback) fallback.hidden = true;
+    // Restore a selection carried over the re-mount (keeps the ✦ AI menu's target
+    // highlighted and live-readable). Guard the offsets against a shorter buffer.
+    if (pendingEditorSelection && documentEditorController.setSelectionRange) {
+      const len = (state.documentDraftBody || '').length;
+      const from = Math.min(pendingEditorSelection.from, len);
+      const to = Math.min(pendingEditorSelection.to, len);
+      if (to > from) documentEditorController.setSelectionRange(from, to);
+    }
   } else if (fallback) {
     fallback.hidden = false;
   }
+  pendingEditorSelection = null;
 }
 
 function focusEditor() {
@@ -1099,6 +1110,119 @@ function applyEditorFormat(action) {
   handleDocumentDraftBodyChange(result.value);
 }
 
+// ---- editor AI writing actions (Tier-3 #7) --------------------------------
+
+const WRITE_LABELS = Object.fromEntries(WRITE_ACTIONS);
+// Bumped on every run/close/navigation so a request that resolves after the
+// user cancelled (or started another) is dropped instead of resurrecting the
+// overlay. Mirrors aiReviewToken.
+let writeToken = 0;
+
+function currentEditorDoc() {
+  return state.documents.find((d) => d.id === state.editorDocId) || null;
+}
+
+// Run a writing action over the selection (if any) or the whole document, then
+// open the preview overlay. Nothing touches the document until the human applies.
+async function runWrite(action) {
+  if (!WRITE_LABELS[action] || state.navType !== 'editor') return;
+  const doc = currentEditorDoc();
+  const body = state.documentDraftBody || '';
+  // Selection was captured when the menu opened (see toggle-write-menu); fall
+  // back to a live read for any programmatic caller.
+  const stash = state.writeSelection || null;
+  const range = stash ? { from: stash.from, to: stash.to } : (documentEditorController?.getSelectionRange?.() || null);
+  const rawSel = stash ? stash.text : String(documentEditorController?.getSelectionText?.() || '');
+  const selText = rawSel.trim() ? rawSel : '';
+  let payload;
+  let mode;
+  let verb;
+  let selStart = null;
+  let selEnd = null;
+  if (action === 'draft') {
+    payload = { action, title: doc?.title || '', documentType: doc?.documentType || '' };
+    mode = 'whole';
+    verb = body.trim() ? 'Replace document' : 'Insert draft';
+  } else if (action === 'summarize') {
+    const source = selText || body;
+    if (!source.trim()) { showToast('Nothing to summarize — the document is empty.'); setState({ writeMenuOpen: false, writeSelection: null }); renderApp(); return; }
+    payload = { action, text: source };
+    mode = 'prepend';
+    verb = 'Insert summary at top';
+  } else { // rewrite | checklist
+    const useSel = Boolean(selText);
+    if (!useSel && !body.trim()) { showToast(`Nothing to ${action === 'checklist' ? 'convert' : 'rewrite'} — the document is empty.`); setState({ writeMenuOpen: false, writeSelection: null }); renderApp(); return; }
+    payload = { action, text: useSel ? selText : body };
+    mode = useSel ? 'selection' : 'whole';
+    verb = useSel ? 'Replace selection' : 'Replace document';
+    if (useSel && range) { selStart = range.from; selEnd = range.to; }
+  }
+  const token = (writeToken += 1);
+  setState({
+    writeMenuOpen: false, writeSelection: null,
+    writeContext: { action, label: WRITE_LABELS[action], verb, mode, docId: state.editorDocId, selText: mode === 'selection' ? selText : '', selStart, selEnd, model: null },
+    writeResult: null, writeLoading: true, writeError: null,
+  });
+  renderApp();
+  try {
+    const res = await runWritingAction(payload);
+    if (token !== writeToken) return; // cancelled or superseded
+    if (res.degraded) {
+      setState({ writeLoading: false, writeError: res.reason === 'no-chat-model' ? 'No AI model configured — set one in Settings ▸ Intelligence.' : 'The model could not complete this. Try again.' });
+    } else {
+      setState({ writeLoading: false, writeResult: res.text, writeContext: { ...state.writeContext, model: res.model } });
+    }
+  } catch {
+    if (token !== writeToken) return;
+    setState({ writeLoading: false, writeError: 'Could not run the writing action.' });
+  }
+  if (token === writeToken) renderApp();
+}
+
+function closeWrite() {
+  writeToken += 1; // invalidate any in-flight request
+  setState({ writeContext: null, writeResult: null, writeLoading: false, writeError: null, writeSelection: null });
+  renderApp();
+}
+
+// Apply the generated text to the editor buffer (dirty, not saved) per the mode.
+function applyWrite() {
+  const ctx = state.writeContext;
+  const text = state.writeResult;
+  if (!ctx || !text) return;
+  // Guard against applying to a document the user navigated away from.
+  if (ctx.docId && ctx.docId !== state.editorDocId) { showToast('You left the document — nothing was applied.'); closeWrite(); return; }
+  const body = state.documentDraftBody || '';
+  let next;
+  if (ctx.mode === 'prepend') {
+    next = body.trim() ? `${text.trim()}\n\n${body}` : text.trim();
+  } else if (ctx.mode === 'selection') {
+    // Prefer the exact recorded offsets (correct even when the selected text
+    // repeats in the body). Splice, never String.replace, so `$` sequences in
+    // the AI output are inserted literally rather than expanded.
+    if (Number.isInteger(ctx.selStart) && Number.isInteger(ctx.selEnd) && body.slice(ctx.selStart, ctx.selEnd) === ctx.selText) {
+      next = body.slice(0, ctx.selStart) + text + body.slice(ctx.selEnd);
+    } else if (ctx.selText && body.includes(ctx.selText)) {
+      next = body.replace(ctx.selText, () => text); // function replacer: no $-pattern expansion
+    } else {
+      showToast('The selected text changed — could not apply.'); closeWrite(); return;
+    }
+  } else {
+    next = text; // whole
+  }
+  writeToken += 1;
+  setState({ writeContext: null, writeResult: null, writeLoading: false, writeError: null });
+  destroyEditorController();
+  handleDocumentDraftBodyChange(next);
+  renderApp();
+  showToast('Applied — review and save');
+}
+
+async function copyWrite() {
+  const ok = await copyToClipboard(state.writeResult || '');
+  showToast(ok ? 'Copied' : 'Could not copy');
+}
+
 function toggleMarkdownCheck(line) {
   const lines = state.documentDraftBody.split('\n');
   const current = lines[line] || '';
@@ -1122,7 +1246,8 @@ async function openDocumentInEditor(documentId) {
   }
   if (!doc) { alertError('open that document'); return; }
   seedEditorDraft(doc);
-  setState({ navType: 'editor', editorFocus: false });
+  writeToken += 1; // drop any in-flight writing action from a previous doc
+  setState({ navType: 'editor', editorFocus: false, writeMenuOpen: false, writeSelection: null, writeContext: null, writeResult: null, writeLoading: false, writeError: null });
   renderApp();
   loadDocumentLinks(doc.id);
   loadDocumentTaskBacklinks(doc.id);
@@ -1317,6 +1442,7 @@ function captureProjectChoices() {
 
 async function createNewDocument(templateId) {
   setState({ newDocMenuOpen: false });
+  destroyEditorController(); // fresh mount (cursorToEnd), no selection carried in
   const project = defaultProjectId();
   if (!project) { showToast('Create a project first.'); renderApp(); return; }
   const template = templateById(templateId);
@@ -1326,7 +1452,8 @@ async function createNewDocument(templateId) {
     });
     await loadDocuments();
     seedEditorDraft(state.documents.find(d => d.id === doc.id) || doc);
-    setState({ navType: 'editor', editorMode: 'edit', editorFocus: false });
+    writeToken += 1; // drop any writing state carried from the previous doc
+    setState({ navType: 'editor', editorMode: 'edit', editorFocus: false, writeMenuOpen: false, writeSelection: null, writeContext: null, writeResult: null, writeLoading: false, writeError: null });
     renderApp();
     showToast('New document — rename it in the title bar');
   } catch {
@@ -1499,6 +1626,9 @@ function goSettings() {
 }
 
 function escapeCascade() {
+  // The writing preview is a full-screen modal — it owns Esc over the (hidden,
+  // behind-the-scrim) editor search panel.
+  if (state.writeContext) { closeWrite(); return; }
   if (state.editorSearchOpen) { closeEditorSearch(); return; }
   if (state.assistantOpen) { setState({ assistantOpen: false }); renderApp(); return; }
   if (state.askPraxOpen) { setState({ askPraxOpen: false }); renderApp(); return; }
@@ -1508,6 +1638,9 @@ function escapeCascade() {
   if (state.docMenuOpen) { setState({ docMenuOpen: false }); renderApp(); return; }
   if (state.paletteOpen) { setState({ paletteOpen: false }); renderApp(); return; }
   if (state.captureOpen) { setState({ captureOpen: false }); renderApp(); return; }
+  // The ✦ AI dropdown sits below the modal overlays + palette: a still-open (but
+  // hidden-behind-an-overlay) menu must not swallow the first Esc aimed above it.
+  if (state.writeMenuOpen) { setState({ writeMenuOpen: false, writeSelection: null }); renderApp(); return; }
   if (state.isLinkPickerOpen) { setState({ isLinkPickerOpen: false }); renderApp(); return; }
   if (state.isDocumentInfoEditorOpen) { setState({ isDocumentInfoEditorOpen: false }); renderApp(); return; }
   if (state.drawerTaskId) { setState({ drawerTaskId: null }); renderApp(); return; }
@@ -1733,6 +1866,9 @@ function renderOverlaysHtml() {
   if (state.assistantOpen) {
     html += renderAssistantHtml(state, { renderMarkdown: (md) => renderMarkdownHtml(md, { resolveWikiLink }) });
   }
+  if (state.writeContext && state.navType === 'editor') {
+    html += renderWritingPreviewHtml(state, { resultHtml: state.writeResult ? renderMarkdownHtml(state.writeResult, { resolveWikiLink }) : '' });
+  }
   if (state.confirm) html += renderConfirmHtml(state.confirm);
   html += renderToastHtml(state);
   return html;
@@ -1744,7 +1880,20 @@ function renderApp() {
   // controller so afterRender mounts a fresh instance instead of skipping on
   // a stale handle. (Saves that should keep the caret avoid renderApp
   // entirely via canPreserveEditorAfterDraftSave.)
+  // Preserve a non-empty editor selection across the re-mount below (a collapsed
+  // caret stays null → cursorToEnd, unchanged). Without this, opening the ✦ AI
+  // menu — which re-renders — would drop the selection a writing action needs.
+  pendingEditorSelection = state.navType === 'editor' && documentEditorController?.getSelectionRange
+    ? documentEditorController.getSelectionRange()
+    : null;
   destroyEditorController();
+  // The ✦ AI menu/overlay are editor-only; never let leaked write state (e.g. an
+  // in-flight action the user navigated away from) render over another view.
+  if (state.navType !== 'editor' && (state.writeContext || state.writeMenuOpen || state.writeSelection)) {
+    writeToken += 1;
+    state.writeContext = null; state.writeResult = null; state.writeLoading = false;
+    state.writeError = null; state.writeMenuOpen = false; state.writeSelection = null;
+  }
   const narrow = state.winW < 940;
   const chrome = !state.editorFocus;
   const counts = sidebarCounts();
@@ -2240,6 +2389,20 @@ async function handleAction(action, el, event) {
       break;
     }
     case 'md-format': applyEditorFormat(el.dataset.mdAction); break;
+    case 'toggle-write-menu': {
+      // Capture the selection NOW — renderApp() below re-mounts the editor and
+      // clears it, so runWrite (fired later from the menu) can't read it live.
+      const opening = !state.writeMenuOpen;
+      const range = opening ? (documentEditorController?.getSelectionRange?.() || null) : null;
+      const selText = opening && range ? String(documentEditorController?.getSelectionText?.() || '') : '';
+      setState({ writeMenuOpen: opening, writeSelection: opening && range && selText.trim() ? { from: range.from, to: range.to, text: selText } : null });
+      renderApp();
+      break;
+    }
+    case 'write-action': await runWrite(el.dataset.write); break;
+    case 'apply-write': applyWrite(); break;
+    case 'copy-write': copyWrite(); break;
+    case 'close-write': closeWrite(); break;
     case 'outline-jump': {
       const index = Number(el.dataset.headingIndex);
       const preview = appRoot.querySelector('[data-markdown-preview]');
@@ -2591,8 +2754,8 @@ async function handleAction(action, el, event) {
 
 function bindEvents() {
   appRoot.addEventListener('click', (event) => {
-    if ((state.docMenuOpen || state.newDocMenuOpen || state.captureMenuOpen) && !event.target.closest?.('.menu')) {
-      setState({ docMenuOpen: false, newDocMenuOpen: false, captureMenuOpen: false });
+    if ((state.docMenuOpen || state.newDocMenuOpen || state.captureMenuOpen || state.writeMenuOpen) && !event.target.closest?.('.menu')) {
+      setState({ docMenuOpen: false, newDocMenuOpen: false, captureMenuOpen: false, writeMenuOpen: false, writeSelection: null });
       renderApp();
       return;
     }

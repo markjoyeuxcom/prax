@@ -418,6 +418,10 @@ export function mountPlainEditor({ host, value = '', onChange, onSave, documents
     getValue() { return ta.value; },
     focus() { ta.focus(); },
     getSelectionText() { return ta.value.slice(ta.selectionStart, ta.selectionEnd); },
+    // Primary selection offsets ({ from, to }), or null when nothing is selected.
+    getSelectionRange() { return ta.selectionStart === ta.selectionEnd ? null : { from: ta.selectionStart, to: ta.selectionEnd }; },
+    // Restore a selection after a re-mount (used to carry it across renderApp).
+    setSelectionRange(from, to) { try { ta.setSelectionRange(from, to); } catch { /* caller clamps to length */ } },
     scrollToLine(lineNumber) {
       const target = Math.max(0, Number(lineNumber) || 0);
       const offset = ta.value.split('\n').slice(0, target).join('\n').length + (target > 0 ? 1 : 0);

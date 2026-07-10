@@ -173,11 +173,28 @@ function renderInfoForm(state, doc) {
     </div>`;
 }
 
-function renderToolbar() {
+// Single source of truth for the writing-action menu (also drives main.js's
+// WRITE_LABELS lookup). Order here is the menu order.
+export const WRITE_ACTIONS = [
+  ['draft', 'Draft from title'],
+  ['summarize', 'Summarize'],
+  ['rewrite', 'Rewrite for clarity'],
+  ['checklist', 'Notes → checklist'],
+];
+
+function renderToolbar(state) {
+  const canWrite = Boolean(state.chatStatus?.available);
+  const aiMenu = `<div class="menu toolbar__ai">
+      <button class="btn-ghost toolbar__ai-btn" type="button" data-action="toggle-write-menu" aria-haspopup="true" aria-expanded="${Boolean(state.writeMenuOpen)}"${canWrite ? '' : ' disabled title="Set an AI model in Settings ▸ Intelligence"'}>✦ AI</button>
+      ${state.writeMenuOpen && canWrite ? `<div class="menu__panel" role="menu">
+        ${WRITE_ACTIONS.map(([action, label]) => `<button class="menu__item" type="button" data-action="write-action" data-write="${action}">${label}</button>`).join('')}
+      </div>` : ''}
+    </div>`;
   return `
     <div class="toolbar" aria-label="Markdown formatting">
       ${MARKDOWN_TOOLS.map((tool) => `<button type="button" data-action="md-format" data-md-action="${tool.action}" title="${escapeHtml(tool.title)}" aria-label="${escapeHtml(tool.title)}">${escapeHtml(tool.label)}</button>`).join('')}
       <span class="toolbar__hint">⌘B bold · ⌘I italic · ⌘E code</span>
+      ${aiMenu}
     </div>`;
 }
 
@@ -320,7 +337,7 @@ export function renderEditorHtml(state, doc, model = {}) {
   const outlineHtml = state.outlineOpen && !focus
     ? renderOutlineRail(outline)
     : '';
-  const toolbarHtml = showEdit && !readOnly && !focus ? renderToolbar() : '';
+  const toolbarHtml = showEdit && !readOnly && !focus ? renderToolbar(state) : '';
 
   let panesHtml;
   if (split) {

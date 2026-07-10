@@ -118,6 +118,14 @@ export const state = {
   assistantPending: null,       // null, or [{ id, name, input, summary }] writes awaiting confirmation
   assistantError: null,         // null | error message string
 
+  // ---- editor AI writing actions (Tier-3 #7) ----
+  writeMenuOpen: false,         // the ✦ AI toolbar dropdown
+  writeSelection: null,         // selection captured at menu-open ({from,to,text}) — renderApp clears the live one
+  writeContext: null,           // null, or { action, label, verb, mode:'whole'|'selection'|'prepend', docId, selText, selStart, selEnd, model }
+  writeResult: null,            // the generated text (null while loading / on error)
+  writeLoading: false,
+  writeError: null,             // null | error message string
+
   // ---- editor ----
   editorDocId: null,
   editorMode: 'split',          // 'edit' | 'split' | 'preview'

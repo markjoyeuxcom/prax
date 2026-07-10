@@ -2367,6 +2367,12 @@ body.is-desktop-mac .titlebar { padding-left: 84px; }
 .aireview__gap-topic { font-size: 13.5px; font-weight: 600; color: var(--ink); }
 .aireview__gap-why { font-size: 12.5px; color: var(--ink2); margin-top: 1px; }
 .aireview__gap-ev { font-size: 11.5px; color: var(--ink3); margin-top: 1px; }
+
+/* Editor AI writing menu + preview (Tier-3 #7) */
+.toolbar__ai { margin-left: auto; }
+.toolbar__ai-btn { color: var(--accent); font-weight: 600; }
+.toolbar__ai-btn:disabled { color: var(--ink3); opacity: .6; cursor: default; }
+.brief__foot-actions { display: inline-flex; align-items: center; gap: 8px; }
 .btn-outline--sm { padding: 3px 10px; font-size: 12px; }
 
 /* ---- AI assistant (agentic chat panel) ---------------------------------- */
