@@ -78,6 +78,19 @@ test('PATCH accepts onCall + handoffNotes (trimmed), clears on empty, rejects no
   assert.equal(bad.statusCode, 400);
 });
 
+test('PATCH accepts repoUrl as entered (trimmed), clears on empty, rejects non-string', async () => {
+  const app = await build();
+  const ok = await app.inject({ method: 'PATCH', url: `/api/projects/${PROJECT_ID}`, payload: { repoUrl: '  git@github.com:Org/Repo.git  ' } });
+  assert.equal(ok.statusCode, 200);
+  assert.equal(ok.json().repoUrl, 'git@github.com:Org/Repo.git'); // stored as entered — matching normalizes later
+
+  const cleared = await app.inject({ method: 'PATCH', url: `/api/projects/${PROJECT_ID}`, payload: { repoUrl: '' } });
+  assert.equal(cleared.json().repoUrl, null);
+
+  const bad = await app.inject({ method: 'PATCH', url: `/api/projects/${PROJECT_ID}`, payload: { repoUrl: 42 } });
+  assert.equal(bad.statusCode, 400);
+});
+
 test('DELETE archives the project', async () => {
   const app = await build();
   const res = await app.inject({ method: 'DELETE', url: `/api/projects/${PROJECT_ID}` });

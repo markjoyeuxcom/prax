@@ -1675,8 +1675,10 @@ function projectsById() {
   return map;
 }
 
-// Ops metadata inline in a project header: who's on call + handoff notes for
-// the next shift. Both are inline-editable; input events debounce a PATCH.
+// Ops metadata inline in a project header: who's on call, handoff notes for
+// the next shift, and the repo this project corresponds to (the prax CLI
+// auto-detects the project from the local git remote via this URL). All are
+// inline-editable; input events debounce a PATCH.
 function renderProjectOps(project) {
   const id = escapeHtml(project.id);
   return `<div class="proj-ops">
@@ -1684,6 +1686,8 @@ function renderProjectOps(project) {
       <input class="proj-ops__input" type="text" data-project-oncall data-project-id="${id}" value="${escapeHtml(project.onCall || '')}" placeholder="—" aria-label="On-call owner"></label>
     <label class="proj-ops__field proj-ops__field--notes"><span class="proj-ops__label">Handoff</span>
       <input class="proj-ops__input" type="text" data-project-handoff data-project-id="${id}" value="${escapeHtml(project.handoffNotes || '')}" placeholder="notes for the next shift…" aria-label="Handoff notes"></label>
+    <label class="proj-ops__field proj-ops__field--repo"><span class="proj-ops__label">Repo</span>
+      <input class="proj-ops__input" type="text" data-project-repourl data-project-id="${id}" value="${escapeHtml(project.repoUrl || '')}" placeholder="git@github.com:org/repo.git" aria-label="Repository URL"></label>
   </div>`;
 }
 
@@ -2889,11 +2893,13 @@ function bindEvents() {
       }
       return;
     }
-    if (target.matches?.('[data-project-oncall]') || target.matches?.('[data-project-handoff]')) {
+    if (target.matches?.('[data-project-oncall]') || target.matches?.('[data-project-handoff]') || target.matches?.('[data-project-repourl]')) {
       // Debounced save; don't re-render (would steal focus from the input the
       // user is typing in). Local state updates silently so it persists.
       const id = target.dataset.projectId;
-      const field = target.matches('[data-project-oncall]') ? 'onCall' : 'handoffNotes';
+      const field = target.matches('[data-project-oncall]') ? 'onCall'
+        : target.matches('[data-project-handoff]') ? 'handoffNotes'
+        : 'repoUrl';
       const value = target.value;
       clearTimeout(projectOpsSaveTimer);
       projectOpsSaveTimer = setTimeout(async () => {

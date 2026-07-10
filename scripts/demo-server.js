@@ -83,6 +83,9 @@ function createMemoryProjectsRepository(projects) {
       if (fields.name !== undefined) project.name = fields.name;
       if (fields.status !== undefined) project.status = fields.status;
       if (fields.sortOrder !== undefined) project.sortOrder = fields.sortOrder;
+      if (fields.onCall !== undefined) project.onCall = fields.onCall;
+      if (fields.handoffNotes !== undefined) project.handoffNotes = fields.handoffNotes;
+      if (fields.repoUrl !== undefined) project.repoUrl = fields.repoUrl;
       project.updatedAt = new Date().toISOString();
       return project;
     },

@@ -73,3 +73,14 @@ The skills and CLI call the HTTP API at `PRAX_API_URL` (default `http://127.0.0.
 same variable the optional MCP server uses. The app must be running with semantic search enabled
 (`EMBEDDING_BACKEND` set to a working backend) for meaning-based recall; otherwise recall falls back
 to keyword search.
+
+### Project detection
+
+Project-scoped commands (`prax context`, `prax search`, `prax remember` without `--memory`)
+resolve the project as: `--project` flag > `PRAX_PROJECT` env > `.prax/project.json` (walking up
+from the cwd) > **git remote match** > folder name. The git rung reads the repository's `origin`
+URL (pure fs — no git binary) and matches it against each project's registered **Repo** URL
+(project header in the app, or set automatically by `prax init` inside a repo), so any checkout or
+worktree of a registered repo lands in the right project without its own marker file. URL
+spelling doesn't matter — `git@github.com:Org/Repo.git` and `https://github.com/org/repo` match
+each other.

@@ -74,8 +74,14 @@ export function createClient({ baseUrl, token } = {}) {
     supersede(oldId, newId) {
       return request('POST', `/api/library/documents/${encodeURIComponent(oldId)}/supersede`, { body: { supersededBy: newId } });
     },
+    listProjects() {
+      return request('GET', '/api/projects');
+    },
+    updateProject(id, patch) {
+      return request('PATCH', `/api/projects/${encodeURIComponent(id)}`, { body: patch });
+    },
     async ensureProject(target) {
-      const projects = await request('GET', '/api/projects');
+      const projects = await this.listProjects();
       const match = (Array.isArray(projects) ? projects : []).find(
         (p) => p.slug === target || (p.name && p.name.toLowerCase() === String(target).toLowerCase()),
       );

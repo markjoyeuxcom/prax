@@ -8,6 +8,9 @@
 /* ---- Tokens ---------------------------------------------------------- */
 
 :root {
+  /* Defined so bare var(--mono) usages (e.g. the editor status bar) resolve —
+     most call sites carry their own fallback, which this matches. */
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   --desk: linear-gradient(160deg, #E9E7E1 0%, #DDDCD6 55%, #D2D3CD 100%);
   --bg: #F1F0EC;
   --surface: #FAF9F7;
@@ -495,6 +498,7 @@ a { color: var(--accent); }
 .proj-ops__input:hover { border-color: var(--line); }
 .proj-ops__input:focus { outline: none; border-color: var(--accent); background: var(--surface); }
 .proj-ops__field--notes .proj-ops__input { width: 200px; }
+.proj-ops__field--repo .proj-ops__input { width: 220px; font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 11.5px; }
 .page-head__title {
   font-size: 19px;
   font-weight: 650;

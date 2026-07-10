@@ -80,8 +80,11 @@ export async function registerProjectsRoutes(app, options = {}) {
       }
       fields.sortOrder = body.sortOrder;
     }
-    // On-call owner + handoff notes are free text; '' clears them to null.
-    for (const key of ['onCall', 'handoffNotes']) {
+    // On-call owner, handoff notes, and the repo URL are free text; '' clears
+    // them to null. The repo URL is stored AS ENTERED — matching normalizes at
+    // lookup time (server/repoUrl.js), so an odd URL never 400s, it just never
+    // matches.
+    for (const key of ['onCall', 'handoffNotes', 'repoUrl']) {
       if (body[key] !== undefined) {
         if (typeof body[key] !== 'string') {
           reply.code(400);

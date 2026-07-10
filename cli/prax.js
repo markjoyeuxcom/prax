@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { detectProject } from './lib/detectProject.js';
+import { detectProject, detectRepoUrl } from './lib/detectProject.js';
+import { matchProjectByRepoUrl, normalizeRepoUrl } from '../server/repoUrl.js';
 import { createClient } from './lib/apiClient.js';
 import { formatSearchResults, formatDocument } from './lib/format.js';
 import { recall, formatRecall } from './lib/recall.js';
@@ -28,13 +29,29 @@ function parseArgs(argv) {
   return { positionals, flags };
 }
 
-function resolveProjectName(flags) {
+async function resolveProjectName(flags, client) {
   // MOOMORA_PROJECT is the pre-rename env var; still honoured so existing setups keep working.
-  const { project, source } = detectProject({ flag: flags.project, env: process.env.PRAX_PROJECT || process.env.MOOMORA_PROJECT });
-  if (!project) {
+  const detected = detectProject({ flag: flags.project, env: process.env.PRAX_PROJECT || process.env.MOOMORA_PROJECT });
+  // Explicit intent (flag/env/.prax marker) always wins. Only the folder-name
+  // GUESS is upgraded by a git-remote match: if the repo's origin URL matches a
+  // project's registered repoUrl, that project wins over the folder name — so
+  // recall/remember land in the right project from any checkout or worktree.
+  if (detected.source === 'folder' || detected.source === 'none') {
+    const repoUrl = detectRepoUrl({});
+    if (repoUrl && client) {
+      try {
+        const match = matchProjectByRepoUrl(await client.listProjects(), repoUrl);
+        if (match) return { project: match.slug, source: 'git' };
+      } catch {
+        // API unreachable — fall back to the local guess (callers surface
+        // connection errors on their own requests).
+      }
+    }
+  }
+  if (!detected.project) {
     throw new Error('No project detected. Pass --project <slug>, set PRAX_PROJECT, or run `prax init`.');
   }
-  return { project, source };
+  return detected;
 }
 
 const HELP = `prax — shared project memory CLI
@@ -51,7 +68,8 @@ Usage:
   prax supersede <oldId> --with <newId>
 
 Global flags: --project <slug>  --url <baseUrl>  --json
-Env: PRAX_API_URL  PRAX_PROJECT  PRAX_TOKEN`;
+Env: PRAX_API_URL  PRAX_PROJECT  PRAX_TOKEN
+Project detection: --project > PRAX_PROJECT > .prax/project.json > git remote match > folder name`;
 
 async function main(argv) {
   const { positionals, flags } = parseArgs(argv);
@@ -62,16 +80,50 @@ async function main(argv) {
   if (!command || command === 'help' || flags.help) { out(HELP); return; }
 
   if (command === 'init') {
-    const project = flags.project || detectProject({}).project;
+    const repoUrl = detectRepoUrl({});
+    let project = flags.project;
+    // A repo already registered to a project ADOPTS that project — a second
+    // checkout must not auto-create a folder-named duplicate and split memory
+    // between two projects.
+    if (!project && repoUrl) {
+      try {
+        const match = matchProjectByRepoUrl(await client.listProjects(), repoUrl);
+        if (match) {
+          project = match.slug;
+          out(`Matched this repo to existing project "${match.name}".`);
+        }
+      } catch {
+        // API unreachable — fall through to the local guess
+      }
+    }
+    if (!project) project = detectProject({}).project;
     if (!project) throw new Error('Cannot infer a project name; pass --project <slug>.');
     mkdirSync('.prax', { recursive: true });
     writeFileSync(join('.prax', 'project.json'), `${JSON.stringify({ project }, null, 2)}\n`);
     out(`Wrote .prax/project.json (project: ${project}).`);
+    // Register the repo URL on the project (best-effort) so other checkouts and
+    // worktrees of this repo auto-detect it without their own `prax init`.
+    if (repoUrl) {
+      try {
+        const slug = await client.ensureProject(project);
+        const record = (await client.listProjects()).find((p) => p.slug === slug);
+        if (record && !record.repoUrl) {
+          await client.updateProject(record.id, { repoUrl });
+          out(`Registered repo ${repoUrl} on project "${record.name}".`);
+        } else if (record?.repoUrl && normalizeRepoUrl(record.repoUrl) !== normalizeRepoUrl(repoUrl)) {
+          // Normalized compare — a different SPELLING of the same repo is not
+          // a conflict, only a genuinely different repository is.
+          out(`Note: project "${record.name}" is registered to ${record.repoUrl} — left unchanged.`);
+        }
+      } catch {
+        out('Note: could not register the repo URL (is the app running?) — detection will use the folder name.');
+      }
+    }
     return;
   }
 
   if (command === 'context') {
-    const { project } = resolveProjectName(flags);
+    const { project } = await resolveProjectName(flags, client);
     const query = positionals.slice(1).join(' ');
     const format = flags.json ? 'json' : 'md';
     const pack = await client.contextPack(project, { query, format, limit: flags.limit });
@@ -80,7 +132,7 @@ async function main(argv) {
   }
 
   if (command === 'search') {
-    const { project } = resolveProjectName(flags);
+    const { project } = await resolveProjectName(flags, client);
     const query = positionals.slice(1).join(' ');
     if (!query) throw new Error('search requires a query.');
     let results;
@@ -121,7 +173,7 @@ async function main(argv) {
     if (!title) throw new Error('remember requires a title.');
     const body = flags.body !== undefined && flags.body !== true ? String(flags.body) : '';
     const type = flags.type === 'runbook' ? 'runbook' : 'note';
-    const project = flags.memory ? 'memory' : resolveProjectName(flags).project;
+    const project = flags.memory ? 'memory' : (await resolveProjectName(flags, client)).project;
     const userTags = flags.tag ? String(flags.tag).split(',').map((t) => t.trim()).filter(Boolean) : [];
     const tags = [...userTags, ...(flags.memory ? ['memory'] : [])];
     const { doc, action } = await remember(client, { title, body, project, type, tags });
