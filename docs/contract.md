@@ -115,7 +115,7 @@ links:
 Steps...
 ```
 
-- `type` is `"runbook"` or `"note"` (defaults to `"note"`).
+- `type` is one of `"note"`, `"runbook"`, `"decision"`, `"known-issue"`, `"reference"`, `"post-mortem"` (defaults to `"note"`; the registry lives in `public/js/documentTypes.js`).
 - `project` is the project slug, or `"unknown"`.
 - `tags` is `[]` when empty, otherwise a YAML block list.
 - `created_at` / `updated_at` are the raw timestamps (not quoted).
@@ -177,7 +177,7 @@ is one-way today. Documents are created/edited via the app, the HTTP API, or the
 The MCP server (`mcp/`) exposes these tools over stdio. Current tool names, input field names,
 required/optional status, and enum option sets. Shared enums: `STATUS`
 (`high-priority`, `in-progress`, `planned`, `completed`, `notes`), `PRIORITY` (`high`,
-`medium`, `low`), `DOCUMENT_TYPE` (`runbook`, `note`),
+`medium`, `low`), `DOCUMENT_TYPE` (`runbook`, `note`, `decision`, `known-issue`, `reference`, `post-mortem`),
 `KIND` (`source`, `synthesized`).
 
 | Tool | Inputs | Read-only |

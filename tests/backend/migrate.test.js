@@ -99,7 +99,7 @@ test('runMigrations applies the real consolidated schema against real SQLite', a
   const { createDb } = await import('../../server/db.js');
   const db = createDb(':memory:');
   const result = await runMigrations(db, { logger: SILENT });
-  assert.deepEqual(result.applied, ['0001_init.sql', '0002_add_inbox_project.sql', '0003_add_task_deferred_until.sql', '0004_add_project_oncall.sql', '0005_add_runbook_runs.sql', '0006_add_task_recurrence.sql', '0007_add_task_labels.sql', '0008_add_task_due_time.sql', '0009_add_project_repo_url.sql']);
+  assert.deepEqual(result.applied, ['0001_init.sql', '0002_add_inbox_project.sql', '0003_add_task_deferred_until.sql', '0004_add_project_oncall.sql', '0005_add_runbook_runs.sql', '0006_add_task_recurrence.sql', '0007_add_task_labels.sql', '0008_add_task_due_time.sql', '0009_add_project_repo_url.sql', '0010_document_type_taxonomy.sql']);
   const { rows } = await db.query('select slug from projects order by sort_order');
   assert.deepEqual(rows.map(r => r.slug), ['inbox', 'personal', 'work', 'homelab']);
   // idempotent second run

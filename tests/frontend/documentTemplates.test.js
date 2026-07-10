@@ -1,3 +1,4 @@
+import { isDocumentType } from '../../public/js/documentTypes.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -8,7 +9,7 @@ test('every template carries id, label, documentType, title, and body', () => {
   for (const t of DOCUMENT_TEMPLATES) {
     assert.equal(typeof t.id, 'string');
     assert.equal(typeof t.label, 'string');
-    assert.ok(['note', 'runbook'].includes(t.documentType));
+    assert.ok(isDocumentType(t.documentType));
     assert.equal(typeof t.title, 'string');
     assert.equal(typeof t.body, 'string');
   }

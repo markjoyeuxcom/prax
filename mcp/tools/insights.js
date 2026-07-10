@@ -37,7 +37,7 @@ export function createInsightTools(client) {
       name: 'generate_post_mortem',
       title: 'Generate a post-mortem',
       description:
-        'Draft a post-mortem document from a completed runbook run’s chronicle (steps, timestamps, actors). Creates an agent-written, unverified note in the runbook’s project for a human to review and verify. Uses the configured chat model to narrate, or a deterministic template when none is set.',
+        'Draft a post-mortem document from a completed runbook run’s chronicle (steps, timestamps, actors). Creates an agent-written, unverified post-mortem document in the runbook’s project for a human to review and verify. Uses the configured chat model to narrate, or a deterministic template when none is set.',
       inputSchema: {
         runId: z.string().describe('UUID of the runbook run to summarize (from list_runbook_runs / get_runbook_run).'),
       },

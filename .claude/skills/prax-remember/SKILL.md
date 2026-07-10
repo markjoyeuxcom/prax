@@ -21,12 +21,12 @@ long-term memory.
 ## How to run
 
 ```bash
-node .claude/skills/prax-remember/remember.mjs "<title>" "<body>" [--tags a,b] [--type note|runbook] [--project <slug>]
+node .claude/skills/prax-remember/remember.mjs "<title>" "<body>" [--tags a,b] [--type note|runbook|decision|known-issue|reference|post-mortem] [--project <slug>]
 ```
 
 - Writes to the **`memory`** project by default (created automatically on first use). Override with
   `--project <slug>` to file it under a specific project.
-- `--type` is `note` (default) or `runbook`; `--tags` is a comma-separated list (a `memory` tag is
+- `--type` is `note` (default), `runbook`, `decision` (a choice made and why), `known-issue` (symptom + workaround), `reference` (lookup material), or `post-mortem`; `--tags` is a comma-separated list (a `memory` tag is
   always added).
 - Set `PRAX_API_URL` if the app isn't at `http://127.0.0.1:3000`.
 

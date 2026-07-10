@@ -94,8 +94,12 @@ next steps, by value:
   git remote match > folder name; `prax init` registers the URL automatically.
 - [ ] **RAG / "Ask Project".** An optional retrieval + generation layer, kept separate from the
   retrieval-only default. *(large)*
-- [ ] **Memory type taxonomy.** Richer `decision` / `runbook` / `known-issue` / … types
-  (currently expressed via `document_type` + tags). *(small–medium)*
+- [x] **Memory type taxonomy.** First-class `decision` / `known-issue` / `reference` /
+  `post-mortem` types alongside `note`/`runbook`, defined once in a shared registry
+  (`public/js/documentTypes.js`) that drives server validation, MCP schemas, the CLI, and the
+  Library UI. The `document_type` CHECK was dropped in a table-rebuild migration (`0010`, with
+  new `-- migrate:fk=off` runner support), so future types are registry-only edits. Auto
+  post-mortems now carry the real type.
 
 ## Platform-adjacent (lower priority)
 

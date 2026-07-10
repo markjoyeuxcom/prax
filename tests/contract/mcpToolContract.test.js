@@ -88,7 +88,9 @@ test('SHAPE: tool enums expose exactly the documented option sets', () => {
 
   const STATUS = ['high-priority', 'in-progress', 'planned', 'completed', 'notes'];
   const PRIORITY = ['high', 'medium', 'low'];
-  const DOCUMENT_TYPE = ['runbook', 'note'];
+  // Deliberately extended for the memory type taxonomy (shared registry:
+  // public/js/documentTypes.js). Editing this pin is the point of the pin.
+  const DOCUMENT_TYPE = ['runbook', 'note', 'decision', 'known-issue', 'reference', 'post-mortem'];
 
   const assertEnum = (schema, values) => {
     for (const v of values) assert.equal(schema.safeParse(v).success, true, `accepts ${v}`);

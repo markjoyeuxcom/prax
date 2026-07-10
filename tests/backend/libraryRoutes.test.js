@@ -505,3 +505,29 @@ test('GET /api/library/documents/:id/similar returns [] when semantic search is 
 
   await app.close();
 });
+
+test('POST /api/library/documents accepts every taxonomy type; rejects unknown types', async () => {
+  const { DOCUMENT_TYPE_VALUES } = await import('../../public/js/documentTypes.js');
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: { listTasks: async () => [] },
+    libraryRepository: createFakeLibraryRepository(),
+    projectsRepository: createFakeProjectsRepository(),
+  });
+  for (const documentType of DOCUMENT_TYPE_VALUES) {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/library/documents',
+      payload: { title: `T ${documentType}`, body: '', documentType, project: 'homelab' },
+    });
+    assert.equal(res.statusCode, 201, documentType);
+  }
+  const bad = await app.inject({
+    method: 'POST',
+    url: '/api/library/documents',
+    payload: { title: 'T', body: '', documentType: 'diary', project: 'homelab' },
+  });
+  assert.equal(bad.statusCode, 400);
+  assert.equal(bad.json().message, 'documentType is invalid');
+  await app.close();
+});

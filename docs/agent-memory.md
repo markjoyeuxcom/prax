@@ -13,6 +13,11 @@ Memory is for **durable** knowledge that outlives a single session:
 - **Decisions / conventions** — "we embed with `qwen3-embedding:0.6b`", "releases are squash-merged".
 - **Procedures / runbooks** — reusable how-tos.
 
+These map onto first-class document types — pass `--type` when remembering so recall can filter
+by shape later: `note` (default), `runbook` (procedures), `decision` (a choice made and why),
+`known-issue` (symptom + workaround), `reference` (lookup material), `post-mortem`. Re-remembering
+an existing title may retype it (a note can graduate to a decision).
+
 It is **not** for transient, session-only state (a half-finished edit, the current TODO) — that
 belongs in the working context, not the library.
 

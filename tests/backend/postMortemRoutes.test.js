@@ -75,7 +75,7 @@ test('POST post-mortem generates via the chat model and creates an agent-written
   const body = res.json();
   assert.equal(body.generated, true);
   assert.equal(body.model, 'fake-chat');
-  assert.equal(body.document.documentType, 'note');
+  assert.equal(body.document.documentType, 'post-mortem'); // first-class type since migration 0010
   assert.equal(body.document.kind, 'synthesized');
   assert.deepEqual(body.document.tags, ['post-mortem']);
   assert.equal(body.document.verified, false);                 // agent-written → needs human verify

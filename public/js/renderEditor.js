@@ -1,3 +1,4 @@
+import { DOCUMENT_TYPES, isDocumentType } from './documentTypes.js';
 import { escapeHtml, chip, prioDotClass } from './renderHelpers.js';
 
 // Prax document editor — pure render module (docs/desktop/phase1-actions.md).
@@ -28,10 +29,7 @@ const MARKDOWN_TOOLS = [
   { action: 'link', label: 'link', title: 'Link' },
 ];
 
-const DOCUMENT_TYPES = [
-  { value: 'runbook', label: 'Runbook' },
-  { value: 'note', label: 'Note' },
-];
+// The shared taxonomy registry drives the doc-info Type select.
 
 // Outline: headings #–### → [{ label, level, index }] where index is the
 // heading ordinal (payload for data-action="outline-jump"). Markdown symbols
@@ -148,7 +146,7 @@ function renderHead(state, doc, { mode, readOnly }) {
 
 function renderInfoForm(state, doc) {
   const tags = Array.isArray(doc.tags) ? doc.tags.join(', ') : '';
-  const type = doc.documentType === 'runbook' ? 'runbook' : 'note';
+  const type = isDocumentType(doc.documentType) ? doc.documentType : 'note';
   return `
     <div class="editor-info">
       ${state.documentInfoError ? `<div class="editor-info__error" role="alert">${escapeHtml(state.documentInfoError)}</div>` : ''}

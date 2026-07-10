@@ -1,3 +1,4 @@
+import { DOCUMENT_TYPES, isDocumentType } from './documentTypes.js';
 function normalizedTag(value) {
   return String(value || '').trim().toLowerCase();
 }
@@ -30,9 +31,26 @@ export function filterDocumentsByTags(documents = [], activeTags = []) {
   });
 }
 
+// A document's effective type key: any registry value passes through; unknown
+// or legacy values group with notes (display sites may still show the raw
+// string — this key is for filtering/grouping only).
+export function docTypeKey(doc) {
+  const t = doc?.documentType;
+  return isDocumentType(t) ? t : 'note';
+}
+
 export function filterDocumentsByType(documents = [], type = 'all') {
-  if (type !== 'runbook' && type !== 'note') return documents;
-  return documents.filter(doc => (doc.documentType || 'note') === type);
+  if (!isDocumentType(type)) return documents;
+  return documents.filter(doc => docTypeKey(doc) === type);
+}
+
+// OR within the type axis (mirrors filterDocumentsByTrust): a document passes
+// if its type is ANY of the selected facets; empty selection passes everything.
+export function filterDocumentsByTypes(documents = [], types = []) {
+  const active = (Array.isArray(types) ? types : []).filter(isDocumentType);
+  if (!active.length) return documents;
+  const set = new Set(active);
+  return documents.filter((doc) => set.has(docTypeKey(doc)));
 }
 
 // Predicates for each trust facet (matching the card chips).
@@ -64,13 +82,10 @@ export function sortDocuments(documents = [], sortBy = 'updated') {
 }
 
 export function groupDocumentsByType(documents = []) {
-  const groups = [
-    { type: 'runbook', label: 'Runbooks', docs: [] },
-    { type: 'note', label: 'Notes', docs: [] },
-  ];
+  const groups = DOCUMENT_TYPES.map((t) => ({ type: t.value, label: t.plural, docs: [] }));
+  const byType = new Map(groups.map((g) => [g.type, g]));
   documents.forEach(doc => {
-    const t = (doc.documentType || 'note') === 'runbook' ? 'runbook' : 'note';
-    groups.find(g => g.type === t).docs.push(doc);
+    byType.get(docTypeKey(doc)).docs.push(doc); // unknown types group with notes
   });
   return groups.filter(g => g.docs.length);
 }

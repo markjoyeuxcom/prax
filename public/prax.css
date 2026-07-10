@@ -548,6 +548,10 @@ a { color: var(--accent); }
 .chip--due-later, .chip--due-done { background: var(--line); color: var(--ink2); }
 .chip--type-runbook { background: var(--accent-soft); color: var(--accent); font-size: 10px; letter-spacing: .06em; }
 .chip--type-note { background: var(--line); color: var(--ink2); font-size: 10px; letter-spacing: .06em; }
+.chip--type-decision { background: color-mix(in oklab, #7c5cbf 14%, transparent); color: #7c5cbf; font-size: 10px; letter-spacing: .06em; }
+.chip--type-known-issue { background: color-mix(in oklab, var(--hi) 12%, transparent); color: var(--hi); font-size: 10px; letter-spacing: .06em; }
+.chip--type-reference { background: color-mix(in oklab, #3a7ca5 13%, transparent); color: #3a7ca5; font-size: 10px; letter-spacing: .06em; }
+.chip--type-post-mortem { background: color-mix(in oklab, #b0713a 14%, transparent); color: #b0713a; font-size: 10px; letter-spacing: .06em; }
 .chip--project { font-weight: 600; }
 .chip--tag { background: var(--accent-soft); color: var(--accent); }
 
