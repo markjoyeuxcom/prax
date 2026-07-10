@@ -38,13 +38,31 @@ export function buildFilterGroups(tasks, projects, predicate, { now = new Date()
 // renderFilterHtml(state, model) — model = { groups, count, error } from
 // buildFilterGroups + parseTaskFilter. The input is live; main.js re-renders and
 // restores focus/caret on each keystroke (like the library search).
+//
+// Tier-3 #8: ✦ Translate (button or ⌘↵) sends the input's English to the AI and
+// lands the returned grammar string in this same input — transparent, editable,
+// saveable. A provenance line shows what it came from (with one-click restore)
+// plus any semantic warnings from the server audit.
 export function renderFilterHtml(state, model) {
   const expr = state.activeFilterExpr || '';
   const view = (state.taskSmartViews || []).find((v) => v.id === state.activeSmartViewId);
   const title = view ? escapeHtml(view.label) : 'Filter';
-  const errHint = model.error
-    ? `<span class="filter-bar__hint filter-bar__hint--error">${escapeHtml(model.error)}</span>`
-    : '<span class="filter-bar__hint">@label · p1 · overdue · due:today · status:in-progress · &amp; | -</span>';
+  let hint;
+  if (state.nlFilterLoading) {
+    hint = '<span class="filter-bar__hint filter-bar__hint--busy">✦ Translating…</span>';
+  } else if (state.nlFilterError) {
+    hint = `<span class="filter-bar__hint filter-bar__hint--error">${escapeHtml(state.nlFilterError)}</span>`;
+  } else if (model.error) {
+    hint = `<span class="filter-bar__hint filter-bar__hint--error">${escapeHtml(model.error)}</span>`;
+  } else {
+    hint = '<span class="filter-bar__hint">@label · p1 · overdue · due:today · status:in-progress · &amp; | - · or describe it and hit ⌘↵</span>';
+  }
+  const warnings = (state.nlFilterWarnings || []).map((w) => `<span class="filter-bar__warn">${escapeHtml(w)}</span>`).join(' ');
+  const provenance = state.nlFilterSource && !state.nlFilterLoading
+    ? `<div class="filter-bar__prov">✦ from “${escapeHtml(state.nlFilterSource)}” · <button type="button" class="filter-bar__restore" data-action="restore-nl-query">restore</button>${warnings ? ` ${warnings}` : ''}</div>`
+    : (warnings ? `<div class="filter-bar__prov">${warnings}</div>` : '');
+  const canNl = Boolean(state.chatStatus?.available);
+  const nlBtn = `<button class="btn-ghost filter-bar__ai" type="button" data-action="nl-filter"${canNl && expr.trim() && !state.nlFilterLoading ? '' : ' disabled'}${canNl ? '' : ' title="Set an AI model in Settings ▸ Intelligence"'}>✦ Translate</button>`;
   const canSave = Boolean(expr.trim()) && !model.error;
   const saveBtn = canSave
     ? '<button class="btn-ghost" type="button" data-action="save-smart-view">Save as view</button>'
@@ -53,16 +71,18 @@ export function renderFilterHtml(state, model) {
     ? renderTaskGroupsHtml(state, model.groups, { rowExtra: projectChipHtml })
     : `<div class="empty">${logo(48)}`
       + '<p class="empty__title">No matches</p>'
-      + `<p class="empty__sub">${expr.trim() ? 'No tasks match this filter.' : 'Type a filter — e.g. p1 &amp; overdue, or @waiting.'}</p>`
+      + `<p class="empty__sub">${expr.trim() ? 'No tasks match this filter.' : 'Type a filter — e.g. p1 &amp; overdue, or @waiting. Or describe it in English and press ⌘↵.'}</p>`
       + '</div>';
   return `<div class="page">
       <header class="page-head"><h1 class="page-head__title">${title}</h1></header>
       <div class="filter-bar">
-        <input class="filter-bar__input" type="text" data-filter-input placeholder="p1 &amp; overdue · @waiting · due:today" value="${escapeHtml(expr)}" autocomplete="off" spellcheck="false" aria-label="Task filter">
+        <input class="filter-bar__input" type="text" data-filter-input placeholder="p1 &amp; overdue · @waiting · “high priority due this week” + ⌘↵" value="${escapeHtml(expr)}" autocomplete="off" spellcheck="false" aria-label="Task filter">
         <span class="filter-bar__count">${model.count} match${model.count === 1 ? '' : 'es'}</span>
+        ${nlBtn}
         ${saveBtn}
       </div>
-      ${errHint}
+      ${hint}
+      ${provenance}
       ${body}
     </div>`;
 }

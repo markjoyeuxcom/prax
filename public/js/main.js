@@ -13,6 +13,7 @@ import {
   deleteArchivedTask, exportTasks, importTasks, fetchTaskDocuments,
   linkTaskDocument, unlinkTaskDocument, fetchTaskChecklist, addChecklistItem,
   setChecklistItem, deleteChecklistItem, fetchTaskActivity, fetchTaskBoardExtras,
+  parseNlCapture, parseNlFilter,
 } from './taskApi.js';
 import {
   fetchProjects, createProject, updateProject, deleteProjectPermanent,
@@ -43,7 +44,7 @@ import {
 import { triggerLibraryDocumentDownload } from './libraryExport.js';
 import { tasksFromImportPayload, exportFilename, normalizeImportMode } from './importExport.js';
 import { createSavedLibraryView, savedLibraryViewsFromJson } from './librarySavedViews.js';
-import { parseCaptureShorthand } from './captureShorthand.js';
+import { parseCaptureShorthand, mergeNlCapture } from './captureShorthand.js';
 import { computeDueReminders, isOverdue } from './dueReminders.js';
 import { normalizeLabel } from './labels.js';
 import { mountCodeMirrorEditor } from '../vendor/codemirror-editor.js';
@@ -301,7 +302,8 @@ async function copyDailyBrief() {
 // ---- AI assistant (agentic tool-calling chat) -----------------------------
 
 function openAssistant() {
-  setState({ assistantOpen: true, assistantError: null, paletteOpen: false, captureOpen: false });
+  // Closing capture discards/aborts the NL layer (see nlCaptureResetPatch).
+  setState({ assistantOpen: true, assistantError: null, paletteOpen: false, captureOpen: false, ...nlCaptureResetPatch() });
   renderApp();
   loadAssistantStatus();
 }
@@ -1510,7 +1512,7 @@ function persistSmartViews() {
 // Open the task filter view. An expression + optional saved-view id (null =
 // ad-hoc). Clears task selection like the other top-level views.
 function goFilter({ expr = '', smartViewId = null } = {}) {
-  setState({ navType: 'filter', activeFilterExpr: expr, activeSmartViewId: smartViewId, selectedTaskId: null, multiSelectIds: [] });
+  setState({ navType: 'filter', activeFilterExpr: expr, activeSmartViewId: smartViewId, selectedTaskId: null, multiSelectIds: [], ...nlFilterResetPatch() });
   renderApp();
 }
 
@@ -1637,6 +1639,9 @@ function escapeCascade() {
   if (state.confirm) { setState({ confirm: null }); renderApp(); return; }
   if (state.docMenuOpen) { setState({ docMenuOpen: false }); renderApp(); return; }
   if (state.paletteOpen) { setState({ paletteOpen: false }); renderApp(); return; }
+  // Inside capture, the NL layer peels first: Esc aborts a parse / discards the
+  // preview and restores the typed text; only the next Esc closes the overlay.
+  if (state.captureOpen && (state.nlCaptureLoading || state.nlCaptureFields || state.nlCaptureError)) { cancelNlCapture(); return; }
   if (state.captureOpen) { setState({ captureOpen: false }); renderApp(); return; }
   // The ✦ AI dropdown sits below the modal overlays + palette: a still-open (but
   // hidden-behind-an-overlay) menu must not swallow the first Esc aimed above it.
@@ -1933,7 +1938,11 @@ function afterRender() {
     input?.focus();
     input?.setSelectionRange?.(input.value.length, input.value.length);
   } else if (state.captureOpen) {
-    appRoot.querySelector('[data-capture-input]')?.focus();
+    // The DOM is fresh after every render — put the caret at the end so typing
+    // continues the title (matters after the parse swaps the input's value).
+    const input = appRoot.querySelector('[data-capture-input]');
+    input?.focus();
+    input?.setSelectionRange?.(input.value.length, input.value.length);
   } else if (state.assistantOpen) {
     // Keep the transcript pinned to the latest turn, and (when idle) the caret
     // in the composer.
@@ -1977,7 +1986,7 @@ function afterRender() {
 // ---------------------------------------------------------------------------
 
 const paletteCommands = {
-  'new-task': () => { setState({ paletteOpen: false, captureOpen: true, captureQuery: '', ...captureDefaults() }); renderApp(); },
+  'new-task': () => { setState({ paletteOpen: false, captureOpen: true, captureQuery: '', ...captureDefaults(), ...nlCaptureResetPatch() }); renderApp(); },
   'new-document': () => { setState({ paletteOpen: false }); createNewDocument(); },
   'toggle-theme': () => { setState({ paletteOpen: false }); toggleTheme(); },
   'go-board': () => {
@@ -2103,6 +2112,36 @@ async function handleAction(action, el, event) {
       renderApp();
       break;
     }
+    case 'nl-filter': await runNlFilter(); break;
+    case 'restore-nl-query': {
+      const source = state.nlFilterSource;
+      if (source != null) {
+        setState({ activeFilterExpr: source, activeSmartViewId: null, ...nlFilterResetPatch() });
+        renderApp();
+        const input = appRoot.querySelector('[data-filter-input]');
+        if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+      }
+      break;
+    }
+    case 'drop-nl-field': {
+      if (!state.nlCaptureFields) break;
+      const fields = { ...state.nlCaptureFields };
+      delete fields[el.dataset.field];
+      if (el.dataset.field === 'dueDate') delete fields.dueTime; // a time needs its date
+      setState({ nlCaptureFields: fields });
+      renderApp();
+      break;
+    }
+    case 'drop-nl-label': {
+      if (!state.nlCaptureFields) break;
+      const labels = (state.nlCaptureFields.labels || []).filter((l) => l !== el.dataset.value);
+      const fields = { ...state.nlCaptureFields };
+      if (labels.length) fields.labels = labels;
+      else delete fields.labels;
+      setState({ nlCaptureFields: fields });
+      renderApp();
+      break;
+    }
     case 'set-settings-tab': setState({ settingsTab: el.dataset.tab }); renderApp(); break;
     case 'nav-project': goProject(el.dataset.projectId); break;
     case 'rename-project': startRenameProject(el.dataset.projectId); break;
@@ -2122,8 +2161,8 @@ async function handleAction(action, el, event) {
       if (view) goLibrary({ activeLibraryTags: [...view.tags] });
       break;
     }
-    case 'open-palette': setState({ paletteOpen: true, paletteQuery: '', paletteSelection: 0, captureOpen: false }); renderApp(); break;
-    case 'open-capture': setState({ captureOpen: true, captureQuery: '', paletteOpen: false, ...captureDefaults() }); renderApp(); break;
+    case 'open-palette': setState({ paletteOpen: true, paletteQuery: '', paletteSelection: 0, captureOpen: false, ...nlCaptureResetPatch() }); renderApp(); break;
+    case 'open-capture': setState({ captureOpen: true, captureQuery: '', paletteOpen: false, ...captureDefaults(), ...nlCaptureResetPatch() }); renderApp(); break;
     case 'toggle-capture-menu': setState({ captureMenuOpen: !state.captureMenuOpen }); renderApp(); break;
     case 'set-capture-project': setState({ captureProjectId: el.dataset.projectId, captureMenuOpen: false }); renderApp(); break;
     case 'toggle-theme': toggleTheme(); break;
@@ -2553,7 +2592,7 @@ async function handleAction(action, el, event) {
     // ---- palette / capture / toast ----
     case 'palette-run': runPaletteItem(paletteFlat[Number(el.dataset.paletteIndex)]); break;
     case 'close-palette': setState({ paletteOpen: false }); renderApp(); break;
-    case 'close-capture': setState({ captureOpen: false, captureMenuOpen: false }); renderApp(); break;
+    case 'close-capture': setState({ captureOpen: false, captureMenuOpen: false, ...nlCaptureResetPatch() }); renderApp(); break;
     case 'confirm-cancel': setState({ confirm: null }); renderApp(); break;
     case 'toast-undo': state.toast?.undo?.(); break;
 
@@ -2833,9 +2872,15 @@ function bindEvents() {
     }
     if (target.matches?.('[data-filter-input]')) {
       // Live filter: re-render (updates the list + count) and restore the caret.
-      // Editing the expression detaches it from any saved smart view.
+      // Editing the expression detaches it from any saved smart view, and from
+      // any NL provenance — the "✦ from …" hint must never misrepresent a
+      // hand-edited expression. An in-flight translate is cancelled too: a late
+      // response must not overwrite what the user is typing right now.
       const caret = target.selectionStart;
-      setState({ activeFilterExpr: target.value, activeSmartViewId: null });
+      setState({
+        activeFilterExpr: target.value, activeSmartViewId: null,
+        ...(state.nlFilterLoading ? nlFilterResetPatch() : { nlFilterSource: null, nlFilterWarnings: [], nlFilterError: null }),
+      });
       renderApp();
       const next = appRoot.querySelector('[data-filter-input]');
       if (next) {
@@ -2994,9 +3039,20 @@ function bindEvents() {
       appRoot.querySelector('[data-confirm-ok]')?.click();
       return;
     }
-    if (target.matches?.('[data-capture-input]') && event.key === 'Enter') {
+    if (target.matches?.('[data-capture-input]') && event.key === 'Enter' && !event.isComposing) {
       event.preventDefault();
+      if (event.repeat) return; // held-down Enter must not machine-gun creates
+      // ⌘/Ctrl+Enter = AI smart add (falls through to a plain add when no model
+      // is configured); plain Enter confirms a preview or adds deterministically.
+      if (event.metaKey || event.ctrlKey) { runNlCapture(); return; }
+      if (state.nlCaptureLoading) return; // parse in flight — Esc cancels it
+      if (state.nlCaptureFields) { confirmNlCapture(); return; }
       addQuickTask(state.captureQuery.trim());
+      return;
+    }
+    if (target.matches?.('[data-filter-input]') && event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.isComposing) {
+      event.preventDefault();
+      runNlFilter();
       return;
     }
     if (target.matches?.('[data-ask-prax-input]') && event.key === 'Enter') {
@@ -3073,32 +3129,231 @@ async function handleLinkPickerPick(documentId) {
   renderApp();
 }
 
-async function addQuickTask(rawTitle) {
-  // Shorthand (!high, tomorrow, fri, 2026-09-01, #project, @label) is parsed out
-  // of the typed text; an explicit token wins over the view-derived defaults.
-  const { title, priority, dueDate, project: projectToken, labels } = parseCaptureShorthand(rawTitle);
+// ---- NL capture & NL→filter (Tier-3 #8) ------------------------------------
+// Generation tokens + abort controllers for the two NL calls: bumped on every
+// run/cancel/close so a stale response can never resurrect a dismissed preview
+// (the writeToken pattern), and aborted so a hung local model doesn't hold the
+// speed-critical capture flow hostage.
+let nlCaptureToken = 0;
+let nlFilterToken = 0;
+let nlCaptureAbort = null;
+let nlFilterAbort = null;
+const NL_TIMEOUT_MS = 20000;
+
+// Everything the NL layer holds, reset in one place (capture open/close, view
+// navigation, cancel).
+function nlCaptureResetPatch() {
+  nlCaptureToken += 1;
+  nlCaptureAbort?.abort();
+  nlCaptureAbort = null;
+  return { nlCaptureLoading: false, nlCaptureFields: null, nlCaptureDropped: [], nlCaptureRaw: null, nlCaptureError: null };
+}
+
+function nlFilterResetPatch() {
+  nlFilterToken += 1;
+  nlFilterAbort?.abort();
+  nlFilterAbort = null;
+  return { nlFilterLoading: false, nlFilterSource: null, nlFilterWarnings: [], nlFilterError: null };
+}
+
+// Bounded grounding for the NL prompts — the client owns what the user sees.
+function nlGrounding() {
+  const projects = (state.projects || []).filter((p) => p.slug).map((p) => ({ slug: p.slug, name: p.name }));
+  const labels = new Set();
+  for (const task of state.tasks || []) {
+    for (const label of task.labels || []) labels.add(label);
+  }
+  return { projects, labels: [...labels].slice(0, 50) };
+}
+
+// The input value we last set from a parse (the cleaned title) — lets the ⌘↵
+// chord tell "re-parse the same phrase" (input unedited → resend the preserved
+// raw text) from "parse what I just typed" (input edited).
+let nlCaptureSetQuery = null;
+
+// ⌘↵ in capture: parse the typed text with the AI, preview the fields as chips.
+// The cleaned title replaces the input (still editable); nothing is created
+// until plain Enter confirms. Falls through to the plain add when no model is
+// configured — the chord must never be a dead keystroke.
+async function runNlCapture() {
+  const current = (state.captureQuery || '').trim();
+  if (!current || state.nlCaptureLoading) return;
+  if (!state.chatStatus?.available) { addQuickTask(current); return; }
+  // Re-parse (⌘↵ with an unedited preview) resends the ORIGINAL phrase — the
+  // visible title no longer carries the date/priority words the first parse
+  // extracted. An edited input is a new phrase and becomes the new raw.
+  const unedited = state.nlCaptureFields && nlCaptureSetQuery != null && state.captureQuery === nlCaptureSetQuery;
+  const text = unedited && state.nlCaptureRaw ? state.nlCaptureRaw : current;
+  const raw = text;
+  const sentQuery = state.captureQuery; // input at send time (divergence guard)
+  const token = (nlCaptureToken += 1);
+  nlCaptureAbort?.abort();
+  nlCaptureAbort = new AbortController();
+  const timer = setTimeout(() => nlCaptureAbort?.abort(), NL_TIMEOUT_MS);
+  setState({ nlCaptureLoading: true, nlCaptureError: null, nlCaptureFields: null, nlCaptureDropped: [], nlCaptureRaw: raw });
+  renderApp();
+  try {
+    const res = await parseNlCapture({ text, date: todayISODate(), ...nlGrounding() }, { signal: nlCaptureAbort.signal });
+    // Drop a stale response: cancelled/superseded, capture closed, or the user
+    // typed while it was in flight (their text wins over our parse of old text).
+    if (token !== nlCaptureToken || !state.captureOpen || state.captureQuery !== sentQuery) return;
+    if (res.degraded) {
+      setState({
+        nlCaptureLoading: false,
+        nlCaptureError: res.reason === 'no-chat-model'
+          ? 'No AI model configured — set one in Settings ▸ Intelligence.'
+          : 'The model could not parse this — ↵ adds the task as typed.',
+      });
+    } else {
+      // Sigiled tokens in the typed text override the model (mergeNlCapture).
+      const merged = mergeNlCapture(text, res.fields || {});
+      const { title, ...fields } = merged;
+      // Capture-from-Today seeds a due-today default; surface it as a chip so
+      // the preview shows EVERY field the created task will carry (and removal
+      // works). confirmNlCapture uses the preview alone — no invisible fallback.
+      if (!fields.dueDate && state.captureDueDate) fields.dueDate = state.captureDueDate;
+      nlCaptureSetQuery = title || text;
+      setState({
+        nlCaptureLoading: false,
+        nlCaptureFields: fields,
+        nlCaptureDropped: res.dropped || [],
+        captureQuery: nlCaptureSetQuery,
+      });
+    }
+  } catch (err) {
+    if (token !== nlCaptureToken || !state.captureOpen || state.captureQuery !== sentQuery) return;
+    setState({
+      nlCaptureLoading: false,
+      nlCaptureError: err?.name === 'AbortError'
+        ? 'The model took too long — ↵ adds the task as typed, or ⌘↵ retries.'
+        : 'Could not reach the model — ↵ adds the task as typed.',
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+  if (token === nlCaptureToken) renderApp();
+}
+
+// First Esc with a preview (or parse in flight): abort/discard; the overlay
+// stays open. The typed text is restored only when a preview replaced it —
+// after a failed parse the input was never touched, so Esc must not revert
+// edits the user made since (it just clears the error).
+function cancelNlCapture() {
+  const raw = state.nlCaptureFields ? state.nlCaptureRaw : null;
+  setState({ ...nlCaptureResetPatch(), ...(raw != null ? { captureQuery: raw } : {}) });
+  renderApp();
+}
+
+// One create path for both capture flows (deterministic + NL preview): resolve
+// the destination, translate design-vocab status at the API boundary, create,
+// close + reset, toast. Guarded against double-submit (Enter auto-repeat).
+let captureSubmitting = false;
+async function submitCapturedTask(fields) {
+  if (captureSubmitting) return;
+  const title = fields.title;
   if (!title) return;
   let project = state.captureProjectId || defaultProjectId();
-  if (projectToken) {
-    const resolved = projectResolver(state.projects)(projectToken);
-    if (resolved) project = resolved; // a valid #project overrides the default
+  if (fields.project) {
+    const resolved = projectResolver(state.projects)(fields.project);
+    if (resolved) project = resolved; // an explicit/parsed project overrides the destination
   }
   if (!project) { showToast('Create a project first.'); return; }
+  captureSubmitting = true;
   try {
     await createTask({
-      title, description: '', notes: '', priority: priority || 'medium',
-      status: state.captureStatus || 'planned', project,
-      dueDate: dueDate || state.captureDueDate || null, labels: labels || [],
+      title, description: '', notes: '', priority: fields.priority || 'medium',
+      // captureStatus is design vocab ('backlog'|'planned') — translate at the
+      // API boundary ('backlog' → 'notes'); sending it raw 400s.
+      status: apiStatus(state.captureStatus || 'planned'), project,
+      dueDate: fields.dueDate || null,
+      dueTime: fields.dueDate ? fields.dueTime || null : null,
+      recurrence: fields.recurrence || null,
+      labels: fields.labels || [],
       sortOrder: state.tasks.length,
     });
-    setState({ captureOpen: false, captureQuery: '', captureMenuOpen: false });
+    setState({ captureOpen: false, captureQuery: '', captureMenuOpen: false, ...nlCaptureResetPatch() });
     await loadTasks();
     const name = state.projects.find(p => p.id === project)?.name || 'project';
     showToast(`Added to ${name}`);
   } catch {
     alertError('create this task');
+  } finally {
+    captureSubmitting = false;
   }
   renderApp();
+}
+
+// Plain Enter with a preview showing: create the previewed task. The input is
+// the (editable) title — sigils typed into it after the parse still win via a
+// re-merge (they are visible in the input, so the preview stays truthful).
+async function confirmNlCapture() {
+  const fields = mergeNlCapture(state.captureQuery, { ...state.nlCaptureFields, title: '' });
+  // The preview is authoritative: what you see is exactly what gets created
+  // (the due-today default was already surfaced as a removable chip).
+  await submitCapturedTask(fields);
+}
+
+// ✦ Translate in the Filter view: the input's English becomes a grammar string
+// in the same input — transparent, editable, saveable. An invalid expression is
+// still landed (the existing error hint explains it) rather than discarded.
+async function runNlFilter() {
+  const text = (state.activeFilterExpr || '').trim();
+  if (!text || state.nlFilterLoading || !state.chatStatus?.available) return;
+  const token = (nlFilterToken += 1);
+  nlFilterAbort?.abort();
+  nlFilterAbort = new AbortController();
+  const timer = setTimeout(() => nlFilterAbort?.abort(), NL_TIMEOUT_MS);
+  setState({ nlFilterLoading: true, nlFilterError: null, nlFilterWarnings: [] });
+  renderApp();
+  try {
+    const res = await parseNlFilter({ text, date: todayISODate(), ...nlGrounding() }, { signal: nlFilterAbort.signal });
+    // Drop a stale response: superseded, or the user left the Filter view —
+    // a late translation must not mutate the expression under another view.
+    if (token !== nlFilterToken || state.navType !== 'filter') return;
+    if (res.degraded) {
+      setState({
+        nlFilterLoading: false,
+        nlFilterError: res.reason === 'no-chat-model'
+          ? 'No AI model configured — set one in Settings ▸ Intelligence.'
+          : 'The model could not translate this. Try rephrasing.',
+      });
+    } else if (res.expr) {
+      setState({
+        nlFilterLoading: false,
+        activeFilterExpr: res.expr,
+        activeSmartViewId: null,
+        nlFilterSource: text,
+        nlFilterWarnings: res.warnings || [],
+      });
+    } else {
+      setState({ nlFilterLoading: false, nlFilterError: 'The model could not produce a filter. Try rephrasing.' });
+    }
+  } catch (err) {
+    if (token !== nlFilterToken || state.navType !== 'filter') return;
+    setState({
+      nlFilterLoading: false,
+      nlFilterError: err?.name === 'AbortError' ? 'The model took too long — try again.' : 'Could not reach the model.',
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+  if (token === nlFilterToken && state.navType === 'filter') {
+    renderApp();
+    const input = appRoot.querySelector('[data-filter-input]');
+    if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+  }
+}
+
+async function addQuickTask(rawTitle) {
+  // Shorthand (!high, tomorrow, fri, 2026-09-01, #project, @label) is parsed out
+  // of the typed text; an explicit token wins over the view-derived defaults
+  // (here the due-today default applies invisibly — unlike the NL preview,
+  // which surfaces it as a removable chip and is authoritative on its own).
+  const { title, priority, dueDate, project: projectToken, labels } = parseCaptureShorthand(rawTitle);
+  await submitCapturedTask({
+    title, priority, project: projectToken, labels,
+    dueDate: dueDate || state.captureDueDate || null,
+  });
 }
 
 function installShortcuts() {
@@ -3110,13 +3365,15 @@ function installShortcuts() {
         if (projectId) goProject(projectId, view);
       },
       openPalette() {
-        setState({ paletteOpen: true, paletteQuery: '', paletteSelection: 0, captureOpen: false });
+        // Closing capture must also discard/abort the NL layer, or a stale
+        // preview (or a late parse response) haunts the next capture.
+        setState({ paletteOpen: true, paletteQuery: '', paletteSelection: 0, captureOpen: false, ...nlCaptureResetPatch() });
         renderApp();
       },
       openAssistant,
       toggleTheme,
       openCapture() {
-        setState({ captureOpen: true, captureQuery: '', paletteOpen: false, ...captureDefaults() });
+        setState({ captureOpen: true, captureQuery: '', paletteOpen: false, ...captureDefaults(), ...nlCaptureResetPatch() });
         renderApp();
       },
       toggleDoneSelected() {

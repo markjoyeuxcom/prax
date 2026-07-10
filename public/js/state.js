@@ -118,6 +118,17 @@ export const state = {
   assistantPending: null,       // null, or [{ id, name, input, summary }] writes awaiting confirmation
   assistantError: null,         // null | error message string
 
+  // ---- NL capture & NL→filter (Tier-3 #8) ----
+  nlCaptureLoading: false,
+  nlCaptureFields: null,        // merged preview fields ({priority,dueDate,dueTime,recurrence,project,labels}) or null
+  nlCaptureDropped: [],         // [{field,value}] the model hallucinated and we ignored (shown muted)
+  nlCaptureRaw: null,           // the text as typed, before the cleaned title replaced it (Esc restores)
+  nlCaptureError: null,
+  nlFilterLoading: false,
+  nlFilterSource: null,         // the English that produced activeFilterExpr (provenance hint + restore)
+  nlFilterWarnings: [],         // semantic lint from the server audit
+  nlFilterError: null,
+
   // ---- editor AI writing actions (Tier-3 #7) ----
   writeMenuOpen: false,         // the ✦ AI toolbar dropdown
   writeSelection: null,         // selection captured at menu-open ({from,to,text}) — renderApp clears the live one
