@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { detectProject } from '../../cli/lib/detectProject.js';
+import { detectProject, detectRepoUrl } from '../../cli/lib/detectProject.js';
 
 test('flag wins over everything', () => {
   const out = detectProject({ flag: 'explicit', env: 'envproj', cwd: '/work/repo', readFile: () => '{"project":"fromfile"}' });
@@ -47,4 +47,75 @@ test('returns null project when cwd is root and nothing else resolves', () => {
 test('ignores a malformed project.json and keeps walking', () => {
   const out = detectProject({ cwd: '/work/repo', readFile: (p) => (p === '/work/repo/.prax/project.json' ? 'not json' : (() => { throw new Error('nope'); })()) });
   assert.deepEqual(out, { project: 'repo', source: 'folder' });
+});
+
+// ---- detectRepoUrl (repo-URL project detection) -----------------------------
+
+const GIT_CONFIG = `[core]
+\trepositoryformatversion = 0
+[remote "origin"]
+\turl = git@github.com:awaybreaktoday/prax.git
+\tfetch = +refs/heads/*:refs/remotes/origin/*
+[remote "backup"]
+\turl = git@example.com:other/mirror.git
+`;
+
+test('detectRepoUrl reads [remote "origin"] from .git/config, walking up', () => {
+  const files = { '/repo/.git/config': GIT_CONFIG };
+  const readFile = (p) => { if (p in files) return files[p]; throw new Error('ENOENT'); };
+  assert.equal(detectRepoUrl({ cwd: '/repo/sub/dir', readFile }), 'git@github.com:awaybreaktoday/prax.git');
+});
+
+test('detectRepoUrl follows a worktree .git FILE to the shared config', () => {
+  const files = {
+    '/wt/.git': 'gitdir: /repo/.git/worktrees/wt\n',
+    '/repo/.git/config': GIT_CONFIG,
+  };
+  const readFile = (p) => { if (p in files) return files[p]; throw new Error('ENOENT'); };
+  assert.equal(detectRepoUrl({ cwd: '/wt', readFile }), 'git@github.com:awaybreaktoday/prax.git');
+});
+
+test('detectRepoUrl ignores non-origin remotes and returns null outside a repo', () => {
+  const noOrigin = { '/repo/.git/config': '[remote "upstream"]\n\turl = git@x.com:a/b.git\n' };
+  const readFile = (p) => { if (p in noOrigin) return noOrigin[p]; throw new Error('ENOENT'); };
+  assert.equal(detectRepoUrl({ cwd: '/repo', readFile }), null);
+  assert.equal(detectRepoUrl({ cwd: '/tmp/elsewhere', readFile: () => { throw new Error('ENOENT'); } }), null);
+});
+
+test('detectRepoUrl treats the first .git as the repo BOUNDARY — no origin means null, never the enclosing repo', () => {
+  const files = {
+    '/home/u/code/.git/config': GIT_CONFIG, // enclosing repo (has origin)
+    '/home/u/code/newproj/.git/config': '[core]\n\trepositoryformatversion = 0\n', // fresh init, no remote
+  };
+  const readFile = (p) => { if (p in files) return files[p]; throw new Error('ENOENT'); };
+  assert.equal(detectRepoUrl({ cwd: '/home/u/code/newproj', readFile }), null); // NOT the dotfiles/code origin
+  assert.equal(detectRepoUrl({ cwd: '/home/u/code', readFile }), 'git@github.com:awaybreaktoday/prax.git');
+});
+
+test('detectRepoUrl worktree slice anchors on /.git/worktrees/ — a directory named "worktrees" in the path is fine', () => {
+  const files = {
+    '/home/u/wt/.git': 'gitdir: /home/u/worktrees/proj/.git/worktrees/wt\n',
+    '/home/u/worktrees/proj/.git/config': GIT_CONFIG,
+  };
+  const readFile = (p) => { if (p in files) return files[p]; throw new Error('ENOENT'); };
+  assert.equal(detectRepoUrl({ cwd: '/home/u/wt', readFile }), 'git@github.com:awaybreaktoday/prax.git');
+});
+
+test('detectRepoUrl: a submodule inside a linked worktree uses ITS OWN config, not the superproject', () => {
+  const files = {
+    '/data/wt/sub/.git': 'gitdir: /data/main/.git/worktrees/wt/modules/sub\n',
+    '/data/main/.git/worktrees/wt/modules/sub/config': '[remote "origin"]\n\turl = git@github.com:org/sub.git\n',
+    '/data/main/.git/config': GIT_CONFIG, // superproject — must NOT win
+  };
+  const readFile = (p) => { if (p in files) return files[p]; throw new Error('ENOENT'); };
+  assert.equal(detectRepoUrl({ cwd: '/data/wt/sub', readFile }), 'git@github.com:org/sub.git');
+});
+
+test('detectRepoUrl handles Windows-style absolute gitdir pointers (drive letter + forward slashes)', () => {
+  const files = {
+    '/wt/.git': 'gitdir: C:/Users/u/proj/.git/worktrees/wt\n',
+    'C:/Users/u/proj/.git/config': GIT_CONFIG,
+  };
+  const readFile = (p) => { if (p in files) return files[p]; throw new Error('ENOENT'); };
+  assert.equal(detectRepoUrl({ cwd: '/wt', readFile }), 'git@github.com:awaybreaktoday/prax.git');
 });

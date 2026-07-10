@@ -87,8 +87,11 @@ next steps, by value:
 
 - [ ] **External references.** Link a memory to a GitHub/GitLab/URL without copying the content
   (`memory_external_refs`). *(medium–large)*
-- [ ] **Repo-URL project detection.** `prax` auto-detects the project from the git remote URL
-  (projects gain a repo-URL field). *(medium)*
+- [x] **Repo-URL project detection.** `prax` auto-detects the project from the git remote URL
+  (projects gain a repo-URL field). Shipped: `repo_url` (migration 0009) + a **Repo** field in
+  the project header; one shared normalizer (`server/repoUrl.js`) matches any spelling of the
+  same remote; detection precedence `--project` > `PRAX_PROJECT` > `.prax/project.json` >
+  git remote match > folder name; `prax init` registers the URL automatically.
 - [ ] **RAG / "Ask Project".** An optional retrieval + generation layer, kept separate from the
   retrieval-only default. *(large)*
 - [ ] **Memory type taxonomy.** Richer `decision` / `runbook` / `known-issue` / … types
