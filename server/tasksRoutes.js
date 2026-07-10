@@ -1,6 +1,7 @@
 import { createTasksRepository } from './tasksRepository.js';
 import { createProjectsRepository } from './projectsRepository.js';
 import { isValidRecurrence, nextDueDate } from './recurrence.js';
+import { tasksToIcs } from './icsFeed.js';
 import {
   cleanNlText, boundGrounding, buildNlCaptureMessages, coerceNlCaptureFields,
   buildNlFilterMessages, coerceNlFilterExpr, auditFilterExpr,
@@ -408,6 +409,38 @@ export async function registerTasksRoutes(app, options = {}) {
       if (projectId === null) { reply.code(400); return { message: 'project is invalid' }; }
     }
     return repository.listTasks({ ...request.query, projectId });
+  });
+
+  // iCalendar feed of open dated tasks — subscribe from Apple Calendar,
+  // Thunderbird, or anything that takes a URL (Google Calendar's "from URL"
+  // needs the address to be reachable from Google's servers, so it only works
+  // when Prax is exposed beyond localhost). Optional ?project=<slug|id> scopes
+  // the feed and names the calendar after the project.
+  app.get('/api/calendar.ics', async (request, reply) => {
+    let projectId;
+    if (request.query.project && request.query.project !== 'all') {
+      projectId = await resolveProjectId(request.query.project);
+      if (projectId === null) { reply.code(400); return { message: 'project is invalid' }; }
+    }
+    const tasks = await repository.listTasks(projectId ? { projectId } : {});
+    // Same inclusion rule as the in-app calendar grid (isOpen && !snoozed):
+    // completed is done, 'notes' is the design-vocab backlog, and a snoozed
+    // task (deferredUntil in the future) is hidden everywhere in the app — the
+    // subscribed calendar must not resurface what the user just deferred.
+    // Archived is already excluded by listTasks' default.
+    const feedNow = new Date();
+    const dated = (tasks || []).filter((task) => task.dueDate
+      && task.status !== 'completed' && task.status !== 'notes'
+      && !(task.deferredUntil && new Date(task.deferredUntil) > feedNow));
+    const projects = await projectsRepository.listProjects();
+    const names = new Map((projects || []).map((p) => [p.id, p.name]));
+    reply.header('Content-Type', 'text/calendar; charset=utf-8');
+    reply.header('Content-Disposition', 'inline; filename="prax.ics"');
+    return tasksToIcs(dated, {
+      calendarName: projectId && names.get(projectId) ? `Prax — ${names.get(projectId)}` : 'Prax',
+      projectNamesById: names,
+      now: new Date().toISOString(),
+    });
   });
 
   app.get('/api/tasks/board-extras', async (request, reply) => {

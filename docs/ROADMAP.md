@@ -107,6 +107,11 @@ next steps, by value:
 
 ## Platform-adjacent (lower priority)
 
+- [x] **Calendar view + ICS feed.** A Monday-start month grid of open dated tasks (sidebar
+  **Calendar** entry; day detail strip reuses the standard task rows) plus `GET /api/calendar.ics`
+  — an RFC 5545 feed (all-day + floating-time events, stable UIDs, no RRULE by design,
+  `?project=` scoping) that Apple Calendar / Thunderbird can subscribe to. The desktop shell
+  hides the subscribe URL until it gains a stable port (its port is per-launch).
 - [ ] **CI image on merge.** Publish a `main`/SHA-tagged image so a dev environment can track a
   live build (today images are built on version tags; per-env image versions are pinned in Argo).
   *(medium)*

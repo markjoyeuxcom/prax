@@ -199,6 +199,7 @@ export function renderSidebarHtml(state, counts = {}) {
   const nav = [
     sideNavItem({ label: 'Today', iconName: 'check', action: 'nav-today', active: state.navType === 'today', badge: counts.todayBadge }),
     sideNavItem({ label: 'Upcoming', iconName: 'calendar', action: 'nav-upcoming', active: state.navType === 'upcoming', badge: counts.upcomingBadge }),
+    sideNavItem({ label: 'Calendar', iconName: 'month', action: 'nav-calendar', active: state.navType === 'calendar' }),
     sidebarInboxItem(state, counts),
     sideNavItem({ label: 'All projects', iconName: 'grid', action: 'nav-all', active: state.navType === 'all' }),
     sideNavItem({ label: 'Library', iconName: 'book', action: 'nav-library', active: isLibraryNav(state) }),
@@ -235,6 +236,7 @@ export function renderRailHtml(state) {
   const navs = [
     { title: 'Today', iconName: 'check', action: 'nav-today', active: state.navType === 'today' },
     { title: 'Upcoming', iconName: 'calendar', action: 'nav-upcoming', active: state.navType === 'upcoming' },
+    { title: 'Calendar', iconName: 'month', action: 'nav-calendar', active: state.navType === 'calendar' },
     ...(inbox ? [{ title: 'Inbox', iconName: 'inbox', action: 'nav-project', active: isCurrentProject(state, inbox.id), projectId: inbox.id }] : []),
     { title: 'All projects', iconName: 'grid', action: 'nav-all', active: state.navType === 'all' },
     { title: 'Library', iconName: 'book', action: 'nav-library', active: isLibraryNav(state) },
