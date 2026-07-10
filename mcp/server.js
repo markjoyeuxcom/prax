@@ -11,6 +11,7 @@ import { createLinkTools } from './tools/links.js';
 import { createChecklistTools } from './tools/checklist.js';
 import { createActivityTools } from './tools/activity.js';
 import { createDocumentLinkTools } from './tools/documentLinks.js';
+import { createExternalRefTools } from './tools/externalRefs.js';
 import { createGraphMaintenanceTools } from './tools/graphMaintenance.js';
 import { createSemanticSearchTools } from './tools/semanticSearch.js';
 import { createRunTools } from './tools/runs.js';
@@ -32,6 +33,7 @@ export function buildToolset(client) {
     ...createChecklistTools(client),
     ...createActivityTools(client),
     ...createDocumentLinkTools(client),
+    ...createExternalRefTools(client),
     ...createGraphMaintenanceTools(client),
     ...createSemanticSearchTools(client),
     ...createRunTools(client),

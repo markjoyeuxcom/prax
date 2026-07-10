@@ -6,6 +6,7 @@ import { createLinkTools } from '../../mcp/tools/links.js';
 import { createChecklistTools } from '../../mcp/tools/checklist.js';
 import { createActivityTools } from '../../mcp/tools/activity.js';
 import { createDocumentLinkTools } from '../../mcp/tools/documentLinks.js';
+import { createExternalRefTools } from '../../mcp/tools/externalRefs.js';
 import { createGraphMaintenanceTools } from '../../mcp/tools/graphMaintenance.js';
 import { createSemanticSearchTools } from '../../mcp/tools/semanticSearch.js';
 import { createRunTools } from '../../mcp/tools/runs.js';
@@ -33,6 +34,9 @@ const FROZEN_TOOLS = {
   link_documents: { required: ['sourceId', 'targetId', 'relation'], optional: [] },
   unlink_documents: { required: ['sourceId', 'targetId', 'relation'], optional: [] },
   supersede_document: { required: ['documentId', 'supersededBy'], optional: [] },
+  list_external_refs: { required: ['documentId'], optional: [] },
+  add_external_ref: { required: ['documentId', 'url'], optional: ['label'] },
+  remove_external_ref: { required: ['documentId', 'refId'], optional: [] },
   list_stale_documents: { required: [], optional: ['project'] },
   list_orphan_documents: { required: [], optional: ['project'] },
   search_documents_semantic: { required: ['query'], optional: ['project'] },
@@ -51,6 +55,7 @@ function allTools(client = {}) {
     ...createChecklistTools(client),
     ...createActivityTools(client),
     ...createDocumentLinkTools(client),
+    ...createExternalRefTools(client),
     ...createGraphMaintenanceTools(client),
     ...createSemanticSearchTools(client),
     ...createRunTools(client),

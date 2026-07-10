@@ -1674,6 +1674,19 @@ a { color: var(--accent); }
 .doc-row + .doc-row { margin-top: 6px; }
 .doc-row__title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+/* External references (Tier — external refs): open in a new tab */
+.doc-row--external { color: var(--ink); text-decoration: none; }
+.doc-row--external:hover { border-color: var(--accent); }
+.doc-row--inert { cursor: default; }
+.doc-row--inert:hover { border-color: var(--line); }
+.doc-row__kind { flex: none; }
+.doc-row__ext { flex: none; color: var(--ink3); font-size: 11px; }
+.chip--ref-github { background: color-mix(in oklab, var(--ink) 8%, transparent); color: var(--ink2); }
+.chip--ref-gitlab { background: color-mix(in oklab, #b0713a 14%, transparent); color: #b0713a; }
+.chip--ref-link { background: color-mix(in oklab, #3a7ca5 13%, transparent); color: #3a7ca5; }
+.editor-info__field:has(.editor-info__refs) { align-items: flex-start; }
+.editor-info__refs { font-family: var(--mono); font-size: 11.5px; resize: vertical; min-height: 52px; line-height: 1.5; }
+
 .timeline { position: relative; padding-left: 16px; }
 .timeline::before {
   content: '';

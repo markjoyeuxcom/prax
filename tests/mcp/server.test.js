@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildServer } from '../../mcp/server.js';
 
-const EXPECTED_TOOL_COUNT = 32; // 5 document (incl ask_library) + 4 task + 3 link + 4 checklist + 1 activity + 4 document-link + 2 graph-maintenance + 1 semantic-search + 5 runbook-run + 3 insight (ask_prax, generate_post_mortem, generate_runbook) tools
+const EXPECTED_TOOL_COUNT = 35; // 5 document (incl ask_library) + 4 task + 3 link + 4 checklist + 1 activity + 4 document-link + 3 external-ref + 2 graph-maintenance + 1 semantic-search + 5 runbook-run + 3 insight (ask_prax, generate_post_mortem, generate_runbook) tools
 
 test('registers all tools with unique names', () => {
   const registered = [];

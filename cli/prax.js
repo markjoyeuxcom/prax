@@ -63,7 +63,7 @@ Usage:
   prax search <query> [--all] [--json]
   prax recall [query...] [--project <slug>] [--limit <n>] [--recent [n]] [--json]
   prax get <id> [--json]
-  prax remember <title> [--body <text>] [--memory] [--type note|runbook|decision|known-issue|reference|post-mortem] [--tag a,b]
+  prax remember <title> [--body <text>] [--memory] [--type note|runbook|decision|known-issue|reference|post-mortem] [--tag a,b] [--ref <url>]
   prax verify <id> [--as <name>]
   prax unverify <id>
   prax supersede <oldId> --with <newId>
@@ -183,6 +183,12 @@ async function main(argv) {
     const userTags = flags.tag ? String(flags.tag).split(',').map((t) => t.trim()).filter(Boolean) : [];
     const tags = [...userTags, ...(flags.memory ? ['memory'] : [])];
     const { doc, action } = await remember(client, { title, body, project, type, tags });
+    // Optional --ref <url> attaches an external reference to the memory. Best-
+    // effort: a bad URL doesn't fail the remember (the doc is already saved).
+    if (flags.ref && flags.ref !== true) {
+      try { await client.addExternalRef(doc.id, { url: String(flags.ref) }); }
+      catch (err) { process.stderr.write(`prax: could not attach --ref: ${err.message}\n`); }
+    }
     out(flags.json ? doc : `${action === 'updated' ? 'Updated' : 'Remembered'} "${doc.title}" (${doc.id}) — unverified.`);
     return;
   }

@@ -21,6 +21,7 @@ import {
 import {
   fetchDocuments, createDocument, updateDocument, archiveDocument,
   restoreDocument, deleteDocumentPermanently, fetchDocumentLinks, fetchDocumentTaskBacklinks, fetchSimilarDocuments,
+  fetchExternalRefs, addExternalRef, removeExternalRef,
   fetchStaleDocuments, fetchOrphanDocuments, fetchSemanticStatus,
   setSemanticEnabled, putSemanticSettings, reindexEmbeddings, semanticSearch,
   fetchChatStatus, putChatSettings,
@@ -47,6 +48,7 @@ import { createSavedLibraryView, savedLibraryViewsFromJson } from './librarySave
 import { parseCaptureShorthand, mergeNlCapture } from './captureShorthand.js';
 import { computeDueReminders, isOverdue } from './dueReminders.js';
 import { normalizeLabel } from './labels.js';
+import { parseExternalRefLines } from './externalRefKind.js';
 import { mountCodeMirrorEditor } from '../vendor/codemirror-editor.js';
 import { mountPlainEditor } from './plainEditor.js';
 
@@ -430,7 +432,7 @@ async function loadDocumentTaskBacklinks(documentId) {
     const tasks = await fetchDocumentTaskBacklinks(documentId);
     if (state.editorDocId === documentId) {
       setState({ documentTaskBacklinks: tasks });
-      renderApp();
+      if (!state.isDocumentInfoEditorOpen) renderApp();
     }
   } catch {
     /* backlinks footer stays empty */
@@ -442,7 +444,7 @@ async function loadSimilarDocuments(documentId) {
     const similar = await fetchSimilarDocuments(documentId);
     if (state.editorDocId === documentId) {
       setState({ documentSimilar: similar });
-      renderApp();
+      if (!state.isDocumentInfoEditorOpen) renderApp();
     }
   } catch {
     /* related-docs section stays hidden */
@@ -454,11 +456,51 @@ async function loadDocumentLinks(documentId) {
     const links = await fetchDocumentLinks(documentId, 'both');
     if (state.editorDocId === documentId) {
       setState({ documentLinks: links });
-      renderApp();
+      if (!state.isDocumentInfoEditorOpen) renderApp();
     }
   } catch {
     /* links section stays unfetched */
   }
+}
+
+async function loadExternalRefs(documentId) {
+  try {
+    const refs = await fetchExternalRefs(documentId);
+    if (state.editorDocId === documentId) {
+      setState({ documentExternalRefs: refs });
+      // While the Document info form is open, a re-render would rebuild it
+      // from state and discard whatever the user has typed; the section
+      // renders on the next render (form close, save, or any action).
+      if (!state.isDocumentInfoEditorOpen) renderApp();
+    }
+  } catch {
+    /* refs section stays unfetched */
+  }
+}
+
+// Reconcile the doc-info refs textarea (one `url` or `url | label` per line)
+// against the refs SNAPSHOT the form was seeded from (docInfoRefsSeed):
+// upsert every desired line (the POST is idempotent and also updates a
+// changed label) and delete any seeded ref whose URL is no longer listed.
+// If the seed is null the form opened before the stored refs could be
+// fetched — the user never saw them, so an absent line means "not displayed",
+// not "removed": upserts still apply but nothing is deleted. Best-effort per
+// row so one bad line doesn't abort the rest; returns the failure count so
+// the caller can tell the user about a partial save.
+async function reconcileExternalRefs(documentId, refsText) {
+  const desired = parseExternalRefLines(refsText);
+  const desiredUrls = new Set(desired.map((r) => r.url));
+  const seeded = Array.isArray(state.docInfoRefsSeed) ? state.docInfoRefsSeed : [];
+  let failed = 0;
+  for (const ref of seeded) {
+    if (!desiredUrls.has(ref.url)) {
+      try { await removeExternalRef(documentId, ref.id); } catch { failed += 1; }
+    }
+  }
+  for (const ref of desired) {
+    try { await addExternalRef(documentId, ref); } catch { failed += 1; }
+  }
+  return failed;
 }
 
 // Past runs of a runbook, shown in the editor sidebar. Notes have no runs.
@@ -468,7 +510,7 @@ async function loadDocumentRuns(doc) {
     const runs = await fetchRuns(doc.id);
     if (state.editorDocId === doc.id) {
       setState({ documentRuns: runs });
-      renderApp();
+      if (!state.isDocumentInfoEditorOpen) renderApp();
     }
   } catch {
     /* runs section stays hidden */
@@ -859,6 +901,8 @@ function seedEditorDraft(doc) {
     isDocumentDirty: false,
     documentSaveStatus: 'Saved',
     documentLinks: null,
+    documentExternalRefs: null,
+    docInfoRefsSeed: null,
     documentTaskBacklinks: null,
     documentSimilar: null,
     documentRuns: null,
@@ -1252,6 +1296,7 @@ async function openDocumentInEditor(documentId) {
   setState({ navType: 'editor', editorFocus: false, writeMenuOpen: false, writeSelection: null, writeContext: null, writeResult: null, writeLoading: false, writeError: null });
   renderApp();
   loadDocumentLinks(doc.id);
+  loadExternalRefs(doc.id);
   loadDocumentTaskBacklinks(doc.id);
   loadSimilarDocuments(doc.id);
   loadDocumentRuns(doc);
@@ -2461,7 +2506,23 @@ async function handleAction(action, el, event) {
     }
     case 'toggle-md-check': toggleMarkdownCheck(Number(el.dataset.line)); break;
     case 'toggle-doc-menu': setState({ docMenuOpen: !state.docMenuOpen }); renderApp(); break;
-    case 'edit-document-info': setState({ isDocumentInfoEditorOpen: true, documentInfoError: '', docMenuOpen: false }); renderApp(); break;
+    case 'edit-document-info': {
+      // Snapshot the refs the form is seeded from — save reconciles against
+      // this snapshot, not live state, so a background refs load resolving
+      // mid-edit can't shift what "removing a line" means. If the on-open
+      // load hasn't landed (or failed), fetch now so the user edits the true
+      // stored list; a null seed makes the save merge-only (no deletes).
+      let seed = state.documentExternalRefs;
+      if (!Array.isArray(seed)) {
+        try {
+          seed = await fetchExternalRefs(state.editorDocId);
+          setState({ documentExternalRefs: seed });
+        } catch { seed = null; }
+      }
+      setState({ isDocumentInfoEditorOpen: true, documentInfoError: '', docMenuOpen: false, docInfoRefsSeed: seed });
+      renderApp();
+      break;
+    }
     case 'cancel-document-info': setState({ isDocumentInfoEditorOpen: false, documentInfoError: '' }); renderApp(); break;
     case 'save-document-info': {
       const title = appRoot.querySelector('[data-doc-info-title]')?.value?.trim();
@@ -2469,11 +2530,18 @@ async function handleAction(action, el, event) {
       const tags = (appRoot.querySelector('[data-doc-info-tags]')?.value || '')
         .split(',').map(t => t.trim()).filter(Boolean);
       const sourceFilename = appRoot.querySelector('[data-doc-info-source]')?.value?.trim() || null;
+      const refsText = appRoot.querySelector('[data-doc-info-refs]')?.value || '';
       if (!title) { setState({ documentInfoError: 'Title is required.' }); renderApp(); break; }
+      const docId = state.editorDocId;
       try {
-        await updateDocument(state.editorDocId, { title, documentType, tags, sourceFilename });
+        await updateDocument(docId, { title, documentType, tags, sourceFilename });
+        const refsFailed = await reconcileExternalRefs(docId, refsText);
         await loadDocuments();
         setState({ isDocumentInfoEditorOpen: false });
+        await loadExternalRefs(docId);
+        if (refsFailed) {
+          showToast(`${refsFailed} external reference change${refsFailed === 1 ? '' : 's'} could not be saved.`);
+        }
       } catch {
         setState({ documentInfoError: 'Prax could not save document info.' });
       }

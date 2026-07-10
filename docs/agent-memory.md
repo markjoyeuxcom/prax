@@ -34,7 +34,9 @@ retrieve  →  work  →  persist  →  supersede
 2. **Work** — using the recalled context as grounding (your documented procedures, not guesses).
 3. **Persist-on-learn** — when something durable is learned or decided, run
    `prax-remember "<title>" "<body>"`. It writes to the `memory` project, stamped
-   `updatedBy: agent` + `kind: synthesized`.
+   `updatedBy: agent` + `kind: synthesized`. When the memory is *about* something that lives
+   elsewhere — a PR, a dashboard, an upstream issue — add `--ref <url>` to attach an external
+   reference instead of copying the content in.
 4. **Supersede** — re-`remember`-ing an existing title updates it in place (no duplicate). When one
    memory replaces another distinct one, run `prax supersede <oldId> --with <newId>` — it records
    the `supersedes` link and retires the old document from default retrieval.
