@@ -2,6 +2,7 @@
 // project exists, de-dup by exact title, then create or update. The CALLER resolves
 // the target project slug and composes tags/kind (namespace policy stays in the thin
 // callers). Shared by `prax remember` and the prax-remember skill wrapper.
+import { randomUUID } from 'node:crypto';
 
 // `type` is the EXPLICIT type the user asked for (undefined = not specified).
 // On create it defaults to 'note'; on update-in-place it retypes ONLY when
@@ -23,7 +24,8 @@ export async function remember(client, { title, body, project, type, tags = [], 
     return { doc, action: 'updated' };
   }
   const doc = await client.createMemory({
-    title, body, documentType: type || 'note', project: slug, tags: allTags, ...(kind ? { kind } : {}),
+    id: randomUUID(), title, body, documentType: type || 'note', project: slug, tags: allTags,
+    ...(kind ? { kind } : {}),
   });
   return { doc, action: 'created' };
 }

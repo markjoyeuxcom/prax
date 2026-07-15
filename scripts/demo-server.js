@@ -122,7 +122,7 @@ function createMemoryProjectsRepository(projects) {
 // ---------------------------------------------------------------------------
 function createTask(seed) {
   return {
-    id: randomUUID(),
+    id: seed.id || randomUUID(),
     title: seed.title,
     description: seed.description || '',
     notes: seed.notes || '',
@@ -130,6 +130,10 @@ function createTask(seed) {
     status: seed.status || 'planned',
     projectId: seed.projectId || PROJECT_ID_HOMELAB,
     dueDate: seed.dueDate || null,
+    dueTime: seed.dueTime || null,
+    deferredUntil: seed.deferredUntil || null,
+    recurrence: seed.recurrence || null,
+    labels: Array.isArray(seed.labels) ? [...seed.labels] : [],
     sortOrder: seed.sortOrder || 0,
     createdAt: seed.createdAt || now,
     updatedAt: seed.updatedAt || now,
@@ -227,6 +231,13 @@ function createMemoryTasksRepository(documentsRef, checklistRepositoryRef = null
       const created = createTask(task);
       tasks.push(created);
       return created;
+    },
+    async createTaskIdempotent(task) {
+      const existing = tasks.find(item => item.id === task.id);
+      if (existing) return { task: existing, created: false };
+      const created = createTask(task);
+      tasks.push(created);
+      return { task: created, created: true };
     },
     async importTasks(importedTasks) {
       const created = importedTasks.map(createTask);
@@ -438,6 +449,11 @@ function createMemoryLibraryRepository(documents, linksRef = null) {
       if (!document) return null;
       Object.assign(document, fields, { updatedAt: new Date().toISOString() });
       document.updatedBy = fields.updatedBy || 'user';
+      if (fields.updatedBy === 'agent') {
+        document.verified = false;
+        document.verifiedAt = null;
+        document.verifiedBy = null;
+      }
       if (Object.prototype.hasOwnProperty.call(fields, 'body')) {
         document.contentHash = hashBody(fields.body);
       }
@@ -458,8 +474,8 @@ function createMemoryLibraryRepository(documents, linksRef = null) {
       document.archivedAt = null;
       return document;
     },
-    async deleteArchivedDocument(id) {
-      const index = documents.findIndex(item => item.id === id && item.archivedAt);
+    async deleteDocument(id) {
+      const index = documents.findIndex(item => item.id === id);
       if (index < 0) return null;
       return documents.splice(index, 1)[0];
     },

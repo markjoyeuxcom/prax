@@ -41,9 +41,9 @@ test('search_documents maps args to listDocuments and returns refs without bodie
   const res = await tool.handler({ query: 'upgrade', project: 'homelab' });
   assert.deepEqual(received, { q: 'upgrade', project: 'homelab', documentType: undefined, kind: undefined, status: 'active' });
   const data = JSON.parse(res.content[0].text);
-  assert.equal(data.length, 1);
-  assert.equal('body' in data[0], false);
-  assert.equal(data[0].snippet, 'long runbook body');
+  assert.equal(data.items.length, 1);
+  assert.equal('body' in data.items[0], false);
+  assert.equal(data.items[0].snippet, 'long runbook body');
 });
 
 test('search_documents allows an omitted query (browse by project/tags)', async () => {
@@ -52,7 +52,7 @@ test('search_documents allows an omitted query (browse by project/tags)', async 
   const tool = byName(createDocumentTools(client), 'search_documents');
   const res = await tool.handler({ project: 'homelab' });
   assert.deepEqual(received, { q: undefined, project: 'homelab', documentType: undefined, kind: undefined, status: 'active' });
-  assert.equal(JSON.parse(res.content[0].text).length, 1);
+  assert.equal(JSON.parse(res.content[0].text).items.length, 1);
 });
 
 test('search_documents is active-only by default and status=all lifts the filter', async () => {
@@ -74,9 +74,9 @@ test('search_documents filters by tags client-side', async () => {
   const client = { listDocuments: async () => [SAMPLE_DOC] };
   const tool = byName(createDocumentTools(client), 'search_documents');
   const hit = JSON.parse((await tool.handler({ query: 'x', tags: ['k8s'] })).content[0].text);
-  assert.equal(hit.length, 1);
+  assert.equal(hit.items.length, 1);
   const miss = JSON.parse((await tool.handler({ query: 'x', tags: ['absent'] })).content[0].text);
-  assert.equal(miss.length, 0);
+  assert.equal(miss.items.length, 0);
 });
 
 test('get_document rejects a bad UUID before calling the client', async () => {
@@ -109,10 +109,10 @@ test('create_document forwards args to the client', async () => {
   let received;
   const client = { createDocument: async (p) => { received = p; return { id: 'new', ...p }; } };
   const tool = byName(createDocumentTools(client), 'create_document');
-  const payload = { title: 'New', body: 'b', documentType: 'note', project: 'work', tags: ['x'] };
+  const payload = { id: SAMPLE_DOC.id, title: 'New', body: 'b', documentType: 'note', project: 'work', tags: ['x'] };
   const res = await tool.handler(payload);
   assert.deepEqual(received, payload);
-  assert.equal(JSON.parse(res.content[0].text).id, 'new');
+  assert.equal(JSON.parse(res.content[0].text).id, SAMPLE_DOC.id);
 });
 
 test('update_document rejects empty patches and bad UUIDs', async () => {

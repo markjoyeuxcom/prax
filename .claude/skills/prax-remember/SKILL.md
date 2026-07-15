@@ -38,6 +38,8 @@ node .claude/skills/prax-remember/remember.mjs "<title>" "<body>" [--tags a,b] [
 
 - **De-dup by title:** if a document with the same title already exists in the target project it is
   **updated in place** (body + tags), not duplicated — so re-remembering refines an existing memory.
+- **Retry-safe create:** a new memory is assigned a caller-stable UUID before the request; one lost
+  transport response is retried with that same identity, so the skill cannot duplicate the note.
 - **Provenance:** writes are stamped `updatedBy: agent` and `kind: synthesized`, so machine-written
   memory is distinguishable from your hand-authored docs and is groomed aggressively by the
   stale/maintenance tooling.

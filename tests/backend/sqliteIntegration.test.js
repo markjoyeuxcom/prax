@@ -83,6 +83,94 @@ test('tasks: create, list filters, update, activity', async () => {
   assert.ok(messages.some(m => /Status/.test(m)), `status event missing: ${messages}`);
 });
 
+test('tasks: client creation identity is exact-once and conflicting reuse is rejected', async () => {
+  const id = '77777777-7777-4777-8777-777777777777';
+  const payload = {
+    id,
+    title: 'Exact-once UI capture',
+    priority: 'medium',
+    status: 'planned',
+    project: 'homelab',
+    labels: ['waiting'],
+    sortOrder: 19,
+  };
+  const first = await app.inject({ method: 'POST', url: '/api/tasks', payload });
+  const replay = await app.inject({ method: 'POST', url: '/api/tasks', payload });
+  const conflict = await app.inject({
+    method: 'POST', url: '/api/tasks', payload: { ...payload, title: 'Different task' },
+  });
+  assert.equal(first.statusCode, 201);
+  assert.equal(replay.statusCode, 200);
+  assert.equal(conflict.statusCode, 409);
+
+  const tasks = (await app.inject({ method: 'GET', url: '/api/tasks?project=homelab' })).json();
+  assert.equal(tasks.filter(task => task.id === id).length, 1);
+  const activity = (await app.inject({ method: 'GET', url: `/api/tasks/${id}/activity` })).json();
+  assert.equal(activity.filter(event => event.eventType === 'created').length, 1);
+});
+
+test('tasks: caller-identified batch import is exact-once and rejects changed intent', async () => {
+  const requestId = '88888888-8888-4888-8888-888888888888';
+  const title = 'Exact-once imported batch';
+  const payload = {
+    requestId,
+    project: 'personal',
+    mode: 'append',
+    tasks: [{ title, priority: 'low', status: 'planned', checklist: [{ label: 'Verify once' }] }],
+  };
+  const [first, replay] = await Promise.all([
+    app.inject({ method: 'POST', url: '/api/tasks/import', payload }),
+    app.inject({ method: 'POST', url: '/api/tasks/import', payload }),
+  ]);
+  assert.deepEqual([first.statusCode, replay.statusCode].sort(), [200, 201]);
+  const firstResult = first.statusCode === 201 ? first.json() : replay.json();
+  const replayResult = first.statusCode === 200 ? first.json() : replay.json();
+  assert.equal(firstResult.replayed, false);
+  assert.equal(replayResult.replayed, true);
+  assert.equal(firstResult.tasks[0].id, replayResult.tasks[0].id);
+
+  const conflict = await app.inject({
+    method: 'POST',
+    url: '/api/tasks/import',
+    payload: { ...payload, tasks: [{ title: 'Changed reuse' }] },
+  });
+  assert.equal(conflict.statusCode, 409);
+
+  const tasks = (await app.inject({ method: 'GET', url: '/api/tasks?project=personal' })).json();
+  const matches = tasks.filter(task => task.title === title);
+  assert.equal(matches.length, 1);
+  const checklist = (await app.inject({
+    method: 'GET', url: `/api/tasks/${matches[0].id}/checklist`,
+  })).json();
+  assert.deepEqual(checklist.map(item => item.label), ['Verify once']);
+});
+
+test('tasks: concurrent distinct skip imports deduplicate inside the write transaction', async () => {
+  const title = 'Concurrent skip import';
+  const importPayload = requestId => ({
+    requestId,
+    project: 'work',
+    mode: 'skip',
+    tasks: [{ title, priority: 'medium', status: 'planned' }],
+  });
+  const [left, right] = await Promise.all([
+    app.inject({
+      method: 'POST',
+      url: '/api/tasks/import',
+      payload: importPayload('91000000-0000-4000-8000-000000000001'),
+    }),
+    app.inject({
+      method: 'POST',
+      url: '/api/tasks/import',
+      payload: importPayload('91000000-0000-4000-8000-000000000002'),
+    }),
+  ]);
+  assert.deepEqual([left.json().imported, right.json().imported].sort(), [0, 1]);
+  assert.deepEqual([left.json().skipped, right.json().skipped].sort(), [0, 1]);
+  const tasks = (await app.inject({ method: 'GET', url: '/api/tasks?project=work' })).json();
+  assert.equal(tasks.filter(task => task.title === title).length, 1);
+});
+
 test('tasks: reorder persists status + sortOrder in one call', async () => {
   const res = await app.inject({
     method: 'PATCH',
@@ -96,7 +184,9 @@ test('tasks: reorder persists status + sortOrder in one call', async () => {
   });
   assert.equal(res.statusCode, 200);
   const list = await app.inject({ method: 'GET', url: '/api/tasks?project=homelab' });
-  const ordered = list.json().filter(t => t.status === 'planned').sort((a, b) => a.sortOrder - b.sortOrder);
+  const ordered = list.json()
+    .filter(t => t.id === taskA.id || t.id === taskB.id)
+    .sort((a, b) => a.sortOrder - b.sortOrder);
   assert.deepEqual(ordered.map(t => t.title), ['Rotate TLS certs', 'Swap NAS drive']);
 });
 
@@ -236,6 +326,34 @@ test('library: create with tags, FTS search, filters', async () => {
   assert.deepEqual(byKind.json().map(d => d.id), [docDerived.id]);
 });
 
+test('library: caller document id is exact-once across a lost-response retry', async () => {
+  const id = '92000000-0000-4000-8000-000000000001';
+  const payload = {
+    id,
+    title: 'Exact-once Markdown import',
+    body: '# Exact-once Markdown import\n\nBody\n',
+    documentType: 'note',
+    project: 'work',
+    tags: ['imported'],
+    sourceFilename: 'exact-once.md',
+  };
+
+  const created = await app.inject({ method: 'POST', url: '/api/library/documents', payload });
+  const replayed = await app.inject({ method: 'POST', url: '/api/library/documents', payload });
+  const conflicting = await app.inject({
+    method: 'POST',
+    url: '/api/library/documents',
+    payload: { ...payload, body: '# Changed after identity allocation' },
+  });
+
+  assert.equal(created.statusCode, 201);
+  assert.equal(replayed.statusCode, 200);
+  assert.equal(replayed.json().id, id);
+  assert.equal(conflicting.statusCode, 409);
+  const listed = await app.inject({ method: 'GET', url: '/api/library/documents?project=work' });
+  assert.equal(listed.json().filter(document => document.id === id).length, 1);
+});
+
 test('library: query-scoped context-pack gathers relevant docs (semantic off → keyword fallback)', async () => {
   // Markdown by default — includes the matching verified runbook.
   const md = await app.inject({ method: 'GET', url: '/api/library/context-pack?q=pgbouncer' });
@@ -253,7 +371,7 @@ test('library: query-scoped context-pack gathers relevant docs (semantic off →
   assert.equal((await app.inject({ method: 'GET', url: '/api/library/context-pack?q=x&project=no-such-project' })).statusCode, 400);
 });
 
-test('library: runbook execution — start snapshots steps, check timestamps, finish', async () => {
+test('library: runbook execution is exact-once, resumable, terminal on completion, and source-independent', async () => {
   const created = await app.inject({
     method: 'POST',
     url: '/api/library/documents',
@@ -265,20 +383,43 @@ test('library: runbook execution — start snapshots steps, check timestamps, fi
     },
   });
   const runbookId = created.json().id;
+  const runId = '88888888-8888-4888-8888-888888888888';
 
-  // Start a run — steps are snapshotted from the checkbox lines.
-  const start = await app.inject({ method: 'POST', url: `/api/library/documents/${runbookId}/runs`, payload: { title: 'DR drill' } });
+  // Start identity is caller-stable: a retry returns the same operation and no
+  // second start event. Non-runbook documents cannot be executed.
+  const start = await app.inject({
+    method: 'POST',
+    url: `/api/library/documents/${runbookId}/runs`,
+    payload: { id: runId, title: 'DR drill' },
+  });
   assert.equal(start.statusCode, 201);
   const run = start.json();
+  assert.equal(run.id, runId);
   assert.equal(run.status, 'running');
   assert.equal(run.title, 'DR drill');
+  assert.equal(run.documentTitle, 'Failover runbook');
+  assert.equal(run.events[0].type, 'started');
   assert.deepEqual(run.steps.map(s => s.text), ['Stop writes', 'Promote replica', 'Repoint app']);
   assert.ok(run.steps.every(s => s.checkedAt === null));
+  const retry = await app.inject({
+    method: 'POST',
+    url: `/api/library/documents/${runbookId}/runs`,
+    payload: { id: runId, title: 'DR drill' },
+  });
+  assert.equal(retry.statusCode, 200);
+  assert.equal(retry.json().events.length, 1);
+  assert.equal((await app.inject({
+    method: 'POST', url: `/api/library/documents/${docDerived.id}/runs`, payload: {},
+  })).statusCode, 409);
 
-  // Check the first step → it gets a timestamp; the source doc is untouched.
+  // Check, replay, and uncheck append only actual changes. The source doc is untouched.
   const check = await app.inject({ method: 'PATCH', url: `/api/library/runs/${run.id}/steps/${run.steps[0].id}`, payload: { checked: true } });
   assert.equal(check.statusCode, 200);
   assert.match(check.json().checkedAt, /^\d{4}-\d{2}-\d{2}T/);
+  const checkReplay = await app.inject({ method: 'PATCH', url: `/api/library/runs/${run.id}/steps/${run.steps[0].id}`, payload: { checked: true } });
+  assert.equal(checkReplay.json().checkedAt, check.json().checkedAt);
+  const uncheck = await app.inject({ method: 'PATCH', url: `/api/library/runs/${run.id}/steps/${run.steps[0].id}`, payload: { checked: false } });
+  assert.equal(uncheck.json().checkedAt, null);
   const docAfter = await app.inject({ method: 'GET', url: `/api/library/documents/${runbookId}` });
   assert.ok(docAfter.json().body.includes('- [ ] Stop writes'), 'the runbook source is not rewritten by a run');
 
@@ -286,16 +427,62 @@ test('library: runbook execution — start snapshots steps, check timestamps, fi
   assert.equal((await app.inject({ method: 'PATCH', url: `/api/library/runs/${run.id}/steps/${run.steps[0].id}`, payload: {} })).statusCode, 400);
   assert.equal((await app.inject({ method: 'PATCH', url: `/api/library/runs/${run.id}`, payload: { status: 'bogus' } })).statusCode, 400);
 
-  // Finish the run.
+  // Abort blocks step changes and direct completion; Resume is explicit.
+  const abort = await app.inject({ method: 'PATCH', url: `/api/library/runs/${run.id}`, payload: { status: 'aborted' } });
+  assert.equal(abort.statusCode, 200);
+  assert.equal((await app.inject({
+    method: 'PATCH', url: `/api/library/runs/${run.id}/steps/${run.steps[0].id}`, payload: { checked: true },
+  })).statusCode, 409);
+  assert.equal((await app.inject({
+    method: 'PATCH', url: `/api/library/runs/${run.id}`, payload: { status: 'completed' },
+  })).statusCode, 409);
+  const resume = await app.inject({ method: 'PATCH', url: `/api/library/runs/${run.id}`, payload: { status: 'running' } });
+  assert.equal(resume.statusCode, 200);
+  assert.equal(resume.json().finishedAt, null);
+  await app.inject({
+    method: 'PATCH', url: `/api/library/runs/${run.id}/steps/${run.steps[0].id}`, payload: { checked: true },
+  });
+
+  // Completion is terminal and a same-state replay preserves its first stamp.
   const finish = await app.inject({ method: 'PATCH', url: `/api/library/runs/${run.id}`, payload: { status: 'completed' } });
   assert.equal(finish.statusCode, 200);
   assert.match(finish.json().finishedAt, /^\d{4}-\d{2}-\d{2}T/);
+  const finishReplay = await app.inject({ method: 'PATCH', url: `/api/library/runs/${run.id}`, payload: { status: 'completed' } });
+  assert.equal(finishReplay.json().finishedAt, finish.json().finishedAt);
+  assert.equal((await app.inject({
+    method: 'PATCH', url: `/api/library/runs/${run.id}`, payload: { status: 'running' },
+  })).statusCode, 409);
 
-  // List + fetch reflect the run with counts.
+  // List + fetch reflect current state and the complete append-only history.
   const list = await app.inject({ method: 'GET', url: `/api/library/documents/${runbookId}/runs` });
   assert.equal(list.json()[0].stepCount, 3);
   assert.equal(list.json()[0].doneCount, 1);
-  assert.equal((await app.inject({ method: 'GET', url: `/api/library/runs/${run.id}` })).json().status, 'completed');
+  const fetched = (await app.inject({ method: 'GET', url: `/api/library/runs/${run.id}` })).json();
+  assert.equal(fetched.status, 'completed');
+  assert.deepEqual(fetched.events.map(event => event.type), [
+    'started', 'step-checked', 'step-unchecked', 'aborted', 'resumed', 'step-checked', 'completed',
+  ]);
+
+  // Deleting the editable source does not delete the operational record, and
+  // its snapshotted project/title still support a post-mortem.
+  assert.equal((await app.inject({ method: 'DELETE', url: `/api/library/documents/${runbookId}/permanent` })).statusCode, 200);
+  const preserved = (await app.inject({ method: 'GET', url: `/api/library/runs/${run.id}` })).json();
+  assert.equal(preserved.documentId, null);
+  assert.equal(preserved.documentTitle, 'Failover runbook');
+  assert.equal(preserved.events.length, 7);
+  const postMortemId = '44444444-4444-4444-8444-444444444444';
+  const postMortem = await app.inject({
+    method: 'POST', url: `/api/library/runs/${run.id}/post-mortem`, payload: { id: postMortemId },
+  });
+  assert.equal(postMortem.statusCode, 201);
+  assert.equal(postMortem.json().document.id, postMortemId);
+  assert.match(postMortem.json().document.title, /Failover runbook/);
+  const postMortemReplay = await app.inject({
+    method: 'POST', url: `/api/library/runs/${run.id}/post-mortem`, payload: { id: postMortemId },
+  });
+  assert.equal(postMortemReplay.statusCode, 200);
+  assert.equal(postMortemReplay.json().replayed, true);
+  assert.equal(postMortemReplay.json().document.id, postMortemId);
   assert.equal((await app.inject({ method: 'GET', url: '/api/library/runs/11111111-1111-4111-8111-111111111111' })).statusCode, 404);
 });
 
@@ -556,6 +743,256 @@ test('semantic search: runtime provider config + reindex + JS-cosine ranking (fa
   assert.equal(none.statusCode, 200);
   assert.equal(none.json().available, false);
   assert.equal((await app.inject({ method: 'POST', url: '/api/library/embeddings/reindex' })).statusCode, 409);
+});
+
+test('task export/import round-trips current fields and checklist state', async () => {
+  const sourceProject = (await app.inject({ method: 'POST', url: '/api/projects', payload: { name: 'Portable source' } })).json();
+  const targetProject = (await app.inject({ method: 'POST', url: '/api/projects', payload: { name: 'Portable target' } })).json();
+  const created = (await app.inject({
+    method: 'POST', url: '/api/tasks',
+    payload: {
+      title: 'Portable task', description: 'details', notes: 'operator context',
+      priority: 'high', status: 'planned', project: sourceProject.slug,
+      dueDate: '2026-07-13', dueTime: '09:30',
+      recurrence: 'weekly', labels: ['Waiting'],
+    },
+  })).json();
+  await app.inject({
+    method: 'PATCH', url: `/api/tasks/${created.id}`,
+    payload: { deferredUntil: '2026-07-12T18:00:00.000Z' },
+  });
+  const item = (await app.inject({ method: 'POST', url: `/api/tasks/${created.id}/checklist`, payload: { label: 'Verify result' } })).json();
+  await app.inject({ method: 'PATCH', url: `/api/tasks/${created.id}/checklist/${item.id}`, payload: { completed: true } });
+
+  const exported = (await app.inject({ method: 'GET', url: `/api/tasks/export?project=${sourceProject.slug}` })).json();
+  assert.equal(exported.tasks[0].checklist[0].completed, true);
+  const imported = await app.inject({
+    method: 'POST', url: '/api/tasks/import',
+    payload: { project: targetProject.slug, mode: 'append', tasks: exported.tasks },
+  });
+  assert.equal(imported.statusCode, 201);
+  const restored = (await app.inject({ method: 'GET', url: `/api/tasks?project=${targetProject.slug}` })).json()[0];
+  assert.deepEqual({
+    notes: restored.notes, dueTime: restored.dueTime, deferredUntil: restored.deferredUntil,
+    recurrence: restored.recurrence, labels: restored.labels,
+  }, {
+    notes: 'operator context', dueTime: '09:30', deferredUntil: '2026-07-12T18:00:00.000Z',
+    recurrence: 'weekly', labels: ['waiting'],
+  });
+  const restoredChecklist = (await app.inject({ method: 'GET', url: `/api/tasks/${restored.id}/checklist` })).json();
+  assert.deepEqual(restoredChecklist.map((entry) => ({ label: entry.label, completed: entry.completed })), [
+    { label: 'Verify result', completed: true },
+  ]);
+});
+
+test('agent edits revoke verification on previously trusted documents', async () => {
+  const created = (await app.inject({
+    method: 'POST', url: '/api/library/documents',
+    payload: { title: 'Trusted memory', body: 'human fact', documentType: 'note', project: 'homelab' },
+  })).json();
+  assert.equal(created.verified, true);
+  const edited = (await app.inject({
+    method: 'PATCH', url: `/api/library/documents/${created.id}`,
+    headers: { 'x-prax-origin': 'agent' }, payload: { body: 'agent revision' },
+  })).json();
+  assert.equal(edited.updatedBy, 'agent');
+  assert.equal(edited.verified, false);
+  assert.equal(edited.verifiedAt, null);
+  assert.equal(edited.verifiedBy, null);
+});
+
+test('human-reviewed editor writes retain verification', async () => {
+  const created = (await app.inject({
+    method: 'POST', url: '/api/library/documents',
+    payload: { title: 'Reviewed writing', body: 'trusted original', documentType: 'note', project: 'homelab' },
+  })).json();
+  assert.equal(created.verified, true);
+
+  // Editor writing actions return a preview and only alter the local draft
+  // after the person clicks Apply. Autosave then uses the ordinary user-origin
+  // PATCH path, so reviewing exact generated text does not destroy trust.
+  const edited = (await app.inject({
+    method: 'PATCH', url: `/api/library/documents/${created.id}`,
+    payload: { body: 'exact generated text reviewed and applied by the person' },
+  })).json();
+  assert.equal(edited.updatedBy, 'user');
+  assert.equal(edited.verified, true);
+});
+
+test('superseded status follows archive, restore, and deletion of the replacement', async () => {
+  const createDoc = async (title) => (await app.inject({
+    method: 'POST', url: '/api/library/documents',
+    payload: { title, body: title, documentType: 'note', project: 'homelab' },
+  })).json();
+  const oldDoc = await createDoc('Lifecycle old');
+  const replacement = await createDoc('Lifecycle replacement');
+  await app.inject({ method: 'POST', url: `/api/library/documents/${oldDoc.id}/supersede`, payload: { supersededBy: replacement.id } });
+  assert.equal((await app.inject({ method: 'GET', url: `/api/library/documents/${oldDoc.id}` })).json().status, 'superseded');
+
+  await app.inject({ method: 'DELETE', url: `/api/library/documents/${replacement.id}` });
+  assert.equal((await app.inject({ method: 'GET', url: `/api/library/documents/${oldDoc.id}` })).json().status, 'active');
+  await app.inject({ method: 'PATCH', url: `/api/library/documents/${replacement.id}/restore` });
+  assert.equal((await app.inject({ method: 'GET', url: `/api/library/documents/${oldDoc.id}` })).json().status, 'superseded');
+  await app.inject({ method: 'DELETE', url: `/api/library/documents/${replacement.id}/permanent` });
+  assert.equal((await app.inject({ method: 'GET', url: `/api/library/documents/${oldDoc.id}` })).json().status, 'active');
+});
+
+test('generic supersedes links atomically follow the complete live replacement set', async () => {
+  const createDoc = async (title) => (await app.inject({
+    method: 'POST', url: '/api/library/documents',
+    payload: { title, body: title, documentType: 'note', project: 'homelab' },
+  })).json();
+  const predecessor = await createDoc('Atomic lifecycle predecessor');
+  const replacementA = await createDoc('Atomic lifecycle replacement A');
+  const replacementB = await createDoc('Atomic lifecycle replacement B');
+
+  // The generic relation route is also the MCP link_documents path. It must
+  // enforce the same lifecycle contract as POST .../supersede.
+  const first = await app.inject({
+    method: 'POST', url: `/api/library/documents/${replacementA.id}/links`,
+    payload: { targetId: predecessor.id, relation: 'supersedes' },
+  });
+  assert.equal(first.statusCode, 201);
+  assert.equal((await app.inject({ method: 'GET', url: `/api/library/documents/${predecessor.id}` })).json().status, 'superseded');
+  assert.equal((await app.inject({ method: 'GET', url: '/api/library/documents?status=active' })).json().some(doc => doc.id === predecessor.id), false);
+
+  await app.inject({
+    method: 'POST', url: `/api/library/documents/${replacementB.id}/links`,
+    payload: { targetId: predecessor.id, relation: 'supersedes' },
+  });
+
+  // Removing one of two live replacements cannot reactivate the predecessor.
+  await app.inject({ method: 'DELETE', url: `/api/library/documents/${replacementA.id}` });
+  assert.equal((await app.inject({ method: 'GET', url: `/api/library/documents/${predecessor.id}` })).json().status, 'superseded');
+  await app.inject({
+    method: 'DELETE',
+    url: `/api/library/documents/${replacementB.id}/links/${predecessor.id}?relation=supersedes`,
+  });
+  assert.equal((await app.inject({ method: 'GET', url: `/api/library/documents/${predecessor.id}` })).json().status, 'active');
+
+  // Restore re-establishes the remaining edge; cascade deletion releases it.
+  await app.inject({ method: 'PATCH', url: `/api/library/documents/${replacementA.id}/restore` });
+  assert.equal((await app.inject({ method: 'GET', url: `/api/library/documents/${predecessor.id}` })).json().status, 'superseded');
+  await app.inject({ method: 'DELETE', url: `/api/library/documents/${replacementA.id}/permanent` });
+  assert.equal((await app.inject({ method: 'GET', url: `/api/library/documents/${predecessor.id}` })).json().status, 'active');
+  assert.equal((await app.inject({ method: 'GET', url: '/api/library/documents?status=active' })).json().some(doc => doc.id === predecessor.id), true);
+});
+
+test('recurring clones retain scheduling metadata and reject unsafe intervals', async () => {
+  const invalid = await app.inject({
+    method: 'POST', url: '/api/tasks',
+    payload: { title: 'Unsafe recurrence', priority: 'medium', status: 'planned', project: 'inbox', recurrence: `every:${'9'.repeat(30)}d` },
+  });
+  assert.equal(invalid.statusCode, 400);
+
+  const original = (await app.inject({
+    method: 'POST', url: '/api/tasks',
+    payload: {
+      title: 'Recurring metadata', priority: 'medium', status: 'planned', project: 'inbox',
+      dueDate: '2026-07-12', dueTime: '08:45', recurrence: 'weekly', labels: ['ops'],
+    },
+  })).json();
+  await app.inject({ method: 'PATCH', url: `/api/tasks/${original.id}`, payload: { status: 'completed' } });
+  const instances = (await app.inject({ method: 'GET', url: '/api/tasks?project=inbox' })).json()
+    .filter((task) => task.title === 'Recurring metadata');
+  const next = instances.find((task) => task.status === 'planned');
+  assert.ok(next);
+  assert.equal(next.dueTime, '08:45');
+  assert.deepEqual(next.labels, ['ops']);
+  assert.equal(next.recurrence, 'weekly');
+  assert.match(next.dueDate, /^\d{4}-\d{2}-\d{2}$/);
+});
+
+test('reopening a completed recurring occurrence keeps one successor and detaches the old occurrence', async () => {
+  const original = (await app.inject({
+    method: 'POST', url: '/api/tasks',
+    payload: {
+      title: 'Recurring reopen safety', priority: 'medium', status: 'planned', project: 'inbox',
+      dueDate: '2031-01-10', recurrence: 'monthly',
+    },
+  })).json();
+
+  assert.equal((await app.inject({
+    method: 'PATCH', url: `/api/tasks/${original.id}`, payload: { status: 'completed' },
+  })).statusCode, 200);
+  let instances = (await app.inject({ method: 'GET', url: '/api/tasks?project=inbox' })).json()
+    .filter((task) => task.title === original.title);
+  assert.equal(instances.length, 2);
+
+  const reopened = await app.inject({
+    method: 'PATCH', url: `/api/tasks/${original.id}`, payload: { status: 'planned' },
+  });
+  assert.equal(reopened.statusCode, 200);
+  assert.equal(reopened.json().status, 'planned');
+  assert.equal(reopened.json().recurrence, null, 'the reopened historical occurrence is one-off');
+
+  await app.inject({
+    method: 'PATCH', url: `/api/tasks/${original.id}`, payload: { status: 'completed' },
+  });
+  instances = (await app.inject({ method: 'GET', url: '/api/tasks?project=inbox' })).json()
+    .filter((task) => task.title === original.title);
+  assert.equal(instances.length, 2, 'completing the reopened one-off does not duplicate the successor');
+});
+
+test('board reorder completion uses the same atomic recurring lifecycle', async () => {
+  const original = (await app.inject({
+    method: 'POST', url: '/api/tasks',
+    payload: {
+      title: 'Recurring board move', priority: 'medium', status: 'planned', project: 'inbox',
+      dueDate: '2031-06-10', recurrence: 'weekly',
+    },
+  })).json();
+  const complete = await app.inject({
+    method: 'PATCH', url: '/api/tasks/reorder',
+    payload: { tasks: [{ id: original.id, status: 'completed', sortOrder: 0 }] },
+  });
+  assert.equal(complete.statusCode, 200);
+  let instances = (await app.inject({ method: 'GET', url: '/api/tasks?project=inbox' })).json()
+    .filter((task) => task.title === original.title);
+  assert.equal(instances.length, 2);
+  assert.ok(instances.some((task) => task.status === 'planned' && task.recurrence === 'weekly'));
+
+  const reopen = await app.inject({
+    method: 'PATCH', url: '/api/tasks/reorder',
+    payload: { tasks: [{ id: original.id, status: 'planned', sortOrder: 1 }] },
+  });
+  assert.equal(reopen.statusCode, 200);
+  assert.equal(reopen.json()[0].recurrence, null);
+  instances = (await app.inject({ method: 'GET', url: '/api/tasks?project=inbox' })).json()
+    .filter((task) => task.title === original.title);
+  assert.equal(instances.length, 2);
+});
+
+test('recurring successor failure atomically rolls back source completion', async () => {
+  const original = (await app.inject({
+    method: 'POST', url: '/api/tasks',
+    payload: {
+      title: 'Atomic recurrence rollback', priority: 'high', status: 'planned', project: 'inbox',
+      dueDate: '2031-03-10', recurrence: 'weekly',
+    },
+  })).json();
+  app.db.exec(`
+    create trigger fail_atomic_recurring_successor
+    before insert on tasks
+    when new.title = 'Atomic recurrence rollback'
+      and exists (select 1 from tasks where title = new.title)
+    begin
+      select raise(abort, 'injected recurring successor failure');
+    end;
+  `);
+  try {
+    const completion = await app.inject({
+      method: 'PATCH', url: `/api/tasks/${original.id}`, payload: { status: 'completed' },
+    });
+    assert.equal(completion.statusCode, 500);
+    const canonical = (await app.inject({ method: 'GET', url: `/api/tasks/${original.id}` })).json();
+    assert.equal(canonical.status, 'planned');
+    const instances = (await app.inject({ method: 'GET', url: '/api/tasks?project=inbox' })).json()
+      .filter((task) => task.title === original.title);
+    assert.equal(instances.length, 1);
+  } finally {
+    app.db.exec('drop trigger if exists fail_atomic_recurring_successor');
+  }
 });
 
 test('teardown', async () => {

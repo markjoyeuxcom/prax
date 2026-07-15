@@ -79,10 +79,16 @@ test('buildContextPack omits empty sections and respects limit', () => {
 });
 
 test('renderContextPackMarkdown renders header, query, and unverified marker', () => {
-  const pack = buildContextPack(docs, { project, query: 'restore', limit: 12 });
+  const pack = buildContextPack(docs, {
+    project,
+    query: 'restore',
+    limit: 12,
+    retrieval: { mode: 'keyword', fallback: true, reason: 'semantic-unavailable' },
+  });
   const md = renderContextPackMarkdown(pack);
   assert.match(md, /^# Context: Demo \(active\)/);
   assert.match(md, /_Query: restore_/);
+  assert.match(md, /_Retrieval: keyword fallback \(semantic-unavailable\)_/);
   assert.match(md, /## ⚠ Unverified — pending human review/);
   assert.match(md, /### Agent note — _unverified_/);
   assert.match(md, /\(runbook · r\)/);

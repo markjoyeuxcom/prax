@@ -9,8 +9,10 @@ test('capture renders the overlay, input with current value and the ↵ hint', (
   const html = renderCaptureHtml({ captureQuery: 'Rotate certs' }, { id: 'p1', name: 'Homelab', color: '#3aa17e' });
   assert.match(html, /class="overlay-center"[^>]*data-action="close-capture"/);
   assert.match(html, /class="capture"/);
-  assert.match(html, /data-capture-input[^>]*placeholder="What needs doing\?[^"]*"[^>]*value="Rotate certs"/);
+  assert.match(html, /data-capture-input[^>]*aria-label="Task title"[^>]*placeholder="What needs doing\?[^"]*"[^>]*value="Rotate certs"/);
   assert.match(html, /class="kbd">↵<\/span> add task/);
+  assert.match(html, /role="dialog" aria-modal="true" aria-label="Quick capture"/);
+  assert.match(html, /data-action="submit-capture"[^>]*>Add task<\/button>/);
 });
 
 test('capture footer shows the destination project (as a picker button) with its color dot', () => {
@@ -30,6 +32,7 @@ test('capture project picker lists choices when open, flagging the selected one'
   assert.match(html, /data-action="set-capture-project" data-project-id="inbox"/);
   assert.match(html, /data-action="set-capture-project" data-project-id="p1"/);
   assert.match(html, /aria-selected="true"[^>]*data-project-id="inbox"/);
+  assert.match(html, /aria-selected="false"[^>]*data-project-id="p1"/);
 });
 
 test('capture picker menu is absent when closed', () => {
@@ -50,6 +53,29 @@ test('capture escapes the project name and the draft value', () => {
   assert.match(html, /value="&lt;script&gt;x&lt;\/script&gt;"/);
 });
 
+test('capture pending state is busy, announced, and disables every mutation control', () => {
+  const html = renderCaptureHtml({
+    captureQuery: 'Ship release',
+    captureSubmitting: true,
+    captureMenuOpen: true,
+    nlCaptureFields: { labels: ['waiting'] },
+  }, { id: 'p1', name: 'Work' }, [{ id: 'p1', name: 'Work' }]);
+  assert.match(html, /aria-busy="true"/);
+  assert.match(html, /data-capture-input[^>]* disabled>/);
+  assert.match(html, /data-action="toggle-capture-menu"[^>]* disabled>/);
+  assert.match(html, /data-action="set-capture-project"[^>]* disabled>/);
+  assert.match(html, /data-action="drop-nl-label"[^>]* disabled>/);
+  assert.match(html, /data-action="submit-capture" disabled>Adding…<\/button>/);
+  assert.match(html, /role="status">Adding task…/);
+});
+
+test('capture recovery and failure notices use truthful live semantics', () => {
+  const recovered = renderCaptureHtml({ captureQuery: 'Recovered', captureError: 'Recovered unfinished task.', captureRecovered: true }, null, []);
+  assert.match(recovered, /capture__notice capture__notice--recovered" role="status">Recovered unfinished task/);
+  const failed = renderCaptureHtml({ captureQuery: 'Retry', captureError: 'Could not confirm creation.', captureRecovered: false }, null, []);
+  assert.match(failed, /class="capture__notice" role="alert">Could not confirm creation/);
+});
+
 // ---- Toast --------------------------------------------------------------------
 
 test('toast renders the message without an undo button when undo is absent', () => {
@@ -61,6 +87,11 @@ test('toast renders the message without an undo button when undo is absent', () 
 test('toast renders the Undo action when an undo handler is present', () => {
   const html = renderToastHtml({ toast: { message: 'Task archived', undo: () => {} } });
   assert.match(html, /<button class="toast__undo" type="button" data-action="toast-undo">Undo<\/button>/);
+});
+
+test('toast can name a narrower recovery action truthfully', () => {
+  const html = renderToastHtml({ toast: { message: 'Completed', undo: () => {}, undoLabel: 'Reopen' } });
+  assert.match(html, /data-action="toast-undo">Reopen<\/button>/);
 });
 
 test('toast renders nothing when state.toast is null', () => {

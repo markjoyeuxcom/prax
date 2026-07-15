@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildBoardColumns, renderBoardHtml } from '../../public/js/renderBoard.js';
+import { buildBoardColumns, limitBoardColumns, renderBoardHtml } from '../../public/js/renderBoard.js';
 
 // Fixed clock for deterministic due chips: Monday 2026-07-06.
 const NOW = new Date('2026-07-06T09:30:00');
@@ -138,6 +138,20 @@ test('buildBoardColumns keeps quiet flags when no drag is active', () => {
   }
 });
 
+test('limitBoardColumns bounds mounts while preserving every workflow column and full counts', () => {
+  const columns = buildBoardColumns(baseState(), [
+    ...Array.from({ length: 3 }, (_, index) => ({ id: `p${index}`, title: `Priority ${index}`, status: 'high-priority' })),
+    ...Array.from({ length: 3 }, (_, index) => ({ id: `d${index}`, title: `Doing ${index}`, status: 'in-progress' })),
+  ]);
+  const collection = limitBoardColumns(columns, 4);
+
+  assert.deepEqual(collection.columns.map((column) => column.key), ['priority', 'inprogress', 'planned', 'completed']);
+  assert.deepEqual(collection.columns.map((column) => [column.cards.length, column.totalCount]), [[1, 3], [1, 3], [0, 0], [0, 0]]);
+  assert.equal(collection.shown, 2);
+  assert.equal(collection.total, 6);
+  assert.equal(collection.hasMore, true);
+});
+
 // ---- renderBoardHtml ------------------------------------------------------
 
 test('renderBoardHtml renders the board grid with column and card hooks', () => {
@@ -237,14 +251,15 @@ test('renderBoardHtml renders due chips from the shared due buckets', () => {
   assert.equal((html.match(/chip--due-/g) || []).length, 4);
 });
 
-test('renderBoardHtml renders a project chip tinted with the project color', () => {
+test('renderBoardHtml renders a project-color wash without using an arbitrary color for text', () => {
   const projectsById = { p1: { id: 'p1', name: 'Homelab', color: '#7c9c8e' } };
   const html = renderAll(baseState(), [
     { id: 'a', title: 'X', status: 'planned', projectId: 'p1' },
     { id: 'b', title: 'Orphan', status: 'planned', projectId: 'missing' },
   ], projectsById);
 
-  assert.match(html, /chip chip--project" style="background: color-mix\(in oklab, #7c9c8e 13%, transparent\); color: #7c9c8e;">Homelab</);
+  assert.match(html, /chip chip--project" style="--project-color:#7c9c8e;background:color-mix\(in oklab, #7c9c8e 13%, transparent\)">Homelab</);
+  assert.doesNotMatch(html, /color: #7c9c8e/);
   assert.equal((html.match(/chip--project/g) || []).length, 1);
 });
 

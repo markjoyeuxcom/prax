@@ -1,9 +1,13 @@
 const TASK_EXPORT_FORMAT = 'moomora.tasks';
+const TASK_EXPORT_VERSION = 1;
 
 export function tasksFromImportPayload(payload) {
   if (Array.isArray(payload)) return payload;
   if (payload?.format !== undefined && payload.format !== TASK_EXPORT_FORMAT) {
     throw new Error('Prax import file format is not supported');
+  }
+  if (payload?.version !== undefined && payload.version !== TASK_EXPORT_VERSION) {
+    throw new Error('Prax import file version is not supported');
   }
   if (payload && Array.isArray(payload.tasks)) return payload.tasks;
   throw new Error('Prax import file must contain a tasks array');

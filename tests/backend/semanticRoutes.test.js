@@ -82,6 +82,53 @@ test('semantic-search returns refs when enabled', async () => {
   await app.close();
 });
 
+test('semantic-search paged mode returns exact metadata while default mode stays an array', async () => {
+  let captured;
+  const docs = [
+    { id: 'd2', title: 'Second', documentType: 'note', projectId: PROJECT_ID, tags: [], body: 'b2', kind: 'synthesized', updatedBy: 'agent', verified: true, verifiedAt: '2026-07-13T12:00:00.000Z', verifiedBy: 'operator', stale: true, status: 'active' },
+  ];
+  const app = await makeApp({ available: true, enabled: true }, (f) => {
+    f.library.searchDocumentsSemantic = async (_vector, _backend, opts) => {
+      captured = opts;
+      return opts.page ? { items: docs, total: 7 } : docs;
+    };
+  });
+
+  const paged = await app.inject({
+    method: 'GET',
+    url: '/api/library/documents/semantic-search?q=restore&page=true&limit=1&offset=1',
+  });
+  assert.equal(paged.statusCode, 200);
+  assert.equal(captured.page, true);
+  assert.equal(captured.limit, 1);
+  assert.equal(captured.offset, 1);
+  assert.deepEqual(paged.json().page, {
+    offset: 1, limit: 1, returned: 1, total: 7, hasMore: true, nextOffset: 2,
+  });
+  assert.equal(paged.json().items[0].title, 'Second');
+  assert.equal(paged.json().items[0].kind, 'synthesized');
+  assert.equal(paged.json().items[0].updatedBy, 'agent');
+  assert.equal(paged.json().items[0].stale, true);
+  assert.equal(paged.json().items[0].verified, true);
+  assert.equal(paged.json().items[0].verifiedAt, '2026-07-13T12:00:00.000Z');
+  assert.equal(paged.json().items[0].verifiedBy, 'operator');
+  assert.ok(!('body' in paged.json().items[0]));
+  assert.ok(!('embedding' in paged.json().items[0]));
+
+  const legacy = await app.inject({ method: 'GET', url: '/api/library/documents/semantic-search?q=restore' });
+  assert.equal(Array.isArray(legacy.json()), true);
+  assert.equal(captured.limit, Number.MAX_SAFE_INTEGER, 'legacy array mode is complete, not silently capped');
+  await app.close();
+});
+
+test('semantic-search paged mode validates limit and offset', async () => {
+  const app = await makeApp({ available: true, enabled: true });
+  assert.equal((await app.inject({ method: 'GET', url: '/api/library/documents/semantic-search?q=x&page=true&limit=0' })).statusCode, 400);
+  assert.equal((await app.inject({ method: 'GET', url: '/api/library/documents/semantic-search?q=x&page=true&limit=51' })).statusCode, 400);
+  assert.equal((await app.inject({ method: 'GET', url: '/api/library/documents/semantic-search?q=x&page=true&offset=-1' })).statusCode, 400);
+  await app.close();
+});
+
 test('semantic-search 409s when disabled', async () => {
   const app = await makeApp({ available: true, enabled: false });
   const res = await app.inject({ method: 'GET', url: '/api/library/documents/semantic-search?q=x' });

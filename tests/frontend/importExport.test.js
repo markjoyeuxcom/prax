@@ -35,6 +35,19 @@ test('tasksFromImportPayload rejects legacy TaskBoard envelopes', () => {
   );
 });
 
+test('tasksFromImportPayload rejects unknown or mistyped envelope versions', () => {
+  for (const version of [2, '1']) {
+    assert.throws(
+      () => tasksFromImportPayload({
+        format: 'moomora.tasks',
+        version,
+        tasks: [{ title: 'Future backup' }],
+      }),
+      /Prax import file version is not supported/,
+    );
+  }
+});
+
 test('tasksFromImportPayload rejects unsupported payloads', () => {
   assert.throws(
     () => tasksFromImportPayload({ items: [] }),

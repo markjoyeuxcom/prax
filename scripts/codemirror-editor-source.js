@@ -283,6 +283,7 @@ export function mountCodeMirrorEditor({
         search({ createPanel: hiddenSearchPanel }),
         autocompletion({ override: [slashCompletionSource, wikiCompletionSource], icons: false, defaultKeymap: true }),
         EditorView.lineWrapping,
+        EditorView.contentAttributes.of({ 'aria-label': 'Markdown document body' }),
         EditorView.updateListener.of((update) => {
           if (!update.docChanged) return;
           onChange?.(update.state.doc.toString());

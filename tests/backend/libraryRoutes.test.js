@@ -179,6 +179,81 @@ test('POST /api/library/documents creates a Markdown document', async () => {
   await app.close();
 });
 
+test('POST /api/library/documents replays a caller id exactly once and rejects different content', async () => {
+  const documents = new Map();
+  const fakeRepo = createFakeLibraryRepository();
+  fakeRepo.createDocumentIdempotent = async (input) => {
+    const existing = documents.get(input.id);
+    if (existing) return { document: existing, created: false };
+    const document = {
+      ...input,
+      kind: input.kind || 'source',
+      tags: input.tags || [],
+      sourceFilename: input.sourceFilename || null,
+      archivedAt: null,
+      createdAt: 'now',
+      updatedAt: 'now',
+    };
+    documents.set(input.id, document);
+    return { document, created: true };
+  };
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: { listTasks: async () => [] },
+    libraryRepository: fakeRepo,
+    projectsRepository: createFakeProjectsRepository(),
+  });
+  const payload = {
+    id: '44444444-4444-4444-8444-444444444444',
+    title: 'Imported once',
+    body: '# Imported once',
+    documentType: 'note',
+    project: 'homelab',
+    tags: ['imported'],
+    sourceFilename: 'once.md',
+  };
+
+  const created = await app.inject({ method: 'POST', url: '/api/library/documents', payload });
+  const replayed = await app.inject({ method: 'POST', url: '/api/library/documents', payload });
+  const conflicting = await app.inject({
+    method: 'POST',
+    url: '/api/library/documents',
+    payload: { ...payload, title: 'Different content' },
+  });
+
+  assert.equal(created.statusCode, 201);
+  assert.equal(replayed.statusCode, 200);
+  assert.equal(replayed.json().id, payload.id);
+  assert.equal(conflicting.statusCode, 409);
+  assert.equal(conflicting.json().message, 'document id was already used for different content');
+  assert.equal(documents.size, 1);
+
+  await app.close();
+});
+
+test('POST /api/library/documents rejects a malformed caller id', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: { listTasks: async () => [] },
+    libraryRepository: createFakeLibraryRepository(),
+    projectsRepository: createFakeProjectsRepository(),
+  });
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/library/documents',
+    payload: {
+      id: 'not-a-uuid',
+      title: 'Invalid import',
+      body: '# Invalid',
+      documentType: 'note',
+      project: 'homelab',
+    },
+  });
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json().message, 'id is invalid');
+  await app.close();
+});
+
 test('POST /api/library/documents rejects unknown project with 400', async () => {
   const app = await buildApp({
     skipDb: true,

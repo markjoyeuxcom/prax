@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildLibraryModel, renderLibraryHtml } from '../../public/js/renderLibrary.js';
+import {
+  buildLibraryModel, limitDocumentGroups, renderLibraryHtml,
+} from '../../public/js/renderLibrary.js';
 
 const NOW = new Date('2026-07-06T12:00:00.000Z');
 
@@ -10,6 +12,7 @@ const DOCS = [
     title: 'Restore CloudNativePG',
     body: '# Restore CloudNativePG\n\nCheck backups nightly before promoting a replica.',
     documentType: 'runbook',
+    projectId: 'p1',
     tags: ['postgres', 'backup'],
     updatedAt: '2026-05-18T10:00:00.000Z',
   },
@@ -18,6 +21,7 @@ const DOCS = [
     title: 'Ideas',
     body: 'General notes about the homelab.',
     documentType: 'note',
+    projectId: 'p2',
     tags: ['homelab'],
     updatedAt: '2026-06-02T11:00:00.000Z',
   },
@@ -26,6 +30,7 @@ const DOCS = [
     title: 'DNS failover',
     body: '# DNS\n\nSwitch resolvers when upstream dies.',
     documentType: 'runbook',
+    projectId: 'p1',
     tags: ['dns', 'postgres'],
     updatedAt: '2026-04-01T09:00:00.000Z',
   },
@@ -37,8 +42,16 @@ function makeState(overrides = {}) {
     libraryQuery: '',
     librarySemantic: false,
     activeLibraryTags: [],
+    libraryTypes: [],
+    libraryTrust: [],
+    libraryProjects: [],
     librarySortBy: 'updated',
     libraryView: 'active',
+    projects: [
+      { id: 'p1', slug: 'homelab', name: 'Homelab' },
+      { id: 'p2', slug: 'work', name: 'Work' },
+    ],
+    navId: 'p1',
     semanticStatus: { available: false },
     semanticResults: null,
     ...overrides,
@@ -101,6 +114,29 @@ test('model groups documents Runbooks before Notes and drops empty groups', () =
   assert.deepEqual(onlyRunbooks.groups.map((g) => g.label), ['Runbooks']);
 });
 
+test('limitDocumentGroups bounds cards across type groups without losing full counts', () => {
+  const collection = limitDocumentGroups([
+    { label: 'Runbooks', docs: [DOCS[0], DOCS[2]] },
+    { label: 'Notes', docs: [DOCS[1]] },
+  ], 2);
+
+  assert.equal(collection.shown, 2);
+  assert.equal(collection.total, 3);
+  assert.equal(collection.hasMore, true);
+  assert.deepEqual(collection.groups.map((group) => [group.label, group.docs.length, group.totalCount]), [
+    ['Runbooks', 2, 2],
+  ]);
+});
+
+test('library rendering announces the bounded card set and offers explicit expansion', () => {
+  const state = makeState();
+  const html = renderLibraryHtml(state, buildLibraryModel(state, { limit: 2 }));
+
+  assert.match(html, /Showing 2 of 3 documents/);
+  assert.match(html, /data-action="show-more-library"[^>]*>Show 1 more/);
+  assert.doesNotMatch(html, /data-document-id="doc-ideas"/);
+});
+
 test('model tag chips come from the pre-filter set with counts', () => {
   const model = build({ activeLibraryTags: ['backup'], libraryQuery: 'replica' });
   const tags = Object.fromEntries(model.tagChips.map(({ tag, count }) => [tag, count]));
@@ -125,6 +161,18 @@ test('model semantic flags: idle without query, active only once results landed'
 
   const keyword = build({ libraryQuery: 'db dies', semanticResults: [] });
   assert.equal(keyword.semanticActive, false);
+});
+
+test('semantic search renders an announced loading state instead of stale results', () => {
+  const html = render({
+    librarySemantic: true,
+    libraryQuery: 'database recovery',
+    semanticLoading: true,
+    semanticResults: [{ id: 'old', title: 'Old result', snippet: 'stale' }],
+  });
+  assert.match(html, /role="status" aria-live="polite"/);
+  assert.match(html, /Searching by meaning/);
+  assert.doesNotMatch(html, /Old result/);
 });
 
 test('model flags archive mode from state.libraryView', () => {
@@ -179,13 +227,20 @@ test('semantic results render match cards when there are hits', () => {
 test('header renders title and import/export/archive/new actions', () => {
   const html = render();
   assert.match(html, /class="page-head__title">Library</);
-  assert.match(html, /data-action="import-documents"[^>]*>Import \.md</);
-  assert.match(html, /data-action="export-library"[^>]*>Export all</);
+  assert.match(html, /data-action="import-documents"[^>]*title="Choose Markdown files and their destination project"[^>]*>Import Markdown…</);
+  assert.match(html, /data-action="export-library"[^>]*title="Choose scope and where to save the Markdown archive"[^>]*>Export…</);
   assert.match(html, /data-action="toggle-library-view"[^>]*>Archive</);
   // ＋ New doc is a template chooser: the button toggles the menu; the menu's
   // items carry the actual new-document action (only when open).
   assert.match(html, /class="btn-primary"[^>]*data-action="toggle-new-doc-menu"[^>]*>＋ New doc</);
   assert.doesNotMatch(html, /data-action="new-document"/); // closed by default
+});
+
+test('Markdown intake opens a dedicated destination dialog instead of deriving ownership from navigation', () => {
+  const html = render({ navId: 'p2' });
+  assert.match(html, /data-action="import-documents"[^>]*>Import Markdown…</);
+  assert.doesNotMatch(html, /Import plain \.md · Work|Import plain \.md · Homelab/);
+  assert.doesNotMatch(html, /data-action="import-documents"[^>]*disabled/);
 });
 
 test('the ＋ New doc menu, when open, offers Blank note and Runbook templates', () => {
@@ -276,6 +331,14 @@ test('doc card renders tag chips and a short updated date', () => {
   assert.match(html, /class="doc-card__updated">2026-05-18</);
 });
 
+test('browse cards show their owning project', () => {
+  const html = render();
+  const homelabCard = html.slice(html.indexOf('data-document-id="doc-restore"'), html.indexOf('data-document-id="doc-dns"'));
+  const workCard = html.slice(html.indexOf('data-document-id="doc-ideas"'));
+  assert.match(homelabCard, /chip chip--project[^>]*>Homelab</);
+  assert.match(workCard, /chip chip--project[^>]*>Work</);
+});
+
 test('trust chips render exactly on qualifying cards', () => {
   const html = render({
     documents: [
@@ -324,8 +387,8 @@ test('semantic results render rank + snippet cards without fabricated scores', (
     libraryQuery: 'what do I do when the database dies',
     semanticStatus: { available: true, enabled: true },
     semanticResults: [
-      { id: 'doc-restore', title: 'Restore CloudNativePG', documentType: 'runbook', snippet: 'Check backups nightly before promoting a replica.' },
-      { id: 'doc-ideas', title: 'Ideas', documentType: 'note', snippet: 'General notes about the homelab.' },
+      { id: 'doc-restore', title: 'Restore CloudNativePG', documentType: 'runbook', projectId: 'p1', snippet: 'Check backups nightly before promoting a replica.' },
+      { id: 'doc-ideas', title: 'Ideas', documentType: 'note', projectId: 'p2', snippet: 'General notes about the homelab.' },
     ],
   });
   assert.match(html, /class="sem-note">2 documents matched by meaning\.</);
@@ -335,6 +398,7 @@ test('semantic results render rank + snippet cards without fabricated scores', (
   assert.match(html, /class="sem-card__pct">#2</);
   assert.match(html, /class="sem-card__reason">Check backups nightly before promoting a replica\.</);
   assert.match(html, /sem-card[\s\S]*chip chip--type-runbook/);
+  assert.match(html, /sem-card[\s\S]*chip chip--project[^>]*>Homelab</);
   // Fallback path: results carry no similarity, so the score label stays a
   // rank (#N) — no fabricated percentage in the score block.
   assert.doesNotMatch(html, /class="sem-card__pct">\d+%/);
@@ -358,6 +422,44 @@ test('semantic results show the real similarity as a percentage, bar scaled to t
   // Top hit fills the bar; the weaker one is scaled relative to it (0.41/0.82 = 50%).
   assert.match(html, /width:100%/);
   assert.match(html, /width:50%/);
+  assert.match(html, /82% cosine similarity, ranked 1/);
+});
+
+test('semantic results report the exact total, expose trust, and offer deliberate pagination', () => {
+  const html = render({
+    librarySemantic: true,
+    libraryQuery: 'database recovery',
+    semanticStatus: { available: true, enabled: true },
+    semanticResults: [{
+      id: 'draft', title: 'Generated recovery note', documentType: 'note', snippet: 'draft',
+      similarity: 0.8, kind: 'synthesized', stale: true, verified: false,
+    }],
+    semanticPage: { offset: 0, limit: 1, returned: 1, total: 3, hasMore: true, nextOffset: 1 },
+  });
+  assert.match(html, /1 of 3 documents matched by meaning/);
+  assert.match(html, /chip--synth/);
+  assert.match(html, /chip--stale/);
+  assert.match(html, /chip--unverified[^>]*>UNVERIFIED/);
+  assert.match(html, /data-action="load-more-semantic"/);
+  assert.match(html, /\(1 of 3\)/);
+});
+
+test('semantic pagination keeps results usable while loading or after an append failure', () => {
+  const base = {
+    librarySemantic: true,
+    libraryQuery: 'database recovery',
+    semanticStatus: { available: true, enabled: true },
+    semanticResults: [{ id: 'one', title: 'One', snippet: 'one' }],
+    semanticPage: { offset: 0, limit: 1, returned: 1, total: 2, hasMore: true, nextOffset: 1 },
+  };
+  const loading = render({ ...base, semanticLoadingMore: true });
+  assert.match(loading, /Loading more matches/);
+  assert.match(loading, />One</);
+
+  const failed = render({ ...base, semanticMoreError: true });
+  assert.match(failed, /More matches could not be loaded/);
+  assert.match(failed, /data-action="load-more-semantic"[^>]*>Try again/);
+  assert.match(failed, />One</);
 });
 
 test('semantic results note is singular for one match and handles empty results', () => {
@@ -406,9 +508,11 @@ test('archive mode renders dim plain rows with restore and delete actions', () =
     documents: [{ ...DOCS[0], archivedAt: '2026-06-30T00:00:00.000Z' }],
   });
   assert.match(html, /class="rows"/);
-  assert.match(html, /class="plain-row is-dim"[^>]*data-action="open-doc"[^>]*data-document-id="doc-restore"/);
+  assert.match(html, /class="plain-row is-dim"/);
+  assert.match(html, /class="plain-row__open"[^>]*type="button"[^>]*data-action="open-doc"[^>]*data-document-id="doc-restore"/);
   assert.match(html, /class="plain-row__title">Restore CloudNativePG</);
   assert.match(html, /plain-row[\s\S]*chip chip--type-runbook/);
+  assert.match(html, /plain-row[\s\S]*chip chip--project[^>]*>Homelab</);
   assert.match(html, /class="btn-outline"[^>]*data-action="restore-document"[^>]*data-document-id="doc-restore"[^>]*>Restore</);
   assert.match(html, /class="btn-outline btn-outline--danger"[^>]*data-action="delete-document"[^>]*data-document-id="doc-restore"[^>]*>Delete</);
   assert.doesNotMatch(html, /class="doc-grid"/);
@@ -478,7 +582,7 @@ test('semantic snippets and archive titles are escaped', () => {
   assert.match(archive, /class="plain-row__title">&lt;script&gt;a&lt;\/script&gt;</);
 });
 
-// ---- type + trust facets -----------------------------------------------------
+// ---- type + trust + project facets -------------------------------------------
 
 test('facet row shows Type pills with counts while browsing', () => {
   const html = render();
@@ -486,6 +590,22 @@ test('facet row shows Type pills with counts while browsing', () => {
   assert.match(html, /facet-group__label">Type</);
   assert.match(html, /data-action="toggle-lib-type" data-facet="runbook"[^>]*>Runbooks <span class="facet-pill__count">2</);
   assert.match(html, /data-action="toggle-lib-type" data-facet="note"[^>]*>Notes <span class="facet-pill__count">1</);
+});
+
+test('Project facets show ownership counts and mark the selected project', () => {
+  const html = render({ libraryProjects: ['p2'] });
+  assert.match(html, /facet-group__label">Project</);
+  assert.match(html, /data-action="toggle-lib-project" data-facet="p1"[^>]*>Homelab <span class="facet-pill__count">2</);
+  assert.match(html, /class="facet-pill is-active"[^>]*data-action="toggle-lib-project" data-facet="p2"[^>]*aria-pressed="true"[^>]*>Work <span class="facet-pill__count">1</);
+});
+
+test('Project filtering is OR within its axis and AND with type/trust axes', () => {
+  assert.deepEqual(build({ libraryProjects: ['p2'] }).groups.flatMap(group => group.docs).map(doc => doc.id), ['doc-ideas']);
+  assert.equal(build({ libraryProjects: ['p1', 'p2'] }).visibleCount, 3);
+  assert.deepEqual(
+    build({ libraryProjects: ['p1'], libraryTypes: ['runbook'] }).groups.flatMap(group => group.docs).map(doc => doc.id),
+    ['doc-restore', 'doc-dns'],
+  );
 });
 
 test('the Trust group is omitted when no document carries a trust flag', () => {

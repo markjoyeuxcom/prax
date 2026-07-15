@@ -4,6 +4,8 @@ import {
   normalizeChecklistRow,
   buildListChecklist,
   buildAddChecklistItem,
+  buildAddChecklistItemIdempotent,
+  buildGetChecklistItem,
   buildSetChecklistItemCompleted,
   buildDeleteChecklistItem,
 } from '../../server/checklistRepository.js';
@@ -30,6 +32,14 @@ test('buildAddChecklistItem appends with max\+1 sort_order', () => {
   assert.match(q.text, /insert into task_checklist_items/);
   assert.match(q.text, /coalesce\(max\(sort_order\), -1\) \+ 1/);
   assert.deepEqual(q.values, [TASK, 'New step']);
+});
+
+test('idempotent checklist creation uses the caller id and a conflict-safe insert', () => {
+  const q = buildAddChecklistItemIdempotent(TASK, 'New step', 'item1');
+  assert.match(q.text, /insert into task_checklist_items \(id, task_id, label, sort_order\)/);
+  assert.match(q.text, /on conflict\(id\) do nothing/);
+  assert.deepEqual(q.values, ['item1', TASK, 'New step']);
+  assert.deepEqual(buildGetChecklistItem('item1').values, ['item1']);
 });
 
 test('buildSetChecklistItemCompleted scopes the update to task and item', () => {

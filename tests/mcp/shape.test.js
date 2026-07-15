@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { snippet, toDocumentRef, toTaskRef, capResults } from '../../mcp/shape.js';
+import { snippet, toDocumentRef, toTaskRef } from '../../mcp/shape.js';
 
 test('snippet collapses whitespace and truncates to max length', () => {
   const body = 'line one\n\n   line two   with   spaces';
@@ -33,11 +33,4 @@ test('toTaskRef keeps summary fields only (incl labels)', () => {
   });
   // labels default to [] when absent
   assert.deepEqual(toTaskRef({ id: 't2' }).labels, []);
-});
-
-test('capResults limits array length', () => {
-  const arr = Array.from({ length: 30 }, (_, i) => i);
-  assert.equal(capResults(arr).length, 20);
-  assert.equal(capResults(arr, 5).length, 5);
-  assert.deepEqual(capResults([1, 2], 20), [1, 2]);
 });

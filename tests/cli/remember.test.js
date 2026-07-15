@@ -22,7 +22,8 @@ test('remember ensures the target project and creates without a kind field by de
   assert.equal('kind' in created, false);
   assert.equal(created.project, 'homelab');
   assert.deepEqual(created.tags, ['x']);
-  assert.equal(doc.id, 'new');
+  assert.match(doc.id, /^[0-9a-f-]{36}$/);
+  assert.equal(created.id, doc.id);
 });
 
 test('remember updates in place when an exact title already exists', async () => {

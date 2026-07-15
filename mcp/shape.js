@@ -1,5 +1,4 @@
 const DEFAULT_SNIPPET = 200;
-const DEFAULT_CAP = 20;
 
 export function snippet(body, max = DEFAULT_SNIPPET) {
   return String(body ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -27,8 +26,4 @@ export function toTaskRef(task) {
     dueDate: task.dueDate ?? null,
     labels: task.labels ?? [],
   };
-}
-
-export function capResults(items, max = DEFAULT_CAP) {
-  return Array.isArray(items) ? items.slice(0, max) : [];
 }

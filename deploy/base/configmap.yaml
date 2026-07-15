@@ -6,7 +6,10 @@ metadata:
     app.kubernetes.io/name: prax
 data:
   HOST: "0.0.0.0"
+  # The pod must listen on its network interface. This is an explicit
+  # acknowledgement, not a claim that Prax provides authentication.
+  PRAX_ALLOW_UNAUTHENTICATED_NETWORK: "true"
   PORT: "3000"
   PUBLIC_DIR: "/app/public"
-  # Semantic search returns with the sqlite-vec follow-up (Phase 5).
+  # External semantic processing remains opt-in.
   EMBEDDING_BACKEND: "none"

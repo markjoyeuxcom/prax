@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import { createDb } from '../../server/db.js';
 import { runMigrations } from '../../server/migrate.js';
 import { parseRunbookSteps } from '../../server/runbookSteps.js';
-import { createRunbookRunsRepository } from '../../server/runbookRunsRepository.js';
+import {
+  createRunbookRunsRepository,
+  RunbookRunConflictError,
+} from '../../server/runbookRunsRepository.js';
 
 const SILENT = { info() {}, error() {} };
 
@@ -42,28 +45,63 @@ async function freshRepo() {
     "insert into markdown_documents (title, document_type, project_id, body) values ('Restore', 'runbook', $1, '# Restore') returning id",
     [projectId],
   );
-  return { db, repo: createRunbookRunsRepository(db), documentId: doc.rows[0].id };
+  return { db, repo: createRunbookRunsRepository(db), documentId: doc.rows[0].id, projectId };
 }
 
-test('createRun snapshots steps and starts them all unchecked, status running', async () => {
-  const { repo, documentId } = await freshRepo();
+test('createRun snapshots source context and steps, then appends an attributed start event', async () => {
+  const { repo, documentId, projectId } = await freshRepo();
   const run = await repo.createRun({
     documentId,
+    documentTitle: 'Restore',
+    projectId,
     title: 'Prod incident',
+    startedBy: 'ada',
     steps: [{ text: 'Stop writes' }, { text: 'Promote replica' }],
   });
   assert.equal(run.documentId, documentId);
+  assert.equal(run.documentTitle, 'Restore');
+  assert.equal(run.projectId, projectId);
   assert.equal(run.status, 'running');
   assert.equal(run.finishedAt, null);
+  assert.equal(run.finishedBy, null);
   assert.match(run.startedAt, /^\d{4}-\d{2}-\d{2}T/);
   assert.equal(run.steps.length, 2);
   assert.deepEqual(run.steps.map((s) => [s.position, s.text, s.checkedAt]), [
     [0, 'Stop writes', null],
     [1, 'Promote replica', null],
   ]);
+  assert.deepEqual(run.events.map((event) => [event.sequence, event.type, event.actor]), [
+    [0, 'started', 'ada'],
+  ]);
+  assert.equal(run.alreadyStarted, false);
 });
 
-test('setStepChecked stamps checked_at + checked_by; unchecking clears both', async () => {
+test('createRun replays one caller-stable start id and rejects conflicting reuse', async () => {
+  const { repo, documentId, projectId } = await freshRepo();
+  const id = '10000000-0000-4000-8000-000000000001';
+  const input = {
+    id,
+    documentId,
+    documentTitle: 'Restore',
+    projectId,
+    title: 'Incident 42',
+    steps: [{ text: 'A' }],
+  };
+  const first = await repo.createRun(input);
+  const replay = await repo.createRun({ ...input, steps: [{ text: 'changed after start' }] });
+  assert.equal(first.id, id);
+  assert.equal(replay.id, id);
+  assert.equal(replay.alreadyStarted, true);
+  assert.deepEqual(replay.steps.map((step) => step.text), ['A']);
+  assert.deepEqual(replay.events.map((event) => event.type), ['started']);
+
+  await assert.rejects(
+    repo.createRun({ ...input, title: 'A different intent' }),
+    (error) => error instanceof RunbookRunConflictError && error.reason === 'run-id-reused',
+  );
+});
+
+test('setStepChecked appends check/uncheck history and same-state replay is side-effect free', async () => {
   const { repo, documentId } = await freshRepo();
   const run = await repo.createRun({ documentId, steps: [{ text: 'A' }, { text: 'B' }] });
   const stepA = run.steps[0];
@@ -71,27 +109,92 @@ test('setStepChecked stamps checked_at + checked_by; unchecking clears both', as
   const checked = await repo.setStepChecked(run.id, stepA.id, { checked: true, checkedBy: 'ada' });
   assert.match(checked.checkedAt, /^\d{4}-\d{2}-\d{2}T/);
   assert.equal(checked.checkedBy, 'ada');
+  const replay = await repo.setStepChecked(run.id, stepA.id, { checked: true, checkedBy: 'other' });
+  assert.equal(replay.checkedAt, checked.checkedAt);
+  assert.equal(replay.checkedBy, 'ada');
 
-  const unchecked = await repo.setStepChecked(run.id, stepA.id, { checked: false });
+  const unchecked = await repo.setStepChecked(run.id, stepA.id, { checked: false, checkedBy: 'grace' });
   assert.equal(unchecked.checkedAt, null);
   assert.equal(unchecked.checkedBy, null);
+
+  const fetched = await repo.getRun(run.id);
+  assert.deepEqual(fetched.events.map((event) => [event.type, event.actor, event.stepText]), [
+    ['started', 'user', null],
+    ['step-checked', 'ada', 'A'],
+    ['step-unchecked', 'grace', 'A'],
+  ]);
 
   // A step id from a different run must not be flippable via this run.
   assert.equal(await repo.setStepChecked('no-such-run', stepA.id, { checked: true }), null);
 });
 
-test('setRunStatus completes/aborts with a finished_at, and getRun returns steps in order', async () => {
+test('status transitions preserve interruption history, completion is terminal, and replays are idempotent', async () => {
   const { repo, documentId } = await freshRepo();
   const run = await repo.createRun({ documentId, steps: [{ text: 'One' }, { text: 'Two' }] });
 
-  const done = await repo.setRunStatus(run.id, 'completed');
+  const aborted = await repo.setRunStatus(run.id, 'aborted', { changedBy: 'ada' });
+  assert.equal(aborted.status, 'aborted');
+  assert.equal(aborted.finishedBy, 'ada');
+  assert.match(aborted.finishedAt, /^\d{4}-\d{2}-\d{2}T/);
+  const abortReplay = await repo.setRunStatus(run.id, 'aborted', { changedBy: 'other' });
+  assert.equal(abortReplay.finishedAt, aborted.finishedAt);
+  assert.equal(abortReplay.finishedBy, 'ada');
+
+  await assert.rejects(
+    repo.setStepChecked(run.id, run.steps[0].id, { checked: true }),
+    (error) => error instanceof RunbookRunConflictError && error.reason === 'run-not-running',
+  );
+  await assert.rejects(
+    repo.setRunStatus(run.id, 'completed'),
+    (error) => error instanceof RunbookRunConflictError && error.reason === 'invalid-transition',
+  );
+
+  const resumed = await repo.setRunStatus(run.id, 'running', { changedBy: 'grace' });
+  assert.equal(resumed.status, 'running');
+  assert.equal(resumed.finishedAt, null);
+  assert.equal(resumed.finishedBy, null);
+  await repo.setStepChecked(run.id, run.steps[0].id, { checked: true, checkedBy: 'grace' });
+
+  const done = await repo.setRunStatus(run.id, 'completed', { changedBy: 'grace' });
   assert.equal(done.status, 'completed');
   assert.match(done.finishedAt, /^\d{4}-\d{2}-\d{2}T/);
+  assert.equal(done.finishedBy, 'grace');
+  const doneReplay = await repo.setRunStatus(run.id, 'completed', { changedBy: 'other' });
+  assert.equal(doneReplay.finishedAt, done.finishedAt);
+  assert.equal(doneReplay.finishedBy, 'grace');
+  await assert.rejects(
+    repo.setRunStatus(run.id, 'running'),
+    (error) => error instanceof RunbookRunConflictError && error.reason === 'invalid-transition',
+  );
 
   const fetched = await repo.getRun(run.id);
   assert.equal(fetched.status, 'completed');
   assert.deepEqual(fetched.steps.map((s) => s.position), [0, 1]);
+  assert.deepEqual(fetched.events.map((event) => event.type), [
+    'started', 'aborted', 'resumed', 'step-checked', 'completed',
+  ]);
   assert.equal(await repo.getRun('missing'), null);
+});
+
+test('source deletion preserves the independent run snapshot, steps, and chronicle', async () => {
+  const { db, repo, documentId, projectId } = await freshRepo();
+  const run = await repo.createRun({
+    documentId,
+    documentTitle: 'Restore',
+    projectId,
+    title: 'Deletion drill',
+    steps: [{ text: 'Preserve me' }],
+  });
+  await repo.setStepChecked(run.id, run.steps[0].id, { checked: true, checkedBy: 'ada' });
+  await repo.setRunStatus(run.id, 'completed', { changedBy: 'ada' });
+
+  await db.query('delete from markdown_documents where id = $1', [documentId]);
+  const preserved = await repo.getRun(run.id);
+  assert.equal(preserved.documentId, null);
+  assert.equal(preserved.documentTitle, 'Restore');
+  assert.equal(preserved.projectId, projectId);
+  assert.deepEqual(preserved.steps.map((step) => step.text), ['Preserve me']);
+  assert.deepEqual(preserved.events.map((event) => event.type), ['started', 'step-checked', 'completed']);
 });
 
 test('listRunsForDocument returns runs newest-first with step + done counts', async () => {

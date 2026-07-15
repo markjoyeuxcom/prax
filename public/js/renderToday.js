@@ -2,7 +2,7 @@ import { escapeHtml, chip } from './renderHelpers.js';
 import { isOpen } from './statusMap.js';
 import { dueFlag, dueBucket } from './dueFlags.js';
 import { logo } from './icons.js';
-import { renderTaskGroupsHtml } from './renderList.js';
+import { renderTaskCollectionProgressHtml, renderTaskGroupsHtml } from './renderList.js';
 
 // Today — cross-project Overdue / Today / Due soon
 // (docs/desktop/design-handoff.md §5). Pure render module: rows reuse the
@@ -44,16 +44,16 @@ export function buildTodayGroups(tasks, projects, { now = new Date() } = {}) {
   return { groups, flatIds: groups.flatMap((group) => group.tasks.map((task) => task.id)), badge, snoozedCount };
 }
 
-// Project chip tinted with the project color (13% wash bg / full-color text,
-// per the prototype); chip--project only carries the weight in prax.css.
+// Project color remains a redundant dot/wash; the text uses the accessible
+// design-system foreground because arbitrary project colors are not text-safe.
 // Exported so the Filter and Upcoming views render the same cross-project chip.
 export function projectChipHtml(task) {
   const color = escapeHtml(task.projColor || 'var(--ink3)');
   return chip(task.projName || 'No project', 'project',
-    `style="background:color-mix(in oklab, ${color} 13%, transparent);color:${color}"`);
+    `style="--project-color:${color};background:color-mix(in oklab, ${color} 13%, transparent)"`);
 }
 
-export function renderTodayHtml(state, groups, { now = new Date(), snoozedCount = 0 } = {}) {
+export function renderTodayHtml(state, groups, { now = new Date(), snoozedCount = 0, collection = null } = {}) {
   const dateLabel = new Date(now).toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric',
   });
@@ -70,6 +70,7 @@ export function renderTodayHtml(state, groups, { now = new Date(), snoozedCount 
       + '<p class="empty__title">All clear</p>'
       + '<p class="empty__sub">Nothing overdue, nothing due today. Enjoy the quiet.</p>'
       + '</div>'
-    : renderTaskGroupsHtml(state, groups, { rowExtra: projectChipHtml });
+    : renderTaskGroupsHtml(state, groups, { rowExtra: projectChipHtml })
+      + renderTaskCollectionProgressHtml(collection);
   return `<div class="page">${head}${body}</div>`;
 }

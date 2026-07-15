@@ -89,6 +89,13 @@ test('embedDocument never throws when a dependency rejects, returns false', asyn
   assert.equal(errors.length, 1);
 });
 
+test('embedDocument returns false when the repository rejects a stale embedding write', async () => {
+  const repo = fakeRepo([{ id: 'a', title: 'T', body: 'old', contentHash: 'old-hash' }]);
+  repo.setDocumentEmbedding = async () => null;
+  const svc = createEmbeddingService({ repository: repo, embedder: createFakeEmbedder({ dim: 8 }) });
+  assert.equal(await svc.embedDocument('a'), false);
+});
+
 test('embeddableText joins title + body and tolerates missing parts', () => {
   assert.equal(embeddableText({ title: 'T', body: 'B' }), 'T\n\nB');
   assert.equal(embeddableText({ body: 'B' }), 'B');

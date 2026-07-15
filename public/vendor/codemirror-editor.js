@@ -28351,6 +28351,7 @@ function mountCodeMirrorEditor({
         search({ createPanel: hiddenSearchPanel }),
         autocompletion({ override: [slashCompletionSource, wikiCompletionSource], icons: false, defaultKeymap: true }),
         EditorView.lineWrapping,
+        EditorView.contentAttributes.of({ "aria-label": "Markdown document body" }),
         EditorView.updateListener.of((update) => {
           if (!update.docChanged) return;
           onChange?.(update.state.doc.toString());
@@ -28404,18 +28405,6 @@ function mountCodeMirrorEditor({
     getSelectionText() {
       const sel = view.state.selection.main;
       return sel.empty ? "" : view.state.sliceDoc(sel.from, sel.to);
-    },
-    // Primary selection offsets ({ from, to }), or null when nothing is selected.
-    getSelectionRange() {
-      const sel = view.state.selection.main;
-      return sel.empty ? null : { from: sel.from, to: sel.to };
-    },
-    // Restore a selection after a re-mount (used to carry it across renderApp).
-    setSelectionRange(from, to) {
-      const len = view.state.doc.length;
-      const a = Math.max(0, Math.min(from, len));
-      const b = Math.max(0, Math.min(to, len));
-      view.dispatch({ selection: { anchor: a, head: b } });
     },
     scrollToLine(lineNumber) {
       const line = view.state.doc.line(

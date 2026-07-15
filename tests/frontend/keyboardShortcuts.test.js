@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { matchShortcut } from '../../public/js/keyboardShortcuts.js';
+import { isInteractiveShortcutTarget, matchShortcut } from '../../public/js/keyboardShortcuts.js';
 
 // The Prax keymap (docs/desktop/design-handoff.md §Interactions): ⌘K palette,
 // ⌘J theme, N capture, E done, ↑↓/↵ list navigation, Esc cascade, '/' palette,
@@ -42,4 +42,11 @@ test('g chord navigates views and clears its pending state', () => {
   assert.equal(matchShortcut({ key: 'a' }, 'g').view, 'archive');
   assert.equal(matchShortcut({ key: 'l' }, 'g').view, 'library');
   assert.deepEqual(matchShortcut({ key: 'z' }, 'g'), { action: null, view: null, pending: '' });
+});
+
+test('focused interactive controls retain native unmodified key behavior', () => {
+  assert.equal(isInteractiveShortcutTarget({ tagName: 'BUTTON' }), true);
+  assert.equal(isInteractiveShortcutTarget({ tagName: 'A', hasAttribute: (name) => name === 'href' }), true);
+  assert.equal(isInteractiveShortcutTarget({ tagName: 'DIV', closest: (selector) => (selector.includes('[role="button"]') ? {} : null) }), true);
+  assert.equal(isInteractiveShortcutTarget({ tagName: 'DIV', closest: () => null }), false);
 });

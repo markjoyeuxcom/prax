@@ -30,10 +30,11 @@ async function build(overrides = {}) {
 
 test('POST verify sets verified true with actor', async () => {
   const app = await build();
-  const res = await app.inject({ method: 'POST', url: `/api/library/documents/${ID}/verify`, payload: { verified: true, as: 'mark' } });
+  const hash = 'a'.repeat(64);
+  const res = await app.inject({ method: 'POST', url: `/api/library/documents/${ID}/verify`, payload: { verified: true, as: 'mark', contentHash: hash } });
   assert.equal(res.statusCode, 200);
   assert.equal(res.json().verified, true);
-  assert.deepEqual(app._calls.verify[0], { id: ID, payload: { verified: true, verifiedBy: 'mark' } });
+  assert.deepEqual(app._calls.verify[0], { id: ID, payload: { verified: true, verifiedBy: 'mark', contentHash: hash } });
   await app.close();
 });
 
@@ -41,7 +42,7 @@ test('POST verify defaults actor to "user" and supports unverify', async () => {
   const app = await build();
   const res = await app.inject({ method: 'POST', url: `/api/library/documents/${ID}/verify`, payload: { verified: false } });
   assert.equal(res.statusCode, 200);
-  assert.deepEqual(app._calls.verify[0], { id: ID, payload: { verified: false, verifiedBy: null } });
+  assert.deepEqual(app._calls.verify[0], { id: ID, payload: { verified: false, verifiedBy: null, contentHash: null } });
   await app.close();
 });
 
@@ -52,12 +53,12 @@ test('POST verify rejects a bad id', async () => {
   await app.close();
 });
 
-test('POST supersede links new->old and marks old superseded', async () => {
+test('POST supersede delegates one atomic new->old lifecycle link', async () => {
   const app = await build();
   const res = await app.inject({ method: 'POST', url: `/api/library/documents/${ID}/supersede`, payload: { supersededBy: NEW } });
   assert.equal(res.statusCode, 200);
   assert.deepEqual(app._calls.links[0], { s: NEW, t: ID, r: 'supersedes' });
-  assert.deepEqual(app._calls.superseded, [ID]);
+  assert.deepEqual(app._calls.superseded, [], 'the database link trigger owns target status');
   await app.close();
 });
 
@@ -68,11 +69,11 @@ test('POST supersede 404s when the link target/source is missing', async () => {
   await app.close();
 });
 
-test('DELETE supersedes link reverts the target status', async () => {
+test('DELETE supersedes delegates one atomic lifecycle unlink', async () => {
   const app = await build();
   const res = await app.inject({ method: 'DELETE', url: `/api/library/documents/${NEW}/links/${ID}?relation=supersedes` });
   assert.equal(res.statusCode, 200);
-  assert.deepEqual(app._calls.reverted, [ID]);
+  assert.deepEqual(app._calls.reverted, [], 'the database unlink trigger owns target status');
   await app.close();
 });
 
@@ -83,10 +84,50 @@ test('POST verify rejects a non-boolean verified', async () => {
   await app.close();
 });
 
+test('POST verify rejects a malformed reviewed content hash', async () => {
+  const app = await build();
+  const res = await app.inject({
+    method: 'POST', url: `/api/library/documents/${ID}/verify`,
+    payload: { verified: true, contentHash: 'not-a-sha256' },
+  });
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.json().message, 'contentHash is invalid');
+  await app.close();
+});
+
 test('POST verify 404s when the document is missing', async () => {
   const app = await build({ library: { async verifyDocument() { return null; } } });
   const res = await app.inject({ method: 'POST', url: `/api/library/documents/${ID}/verify`, payload: { verified: true } });
   assert.equal(res.statusCode, 404);
+  await app.close();
+});
+
+test('POST verify rejects a stale reviewed content hash', async () => {
+  const app = await build({ library: {
+    async verifyDocument() { return null; },
+    async getDocument(id) { return { id, contentHash: 'b'.repeat(64) }; },
+  } });
+  const res = await app.inject({
+    method: 'POST', url: `/api/library/documents/${ID}/verify`,
+    payload: { verified: true, as: 'mark', contentHash: 'a'.repeat(64) },
+  });
+  assert.equal(res.statusCode, 409);
+  assert.match(res.json().message, /changed since it was reviewed/);
+  await app.close();
+});
+
+test('POST verify same-state replay returns the first verification without overwriting it', async () => {
+  const first = { id: ID, verified: true, verifiedBy: 'mark', verifiedAt: '2026-07-13T10:00:00.000Z', contentHash: 'a'.repeat(64) };
+  const app = await build({ library: {
+    async verifyDocument() { return null; },
+    async getDocument() { return first; },
+  } });
+  const res = await app.inject({
+    method: 'POST', url: `/api/library/documents/${ID}/verify`,
+    payload: { verified: true, as: 'mark', contentHash: first.contentHash },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json(), first);
   await app.close();
 });
 

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildApp } from '../../server/index.js';
-import { buildAskMessages, buildAnswerContext, collectSources } from '../../server/askLibrary.js';
+import { buildAskMessages, buildAnswerContext, collectSources, validateAnswerCitations } from '../../server/askLibrary.js';
 
 const PROJECT_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -11,6 +11,7 @@ test('buildAskMessages grounds the prompt in the pack and asks the question', ()
   assert.equal(msgs[0].role, 'system');
   assert.match(msgs[0].content, /ONLY the CONTEXT/);
   assert.match(msgs[0].content, /cite/i);
+  assert.match(msgs[0].content, /untrusted reference data/);
   assert.equal(msgs[1].role, 'user');
   assert.match(msgs[1].content, /# Pack/);
   assert.match(msgs[1].content, /QUESTION: how do we fail over\?$/);
@@ -27,10 +28,21 @@ test('collectSources de-dupes across sections in order', () => {
     { items: [{ id: 'a', title: 'A', documentType: 'note', verified: true }, { id: 'b', title: 'B', documentType: 'runbook', verified: false }] },
   ] };
   assert.deepEqual(collectSources(pack), [
-    { id: 'a', title: 'A', documentType: 'note', verified: true },
-    { id: 'b', title: 'B', documentType: 'runbook', verified: false },
+    { id: 'a', title: 'A', documentType: 'note', verified: true, verifiedAt: null, verifiedBy: null, status: 'active', updatedBy: null, kind: 'source', stale: false },
+    { id: 'b', title: 'B', documentType: 'runbook', verified: false, verifiedAt: null, verifiedBy: null, status: 'active', updatedBy: null, kind: 'source', stale: false },
   ]);
   assert.deepEqual(collectSources(null), []);
+});
+
+test('validateAnswerCitations requires exact retrieved titles and rejects unknown citations', () => {
+  const sources = [{ title: 'Postgres failover' }, { title: 'Backup policy' }];
+  assert.deepEqual(validateAnswerCitations('Use the standby [Postgres failover].', sources), {
+    valid: true, citations: ['Postgres failover'], unknown: [],
+  });
+  assert.equal(validateAnswerCitations('Use the standby.', sources).valid, false);
+  assert.deepEqual(validateAnswerCitations('See [Invented runbook].', sources).unknown, ['Invented runbook']);
+  assert.equal(validateAnswerCitations('Use array[0] and test [ -f /tmp/x ] [Postgres failover].', sources).valid, true);
+  assert.equal(validateAnswerCitations('No context available.', []).valid, true);
 });
 
 test('buildAnswerContext feeds full bodies (not snippets), verified-first, marks trust, skips junk', () => {
@@ -59,10 +71,10 @@ test('buildAnswerContext respects the total + per-doc budget', () => {
 });
 
 // ---- route ----
-function makeApp({ chat, docs } = {}) {
+function makeApp({ chat, docs, semanticDocs, embedder } = {}) {
   const library = {
     listDocuments: async () => docs ?? [],
-    searchDocumentsSemantic: async () => docs ?? [],
+    searchDocumentsSemantic: async () => semanticDocs ?? docs ?? [],
     getDocument: async () => null,
   };
   return buildApp({
@@ -71,7 +83,7 @@ function makeApp({ chat, docs } = {}) {
     projectsRepository: { resolveProject: async (v) => (v === 'missing' ? null : { id: PROJECT_ID, slug: 'homelab', name: 'Homelab' }) },
     documentLinksRepository: { listOutboundLinksForDocuments: async () => new Map() },
     appSettingsRepository: { async getSetting(_k, fb) { return fb; }, async putSetting() {} },
-    embedder: { backend: 'fake', async isAvailable() { return true; }, async embed() { return { vector: [0.1], model: 'fake', dim: 1 }; } },
+    embedder: embedder ?? { backend: 'fake', async isAvailable() { return true; }, async embed() { return { vector: [0.1], model: 'fake', dim: 1 }; } },
     chat: chat ?? null,
   });
 }
@@ -90,6 +102,8 @@ test('POST /api/library/ask generates a grounded answer when a chat model is set
   assert.equal(body.degraded, false);
   assert.match(body.answer, /Promote the standby/);
   assert.equal(body.model, 'fake-chat');
+  assert.deepEqual(body.retrieval, { mode: 'semantic', fallback: false, reason: null });
+  assert.deepEqual(body.citation, { valid: true, citations: ['Postgres failover'], unknown: [] });
   assert.ok(body.sources.some((s) => s.title === 'Postgres failover'));
   assert.ok(body.markdown.includes('Postgres failover'));
   // the chat saw the system contract + the FULL body (not just the pack snippet)
@@ -107,6 +121,7 @@ test('POST /api/library/ask degrades to the pack when no chat model is configure
   assert.equal(body.answer, null);
   assert.equal(body.degraded, true);
   assert.equal(body.reason, 'no-chat-model');
+  assert.deepEqual(body.retrieval, { mode: 'semantic', fallback: false, reason: null });
   assert.ok(body.markdown.length > 0);            // still returns retrieved context
   assert.ok(body.sources.length >= 1);
   await app.close();
@@ -121,8 +136,29 @@ test('POST /api/library/ask still returns sources when generation fails', async 
   assert.equal(body.answer, null);
   assert.equal(body.degraded, true);
   assert.equal(body.reason, 'generation-failed');
-  assert.match(body.error, /404/);                // the real failure reason is surfaced
+  assert.equal('error' in body, false);           // provider exception text stays server-side
   assert.ok(body.sources.length >= 1);
+  await app.close();
+});
+
+test('POST /api/library/ask makes semantic failure and keyword fallback explicit', async () => {
+  const embedder = { backend: 'fake', async isAvailable() { return true; }, async embed() { throw new Error('private provider detail'); } };
+  const app = await makeApp({ chat: null, docs: DOCS, embedder });
+  const res = await app.inject({ method: 'POST', url: '/api/library/ask', payload: { q: 'failover?' } });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json().retrieval, { mode: 'keyword', fallback: true, reason: 'semantic-unavailable' });
+  assert.ok(res.json().sources.length > 0);
+  await app.close();
+});
+
+test('POST /api/library/ask withholds an answer that does not cite a retrieved source', async () => {
+  const chat = { backend: 'fake', model: 'fake-chat', async complete() { return { text: 'Promote the standby.', model: 'fake-chat' }; } };
+  const app = await makeApp({ chat, docs: DOCS });
+  const res = await app.inject({ method: 'POST', url: '/api/library/ask', payload: { q: 'failover?' } });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().answer, null);
+  assert.equal(res.json().degraded, true);
+  assert.equal(res.json().reason, 'citation-validation-failed');
   await app.close();
 });
 

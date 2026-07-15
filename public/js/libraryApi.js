@@ -8,13 +8,28 @@ export async function fetchDocuments(filters = {}) {
   return response.json();
 }
 
+export async function fetchDocument(id) {
+  const response = await fetch(`/api/library/documents/${id}`);
+  if (!response.ok) {
+    const error = new Error('Failed to load document');
+    error.status = response.status;
+    throw error;
+  }
+  return response.json();
+}
+
 export async function createDocument(document) {
   const response = await fetch('/api/library/documents', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(document),
   });
-  if (!response.ok) throw new Error('Failed to create document');
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    const error = new Error(payload?.message || 'Failed to create document');
+    error.status = response.status;
+    throw error;
+  }
   return response.json();
 }
 
@@ -55,6 +70,14 @@ export async function deleteDocumentPermanently(id) {
 export async function fetchDocumentLinks(id, direction = 'both') {
   const response = await fetch(`/api/library/documents/${id}/links?direction=${encodeURIComponent(direction)}`);
   if (!response.ok) throw new Error('Failed to load document links');
+  return response.json();
+}
+
+export async function unlinkDocuments(sourceId, targetId, relation) {
+  const response = await fetch(`/api/library/documents/${sourceId}/links/${targetId}?relation=${encodeURIComponent(relation)}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) throw new Error('Failed to unlink documents');
   return response.json();
 }
 
@@ -108,6 +131,12 @@ export async function fetchOrphanDocuments(project = '') {
   return response.json();
 }
 
+export async function fetchDeploymentStatus() {
+  const response = await fetch('/api/settings/deployment');
+  if (!response.ok) throw new Error('Failed to load deployment security status');
+  return response.json();
+}
+
 export async function fetchSemanticStatus() {
   const res = await fetch('/api/settings/semantic-search');
   if (!res.ok) throw new Error('Failed to load semantic search status');
@@ -125,7 +154,9 @@ export async function putSemanticSettings(patch) {
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
-    throw new Error(payload?.message || 'Failed to update semantic settings');
+    const error = new Error(payload?.message || 'Failed to update semantic settings');
+    error.status = response.status;
+    throw error;
   }
   return response.json();
 }
@@ -146,7 +177,9 @@ export async function putChatSettings(patch) {
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
-    throw new Error(payload?.message || 'Failed to update AI answers settings');
+    const error = new Error(payload?.message || 'Failed to update AI answers settings');
+    error.status = response.status;
+    throw error;
   }
   return response.json();
 }
@@ -155,7 +188,12 @@ export async function setSemanticEnabled(enabled) {
   const res = await fetch('/api/settings/semantic-search', {
     method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled }),
   });
-  if (!res.ok) throw new Error('Failed to update semantic search');
+  if (!res.ok) {
+    const payload = await res.json().catch(() => null);
+    const error = new Error(payload?.message || 'Failed to update semantic search');
+    error.status = res.status;
+    throw error;
+  }
   return res.json();
 }
 
@@ -165,9 +203,12 @@ export async function reindexEmbeddings(force = false) {
   return res.json();
 }
 
-export async function semanticSearch(query, project) {
+export async function semanticSearch(query, project, { limit = 20, offset = 0 } = {}) {
   const params = new URLSearchParams({ q: query });
   if (project && project !== 'all') params.set('project', project);
+  params.set('page', 'true');
+  params.set('limit', String(limit));
+  params.set('offset', String(offset));
   const res = await fetch(`/api/library/documents/semantic-search?${params.toString()}`);
   if (!res.ok) throw new Error('Semantic search failed');
   return res.json();
@@ -191,11 +232,21 @@ export async function askPrax(query, project = 'all') {
 
 // ---- Runbook execution (runs) ----------------------------------------------
 
-export async function startRun(documentId, title = '') {
+async function throwRunApiError(response, fallback) {
+  const payload = await response.json().catch(() => null);
+  const error = new Error(payload?.message || fallback);
+  error.status = response.status;
+  error.reason = payload?.reason || null;
+  throw error;
+}
+
+export async function startRun(documentId, title = '', id = null) {
+  const body = { title };
+  if (id) body.id = id;
   const res = await fetch(`/api/library/documents/${documentId}/runs`, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title }),
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error('Failed to start run');
+  if (!res.ok) return throwRunApiError(res, 'Failed to start run');
   return res.json();
 }
 
@@ -207,7 +258,7 @@ export async function fetchRuns(documentId) {
 
 export async function fetchRun(runId) {
   const res = await fetch(`/api/library/runs/${runId}`);
-  if (!res.ok) throw new Error('Failed to load run');
+  if (!res.ok) return throwRunApiError(res, 'Failed to load run');
   return res.json();
 }
 
@@ -215,7 +266,7 @@ export async function setRunStep(runId, stepId, checked) {
   const res = await fetch(`/api/library/runs/${runId}/steps/${stepId}`, {
     method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ checked }),
   });
-  if (!res.ok) throw new Error('Failed to update step');
+  if (!res.ok) return throwRunApiError(res, 'Failed to update step');
   return res.json();
 }
 
@@ -223,7 +274,7 @@ export async function setRunStatus(runId, status) {
   const res = await fetch(`/api/library/runs/${runId}`, {
     method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status }),
   });
-  if (!res.ok) throw new Error('Failed to update run');
+  if (!res.ok) return throwRunApiError(res, 'Failed to update run');
   return res.json();
 }
 
@@ -343,13 +394,18 @@ export async function assistantChat(messages, decisions = null) {
   return res.json();
 }
 
-export async function verifyDocument(id, verified, as = 'user') {
+export async function verifyDocument(id, verified, as = 'user', contentHash = null) {
   const response = await fetch(`/api/library/documents/${id}/verify`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ verified, as }),
+    body: JSON.stringify({ verified, as, ...(verified && contentHash ? { contentHash } : {}) }),
   });
-  if (!response.ok) throw new Error('Failed to update verification');
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    const error = new Error(payload?.message || 'Failed to update verification');
+    error.status = response.status;
+    throw error;
+  }
   return response.json();
 }
 

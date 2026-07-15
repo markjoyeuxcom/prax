@@ -22,8 +22,10 @@ test('ask_prax returns the synthesized answer with a cited sources footer', asyn
 });
 
 test('ask_prax falls back to the raw pack when generation degraded', async () => {
-  const client = { ask: async () => ({ answer: null, degraded: true, reason: 'no-chat-model', markdown: '# Context pack\n- [Doc] body', sources: [] }) };
+  const client = { ask: async () => ({ answer: null, degraded: true, reason: 'no-chat-model', retrieval: { mode: 'keyword', fallback: true, reason: 'semantic-not-configured' }, markdown: '# Context pack\n- [Doc] body', sources: [] }) };
   const res = await tool(client).handler({ query: 'x' });
+  assert.match(res.content[0].text, /Prax degraded \(no-chat-model\)/);
+  assert.match(res.content[0].text, /Retrieval: keyword fallback \(semantic-not-configured\)/);
   assert.match(res.content[0].text, /# Context pack/);
   assert.ok(!res.isError);
 });
@@ -42,8 +44,11 @@ test('generate_post_mortem validates the run id and returns the created doc', as
   const t = pmTool({});
   assert.ok(t);
   assert.equal((await t.handler({ runId: 'nope' })).isError, true);            // bad uuid
-  const client = { generatePostMortem: async (id) => ({ document: { id: 'pm1', title: 'Post-mortem: X' }, generated: true, model: 'gemini-2.5-flash' }) };
-  const res = await pmTool(client).handler({ runId: '11111111-1111-4111-8111-111111111111' });
+  let received;
+  const documentId = '22222222-2222-4222-8222-222222222222';
+  const client = { generatePostMortem: async (id, resultId) => { received = { id, resultId }; return { document: { id: 'pm1', title: 'Post-mortem: X' }, generated: true, model: 'gemini-2.5-flash' }; } };
+  const res = await pmTool(client).handler({ runId: '11111111-1111-4111-8111-111111111111', documentId });
+  assert.deepEqual(received, { id: '11111111-1111-4111-8111-111111111111', resultId: documentId });
   assert.ok(!res.isError);
   assert.match(res.content[0].text, /"title": ?"Post-mortem: X"/);
   assert.match(res.content[0].text, /"generated": ?true/);
@@ -60,7 +65,7 @@ test('generate_runbook requires description + project and returns the created ru
 
 test('generate_runbook returns the created doc; surfaces the "no model" error', async () => {
   const ok = { generateRunbook: async ({ description }) => ({ document: { id: 'rb1', title: 'Postgres failover', documentType: 'runbook' }, model: 'gemini-2.5-flash' }) };
-  const res = await rbTool(ok).handler({ description: 'pg down', project: 'homelab' });
+  const res = await rbTool(ok).handler({ description: 'pg down', project: 'homelab', documentId: '22222222-2222-4222-8222-222222222222' });
   assert.ok(!res.isError);
   assert.match(res.content[0].text, /"title": ?"Postgres failover"/);
 

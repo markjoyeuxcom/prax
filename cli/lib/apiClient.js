@@ -4,21 +4,28 @@ export function createClient({ baseUrl, token } = {}) {
   // MOOMORA_API_URL is the pre-rename env var; still honoured so existing setups keep working.
   const base = (baseUrl || process.env.PRAX_API_URL || process.env.MOOMORA_API_URL || 'http://127.0.0.1:3000').replace(/\/$/, '');
 
-  async function request(method, path, { body, agent = false, accept } = {}) {
+  async function request(method, path, {
+    body, agent = false, accept, retryUnavailable = false,
+  } = {}) {
     const headers = {};
     if (body !== undefined) headers['content-type'] = 'application/json';
     if (agent) headers['x-prax-origin'] = 'agent';
     if (accept) headers['accept'] = accept;
     if (token) headers['authorization'] = `Bearer ${token}`;
     let res;
-    try {
-      res = await fetch(`${base}${path}`, {
-        method,
-        headers,
-        body: body === undefined ? undefined : JSON.stringify(body),
-      });
-    } catch (err) {
-      throw new Error(`Prax not reachable at ${base} — is the app running? (${err.message})`);
+    const attempts = retryUnavailable ? 2 : 1;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      try {
+        res = await fetch(`${base}${path}`, {
+          method,
+          headers,
+          body: body === undefined ? undefined : JSON.stringify(body),
+        });
+        break;
+      } catch (err) {
+        if (attempt + 1 < attempts) continue;
+        throw new Error(`Prax not reachable at ${base} — is the app running? (${err.message})`);
+      }
     }
     const ct = res.headers.get('content-type') || '';
     const payload = ct.includes('application/json') ? await res.json() : await res.text();
@@ -63,22 +70,32 @@ export function createClient({ baseUrl, token } = {}) {
       return request('GET', `/api/library/documents?${params.toString()}`);
     },
     createMemory(doc) {
-      return request('POST', '/api/library/documents', { body: doc, agent: true });
+      return request('POST', '/api/library/documents', {
+        body: doc, agent: true, retryUnavailable: Boolean(doc?.id),
+      });
     },
     updateMemory(id, patch) {
-      return request('PATCH', `/api/library/documents/${encodeURIComponent(id)}`, { body: patch, agent: true });
+      return request('PATCH', `/api/library/documents/${encodeURIComponent(id)}`, {
+        body: patch, agent: true, retryUnavailable: true,
+      });
     },
-    verify(id, { verified, as } = {}) {
-      return request('POST', `/api/library/documents/${encodeURIComponent(id)}/verify`, { body: { verified, as } });
+    verify(id, { verified, as, contentHash } = {}) {
+      return request('POST', `/api/library/documents/${encodeURIComponent(id)}/verify`, {
+        body: { verified, as, ...(contentHash ? { contentHash } : {}) }, retryUnavailable: true,
+      });
     },
     supersede(oldId, newId) {
-      return request('POST', `/api/library/documents/${encodeURIComponent(oldId)}/supersede`, { body: { supersededBy: newId } });
+      return request('POST', `/api/library/documents/${encodeURIComponent(oldId)}/supersede`, {
+        body: { supersededBy: newId }, agent: true, retryUnavailable: true,
+      });
     },
     listProjects() {
       return request('GET', '/api/projects');
     },
     addExternalRef(documentId, { url, label } = {}) {
-      return request('POST', `/api/library/documents/${encodeURIComponent(documentId)}/external-refs`, { body: { url, label } });
+      return request('POST', `/api/library/documents/${encodeURIComponent(documentId)}/external-refs`, {
+        body: { url, label }, agent: true, retryUnavailable: true,
+      });
     },
     updateProject(id, patch) {
       return request('PATCH', `/api/projects/${encodeURIComponent(id)}`, { body: patch });
@@ -89,8 +106,21 @@ export function createClient({ baseUrl, token } = {}) {
         (p) => p.slug === target || (p.name && p.name.toLowerCase() === String(target).toLowerCase()),
       );
       if (match) return match.slug;
-      const created = await request('POST', '/api/projects', { body: { name: target } });
-      return created.slug;
+      try {
+        const created = await request('POST', '/api/projects', { body: { name: target }, agent: true });
+        return created.slug;
+      } catch (error) {
+        // A project name/slug is unique. If the create committed but its response
+        // was lost (or another caller won the race), reconcile from the canonical list.
+        try {
+          const refreshed = await this.listProjects();
+          const reconciled = (Array.isArray(refreshed) ? refreshed : []).find(
+            (p) => p.slug === target || (p.name && p.name.toLowerCase() === String(target).toLowerCase()),
+          );
+          if (reconciled) return reconciled.slug;
+        } catch { /* preserve the original, more relevant create error below */ }
+        throw error;
+      }
     },
     listDocuments(project) {
       const qs = project && project !== 'all' ? `?project=${encodeURIComponent(project)}` : '';

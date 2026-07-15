@@ -38,9 +38,16 @@ export const state = {
   taskDocuments: [],
   taskChecklist: [],
   taskActivity: [],
-  taskNotesDraftId: null,
+  taskNotesDraftId: null,          // shared task text-draft id (legacy name retained for render compatibility)
+  taskTitleDraft: '',
+  taskDescriptionDraft: '',
   taskNotesDraft: '',
-  isTaskNotesDirty: false,
+  isTaskNotesDirty: false,         // true when any task text-draft field differs
+  taskDraftSaveStatus: 'Saved',
+  taskDraftRecoveryReason: null,   // null | 'failed' | 'recovered' | 'conflict'
+  isTaskDraftStored: true,
+  taskLabelDraftId: null,          // render-stable transient label input owner
+  taskLabelDraft: '',
 
   // ---- board ----
   dragTaskId: null,
@@ -59,6 +66,11 @@ export const state = {
   captureDueDate: null,         // pre-set due date (today when capturing from the Today view)
   captureStatus: 'planned',     // pre-set status (backlog when capturing from a Backlog tab)
   captureMenuOpen: false,       // capture project-picker dropdown
+  captureSubmitting: false,     // create POST/readback is in flight; capture cannot be dismissed
+  captureError: null,           // truthful create/recovery status shown inside the dialog
+  captureRecovered: false,      // unfinished capture restored from local recovery
+  captureRequestPayload: null,  // exact client-ID payload retained for an unchanged safe retry
+  captureRequestIntent: null,   // visible-intent key paired with captureRequestPayload
   toast: null,                  // { message, undo: fn|null }
   isLinkPickerOpen: false,
   pickerMode: 'link',           // 'link' (task↔doc) | 'supersede' (pick a replacement)
@@ -72,13 +84,33 @@ export const state = {
   activeLibraryTags: [],
   libraryTypes: [],             // facet: active doc types ('runbook'/'note')
   libraryTrust: [],             // facet: active trust flags ('verified'/'stale'/'superseded')
+  libraryProjects: [],          // facet: owning project ids (OR within project axis)
   librarySavedViews: [],
   librarySortBy: 'updated',     // 'updated' | 'title' cycler
   libraryView: 'active',        // 'active' | 'archive'
+  markdownImportOpen: false,
+  markdownImportProjectId: null, // explicit destination selected inside the import dialog
+  markdownImportFiles: [],       // retained [{ id, name, title, body }] after native input rerenders
+  markdownImportPending: false,
+  markdownImportError: '',
+  markdownImportNotice: '',
+  libraryExportOpen: false,
+  libraryExportScope: 'all',       // 'all' or one owning project slug
+  libraryExportFilename: '',       // render-stable suggestion shown before native/browser save
+  libraryExportPending: false,
+  libraryExportError: '',
+  deploymentStatus: { loading: false, error: '' },
   semanticStatus: { available: false },
   chatStatus: { available: false },
+  intelligenceSettingsPending: false,
+  semanticSettingsDraft: null,
+  chatSettingsDraft: null,
   semanticResults: null,        // null = no search ran; [] = ran, empty
+  semanticPage: null,           // exact paged response metadata for the active query
   semanticError: false,         // last semantic search failed (backend unreachable), not just empty
+  semanticLoading: false,       // submitted semantic query is in flight
+  semanticLoadingMore: false,   // an additional result page is in flight
+  semanticMoreError: false,     // append failed; existing results remain usable
   documentLinks: null,          // null = not yet fetched; [] = fetched, empty
   documentExternalRefs: null,   // external URLs the doc points at; null = not yet fetched
   docInfoRefsSeed: null,        // refs snapshot the open Document-info form was seeded from
@@ -121,6 +153,7 @@ export const state = {
   assistantLoading: false,      // a turn is in flight
   assistantPending: null,       // null, or [{ id, name, input, summary }] writes awaiting confirmation
   assistantError: null,         // null | error message string
+  assistantErrorKind: null,     // null | 'error' | 'partial' (truthful committed-write outcome)
 
   // ---- NL capture & NL→filter (Tier-3 #8) ----
   nlCaptureLoading: false,
@@ -146,10 +179,13 @@ export const state = {
   editorMode: 'split',          // 'edit' | 'split' | 'preview'
   editorFocus: false,
   outlineOpen: true,
+  documentDraftTitle: '',
   documentDraftBody: '',
   documentDraftId: null,
   isDocumentDirty: false,
-  documentSaveStatus: 'Saved',  // 'Saved' | 'Unsaved changes' | 'Saving...' | 'Autosaving...' | 'Save failed'
+  documentSaveStatus: 'Saved',  // includes unsaved/autosaving/failure/recovery states
+  documentDraftRecoveryReason: null, // null | 'failed' | 'recovered' | 'conflict'
+  isDocumentDraftStored: true,  // false when origin-local recovery storage is unavailable
   isDocumentInfoEditorOpen: false,
   documentInfoError: '',
   docMenuOpen: false,           // editor ••• actions dropdown
@@ -157,8 +193,11 @@ export const state = {
   documentRuns: null,           // past runs of the open runbook (null = not fetched)
 
   // ---- runbook execution (run view) ----
-  activeRun: null,              // the run being viewed: { id, documentId, title, status, startedAt, finishedAt, steps: [...] }
+  activeRun: null,              // run snapshot + current steps + append-only events
   runReturnDocId: null,         // runbook doc to return to via "← back" (also used to look up its title)
+  runStartPending: false,       // exact-once start POST/readback is in flight
+  runStartIntent: null,         // { id, documentId, title } retained across a safe retry
+  runMutationPending: false,    // serialized step/status mutation or canonical readback is in flight
   postMortemLoading: false,     // true while a post-mortem is being generated for the active run
 
   // ---- editor find/replace (Prax-native panel; see renderSearchPanel.js) ----
@@ -173,6 +212,13 @@ export const state = {
   // ---- settings ----
   preferences: { ...DEFAULT_PREFERENCES },
   adminImportMode: 'skip',
+  adminImportProjectId: null,       // explicit task-import destination; never inferred at submit time
+  adminImportFileName: '',          // retained because renderApp replaces the native file input
+  adminImportPayload: null,         // parsed + validated JSON selected by the user
+  adminImportPending: false,        // consequential batch write lock
+  adminImportError: '',             // actionable validation/transport/reconciliation status
+  adminImportResult: null,          // last known committed { imported, skipped, replayed }
+  adminImportRequest: null,         // { id, intent } retained for unchanged lost-response retry
   settingsTab: 'appearance',    // 'appearance' | 'intelligence' | 'data'
 };
 

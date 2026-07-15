@@ -147,7 +147,7 @@ test('listExternalRefsForDocuments returns a Map keyed by every requested id', a
 
 // ---- routes (real buildApp + real repo against in-memory SQLite) ----
 
-test('external-refs routes: add (201), idempotent add (200), list, delete (404 after)', async () => {
+test('external-refs routes: add, list, and desired-state idempotent delete', async () => {
   const { buildApp } = await import('../../server/index.js');
   const db = await seed();
   const app = await buildApp({ db, tasksRepository: { listTasks: async () => [] } });
@@ -170,7 +170,8 @@ test('external-refs routes: add (201), idempotent add (200), list, delete (404 a
   assert.equal(del.json().length, 0);
 
   const gone = await app.inject({ method: 'DELETE', url: `/api/library/documents/${doc}/external-refs/${refId}` });
-  assert.equal(gone.statusCode, 404);
+  assert.equal(gone.statusCode, 200);
+  assert.deepEqual(gone.json(), []);
 
   await app.close();
 });

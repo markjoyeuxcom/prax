@@ -61,19 +61,44 @@ export function normalizeDocumentRow(row) {
   };
 }
 
-export function buildCreateDocument(document) {
+export function buildCreateDocument(document, { ignoreIdConflict = false } = {}) {
   const verified = (document.updatedBy || 'user') !== 'agent';
+  const idColumn = document.id ? 'id, ' : '';
+  const internalColumns = document.creationOperation || document.creationIntentHash
+    ? ', creation_operation, creation_intent_hash'
+    : '';
+  const values = [
+    ...(document.id ? [document.id] : []),
+    ...CREATE_FIELDS.map((field) => (field === 'tags' ? serializeTags(document.tags) : (document[field] ?? null))),
+    hashBody(document.body), document.updatedBy || 'user', document.kind || 'source', verified,
+    ...(internalColumns ? [document.creationOperation || null, document.creationIntentHash || null] : []),
+  ];
+  const placeholders = values.map((_, index) => `$${index + 1}`);
   return {
     text: `
-      insert into markdown_documents (title, body, document_type, project_id, tags, source_filename, content_hash, updated_by, kind, verified)
-      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      insert into markdown_documents (${idColumn}title, body, document_type, project_id, tags, source_filename, content_hash, updated_by, kind, verified${internalColumns})
+      values (${placeholders.join(', ')})
+      ${ignoreIdConflict ? 'on conflict(id) do nothing' : ''}
       returning *
     `,
-    values: [
-      ...CREATE_FIELDS.map((field) => (field === 'tags' ? serializeTags(document.tags) : (document[field] ?? null))),
-      hashBody(document.body), document.updatedBy || 'user', document.kind || 'source', verified,
-    ],
+    values,
   };
+}
+
+export function documentMatchesCreateFields(document, fields) {
+  if (!document || !fields) return false;
+  const tags = Array.isArray(fields.tags) ? fields.tags : [];
+  return (!fields.id || document.id === fields.id)
+    && document.title === fields.title
+    && document.body === fields.body
+    && document.documentType === fields.documentType
+    && document.projectId === fields.projectId
+    && Array.isArray(document.tags)
+    && document.tags.length === tags.length
+    && document.tags.every((tag, index) => tag === tags[index])
+    && (document.sourceFilename || null) === (fields.sourceFilename || null)
+    && document.kind === (fields.kind || 'source')
+    && document.updatedBy === (fields.updatedBy || 'user');
 }
 
 export function buildUpdateDocument(id, fields) {
@@ -86,6 +111,13 @@ export function buildUpdateDocument(id, fields) {
 
   values.push(fields.updatedBy || 'user');
   assignments.push(`updated_by = $${values.length}`);
+
+  // Any agent-origin mutation invalidates a prior human verification. Without
+  // this, an MCP/assistant edit could change trusted content while retaining
+  // the VERIFIED badge and inclusion in trusted context-pack sections.
+  if (fields.updatedBy === 'agent') {
+    assignments.push('verified = 0', 'verified_at = null', 'verified_by = null');
+  }
 
   if (Object.prototype.hasOwnProperty.call(fields, 'body')) {
     values.push(hashBody(fields.body));
@@ -145,16 +177,25 @@ export function buildGetDocument(id) {
   return { text: 'select * from markdown_documents where id = $1 limit 1', values: [id] };
 }
 
-export function buildVerifyDocument(id, { verified, verifiedBy = null } = {}) {
+export function buildGetDocumentCreationReceipt(id) {
+  return {
+    text: 'select creation_operation, creation_intent_hash from markdown_documents where id = $1 limit 1',
+    values: [id],
+  };
+}
+
+export function buildVerifyDocument(id, { verified, verifiedBy = null, contentHash = null } = {}) {
   if (verified) {
+    const hashGuard = contentHash ? ' and content_hash = $3' : '';
     return {
       text: `
         update markdown_documents
         set verified = 1, verified_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), verified_by = $2
-        where id = $1 and archived_at is null
+        where id = $1 and archived_at is null${hashGuard}
+          and not (verified = 1 and verified_by = $2)
         returning *
       `,
-      values: [id, verifiedBy],
+      values: [id, verifiedBy, ...(contentHash ? [contentHash] : [])],
     };
   }
   return {
@@ -236,7 +277,7 @@ export function buildSetDocumentEmbedding(id, { vector, backend, model, dim, con
           embedding_dim = $5,
           embedded_hash = $6,
           embedded_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-      where id = $1
+      where id = $1 and content_hash = $6
       returning id
     `,
     values: [id, JSON.stringify(vector), backend, model, dim, contentHash],
@@ -248,18 +289,30 @@ export function buildSetDocumentEmbedding(id, { vector, backend, model, dim, con
 // no vector operator), so the embedding column rides along to be scored.
 export function buildSearchDocumentsSemantic(backend, { projectId, includeRetired = false } = {}) {
   const values = [backend];
-  let where = 'where archived_at is null and embedding is not null and embedding_backend = $1';
+  let where = 'where d.archived_at is null and d.embedding is not null and d.embedding_backend = $1';
   if (!includeRetired) {
-    where += ` and status = 'active'`;
+    where += ` and d.status = 'active'`;
   }
   if (projectId) {
     values.push(projectId);
-    where += ` and project_id = $${values.length}`;
+    where += ` and d.project_id = $${values.length}`;
   }
   return {
     text: `
-      select id, title, document_type, project_id, tags, body, kind, verified, status, embedding
-      from markdown_documents
+      select d.id, d.title, d.document_type, d.project_id, d.tags, d.body,
+             d.kind, d.updated_by, d.verified, d.verified_at, d.verified_by,
+             d.status, d.embedding,
+             exists (
+               select 1
+               from document_links dl
+               join markdown_documents target
+                 on target.id = dl.target_document_id and target.archived_at is null
+               where dl.source_document_id = d.id
+                 and dl.relation = 'derived-from'
+                 and dl.target_hash is not null
+                 and target.content_hash is distinct from dl.target_hash
+             ) as stale
+      from markdown_documents d
       ${where}
     `,
     values,
@@ -427,6 +480,19 @@ export function createLibraryRepository(db) {
       return normalizeDocumentRow(result.rows[0]);
     },
 
+    async createDocumentIdempotent(document) {
+      if (!document?.id) throw new Error('Idempotent document creation requires an id');
+      const createQuery = buildCreateDocument(document, { ignoreIdConflict: true });
+      const created = await db.query(createQuery.text, createQuery.values);
+      if (created.rows[0]) return { document: normalizeDocumentRow(created.rows[0]), created: true };
+      const getQuery = buildGetDocument(document.id);
+      const existing = await db.query(getQuery.text, getQuery.values);
+      return {
+        document: existing.rows[0] ? normalizeDocumentRow(existing.rows[0]) : null,
+        created: false,
+      };
+    },
+
     async updateDocument(id, fields) {
       const query = buildUpdateDocument(id, fields);
       const result = await db.query(query.text, query.values);
@@ -463,6 +529,16 @@ export function createLibraryRepository(db) {
       return result.rows[0] ? normalizeDocumentRow(result.rows[0]) : null;
     },
 
+    async getDocumentCreationReceipt(id) {
+      const query = buildGetDocumentCreationReceipt(id);
+      const result = await db.query(query.text, query.values);
+      const row = result.rows[0];
+      return row ? {
+        operation: row.creation_operation || null,
+        intentHash: row.creation_intent_hash || null,
+      } : null;
+    },
+
     async verifyDocument(id, payload) {
       const q = buildVerifyDocument(id, payload);
       const result = await db.query(q.text, q.values);
@@ -488,13 +564,15 @@ export function createLibraryRepository(db) {
     },
 
     // JS-side vector search: fetch candidates, cosine-rank against the query
-    // vector, keep the top `limit`, then apply the same relevance cutoff the
-    // pg path used. Rows come back normalized (tags parsed, embedding never
-    // leaks) plus a `similarity` float.
+    // vector, then apply the relevance cutoff. The normal path returns the
+    // requested slice; opts.page returns that slice plus the exact number of
+    // relevant candidates so MCP can enumerate every page. Rows come back
+    // normalized (tags parsed, embedding never leaks) plus a `similarity` float.
     async searchDocumentsSemantic(queryVector, backend, opts = {}) {
       const q = buildSearchDocumentsSemantic(backend, { projectId: opts.projectId, includeRetired: opts.includeRetired });
       const result = await db.query(q.text, q.values);
       const limit = Number.isFinite(Number(opts.limit)) && Number(opts.limit) > 0 ? Number(opts.limit) : 20;
+      const offset = Number.isInteger(Number(opts.offset)) && Number(opts.offset) >= 0 ? Number(opts.offset) : 0;
       const ranked = [];
       for (const row of result.rows) {
         const similarity = cosineSimilarity(queryVector, parseEmbedding(row.embedding));
@@ -502,8 +580,10 @@ export function createLibraryRepository(db) {
         ranked.push({ ...row, similarity });
       }
       ranked.sort((a, b) => b.similarity - a.similarity);
-      const kept = applyRelevanceCutoff(ranked.slice(0, limit), { minSimilarity: opts.minSimilarity, topDrop: opts.topDrop });
-      return kept.map((row) => ({ ...normalizeDocumentRow(row), similarity: row.similarity }));
+      const kept = applyRelevanceCutoff(ranked, { minSimilarity: opts.minSimilarity, topDrop: opts.topDrop });
+      const items = kept.slice(offset, offset + limit)
+        .map((row) => ({ ...normalizeDocumentRow(row), similarity: row.similarity }));
+      return opts.page ? { items, total: kept.length } : items;
     },
 
     // "More like this": rank documents by similarity to one document's OWN

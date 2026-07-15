@@ -37,6 +37,23 @@ test('listDocuments builds query string and omits empty params', async () => {
   assert.equal(fetch.calls[0].options.method, 'GET');
 });
 
+test('semantic search opts into the paged HTTP mode', async () => {
+  const body = { items: [{ id: 'd1' }], page: { total: 3 } };
+  const fetch = recordingFetch(jsonResponse(200, body));
+  const client = createPraxClient({ baseUrl: BASE, fetch });
+  assert.deepEqual(
+    await client.searchDocumentsSemantic('restore', 'homelab', { limit: 10, offset: 20 }),
+    body,
+  );
+  const url = new URL(fetch.calls[0].url);
+  assert.equal(url.pathname, '/api/library/documents/semantic-search');
+  assert.equal(url.searchParams.get('q'), 'restore');
+  assert.equal(url.searchParams.get('project'), 'homelab');
+  assert.equal(url.searchParams.get('page'), 'true');
+  assert.equal(url.searchParams.get('limit'), '10');
+  assert.equal(url.searchParams.get('offset'), '20');
+});
+
 test('adds Authorization header only when a token is set', async () => {
   const withToken = recordingFetch(jsonResponse(200, []));
   await createPraxClient({ baseUrl: BASE, token: 'secret', fetch: withToken }).listTasks({});
@@ -152,6 +169,41 @@ test('fetch rejection maps to PraxUnavailableError', async () => {
   );
 });
 
+test('stable-id creation retries one lost transport response with the same body', async () => {
+  let calls = 0;
+  const fetch = recordingFetch(async (_url, options) => {
+    calls += 1;
+    if (calls === 1) throw new TypeError('response lost');
+    return jsonResponse(200, JSON.parse(options.body));
+  });
+  const client = createPraxClient({ baseUrl: BASE, fetch });
+  const payload = {
+    id: '11111111-1111-4111-8111-111111111111', title: 'Stable', body: 'b',
+    documentType: 'note', project: 'work',
+  };
+  assert.deepEqual(await client.createDocument(payload), payload);
+  assert.equal(fetch.calls.length, 2);
+  assert.equal(fetch.calls[0].options.body, fetch.calls[1].options.body);
+});
+
+test('unsafe legacy create without an id is not retried implicitly', async () => {
+  const fetch = recordingFetch(async () => { throw new TypeError('response lost'); });
+  const client = createPraxClient({ baseUrl: BASE, fetch });
+  await assert.rejects(() => client.createTask({ title: 'Legacy' }), PraxUnavailableError);
+  assert.equal(fetch.calls.length, 1);
+});
+
+test('task and checklist writes stamp agent origin and forward stable item identity', async () => {
+  const fetch = recordingFetch(jsonResponse(201, { id: 'item' }));
+  const client = createPraxClient({ baseUrl: BASE, fetch });
+  await client.addChecklistItem('task', 'Step', '11111111-1111-4111-8111-111111111111');
+  const call = fetch.calls[0];
+  assert.equal(call.options.headers['x-prax-origin'], 'agent');
+  assert.deepEqual(JSON.parse(call.options.body), {
+    label: 'Step', id: '11111111-1111-4111-8111-111111111111',
+  });
+});
+
 test('rejects an invalid timeoutMs as a configuration error', () => {
   for (const bad of [-1, Number.NaN, Infinity]) {
     assert.throws(
@@ -170,5 +222,15 @@ test('supersedeDocument POSTs supersededBy with x-prax-origin: agent header', as
   assert.equal(new URL(call.url).pathname, '/api/library/documents/old-id/supersede');
   assert.equal(call.options.method, 'POST');
   assert.deepEqual(JSON.parse(call.options.body), { supersededBy: 'new-id' });
+  assert.equal(call.options.headers['x-prax-origin'], 'agent');
+});
+
+test('startRunbookRun forwards a caller-stable id and agent provenance', async () => {
+  const fetch = recordingFetch(jsonResponse(201, { id: 'run-id', status: 'running' }));
+  const client = createPraxClient({ baseUrl: BASE, fetch });
+  await client.startRunbookRun('doc-id', 'Incident', 'run-id');
+  const call = fetch.calls[0];
+  assert.equal(new URL(call.url).pathname, '/api/library/documents/doc-id/runs');
+  assert.deepEqual(JSON.parse(call.options.body), { title: 'Incident', id: 'run-id' });
   assert.equal(call.options.headers['x-prax-origin'], 'agent');
 });

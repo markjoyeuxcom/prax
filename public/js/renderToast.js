@@ -6,7 +6,7 @@ export function renderToastHtml(state) {
   const toast = state?.toast;
   if (!toast) return '';
   const undo = toast.undo
-    ? '<button class="toast__undo" type="button" data-action="toast-undo">Undo</button>'
+    ? `<button class="toast__undo" type="button" data-action="toast-undo">${escapeHtml(toast.undoLabel || 'Undo')}</button>`
     : '';
   return `<div class="toast" role="status"><span>${escapeHtml(toast.message)}</span>${undo}</div>`;
 }

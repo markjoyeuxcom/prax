@@ -8,3 +8,9 @@ test-results/
 playwright-report/
 /blob-report/
 /playwright/.cache/
+
+# Generated quality-fixture databases are reproducible artifacts, never source.
+/quality-fixtures/
+
+# Default local runtime database.
+/prax.db

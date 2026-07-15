@@ -25,3 +25,11 @@ remains a product feature but is **not enabled by default** for agent sessions h
 `EMBEDDING_BACKEND` set.
 
 See [docs/agent-memory.md](docs/agent-memory.md) for the full convention.
+
+## Product quality
+
+The active quality policy is
+[Exceptional Prax — Product Quality Standard](docs/superpowers/specs/2026-07-13-exceptional-prax-quality-standard.md).
+Its Gate A invariants apply to every change immediately. Preserve the evidence-backed baseline,
+do not knowingly leave an invariant violation in a proposed release, and add regression evidence
+for confirmed defect classes where practical.

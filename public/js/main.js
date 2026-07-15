@@ -9,7 +9,7 @@ import {
   applyPreferences, loadPreferences, savePreferences, resetPreferences,
 } from './preferences.js';
 import {
-  fetchTasks, createTask, updateTask, reorderTasks, archiveTask, restoreTask,
+  fetchTasks, fetchTask, createTask, updateTask, reorderTasks, archiveTask, restoreTask,
   deleteArchivedTask, exportTasks, importTasks, fetchTaskDocuments,
   linkTaskDocument, unlinkTaskDocument, fetchTaskChecklist, addChecklistItem,
   setChecklistItem, deleteChecklistItem, fetchTaskActivity, fetchTaskBoardExtras,
@@ -19,10 +19,11 @@ import {
   fetchProjects, createProject, updateProject, deleteProjectPermanent,
 } from './projectApi.js';
 import {
-  fetchDocuments, createDocument, updateDocument, archiveDocument,
+  fetchDocuments, fetchDocument, createDocument, updateDocument, archiveDocument,
   restoreDocument, deleteDocumentPermanently, fetchDocumentLinks, fetchDocumentTaskBacklinks, fetchSimilarDocuments,
+  unlinkDocuments,
   fetchExternalRefs, addExternalRef, removeExternalRef,
-  fetchStaleDocuments, fetchOrphanDocuments, fetchSemanticStatus,
+  fetchStaleDocuments, fetchOrphanDocuments, fetchDeploymentStatus, fetchSemanticStatus,
   setSemanticEnabled, putSemanticSettings, reindexEmbeddings, semanticSearch,
   fetchChatStatus, putChatSettings,
   verifyDocument, supersedeDocument,
@@ -36,13 +37,36 @@ import { apiStatus, designStatus, isOpen } from './statusMap.js';
 import { moveTaskOnBoard } from './boardWorkflow.js';
 import { pendingExtraIds, batchIds, clearTaskBoardExtra } from './boardExtras.js';
 import { installKeyboardShortcuts } from './keyboardShortcuts.js';
+import { settingsPatchMatchesStatus } from './settingsOutcome.js';
 import { applyMarkdownFormat } from './markdownEditor.js';
 import { renderMarkdownHtml, titleFromMarkdown } from './markdownPreview.js';
 import { updateDocumentLivePreview } from './documentLivePreview.js';
 import {
   canPreserveEditorAfterDraftSave, documentDraftSavedPatch,
 } from './documentDraftSave.js';
-import { triggerLibraryDocumentDownload } from './libraryExport.js';
+import {
+  clearDocumentDraftRecovery, documentDraftIsDirty, loadDocumentDraftRecovery,
+  normalizeDocumentDraftTitle, resolveDocumentDraftRecovery, storeDocumentDraftRecovery,
+} from './documentDraftRecovery.js';
+import {
+  clearTaskDraftRecovery, loadTaskDraftRecovery, normalizeTaskDraftTitle,
+  resolveTaskDraftRecovery, storeTaskDraftRecovery, taskDraftIsDirty,
+} from './taskDraftRecovery.js';
+import { createTaskMutationQueue } from './taskMutationQueue.js';
+import { taskMatchesPatch } from './taskPatchOutcome.js';
+import { taskMatchesCreatePayload } from './taskCreateOutcome.js';
+import { documentMatchesLifecycle, lifecycleOutcomeMessage } from './documentLifecycleOutcome.js';
+import {
+  runMatchesStartIntent, runMatchesStatusIntent, runMatchesStepIntent,
+} from './runOutcome.js';
+import {
+  captureIntentKey, clearTaskCaptureRecovery, loadTaskCaptureRecovery,
+  storeTaskCaptureRecovery,
+} from './taskCaptureRecovery.js';
+import {
+  libraryArchiveFilename, libraryExportDestinationMode, libraryExportFailureMessage, saveLibraryArchive,
+  triggerLibraryDocumentDownload,
+} from './libraryExport.js';
 import { tasksFromImportPayload, exportFilename, normalizeImportMode } from './importExport.js';
 import { createSavedLibraryView, savedLibraryViewsFromJson } from './librarySavedViews.js';
 import { parseCaptureShorthand, mergeNlCapture } from './captureShorthand.js';
@@ -56,18 +80,20 @@ import {
   renderTitlebarHtml, renderSidebarHtml, renderRailHtml, renderStatusbarHtml,
   projectColor,
 } from './renderShell.js';
-import { renderListHtml, renderBulkBarHtml, buildListGroups } from './renderList.js';
+import {
+  TASK_RENDER_BATCH_SIZE, renderListHtml, renderBulkBarHtml, buildListGroups, limitTaskGroups,
+} from './renderList.js';
 import { renderTodayHtml, buildTodayGroups } from './renderToday.js';
 import { renderUpcomingHtml, buildUpcomingGroups } from './renderUpcoming.js';
 import { renderCalendarHtml, buildCalendarModel, monthKeyOf, shiftMonthKey } from './renderCalendar.js';
 import { renderFilterHtml, buildFilterGroups } from './renderFilter.js';
 import { parseTaskFilter, projectResolver } from './taskFilter.js';
 import { createSmartView, smartViewsFromJson } from './taskSmartViews.js';
-import { renderBoardHtml, buildBoardColumns } from './renderBoard.js';
+import { renderBoardHtml, buildBoardColumns, limitBoardColumns } from './renderBoard.js';
 import { renderBacklogHtml, renderArchiveHtml } from './renderBacklog.js';
 import { renderTaskDrawerHtml } from './renderTaskDetail.js';
 import { renderLinkPickerHtml } from './renderLinkPicker.js';
-import { renderLibraryHtml, buildLibraryModel } from './renderLibrary.js';
+import { LIBRARY_RENDER_BATCH_SIZE, renderLibraryHtml, buildLibraryModel } from './renderLibrary.js';
 import { templateById } from './documentTemplates.js';
 import { renderEditorHtml, buildOutline, buildBacklinks, WRITE_ACTIONS } from './renderEditor.js';
 import { renderRunHtml, buildChronicle } from './renderRun.js';
@@ -77,6 +103,7 @@ import { renderHealthHtml } from './renderHealth.js';
 import { renderDailyBriefHtml } from './renderDailyBrief.js';
 import { buildDailyBrief } from './brief.js';
 import { renderAssistantHtml } from './renderAssistant.js';
+import { assistantOutcomeNotice } from './assistantOutcome.js';
 import { renderWritingPreviewHtml } from './renderWritingPreview.js';
 import { renderSearchPanelHtml, searchCountLabel } from './renderSearchPanel.js';
 import { renderAllProjectsHtml, buildProjectGroups } from './renderAllProjects.js';
@@ -84,6 +111,8 @@ import { renderPaletteHtml, buildPaletteGroups } from './renderPalette.js';
 import { renderCaptureHtml } from './renderCapture.js';
 import { renderToastHtml } from './renderToast.js';
 import { renderConfirmHtml } from './renderConfirm.js';
+import { renderMarkdownImportHtml } from './renderMarkdownImport.js';
+import { renderLibraryExportHtml } from './renderLibraryExport.js';
 import { renderSettingsHtml } from './renderSettings.js';
 import { escapeHtml } from './renderHelpers.js';
 import { icon } from './icons.js';
@@ -91,8 +120,7 @@ import { icon } from './icons.js';
 const SAVED_LIBRARY_VIEWS_KEY = 'moomora.librarySavedViews.v1';
 const SMART_VIEWS_KEY = 'moomora.taskSmartViews.v1';
 const DOCUMENT_AUTOSAVE_DELAY_MS = 1200;
-const NOTES_AUTOSAVE_DELAY_MS = 1200;
-const TITLE_SAVE_DELAY_MS = 600;
+const TASK_DRAFT_AUTOSAVE_DELAY_MS = 1000;
 
 // ---- module runtime (not state: timers, controllers, transient DOM) --------
 let appRoot = null;
@@ -101,15 +129,42 @@ let paletteFlat = [];             // flattened palette items for Enter/arrows
 let documentEditorController = null;
 let pendingEditorSelection = null; // {from,to} to restore after a renderApp re-mount (see renderApp)
 let documentAutosaveTimer = null;
-let notesAutosaveTimer = null;
-let descriptionSaveTimer = null;
-let titleSaveTimer = null;        // editor document title
-let taskTitleSaveTimer = null;    // drawer task title
+let documentSavePromise = null;     // coalesces navigation flushes with an in-flight autosave
+let taskDraftSaveTimer = null;
+let taskDraftSavePromise = null;  // coalesces close/switch with a drawer autosave
 let toastTimer = null;
 let isReindexing = false;         // guards the reindex/rebuild handler from double-runs
 let prevViewKey = null;           // suppress the main-content fade on same-view re-renders
 let projectOpsSaveTimer = null;   // debounce on-call / handoff-note edits
+let boardExtrasRenderTimer = null; // enrichment must not preempt primary task interaction
 let dragIndicator = null;
+let documentsLoadToken = 0;       // only the newest Active/Archive collection may install
+let semanticSearchToken = 0;      // stale/superseded meaning searches never install
+let askPraxToken = 0;             // stale/closed grounded-answer requests never install
+let drawerContextToken = 0;       // a late task-context load cannot replace a newer drawer
+let restoreMarkdownImportFocus = false;
+let restoreLibraryExportFocus = false;
+let libraryExportReturnAction = 'export-library';
+let captureReturnElement = null;
+let taskCollectionWindow = { key: '', limit: TASK_RENDER_BATCH_SIZE };
+let libraryCollectionWindow = { key: '', limit: LIBRARY_RENDER_BATCH_SIZE };
+const enqueueTaskMutation = createTaskMutationQueue();
+const enqueueRunMutation = createTaskMutationQueue();
+let pendingRunMutationCount = 0;
+
+function taskCollectionLimit(key) {
+  if (taskCollectionWindow.key !== key) {
+    taskCollectionWindow = { key, limit: TASK_RENDER_BATCH_SIZE };
+  }
+  return taskCollectionWindow.limit;
+}
+
+function libraryCollectionLimit(key) {
+  if (libraryCollectionWindow.key !== key) {
+    libraryCollectionWindow = { key, limit: LIBRARY_RENDER_BATCH_SIZE };
+  }
+  return libraryCollectionWindow.limit;
+}
 
 // Native window.alert/confirm/prompt do not exist in the desktop webview
 // (Tauri implements no JS dialogs — confirm() returns falsy, alert() is a
@@ -148,10 +203,10 @@ async function loadProjects() {
   setState({ projects: sidebar, managedProjects: all });
 }
 
-async function loadTasks() {
+async function loadTasks({ announceReminders = true } = {}) {
   const tasks = await fetchTasks({});
   setState({ tasks: tasks.map(normalizeTask), apiStatus: 'connected' });
-  checkDueReminders();
+  if (announceReminders) checkDueReminders();
 }
 
 // Due-date reminders: announce tasks that are due/overdue. A native desktop
@@ -172,19 +227,20 @@ function fireNativeReminder(task) {
 }
 
 function checkDueReminders() {
-  if (!state.preferences?.reminders) return;
+  if (!state.preferences?.reminders) return false;
   const fresh = computeDueReminders(state.tasks, { now: new Date() }).filter((t) => !notifiedDueIds.has(t.id));
-  if (!fresh.length) return;
+  if (!fresh.length) return false;
   fresh.forEach((t) => notifiedDueIds.add(t.id));
 
   if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
     fresh.forEach(fireNativeReminder);
-    return;
+    return false;
   }
   const overdue = fresh.filter((t) => isOverdue(t.dueDate)).length;
   const n = fresh.length;
   const word = overdue === n ? 'overdue' : 'due';
   showToast(`⏰ ${n} task${n > 1 ? 's' : ''} ${word}`, null, 6000);
+  return true;
 }
 
 async function loadArchivedTasks() {
@@ -197,24 +253,111 @@ async function loadArchivedTasks() {
 }
 
 async function loadDocuments() {
-  const documents = await fetchDocuments(state.libraryView === 'archive' ? { archived: true } : {});
+  const token = (documentsLoadToken += 1);
+  const archive = state.libraryView === 'archive';
+  const documents = await fetchDocuments(archive ? { archived: true } : {});
+  if (token !== documentsLoadToken || archive !== (state.libraryView === 'archive')) return false;
   setState({ documents });
+  return true;
+}
+
+async function loadDeploymentStatus() {
+  setState({ deploymentStatus: { loading: true, error: '' } });
+  try {
+    const status = await fetchDeploymentStatus();
+    setState({ deploymentStatus: { ...status, loading: false, error: '' } });
+  } catch {
+    setState({
+      deploymentStatus: {
+        loading: false,
+        error: 'Prax could not load the deployment security status.',
+      },
+    });
+  }
 }
 
 async function loadSemanticStatus() {
+  setState({ semanticStatus: { ...state.semanticStatus, loading: true, loadError: '' } });
   try {
-    setState({ semanticStatus: await fetchSemanticStatus() });
+    setState({ semanticStatus: { ...(await fetchSemanticStatus()), loading: false, loadError: '' } });
   } catch {
-    setState({ semanticStatus: { available: false } });
+    setState({
+      semanticStatus: {
+        ...state.semanticStatus,
+        loading: false,
+        loadError: 'Prax could not load semantic-search settings.',
+      },
+    });
   }
 }
 
 async function loadChatStatus() {
+  setState({ chatStatus: { ...state.chatStatus, loading: true, loadError: '' } });
   try {
-    setState({ chatStatus: await fetchChatStatus() });
+    setState({ chatStatus: { ...(await fetchChatStatus()), loading: false, loadError: '' } });
   } catch {
-    setState({ chatStatus: { available: false } });
+    setState({
+      chatStatus: {
+        ...state.chatStatus,
+        loading: false,
+        loadError: 'Prax could not load answer-model settings.',
+      },
+    });
   }
+}
+
+async function reconcileSemanticSettingsMutation(patch, error) {
+  const previousStatus = state.semanticStatus;
+  try {
+    const status = { ...(await fetchSemanticStatus()), loading: false, loadError: '' };
+    const applied = settingsPatchMatchesStatus(patch, status, previousStatus);
+    setState({
+      semanticStatus: status,
+      intelligenceSettingsPending: false,
+      semanticSettingsDraft: applied ? null : state.semanticSettingsDraft,
+    });
+    showToast(applied
+      ? 'Semantic-search settings were saved; Prax recovered the current status after the response failed.'
+      : `${error?.message || 'Prax could not save the semantic-search settings.'} Current settings were reloaded; review before retrying.`);
+  } catch {
+    setState({
+      intelligenceSettingsPending: false,
+      semanticStatus: {
+        ...state.semanticStatus,
+        loading: false,
+        loadError: 'Prax could not confirm the semantic-search settings outcome.',
+      },
+    });
+    showToast('Prax could not confirm the semantic-search settings outcome. Reload status before retrying.');
+  }
+  renderApp();
+}
+
+async function reconcileChatSettingsMutation(patch, error) {
+  const previousStatus = state.chatStatus;
+  try {
+    const status = { ...(await fetchChatStatus()), loading: false, loadError: '' };
+    const applied = settingsPatchMatchesStatus(patch, status, previousStatus);
+    setState({
+      chatStatus: status,
+      intelligenceSettingsPending: false,
+      chatSettingsDraft: applied ? null : state.chatSettingsDraft,
+    });
+    showToast(applied
+      ? 'Answer-model settings were saved; Prax recovered the current status after the response failed.'
+      : `${error?.message || 'Prax could not save the answer-model settings.'} Current settings were reloaded; review before retrying.`);
+  } catch {
+    setState({
+      intelligenceSettingsPending: false,
+      chatStatus: {
+        ...state.chatStatus,
+        loading: false,
+        loadError: 'Prax could not confirm the answer-model settings outcome.',
+      },
+    });
+    showToast('Prax could not confirm the answer-model settings outcome. Reload status before retrying.');
+  }
+  renderApp();
 }
 
 async function loadMaintenance() {
@@ -246,12 +389,14 @@ async function loadHealth() {
 // (or superseded by a newer scan) drops its result instead of clobbering state.
 let aiReviewToken = 0;
 
-function goHealth() {
+async function goHealth() {
+  if (!(await prepareEditorNavigation())) return false;
   // Clear any prior AI review and invalidate any in-flight scan on re-entry.
   aiReviewToken += 1;
-  setState({ navType: 'health', healthAiReview: null, healthAiReviewError: null, healthAiReviewLoading: false });
+  setState({ navType: 'health', editorFocus: false, healthAiReview: null, healthAiReviewError: null, healthAiReviewLoading: false });
   renderApp();
   loadHealth().then(renderApp);
+  return true;
 }
 
 // On-demand AI review (contradictions + gaps). Advisory; spends model tokens.
@@ -305,8 +450,9 @@ async function copyDailyBrief() {
 // ---- AI assistant (agentic tool-calling chat) -----------------------------
 
 function openAssistant() {
-  // Closing capture discards/aborts the NL layer (see nlCaptureResetPatch).
-  setState({ assistantOpen: true, assistantError: null, paletteOpen: false, captureOpen: false, ...nlCaptureResetPatch() });
+  if (state.captureSubmitting) return;
+  if (state.captureOpen) discardCapture();
+  setState({ assistantOpen: true, assistantError: null, assistantErrorKind: null, paletteOpen: false });
   renderApp();
   loadAssistantStatus();
 }
@@ -329,38 +475,42 @@ async function refreshAfterAssistantWrite() {
   try {
     await Promise.all([loadTasks(), loadProjects(), loadDocuments()]);
     if (state.healthData) await loadHealth();
+    return true;
   } catch {
-    /* a background refresh failure must not surface as an assistant error */
+    return false;
   }
-  renderApp();
 }
 
-function applyAssistantResult(res) {
+async function applyAssistantResult(res) {
   if (res.status === 'awaiting_confirmation') {
-    setState({ assistantMessages: res.messages, assistantPending: res.pending || [], assistantLoading: false, assistantError: null });
+    setState({ assistantMessages: res.messages, assistantPending: res.pending || [], assistantLoading: false, assistantError: null, assistantErrorKind: null });
   } else if (res.status === 'no_model') {
-    setState({ assistantLoading: false, assistantPending: null, assistantError: 'No AI model configured — set one in Settings ▸ Intelligence ▸ AI answers.', assistantStatus: { available: false, toolCount: state.assistantStatus?.toolCount || 0 } });
+    setState({ assistantLoading: false, assistantPending: null, assistantError: 'No AI model configured — set one in Settings ▸ Intelligence ▸ AI answers.', assistantErrorKind: 'error', assistantStatus: { available: false, toolCount: state.assistantStatus?.toolCount || 0 } });
   } else if (res.status === 'error') {
-    setState({ assistantMessages: res.messages || state.assistantMessages, assistantLoading: false, assistantPending: null, assistantError: res.error ? `The assistant hit an error: ${res.error}` : 'The assistant hit an error. Please try again.' });
+    setState({ assistantMessages: res.messages || state.assistantMessages, assistantLoading: false, assistantPending: null, assistantError: null, assistantErrorKind: null });
   } else {
     // done
-    setState({ assistantMessages: res.messages, assistantLoading: false, assistantPending: null, assistantError: null });
+    setState({ assistantMessages: res.messages, assistantLoading: false, assistantPending: null, assistantError: null, assistantErrorKind: null });
   }
-  // A write mutated cached data — reload it so the app reflects the change.
-  if (res.didWrite) refreshAfterAssistantWrite();
+
+  // A write mutated cached data. Wait for the reload so the notice can say
+  // whether the committed change is already visible or requires a page reload.
+  const refreshed = res.didWrite ? await refreshAfterAssistantWrite() : true;
+  const notice = res.status === 'no_model' ? null : assistantOutcomeNotice(res, { refreshed });
+  if (notice) setState({ assistantError: notice.text, assistantErrorKind: notice.kind });
 }
 
 async function sendAssistant(rawText) {
   const text = (rawText || '').trim();
   if (!text || state.assistantLoading || (state.assistantPending && state.assistantPending.length)) return;
   const messages = [...state.assistantMessages, { role: 'user', content: text }];
-  setState({ assistantMessages: messages, assistantInput: '', assistantLoading: true, assistantError: null });
+  setState({ assistantMessages: messages, assistantInput: '', assistantLoading: true, assistantError: null, assistantErrorKind: null });
   renderApp();
   try {
     const res = await assistantChat(messages);
-    applyAssistantResult(res);
+    await applyAssistantResult(res);
   } catch (err) {
-    setState({ assistantLoading: false, assistantError: err?.message || 'The assistant request failed.' });
+    setState({ assistantLoading: false, assistantError: err?.message || 'The assistant request failed.', assistantErrorKind: 'error' });
   }
   renderApp();
 }
@@ -370,26 +520,27 @@ async function resolveAssistantWrites(decision) {
   if (!pending || !pending.length || state.assistantLoading) return;
   const decisions = {};
   for (const p of pending) decisions[p.id] = decision; // batch approve/decline
-  setState({ assistantPending: null, assistantLoading: true, assistantError: null });
+  setState({ assistantPending: null, assistantLoading: true, assistantError: null, assistantErrorKind: null });
   renderApp();
   try {
     const res = await assistantChat(state.assistantMessages, decisions);
-    applyAssistantResult(res);
+    await applyAssistantResult(res);
   } catch (err) {
-    setState({ assistantLoading: false, assistantError: err?.message || 'The assistant request failed.' });
+    setState({ assistantLoading: false, assistantError: err?.message || 'The assistant request failed.', assistantErrorKind: 'error' });
   }
   renderApp();
 }
 
 function clearAssistant() {
-  setState({ assistantMessages: [], assistantPending: null, assistantError: null, assistantInput: '', assistantLoading: false });
+  setState({ assistantMessages: [], assistantPending: null, assistantError: null, assistantErrorKind: null, assistantInput: '', assistantLoading: false });
   renderApp();
 }
 
 async function verifyHealthDoc(id) {
   if (!id) return;
   try {
-    await verifyDocument(id, true, 'user');
+    const reviewed = await fetchDocument(id);
+    await verifyDocument(id, true, 'user', reviewed.contentHash);
     showToast('Verified');
     await loadHealth();
   } catch {
@@ -414,18 +565,20 @@ async function acceptLinkSuggestion(id, title) {
 }
 
 async function loadDrawerContext(taskId) {
-  const guard = () => state.drawerTaskId === taskId;
-  try {
-    const documents = await fetchTaskDocuments(taskId);
-    if (guard()) setState({ taskDocuments: documents });
-    const checklist = await fetchTaskChecklist(taskId);
-    if (guard()) setState({ taskChecklist: checklist });
-    const activity = await fetchTaskActivity(taskId);
-    if (guard()) setState({ taskActivity: activity });
-  } catch {
-    /* drawer sections degrade to empty */
-  }
-  if (guard()) renderApp();
+  const token = (drawerContextToken += 1);
+  const [documents, checklist, activity] = await Promise.allSettled([
+    fetchTaskDocuments(taskId),
+    fetchTaskChecklist(taskId),
+    fetchTaskActivity(taskId),
+  ]);
+  if (token !== drawerContextToken || state.drawerTaskId !== taskId) return false;
+  setState({
+    taskDocuments: documents.status === 'fulfilled' ? documents.value : [],
+    taskChecklist: checklist.status === 'fulfilled' ? checklist.value : [],
+    taskActivity: activity.status === 'fulfilled' ? activity.value : [],
+  });
+  renderApp();
+  return true;
 }
 
 async function loadDocumentTaskBacklinks(documentId) {
@@ -518,6 +671,34 @@ async function loadDocumentRuns(doc) {
   }
 }
 
+// Opening an editor needs five independent context reads. Installing each one
+// separately rebuilt the entire shell and remounted CodeMirror five times.
+// Fetch them concurrently, reject stale results, then install one coherent
+// patch and render once. Individual loaders remain for targeted refreshes after
+// mutations (supersession and external-reference edits).
+async function loadDocumentContext(doc) {
+  if (!doc?.id) return false;
+  const documentId = doc.id;
+  const results = await Promise.allSettled([
+    fetchDocumentLinks(documentId, 'both'),
+    fetchExternalRefs(documentId),
+    fetchDocumentTaskBacklinks(documentId),
+    fetchSimilarDocuments(documentId),
+    doc.documentType === 'runbook' ? fetchRuns(documentId) : Promise.resolve(null),
+  ]);
+  if (state.editorDocId !== documentId) return false;
+  const keys = [
+    'documentLinks', 'documentExternalRefs', 'documentTaskBacklinks', 'documentSimilar', 'documentRuns',
+  ];
+  const patch = {};
+  results.forEach((result, index) => {
+    if (result.status === 'fulfilled') patch[keys[index]] = result.value;
+  });
+  setState(patch);
+  if (!state.isDocumentInfoEditorOpen) renderApp();
+  return true;
+}
+
 async function ensureBoardExtras(tasks) {
   const missing = pendingExtraIds(tasks.map(t => t.id), state.taskBoardExtras, state.taskBoardExtrasLoading);
   if (!missing.length) return;
@@ -538,7 +719,11 @@ async function ensureBoardExtras(tasks) {
       }
       setState({ taskBoardExtras: merged });
     }
-    renderApp();
+    clearTimeout(boardExtrasRenderTimer);
+    boardExtrasRenderTimer = setTimeout(() => {
+      const stillVisible = state.navType === 'project' && (state.tab === 'board' || state.tab === 'list');
+      if (stillVisible && !state.captureOpen && !state.drawerTaskId) renderApp();
+    }, 500);
   } catch {
     /* signals degrade silently; a later render retries */
   } finally {
@@ -552,9 +737,9 @@ async function ensureBoardExtras(tasks) {
 // Toasts & undo
 // ---------------------------------------------------------------------------
 
-function showToast(message, undo = null, duration = undo ? 5000 : 2400) {
+function showToast(message, undo = null, duration = undo ? 5000 : 2400, undoLabel = 'Undo') {
   clearTimeout(toastTimer);
-  setState({ toast: { message, undo } });
+  setState({ toast: { message, undo, undoLabel } });
   toastTimer = setTimeout(() => {
     setState({ toast: null });
     renderApp();
@@ -648,36 +833,62 @@ function snoozeUntil(preset) {
   return d.toISOString();
 }
 
+async function updateTaskWithReadback(id, apiPatch) {
+  try {
+    return await updateTask(id, apiPatch);
+  } catch (writeError) {
+    try {
+      const observed = normalizeTask(await fetchTask(id));
+      if (taskMatchesPatch(observed, apiPatch)) return observed;
+    } catch { /* the canonical outcome remains unknown */ }
+    throw writeError;
+  }
+}
+
 async function patchTask(id, apiPatch, { failure = 'update this task' } = {}) {
   if (!id) return null;
+  let normalized;
   try {
-    const updated = await updateTask(id, apiPatch);
-    const normalized = normalizeTask(updated);
-    applyTaskPatchLocal(id, normalized);
-    // Completing a recurring task spawns its next instance server-side; refetch
-    // so the freshly scheduled task appears without a manual reload.
-    if (normalized.recurrence && normalized.status === 'completed') {
-      await loadTasks();
-    }
-    return normalized;
+    const updated = await enqueueTaskMutation(id, async () => {
+      // Hold the per-task queue through exact lost-response reconciliation.
+      return updateTaskWithReadback(id, apiPatch);
+    });
+    normalized = normalizeTask(updated);
   } catch {
     alertError(failure);
-    await loadTasks();
-    return null;
-  } finally {
+    await loadTasks().catch(() => {});
     renderApp();
+    return null;
   }
+  applyTaskPatchLocal(id, normalized);
+  let lifecycleRefreshFailed = false;
+  // Completing a recurring task spawns its next instance atomically
+  // server-side. Collection refresh is separate and cannot redefine success.
+  if (normalized.recurrence && normalized.status === 'completed') {
+    try { await loadTasks(); } catch { lifecycleRefreshFailed = true; }
+  }
+  renderApp();
+  return lifecycleRefreshFailed ? { ...normalized, lifecycleRefreshFailed: true } : normalized;
 }
 
 // Add a normalized label to the open task (deduped). Shares the label
 // convention with the server and the filter grammar via normalizeLabel.
-function addTaskLabel(raw) {
+async function addTaskLabel(raw) {
   const label = normalizeLabel(raw);
   const task = taskById(state.drawerTaskId);
   if (!label || !task) return;
   const current = Array.isArray(task.labels) ? task.labels : [];
-  if (current.includes(label)) return;
-  patchTask(state.drawerTaskId, { labels: [...current, label] });
+  if (current.includes(label)) {
+    setState({ taskLabelDraft: '' });
+    renderApp();
+    return;
+  }
+  const taskId = state.drawerTaskId;
+  const saved = await patchTask(taskId, { labels: [...current, label] });
+  if (saved && state.drawerTaskId === taskId) {
+    setState({ taskLabelDraftId: taskId, taskLabelDraft: '' });
+    renderApp();
+  }
 }
 
 async function toggleTaskDone(id) {
@@ -685,15 +896,24 @@ async function toggleTaskDone(id) {
   if (!task || task.archivedAt) return;
   const prior = task.status;
   const done = designStatus(prior) === 'completed';
+  const wasRecurring = Boolean(task.recurrence);
   const next = done ? apiStatus('planned') : apiStatus('completed');
   applyTaskPatchLocal(id, { status: next });
   renderApp();
   const saved = await patchTask(id, { status: next });
   if (saved) {
-    showToast(done ? 'Reopened' : 'Completed — nice.', async () => {
+    const message = done
+      ? (wasRecurring ? 'Reopened as one-off — future occurrences are unchanged.' : 'Reopened')
+      : (saved.recurrence
+        ? `Completed — next occurrence scheduled${saved.lifecycleRefreshFailed ? '; reload to show it' : ''}.`
+        : 'Completed — nice.');
+    showToast(message, async () => {
       dismissToast();
-      await patchTask(id, { status: prior });
-    });
+      const undone = await patchTask(id, { status: prior });
+      if (saved.recurrence && undone) {
+        showToast('Reopened as one-off — future occurrences are unchanged.');
+      }
+    }, 5000, saved.recurrence ? 'Reopen' : 'Undo');
   }
 }
 
@@ -703,11 +923,17 @@ async function bulkSetStatus(designKey, label) {
   const prior = ids.map(id => ({ id, status: taskById(id)?.status }));
   setState({ multiSelectIds: [] });
   try {
-    await Promise.all(ids.map(id => updateTask(id, { status: apiStatus(designKey) })));
+    await Promise.all(ids.map(id => enqueueTaskMutation(
+      id,
+      () => updateTaskWithReadback(id, { status: apiStatus(designKey) }),
+    )));
     await loadTasks();
     showToast(`${ids.length} task${ids.length > 1 ? 's' : ''} → ${label}`, async () => {
       dismissToast();
-      await Promise.all(prior.filter(p => p.status).map(p => updateTask(p.id, { status: p.status })));
+      await Promise.all(prior.filter(p => p.status).map(p => enqueueTaskMutation(
+        p.id,
+        () => updateTaskWithReadback(p.id, { status: p.status }),
+      )));
       await loadTasks();
       renderApp();
     });
@@ -741,7 +967,11 @@ async function bulkArchive() {
 async function archiveTaskWithUndo(id) {
   const task = taskById(id);
   if (!task) return;
-  setState({ drawerTaskId: null });
+  if (state.drawerTaskId === id && !(await flushTaskDrawerDraft())) {
+    showToast('Save this task draft before archiving it.');
+    return;
+  }
+  setState({ drawerTaskId: null, taskNotesDraftId: null, taskLabelDraftId: null, taskLabelDraft: '' });
   try {
     await archiveTask(id);
     await loadTasks();
@@ -759,23 +989,230 @@ async function archiveTaskWithUndo(id) {
   renderApp();
 }
 
-async function saveTaskNotes(taskId, notes) {
-  try {
-    const updated = await updateTask(taskId, { notes });
-    applyTaskPatchLocal(taskId, normalizeTask(updated));
-    setState({ isTaskNotesDirty: false, ...clearTaskBoardExtra(state, taskId) });
-  } catch {
-    alertError('save notes');
+function taskDraftStorage() {
+  try { return window.localStorage; } catch { return null; }
+}
+
+function taskDraftSnapshot() {
+  return {
+    title: state.taskTitleDraft,
+    description: state.taskDescriptionDraft,
+    notes: state.taskNotesDraft,
+  };
+}
+
+function setTaskDraftStatusInPlace(status) {
+  setState({ taskDraftSaveStatus: status });
+  const label = appRoot?.querySelector('[data-task-draft-save-status]');
+  if (label) label.textContent = status;
+  const action = appRoot?.querySelector('[data-task-draft-save-action]');
+  if (action) {
+    const reason = state.taskDraftRecoveryReason;
+    action.hidden = !['failed', 'recovered', 'conflict'].includes(reason);
+    action.disabled = ['Saving...', 'Autosaving...', 'Checking saved copy...'].includes(status);
+    action.textContent = reason === 'conflict'
+      ? 'Review and save'
+      : (reason === 'recovered' ? 'Save recovered draft' : 'Retry');
   }
 }
 
-function scheduleNotesAutosave(taskId) {
-  clearTimeout(notesAutosaveTimer);
-  notesAutosaveTimer = setTimeout(() => {
-    if (state.taskNotesDraftId === taskId && state.isTaskNotesDirty) {
-      saveTaskNotes(taskId, state.taskNotesDraft);
+function seedTaskDrawerDraft(task) {
+  clearTimeout(taskDraftSaveTimer);
+  const storage = taskDraftStorage();
+  if (task?.archivedAt) clearTaskDraftRecovery(storage, task.id);
+  const recovery = task?.archivedAt ? null : loadTaskDraftRecovery(storage, task?.id);
+  const resolved = resolveTaskDraftRecovery(task, recovery);
+  if (resolved.clear) clearTaskDraftRecovery(storage, task.id);
+  setState({
+    taskNotesDraftId: task?.id || null,
+    taskTitleDraft: resolved.title,
+    taskDescriptionDraft: resolved.description,
+    taskNotesDraft: resolved.notes,
+    isTaskNotesDirty: resolved.isDirty,
+    taskDraftSaveStatus: resolved.status,
+    taskDraftRecoveryReason: ['recovered', 'conflict'].includes(resolved.kind) ? resolved.kind : null,
+    isTaskDraftStored: true,
+    taskLabelDraftId: task?.id || null,
+    taskLabelDraft: '',
+  });
+}
+
+function scheduleTaskDraftAutosave() {
+  clearTimeout(taskDraftSaveTimer);
+  taskDraftSaveTimer = setTimeout(() => {
+    if (state.taskNotesDraftId === state.drawerTaskId && state.isTaskNotesDirty
+      && !['recovered', 'conflict'].includes(state.taskDraftRecoveryReason)) {
+      setTaskDraftStatusInPlace('Autosaving...');
+      saveTaskDrawerDraft({ status: null });
     }
-  }, NOTES_AUTOSAVE_DELAY_MS);
+  }, TASK_DRAFT_AUTOSAVE_DELAY_MS);
+}
+
+function handleTaskDrawerDraftChange(patch) {
+  const task = taskById(state.drawerTaskId);
+  if (!task) return;
+  const draft = { ...taskDraftSnapshot(), ...patch };
+  const dirty = taskDraftIsDirty(task, draft);
+  const storage = taskDraftStorage();
+  const stored = dirty
+    ? storeTaskDraftRecovery(storage, { task, ...draft })
+    : clearTaskDraftRecovery(storage, task.id);
+  const protectedRecovery = dirty && ['recovered', 'conflict'].includes(state.taskDraftRecoveryReason);
+  setState({
+    taskTitleDraft: draft.title,
+    taskDescriptionDraft: draft.description,
+    taskNotesDraft: draft.notes,
+    isTaskNotesDirty: dirty,
+    taskDraftRecoveryReason: protectedRecovery ? state.taskDraftRecoveryReason : null,
+    isTaskDraftStored: dirty ? stored : true,
+  });
+  setTaskDraftStatusInPlace(dirty
+    ? (protectedRecovery ? state.taskDraftSaveStatus : (stored ? 'Unsaved changes' : 'Unsaved — keep this tab open'))
+    : 'Saved');
+  if (!dirty || protectedRecovery) clearTimeout(taskDraftSaveTimer);
+  else scheduleTaskDraftAutosave();
+}
+
+function applyTaskDraftSave(savedTask, { taskId, sentDraft }) {
+  const saved = normalizeTask(savedTask);
+  applyTaskPatchLocal(taskId, saved);
+  const stillActive = state.drawerTaskId === taskId && state.taskNotesDraftId === taskId;
+  if (stillActive && taskDraftIsDirty(saved, taskDraftSnapshot())) {
+    const stored = storeTaskDraftRecovery(taskDraftStorage(), {
+      task: saved,
+      ...taskDraftSnapshot(),
+    });
+    const status = stored ? 'Unsaved changes' : 'Unsaved — keep this tab open';
+    setState({
+      isTaskNotesDirty: true,
+      taskDraftSaveStatus: status,
+      taskDraftRecoveryReason: null,
+      isTaskDraftStored: stored,
+      ...clearTaskBoardExtra(state, taskId),
+    });
+    scheduleTaskDraftAutosave();
+    setTaskDraftStatusInPlace(status);
+  } else {
+    clearTaskDraftRecovery(taskDraftStorage(), taskId, sentDraft);
+    if (stillActive) {
+      setState({
+        taskTitleDraft: saved.title,
+        taskDescriptionDraft: saved.description,
+        taskNotesDraft: saved.notes,
+        isTaskNotesDirty: false,
+        taskDraftRecoveryReason: null,
+        isTaskDraftStored: true,
+        ...clearTaskBoardExtra(state, taskId),
+      });
+      setTaskDraftStatusInPlace('Saved');
+    }
+  }
+  return true;
+}
+
+function markTaskDraftConflict(observedTask, taskId) {
+  applyTaskPatchLocal(taskId, normalizeTask(observedTask));
+  if (state.drawerTaskId !== taskId) return;
+  setState({ taskDraftRecoveryReason: 'conflict' });
+  setTaskDraftStatusInPlace('Recovered draft — saved copy changed');
+  showToast('The saved task changed. Review the recovered draft before replacing it.');
+}
+
+async function saveTaskDrawerDraft({ status = 'Saving...' } = {}) {
+  const taskId = state.taskNotesDraftId;
+  if (!taskId || !state.isTaskNotesDirty) return true;
+  if (taskDraftSavePromise) return taskDraftSavePromise;
+  const sentDraft = taskDraftSnapshot();
+  const title = normalizeTaskDraftTitle(sentDraft.title);
+  if (!title) {
+    setState({ taskDraftRecoveryReason: 'failed' });
+    setTaskDraftStatusInPlace('Title required');
+    showToast('Task title is required before this draft can be saved.');
+    return false;
+  }
+  if (status) setTaskDraftStatusInPlace(status);
+  taskDraftSavePromise = (async () => {
+    try {
+      return await enqueueTaskMutation(taskId, async () => {
+        try {
+          const saved = await updateTask(taskId, {
+            title,
+            description: sentDraft.description,
+            notes: sentDraft.notes,
+          });
+          return applyTaskDraftSave(saved, { taskId, sentDraft });
+        } catch {
+          // A response may be lost after commit. Read the canonical task once
+          // while holding the task queue; never repeat the PATCH.
+          try {
+            const baseline = taskById(taskId);
+            const observed = normalizeTask(await fetchTask(taskId));
+            if (!taskDraftIsDirty(observed, sentDraft)) {
+              return applyTaskDraftSave(observed, { taskId, sentDraft });
+            }
+            if (baseline && taskDraftIsDirty(observed, baseline)) {
+              markTaskDraftConflict(observed, taskId);
+              return false;
+            }
+          } catch { /* canonical outcome is still unknown/uncommitted */ }
+          if (state.drawerTaskId === taskId) {
+            setState({ taskDraftRecoveryReason: 'failed' });
+            setTaskDraftStatusInPlace('Save failed');
+            showToast(state.isTaskDraftStored
+              ? 'Task save failed. The draft is kept on this device — retry when ready.'
+              : 'Task save failed. Keep this drawer open and retry.');
+          }
+          return false;
+        }
+      });
+    } finally {
+      taskDraftSavePromise = null;
+    }
+  })();
+  return taskDraftSavePromise;
+}
+
+async function flushTaskDrawerDraft() {
+  clearTimeout(taskDraftSaveTimer);
+  if (['recovered', 'conflict'].includes(state.taskDraftRecoveryReason)) return false;
+  if (taskDraftSavePromise && !(await taskDraftSavePromise)) return false;
+  if (state.isTaskNotesDirty) {
+    const saved = await saveTaskDrawerDraft();
+    if (!saved || state.isTaskNotesDirty) return false;
+  }
+  return true;
+}
+
+async function requestTaskDraftSave({ confirmed = false } = {}) {
+  if (confirmed) return saveTaskDrawerDraft();
+  const taskId = state.taskNotesDraftId;
+  if (taskId && ['failed', 'recovered', 'conflict'].includes(state.taskDraftRecoveryReason)) {
+    const baseline = taskById(taskId);
+    const sentDraft = taskDraftSnapshot();
+    setTaskDraftStatusInPlace('Checking saved copy...');
+    try {
+      const observed = normalizeTask(await fetchTask(taskId));
+      if (!taskDraftIsDirty(observed, sentDraft)) {
+        return applyTaskDraftSave(observed, { taskId, sentDraft });
+      }
+      if (baseline && taskDraftIsDirty(observed, baseline)) {
+        markTaskDraftConflict(observed, taskId);
+      }
+    } catch {
+      setTaskDraftStatusInPlace('Could not verify saved copy');
+      showToast('Could not verify the saved task, so Prax did not retry the write.');
+      return false;
+    }
+  }
+  if (state.taskDraftRecoveryReason === 'conflict') {
+    openConfirm({
+      message: 'The saved task changed after this draft began. Replace its text with the recovered draft?',
+      okLabel: 'Replace saved text',
+      action: 'retry-task-draft-save',
+    });
+    return false;
+  }
+  return saveTaskDrawerDraft();
 }
 
 // ---------------------------------------------------------------------------
@@ -875,6 +1312,240 @@ function currentDocument() {
   return state.documents.find(d => d.id === state.editorDocId) || null;
 }
 
+const documentLifecyclePending = new Set();
+const documentLifecycleUncertain = new Set();
+
+async function performDocumentLifecycleOnce(key, operation) {
+  if (documentLifecycleUncertain.has(key)) {
+    showToast('This document still has an unconfirmed lifecycle outcome. Reload before retrying.', null, 5000);
+    return false;
+  }
+  if (documentLifecyclePending.has(key)) return false;
+  documentLifecyclePending.add(key);
+  try {
+    return await operation();
+  } finally {
+    documentLifecyclePending.delete(key);
+  }
+}
+
+function cacheLifecycleDocument(document, { remove = false } = {}) {
+  if (!document?.id) return;
+  const documents = (state.documents || []).filter(item => item.id !== document.id);
+  if (!remove) documents.push(document);
+  setState({ documents });
+}
+
+async function reconcileDocumentLifecycle({ id, intent, mutate }) {
+  try {
+    return { committed: true, document: await mutate(), outcome: 'committed' };
+  } catch {
+    let observed;
+    try {
+      observed = await fetchDocument(id);
+    } catch (readError) {
+      if (intent.type === 'delete' && readError?.status === 404) {
+        observed = null;
+      } else {
+        return { committed: false, document: null, outcome: 'unknown' };
+      }
+    }
+    if (documentMatchesLifecycle(observed, intent)) {
+      return { committed: true, document: observed, outcome: 'reconciled' };
+    }
+    return { committed: false, document: observed, outcome: 'failed' };
+  }
+}
+
+async function refreshLifecycleCollection(action, undo = null) {
+  try {
+    const applied = await loadDocuments();
+    if (applied === false) throw new Error('stale collection refresh');
+    return true;
+  } catch {
+    showToast(lifecycleOutcomeMessage(action, 'refresh-failed'), undo, undo ? 7000 : 5000);
+    return false;
+  }
+}
+
+function reportUncommittedLifecycle(action, outcome, documentId) {
+  if (outcome === 'unknown' && documentId) {
+    documentLifecycleUncertain.add(`document:${documentId}`);
+  }
+  showToast(outcome === 'unknown'
+    ? lifecycleOutcomeMessage(action, 'unknown')
+    : `Prax could not ${action.toLowerCase()}.`, null, 5000);
+}
+
+async function changeDocumentVerification(id, verified, { offerUndo = true } = {}) {
+  let reviewedHash = null;
+  if (verified) {
+    const reviewed = (state.documents || []).find(document => document.id === id)
+      || await fetchDocument(id);
+    reviewedHash = reviewed.contentHash || null;
+  }
+  const result = await reconcileDocumentLifecycle({
+    id,
+    intent: { type: 'verify', verified },
+    mutate: () => verifyDocument(id, verified, 'user', reviewedHash),
+  });
+  if (!result.committed) {
+    reportUncommittedLifecycle(verified ? 'Verify this document' : 'Unverify this document', result.outcome, id);
+    return false;
+  }
+  cacheLifecycleDocument(result.document);
+  renderApp();
+  const undo = offerUndo ? async () => {
+    dismissToast();
+    await performDocumentLifecycleOnce(`document:${id}`, () => (
+      changeDocumentVerification(id, !verified, { offerUndo: false })
+    ));
+  } : null;
+  const action = verified ? 'Verification' : 'Unverification';
+  if (!(await refreshLifecycleCollection(action, undo))) return true;
+  const reconciled = lifecycleOutcomeMessage(action, result.outcome);
+  showToast(reconciled || (verified ? 'Document verified' : 'Document unverified'), undo);
+  return true;
+}
+
+async function restoreKnowledgeDocument(id) {
+  const result = await reconcileDocumentLifecycle({
+    id,
+    intent: { type: 'restore' },
+    mutate: () => restoreDocument(id),
+  });
+  if (!result.committed) {
+    reportUncommittedLifecycle('Restore this document', result.outcome, id);
+    return false;
+  }
+  const restoringOpenEditor = state.navType === 'editor' && state.editorDocId === id;
+  const wasArchiveCollection = state.navType === 'library' && state.libraryView === 'archive';
+  if (restoringOpenEditor) setState({ libraryView: 'active' });
+  cacheLifecycleDocument(result.document, { remove: wasArchiveCollection });
+  renderApp();
+  if (!(await refreshLifecycleCollection('Restore'))) return true;
+  showToast(lifecycleOutcomeMessage('Restore', result.outcome) || 'Document restored');
+  return true;
+}
+
+async function archiveKnowledgeDocument(id, { offerUndo = true } = {}) {
+  const result = await reconcileDocumentLifecycle({
+    id,
+    intent: { type: 'archive' },
+    mutate: () => archiveDocument(id),
+  });
+  if (!result.committed) {
+    reportUncommittedLifecycle('Archive this document', result.outcome, id);
+    return false;
+  }
+  cacheLifecycleDocument(result.document, { remove: state.libraryView !== 'archive' });
+  if (state.editorDocId === id) {
+    destroyEditorController();
+    setState({ navType: 'library', editorDocId: null, editorFocus: false, ...resetLibraryFilters() });
+  }
+  renderApp();
+  const undo = offerUndo ? async () => {
+    dismissToast();
+    await performDocumentLifecycleOnce(`document:${id}`, () => (
+      restoreKnowledgeDocument(id)
+    ));
+  } : null;
+  if (!(await refreshLifecycleCollection('Archive', undo))) return true;
+  showToast(lifecycleOutcomeMessage('Archive', result.outcome) || 'Document archived', undo);
+  return true;
+}
+
+async function deleteKnowledgeDocument(id) {
+  const result = await reconcileDocumentLifecycle({
+    id,
+    intent: { type: 'delete' },
+    mutate: () => deleteDocumentPermanently(id),
+  });
+  if (!result.committed) {
+    reportUncommittedLifecycle('Permanently delete this document', result.outcome, id);
+    return false;
+  }
+  clearDocumentDraftRecovery(documentDraftStorage(), id);
+  cacheLifecycleDocument({ id }, { remove: true });
+  if (state.editorDocId === id) {
+    destroyEditorController();
+    setState({ navType: 'library', editorDocId: null, editorFocus: false });
+  }
+  renderApp();
+  if (!(await refreshLifecycleCollection('Permanent deletion'))) return true;
+  showToast(lifecycleOutcomeMessage('Permanent deletion', result.outcome) || 'Document permanently deleted');
+  return true;
+}
+
+async function undoDocumentSupersession(predecessorId, replacementId) {
+  try {
+    await unlinkDocuments(replacementId, predecessorId, 'supersedes');
+  } catch {
+    try {
+      const links = await fetchDocumentLinks(replacementId, 'outbound');
+      const stillLinked = links.some(link => link.documentId === predecessorId && link.relation === 'supersedes');
+      if (stillLinked) {
+        showToast('Prax could not undo this supersession.');
+        return false;
+      }
+    } catch {
+      documentLifecycleUncertain.add(`document:${predecessorId}`);
+      showToast(lifecycleOutcomeMessage('Undo supersession', 'unknown'), null, 5000);
+      return false;
+    }
+  }
+  const predecessor = await fetchDocument(predecessorId).catch(() => null);
+  if (predecessor) cacheLifecycleDocument(predecessor);
+  await loadDocumentLinks(predecessorId);
+  renderApp();
+  if (!(await refreshLifecycleCollection('Undo supersession'))) return true;
+  showToast('Supersession undone');
+  return true;
+}
+
+async function supersedeKnowledgeDocument(predecessorId, replacementId) {
+  let result;
+  try {
+    result = { committed: true, document: await supersedeDocument(predecessorId, replacementId), outcome: 'committed' };
+  } catch {
+    try {
+      const [predecessor, links] = await Promise.all([
+        fetchDocument(predecessorId),
+        fetchDocumentLinks(replacementId, 'outbound'),
+      ]);
+      const exactLink = links.some(link => link.documentId === predecessorId && link.relation === 'supersedes');
+      result = documentMatchesLifecycle(predecessor, { type: 'supersede' }) && exactLink
+        ? { committed: true, document: predecessor, outcome: 'reconciled' }
+        : { committed: false, document: predecessor, outcome: 'failed' };
+    } catch {
+      result = { committed: false, document: null, outcome: 'unknown' };
+    }
+  }
+  if (!result.committed) {
+    if (result.outcome === 'unknown') setState({ isLinkPickerOpen: false });
+    reportUncommittedLifecycle('Supersede this document', result.outcome, predecessorId);
+    return false;
+  }
+  cacheLifecycleDocument(result.document);
+  setState({ isLinkPickerOpen: false });
+  renderApp();
+  await loadDocumentLinks(predecessorId);
+  renderApp();
+  const undo = async () => {
+    dismissToast();
+    await performDocumentLifecycleOnce(`document:${predecessorId}`, () => (
+      undoDocumentSupersession(predecessorId, replacementId)
+    ));
+  };
+  if (!(await refreshLifecycleCollection('Supersession', undo))) return true;
+  showToast(lifecycleOutcomeMessage('Supersession', result.outcome) || 'Document superseded', undo, 7000);
+  return true;
+}
+
+function documentDraftStorage() {
+  try { return window.localStorage; } catch { return null; }
+}
+
 // Resolve a [[wiki-link]] title to a non-archived document (case-insensitive),
 // for the Markdown preview. Returns { id, title } or null (renders as "missing").
 function resolveWikiLink(title) {
@@ -895,12 +1566,20 @@ function wikiLinkDocuments() {
 }
 
 function seedEditorDraft(doc) {
+  clearTimeout(documentAutosaveTimer);
+  const storage = documentDraftStorage();
+  const recovery = doc.archivedAt ? null : loadDocumentDraftRecovery(storage, doc.id);
+  const resolved = resolveDocumentDraftRecovery(doc, recovery);
+  if (resolved.clear) clearDocumentDraftRecovery(storage, doc.id);
   setState({
     editorDocId: doc.id,
     documentDraftId: doc.id,
-    documentDraftBody: doc.body || '',
-    isDocumentDirty: false,
-    documentSaveStatus: 'Saved',
+    documentDraftTitle: resolved.title,
+    documentDraftBody: resolved.body,
+    isDocumentDirty: resolved.isDirty,
+    documentSaveStatus: resolved.status,
+    documentDraftRecoveryReason: ['recovered', 'conflict'].includes(resolved.kind) ? resolved.kind : null,
+    isDocumentDraftStored: true,
     documentLinks: null,
     documentExternalRefs: null,
     docInfoRefsSeed: null,
@@ -1012,68 +1691,196 @@ function setSaveStatusInPlace(status) {
   setState({ documentSaveStatus: status });
   const el = appRoot?.querySelector('[data-document-save-status]');
   if (el) el.textContent = status;
+  const action = appRoot?.querySelector('[data-document-save-action]');
+  if (action) {
+    const reason = state.documentDraftRecoveryReason;
+    action.hidden = !['failed', 'recovered', 'conflict'].includes(reason);
+    action.disabled = status === 'Saving...' || status === 'Autosaving...';
+    action.textContent = reason === 'conflict'
+      ? 'Review and save'
+      : (reason === 'recovered' ? 'Save recovered draft' : 'Retry');
+  }
+}
+
+function handleDocumentDraftChange({ title = state.documentDraftTitle, body = state.documentDraftBody } = {}) {
+  const doc = currentDocument();
+  const draft = { title: String(title ?? ''), body: String(body ?? '') };
+  const dirty = documentDraftIsDirty(doc, draft);
+  const storage = documentDraftStorage();
+  const stored = dirty
+    ? storeDocumentDraftRecovery(storage, { document: doc, ...draft })
+    : clearDocumentDraftRecovery(storage, doc?.id);
+  const protectedRecovery = dirty && ['recovered', 'conflict'].includes(state.documentDraftRecoveryReason);
+  setState({
+    documentDraftTitle: draft.title,
+    documentDraftBody: draft.body,
+    isDocumentDirty: dirty,
+    documentDraftRecoveryReason: protectedRecovery ? state.documentDraftRecoveryReason : null,
+    isDocumentDraftStored: dirty ? stored : true,
+  });
+  setSaveStatusInPlace(dirty
+    ? (protectedRecovery ? state.documentSaveStatus : (stored ? 'Unsaved changes' : 'Unsaved — keep this tab open'))
+    : 'Saved');
+  if (!dirty || protectedRecovery) clearTimeout(documentAutosaveTimer);
+  else scheduleDocumentAutosave();
 }
 
 function handleDocumentDraftBodyChange(value) {
-  const doc = currentDocument();
-  const dirty = Boolean(doc) && value !== (doc.body || '');
-  setState({ documentDraftBody: value, isDocumentDirty: dirty });
-  setSaveStatusInPlace(dirty ? 'Unsaved changes' : 'Saved');
+  handleDocumentDraftChange({ body: value });
   const counts = appRoot?.querySelector('[data-editor-counts]');
   if (counts) {
     const words = value.split(/\s+/).filter(Boolean).length;
     counts.textContent = `${words} words · ${value.length} characters · ${Math.max(1, Math.round(words / 200))} min read`;
   }
   updateDocumentLivePreview(appRoot, value, { resolveWikiLink });
-  scheduleDocumentAutosave();
+}
+
+function handleDocumentDraftTitleChange(value) {
+  handleDocumentDraftChange({ title: value });
 }
 
 function scheduleDocumentAutosave() {
   clearTimeout(documentAutosaveTimer);
   documentAutosaveTimer = setTimeout(() => {
-    if (state.isDocumentDirty) {
+    if (state.isDocumentDirty && !['recovered', 'conflict'].includes(state.documentDraftRecoveryReason)) {
       setSaveStatusInPlace('Autosaving...');
-      saveDocumentDraft();
+      saveDocumentDraft({ status: null });
     }
   }, DOCUMENT_AUTOSAVE_DELAY_MS);
 }
 
-async function saveDocumentDraft() {
-  const draftId = state.documentDraftId;
-  if (!draftId || !state.isDocumentDirty) return;
-  const sentBody = state.documentDraftBody;
-  try {
-    const saved = await updateDocument(draftId, { body: sentBody });
-    const patch = documentDraftSavedPatch({ documents: state.documents, savedDocument: saved });
-    if (state.documentDraftBody !== sentBody) {
-      // The user kept typing while the PATCH was in flight — keep the newer
-      // draft, stay dirty, and let the debounce save it next.
-      patch.documentDraftBody = state.documentDraftBody;
-      patch.isDocumentDirty = true;
-      patch.documentSaveStatus = 'Unsaved changes';
-      scheduleDocumentAutosave();
-    }
-    setState(patch);
-    setSaveStatusInPlace(patch.documentSaveStatus);
-    // The fallback textarea preserves the caret exactly like CodeMirror does —
-    // either way, re-rendering mid-typing would destroy the edit surface and
-    // leak keystrokes to the global shortcuts.
-    const editSurface = Boolean(documentEditorController)
-      || Boolean(appRoot.querySelector('[data-document-editor]:not([hidden])'));
-    if (!canPreserveEditorAfterDraftSave({
-      editorExists: editSurface,
-      savedDocumentId: saved.id,
-      selectedDocumentId: state.editorDocId,
-      documentDraftId: state.documentDraftId,
-    })) {
-      renderApp();
-    }
-  } catch {
-    // Never window.alert from the autosave path — it would block the page on
-    // every debounce tick. The footer status plus a toast is enough.
-    setSaveStatusInPlace('Save failed');
-    showToast('Prax could not save this document — it will retry as you type.');
+function applyDocumentDraftSave(saved, { draftId, sentDraft }) {
+  const stillActive = state.editorDocId === draftId && state.documentDraftId === draftId;
+  const patch = documentDraftSavedPatch({
+    documents: state.documents,
+    savedDocument: saved,
+    activeDocumentId: stillActive ? draftId : null,
+  });
+  const liveDraft = {
+    title: state.documentDraftTitle,
+    body: state.documentDraftBody,
+  };
+  if (stillActive && documentDraftIsDirty(
+    { title: normalizeDocumentDraftTitle(sentDraft.title), body: sentDraft.body },
+    liveDraft,
+  )) {
+    // The user kept typing while the PATCH was in flight. Rebase the newer
+    // recovery record onto the acknowledged version and save it next.
+    patch.documentDraftTitle = liveDraft.title;
+    patch.documentDraftBody = liveDraft.body;
+    patch.isDocumentDirty = true;
+    patch.documentSaveStatus = 'Unsaved changes';
+    patch.documentDraftRecoveryReason = null;
+    patch.isDocumentDraftStored = storeDocumentDraftRecovery(documentDraftStorage(), {
+      document: saved,
+      ...liveDraft,
+    });
+    scheduleDocumentAutosave();
+  } else {
+    clearDocumentDraftRecovery(documentDraftStorage(), draftId, sentDraft);
   }
+  setState(patch);
+  if (stillActive) {
+    setSaveStatusInPlace(patch.documentSaveStatus);
+    const title = appRoot?.querySelector('[data-doc-title]');
+    if (title && title.value !== patch.documentDraftTitle) title.value = patch.documentDraftTitle;
+  }
+  // The fallback textarea preserves the caret exactly like CodeMirror does —
+  // either way, re-rendering mid-typing would destroy the edit surface and
+  // leak keystrokes to the global shortcuts.
+  const editSurface = Boolean(documentEditorController)
+    || Boolean(appRoot?.querySelector('[data-document-editor]:not([hidden])'));
+  if (stillActive && !canPreserveEditorAfterDraftSave({
+    editorExists: editSurface,
+    savedDocumentId: saved.id,
+    selectedDocumentId: state.editorDocId,
+    documentDraftId: state.documentDraftId,
+  })) {
+    renderApp();
+  }
+  return true;
+}
+
+async function saveDocumentDraft({ status = 'Saving...' } = {}) {
+  const draftId = state.documentDraftId;
+  if (!draftId || !state.isDocumentDirty) return true;
+  if (documentSavePromise) return documentSavePromise;
+  const sentDraft = {
+    title: state.documentDraftTitle,
+    body: state.documentDraftBody,
+  };
+  if (status) setSaveStatusInPlace(status);
+  documentSavePromise = (async () => {
+    try {
+      const saved = await updateDocument(draftId, {
+        title: normalizeDocumentDraftTitle(sentDraft.title),
+        body: sentDraft.body,
+      });
+      return applyDocumentDraftSave(saved, { draftId, sentDraft });
+    } catch {
+      // A response can be lost after the database committed. Re-read once and
+      // acknowledge the exact sent revision instead of inviting a duplicate.
+      try {
+        const observed = await fetchDocument(draftId);
+        if (!documentDraftIsDirty(observed, sentDraft)) {
+          return applyDocumentDraftSave(observed, { draftId, sentDraft });
+        }
+      } catch { /* the canonical outcome is still unknown/uncommitted */ }
+      // Never window.alert from the autosave path — it would block the page on
+      // every debounce tick. The footer status plus a toast is enough.
+      if (state.editorDocId === draftId) {
+        setState({ documentDraftRecoveryReason: 'failed' });
+        setSaveStatusInPlace('Save failed');
+        showToast(state.isDocumentDraftStored
+          ? 'Save failed. Your draft is kept on this device — retry when ready.'
+          : 'Save failed. Keep this tab open and retry.');
+      }
+      return false;
+    } finally {
+      documentSavePromise = null;
+    }
+  })();
+  return documentSavePromise;
+}
+
+async function flushDocumentDraftBeforeNavigation(targetDocumentId) {
+  clearTimeout(documentAutosaveTimer);
+  if (state.documentDraftId === targetDocumentId) return true;
+  if (['recovered', 'conflict'].includes(state.documentDraftRecoveryReason)) return false;
+  if (documentSavePromise && !(await documentSavePromise)) return false;
+  // Content may have changed while the first request was in flight. Flush the
+  // newest draft too before allowing the editor context to switch.
+  if (state.isDocumentDirty && state.documentDraftId !== targetDocumentId) {
+    const saved = await saveDocumentDraft();
+    if (!saved || state.isDocumentDirty) return false;
+  }
+  return true;
+}
+
+// One boundary for every action that replaces the editor with another view.
+// A failed/recovered/conflicting draft stays in its original context with the
+// existing explicit recovery control instead of being abandoned behind the
+// destination view.
+async function prepareEditorNavigation(targetDocumentId = null) {
+  if (state.navType !== 'editor') return true;
+  const saved = await flushDocumentDraftBeforeNavigation(targetDocumentId);
+  if (saved) return true;
+  showToast(['recovered', 'conflict'].includes(state.documentDraftRecoveryReason)
+    ? 'Review and save the recovered draft before leaving this document.'
+    : 'Save this document before leaving it.');
+  return false;
+}
+
+async function requestDocumentDraftSave({ confirmed = false } = {}) {
+  if (state.documentDraftRecoveryReason === 'conflict' && !confirmed) {
+    openConfirm({
+      message: 'The saved copy changed after this draft began. Replace it with the recovered draft?',
+      okLabel: 'Replace saved copy',
+      action: 'retry-document-save',
+    });
+    return false;
+  }
+  return saveDocumentDraft();
 }
 
 function destroyEditorController() {
@@ -1104,7 +1911,7 @@ function mountEditorIfNeeded() {
         if (fallback) fallback.value = value;
         handleDocumentDraftBodyChange(value);
       },
-      onSave: () => saveDocumentDraft(),
+      onSave: () => requestDocumentDraftSave(),
     });
   } catch (err) {
     // A CodeMirror failure must never break the app — the plain textarea
@@ -1283,7 +2090,8 @@ function toggleMarkdownCheck(line) {
 }
 
 async function openDocumentInEditor(documentId) {
-  clearTimeout(documentAutosaveTimer);
+  if (state.navType === 'editor' && state.editorDocId === documentId) return true;
+  if (!(await prepareEditorNavigation(documentId))) return false;
   destroyEditorController();
   let doc = state.documents.find(d => d.id === documentId);
   if (!doc) {
@@ -1291,16 +2099,13 @@ async function openDocumentInEditor(documentId) {
     await loadDocuments();
     doc = state.documents.find(d => d.id === documentId);
   }
-  if (!doc) { alertError('open that document'); return; }
+  if (!doc) { alertError('open that document'); return false; }
   seedEditorDraft(doc);
   writeToken += 1; // drop any in-flight writing action from a previous doc
   setState({ navType: 'editor', editorFocus: false, writeMenuOpen: false, writeSelection: null, writeContext: null, writeResult: null, writeLoading: false, writeError: null });
   renderApp();
-  loadDocumentLinks(doc.id);
-  loadExternalRefs(doc.id);
-  loadDocumentTaskBacklinks(doc.id);
-  loadSimilarDocuments(doc.id);
-  loadDocumentRuns(doc);
+  loadDocumentContext(doc);
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -1309,19 +2114,32 @@ async function openDocumentInEditor(documentId) {
 
 function openAskPrax() {
   // Keep the last query (handy to re-run) but clear any prior answer.
+  askPraxToken += 1;
   setState({ askPraxOpen: true, askPraxResult: null, askPraxError: false, askPraxLoading: false, paletteOpen: false });
+  renderApp();
+}
+
+function closeAskPrax() {
+  askPraxToken += 1;
+  setState({ askPraxOpen: false, askPraxLoading: false });
   renderApp();
 }
 
 async function runAskPrax(rawQuery) {
   const query = String(rawQuery || '').trim();
   if (!query) return;
+  const token = (askPraxToken += 1);
+  const isCurrent = () => token === askPraxToken
+    && state.askPraxOpen
+    && state.askPraxQuery === query;
   setState({ askPraxQuery: query, askPraxLoading: true, askPraxError: false, askPraxResult: null });
   renderApp();
   try {
     const result = await askPrax(query, 'all');
+    if (!isCurrent()) return;
     setState({ askPraxLoading: false, askPraxResult: result });
   } catch {
+    if (!isCurrent()) return;
     setState({ askPraxLoading: false, askPraxError: true });
   }
   renderApp();
@@ -1367,51 +2185,166 @@ async function runGenerateRunbook() {
 // Snapshot the runbook's checkbox steps into a fresh run and open the run view.
 // The run is a chronicle: checking a step stamps a time without touching the doc.
 async function startRunForDocument(documentId) {
+  if (state.runStartPending) return;
   const doc = state.documents.find((d) => d.id === documentId) || currentDocument();
   if (!doc) { alertError('start a run'); return; }
-  try {
-    const run = await startRun(doc.id, '');
-    setState({ navType: 'run', activeRun: run, runReturnDocId: doc.id, docMenuOpen: false });
+  const priorIntent = state.runStartIntent;
+  const intent = priorIntent?.documentId === doc.id
+    ? priorIntent
+    : { id: crypto.randomUUID(), documentId: doc.id, title: '' };
+  setState({ runStartPending: true, runStartIntent: intent });
+  renderApp();
+  // A run snapshots the persisted checkbox steps. Flush the current draft so
+  // the chronicle cannot start from an older revision than the one on screen.
+  if (!(await prepareEditorNavigation())) {
+    setState({ runStartPending: false });
     renderApp();
-    if (!run.steps || run.steps.length === 0) showToast('This runbook has no checkbox steps yet — add “- [ ] step” lines.');
-  } catch { alertError('start a run'); }
+    return;
+  }
+  let run;
+  let recovered = false;
+  try {
+    run = await startRun(doc.id, intent.title, intent.id);
+  } catch (writeError) {
+    try {
+      const canonical = await fetchRun(intent.id);
+      if (runMatchesStartIntent(canonical, intent)) {
+        run = canonical;
+        recovered = true;
+      } else {
+        setState({ runStartPending: false });
+        renderApp();
+        showToast(writeError?.message || 'Run did not start. Retry uses the same safe identity.');
+        return;
+      }
+    } catch (readError) {
+      setState({ runStartPending: false });
+      renderApp();
+      const message = readError?.status === 404
+        ? 'Run did not start. Retry is safe and will reuse the same identity.'
+        : 'Could not confirm whether the run started. Retry is safe and cannot create a duplicate.';
+      showToast(message, null, 7000);
+      return;
+    }
+  }
+  setState({
+    navType: 'run',
+    editorFocus: false,
+    activeRun: run,
+    runReturnDocId: doc.id,
+    runStartPending: false,
+    runStartIntent: null,
+    runMutationPending: false,
+    docMenuOpen: false,
+  });
+  renderApp();
+  if (recovered) showToast('Run started — confirmed after the response was lost');
+  if (!run.steps || run.steps.length === 0) showToast('This runbook has no checkbox steps yet — add “- [ ] step” lines.');
 }
 
 async function openRun(runId, returnDocId) {
+  if (!(await prepareEditorNavigation())) return;
   try {
     const run = await fetchRun(runId);
-    setState({ navType: 'run', activeRun: run, runReturnDocId: returnDocId || run.documentId });
+    setState({
+      navType: 'run',
+      editorFocus: false,
+      activeRun: run,
+      runReturnDocId: returnDocId || run.documentId,
+      runMutationPending: false,
+    });
     renderApp();
   } catch { alertError('open that run'); }
 }
 
-async function toggleRunStep(stepId, nowChecked) {
-  const run = state.activeRun;
-  if (!run || run.status !== 'running') return;
-  try {
-    const updated = await setRunStep(run.id, stepId, nowChecked);
-    const steps = run.steps.map((s) => (s.id === stepId ? { ...s, checkedAt: updated.checkedAt, checkedBy: updated.checkedBy } : s));
-    setState({ activeRun: { ...run, steps } });
-    renderApp();
-  } catch { alertError('update that step'); }
+function applyRunMutationResponse(runId, response, intent) {
+  const current = state.activeRun;
+  if (!current || current.id !== runId) return;
+  if (intent.type === 'step') {
+    const steps = current.steps.map((step) => (step.id === intent.stepId
+      ? { ...step, checkedAt: response.checkedAt, checkedBy: response.checkedBy }
+      : step));
+    setState({ activeRun: { ...current, steps } });
+  } else {
+    setState({ activeRun: {
+      ...current,
+      status: response.status,
+      finishedAt: response.finishedAt,
+      finishedBy: response.finishedBy,
+    } });
+  }
 }
 
-async function endRun(status) {
-  const run = state.activeRun;
-  if (!run) return;
-  try {
-    const updated = await setRunStatus(run.id, status);
-    setState({ activeRun: { ...run, status: updated.status, finishedAt: updated.finishedAt }, confirm: null });
-    showToast(status === 'completed' ? 'Run completed' : 'Run aborted');
+// Run writes are deliberately followed by a canonical read. The PATCH response
+// proves a commit, but only GET carries the complete event ledger; a rejected
+// PATCH may also be a lost response after commit.
+function queueRunMutation(runId, { write, intent, successMessage = '' }) {
+  pendingRunMutationCount += 1;
+  setState({ runMutationPending: true });
+  renderApp();
+  return enqueueRunMutation(runId, async () => {
+    let response;
+    let writeError = null;
+    try {
+      response = await write();
+    } catch (error) {
+      writeError = error;
+    }
+
+    try {
+      const canonical = await fetchRun(runId);
+      const matches = intent.type === 'step'
+        ? runMatchesStepIntent(canonical, intent.stepId, intent.checked)
+        : runMatchesStatusIntent(canonical, intent.status);
+      if (state.activeRun?.id === runId) setState({ activeRun: canonical });
+      if (writeError && !matches) {
+        showToast(writeError.message || 'The run did not change.');
+      } else if (writeError) {
+        showToast(`${successMessage || 'Run updated'} — confirmed after the response was lost`);
+      } else if (successMessage) {
+        showToast(successMessage);
+      }
+    } catch {
+      if (writeError) {
+        showToast('Could not confirm the run change. Retry is safe and will not duplicate the event.', null, 7000);
+      } else {
+        applyRunMutationResponse(runId, response, intent);
+        showToast('Run updated, but the chronicle could not refresh. Reopen the run to reload it.', null, 7000);
+      }
+    }
+  }).finally(() => {
+    pendingRunMutationCount = Math.max(0, pendingRunMutationCount - 1);
+    setState({ runMutationPending: pendingRunMutationCount > 0 });
     renderApp();
-  } catch { alertError(status === 'completed' ? 'complete the run' : 'abort the run'); }
+  });
+}
+
+function toggleRunStep(stepId, nowChecked) {
+  const run = state.activeRun;
+  if (!run || run.status !== 'running') return Promise.resolve();
+  return queueRunMutation(run.id, {
+    intent: { type: 'step', stepId, checked: nowChecked },
+    write: () => setRunStep(run.id, stepId, nowChecked),
+  });
+}
+
+function endRun(status) {
+  const run = state.activeRun;
+  if (!run) return Promise.resolve();
+  setState({ confirm: null });
+  const label = status === 'completed' ? 'Run completed' : (status === 'aborted' ? 'Run aborted' : 'Run resumed');
+  return queueRunMutation(run.id, {
+    intent: { type: 'status', status },
+    write: () => setRunStatus(run.id, status),
+    successMessage: label,
+  });
 }
 
 async function copyRunChronicle() {
   const run = state.activeRun;
   if (!run) return;
   const doc = (state.documents || []).find((d) => d.id === run.documentId);
-  const ok = await copyToClipboard(buildChronicle(run, doc?.title || ''));
+  const ok = await copyToClipboard(buildChronicle(run, run.documentTitle || doc?.title || ''));
   showToast(ok ? 'Chronicle copied' : 'Could not copy chronicle');
 }
 
@@ -1432,11 +2365,11 @@ async function generatePostMortem(runId) {
   }
 }
 
-function backFromRun() {
+async function backFromRun() {
   const docId = state.runReturnDocId || state.activeRun?.documentId;
   setState({ activeRun: null });
-  if (docId) openDocumentInEditor(docId);
-  else goLibrary();
+  if (docId && await openDocumentInEditor(docId)) return;
+  await goLibrary();
 }
 
 // ---------------------------------------------------------------------------
@@ -1478,6 +2411,106 @@ function captureDefaults() {
   };
 }
 
+function taskCaptureStorage() {
+  try { return window.localStorage; } catch { return null; }
+}
+
+function captureRecoveryDraft() {
+  return {
+    query: state.captureQuery,
+    projectId: state.captureProjectId,
+    dueDate: state.captureDueDate,
+    status: state.captureStatus,
+    nlFields: state.nlCaptureFields,
+    nlDropped: state.nlCaptureDropped,
+    nlRaw: state.nlCaptureRaw,
+    requestPayload: state.captureRequestPayload,
+    requestIntent: state.captureRequestIntent,
+  };
+}
+
+function persistCaptureRecovery() {
+  return storeTaskCaptureRecovery(taskCaptureStorage(), captureRecoveryDraft());
+}
+
+function clearCaptureRequestPatch() {
+  return {
+    captureRequestPayload: null,
+    captureRequestIntent: null,
+    captureError: null,
+    captureRecovered: false,
+  };
+}
+
+function openFreshCapture() {
+  if (state.captureSubmitting) return false;
+  captureReturnElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  clearTaskCaptureRecovery(taskCaptureStorage());
+  setState({
+    captureOpen: true,
+    captureQuery: '',
+    captureSubmitting: false,
+    paletteOpen: false,
+    ...captureDefaults(),
+    ...clearCaptureRequestPatch(),
+    ...nlCaptureResetPatch(),
+  });
+  renderCaptureOverlayLayer();
+  return true;
+}
+
+function discardCapture() {
+  if (state.captureSubmitting) return false;
+  clearTaskCaptureRecovery(taskCaptureStorage());
+  setState({
+    captureOpen: false,
+    captureQuery: '',
+    captureMenuOpen: false,
+    captureSubmitting: false,
+    ...clearCaptureRequestPatch(),
+    ...nlCaptureResetPatch(),
+  });
+  return true;
+}
+
+function restoreCaptureRecovery() {
+  const recovery = loadTaskCaptureRecovery(taskCaptureStorage());
+  if (!recovery) return false;
+  if (recovery.requestPayload) {
+    const observed = state.tasks.find(task => task.id === recovery.requestPayload.id);
+    if (taskMatchesCreatePayload(observed, recovery.requestPayload)) {
+      clearTaskCaptureRecovery(taskCaptureStorage());
+      showToast('Task was added before reload.');
+      return false;
+    }
+  }
+  const knownProjects = new Set((state.projects || []).map(project => project.id));
+  const projectId = knownProjects.has(recovery.projectId)
+    ? recovery.projectId
+    : (inboxProjectId() || state.projects[0]?.id || null);
+  const requestProject = recovery.requestPayload?.project;
+  const keepRequest = !requestProject || knownProjects.has(requestProject);
+  setState({
+    captureOpen: true,
+    captureQuery: recovery.query,
+    captureProjectId: projectId,
+    captureDueDate: recovery.dueDate,
+    captureStatus: recovery.status === 'backlog' ? 'backlog' : 'planned',
+    captureMenuOpen: false,
+    captureSubmitting: false,
+    captureError: 'Recovered unfinished task.',
+    captureRecovered: true,
+    captureRequestPayload: keepRequest ? recovery.requestPayload : null,
+    captureRequestIntent: keepRequest ? recovery.requestIntent : null,
+    nlCaptureLoading: false,
+    nlCaptureFields: recovery.nlFields,
+    nlCaptureDropped: recovery.nlDropped,
+    nlCaptureRaw: recovery.nlRaw,
+    nlCaptureError: null,
+  });
+  return true;
+}
+
 // Projects offered in the capture picker: Inbox first, then active/on-hold user
 // projects, each carrying its dot color for the menu.
 function captureProjectChoices() {
@@ -1489,6 +2522,7 @@ function captureProjectChoices() {
 }
 
 async function createNewDocument(templateId) {
+  if (!(await prepareEditorNavigation())) return false;
   setState({ newDocMenuOpen: false });
   destroyEditorController(); // fresh mount (cursorToEnd), no selection carried in
   const project = defaultProjectId();
@@ -1504,43 +2538,216 @@ async function createNewDocument(templateId) {
     setState({ navType: 'editor', editorMode: 'edit', editorFocus: false, writeMenuOpen: false, writeSelection: null, writeContext: null, writeResult: null, writeLoading: false, writeError: null });
     renderApp();
     showToast('New document — rename it in the title bar');
+    return true;
   } catch {
     alertError('create a document');
+    return false;
   }
 }
 
-function importDocumentFiles() {
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = 'text/markdown,.md,.markdown,.txt';
-  input.multiple = true;
-  input.addEventListener('change', async () => {
-    const files = [...(input.files || [])];
-    if (!files.length) return;
-    const project = defaultProjectId();
-    if (!project) { showToast('Create a project first.'); return; }
-    let imported = 0;
-    for (const file of files) {
-      try {
-        const body = await file.text();
-        await createDocument({
-          title: titleFromMarkdown(body, file.name),
-          body,
-          documentType: 'note',
-          project,
-          tags: ['imported'],
-          sourceFilename: file.name || null,
-        });
-        imported += 1;
-      } catch {
-        /* keep importing the rest */
-      }
-    }
-    await loadDocuments();
-    renderApp();
-    showToast(`Imported ${imported} document${imported === 1 ? '' : 's'}`);
+function markdownImportProjects() {
+  return (state.projects || []).filter(project => project.status === 'active' || project.status === 'on-hold');
+}
+
+function libraryExportProjects() {
+  const projects = state.managedProjects?.length ? state.managedProjects : state.projects;
+  return (projects || []).filter(project => project.slug);
+}
+
+function openLibraryExport(scope = 'all', returnAction = 'export-library') {
+  const projects = libraryExportProjects();
+  const selectedScope = scope === 'all' || projects.some(project => project.slug === scope)
+    ? scope
+    : 'all';
+  libraryExportReturnAction = returnAction;
+  restoreLibraryExportFocus = false;
+  setState({
+    libraryExportOpen: true,
+    libraryExportScope: selectedScope,
+    libraryExportFilename: libraryArchiveFilename(selectedScope),
+    libraryExportPending: false,
+    libraryExportError: '',
+    newDocMenuOpen: false,
   });
-  input.click();
+  renderApp();
+}
+
+function closeLibraryExport() {
+  if (state.libraryExportPending) return false;
+  restoreLibraryExportFocus = true;
+  setState({
+    libraryExportOpen: false,
+    libraryExportPending: false,
+    libraryExportError: '',
+  });
+  renderApp();
+  return true;
+}
+
+async function submitLibraryExport() {
+  if (state.libraryExportPending) return;
+  const projects = libraryExportProjects();
+  const scope = state.libraryExportScope === 'all'
+    || projects.some(project => project.slug === state.libraryExportScope)
+    ? state.libraryExportScope
+    : 'all';
+  const filename = state.libraryExportFilename || libraryArchiveFilename(scope);
+  const mode = libraryExportDestinationMode({ desktopShell: state.desktopShell });
+  setState({ libraryExportPending: true, libraryExportError: '' });
+  renderApp();
+
+  try {
+    const result = await saveLibraryArchive({
+      scope,
+      filename,
+      mode,
+      desktopShell: state.desktopShell,
+    });
+    if (result.status === 'cancelled') {
+      setState({ libraryExportPending: false });
+      renderApp();
+      return;
+    }
+    restoreLibraryExportFocus = true;
+    setState({
+      libraryExportOpen: false,
+      libraryExportPending: false,
+      libraryExportError: '',
+    });
+    showToast(result.status === 'downloaded'
+      ? `Download started: ${filename}`
+      : `Saved ${filename}`);
+  } catch (error) {
+    setState({
+      libraryExportPending: false,
+      libraryExportError: libraryExportFailureMessage(error),
+    });
+    renderApp();
+  }
+}
+
+function openMarkdownImport() {
+  const projects = markdownImportProjects();
+  const retained = projects.find(project => project.id === state.markdownImportProjectId);
+  const destination = retained || projects.find(project => project.slug === INBOX_SLUG) || projects[0] || null;
+  setState({
+    markdownImportOpen: true,
+    markdownImportProjectId: destination?.id || null,
+    markdownImportFiles: [],
+    markdownImportPending: false,
+    markdownImportError: destination ? '' : 'Create an active project before importing Markdown.',
+    markdownImportNotice: '',
+    newDocMenuOpen: false,
+  });
+  restoreMarkdownImportFocus = false;
+  renderApp();
+}
+
+function closeMarkdownImport() {
+  if (state.markdownImportPending) return false;
+  restoreMarkdownImportFocus = true;
+  setState({
+    markdownImportOpen: false,
+    markdownImportFiles: [],
+    markdownImportError: '',
+    markdownImportNotice: '',
+  });
+  renderApp();
+  return true;
+}
+
+async function selectMarkdownImportFiles(fileList) {
+  if (state.markdownImportPending || state.markdownImportNotice) return;
+  const files = [...(fileList || [])];
+  if (!files.length) return;
+  const records = [];
+  const unreadable = [];
+  for (const file of files) {
+    try {
+      const body = await file.text();
+      records.push({
+        id: globalThis.crypto.randomUUID(),
+        name: file.name || 'unnamed.md',
+        title: titleFromMarkdown(body, file.name),
+        body,
+      });
+    } catch {
+      unreadable.push(file.name || 'unnamed file');
+    }
+  }
+  setState({
+    markdownImportFiles: records,
+    markdownImportError: unreadable.length
+      ? `${unreadable.length} file${unreadable.length === 1 ? '' : 's'} could not be read: ${unreadable.slice(0, 3).join(', ')}.`
+      : '',
+    markdownImportNotice: '',
+  });
+  renderApp();
+}
+
+async function submitMarkdownImport() {
+  if (state.markdownImportPending) return;
+  const destination = markdownImportProjects().find(project => project.id === state.markdownImportProjectId);
+  const records = [...(state.markdownImportFiles || [])];
+  if (!destination) {
+    setState({ markdownImportError: 'Choose an active destination project.' });
+    renderApp();
+    return;
+  }
+  if (!records.length) {
+    setState({ markdownImportError: 'Choose at least one Markdown file.' });
+    renderApp();
+    return;
+  }
+  setState({ markdownImportPending: true, markdownImportError: '', markdownImportNotice: '' });
+  renderApp();
+  let imported = 0;
+  const failed = [];
+  for (const record of records) {
+    try {
+      await createDocument({
+        id: record.id,
+        title: record.title,
+        body: record.body,
+        documentType: 'note',
+        project: destination.id,
+        tags: ['imported'],
+        sourceFilename: record.name,
+      });
+      imported += 1;
+    } catch {
+      failed.push(record);
+    }
+  }
+
+  let refreshFailed = false;
+  if (imported) {
+    try { await loadDocuments(); } catch { refreshFailed = true; }
+  }
+  const committed = imported
+    ? `Imported ${imported} note${imported === 1 ? '' : 's'} into ${destination.name}.`
+    : `No notes were confirmed in ${destination.name}.`;
+  if (failed.length) {
+    setState({
+      markdownImportPending: false,
+      markdownImportFiles: failed,
+      markdownImportNotice: `${committed} ${failed.length} file${failed.length === 1 ? ' remains' : 's remain'}; retry is exact-once safe.${refreshFailed ? ' The Library could not refresh; reload to reconcile committed notes.' : ''}`,
+    });
+    renderApp();
+    return;
+  }
+
+  setState({
+    markdownImportOpen: false,
+    markdownImportPending: false,
+    markdownImportFiles: [],
+    markdownImportError: '',
+    markdownImportNotice: '',
+  });
+  restoreMarkdownImportFocus = true;
+  showToast(refreshFailed
+    ? `${committed} The Library could not refresh; reload to reconcile it.`
+    : committed, null, refreshFailed ? 7000 : 5000);
 }
 
 function persistSavedViews() {
@@ -1557,25 +2764,102 @@ function persistSmartViews() {
 
 // Open the task filter view. An expression + optional saved-view id (null =
 // ad-hoc). Clears task selection like the other top-level views.
-function goFilter({ expr = '', smartViewId = null } = {}) {
-  setState({ navType: 'filter', activeFilterExpr: expr, activeSmartViewId: smartViewId, selectedTaskId: null, multiSelectIds: [], ...nlFilterResetPatch() });
+async function goFilter({ expr = '', smartViewId = null } = {}) {
+  if (!(await prepareEditorNavigation())) return false;
+  setState({ navType: 'filter', editorFocus: false, activeFilterExpr: expr, activeSmartViewId: smartViewId, selectedTaskId: null, multiSelectIds: [], ...nlFilterResetPatch() });
   renderApp();
+  return true;
 }
 
-async function runSemanticSearch() {
+function resetSemanticSearchPatch() {
+  semanticSearchToken += 1;
+  return {
+    semanticResults: null,
+    semanticPage: null,
+    semanticError: false,
+    semanticLoading: false,
+    semanticLoadingMore: false,
+    semanticMoreError: false,
+  };
+}
+
+function normalizeSemanticSearchPage(payload, { offset, limit }) {
+  if (Array.isArray(payload)) {
+    return {
+      items: payload,
+      page: { offset, limit, returned: payload.length, total: offset + payload.length, hasMore: false, nextOffset: null },
+    };
+  }
+  const items = Array.isArray(payload?.items) ? payload.items : [];
+  const page = payload?.page && typeof payload.page === 'object' ? payload.page : {};
+  const total = Number.isInteger(page.total) && page.total >= 0 ? page.total : offset + items.length;
+  const returned = Number.isInteger(page.returned) && page.returned >= 0 ? page.returned : items.length;
+  const hasMore = Boolean(page.hasMore) && offset + returned < total;
+  return {
+    items,
+    page: {
+      offset,
+      limit,
+      returned,
+      total,
+      hasMore,
+      nextOffset: hasMore && Number.isInteger(page.nextOffset) ? page.nextOffset : (hasMore ? offset + returned : null),
+    },
+  };
+}
+
+async function runSemanticSearch({ append = false } = {}) {
   const query = state.libraryQuery.trim();
-  if (!query) { setState({ semanticResults: null, semanticError: false }); renderApp(); return; }
+  const existing = Array.isArray(state.semanticResults) ? state.semanticResults : [];
+  const offset = append ? state.semanticPage?.nextOffset : 0;
+  const limit = 20;
+  if (append && (!Number.isInteger(offset) || state.semanticLoadingMore)) return;
+  const token = (semanticSearchToken += 1);
+  if (!query) { setState(resetSemanticSearchPatch()); renderApp(); return; }
+  const isCurrent = () => token === semanticSearchToken
+    && state.navType === 'library'
+    && state.librarySemantic
+    && state.libraryQuery.trim() === query;
+  setState(append
+    ? { semanticLoadingMore: true, semanticMoreError: false }
+    : { semanticResults: null, semanticPage: null, semanticError: false, semanticLoading: true, semanticLoadingMore: false, semanticMoreError: false });
+  renderApp();
+  const input = appRoot.querySelector('[data-library-search]');
+  input?.focus();
+  input?.setSelectionRange?.(input.value.length, input.value.length);
   try {
-    const results = await semanticSearch(query, undefined);
-    setState({ semanticResults: results, semanticError: false });
+    const payload = await semanticSearch(query, undefined, { offset, limit });
+    if (!isCurrent()) return;
+    const result = normalizeSemanticSearchPage(payload, { offset, limit });
+    const seen = new Set();
+    const items = [...(append ? existing : []), ...result.items]
+      .filter((item) => {
+        if (!item?.id || seen.has(item.id)) return false;
+        seen.add(item.id);
+        return true;
+      });
+    setState({
+      semanticResults: items,
+      semanticPage: result.page,
+      semanticError: false,
+      semanticLoading: false,
+      semanticLoadingMore: false,
+      semanticMoreError: false,
+    });
+    renderApp();
   } catch {
+    if (!isCurrent()) return;
+    if (append) {
+      setState({ semanticLoadingMore: false, semanticMoreError: true });
+      renderApp();
+      return;
+    }
     // A thrown error means the request itself failed (e.g. the embedding
     // backend is unreachable — a 503) — distinct from a successful search with
     // no matches. Surface it so it doesn't look like an empty result set.
-    setState({ semanticResults: [], semanticError: true });
+    setState({ semanticResults: [], semanticPage: null, semanticError: true, semanticLoading: false, semanticLoadingMore: false, semanticMoreError: false });
     showToast('Semantic search failed — the embedding backend is unreachable. Check the provider in Settings ▸ Intelligence.');
   }
-  renderApp();
 }
 
 // ---------------------------------------------------------------------------
@@ -1605,10 +2889,10 @@ async function exportTasksScoped(all) {
 }
 
 async function importTasksFromSettings() {
-  const modeInput = appRoot.querySelector('[name="import-mode"]:checked');
+  if (state.adminImportPending) return;
   let mode;
   try {
-    mode = normalizeImportMode(modeInput?.value || 'skip');
+    mode = normalizeImportMode(state.adminImportMode || 'skip');
   } catch {
     mode = 'skip';
   }
@@ -1619,21 +2903,81 @@ async function importTasksFromSettings() {
       return;
     }
   }
-  const fileInput = appRoot.querySelector('[data-import-file]');
-  const file = fileInput?.files?.[0];
-  if (!file) { showToast('Choose a JSON export file first.'); return; }
-  const project = defaultProjectId();
+  const payload = state.adminImportPayload;
+  if (!payload) { showToast('Choose a valid JSON export file first.'); return; }
+  const project = state.adminImportProjectId;
   if (!project) { showToast('Create a project first.'); return; }
+  const tasks = tasksFromImportPayload(payload);
+  const intent = JSON.stringify({ project, mode, payload });
+  const request = state.adminImportRequest?.intent === intent
+    ? state.adminImportRequest
+    : { id: globalThis.crypto.randomUUID(), intent };
+  setState({
+    adminImportPending: true,
+    adminImportError: '',
+    adminImportResult: null,
+    adminImportRequest: request,
+  });
+  renderApp();
   try {
-    const payload = JSON.parse(await file.text());
-    const tasks = tasksFromImportPayload(payload);
-    const result = await importTasks({ project, mode, tasks });
-    showToast(`Imported ${result.imported} task(s). Skipped ${result.skipped ?? 0}.`);
-    await loadTasks();
+    const result = await importTasks({
+      project, mode, tasks,
+      format: payload?.format,
+      version: payload?.version,
+      requestId: request.id,
+    });
+    setState({
+      adminImportPending: false,
+      adminImportError: '',
+      adminImportResult: result,
+      adminImportRequest: null,
+      adminImportFileName: '',
+      adminImportPayload: null,
+    });
+    const destination = state.projects.find(item => item.id === project)?.name || 'the selected project';
+    const committed = `Imported ${result.imported} task${result.imported === 1 ? '' : 's'} into ${destination}; skipped ${result.skipped ?? 0}.`;
+    try {
+      await loadTasks();
+      showToast(result.replayed ? `${committed} Recovered the earlier commit safely.` : committed, null, 5000);
+    } catch {
+      setState({ adminImportError: `${committed} The task list could not refresh; reload to reconcile it.` });
+      showToast('Import committed, but the task list could not refresh. Reload to reconcile it.', null, 6000);
+    }
     renderApp();
   } catch (err) {
-    showToast(`Prax could not import that file. ${err?.message || ''}`.trim());
+    const transportUnknown = !Number.isInteger(err?.status);
+    const message = transportUnknown
+      ? 'The connection ended before Prax could confirm the result. Retry is safe and will reuse the same import operation.'
+      : `Prax rejected the import: ${err?.message || 'the request was invalid'}.`;
+    setState({ adminImportPending: false, adminImportError: message });
+    if (err?.status === 409) setState({ adminImportRequest: null });
+    showToast(message, null, 6000);
+    renderApp();
   }
+}
+
+async function selectTaskImportFile(file) {
+  if (!file || state.adminImportPending) return;
+  try {
+    const payload = JSON.parse(await file.text());
+    tasksFromImportPayload(payload);
+    setState({
+      adminImportFileName: file.name || 'task-export.json',
+      adminImportPayload: payload,
+      adminImportError: '',
+      adminImportResult: null,
+      adminImportRequest: null,
+    });
+  } catch (err) {
+    setState({
+      adminImportFileName: file.name || '',
+      adminImportPayload: null,
+      adminImportError: `That file is not a supported Prax task export. ${err?.message || ''}`.trim(),
+      adminImportResult: null,
+      adminImportRequest: null,
+    });
+  }
+  renderApp();
 }
 
 // ---------------------------------------------------------------------------
@@ -1642,35 +2986,55 @@ async function importTasksFromSettings() {
 
 function resetLibraryFilters() {
   return {
-    libraryQuery: '', librarySemantic: false, activeLibraryTags: [],
-    semanticResults: null, libraryView: 'active',
+    libraryQuery: '', librarySemantic: false, activeLibraryTags: [], libraryProjects: [],
+    ...resetSemanticSearchPatch(), libraryView: 'active',
   };
 }
 
-function goProject(projectId, tab = 'list') {
-  if (!projectId) { setState({ navType: 'all' }); renderApp(); return; }
+async function navigateTopLevel(patch) {
+  if (!(await prepareEditorNavigation())) return false;
+  setState({ editorFocus: false, ...patch });
+  renderApp();
+  return true;
+}
+
+async function goProject(projectId, tab = 'list') {
+  if (!projectId) return navigateTopLevel({ navType: 'all' });
+  if (!(await prepareEditorNavigation())) return false;
   setState({
-    navType: 'project', navId: projectId, tab,
+    navType: 'project', navId: projectId, tab, editorFocus: false,
     selectedTaskId: null, multiSelectIds: [], drawerTaskId: null,
+    taskLabelDraftId: null, taskLabelDraft: '',
   });
   persistActiveProject(projectId);
   if (tab === 'archive') loadArchivedTasks().then(renderApp);
   renderApp();
+  return true;
 }
 
-function goLibrary(extra = {}) {
+async function goLibrary(extra = {}) {
+  if (!(await prepareEditorNavigation())) return false;
   destroyEditorController();
-  setState({ navType: 'library', ...resetLibraryFilters(), ...extra });
-  loadDocuments().then(renderApp);
+  setState({ navType: 'library', editorFocus: false, ...resetLibraryFilters(), ...extra });
   renderApp();
+  loadDocuments()
+    .then((applied) => { if (applied && state.navType === 'library') renderApp(); })
+    .catch(() => { if (state.navType === 'library') alertError('load the library'); });
+  return true;
 }
 
-function goSettings() {
-  setState({ navType: 'settings' });
+async function goSettings() {
+  if (!(await prepareEditorNavigation())) return false;
+  const validDestination = state.projects.some(project => project.id === state.navId)
+    ? state.navId
+    : (inboxProjectId() || state.projects[0]?.id || null);
+  setState({ navType: 'settings', editorFocus: false, adminImportProjectId: validDestination });
+  loadDeploymentStatus().then(renderApp);
   loadSemanticStatus().then(renderApp);
   loadChatStatus().then(renderApp);
   loadMaintenance().then(renderApp);
   renderApp();
+  return true;
 }
 
 function escapeCascade() {
@@ -1679,22 +3043,29 @@ function escapeCascade() {
   if (state.writeContext) { closeWrite(); return; }
   if (state.editorSearchOpen) { closeEditorSearch(); return; }
   if (state.assistantOpen) { setState({ assistantOpen: false }); renderApp(); return; }
-  if (state.askPraxOpen) { setState({ askPraxOpen: false }); renderApp(); return; }
+  if (state.askPraxOpen) { closeAskPrax(); return; }
   if (state.genRbOpen) { setState({ genRbOpen: false }); renderApp(); return; }
   if (state.dailyBriefOpen) { setState({ dailyBriefOpen: false }); renderApp(); return; }
+  if (state.libraryExportOpen) { closeLibraryExport(); return; }
+  if (state.markdownImportOpen) { closeMarkdownImport(); return; }
   if (state.confirm) { setState({ confirm: null }); renderApp(); return; }
   if (state.docMenuOpen) { setState({ docMenuOpen: false }); renderApp(); return; }
   if (state.paletteOpen) { setState({ paletteOpen: false }); renderApp(); return; }
   // Inside capture, the NL layer peels first: Esc aborts a parse / discards the
   // preview and restores the typed text; only the next Esc closes the overlay.
   if (state.captureOpen && (state.nlCaptureLoading || state.nlCaptureFields || state.nlCaptureError)) { cancelNlCapture(); return; }
-  if (state.captureOpen) { setState({ captureOpen: false }); renderApp(); return; }
+  if (state.captureOpen) {
+    if (state.captureSubmitting) return;
+    discardCapture();
+    renderCaptureOverlayLayer({ restoreFocus: true });
+    return;
+  }
   // The ✦ AI dropdown sits below the modal overlays + palette: a still-open (but
   // hidden-behind-an-overlay) menu must not swallow the first Esc aimed above it.
   if (state.writeMenuOpen) { setState({ writeMenuOpen: false, writeSelection: null }); renderApp(); return; }
   if (state.isLinkPickerOpen) { setState({ isLinkPickerOpen: false }); renderApp(); return; }
   if (state.isDocumentInfoEditorOpen) { setState({ isDocumentInfoEditorOpen: false }); renderApp(); return; }
-  if (state.drawerTaskId) { setState({ drawerTaskId: null }); renderApp(); return; }
+  if (state.drawerTaskId) { closeTaskDrawer(); return; }
   if (state.navType === 'calendar' && state.calendarSelectedDay) {
     setState({ calendarSelectedDay: null });
     renderApp();
@@ -1760,18 +3131,30 @@ function projectTasks() {
 
 function renderMainHtml() {
   const now = new Date();
+  if (state.apiStatus === 'loading'
+    && ['today', 'all', 'filter', 'upcoming', 'calendar', 'project'].includes(state.navType)) {
+    return '<div class="page"><div class="empty" role="status" aria-live="polite">'
+      + '<p class="empty__title">Loading tasks…</p>'
+      + '<p class="empty__sub">Preparing your workspace.</p>'
+      + '</div></div>';
+  }
   switch (state.navType) {
     case 'today': {
-      const { groups, flatIds: ids, snoozedCount } = buildTodayGroups(state.tasks, state.projects, { now });
-      flatIds = ids;
-      return renderTodayHtml(state, groups, { now, snoozedCount });
+      const { groups, snoozedCount } = buildTodayGroups(state.tasks, state.projects, { now });
+      const collection = limitTaskGroups(groups, taskCollectionLimit('today'));
+      flatIds = collection.flatIds;
+      return renderTodayHtml(state, collection.groups, { now, snoozedCount, collection });
     }
     case 'all': {
       const groups = buildProjectGroups(state.managedProjects, state.tasks);
       return renderAllProjectsHtml(state, groups, projectColor);
     }
     case 'library': {
-      const model = buildLibraryModel(state, { now });
+      const collectionKey = JSON.stringify([
+        state.libraryView, state.libraryQuery, state.librarySemantic, state.librarySortBy,
+        state.activeLibraryTags, state.libraryTypes, state.libraryTrust, state.libraryProjects,
+      ]);
+      const model = buildLibraryModel(state, { limit: libraryCollectionLimit(collectionKey) });
       return renderLibraryHtml(state, model);
     }
     case 'editor': {
@@ -1783,17 +3166,23 @@ function renderMainHtml() {
       // tested buildBacklinks resolves the chip name/color the same as tasks.
       const backlinkTasks = (state.documentTaskBacklinks || []).map((task) => ({ ...task, docIds: [doc.id] }));
       const coloredProjects = (state.projects || []).map((project) => ({ ...project, color: projectColor(project) }));
+      const owner = [...(state.managedProjects || []), ...(state.projects || [])]
+        .find(project => project.id === doc.projectId) || null;
+      const infoProjects = [...(state.projects || [])];
+      if (owner && !infoProjects.some(project => project.id === owner.id)) infoProjects.unshift(owner);
       const model = {
         outline: buildOutline(text),
         backlinks: buildBacklinks(backlinkTasks, coloredProjects, doc.id),
         previewHtml: renderMarkdownHtml(text, { resolveWikiLink }),
+        project: owner ? { ...owner, color: projectColor(owner) } : null,
+        projects: infoProjects,
       };
       return renderEditorHtml(state, doc, model);
     }
     case 'run': {
       const run = state.activeRun;
       const doc = (state.documents || []).find((d) => d.id === (run?.documentId || state.runReturnDocId));
-      return renderRunHtml(state, run, { docTitle: doc?.title || run?.title || 'Runbook', now });
+      return renderRunHtml(state, run, { docTitle: run?.documentTitle || doc?.title || run?.title || 'Runbook', now });
     }
     case 'health':
       return renderHealthHtml(state);
@@ -1801,13 +3190,15 @@ function renderMainHtml() {
       // Live typing → best-effort (partial) parse so the list never empties.
       const { predicate, error } = parseTaskFilter(state.activeFilterExpr || '', { partial: true });
       const built = buildFilterGroups(state.tasks, state.projects, predicate || (() => true), { now });
-      flatIds = built.flatIds;
-      return renderFilterHtml(state, { groups: built.groups, count: built.count, error });
+      const collection = limitTaskGroups(built.groups, taskCollectionLimit(`filter|${state.activeFilterExpr || ''}`));
+      flatIds = collection.flatIds;
+      return renderFilterHtml(state, { groups: collection.groups, count: built.count, error, collection });
     }
     case 'upcoming': {
-      const { groups, flatIds: ids } = buildUpcomingGroups(state.tasks, state.projects, { now });
-      flatIds = ids;
-      return renderUpcomingHtml(state, groups, { now });
+      const { groups } = buildUpcomingGroups(state.tasks, state.projects, { now });
+      const collection = limitTaskGroups(groups, taskCollectionLimit('upcoming'));
+      flatIds = collection.flatIds;
+      return renderUpcomingHtml(state, collection.groups, { now, collection });
     }
     case 'calendar': {
       const model = buildCalendarModel(state.tasks, state.projects, { month: state.calendarMonth, now });
@@ -1849,16 +3240,35 @@ function renderMainHtml() {
       let body = '';
       if (state.tab === 'board') {
         const columns = buildBoardColumns(state, tasks);
-        flatIds = columns.flatMap(c => c.cards.map(card => card.id));
-        body = renderBoardHtml(state, columns, projectsById());
+        const collection = limitBoardColumns(
+          columns,
+          taskCollectionLimit(`project|${state.navId}|board`),
+        );
+        flatIds = collection.columns.flatMap(c => c.cards.map(card => card.id));
+        body = renderBoardHtml(state, collection.columns, projectsById(), { collection });
       } else if (state.tab === 'backlog') {
-        body = renderBacklogHtml(state, tasks.filter(t => designStatus(t.status) === 'backlog' && !t.archivedAt));
+        const backlog = tasks.filter(t => designStatus(t.status) === 'backlog' && !t.archivedAt);
+        const collection = limitTaskGroups(
+          [{ key: 'backlog', label: 'Backlog', tasks: backlog }],
+          taskCollectionLimit(`project|${state.navId}|backlog`),
+        );
+        flatIds = collection.flatIds;
+        body = renderBacklogHtml(state, collection.groups[0]?.tasks || [], { collection });
       } else if (state.tab === 'archive') {
-        body = renderArchiveHtml(state, state.archivedTasks);
+        const collection = limitTaskGroups(
+          [{ key: 'archive', label: 'Archive', tasks: state.archivedTasks }],
+          taskCollectionLimit(`project|${state.navId}|archive`),
+        );
+        flatIds = collection.flatIds;
+        body = renderArchiveHtml(state, collection.groups[0]?.tasks || [], { collection });
       } else {
         const built = buildListGroups(state, tasks, { now });
-        flatIds = built.flatIds;
-        body = renderListHtml(state, built.groups) + renderBulkBarHtml(state);
+        const collection = limitTaskGroups(
+          built.groups,
+          taskCollectionLimit(`project|${state.navId}|list|${state.groupBy}`),
+        );
+        flatIds = collection.flatIds;
+        body = renderListHtml(state, collection.groups, { collection }) + renderBulkBarHtml(state);
       }
       const canRename = project && project.slug !== INBOX_SLUG;
       const titleHtml = (canRename && state.renamingProjectId === project.id)
@@ -1887,6 +3297,7 @@ function renderOverlaysHtml() {
       const project = projectsById()[task.projectId];
       html += renderTaskDrawerHtml(state, task, {
         project: project ? { ...project, color: projectColor(project) } : null,
+        projects: state.projects,
         documents: state.taskDocuments,
         checklist: state.taskChecklist,
         activity: state.taskActivity,
@@ -1916,6 +3327,16 @@ function renderOverlaysHtml() {
       choices,
     );
   }
+  if (state.markdownImportOpen) {
+    html += renderMarkdownImportHtml(state, markdownImportProjects());
+  }
+  if (state.libraryExportOpen) {
+    html += renderLibraryExportHtml(
+      state,
+      libraryExportProjects(),
+      libraryExportDestinationMode({ desktopShell: state.desktopShell }),
+    );
+  }
   if (state.askPraxOpen) {
     const r = state.askPraxResult;
     // Render the written answer when there is one, else the retrieved pack.
@@ -1942,8 +3363,48 @@ function renderOverlaysHtml() {
   return html;
 }
 
+// Capture is a modal layer over an otherwise unchanged workspace. Opening or
+// closing it must not rebuild thousands of task objects, the sidebar, or an
+// editor. Internal capture mutations may still choose a full render when the
+// underlying collection genuinely changed (for example after task creation).
+function renderCaptureOverlayLayer({ restoreFocus = false } = {}) {
+  const root = appRoot?.querySelector('[data-overlay-root]');
+  if (!root) {
+    renderApp();
+    return;
+  }
+  root.innerHTML = renderOverlaysHtml();
+  if (state.captureOpen) {
+    const input = root.querySelector('[data-capture-input]');
+    input?.focus();
+    input?.setSelectionRange?.(input.value.length, input.value.length);
+  } else if (restoreFocus && captureReturnElement?.isConnected) {
+    captureReturnElement.focus();
+    captureReturnElement = null;
+  }
+}
+
 function renderApp() {
   if (!appRoot) return;
+  // A render can land between the browser updating an input's DOM value and
+  // dispatching its input event (notably when drawer context resolves). Capture
+  // the live coherent draft before replacing the drawer so no keystroke is lost.
+  const liveDrawer = appRoot.querySelector('.drawer[data-task-id]');
+  if (liveDrawer?.dataset.taskId === state.drawerTaskId
+    && state.taskNotesDraftId === state.drawerTaskId
+    && !taskById(state.drawerTaskId)?.archivedAt) {
+    const liveDraft = {
+      title: liveDrawer.querySelector('[data-task-title]')?.value ?? state.taskTitleDraft,
+      description: liveDrawer.querySelector('[data-task-description]')?.value ?? state.taskDescriptionDraft,
+      notes: liveDrawer.querySelector('[data-task-notes]')?.value ?? state.taskNotesDraft,
+    };
+    const currentDraft = taskDraftSnapshot();
+    if (liveDraft.title !== currentDraft.title
+      || liveDraft.description !== currentDraft.description
+      || liveDraft.notes !== currentDraft.notes) {
+      handleTaskDrawerDraftChange(liveDraft);
+    }
+  }
   // Rebuilding innerHTML destroys any mounted CodeMirror DOM — drop the
   // controller so afterRender mounts a fresh instance instead of skipping on
   // a stale handle. (Saves that should keep the caret avoid renderApp
@@ -1986,12 +3447,20 @@ function renderApp() {
         ${chrome ? renderStatusbarHtml(state) : ''}
       </div>
     </div>
-    ${renderOverlaysHtml()}`;
+    <div data-overlay-root>${renderOverlaysHtml()}</div>`;
   afterRender();
 }
 
 function afterRender() {
   mountEditorIfNeeded();
+  if (restoreMarkdownImportFocus && !state.markdownImportOpen) {
+    restoreMarkdownImportFocus = false;
+    appRoot.querySelector('[data-action="import-documents"]')?.focus();
+  }
+  if (restoreLibraryExportFocus && !state.libraryExportOpen) {
+    restoreLibraryExportFocus = false;
+    appRoot.querySelector(`[data-action="${libraryExportReturnAction}"]`)?.focus();
+  }
   if (state.renamingProjectId) {
     const input = appRoot.querySelector('[data-project-rename]');
     if (input && document.activeElement !== input) { input.focus(); input.select(); }
@@ -2024,6 +3493,12 @@ function afterRender() {
     const input = appRoot.querySelector('[data-genrb-input]');
     input?.focus();
     input?.setSelectionRange?.(input.value.length, input.value.length);
+  } else if (state.markdownImportOpen && !state.markdownImportPending) {
+    (state.markdownImportFiles.length
+      ? appRoot.querySelector('[data-action="submit-markdown-import"]')
+      : appRoot.querySelector('[data-markdown-import-project]'))?.focus();
+  } else if (state.libraryExportOpen && !state.libraryExportPending) {
+    appRoot.querySelector('[data-library-export-scope]')?.focus();
   } else if (state.confirm) {
     // Focus the text field when there is one; otherwise Cancel — never the
     // destructive action, so a stray Enter can't confirm a delete.
@@ -2040,7 +3515,8 @@ function afterRender() {
   // outside renderApp so CodeMirror is never remounted mid-search).
   syncSearchPanelDom();
   if (state.navType === 'project' && (state.tab === 'board' || state.tab === 'list')) {
-    ensureBoardExtras(projectTasks().filter(t => !t.archivedAt));
+    const visibleIds = new Set(flatIds);
+    ensureBoardExtras(projectTasks().filter(t => !t.archivedAt && visibleIds.has(t.id)));
   }
 }
 
@@ -2049,46 +3525,44 @@ function afterRender() {
 // ---------------------------------------------------------------------------
 
 const paletteCommands = {
-  'new-task': () => { setState({ paletteOpen: false, captureOpen: true, captureQuery: '', ...captureDefaults(), ...nlCaptureResetPatch() }); renderApp(); },
+  'new-task': () => { openFreshCapture(); },
   'new-document': () => { setState({ paletteOpen: false }); createNewDocument(); },
   'toggle-theme': () => { setState({ paletteOpen: false }); toggleTheme(); },
-  'go-board': () => {
+  'go-board': async () => {
     setState({ paletteOpen: false });
-    goProject(state.navType === 'project' ? state.navId : state.projects[0]?.id, 'board');
+    await goProject(state.navType === 'project' ? state.navId : state.projects[0]?.id, 'board');
   },
-  'go-library': () => { setState({ paletteOpen: false }); goLibrary(); },
-  'go-all': () => { setState({ paletteOpen: false, navType: 'all' }); renderApp(); },
-  'focus-writing': () => {
+  'go-library': async () => { setState({ paletteOpen: false }); await goLibrary(); },
+  'go-all': async () => { setState({ paletteOpen: false }); await navigateTopLevel({ navType: 'all' }); },
+  'focus-writing': async () => {
     setState({ paletteOpen: false });
     const target = state.editorDocId || state.documents[0]?.id;
     if (!target) { renderApp(); return; }
-    openDocumentInEditor(target).then(() => {
-      destroyEditorController();
-      setState({ editorFocus: true, editorMode: 'edit' });
-      renderApp();
-    });
+    if (!(await openDocumentInEditor(target))) return;
+    destroyEditorController();
+    setState({ editorFocus: true, editorMode: 'edit' });
+    renderApp();
   },
-  'go-settings': () => { setState({ paletteOpen: false }); goSettings(); },
+  'go-settings': async () => { setState({ paletteOpen: false }); await goSettings(); },
 };
 
-function runPaletteItem(item) {
+async function runPaletteItem(item) {
   if (!item) return;
   if (item.action === 'open-task') {
     const task = taskById(item.id);
     setState({ paletteOpen: false });
-    if (task) {
-      goProject(task.projectId, 'list');
-      openTaskDrawer(task.id);
+    if (task && await goProject(task.projectId, 'list')) {
+      await openTaskDrawer(task.id);
     }
     return;
   }
   if (item.action === 'open-doc') {
     setState({ paletteOpen: false });
-    openDocumentInEditor(item.id);
+    await openDocumentInEditor(item.id);
     return;
   }
   const command = paletteCommands[item.action];
-  if (command) command();
+  if (command) await command();
 }
 
 function toggleTheme() {
@@ -2108,21 +3582,39 @@ async function openTaskDrawer(taskId, { multi = false } = {}) {
       : [...state.multiSelectIds, taskId];
     setState({ multiSelectIds: next });
     renderApp();
-    return;
+    return true;
   }
   const task = taskById(taskId);
+  if (!task) return false;
+  if (state.drawerTaskId === taskId) return true;
+  if (state.drawerTaskId && !(await flushTaskDrawerDraft())) {
+    showToast('Save the open task draft before switching tasks.');
+    return false;
+  }
+  seedTaskDrawerDraft(task);
   setState({
     drawerTaskId: taskId,
     selectedTaskId: taskId,
     taskDocuments: [],
     taskChecklist: [],
     taskActivity: [],
-    taskNotesDraftId: taskId,
-    taskNotesDraft: task?.notes || '',
-    isTaskNotesDirty: false,
   });
   renderApp();
   loadDrawerContext(taskId);
+  return true;
+}
+
+async function closeTaskDrawer() {
+  if (!state.drawerTaskId) return true;
+  if (!(await flushTaskDrawerDraft())) {
+    showToast(['recovered', 'conflict'].includes(state.taskDraftRecoveryReason)
+      ? 'Review and save the recovered task draft before closing.'
+      : 'Save this task draft before closing.');
+    return false;
+  }
+  setState({ drawerTaskId: null, taskNotesDraftId: null, taskLabelDraftId: null, taskLabelDraft: '' });
+  renderApp();
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -2132,15 +3624,14 @@ async function openTaskDrawer(taskId, { multi = false } = {}) {
 async function handleAction(action, el, event) {
   switch (action) {
     // ---- navigation ----
-    case 'nav-today': setState({ navType: 'today', selectedTaskId: null, multiSelectIds: [] }); renderApp(); break;
-    case 'nav-all': setState({ navType: 'all' }); renderApp(); break;
+    case 'nav-today': await navigateTopLevel({ navType: 'today', selectedTaskId: null, multiSelectIds: [] }); break;
+    case 'nav-all': await navigateTopLevel({ navType: 'all' }); break;
     case 'manage-projects':
-      setState({ navType: 'all' });
-      openConfirm(newProjectDialog());
+      if (await navigateTopLevel({ navType: 'all' })) openConfirm(newProjectDialog());
       break;
-    case 'nav-library': goLibrary(); break;
-    case 'nav-upcoming': setState({ navType: 'upcoming', selectedTaskId: null, multiSelectIds: [] }); renderApp(); break;
-    case 'nav-calendar': setState({ navType: 'calendar', selectedTaskId: null, multiSelectIds: [], calendarSelectedDay: null }); renderApp(); break;
+    case 'nav-library': await goLibrary(); break;
+    case 'nav-upcoming': await navigateTopLevel({ navType: 'upcoming', selectedTaskId: null, multiSelectIds: [] }); break;
+    case 'nav-calendar': await navigateTopLevel({ navType: 'calendar', selectedTaskId: null, multiSelectIds: [], calendarSelectedDay: null }); break;
     case 'calendar-prev':
     case 'calendar-next': {
       const current = state.calendarMonth || monthKeyOf(new Date());
@@ -2160,11 +3651,11 @@ async function handleAction(action, el, event) {
       showToast(ok ? 'Feed URL copied' : 'Could not copy');
       break;
     }
-    case 'nav-filter': goFilter(); break;
-    case 'nav-settings': goSettings(); break;
+    case 'nav-filter': await goFilter(); break;
+    case 'nav-settings': await goSettings(); break;
     case 'select-smart-view': {
       const view = (state.taskSmartViews || []).find(v => v.id === el.dataset.viewId);
-      if (view) goFilter({ expr: view.expr, smartViewId: view.id });
+      if (view) await goFilter({ expr: view.expr, smartViewId: view.id });
       break;
     }
     case 'delete-smart-view': {
@@ -2207,26 +3698,29 @@ async function handleAction(action, el, event) {
       break;
     }
     case 'drop-nl-field': {
-      if (!state.nlCaptureFields) break;
+      if (!state.nlCaptureFields || state.captureSubmitting) break;
       const fields = { ...state.nlCaptureFields };
       delete fields[el.dataset.field];
       if (el.dataset.field === 'dueDate') delete fields.dueTime; // a time needs its date
-      setState({ nlCaptureFields: fields });
+      setState({ nlCaptureFields: fields, ...clearCaptureRequestPatch() });
+      persistCaptureRecovery();
       renderApp();
       break;
     }
     case 'drop-nl-label': {
-      if (!state.nlCaptureFields) break;
+      if (!state.nlCaptureFields || state.captureSubmitting) break;
       const labels = (state.nlCaptureFields.labels || []).filter((l) => l !== el.dataset.value);
       const fields = { ...state.nlCaptureFields };
       if (labels.length) fields.labels = labels;
       else delete fields.labels;
-      setState({ nlCaptureFields: fields });
+      setState({ nlCaptureFields: fields, ...clearCaptureRequestPatch() });
+      persistCaptureRecovery();
       renderApp();
       break;
     }
     case 'set-settings-tab': setState({ settingsTab: el.dataset.tab }); renderApp(); break;
-    case 'nav-project': goProject(el.dataset.projectId); break;
+    case 'refresh-deployment-status': loadDeploymentStatus().then(renderApp); renderApp(); break;
+    case 'nav-project': await goProject(el.dataset.projectId); break;
     case 'rename-project': startRenameProject(el.dataset.projectId); break;
     case 'set-tab': {
       const tab = el.dataset.tab;
@@ -2239,19 +3733,41 @@ async function handleAction(action, el, event) {
       setState({ groupBy: { due: 'priority', priority: 'status', status: 'due' }[state.groupBy] });
       renderApp();
       break;
+    case 'show-more-tasks':
+      taskCollectionWindow.limit += TASK_RENDER_BATCH_SIZE;
+      renderApp();
+      break;
     case 'select-saved-view': {
       const view = state.librarySavedViews[Number(el.dataset.viewIndex)];
-      if (view) goLibrary({ activeLibraryTags: [...view.tags] });
+      if (view) await goLibrary({ activeLibraryTags: [...view.tags] });
       break;
     }
-    case 'open-palette': setState({ paletteOpen: true, paletteQuery: '', paletteSelection: 0, captureOpen: false, ...nlCaptureResetPatch() }); renderApp(); break;
-    case 'open-capture': setState({ captureOpen: true, captureQuery: '', paletteOpen: false, ...captureDefaults(), ...nlCaptureResetPatch() }); renderApp(); break;
-    case 'toggle-capture-menu': setState({ captureMenuOpen: !state.captureMenuOpen }); renderApp(); break;
-    case 'set-capture-project': setState({ captureProjectId: el.dataset.projectId, captureMenuOpen: false }); renderApp(); break;
+    case 'open-palette':
+      if (state.captureSubmitting) break;
+      if (state.captureOpen) discardCapture();
+      setState({ paletteOpen: true, paletteQuery: '', paletteSelection: 0 });
+      renderApp();
+      break;
+    case 'open-capture': openFreshCapture(); break;
+    case 'toggle-capture-menu':
+      if (!state.captureSubmitting) { setState({ captureMenuOpen: !state.captureMenuOpen }); renderApp(); }
+      break;
+    case 'set-capture-project':
+      if (!state.captureSubmitting) {
+        setState({ captureProjectId: el.dataset.projectId, captureMenuOpen: false, ...clearCaptureRequestPatch() });
+        persistCaptureRecovery();
+        renderApp();
+      }
+      break;
     case 'toggle-theme': toggleTheme(); break;
 
     // ---- tasks ----
-    case 'open-task': openTaskDrawer(el.dataset.taskId, { multi: event.metaKey || event.shiftKey || event.ctrlKey }); break;
+    case 'open-task': await openTaskDrawer(el.dataset.taskId, { multi: event.metaKey || event.shiftKey || event.ctrlKey }); break;
+    case 'toggle-task-selection': {
+      event.stopPropagation();
+      await openTaskDrawer(el.dataset.taskId, { multi: true });
+      break;
+    }
     case 'toggle-task-done': event.stopPropagation(); toggleTaskDone(el.dataset.taskId); break;
     case 'promote-task':
       event.stopPropagation();
@@ -2263,7 +3779,7 @@ async function handleAction(action, el, event) {
       const id = el.dataset.taskId || state.drawerTaskId;
       try {
         await restoreTask(id);
-        setState({ drawerTaskId: null });
+        setState({ drawerTaskId: null, taskLabelDraftId: null, taskLabelDraft: '' });
         await loadTasks();
         await loadArchivedTasks();
         showToast('Restored');
@@ -2286,7 +3802,8 @@ async function handleAction(action, el, event) {
       setState({ confirm: null });
       try {
         await deleteArchivedTask(id);
-        setState({ drawerTaskId: null });
+        clearTaskDraftRecovery(taskDraftStorage(), id);
+        setState({ drawerTaskId: null, taskNotesDraftId: null, taskLabelDraftId: null, taskLabelDraft: '' });
         await loadArchivedTasks();
       } catch { alertError('delete the archived task'); }
       renderApp();
@@ -2298,8 +3815,30 @@ async function handleAction(action, el, event) {
     case 'clear-selection': setState({ multiSelectIds: [], selectedTaskId: null }); renderApp(); break;
 
     // ---- drawer ----
-    case 'close-drawer': setState({ drawerTaskId: null }); renderApp(); break;
-    case 'set-task-status': await patchTask(state.drawerTaskId, { status: el.dataset.status }); break;
+    case 'close-drawer': await closeTaskDrawer(); break;
+    case 'retry-task-draft-save': {
+      const confirmed = el.dataset.confirmed === '1';
+      if (confirmed) {
+        setState({ confirm: null });
+        renderApp();
+      }
+      await requestTaskDraftSave({ confirmed });
+      break;
+    }
+    case 'set-task-status': {
+      const before = taskById(state.drawerTaskId);
+      const saved = await patchTask(state.drawerTaskId, { status: el.dataset.status });
+      if (before && saved && before.status !== saved.status) {
+        if (saved.status === 'completed' && saved.recurrence) {
+          showToast(saved.lifecycleRefreshFailed
+            ? 'Completed — next occurrence scheduled; reload to show it.'
+            : 'Completed — next occurrence scheduled.');
+        } else if (before.status === 'completed' && before.recurrence) {
+          showToast('Reopened as one-off — future occurrences are unchanged.');
+        }
+      }
+      break;
+    }
     case 'set-task-priority': await patchTask(state.drawerTaskId, { priority: el.dataset.priority }); break;
     case 'set-task-recurrence': await patchTask(state.drawerTaskId, { recurrence: el.dataset.recurrence }); break;
     case 'remove-task-label': {
@@ -2355,7 +3894,16 @@ async function handleAction(action, el, event) {
       renderApp();
       break;
     }
-    case 'open-linked-doc': event.stopPropagation(); setState({ drawerTaskId: null }); openDocumentInEditor(el.dataset.documentId); break;
+    case 'open-linked-doc': {
+      event.stopPropagation();
+      if (!(await flushTaskDrawerDraft())) {
+        showToast('Save this task draft before opening its linked document.');
+        break;
+      }
+      setState({ drawerTaskId: null, taskNotesDraftId: null, taskLabelDraftId: null, taskLabelDraft: '' });
+      await openDocumentInEditor(el.dataset.documentId);
+      break;
+    }
     case 'unlink-task-document': {
       event.stopPropagation();
       try {
@@ -2377,10 +3925,16 @@ async function handleAction(action, el, event) {
     case 'archive-task': archiveTaskWithUndo(state.drawerTaskId); break;
 
     // ---- library ----
-    case 'open-doc': openDocumentInEditor(el.dataset.documentId); break;
+    case 'open-doc': await openDocumentInEditor(el.dataset.documentId); break;
     case 'open-ask-prax': openAskPrax(); break;
-    case 'close-ask-prax': setState({ askPraxOpen: false }); renderApp(); break;
+    case 'close-ask-prax': closeAskPrax(); break;
     case 'run-ask-prax': runAskPrax(appRoot.querySelector('[data-ask-prax-input]')?.value); break;
+    case 'open-ask-source': {
+      const documentId = el.dataset.documentId;
+      closeAskPrax();
+      if (documentId) await openDocumentInEditor(documentId);
+      break;
+    }
     case 'copy-ask-prax': copyAskPrax(); break;
     case 'open-generate-runbook': openGenerateRunbook(); break;
     case 'close-generate-runbook': setState({ genRbOpen: false }); renderApp(); break;
@@ -2396,7 +3950,12 @@ async function handleAction(action, el, event) {
     case 'assistant-approve': resolveAssistantWrites('approve'); break;
     case 'assistant-decline': resolveAssistantWrites('deny'); break;
     case 'assistant-clear': clearAssistant(); break;
-    case 'toggle-semantic': setState({ librarySemantic: !state.librarySemantic, semanticResults: null }); renderApp(); break;
+    case 'toggle-semantic': setState({ librarySemantic: !state.librarySemantic, ...resetSemanticSearchPatch() }); renderApp(); break;
+    case 'load-more-semantic': runSemanticSearch({ append: true }); break;
+    case 'show-more-library':
+      libraryCollectionWindow.limit += LIBRARY_RENDER_BATCH_SIZE;
+      renderApp();
+      break;
     case 'cycle-lib-sort': setState({ librarySortBy: state.librarySortBy === 'updated' ? 'title' : 'updated' }); renderApp(); break;
     case 'toggle-lib-tag': {
       const tag = el.dataset.tag;
@@ -2423,11 +3982,22 @@ async function handleAction(action, el, event) {
       renderApp();
       break;
     }
-    case 'clear-lib-filters': setState({ libraryQuery: '', activeLibraryTags: [], libraryTypes: [], libraryTrust: [], semanticResults: null }); renderApp(); break;
+    case 'toggle-lib-project': {
+      const key = el.dataset.facet;
+      const active = state.libraryProjects.includes(key);
+      setState({ libraryProjects: active ? state.libraryProjects.filter(id => id !== key) : [...state.libraryProjects, key] });
+      renderApp();
+      break;
+    }
+    case 'clear-lib-filters': setState({ libraryQuery: '', activeLibraryTags: [], libraryTypes: [], libraryTrust: [], libraryProjects: [], ...resetSemanticSearchPatch() }); renderApp(); break;
     case 'toggle-new-doc-menu': setState({ newDocMenuOpen: !state.newDocMenuOpen }); renderApp(); break;
     case 'new-document': createNewDocument(el.dataset.templateId); break;
-    case 'import-documents': importDocumentFiles(); break;
-    case 'export-library': window.location.href = '/api/library/export?project=all'; break;
+    case 'import-documents': openMarkdownImport(); break;
+    case 'close-markdown-import': closeMarkdownImport(); break;
+    case 'submit-markdown-import': await submitMarkdownImport(); break;
+    case 'export-library': openLibraryExport('all', action); break;
+    case 'close-library-export': closeLibraryExport(); break;
+    case 'submit-library-export': await submitLibraryExport(); break;
     case 'save-library-view': {
       if (!el.dataset.confirmed) {
         openConfirm({
@@ -2457,17 +4027,14 @@ async function handleAction(action, el, event) {
       break;
     }
     case 'toggle-library-view': {
-      setState({ libraryView: state.libraryView === 'archive' ? 'active' : 'archive', semanticResults: null });
+      setState({ libraryView: state.libraryView === 'archive' ? 'active' : 'archive', ...resetSemanticSearchPatch() });
       await loadDocuments();
       renderApp();
       break;
     }
     case 'restore-document': {
-      try {
-        await restoreDocument(el.dataset.documentId || state.editorDocId);
-        await loadDocuments();
-      } catch { alertError('restore the selected document'); }
-      renderApp();
+      const id = el.dataset.documentId || state.editorDocId;
+      await performDocumentLifecycleOnce(`document:${id}`, () => restoreKnowledgeDocument(id));
       break;
     }
     case 'delete-document': {
@@ -2481,17 +4048,21 @@ async function handleAction(action, el, event) {
         break;
       }
       setState({ confirm: null });
-      try {
-        await deleteDocumentPermanently(id);
-        if (state.editorDocId === id) setState({ navType: 'library', editorDocId: null });
-        await loadDocuments();
-      } catch { alertError('delete the document'); }
-      renderApp();
+      await performDocumentLifecycleOnce(`document:${id}`, () => deleteKnowledgeDocument(id));
       break;
     }
 
     // ---- editor ----
-    case 'back-to-library': goLibrary(); break;
+    case 'back-to-library': await goLibrary(); break;
+    case 'retry-document-save': {
+      const confirmed = el.dataset.confirmed === '1';
+      if (confirmed) {
+        setState({ confirm: null });
+        renderApp();
+      }
+      await requestDocumentDraftSave({ confirmed });
+      break;
+    }
     case 'set-editor-mode': destroyEditorController(); setState({ editorMode: el.dataset.mode }); renderApp(); break;
     case 'toggle-outline': setState({ outlineOpen: !state.outlineOpen }); renderApp(); break;
     // ---- editor find/replace ----
@@ -2541,6 +4112,13 @@ async function handleAction(action, el, event) {
     case 'toggle-md-check': toggleMarkdownCheck(Number(el.dataset.line)); break;
     case 'toggle-doc-menu': setState({ docMenuOpen: !state.docMenuOpen }); renderApp(); break;
     case 'edit-document-info': {
+      if (state.isDocumentDirty) {
+        if (['recovered', 'conflict'].includes(state.documentDraftRecoveryReason)) {
+          showToast('Review and save the recovered draft before editing document info.');
+          break;
+        }
+        if (!(await saveDocumentDraft())) break;
+      }
       // Snapshot the refs the form is seeded from — save reconciles against
       // this snapshot, not live state, so a background refs load resolving
       // mid-edit can't shift what "removing a line" means. If the on-open
@@ -2561,6 +4139,7 @@ async function handleAction(action, el, event) {
     case 'save-document-info': {
       const title = appRoot.querySelector('[data-doc-info-title]')?.value?.trim();
       const documentType = appRoot.querySelector('[data-doc-info-type]')?.value;
+      const project = appRoot.querySelector('[data-doc-info-project]')?.value;
       const tags = (appRoot.querySelector('[data-doc-info-tags]')?.value || '')
         .split(',').map(t => t.trim()).filter(Boolean);
       const sourceFilename = appRoot.querySelector('[data-doc-info-source]')?.value?.trim() || null;
@@ -2568,7 +4147,7 @@ async function handleAction(action, el, event) {
       if (!title) { setState({ documentInfoError: 'Title is required.' }); renderApp(); break; }
       const docId = state.editorDocId;
       try {
-        await updateDocument(docId, { title, documentType, tags, sourceFilename });
+        await updateDocument(docId, { title, documentType, project, tags, sourceFilename });
         const refsFailed = await reconcileExternalRefs(docId, refsText);
         await loadDocuments();
         setState({ isDocumentInfoEditorOpen: false });
@@ -2586,11 +4165,9 @@ async function handleAction(action, el, event) {
       const doc = currentDocument();
       setState({ docMenuOpen: false });
       if (!doc) break;
-      try {
-        await verifyDocument(doc.id, !doc.verified);
-        await loadDocuments();
-      } catch { alertError('update verification'); }
-      renderApp();
+      await performDocumentLifecycleOnce(`document:${doc.id}`, () => (
+        changeDocumentVerification(doc.id, !doc.verified)
+      ));
       break;
     }
     case 'supersede-document': {
@@ -2613,18 +4190,8 @@ async function handleAction(action, el, event) {
       const doc = currentDocument();
       setState({ docMenuOpen: false });
       if (!doc) break;
-      try {
-        await archiveDocument(doc.id);
-        goLibrary();
-        showToast('Document archived', async () => {
-          dismissToast();
-          try {
-            await restoreDocument(doc.id);
-            await loadDocuments();
-          } catch { alertError('restore the document'); }
-          renderApp();
-        });
-      } catch { alertError('archive the selected document'); }
+      if (!(await prepareEditorNavigation())) break;
+      await performDocumentLifecycleOnce(`document:${doc.id}`, () => archiveKnowledgeDocument(doc.id));
       break;
     }
 
@@ -2636,16 +4203,17 @@ async function handleAction(action, el, event) {
       toggleRunStep(el.dataset.stepId, el.dataset.checked !== '1');
       break;
     case 'finish-run': endRun('completed'); break;
+    case 'resume-run': endRun('running'); break;
     case 'abort-run':
       if (el.dataset.confirmed === '1') { endRun('aborted'); break; }
       openConfirm({ message: 'Abort this run? The chronicle so far is kept, but the run is marked aborted.', action: 'abort-run', okLabel: 'Abort run', danger: true });
       break;
     case 'copy-chronicle': copyRunChronicle(); break;
     case 'generate-post-mortem': generatePostMortem(el.dataset.runId); break;
-    case 'back-from-run': backFromRun(); break;
+    case 'back-from-run': await backFromRun(); break;
 
     // ---- all projects ----
-    case 'open-project': goProject(el.dataset.projectId); break;
+    case 'open-project': await goProject(el.dataset.projectId); break;
     case 'set-project-state': {
       event.stopPropagation();
       try {
@@ -2669,7 +4237,7 @@ async function handleAction(action, el, event) {
       try {
         const project = await createProject(name);
         await loadProjects();
-        goProject(project.id);
+        await goProject(project.id);
         showToast(`Project "${name}" created`);
       } catch { alertError('create that project'); }
       break;
@@ -2696,9 +4264,14 @@ async function handleAction(action, el, event) {
     }
 
     // ---- palette / capture / toast ----
-    case 'palette-run': runPaletteItem(paletteFlat[Number(el.dataset.paletteIndex)]); break;
+    case 'palette-run': await runPaletteItem(paletteFlat[Number(el.dataset.paletteIndex)]); break;
     case 'close-palette': setState({ paletteOpen: false }); renderApp(); break;
-    case 'close-capture': setState({ captureOpen: false, captureMenuOpen: false, ...nlCaptureResetPatch() }); renderApp(); break;
+    case 'close-capture': if (discardCapture()) renderCaptureOverlayLayer({ restoreFocus: true }); break;
+    case 'submit-capture':
+      if (state.captureSubmitting || state.nlCaptureLoading) break;
+      if (state.nlCaptureFields) await confirmNlCapture();
+      else await addQuickTask(state.captureQuery.trim());
+      break;
     case 'confirm-cancel': setState({ confirm: null }); renderApp(); break;
     case 'toast-undo': state.toast?.undo?.(); break;
 
@@ -2765,16 +4338,28 @@ async function handleAction(action, el, event) {
       break;
     }
     case 'set-ai-provider': {
+      if (state.intelligenceSettingsPending || state.semanticStatus?.loadError) break;
+      const patch = { backend: el.dataset.backend };
+      setState({ intelligenceSettingsPending: true, semanticSettingsDraft: null });
+      renderApp();
       try {
-        const status = await putSemanticSettings({ backend: el.dataset.backend });
-        setState({ semanticStatus: status, librarySemantic: false, semanticResults: null });
+        const status = await putSemanticSettings(patch);
+        setState({
+          semanticStatus: { ...status, loading: false, loadError: '' },
+          intelligenceSettingsPending: false,
+          semanticSettingsDraft: null,
+          librarySemantic: false,
+          ...resetSemanticSearchPatch(),
+        });
       } catch (err) {
-        showToast(err?.message || 'Prax could not switch the provider.');
+        await reconcileSemanticSettingsMutation(patch, err);
+        break;
       }
       renderApp();
       break;
     }
     case 'save-ai-provider': {
+      if (state.intelligenceSettingsPending || state.semanticStatus?.loadError) break;
       const patch = {};
       const model = appRoot.querySelector('[data-ai-model]');
       if (model) patch.model = model.value.trim();
@@ -2785,37 +4370,72 @@ async function handleAction(action, el, event) {
       if (baseUrl && baseUrl.value.trim()) patch.baseUrl = baseUrl.value.trim();
       const key = appRoot.querySelector('[data-ai-key]');
       if (key && key.value.trim()) patch.apiKey = key.value.trim();
+      const draft = {
+        backend: state.semanticStatus?.backend || 'none',
+        model: model?.value || '',
+        baseUrl: baseUrl?.value || '',
+        apiKey: key?.value || '',
+      };
+      setState({ intelligenceSettingsPending: true, semanticSettingsDraft: draft });
+      renderApp();
       try {
         const status = await putSemanticSettings(patch);
-        setState({ semanticStatus: status });
+        setState({
+          semanticStatus: { ...status, loading: false, loadError: '' },
+          intelligenceSettingsPending: false,
+          semanticSettingsDraft: null,
+        });
         showToast(status.connected
           ? `Connected to ${status.backend} — embeddings ready.`
           : `Saved, but ${status.backend || 'the backend'} is not reachable yet.`);
       } catch (err) {
-        showToast(err?.message || 'Prax could not save the provider settings.');
+        await reconcileSemanticSettingsMutation(patch, err);
+        break;
       }
       renderApp();
       break;
     }
     case 'toggle-semantic-search': {
+      if (state.intelligenceSettingsPending || state.semanticStatus?.loadError) break;
+      const patch = { enabled: !state.semanticStatus.enabled };
+      setState({ intelligenceSettingsPending: true });
+      renderApp();
       try {
-        const status = await setSemanticEnabled(!state.semanticStatus.enabled);
-        setState({ semanticStatus: status, librarySemantic: false, semanticResults: null });
-      } catch { alertError('update semantic search'); }
+        const status = await setSemanticEnabled(patch.enabled);
+        setState({
+          semanticStatus: { ...status, loading: false, loadError: '' },
+          intelligenceSettingsPending: false,
+          librarySemantic: false,
+          ...resetSemanticSearchPatch(),
+        });
+      } catch (err) {
+        await reconcileSemanticSettingsMutation(patch, err);
+        break;
+      }
       renderApp();
       break;
     }
     case 'set-ai-chat-provider': {
+      if (state.intelligenceSettingsPending || state.chatStatus?.loadError) break;
+      const patch = { backend: el.dataset.backend };
+      setState({ intelligenceSettingsPending: true, chatSettingsDraft: null });
+      renderApp();
       try {
-        const status = await putChatSettings({ backend: el.dataset.backend });
-        setState({ chatStatus: status });
+        const status = await putChatSettings(patch);
+        setState({
+          chatStatus: { ...status, loading: false, loadError: '' },
+          intelligenceSettingsPending: false,
+          chatSettingsDraft: null,
+        });
       } catch (err) {
-        showToast(err?.message || 'Prax could not switch the answer model.');
+        await reconcileChatSettingsMutation(patch, err);
+        break;
       }
       renderApp();
       break;
     }
     case 'save-ai-chat': {
+      if (state.intelligenceSettingsPending || state.chatStatus?.loadError) break;
       const patch = {};
       const model = appRoot.querySelector('[data-ai-chat-model]');
       if (model) patch.model = model.value.trim();
@@ -2823,15 +4443,37 @@ async function handleAction(action, el, event) {
       if (baseUrl && baseUrl.value.trim()) patch.baseUrl = baseUrl.value.trim();
       const key = appRoot.querySelector('[data-ai-chat-key]');
       if (key && key.value.trim()) patch.apiKey = key.value.trim();
+      const draft = {
+        backend: state.chatStatus?.backend || 'none',
+        model: model?.value || '',
+        baseUrl: baseUrl?.value || '',
+        apiKey: key?.value || '',
+      };
+      setState({ intelligenceSettingsPending: true, chatSettingsDraft: draft });
+      renderApp();
       try {
         const status = await putChatSettings(patch);
-        setState({ chatStatus: status });
+        setState({
+          chatStatus: { ...status, loading: false, loadError: '' },
+          intelligenceSettingsPending: false,
+          chatSettingsDraft: null,
+        });
         showToast(status.connected
           ? `Connected to ${status.backend} — Ask Prax can write answers.`
           : `Saved, but ${status.backend || 'the model'} is not reachable yet.`);
       } catch (err) {
-        showToast(err?.message || 'Prax could not save the answer-model settings.');
+        await reconcileChatSettingsMutation(patch, err);
+        break;
       }
+      renderApp();
+      break;
+    }
+    case 'retry-intelligence-status': {
+      if (state.intelligenceSettingsPending) break;
+      const semantic = loadSemanticStatus();
+      const chat = loadChatStatus();
+      renderApp();
+      await Promise.all([semantic, chat]);
       renderApp();
       break;
     }
@@ -2875,19 +4517,18 @@ async function handleAction(action, el, event) {
     case 'import-tasks': importTasksFromSettings(); break;
     case 'export-library-project': {
       const slug = state.managedProjects.find(p => p.id === state.navId)?.slug || 'all';
-      window.location.href = `/api/library/export?project=${encodeURIComponent(slug)}`;
+      openLibraryExport(slug, action);
       break;
     }
-    case 'export-library-all': window.location.href = '/api/library/export?project=all'; break;
+    case 'export-library-all': openLibraryExport('all', action); break;
     case 'refresh-maintenance': await loadMaintenance(); renderApp(); break;
-    case 'open-health': goHealth(); break;
-    case 'back-to-library': goLibrary(); break;
+    case 'open-health': await goHealth(); break;
     case 'refresh-health': await loadHealth(); renderApp(); break;
-    case 'open-health-doc': openDocumentInEditor(el.dataset.docId); break;
+    case 'open-health-doc': await openDocumentInEditor(el.dataset.docId); break;
     case 'verify-health-doc': verifyHealthDoc(el.dataset.docId); break;
     case 'apply-wiki-link': await acceptLinkSuggestion(el.dataset.docId, el.dataset.title); break;
     case 'run-ai-review': await scanLibraryWithAi(); break;
-    case 'open-library-doc': openDocumentInEditor(el.dataset.libraryDocumentId); break;
+    case 'open-library-doc': await openDocumentInEditor(el.dataset.libraryDocumentId); break;
 
     default: break;
   }
@@ -2901,8 +4542,12 @@ function bindEvents() {
   appRoot.addEventListener('click', (event) => {
     if ((state.docMenuOpen || state.newDocMenuOpen || state.captureMenuOpen || state.writeMenuOpen) && !event.target.closest?.('.menu')) {
       setState({ docMenuOpen: false, newDocMenuOpen: false, captureMenuOpen: false, writeMenuOpen: false, writeSelection: null });
-      renderApp();
-      return;
+      // A click on another control should both dismiss the open menu and
+      // activate that control. Only consume clicks on otherwise inert space.
+      if (!event.target.closest?.('[data-action], [data-link-picker-doc]')) {
+        renderApp();
+        return;
+      }
     }
     const picker = event.target.closest?.('[data-link-picker-doc]');
     if (picker && appRoot.contains(picker)) {
@@ -2953,7 +4598,11 @@ function bindEvents() {
       return;
     }
     if (target.matches?.('[data-capture-input]')) {
-      setState({ captureQuery: target.value });
+      setState({ captureQuery: target.value, ...clearCaptureRequestPatch() });
+      persistCaptureRecovery();
+      const submit = appRoot.querySelector('[data-action="submit-capture"]');
+      if (submit) submit.disabled = !target.value.trim();
+      appRoot.querySelector('.capture__notice')?.remove();
       return;
     }
     if (target.matches?.('[data-assistant-input]')) {
@@ -2961,18 +4610,35 @@ function bindEvents() {
       setState({ assistantInput: target.value });
       return;
     }
-    if (target.matches?.('[data-library-search]')) {
-      // Keyword search filters live, which re-renders and replaces this input —
-      // restore focus and the caret so typing isn't interrupted after each key.
-      const caret = target.selectionStart;
-      setState({ libraryQuery: target.value });
-      if (!state.librarySemantic) {
+    if (target.matches?.('[data-ask-prax-input]')) {
+      const wasLoading = state.askPraxLoading;
+      if (wasLoading) askPraxToken += 1;
+      setState({
+        askPraxQuery: target.value,
+        ...(wasLoading ? { askPraxLoading: false, askPraxError: false, askPraxResult: null } : {}),
+      });
+      if (wasLoading) {
         renderApp();
-        const next = appRoot.querySelector('[data-library-search]');
-        if (next) {
-          next.focus();
-          if (caret != null) next.setSelectionRange(caret, caret);
-        }
+        return;
+      }
+      const submit = appRoot.querySelector('[data-action="run-ask-prax"]');
+      if (submit) submit.disabled = !target.value.trim();
+      return;
+    }
+    if (target.matches?.('[data-library-search]')) {
+      // Search input changes invalidate any submitted meaning query. Re-render
+      // both modes to clear an old result set, then restore focus/caret so
+      // typing is uninterrupted despite replacing the input DOM.
+      const caret = target.selectionStart;
+      setState({
+        libraryQuery: target.value,
+        ...(state.librarySemantic ? resetSemanticSearchPatch() : {}),
+      });
+      renderApp();
+      const next = appRoot.querySelector('[data-library-search]');
+      if (next) {
+        next.focus();
+        if (caret != null) next.setSelectionRange(caret, caret);
       }
       return;
     }
@@ -3013,40 +4679,19 @@ function bindEvents() {
       return;
     }
     if (target.matches?.('[data-task-notes]')) {
-      setState({
-        taskNotesDraftId: state.drawerTaskId,
-        taskNotesDraft: target.value,
-        isTaskNotesDirty: true,
-      });
-      scheduleNotesAutosave(state.drawerTaskId);
+      handleTaskDrawerDraftChange({ notes: target.value });
       return;
     }
     if (target.matches?.('[data-task-title]')) {
-      // The drawer is the only task-title editor; debounce a PATCH.
-      clearTimeout(taskTitleSaveTimer);
-      const id = state.drawerTaskId;
-      const value = target.value;
-      taskTitleSaveTimer = setTimeout(async () => {
-        const title = value.trim();
-        if (!id || !title) return;
-        try {
-          const updated = await updateTask(id, { title });
-          applyTaskPatchLocal(id, normalizeTask(updated));
-        } catch { /* a later keystroke retries */ }
-      }, TITLE_SAVE_DELAY_MS);
+      handleTaskDrawerDraftChange({ title: target.value });
       return;
     }
     if (target.matches?.('[data-task-description]')) {
-      clearTimeout(descriptionSaveTimer);
-      const id = state.drawerTaskId;
-      const value = target.value;
-      descriptionSaveTimer = setTimeout(async () => {
-        if (!id) return;
-        try {
-          const updated = await updateTask(id, { description: value });
-          applyTaskPatchLocal(id, normalizeTask(updated));
-        } catch { /* a later keystroke retries */ }
-      }, NOTES_AUTOSAVE_DELAY_MS);
+      handleTaskDrawerDraftChange({ description: target.value });
+      return;
+    }
+    if (target.matches?.('[data-task-label-input]')) {
+      setState({ taskLabelDraftId: state.drawerTaskId, taskLabelDraft: target.value });
       return;
     }
     if (target.matches?.('[data-document-editor]')) {
@@ -3054,16 +4699,7 @@ function bindEvents() {
       return;
     }
     if (target.matches?.('[data-doc-title]')) {
-      clearTimeout(titleSaveTimer);
-      const value = target.value;
-      titleSaveTimer = setTimeout(async () => {
-        const id = state.editorDocId;
-        if (!id) return;
-        try {
-          const saved = await updateDocument(id, { title: value.trim() || 'Untitled' });
-          setState({ documents: state.documents.map(d => (d.id === id ? saved : d)) });
-        } catch { /* keep typing; a later save retries */ }
-      }, TITLE_SAVE_DELAY_MS);
+      handleDocumentDraftTitleChange(target.value);
       return;
     }
     if (target.matches?.('[data-link-picker-search]')) {
@@ -3084,6 +4720,10 @@ function bindEvents() {
       patchTask(state.drawerTaskId, { dueTime: target.value || null });
       return;
     }
+    if (target.matches?.('[data-task-project]')) {
+      patchTask(state.drawerTaskId, { project: target.value }, { failure: 'move the task' });
+      return;
+    }
     if (target.matches?.('[data-reading-scale]')) {
       const preferences = savePreferences({ ...state.preferences, readingScale: Number(target.value) });
       setState({ preferences });
@@ -3096,14 +4736,74 @@ function bindEvents() {
       loadMaintenance().then(renderApp);
       return;
     }
+    if (target.matches?.('[data-markdown-import-files]')) {
+      selectMarkdownImportFiles(target.files);
+      return;
+    }
+    if (target.matches?.('[data-markdown-import-project]')) {
+      if (!state.markdownImportPending && !state.markdownImportNotice) {
+        setState({ markdownImportProjectId: target.value, markdownImportError: '', markdownImportNotice: '' });
+        renderApp();
+      }
+      return;
+    }
+    if (target.matches?.('[data-library-export-scope]')) {
+      if (!state.libraryExportPending) {
+        const projects = libraryExportProjects();
+        const scope = target.value === 'all' || projects.some(project => project.slug === target.value)
+          ? target.value
+          : 'all';
+        setState({
+          libraryExportScope: scope,
+          libraryExportFilename: libraryArchiveFilename(scope),
+          libraryExportError: '',
+        });
+        renderApp();
+      }
+      return;
+    }
+    if (target.matches?.('[data-import-file]')) {
+      selectTaskImportFile(target.files?.[0]);
+      return;
+    }
+    if (target.matches?.('[data-import-project]')) {
+      if (!state.adminImportPending) {
+        setState({ adminImportProjectId: target.value, adminImportRequest: null, adminImportError: '', adminImportResult: null });
+        renderApp();
+      }
+      return;
+    }
     if (target.matches?.('[name="import-mode"]')) {
-      setState({ adminImportMode: target.value });
+      if (state.adminImportPending) return;
+      setState({ adminImportMode: target.value, adminImportRequest: null, adminImportError: '', adminImportResult: null });
       renderApp();
     }
   });
 
-  appRoot.addEventListener('keydown', (event) => {
+  appRoot.addEventListener('keydown', async (event) => {
     const target = event.target;
+    const modalOverlay = state.libraryExportOpen
+      ? 'library-export'
+      : (state.markdownImportOpen ? 'markdown-import' : null);
+    if (modalOverlay && event.key === 'Tab') {
+      const dialog = appRoot.querySelector(`[data-overlay="${modalOverlay}"] [role="dialog"]`);
+      const focusable = [...(dialog?.querySelectorAll('button:not([disabled]), select:not([disabled]), input:not([disabled])') || [])];
+      if (focusable.length) {
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (!dialog.contains(document.activeElement)) {
+          event.preventDefault();
+          first.focus();
+        } else if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+      return;
+    }
     // ⌘F / Ctrl+F opens the editor find panel from anywhere in the editor view
     // (document, panel inputs, preview) — never the browser's find-in-page.
     if (state.navType === 'editor' && (event.metaKey || event.ctrlKey)
@@ -3133,7 +4833,7 @@ function bindEvents() {
         renderApp();
       } else if (event.key === 'Enter') {
         event.preventDefault();
-        runPaletteItem(paletteFlat[Math.min(state.paletteSelection, Math.max(0, paletteFlat.length - 1))]);
+        await runPaletteItem(paletteFlat[Math.min(state.paletteSelection, Math.max(0, paletteFlat.length - 1))]);
       }
       return;
     }
@@ -3150,6 +4850,7 @@ function bindEvents() {
     if (target.matches?.('[data-capture-input]') && event.key === 'Enter' && !event.isComposing) {
       event.preventDefault();
       if (event.repeat) return; // held-down Enter must not machine-gun creates
+      if (state.captureSubmitting) return;
       // ⌘/Ctrl+Enter = AI smart add (falls through to a plain add when no model
       // is configured); plain Enter confirms a preview or adds deterministically.
       if (event.metaKey || event.ctrlKey) { runNlCapture(); return; }
@@ -3185,8 +4886,7 @@ function bindEvents() {
     }
     if (target.matches?.('[data-task-label-input]') && event.key === 'Enter') {
       event.preventDefault();
-      addTaskLabel(target.value);
-      target.value = '';
+      await addTaskLabel(target.value);
       return;
     }
     if (target.matches?.('[data-library-search]') && event.key === 'Enter' && state.librarySemantic) {
@@ -3196,7 +4896,7 @@ function bindEvents() {
     }
     if (target.matches?.('[data-document-editor]') && (event.metaKey || event.ctrlKey)) {
       const key = event.key.toLowerCase();
-      if (key === 's') { event.preventDefault(); saveDocumentDraft(); }
+      if (key === 's') { event.preventDefault(); requestDocumentDraftSave(); }
       else if (key === 'b') { event.preventDefault(); applyEditorFormat('bold'); }
       else if (key === 'i') { event.preventDefault(); applyEditorFormat('italic'); }
       else if (key === 'e') { event.preventDefault(); applyEditorFormat('code'); }
@@ -3218,13 +4918,10 @@ function bindEvents() {
 
 async function handleLinkPickerPick(documentId) {
   if (state.pickerMode === 'supersede') {
-    try {
-      await supersedeDocument(state.editorDocId, documentId);
-      setState({ isLinkPickerOpen: false });
-      await loadDocuments();
-      loadDocumentLinks(state.editorDocId);
-    } catch { alertError('supersede the document'); }
-    renderApp();
+    const predecessorId = state.editorDocId;
+    await performDocumentLifecycleOnce(`document:${predecessorId}`, () => (
+      supersedeKnowledgeDocument(predecessorId, documentId)
+    ));
     return;
   }
   try {
@@ -3285,7 +4982,7 @@ let nlCaptureSetQuery = null;
 // configured — the chord must never be a dead keystroke.
 async function runNlCapture() {
   const current = (state.captureQuery || '').trim();
-  if (!current || state.nlCaptureLoading) return;
+  if (!current || state.nlCaptureLoading || state.captureSubmitting) return;
   if (!state.chatStatus?.available) { addQuickTask(current); return; }
   // Re-parse (⌘↵ with an unedited preview) resends the ORIGINAL phrase — the
   // visible title no longer carries the date/priority words the first parse
@@ -3298,7 +4995,15 @@ async function runNlCapture() {
   nlCaptureAbort?.abort();
   nlCaptureAbort = new AbortController();
   const timer = setTimeout(() => nlCaptureAbort?.abort(), NL_TIMEOUT_MS);
-  setState({ nlCaptureLoading: true, nlCaptureError: null, nlCaptureFields: null, nlCaptureDropped: [], nlCaptureRaw: raw });
+  setState({
+    nlCaptureLoading: true,
+    nlCaptureError: null,
+    nlCaptureFields: null,
+    nlCaptureDropped: [],
+    nlCaptureRaw: raw,
+    ...clearCaptureRequestPatch(),
+  });
+  persistCaptureRecovery();
   renderApp();
   try {
     const res = await parseNlCapture({ text, date: todayISODate(), ...nlGrounding() }, { signal: nlCaptureAbort.signal });
@@ -3339,6 +5044,7 @@ async function runNlCapture() {
   } finally {
     clearTimeout(timer);
   }
+  if (token === nlCaptureToken) persistCaptureRecovery();
   if (token === nlCaptureToken) renderApp();
 }
 
@@ -3347,48 +5053,119 @@ async function runNlCapture() {
 // after a failed parse the input was never touched, so Esc must not revert
 // edits the user made since (it just clears the error).
 function cancelNlCapture() {
+  if (state.captureSubmitting) return;
   const raw = state.nlCaptureFields ? state.nlCaptureRaw : null;
-  setState({ ...nlCaptureResetPatch(), ...(raw != null ? { captureQuery: raw } : {}) });
+  setState({
+    ...nlCaptureResetPatch(),
+    ...(raw != null ? { captureQuery: raw } : {}),
+    ...clearCaptureRequestPatch(),
+  });
+  persistCaptureRecovery();
   renderApp();
 }
 
 // One create path for both capture flows (deterministic + NL preview): resolve
 // the destination, translate design-vocab status at the API boundary, create,
-// close + reset, toast. Guarded against double-submit (Enter auto-repeat).
-let captureSubmitting = false;
+// close + reset, toast. A client UUID makes retry exact-once; a failed POST is
+// reconciled with one canonical read before the UI calls it a failure.
+async function createCapturedTaskWithReadback(payload) {
+  try {
+    return { task: await createTask(payload), reconciled: false };
+  } catch (writeError) {
+    try {
+      const observed = await fetchTask(payload.id);
+      if (taskMatchesCreatePayload(observed, payload)) {
+        return { task: observed, reconciled: true };
+      }
+    } catch {
+      // The original error is the useful failure; the retry identity remains
+      // stored so the unchanged create can safely be attempted again.
+    }
+    throw writeError;
+  }
+}
+
 async function submitCapturedTask(fields) {
-  if (captureSubmitting) return;
+  if (state.captureSubmitting) return;
   const title = fields.title;
-  if (!title) return;
+  if (!title) {
+    setState({ captureError: 'Add a task title.', captureRecovered: false });
+    persistCaptureRecovery();
+    renderApp();
+    return;
+  }
   let project = state.captureProjectId || defaultProjectId();
   if (fields.project) {
     const resolved = projectResolver(state.projects)(fields.project);
     if (resolved) project = resolved; // an explicit/parsed project overrides the destination
   }
-  if (!project) { showToast('Create a project first.'); return; }
-  captureSubmitting = true;
-  try {
-    await createTask({
-      title, description: '', notes: '', priority: fields.priority || 'medium',
-      // captureStatus is design vocab ('backlog'|'planned') — translate at the
-      // API boundary ('backlog' → 'notes'); sending it raw 400s.
-      status: apiStatus(state.captureStatus || 'planned'), project,
-      dueDate: fields.dueDate || null,
-      dueTime: fields.dueDate ? fields.dueTime || null : null,
-      recurrence: fields.recurrence || null,
-      labels: fields.labels || [],
-      sortOrder: state.tasks.length,
-    });
-    setState({ captureOpen: false, captureQuery: '', captureMenuOpen: false, ...nlCaptureResetPatch() });
-    await loadTasks();
-    const name = state.projects.find(p => p.id === project)?.name || 'project';
-    showToast(`Added to ${name}`);
-  } catch {
-    alertError('create this task');
-  } finally {
-    captureSubmitting = false;
+  if (!project) {
+    setState({ captureError: 'Create a project before adding this task.' });
+    persistCaptureRecovery();
+    renderApp();
+    return;
   }
+  const intent = captureIntentKey({
+    query: state.captureQuery,
+    projectId: state.captureProjectId,
+    dueDate: state.captureDueDate,
+    status: state.captureStatus,
+    nlFields: state.nlCaptureFields,
+  });
+  const reusable = state.captureRequestIntent === intent && state.captureRequestPayload;
+  const payload = reusable || {
+    id: globalThis.crypto.randomUUID(),
+    title,
+    description: '',
+    notes: '',
+    priority: fields.priority || 'medium',
+    // captureStatus is design vocab ('backlog'|'planned') — translate at the
+    // API boundary ('backlog' → 'notes'); sending it raw 400s.
+    status: apiStatus(state.captureStatus || 'planned'),
+    project,
+    dueDate: fields.dueDate || null,
+    dueTime: fields.dueDate ? fields.dueTime || null : null,
+    recurrence: fields.recurrence || null,
+    labels: fields.labels || [],
+    sortOrder: state.tasks.length,
+  };
+  setState({
+    captureSubmitting: true,
+    captureError: null,
+    captureRecovered: false,
+    captureMenuOpen: false,
+    captureRequestPayload: payload,
+    captureRequestIntent: intent,
+  });
+  persistCaptureRecovery();
   renderApp();
+  let outcome;
+  try {
+    outcome = await createCapturedTaskWithReadback(payload);
+  } catch {
+    setState({
+      captureSubmitting: false,
+      captureError: 'Could not confirm creation. Your task is saved here; retry unchanged is safe.',
+    });
+    persistCaptureRecovery();
+    renderApp();
+    return;
+  }
+  clearTaskCaptureRecovery(taskCaptureStorage());
+  setState({
+    captureOpen: false,
+    captureQuery: '',
+    captureMenuOpen: false,
+    captureSubmitting: false,
+    ...clearCaptureRequestPatch(),
+    ...nlCaptureResetPatch(),
+  });
+  let refreshed = true;
+  try { await loadTasks(); } catch { refreshed = false; }
+  const name = state.projects.find(p => p.id === payload.project)?.name || 'project';
+  showToast(refreshed ? `Added to ${name}` : `Added to ${name}; reload to show it.`);
+  renderApp();
+  return outcome.task;
 }
 
 // Plain Enter with a preview showing: create the previewed task. The input is
@@ -3467,22 +5244,21 @@ async function addQuickTask(rawTitle) {
 function installShortcuts() {
   installKeyboardShortcuts({
     handlers: {
-      switchView(view) {
-        if (view === 'library') { goLibrary(); return; }
+      async switchView(view) {
+        if (view === 'library') { await goLibrary(); return; }
         const projectId = state.navType === 'project' ? state.navId : (state.projects[0]?.id || null);
-        if (projectId) goProject(projectId, view);
+        if (projectId) await goProject(projectId, view);
       },
       openPalette() {
-        // Closing capture must also discard/abort the NL layer, or a stale
-        // preview (or a late parse response) haunts the next capture.
-        setState({ paletteOpen: true, paletteQuery: '', paletteSelection: 0, captureOpen: false, ...nlCaptureResetPatch() });
+        if (state.captureSubmitting) return;
+        if (state.captureOpen) discardCapture();
+        setState({ paletteOpen: true, paletteQuery: '', paletteSelection: 0 });
         renderApp();
       },
       openAssistant,
       toggleTheme,
       openCapture() {
-        setState({ captureOpen: true, captureQuery: '', paletteOpen: false, ...captureDefaults(), ...nlCaptureResetPatch() });
-        renderApp();
+        openFreshCapture();
       },
       toggleDoneSelected() {
         if (state.selectedTaskId && !state.paletteOpen && !state.captureOpen && !state.drawerTaskId) {
@@ -3557,16 +5333,34 @@ async function init() {
     } else {
       setState({ navType: 'all', navId: null });
     }
-    await loadTasks();
-    await loadDocuments();
-    loadSemanticStatus().then(renderApp);
-    loadChatStatus().then(renderApp);
+    setState({ apiStatus: 'loading' });
     bindEvents();
     installShortcuts();
+    renderApp();
+
+    // Tasks gate the primary workspace; the much larger document bodies do
+    // not. Load the Library in parallel and let the task collection become
+    // interactive as soon as its own request completes.
+    const documentsPromise = loadDocuments().catch(() => false);
+    await loadTasks({ announceReminders: false });
+    restoreCaptureRecovery();
+    // A browser fallback reminder renders the workspace together with its
+    // toast. Otherwise render once here. This avoids two consecutive full DOM
+    // builds on every startup with due tasks.
+    if (!checkDueReminders()) renderApp();
+    documentsPromise.then((applied) => {
+      if (applied && (state.navType === 'library' || state.navType === 'settings')) renderApp();
+    });
+    loadSemanticStatus().then(() => {
+      if (state.navType === 'library' || state.navType === 'settings') renderApp();
+    });
+    loadChatStatus().then(() => {
+      if (state.captureOpen) renderCaptureOverlayLayer();
+      else if (state.navType === 'library' || state.navType === 'settings') renderApp();
+    });
     // Heartbeat so a task that ticks over to "due" while the app sits open still
     // gets a reminder (e.g. across midnight). Cheap: a filter over state.tasks.
     if (typeof setInterval === 'function') setInterval(checkDueReminders, 15 * 60 * 1000);
-    renderApp();
   } catch (err) {
     appRoot.innerHTML = `<main class="empty" style="height:100vh"><h2 class="empty__title">Prax could not load</h2><p class="empty__sub">${escapeHtml(err?.message || 'Unknown error')}</p></main>`;
     setState({ apiStatus: 'error' });

@@ -79,7 +79,7 @@ export function buildBacklinks(tasks, projects, docId) {
 function projectChip(name, color) {
   if (!name) return '';
   const safeColor = escapeHtml(color || 'var(--ink3)');
-  return `<span class="chip chip--project" style="background:color-mix(in oklab, ${safeColor} 13%, transparent);color:${safeColor}">${escapeHtml(name)}</span>`;
+  return `<span class="chip chip--project" style="--project-color:${safeColor};background:color-mix(in oklab, ${safeColor} 13%, transparent)">${escapeHtml(name)}</span>`;
 }
 
 function trustChips(doc) {
@@ -124,8 +124,9 @@ function renderDocMenu(state, doc, { readOnly }) {
       </div>`;
 }
 
-function renderHead(state, doc, { mode, readOnly }) {
+function renderHead(state, doc, { mode, readOnly, project }) {
   const tags = (Array.isArray(doc.tags) ? doc.tags : []).filter(Boolean);
+  const title = state.documentDraftId === doc.id ? state.documentDraftTitle : doc.title;
   const seg = readOnly ? '' : `
       <div class="seg" role="group" aria-label="Editor mode">
         ${EDITOR_MODES.map(([value, label]) => `<button type="button" data-action="set-editor-mode" data-mode="${value}"${mode === value ? ' class="is-active"' : ''} aria-pressed="${mode === value}">${label}</button>`).join('')}
@@ -134,10 +135,10 @@ function renderHead(state, doc, { mode, readOnly }) {
   return `
     <header class="editor-head">
       <button class="editor-head__back" type="button" data-action="back-to-library" title="Back to library" aria-label="Back to library">←</button>
-      <input class="editor-head__title" type="text" data-doc-title value="${escapeHtml(doc.title || '')}" aria-label="Document title" autocomplete="off" spellcheck="false"${readOnly ? ' readonly' : ''}>
-      <div class="editor-head__tags">${tags.map((tag) => chip(`#${tag}`, 'tag')).join('')}${trustChips(doc)}</div>
+      <input class="editor-head__title" type="text" data-doc-title value="${escapeHtml(title || '')}" aria-label="Document title" autocomplete="off" spellcheck="false"${readOnly ? ' readonly' : ''}>
+      <div class="editor-head__tags">${projectChip(project?.name, project?.color)}${tags.map((tag) => chip(`#${tag}`, 'tag')).join('')}${trustChips(doc)}</div>
       <button class="btn-ghost btn-ghost--toggle${state.outlineOpen ? ' is-on' : ''}" type="button" data-action="toggle-outline" aria-pressed="${Boolean(state.outlineOpen)}">Outline</button>
-      ${!readOnly && doc.documentType === 'runbook' ? '<button class="btn-primary btn-primary--sm" type="button" data-action="start-run" title="Start a run — track each step with a timestamp">▶ Run</button>' : ''}
+      ${!readOnly && doc.documentType === 'runbook' ? `<button class="btn-primary btn-primary--sm" type="button" data-action="start-run" title="Start a run — track each step with a timestamp"${state.runStartPending ? ' disabled' : ''}>${state.runStartPending ? 'Starting…' : '▶ Run'}</button>` : ''}
       <button class="btn-ghost" type="button" data-action="export-doc" title="Download this document as .md">Export</button>
       ${seg}
       <button class="btn-ghost${state.editorFocus ? ' is-on' : ''}" type="button" data-action="toggle-focus" title="Focus mode (Esc to exit)" aria-pressed="${Boolean(state.editorFocus)}">Focus</button>
@@ -145,18 +146,24 @@ function renderHead(state, doc, { mode, readOnly }) {
     </header>`;
 }
 
-function renderInfoForm(state, doc) {
+function renderInfoForm(state, doc, projects = []) {
   const tags = Array.isArray(doc.tags) ? doc.tags.join(', ') : '';
   const type = isDocumentType(doc.documentType) ? doc.documentType : 'note';
+  const title = state.documentDraftId === doc.id ? state.documentDraftTitle : doc.title;
   return `
     <div class="editor-info">
       ${state.documentInfoError ? `<div class="editor-info__error" role="alert">${escapeHtml(state.documentInfoError)}</div>` : ''}
       <label class="editor-info__field"><span>Title</span>
-        <input class="text-input" type="text" data-doc-info-title value="${escapeHtml(doc.title || '')}" autocomplete="off">
+        <input class="text-input" type="text" data-doc-info-title value="${escapeHtml(title || '')}" autocomplete="off">
       </label>
       <label class="editor-info__field"><span>Type</span>
         <select class="text-input" data-doc-info-type>
           ${DOCUMENT_TYPES.map((option) => `<option value="${option.value}"${option.value === type ? ' selected' : ''}>${option.label}</option>`).join('')}
+        </select>
+      </label>
+      <label class="editor-info__field"><span>Project</span>
+        <select class="text-input" data-doc-info-project>
+          ${projects.map(project => `<option value="${escapeHtml(project.id)}"${project.id === doc.projectId ? ' selected' : ''}>${escapeHtml(project.name)}</option>`).join('')}
         </select>
       </label>
       <label class="editor-info__field"><span>Tags</span>
@@ -364,6 +371,8 @@ export function renderEditorHtml(state, doc, model = {}) {
   const previewHtml = model.previewHtml || '';
   const links = model.links === undefined ? state.documentLinks : model.links;
   const body = String(state.documentDraftBody ?? doc.body ?? '');
+  const project = model.project || null;
+  const projects = Array.isArray(model.projects) ? model.projects : (project ? [project] : []);
 
   const showEdit = mode === 'edit' || mode === 'split';
   const showPreview = mode === 'preview' || mode === 'split';
@@ -413,17 +422,24 @@ export function renderEditorHtml(state, doc, model = {}) {
   const words = body.split(/\s+/).filter(Boolean).length;
   const readTime = Math.max(1, Math.round(words / 200));
   const saveStatus = state.documentSaveStatus || 'Saved';
+  const recoveryReason = state.documentDraftRecoveryReason || null;
+  const recoveryLabel = recoveryReason === 'conflict'
+    ? 'Review and save'
+    : (recoveryReason === 'recovered' ? 'Save recovered draft' : 'Retry');
+  const showRecoveryAction = !readOnly && ['failed', 'recovered', 'conflict'].includes(recoveryReason);
 
   return `
   <div class="editor">
-    ${renderHead(state, doc, { mode, readOnly })}
-    ${state.isDocumentInfoEditorOpen ? renderInfoForm(state, doc) : ''}
+    ${renderHead(state, doc, { mode, readOnly, project })}
+    ${state.isDocumentInfoEditorOpen ? renderInfoForm(state, doc, projects) : ''}
     ${toolbarHtml}
     <div class="editor-body">${outlineHtml}${panesHtml}
     </div>
     <footer class="editor-foot">
       <span data-editor-counts>${words} words · ${body.length} characters · ${readTime} min read</span>
-      <span>Markdown · <span data-document-save-status>${escapeHtml(saveStatus)}</span></span>
+      <span class="editor-foot__save">Markdown · <span data-document-save-status role="status" aria-live="polite">${escapeHtml(saveStatus)}</span>
+        ${readOnly ? '' : `<button class="editor-foot__save-action" type="button" data-action="retry-document-save" data-document-save-action${showRecoveryAction ? '' : ' hidden'}>${escapeHtml(recoveryLabel)}</button>`}
+      </span>
     </footer>
   </div>`;
 }

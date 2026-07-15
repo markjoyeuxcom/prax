@@ -34,6 +34,46 @@ const STATUS_GROUPS = [
   ['planned', 'Planned', 'muted'],
 ];
 
+export const TASK_RENDER_BATCH_SIZE = 100;
+
+// Keep the initial DOM bounded without lying about collection size. Groups
+// retain their full count while only the first `limit` tasks (in the existing
+// group order) are mounted. The returned flatIds exactly match the visible DOM
+// so keyboard navigation can never select an off-screen, unrendered task.
+export function limitTaskGroups(groups, limit = TASK_RENDER_BATCH_SIZE) {
+  const safeGroups = Array.isArray(groups) ? groups : [];
+  const normalizedLimit = Number.isFinite(Number(limit))
+    ? Math.max(0, Math.floor(Number(limit)))
+    : TASK_RENDER_BATCH_SIZE;
+  const total = safeGroups.reduce((sum, group) => sum + (Array.isArray(group.tasks) ? group.tasks.length : 0), 0);
+  let remaining = normalizedLimit;
+  const visibleGroups = [];
+
+  for (const group of safeGroups) {
+    const tasks = Array.isArray(group.tasks) ? group.tasks : [];
+    const visibleTasks = tasks.slice(0, remaining);
+    remaining = Math.max(0, remaining - visibleTasks.length);
+    if (visibleTasks.length) visibleGroups.push({ ...group, tasks: visibleTasks, totalCount: tasks.length });
+  }
+
+  const flatIds = visibleGroups.flatMap((group) => group.tasks.map((task) => task.id));
+  return {
+    groups: visibleGroups,
+    flatIds,
+    shown: flatIds.length,
+    total,
+    hasMore: flatIds.length < total,
+  };
+}
+
+export function renderTaskCollectionProgressHtml(collection) {
+  if (!collection?.hasMore) return '';
+  return `<div class="collection-progress" role="status">`
+    + `<span>Showing ${collection.shown} of ${collection.total} tasks.</span>`
+    + `<button class="btn-ghost" type="button" data-action="show-more-tasks">Show ${Math.min(TASK_RENDER_BATCH_SIZE, collection.total - collection.shown)} more</button>`
+    + '</div>';
+}
+
 // Decorate an API task with the derived bits every row needs; API fields are
 // kept untouched (same idiom as the prototype's decor()).
 function decorate(task, now) {
@@ -70,9 +110,9 @@ export function buildListGroups(state, tasks, { now = new Date() } = {}) {
   return { groups: kept, flatIds: kept.flatMap((group) => group.tasks.map((task) => task.id)) };
 }
 
-// Shared row markup (also used by renderToday.js). The row is a
-// div[role=button] rather than a <button>: it must contain the done-toggle
-// button, and button-in-button is invalid HTML that parsers eject.
+// Shared row markup (also used by renderToday.js). Completion and opening are
+// sibling buttons: an ARIA button containing the done button is still nested
+// interactive content and loses the inner control in some accessibility trees.
 export function renderTaskRowHtml(state, task, { afterTitle = '' } = {}) {
   const done = !!task.done;
   const selected = state.selectedTaskId === task.id;
@@ -93,12 +133,15 @@ export function renderTaskRowHtml(state, task, { afterTitle = '' } = {}) {
   }
   const dueChip = task.dueInfo ? chip(task.dueInfo.label, `due-${task.dueInfo.bucket}`) : '';
 
-  return `<div class="${classes.join(' ')}" role="button" tabindex="0" data-action="open-task" data-task-id="${id}"${selected ? ' aria-current="true"' : ''}>`
+  return `<div class="${classes.join(' ')}" data-task-id="${id}">`
     + `<button class="task-check${done ? ' is-done' : ''}" type="button" data-action="toggle-task-done" data-task-id="${id}" aria-label="${done ? 'Mark not done' : 'Mark done'}">${done ? '✓' : ''}</button>`
-    + `<span class="${prioDotClass(task.priority)}"></span>`
+    + `<button class="task-row__open" type="button" data-action="open-task" data-task-id="${id}"${selected ? ' aria-current="true"' : ''}>`
+    + `<span class="${prioDotClass(task.priority)}" aria-hidden="true"></span>`
     + `<span class="task-row__title">${escapeHtml(task.title)}</span>`
     + afterTitle
     + `<span class="task-row__meta">${signals.join('')}${dueChip}</span>`
+    + '</button>'
+    + `<button class="task-select${multi ? ' is-selected' : ''}" type="button" data-action="toggle-task-selection" data-task-id="${id}" aria-label="${multi ? 'Deselect' : 'Select'} ${escapeHtml(task.title || 'Untitled task')}" aria-pressed="${multi}">${multi ? '✓' : ''}</button>`
     + '</div>';
 }
 
@@ -110,12 +153,13 @@ export function renderTaskGroupsHtml(state, groups, { rowExtra } = {}) {
     const rows = group.tasks
       .map((task) => renderTaskRowHtml(state, task, { afterTitle: rowExtra ? rowExtra(task) : '' }))
       .join('');
-    return `<div class="group-label${tone.cls}"${tone.style}>${escapeHtml(group.label)} <span class="group-label__count">${group.tasks.length}</span></div>`
+    const count = Number.isInteger(group.totalCount) ? group.totalCount : group.tasks.length;
+    return `<div class="group-label${tone.cls}"${tone.style}>${escapeHtml(group.label)} <span class="group-label__count">${count}</span></div>`
       + `<div class="rows" data-group="${escapeHtml(group.key)}">${rows}</div>`;
   }).join('');
 }
 
-export function renderListHtml(state, groups) {
+export function renderListHtml(state, groups, { collection = null } = {}) {
   if (!groups || !groups.length) {
     return `<div class="empty">${logo(48)}`
       + '<p class="empty__title">Nothing here yet</p>'
@@ -124,7 +168,7 @@ export function renderListHtml(state, groups) {
       + '<p class="empty__hint">or press <span class="kbd">N</span> anywhere</p>'
       + '</div>';
   }
-  return renderTaskGroupsHtml(state, groups);
+  return renderTaskGroupsHtml(state, groups) + renderTaskCollectionProgressHtml(collection);
 }
 
 // Sticky multi-select bulk bar; empty string when there is no multi-selection.

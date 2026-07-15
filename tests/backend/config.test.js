@@ -1,12 +1,39 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { loadConfig } from '../../server/config.js';
+import { isLoopbackHost, loadConfig } from '../../server/config.js';
 
 test('loadConfig exposes embedding defaults', () => {
   const c = loadConfig({});
+  assert.equal(c.host, '127.0.0.1');
   assert.equal(c.embeddingBackend, 'none');
   assert.equal(c.ollamaUrl, 'http://127.0.0.1:11434');
   assert.equal(c.embeddingModel, '');
+});
+
+test('loopback classification is conservative across IPv4, IPv6, and hostnames', () => {
+  for (const host of ['localhost', 'LOCALHOST', '127.0.0.1', '127.12.0.9', '::1', '[::1]', '0:0:0:0:0:0:0:1', '::ffff:127.0.0.1']) {
+    assert.equal(isLoopbackHost(host), true, host);
+  }
+  for (const host of ['0.0.0.0', '::', '192.168.1.4', 'prax.internal', '127.999.0.1', '']) {
+    assert.equal(isLoopbackHost(host), false, host);
+  }
+});
+
+test('loadConfig refuses an accidental unauthenticated network bind', () => {
+  assert.throws(
+    () => loadConfig({ HOST: '0.0.0.0' }),
+    /Refusing to bind unauthenticated Prax.*PRAX_ALLOW_UNAUTHENTICATED_NETWORK=true/,
+  );
+});
+
+test('loadConfig permits a deliberately acknowledged network bind for containers', () => {
+  const config = loadConfig({
+    HOST: '0.0.0.0',
+    PRAX_ALLOW_UNAUTHENTICATED_NETWORK: 'true',
+  });
+  assert.equal(config.host, '0.0.0.0');
+  assert.equal(config.allowUnauthenticatedNetwork, true);
+  assert.throws(() => loadConfig({ HOST: '0.0.0.0', PRAX_ALLOW_UNAUTHENTICATED_NETWORK: 'TRUE' }));
 });
 
 test('loadConfig reads embedding env overrides', () => {

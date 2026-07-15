@@ -2,15 +2,40 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const DEFAULT_DIR = join(dirname(fileURLToPath(import.meta.url)), 'migrations');
+export const DEFAULT_MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'migrations');
 const MIGRATION_RE = /^(\d+)_.*\.sql$/;
 
-export function pendingMigrations(allFiles, appliedVersions) {
-  const applied = new Set(appliedVersions);
+export function orderedMigrations(allFiles) {
   return allFiles
     .filter((name) => MIGRATION_RE.test(name))
     .map((name) => ({ version: name, ordinal: Number(name.match(MIGRATION_RE)[1]) }))
-    .sort((a, b) => a.ordinal - b.ordinal)
+    .sort((a, b) => a.ordinal - b.ordinal || a.version.localeCompare(b.version));
+}
+
+export function migrationBoundary(allFiles, through = 'current') {
+  const ordered = orderedMigrations(allFiles);
+  if (ordered.length === 0) {
+    if (through === undefined || through === null || through === 'current') return null;
+    throw new Error(`Unknown migration boundary: ${through}`);
+  }
+  if (through === undefined || through === null || through === 'current') return ordered.at(-1);
+
+  const value = String(through).trim();
+  const exact = ordered.find(({ version }) => version === value);
+  if (exact) return exact;
+  if (/^\d+$/.test(value)) {
+    const ordinal = Number(value);
+    const byOrdinal = ordered.find((migration) => migration.ordinal === ordinal);
+    if (byOrdinal) return byOrdinal;
+  }
+  throw new Error(`Unknown migration boundary: ${through}`);
+}
+
+export function pendingMigrations(allFiles, appliedVersions, { through = 'current' } = {}) {
+  const applied = new Set(appliedVersions);
+  const boundary = migrationBoundary(allFiles, through);
+  return orderedMigrations(allFiles)
+    .filter(({ ordinal }) => boundary === null || ordinal <= boundary.ordinal)
     .filter(({ version }) => !applied.has(version))
     .map(({ version }) => version);
 }
@@ -21,7 +46,7 @@ export function pendingMigrations(allFiles, appliedVersions) {
 // the write lock up front; busy_timeout in db.js makes contenders wait) —
 // the old Postgres advisory lock has no equivalent and no longer applies.
 export async function runMigrations(db, options = {}) {
-  const dir = options.dir || DEFAULT_DIR;
+  const dir = options.dir || DEFAULT_MIGRATIONS_DIR;
   const log = options.logger || console;
   const client = await db.connect();
   try {
@@ -33,7 +58,7 @@ export async function runMigrations(db, options = {}) {
     `);
     const appliedRes = await client.query('select version from schema_migrations');
     const applied = appliedRes.rows.map((row) => row.version);
-    const pending = pendingMigrations(readdirSync(dir), applied);
+    const pending = pendingMigrations(readdirSync(dir), applied, { through: options.through });
 
     if (pending.length === 0) {
       log.info('schema up to date');

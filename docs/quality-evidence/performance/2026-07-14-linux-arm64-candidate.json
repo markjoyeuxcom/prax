@@ -1,0 +1,247 @@
+{
+  "format": "prax.quality-performance",
+  "version": 1,
+  "activation": "candidate-baseline-only",
+  "generatedAt": "2026-07-14T15:14:12.339Z",
+  "reference": {
+    "platform": "linux",
+    "release": "7.0.11-orbstack-00360-gc9bc4d96ac70",
+    "architecture": "arm64",
+    "node": "v24.18.0",
+    "chromium": "149.0.7827.0",
+    "cpuModel": "unknown",
+    "logicalCpuCount": 14,
+    "totalMemoryBytes": 21014118400
+  },
+  "fixture": {
+    "profile": "large",
+    "seed": 20260713,
+    "clock": "2026-07-13T12:00:00.000Z",
+    "schemaVersion": "0016_add_task_activity_actor.sql",
+    "counts": {
+      "schemaMigrations": 16,
+      "projects": 5,
+      "tasks": 5000,
+      "checklistItems": 3750,
+      "activityEvents": 7500,
+      "documents": 750,
+      "taskDocumentLinks": 1500,
+      "documentLinks": 1000,
+      "externalRefs": 300,
+      "runbookRuns": 250,
+      "runbookRunSteps": 1250,
+      "runbookRunEvents": 1037,
+      "embeddings": 0
+    }
+  },
+  "configuration": {
+    "warmups": 3,
+    "samples": 11
+  },
+  "setupMs": {
+    "fixtureGeneration": 279.53,
+    "appReady": 37.39
+  },
+  "http": {
+    "projects": {
+      "samplesMs": [
+        0.86,
+        1.31,
+        1.52,
+        1.03,
+        4.55,
+        1.44,
+        1.27,
+        0.79,
+        0.71,
+        1.01,
+        1.79
+      ],
+      "minMs": 0.71,
+      "p50Ms": 1.27,
+      "p95Ms": 4.55,
+      "maxMs": 4.55
+    },
+    "tasks-all": {
+      "samplesMs": [
+        27.17,
+        27.75,
+        26.87,
+        26.79,
+        26.85,
+        29.74,
+        31.59,
+        25.12,
+        26.06,
+        25.87,
+        26.04
+      ],
+      "minMs": 25.12,
+      "p50Ms": 26.85,
+      "p95Ms": 31.59,
+      "maxMs": 31.59
+    },
+    "tasks-search": {
+      "samplesMs": [
+        2.12,
+        1.97,
+        2.22,
+        1.9,
+        1.78,
+        4.24,
+        2.04,
+        2.08,
+        3.01,
+        3.11,
+        2.86
+      ],
+      "minMs": 1.78,
+      "p50Ms": 2.12,
+      "p95Ms": 4.24,
+      "maxMs": 4.24
+    },
+    "library-all": {
+      "samplesMs": [
+        7.21,
+        6.99,
+        5.75,
+        7.18,
+        7.21,
+        6.87,
+        6.97,
+        7.14,
+        6.76,
+        7.13,
+        6.97
+      ],
+      "minMs": 5.75,
+      "p50Ms": 6.99,
+      "p95Ms": 7.21,
+      "maxMs": 7.21
+    },
+    "document-detail": {
+      "samplesMs": [
+        1.94,
+        1.97,
+        2.01,
+        2.06,
+        1.93,
+        1.9,
+        2.09,
+        1.98,
+        2.01,
+        2.02,
+        1.98
+      ],
+      "minMs": 1.9,
+      "p50Ms": 1.98,
+      "p95Ms": 2.09,
+      "maxMs": 2.09
+    }
+  },
+  "browser": {
+    "shell-feedback": {
+      "samplesMs": [
+        404.44,
+        395.78,
+        404.54,
+        399.2,
+        403.42,
+        403.42,
+        460.61,
+        407.67,
+        411.37,
+        401.71,
+        479.13
+      ],
+      "minMs": 395.78,
+      "p50Ms": 404.44,
+      "p95Ms": 479.13,
+      "maxMs": 479.13
+    },
+    "task-collection-completion": {
+      "samplesMs": [
+        469.36,
+        402.41,
+        405.81,
+        583.12,
+        410.5,
+        589.33,
+        467.16,
+        599.73,
+        412.77,
+        595.23,
+        480.11
+      ],
+      "minMs": 402.41,
+      "p50Ms": 469.36,
+      "p95Ms": 599.73,
+      "maxMs": 599.73
+    },
+    "quick-capture-feedback": {
+      "samplesMs": [
+        28.9,
+        42.38,
+        26.54,
+        13.94,
+        24.9,
+        17.71,
+        29.01,
+        29.86,
+        38.24,
+        31.05,
+        35.97
+      ],
+      "minMs": 13.94,
+      "p50Ms": 29.01,
+      "p95Ms": 42.38,
+      "maxMs": 42.38
+    },
+    "library-completion": {
+      "samplesMs": [
+        676.91,
+        772.34,
+        669.44,
+        678.73,
+        840.36,
+        666.01,
+        872.08,
+        666.93,
+        871.07,
+        664.16,
+        856.81
+      ],
+      "minMs": 664.16,
+      "p50Ms": 678.73,
+      "p95Ms": 872.08,
+      "maxMs": 872.08
+    },
+    "editor-completion": {
+      "samplesMs": [
+        874.09,
+        1075.51,
+        816.22,
+        919.57,
+        650.46,
+        872.75,
+        648.77,
+        1033.66,
+        648.5,
+        864.63,
+        646.33
+      ],
+      "minMs": 646.33,
+      "p50Ms": 864.63,
+      "p95Ms": 1075.51,
+      "maxMs": 1075.51
+    }
+  },
+  "resources": {
+    "databaseBytes": 7483392,
+    "nodeRssBeforeBytes": 184467456,
+    "nodeRssAfterBytes": 416817152,
+    "userCpuMicroseconds": 2205188,
+    "systemCpuMicroseconds": 133549
+  },
+  "artifactsRetained": false
+}

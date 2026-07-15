@@ -14,14 +14,14 @@ export function createEmbeddingService({ repository, embedder, concurrency = 4, 
     const doc = await repository.getDocument(id);
     if (!doc) return false;
     const { vector, model, dim } = await embedder.embed(embeddableText(doc));
-    await repository.setDocumentEmbedding(id, {
+    const savedId = await repository.setDocumentEmbedding(id, {
       vector,
       backend: embedder.backend,
       model,
       dim,
       contentHash: knownContentHash ?? doc.contentHash,
     });
-    return true;
+    return Boolean(savedId);
   }
 
   return {

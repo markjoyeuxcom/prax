@@ -1,5 +1,6 @@
 import { isEmbedderSettingsError } from './embedderProvider.js';
 import { isChatSettingsError } from './chatProvider.js';
+import { isLoopbackHost } from './config.js';
 
 const SETTING_KEY = 'semantic_search_enabled';
 // Generic fields plus the legacy aliases the shipped UI still sends; the
@@ -9,6 +10,7 @@ const PROVIDER_FIELDS = ['backend', 'model', 'baseUrl', 'apiKey', 'ollamaUrl', '
 const CHAT_FIELDS = ['backend', 'model', 'baseUrl', 'apiKey'];
 
 export async function registerSettingsRoutes(app, options = {}) {
+  const config = options.config || {};
   const appSettings = options.appSettingsRepository || app.appSettingsRepository;
   const library = options.libraryRepository || app.libraryRepository;
   const embedderProvider = options.embedderProvider ?? app.embedderProvider ?? null;
@@ -17,6 +19,16 @@ export async function registerSettingsRoutes(app, options = {}) {
   // runtime provider; the boot-time decorated embedder stays as the fallback.
   const injectedEmbedder = options.embedder ?? null;
   const injectedChat = options.chat ?? null;
+
+  app.get('/api/settings/deployment', async () => {
+    const bindHost = config.host || '127.0.0.1';
+    return {
+      authentication: 'none',
+      bindHost,
+      networkScope: isLoopbackHost(bindHost) ? 'local' : 'network',
+      networkAcknowledged: Boolean(config.allowUnauthenticatedNetwork),
+    };
+  });
 
   async function resolveEmbedder() {
     if (injectedEmbedder) return injectedEmbedder;

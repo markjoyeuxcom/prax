@@ -18,8 +18,10 @@ export default defineConfig({
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
   ],
   webServer: {
-    command: 'node scripts/demo-server.js',
-    env: { HOST: '127.0.0.1', PORT },
+    // Exercise the production SQLite repositories/routes, not a second in-memory
+    // implementation that can drift from the shipped app.
+    command: 'node server/index.js',
+    env: { HOST: '127.0.0.1', PORT, PRAX_DB_FILE: ':memory:', EMBEDDING_BACKEND: 'none' },
     url: `http://127.0.0.1:${PORT}/healthz`,
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,

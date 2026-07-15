@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release tag to publish, for example v0.1.0"
+        description: "Existing release tag, for example v0.20.0"
         required: true
         type: string
 
@@ -20,12 +20,14 @@ env:
   IMAGE_NAME: awaybreaktoday/prax
 
 jobs:
-  publish:
-    name: Publish container image
+  resolve:
+    name: Resolve release
     runs-on: ubuntu-latest
-
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
     steps:
-      - name: Resolve release version
+      - name: Resolve and validate version
         id: release
         shell: bash
         env:
@@ -49,10 +51,43 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
 
+  quality:
+    name: Release quality gate
+    needs: resolve
+    runs-on: ubuntu-latest
+    steps:
       - name: Checkout release ref
         uses: actions/checkout@v7
         with:
-          ref: ${{ steps.release.outputs.version }}
+          ref: ${{ needs.resolve.outputs.version }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify release version and sources
+        run: node scripts/verify-desktop-release.mjs --tag ${{ needs.resolve.outputs.version }}
+
+      - name: Syntax check
+        run: npm run check
+
+      - name: Test
+        run: npm test
+
+  container:
+    name: Publish container image
+    needs: [resolve, quality, desktop]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release ref
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.version }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
@@ -73,13 +108,13 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=${{ steps.release.outputs.version }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ steps.release.outputs.version }}
-            type=semver,pattern={{major}},value=${{ steps.release.outputs.version }}
-            type=raw,value=latest,enable=${{ steps.release.outputs.prerelease == 'false' }}
+            type=raw,value=${{ needs.resolve.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.resolve.outputs.version }}
+            type=semver,pattern={{major}},value=${{ needs.resolve.outputs.version }}
+            type=raw,value=latest,enable=${{ needs.resolve.outputs.prerelease == 'false' }}
           labels: |
             org.opencontainers.image.title=Prax
-            org.opencontainers.image.description=Local-first homelab operations console for tasks, runbooks, and Markdown workflows.
+            org.opencontainers.image.description=Local-first operations workspace for tasks, runbooks, and Markdown knowledge.
             org.opencontainers.image.licenses=MIT
 
       - name: Build and push image
@@ -94,16 +129,168 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Create GitHub Release
+  desktop:
+    name: Desktop — ${{ matrix.name }}
+    needs: [resolve, quality]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS Apple Silicon
+            platform: macos-latest
+            artifact: prax-macos-arm64
+            args: --bundles app,dmg
+            archive_app: true
+            assets: |
+              src-tauri/target/release/bundle/dmg/*.dmg
+              src-tauri/target/release/bundle/macos/*.app.tar.gz
+          - name: macOS Intel
+            platform: macos-13
+            artifact: prax-macos-x64
+            args: --bundles app,dmg
+            archive_app: true
+            assets: |
+              src-tauri/target/release/bundle/dmg/*.dmg
+              src-tauri/target/release/bundle/macos/*.app.tar.gz
+          - name: Windows x64
+            platform: windows-latest
+            artifact: prax-windows-x64
+            args: --bundles msi,nsis
+            archive_app: false
+            assets: |
+              src-tauri/target/release/bundle/msi/*.msi
+              src-tauri/target/release/bundle/nsis/*.exe
+          - name: Linux x64
+            platform: ubuntu-latest
+            artifact: prax-linux-x64
+            args: --bundles deb,appimage
+            archive_app: false
+            assets: |
+              src-tauri/target/release/bundle/deb/*.deb
+              src-tauri/target/release/bundle/appimage/*.AppImage
+    runs-on: ${{ matrix.platform }}
+    env:
+      APPLE_SIGNING_AVAILABLE: ${{ secrets.APPLE_CERTIFICATE != '' }}
+    steps:
+      - name: Checkout release ref
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.version }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Install Linux webview and smoke dependencies
+        if: startsWith(matrix.platform, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev patchelf xvfb dbus-x11
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify Rust source and tests
+        run: |
+          cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+          cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Stage and verify production sidecar
+        shell: bash
+        run: |
+          npm run prepare:sidecar
+          npm run desktop:verify -- --tag ${{ needs.resolve.outputs.version }}
+
+      - name: Build signed and notarized macOS bundles
+        if: startsWith(matrix.platform, 'macos') && env.APPLE_SIGNING_AVAILABLE == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npx tauri build ${{ matrix.args }}
+
+      - name: Build unsigned macOS verification bundles
+        if: startsWith(matrix.platform, 'macos') && env.APPLE_SIGNING_AVAILABLE != 'true'
+        run: npx tauri build ${{ matrix.args }}
+
+      - name: Build desktop bundles
+        if: ${{ !startsWith(matrix.platform, 'macos') }}
+        run: npx tauri build ${{ matrix.args }}
+
+      - name: Smoke packaged runtime
+        run: npm run desktop:smoke
+
+      - name: Archive macOS application bundle
+        if: matrix.archive_app
+        shell: bash
+        run: tar -czf src-tauri/target/release/bundle/macos/Prax-${{ matrix.artifact }}.app.tar.gz -C src-tauri/target/release/bundle/macos Prax.app
+
+      - name: Upload native packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.assets }}
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish complete release
+    needs: [resolve, quality, container, desktop]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all native packages
+        uses: actions/download-artifact@v8
+        with:
+          pattern: prax-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Flatten assets and reject filename collisions
+        shell: bash
+        run: |
+          mkdir release-files
+          find release-assets -type f -exec cp -n {} release-files/ \;
+          source_count="$(find release-assets -type f | wc -l)"
+          release_count="$(find release-files -type f | wc -l)"
+          test "$source_count" -eq "$release_count"
+
+      - name: Generate SHA-256 checksums
+        shell: bash
+        run: |
+          cd release-files
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+          test -s SHA256SUMS
+
+      - name: Create GitHub Release with every supported package
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ steps.release.outputs.version }}
-          name: ${{ steps.release.outputs.version }}
-          prerelease: ${{ steps.release.outputs.prerelease == 'true' }}
+          tag_name: ${{ needs.resolve.outputs.version }}
+          name: ${{ needs.resolve.outputs.version }}
+          prerelease: ${{ needs.resolve.outputs.prerelease == 'true' }}
           generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: release-files/*
           body: |
-            ## Image
+            ## Container
 
+            ```text
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.resolve.outputs.version }}
             ```
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.release.outputs.version }}
-            ```
+
+            Desktop packages for every supported platform and `SHA256SUMS` are attached to this
+            release. Back up `prax.db`, quit Prax, then install the new package over the application;
+            the OS app-data directory is preserved. Platform signing/notarization status depends on
+            the release credentials configured for this repository. The workflow passes configured
+            Apple signing/notarization secrets to Tauri; Windows signing still requires the
+            certificate configuration described in `docs/desktop/BUILD.md`.

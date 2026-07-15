@@ -1,6 +1,8 @@
-import { createTasksRepository } from './tasksRepository.js';
+import { createHash } from 'node:crypto';
+import { createTasksRepository, taskMatchesCreateFields } from './tasksRepository.js';
 import { createProjectsRepository } from './projectsRepository.js';
-import { isValidRecurrence, nextDueDate } from './recurrence.js';
+import { createChecklistRepository } from './checklistRepository.js';
+import { isValidRecurrence, planTaskRecurrenceTransition } from './recurrence.js';
 import { tasksToIcs } from './icsFeed.js';
 import {
   cleanNlText, boundGrounding, buildNlCaptureMessages, coerceNlCaptureFields,
@@ -46,9 +48,11 @@ function isValidDeferredUntil(value) {
 }
 const IMPORT_MODES = new Set(['append', 'skip', 'replace']);
 const TASK_EXPORT_FORMAT = 'moomora.tasks';
+const TASK_EXPORT_VERSION = 1;
 const MIN_SORT_ORDER = -2147483648;
 const MAX_SORT_ORDER = 2147483647;
 const MAX_IMPORT_TASKS = 500;
+const MAX_IMPORT_CHECKLIST_ITEMS = 500;
 const MAX_BOARD_EXTRA_TASKS = 200;
 
 function isValidDateString(value) {
@@ -73,6 +77,11 @@ function isValidUuid(value) {
   );
 }
 
+function originFrom(request) {
+  const origin = request.headers['x-prax-origin'] ?? request.headers['x-moomora-origin'];
+  return origin === 'agent' ? 'agent' : 'user';
+}
+
 function isValidSortOrder(value) {
   return (
     value === undefined ||
@@ -90,6 +99,7 @@ function validateTaskPayload(payload) {
   if (!payload || typeof payload.title !== 'string' || payload.title.trim() === '') {
     return 'title is required';
   }
+  if (payload.id !== undefined && !isValidUuid(payload.id)) return 'id is invalid';
   if (!PRIORITIES.has(payload.priority)) return 'priority is invalid';
   if (!STATUSES.has(payload.status)) return 'status is invalid';
   if (typeof payload.project !== 'string' || payload.project.trim() === '') return 'project is required';
@@ -114,22 +124,44 @@ function validateTaskImportPayload(payload) {
   if (typeof payload.project !== 'string' || payload.project.trim() === '') return 'project is required';
   if (payload.mode !== undefined && !IMPORT_MODES.has(payload.mode)) return 'mode is invalid';
   if (payload.format !== undefined && payload.format !== TASK_EXPORT_FORMAT) return 'format is invalid';
+  if (payload.version !== undefined && payload.version !== TASK_EXPORT_VERSION) return 'version is invalid';
+  if (payload.requestId !== undefined && !isValidUuid(payload.requestId)) return 'requestId is invalid';
 
   const tasks = importTasksFromPayload(payload);
   if (!tasks || tasks.length === 0) return 'tasks must include at least one task';
   if (tasks.length > MAX_IMPORT_TASKS) return `tasks cannot exceed ${MAX_IMPORT_TASKS} records`;
 
+  let checklistItemCount = 0;
   for (const task of tasks) {
     if (!task || typeof task !== 'object' || Array.isArray(task)) return 'tasks must include valid task records';
     if (typeof task.title !== 'string' || task.title.trim() === '') return 'title is required';
     if (task.priority !== undefined && !PRIORITIES.has(task.priority)) return 'priority is invalid';
     if (task.status !== undefined && !STATUSES.has(task.status)) return 'status is invalid';
     if (task.dueDate !== undefined && !isValidDateString(task.dueDate)) return 'dueDate is invalid';
+    if (task.dueTime !== undefined && !isValidTimeString(task.dueTime)) return 'dueTime is invalid';
+    if (task.deferredUntil !== undefined && !isValidDeferredUntil(task.deferredUntil)) return 'deferredUntil is invalid';
+    if (task.recurrence !== undefined && !isValidRecurrence(task.recurrence)) return 'recurrence is invalid';
+    if (!isValidLabels(task.labels)) return 'labels is invalid';
+    if (task.description !== undefined && typeof task.description !== 'string') return 'description is invalid';
+    if (task.notes !== undefined && typeof task.notes !== 'string') return 'notes is invalid';
+    if (task.checklist !== undefined) {
+      if (!Array.isArray(task.checklist)) return 'checklist is invalid';
+      checklistItemCount += task.checklist.length;
+      if (checklistItemCount > MAX_IMPORT_CHECKLIST_ITEMS) return 'checklist is invalid';
+      if (task.checklist.some((item) => !item || typeof item.label !== 'string' || !item.label.trim()
+        || (item.completed !== undefined && typeof item.completed !== 'boolean'))) return 'checklist is invalid';
+    }
     if (!isValidSortOrder(task.sortOrder)) return 'sortOrder is invalid';
     if (!isValidTimestampString(task.archivedAt)) return 'archivedAt is invalid';
   }
 
   return null;
+}
+
+function taskImportPayloadHash({ projectId, mode, tasks }) {
+  return createHash('sha256')
+    .update(JSON.stringify({ projectId, mode, tasks }))
+    .digest('hex');
 }
 
 function cleanImportMode(payload) {
@@ -139,13 +171,21 @@ function cleanImportMode(payload) {
 function cleanTaskImportPayload(payload) {
   return importTasksFromPayload(payload).map((task, index) => ({
     title: task.title.trim(),
-    description: typeof task.description === 'string' ? task.description.trim() : '',
+    description: typeof task.description === 'string' ? task.description : '',
+    notes: typeof task.notes === 'string' ? task.notes : '',
     priority: task.priority || 'medium',
     status: task.status || 'planned',
     projectId: payload.projectId,
     dueDate: task.dueDate || null,
+    dueTime: task.dueTime || null,
+    deferredUntil: task.deferredUntil || null,
+    recurrence: task.recurrence || null,
+    labels: normalizeLabels(task.labels),
     sortOrder: Number.isInteger(task.sortOrder) ? task.sortOrder : index,
     archivedAt: task.archivedAt || null,
+    checklist: Array.isArray(task.checklist)
+      ? task.checklist.map((item) => ({ label: item.label.trim(), completed: Boolean(item.completed) }))
+      : [],
   }));
 }
 
@@ -174,6 +214,7 @@ function filterDuplicateTasks(importedTasks, existingTasks) {
 
 function cleanTaskPayload(payload) {
   return {
+    ...(payload.id ? { id: payload.id } : {}),
     title: payload.title.trim(),
     description: typeof payload.description === 'string' ? payload.description.trim() : '',
     notes: typeof payload.notes === 'string' ? payload.notes.trim() : '',
@@ -331,6 +372,20 @@ function taskIdsFromQuery(value) {
 export async function registerTasksRoutes(app, options = {}) {
   const repository = options.tasksRepository || app.tasksRepository || createTasksRepository(app.db);
   const projectsRepository = options.projectsRepository || app.projectsRepository || createProjectsRepository(app.db);
+  const checklistRepository = options.checklistRepository || app.checklistRepository
+    || (app.db ? createChecklistRepository(app.db) : null);
+
+  async function restoreImportedChecklists(tasks, candidates) {
+    if (!checklistRepository) return;
+    for (let index = 0; index < tasks.length; index += 1) {
+      for (const item of candidates[index]?.checklist || []) {
+        const created = await checklistRepository.addChecklistItem(tasks[index].id, item.label);
+        if (item.completed) {
+          await checklistRepository.setChecklistItemCompleted(tasks[index].id, created.id, true);
+        }
+      }
+    }
+  }
 
   // The active chat model for the NL-parse routes, mirroring libraryRoutes:
   // injected wins, then the runtime provider, else null (feature degrades).
@@ -344,8 +399,8 @@ export async function registerTasksRoutes(app, options = {}) {
     return null;
   }
 
-  const logActivity = async (taskId, eventType, message) => {
-    try { if (repository.recordActivity) await repository.recordActivity(taskId, eventType, message); }
+  const logActivity = async (taskId, eventType, message, actor = 'user') => {
+    try { if (repository.recordActivity) await repository.recordActivity(taskId, eventType, message, actor); }
     catch { /* activity logging is best-effort; never fail the mutation */ }
   };
 
@@ -355,27 +410,7 @@ export async function registerTasksRoutes(app, options = {}) {
     return project ? project.id : null; // null signals "given but not found"
   }
 
-  // A recurring task just transitioned into 'completed' → clone it as the next
-  // planned instance with an advanced due date. The completed one stays as the
-  // record of the done occurrence. Best-effort: never fail the completion itself.
-  async function maybeSpawnRecurrence(task, priorStatus) {
-    if (!task || !task.recurrence || !repository.createTask) return;
-    if (task.status !== 'completed' || priorStatus === 'completed') return;
-    try {
-      const next = await repository.createTask({
-        title: task.title,
-        description: task.description || '',
-        notes: task.notes || '',
-        priority: task.priority,
-        status: 'planned',
-        projectId: task.projectId,
-        dueDate: nextDueDate(task.recurrence, task.dueDate),
-        recurrence: task.recurrence,
-        sortOrder: 0,
-      });
-      if (next) await logActivity(next.id, 'created', 'Recurring task created');
-    } catch { /* spawning the next instance is best-effort */ }
-  }
+  const planLifecycle = (prior, fields) => planTaskRecurrenceTransition(prior, fields);
 
   app.get('/api/tasks/export', async (request, reply) => {
     const exportProject = request.query.project;
@@ -393,12 +428,16 @@ export async function registerTasksRoutes(app, options = {}) {
       ? { projectId, archived: 'all' }
       : { archived: 'all' };
     const tasks = await repository.listTasks(filters);
+    const tasksWithChecklist = await Promise.all(tasks.map(async (task) => ({
+      ...task,
+      checklist: checklistRepository ? await checklistRepository.listChecklist(task.id) : [],
+    })));
     return {
       format: TASK_EXPORT_FORMAT,
-      version: 1,
+      version: TASK_EXPORT_VERSION,
       exportedAt: new Date().toISOString(),
       project: exportProject || 'all',
-      tasks,
+      tasks: tasksWithChecklist,
     };
   });
 
@@ -471,6 +510,29 @@ export async function registerTasksRoutes(app, options = {}) {
 
     const mode = cleanImportMode(enrichedBody);
     const importCandidates = cleanTaskImportPayload(enrichedBody);
+    const requestId = request.body.requestId;
+    const payloadHash = requestId
+      ? taskImportPayloadHash({ projectId: resolvedProjectId, mode, tasks: importCandidates })
+      : null;
+    if (requestId) {
+      if (typeof repository.importTasksExactlyOnce !== 'function') {
+        reply.code(503);
+        return { message: 'exact-once task import is unavailable' };
+      }
+      const result = await repository.importTasksExactlyOnce(importCandidates, {
+        requestId,
+        payloadHash,
+        mode,
+        projectId: resolvedProjectId,
+        replaceProjectId: mode === 'replace' ? resolvedProjectId : null,
+      });
+      if (result.conflict) {
+        reply.code(409);
+        return { message: 'requestId was already used for a different task import' };
+      }
+      reply.code(result.replayed ? 200 : (result.imported ? 201 : 200));
+      return result;
+    }
     let skipped = 0;
     let tasksToImport = importCandidates;
 
@@ -484,11 +546,18 @@ export async function registerTasksRoutes(app, options = {}) {
       skipped = filtered.skipped;
     }
 
-    const tasks = mode === 'replace'
-      ? await repository.replaceProjectTasks(resolvedProjectId, importCandidates)
-      : tasksToImport.length
-        ? await repository.importTasks(tasksToImport)
-        : [];
+    const candidates = mode === 'replace' ? importCandidates : tasksToImport;
+    const hasAtomicImport = typeof repository.importTasksWithChecklists === 'function';
+    const tasks = candidates.length
+      ? hasAtomicImport
+        ? await repository.importTasksWithChecklists(candidates, {
+          replaceProjectId: mode === 'replace' ? resolvedProjectId : null,
+        })
+        : mode === 'replace'
+          ? await repository.replaceProjectTasks(resolvedProjectId, importCandidates)
+          : await repository.importTasks(tasksToImport)
+      : [];
+    if (!hasAtomicImport) await restoreImportedChecklists(tasks, candidates);
     reply.code(tasks.length ? 201 : 200);
     return {
       mode,
@@ -506,10 +575,24 @@ export async function registerTasksRoutes(app, options = {}) {
     }
     const resolvedId = await resolveProjectId(request.body.project);
     if (resolvedId === null) { reply.code(400); return { message: 'project is invalid' }; }
-    request.body.projectId = resolvedId;
+    const candidate = cleanTaskPayload({ ...request.body, projectId: resolvedId });
+    if (candidate.id) {
+      if (typeof repository.createTaskIdempotent !== 'function') {
+        reply.code(503);
+        return { message: 'idempotent task creation is unavailable' };
+      }
+      const result = await repository.createTaskIdempotent(candidate);
+      if (!result.task || (!result.created && !taskMatchesCreateFields(result.task, candidate))) {
+        reply.code(409);
+        return { message: 'task id was already used for different content' };
+      }
+      reply.code(result.created ? 201 : 200);
+      if (result.created) await logActivity(result.task.id, 'created', 'Task created', originFrom(request));
+      return result.task;
+    }
+    const created = await repository.createTask(candidate);
     reply.code(201);
-    const created = await repository.createTask(cleanTaskPayload(request.body));
-    await logActivity(created.id, 'created', 'Task created');
+    await logActivity(created.id, 'created', 'Task created', originFrom(request));
     return created;
   });
 
@@ -521,23 +604,41 @@ export async function registerTasksRoutes(app, options = {}) {
     }
 
     const updates = cleanTaskReorderPayload(request.body);
-    const priorStatuses = new Map();
+    const priors = new Map();
     if (repository.getTask) {
       for (const update of updates) {
         const prior = await repository.getTask(update.id);
-        if (prior) priorStatuses.set(update.id, prior.status);
+        if (prior) priors.set(update.id, prior);
       }
     }
 
-    const reordered = await repository.reorderTasks(updates);
+    let lifecycleResults = null;
+    let reordered;
+    if (repository.reorderTasksWithLifecycle) {
+      lifecycleResults = await repository.reorderTasksWithLifecycle(updates, planLifecycle);
+      reordered = lifecycleResults.map(result => result.task);
+    } else {
+      const requiresLifecycle = updates.some((update) => {
+        const prior = priors.get(update.id);
+        if (!prior) return false;
+        const transition = planLifecycle(prior, { status: update.status, sortOrder: update.sortOrder });
+        return Boolean(transition.nextTask || transition.reopenedAsOneOff);
+      });
+      if (requiresLifecycle) {
+        reply.code(503);
+        return { message: 'atomic recurring task transition is unavailable' };
+      }
+      reordered = await repository.reorderTasks(updates);
+    }
 
     for (const task of reordered) {
       if (!task) continue;
-      const priorStatus = priorStatuses.get(task.id);
+      const priorStatus = (lifecycleResults?.find(result => result.task.id === task.id)?.prior || priors.get(task.id))?.status;
       if (priorStatus !== undefined && priorStatus !== task.status) {
-        await logActivity(task.id, 'status', `Status → ${task.status}`);
+        await logActivity(task.id, 'status', `Status → ${task.status}`, originFrom(request));
       }
-      await maybeSpawnRecurrence(task, priorStatus);
+      const nextTask = lifecycleResults?.find(result => result.task.id === task.id)?.nextTask;
+      if (nextTask) await logActivity(nextTask.id, 'created', 'Recurring task created', originFrom(request));
     }
 
     return reordered;
@@ -547,6 +648,10 @@ export async function registerTasksRoutes(app, options = {}) {
     if (!isValidUuid(request.params.id)) {
       reply.code(400);
       return { message: 'task id is invalid' };
+    }
+    if (typeof repository.getTask === 'function' && !(await repository.getTask(request.params.id))) {
+      reply.code(404);
+      return { message: 'task not found' };
     }
     return repository.listTaskDocuments(request.params.id);
   });
@@ -582,9 +687,9 @@ export async function registerTasksRoutes(app, options = {}) {
       return { message: 'documentId is invalid' };
     }
     const removed = await repository.unlinkTaskDocument(id, documentId);
-    if (!removed) {
+    if (!removed && typeof repository.getTask === 'function' && !(await repository.getTask(id))) {
       reply.code(404);
-      return { message: 'link not found' };
+      return { message: 'task not found' };
     }
     return repository.listTaskDocuments(id);
   });
@@ -593,6 +698,10 @@ export async function registerTasksRoutes(app, options = {}) {
     if (!isValidUuid(request.params.id)) {
       reply.code(400);
       return { message: 'task id is invalid' };
+    }
+    if (typeof repository.getTask === 'function' && !(await repository.getTask(request.params.id))) {
+      reply.code(404);
+      return { message: 'task not found' };
     }
     return repository.listTaskActivity ? repository.listTaskActivity(request.params.id) : [];
   });
@@ -608,7 +717,7 @@ export async function registerTasksRoutes(app, options = {}) {
       reply.code(404);
       return { message: 'task not found' };
     }
-    await logActivity(task.id, 'restored', 'Task restored');
+    await logActivity(task.id, 'restored', 'Task restored', originFrom(request));
     return task;
   });
 
@@ -653,16 +762,28 @@ export async function registerTasksRoutes(app, options = {}) {
     }
 
     const prior = repository.getTask ? await repository.getTask(request.params.id) : null;
-
-    const task = await repository.updateTask(request.params.id, fields);
+    let result = null;
+    let task;
+    if (repository.updateTaskLifecycle) {
+      result = await repository.updateTaskLifecycle(request.params.id, fields, planLifecycle);
+      task = result.task;
+    } else {
+      const transition = planLifecycle(prior, fields);
+      if (transition.nextTask || transition.reopenedAsOneOff) {
+        reply.code(503);
+        return { message: 'atomic recurring task transition is unavailable' };
+      }
+      task = await repository.updateTask(request.params.id, transition.fields);
+    }
     if (!task) {
       reply.code(404);
       return { message: 'task not found' };
     }
-    if (prior && prior.status !== task.status) {
-      await logActivity(task.id, 'status', `Status → ${task.status}`);
+    const authoritativePrior = result?.prior || prior;
+    if (authoritativePrior && authoritativePrior.status !== task.status) {
+      await logActivity(task.id, 'status', `Status → ${task.status}`, originFrom(request));
     }
-    await maybeSpawnRecurrence(task, prior ? prior.status : undefined);
+    if (result?.nextTask) await logActivity(result.nextTask.id, 'created', 'Recurring task created', originFrom(request));
     return task;
   });
 
@@ -677,7 +798,7 @@ export async function registerTasksRoutes(app, options = {}) {
       reply.code(404);
       return { message: 'task not found' };
     }
-    await logActivity(task.id, 'archived', 'Task archived');
+    await logActivity(task.id, 'archived', 'Task archived', originFrom(request));
     return task;
   });
 

@@ -30,8 +30,24 @@ test('parseGeneratedRunbook falls back to a description-derived title when no H1
 // ---- route ----
 function makeApp({ chat } = {}) {
   const created = [];
+  const documents = new Map();
+  const receipts = new Map();
+  const toRecord = (d, fallbackId = 'rb1') => {
+    const { creationOperation, creationIntentHash, ...publicFields } = d;
+    const rec = { id: d.id || fallbackId, ...publicFields, verified: (d.updatedBy || 'user') !== 'agent', status: 'active' };
+    documents.set(rec.id, rec);
+    if (creationOperation || creationIntentHash) receipts.set(rec.id, { operation: creationOperation, intentHash: creationIntentHash });
+    created.push(rec);
+    return rec;
+  };
   const library = {
-    createDocument: async (d) => { const rec = { id: 'rb1', ...d, verified: (d.updatedBy || 'user') !== 'agent', status: 'active' }; created.push(rec); return rec; },
+    createDocument: async (d) => toRecord(d),
+    async createDocumentIdempotent(d) {
+      if (documents.has(d.id)) return { document: documents.get(d.id), created: false };
+      return { document: toRecord(d), created: true };
+    },
+    getDocument: async (id) => documents.get(id) || null,
+    getDocumentCreationReceipt: async (id) => receipts.get(id) || null,
     listDocuments: async () => [],
   };
   const app = buildApp({
@@ -60,6 +76,26 @@ test('POST generate creates an agent-written runbook from the model output', asy
   assert.equal(body.document.title, 'Postgres failover');
   assert.match(body.document.body, /- \[ \] Stop writes at PgBouncer/);
   assert.match(seen[1].content, /Postgres primary down/);   // model saw the description
+  await app.close();
+});
+
+test('POST generate replays a stable result id without invoking the model twice and rejects changed intent', async () => {
+  let calls = 0;
+  const chat = { backend: 'fake', model: 'f', async complete() { calls += 1; return { text: '# Stable runbook\n- [ ] Act', model: 'f' }; } };
+  const { app } = await makeApp({ chat });
+  const id = '11111111-1111-4111-8111-111111111111';
+  const payload = { id, description: 'pg down', project: 'homelab' };
+  const first = await app.inject({ method: 'POST', url: '/api/library/runbooks/generate', payload });
+  assert.equal(first.statusCode, 201);
+  assert.equal(first.json().replayed, false);
+  const replay = await app.inject({ method: 'POST', url: '/api/library/runbooks/generate', payload });
+  assert.equal(replay.statusCode, 200);
+  assert.equal(replay.json().replayed, true);
+  assert.equal(replay.json().document.id, id);
+  assert.equal(calls, 1);
+  const conflict = await app.inject({ method: 'POST', url: '/api/library/runbooks/generate', payload: { ...payload, description: 'different' } });
+  assert.equal(conflict.statusCode, 409);
+  assert.equal(calls, 1);
   await app.close();
 });
 

@@ -33,6 +33,10 @@ function createFakeTasksRepository() {
     status: 'planned',
     projectId: PROJECT_UUID,
     dueDate: '2026-05-12',
+    dueTime: null,
+    deferredUntil: null,
+    recurrence: null,
+    labels: [],
     sortOrder: 0,
     createdAt: 'now',
     updatedAt: 'now',
@@ -99,6 +103,8 @@ test('SHAPE: GET /api/tasks/export envelope shape is locked', async () => {
   assert.equal(body.format, 'moomora.tasks');
   assert.equal(body.version, 1);
   assert.equal(body.project, 'homelab');
+  assert.deepEqual(Object.keys(body.tasks[0]).sort(), [...FROZEN_TASK_KEYS, 'checklist'].sort());
+  assert.deepEqual(body.tasks[0].checklist, []);
   await app.close();
 });
 
@@ -114,6 +120,36 @@ test('SHAPE: import applies documented defaults (priority=medium, status=planned
   assert.equal(body.mode, 'skip');
   assert.equal(body.tasks[0].priority, 'medium');
   assert.equal(body.tasks[0].status, 'planned');
+  await app.close();
+});
+
+test('SHAPE: import accepts only the declared v1 envelope', async () => {
+  const app = await buildContractApp();
+  for (const version of [2, '1']) {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/tasks/import',
+      payload: { format: 'moomora.tasks', version, project: 'homelab', tasks: [{ title: 'Future task' }] },
+    });
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.json().message, 'version is invalid');
+  }
+  await app.close();
+});
+
+test('SHAPE: import preserves exact description and notes whitespace', async () => {
+  const app = await buildContractApp();
+  const res = await app.inject({
+    method: 'POST',
+    url: '/api/tasks/import',
+    payload: {
+      format: 'moomora.tasks', version: 1, project: 'homelab', mode: 'append',
+      tasks: [{ title: 'Exact strings', description: '  indented description\n', notes: '\noperator note  ' }],
+    },
+  });
+  assert.equal(res.statusCode, 201);
+  assert.equal(res.json().tasks[0].description, '  indented description\n');
+  assert.equal(res.json().tasks[0].notes, '\noperator note  ');
   await app.close();
 });
 
@@ -164,6 +200,18 @@ test('SHAPE: import rejects more than 500 tasks', async () => {
   const res = await app.inject({ method: 'POST', url: '/api/tasks/import', payload: { project: 'homelab', tasks } });
   assert.equal(res.statusCode, 400);
   assert.match(res.json().message, /cannot exceed 500/);
+  await app.close();
+});
+
+test('SHAPE: import rejects more than 500 checklist items in total', async () => {
+  const app = await buildContractApp();
+  const checklist = Array.from({ length: 501 }, (_, i) => ({ label: `Step ${i}` }));
+  const res = await app.inject({
+    method: 'POST', url: '/api/tasks/import',
+    payload: { project: 'homelab', tasks: [{ title: 'Oversized checklist', checklist }] },
+  });
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.json().message, 'checklist is invalid');
   await app.close();
 });
 

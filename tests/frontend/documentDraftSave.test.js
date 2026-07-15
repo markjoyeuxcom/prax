@@ -19,11 +19,24 @@ test('documentDraftSavedPatch updates the saved document and clears draft dirty 
       { id: 'doc-1', title: 'Runbook', body: '# Saved' },
       { id: 'doc-2', title: 'Notes', body: 'Notes' },
     ],
-    selectedDocumentId: 'doc-1',
     documentDraftId: 'doc-1',
+    documentDraftTitle: 'Runbook',
     documentDraftBody: '# Saved',
     isDocumentDirty: false,
     documentSaveStatus: 'Saved',
+    documentDraftRecoveryReason: null,
+    isDocumentDraftStored: true,
+  });
+});
+
+test('documentDraftSavedPatch does not replace a newer editor draft after navigation', () => {
+  const patch = documentDraftSavedPatch({
+    documents: [{ id: 'doc-1', body: 'old' }, { id: 'doc-2', body: 'current' }],
+    savedDocument: { id: 'doc-1', body: 'saved' },
+    activeDocumentId: 'doc-2',
+  });
+  assert.deepEqual(patch, {
+    documents: [{ id: 'doc-1', body: 'saved' }, { id: 'doc-2', body: 'current' }],
   });
 });
 

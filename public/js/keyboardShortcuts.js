@@ -34,6 +34,15 @@ export function matchShortcut({ key, metaOrCtrl = false, alt = false }, pending 
   return { action: actions[key] || null, view: null, pending: '' };
 }
 
+// Global one-key commands must not steal Enter, letters, or arrows from a
+// focused native control. Meta/Ctrl commands and Escape remain global.
+export function isInteractiveShortcutTarget(target) {
+  const tag = String(target?.tagName || '').toUpperCase();
+  if (tag === 'BUTTON' || tag === 'SUMMARY') return true;
+  if (tag === 'A' && (target?.hasAttribute?.('href') || target?.href)) return true;
+  return Boolean(target?.closest?.('button, a[href], summary, [role="button"]'));
+}
+
 export function installKeyboardShortcuts({ handlers }) {
   let pending = '';
   let pendingTimer = null;
@@ -60,7 +69,8 @@ export function installKeyboardShortcuts({ handlers }) {
     // ⌘K/⌘J work everywhere, Escape works everywhere; other shortcuts are
     // suppressed while typing.
     const typing = isTypingTarget(event.target);
-    if (typing && event.key !== 'Escape' && !metaOrCtrl) return;
+    const interactive = isInteractiveShortcutTarget(event.target);
+    if ((typing || interactive) && event.key !== 'Escape' && !metaOrCtrl) return;
 
     const result = matchShortcut({ key: event.key, metaOrCtrl, alt: event.altKey }, pending);
 

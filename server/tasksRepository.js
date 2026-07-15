@@ -1,7 +1,29 @@
 import { toIso } from './columnTypes.js';
 
 const ALLOWED_CREATE_FIELDS = ['title', 'description', 'priority', 'status', 'projectId', 'dueDate', 'dueTime', 'sortOrder', 'notes', 'recurrence', 'labels'];
-const IMPORT_FIELDS = ['title', 'description', 'priority', 'status', 'projectId', 'dueDate', 'sortOrder', 'archivedAt'];
+const CREATE_COLUMN_MAP = {
+  title: 'title',
+  description: 'description',
+  priority: 'priority',
+  status: 'status',
+  projectId: 'project_id',
+  dueDate: 'due_date',
+  dueTime: 'due_time',
+  sortOrder: 'sort_order',
+  notes: 'notes',
+  recurrence: 'recurrence',
+  labels: 'labels',
+};
+const IMPORT_FIELDS = [
+  'title', 'description', 'notes', 'priority', 'status', 'projectId',
+  'dueDate', 'dueTime', 'deferredUntil', 'recurrence', 'labels',
+  'sortOrder', 'archivedAt',
+];
+const IMPORT_COLUMNS = [
+  'title', 'description', 'notes', 'priority', 'status', 'project_id',
+  'due_date', 'due_time', 'deferred_until', 'recurrence', 'labels',
+  'sort_order', 'archived_at',
+];
 const UPDATE_COLUMN_MAP = {
   title: 'title',
   description: 'description',
@@ -35,6 +57,29 @@ function serializeLabels(labels) {
   return JSON.stringify(Array.isArray(labels) ? labels : []);
 }
 
+function taskImportDuplicateKey(task) {
+  return [
+    String(task?.title || '').trim().toLowerCase(),
+    String(task?.projectId || '').trim().toLowerCase(),
+    String(task?.status || 'planned').trim().toLowerCase(),
+    String(task?.dueDate || '').trim(),
+  ].join('\u001f');
+}
+
+function filterTaskImportDuplicates(importedTasks, existingTasks) {
+  const keys = new Set(existingTasks.map(taskImportDuplicateKey));
+  return importedTasks.reduce((result, task) => {
+    const key = taskImportDuplicateKey(task);
+    if (keys.has(key)) {
+      result.skipped += 1;
+    } else {
+      keys.add(key);
+      result.tasks.push(task);
+    }
+    return result;
+  }, { tasks: [], skipped: 0 });
+}
+
 // SQLite stores due_date as TEXT 'YYYY-MM-DD', which passes through unchanged.
 // Date objects are still normalised defensively (the pg era returned DATE
 // columns as JS Date objects, and callers may still hand one in).
@@ -65,17 +110,39 @@ export function normalizeTaskRow(row) {
   };
 }
 
-export function buildCreateTask(task) {
+export function buildCreateTask(task, { ignoreIdConflict = false } = {}) {
+  const fields = task.id ? ['id', ...ALLOWED_CREATE_FIELDS] : ALLOWED_CREATE_FIELDS;
+  const columns = fields.map(field => (field === 'id' ? 'id' : CREATE_COLUMN_MAP[field]));
   return {
     text: `
-      insert into tasks (title, description, priority, status, project_id, due_date, due_time, sort_order, notes, recurrence, labels)
-      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      insert into tasks (${columns.join(', ')})
+      values (${fields.map((_, index) => `$${index + 1}`).join(', ')})
+      ${ignoreIdConflict ? 'on conflict(id) do nothing' : ''}
       returning *
     `,
-    values: ALLOWED_CREATE_FIELDS.map(field =>
+    values: fields.map(field =>
       field === 'labels' ? serializeLabels(task.labels) : (task[field] ?? null),
     ),
   };
+}
+
+export function taskMatchesCreateFields(task, fields) {
+  if (!task || !fields) return false;
+  const labels = Array.isArray(fields.labels) ? fields.labels : [];
+  return (!fields.id || task.id === fields.id)
+    && task.title === fields.title
+    && (task.description || '') === (fields.description || '')
+    && (task.notes || '') === (fields.notes || '')
+    && task.priority === fields.priority
+    && task.status === fields.status
+    && task.projectId === fields.projectId
+    && (task.dueDate || null) === (fields.dueDate || null)
+    && (task.dueTime || null) === (fields.dueTime || null)
+    && (task.recurrence || null) === (fields.recurrence || null)
+    && Array.isArray(task.labels)
+    && task.labels.length === labels.length
+    && task.labels.every((label, index) => label === labels[index])
+    && task.sortOrder === fields.sortOrder;
 }
 
 export function buildImportTasks(tasks) {
@@ -85,17 +152,52 @@ export function buildImportTasks(tasks) {
 
   const rows = tasks.map((_, rowIndex) => {
     const offset = rowIndex * IMPORT_FIELDS.length;
-    return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8})`;
+    return `(${IMPORT_FIELDS.map((_, fieldIndex) => `$${offset + fieldIndex + 1}`).join(', ')})`;
   });
 
   return {
     text: `
-      insert into tasks (title, description, priority, status, project_id, due_date, sort_order, archived_at)
+      insert into tasks (${IMPORT_COLUMNS.join(', ')})
       values ${rows.join(', ')}
       returning *
     `,
-    values: tasks.flatMap(task => IMPORT_FIELDS.map(field => task[field] ?? null)),
+    values: tasks.flatMap(task => IMPORT_FIELDS.map(field => (
+      field === 'labels' ? serializeLabels(task.labels) : (task[field] ?? null)
+    ))),
   };
+}
+
+export function buildImportChecklistItem(taskId, item, sortOrder) {
+  return {
+    text: `
+      insert into task_checklist_items (task_id, label, completed, sort_order)
+      values ($1, $2, $3, $4)
+      returning *
+    `,
+    values: [taskId, item.label, Boolean(item.completed), sortOrder],
+  };
+}
+
+async function importTaskRecords(client, tasks, { replaceProjectId = null } = {}) {
+  if (replaceProjectId) {
+    await client.query('delete from tasks where project_id = $1', [replaceProjectId]);
+  }
+  const imported = [];
+  for (const candidate of tasks) {
+    const task = replaceProjectId
+      ? { ...candidate, projectId: replaceProjectId }
+      : candidate;
+    const taskQuery = buildImportTasks([task]);
+    const taskResult = await client.query(taskQuery.text, taskQuery.values);
+    const row = taskResult.rows[0];
+    if (!row) throw new Error('Task import did not return a row');
+    for (let index = 0; index < (candidate.checklist || []).length; index += 1) {
+      const checklistQuery = buildImportChecklistItem(row.id, candidate.checklist[index], index);
+      await client.query(checklistQuery.text, checklistQuery.values);
+    }
+    imported.push(normalizeTaskRow(row));
+  }
+  return imported;
 }
 
 // Fields written per imported row, excluding project_id — a replace import
@@ -109,10 +211,8 @@ export function buildReplaceProjectTasks(projectId, tasks) {
   }
 
   const rows = tasks.map((_, rowIndex) => {
-    const offset = 2 + (rowIndex * REPLACE_FIELDS.length);
-    // Column order: title, description, priority, status, project_id, due_date, sort_order, archived_at.
-    // project_id is fixed to $1 (the target project); the other 7 columns are per-row placeholders.
-    return `($${offset}, $${offset + 1}, $${offset + 2}, $${offset + 3}, $1, $${offset + 4}, $${offset + 5}, $${offset + 6})`;
+    let next = 2 + (rowIndex * REPLACE_FIELDS.length);
+    return `(${IMPORT_FIELDS.map((field) => (field === 'projectId' ? '$1' : `$${next++}`)).join(', ')})`;
   });
 
   // SQLite has no data-modifying CTEs (the pg version deleted inside a WITH),
@@ -125,11 +225,13 @@ export function buildReplaceProjectTasks(projectId, tasks) {
     },
     insert: {
       text: `
-        insert into tasks (title, description, priority, status, project_id, due_date, sort_order, archived_at)
+        insert into tasks (${IMPORT_COLUMNS.join(', ')})
         values ${rows.join(', ')}
         returning *
       `,
-      values: [projectId, ...tasks.flatMap(task => REPLACE_FIELDS.map(field => task[field] ?? null))],
+      values: [projectId, ...tasks.flatMap(task => REPLACE_FIELDS.map(field => (
+        field === 'labels' ? serializeLabels(task.labels) : (task[field] ?? null)
+      )))],
     },
   };
 }
@@ -266,13 +368,20 @@ export function buildLinkExists(taskId, documentId) {
 }
 
 export function normalizeActivityRow(row) {
-  return { id: row.id, taskId: row.task_id, eventType: row.event_type, message: row.message, createdAt: toIso(row.created_at) };
+  return {
+    id: row.id,
+    taskId: row.task_id,
+    eventType: row.event_type,
+    message: row.message,
+    actor: row.actor || 'user',
+    createdAt: toIso(row.created_at),
+  };
 }
 
-export function buildRecordActivity(taskId, eventType, message) {
+export function buildRecordActivity(taskId, eventType, message, actor = 'user') {
   return {
-    text: `insert into task_activity (task_id, event_type, message) values ($1, $2, $3) returning *`,
-    values: [taskId, eventType, message],
+    text: `insert into task_activity (task_id, event_type, message, actor) values ($1, $2, $3, $4) returning *`,
+    values: [taskId, eventType, message, actor === 'agent' ? 'agent' : 'user'],
   };
 }
 
@@ -399,10 +508,113 @@ export function createTasksRepository(db) {
       return normalizeTaskRow(result.rows[0]);
     },
 
+    // A caller-supplied UUID is also the creation retry identity. The first
+    // insert wins; an exact replay reads the existing row instead of adding a
+    // second task. The route checks that the existing content still matches.
+    async createTaskIdempotent(task) {
+      if (!task?.id) throw new Error('Idempotent task creation requires an id');
+      const createQuery = buildCreateTask(task, { ignoreIdConflict: true });
+      const created = await db.query(createQuery.text, createQuery.values);
+      if (created.rows[0]) return { task: normalizeTaskRow(created.rows[0]), created: true };
+      const getQuery = buildGetTask(task.id);
+      const existing = await db.query(getQuery.text, getQuery.values);
+      return {
+        task: existing.rows[0] ? normalizeTaskRow(existing.rows[0]) : null,
+        created: false,
+      };
+    },
+
     async importTasks(tasks) {
       const query = buildImportTasks(tasks);
       const result = await db.query(query.text, query.values);
       return result.rows.map(normalizeTaskRow);
+    },
+
+    // The portable format treats each task and its checklist as one record.
+    // Insert rows one at a time inside a single transaction so checklist
+    // association never depends on RETURNING order from a batch statement.
+    async importTasksWithChecklists(tasks, { replaceProjectId = null } = {}) {
+      if (!Array.isArray(tasks) || tasks.length === 0) {
+        throw new Error('No task import records provided');
+      }
+      const client = await db.connect();
+      try {
+        await client.query('begin immediate');
+        try {
+          const imported = await importTaskRecords(client, tasks, { replaceProjectId });
+          await client.query('commit');
+          return imported;
+        } catch (err) {
+          await client.query('rollback').catch(() => {});
+          throw err;
+        }
+      } finally {
+        client.release();
+      }
+    },
+
+    // `requestId` identifies the whole normalized import intent, not an
+    // individual generated task. The operation row and every task/checklist
+    // mutation share one transaction, making a lost-response retry exact-once.
+    async importTasksExactlyOnce(tasks, {
+      requestId,
+      payloadHash,
+      mode,
+      projectId,
+      replaceProjectId = null,
+    } = {}) {
+      if (!requestId || !payloadHash || !mode || !projectId) {
+        throw new Error('Exact-once task import requires operation metadata');
+      }
+      if (!Array.isArray(tasks)) throw new Error('Task import records are invalid');
+      const client = await db.connect();
+      try {
+        await client.query('begin immediate');
+        try {
+          const existing = await client.query(
+            'select payload_hash, result_json from task_import_operations where id = $1 limit 1',
+            [requestId],
+          );
+          if (existing.rows[0]) {
+            await client.query('commit');
+            if (existing.rows[0].payload_hash !== payloadHash) return { conflict: true };
+            return { ...JSON.parse(existing.rows[0].result_json), replayed: true };
+          }
+
+          let candidates = tasks;
+          let skipped = 0;
+          if (mode === 'skip') {
+            const existingRows = await client.query(
+              'select * from tasks where project_id = $1',
+              [projectId],
+            );
+            const filtered = filterTaskImportDuplicates(
+              tasks,
+              existingRows.rows.map(normalizeTaskRow),
+            );
+            candidates = filtered.tasks;
+            skipped = filtered.skipped;
+          }
+          const imported = await importTaskRecords(client, candidates, { replaceProjectId });
+          const result = {
+            mode,
+            imported: imported.length,
+            skipped,
+            tasks: imported,
+          };
+          await client.query(`
+            insert into task_import_operations (id, project_id, mode, payload_hash, result_json)
+            values ($1, $2, $3, $4, $5)
+          `, [requestId, projectId, mode, payloadHash, JSON.stringify(result)]);
+          await client.query('commit');
+          return { ...result, replayed: false };
+        } catch (err) {
+          await client.query('rollback').catch(() => {});
+          throw err;
+        }
+      } finally {
+        client.release();
+      }
     },
 
     async replaceProjectTasks(projectId, tasks) {
@@ -432,10 +644,91 @@ export function createTasksRepository(db) {
       return result.rows[0] ? normalizeTaskRow(result.rows[0]) : null;
     },
 
+    // Task completion plus recurring-successor creation is one authoritative
+    // lifecycle transition. The planner is pure; every resulting write lands
+    // on this one session or the whole transition rolls back.
+    async updateTaskLifecycle(id, fields, planner) {
+      const client = await db.connect();
+      try {
+        await client.query('begin immediate');
+        try {
+          const priorQuery = buildGetTask(id);
+          const priorResult = await client.query(priorQuery.text, priorQuery.values);
+          const prior = priorResult.rows[0] ? normalizeTaskRow(priorResult.rows[0]) : null;
+          if (!prior || prior.archivedAt) {
+            await client.query('commit');
+            return { task: null, prior, nextTask: null, transition: null };
+          }
+          const transition = planner(prior, fields);
+          const updateQuery = buildUpdateTask(id, transition.fields);
+          const updateResult = await client.query(updateQuery.text, updateQuery.values);
+          const task = updateResult.rows[0] ? normalizeTaskRow(updateResult.rows[0]) : null;
+          let nextTask = null;
+          if (task && transition.nextTask) {
+            const createQuery = buildCreateTask(transition.nextTask);
+            const createResult = await client.query(createQuery.text, createQuery.values);
+            if (!createResult.rows[0]) throw new Error('Recurring successor creation returned no task');
+            nextTask = normalizeTaskRow(createResult.rows[0]);
+          }
+          await client.query('commit');
+          return { task, prior, nextTask, transition };
+        } catch (err) {
+          await client.query('rollback').catch(() => {});
+          throw err;
+        }
+      } finally {
+        client.release();
+      }
+    },
+
     async reorderTasks(updates) {
       const query = buildReorderTasks(updates);
       const result = await db.query(query.text, query.values);
       return result.rows.map(normalizeTaskRow);
+    },
+
+    // A board move can also cross the completion boundary. Apply all moved
+    // tasks and any recurring successors in one transaction so a failed clone
+    // cannot leave a partially moved board.
+    async reorderTasksWithLifecycle(updates, planner) {
+      if (!Array.isArray(updates) || updates.length === 0) {
+        throw new Error('No task reorder updates provided');
+      }
+      const client = await db.connect();
+      try {
+        await client.query('begin immediate');
+        try {
+          const results = [];
+          for (const update of updates) {
+            const priorQuery = buildGetTask(update.id);
+            const priorResult = await client.query(priorQuery.text, priorQuery.values);
+            const prior = priorResult.rows[0] ? normalizeTaskRow(priorResult.rows[0]) : null;
+            if (!prior || prior.archivedAt) continue;
+            const transition = planner(prior, {
+              status: update.status,
+              sortOrder: update.sortOrder,
+            });
+            const updateQuery = buildUpdateTask(update.id, transition.fields);
+            const updateResult = await client.query(updateQuery.text, updateQuery.values);
+            const task = updateResult.rows[0] ? normalizeTaskRow(updateResult.rows[0]) : null;
+            let nextTask = null;
+            if (task && transition.nextTask) {
+              const createQuery = buildCreateTask(transition.nextTask);
+              const createResult = await client.query(createQuery.text, createQuery.values);
+              if (!createResult.rows[0]) throw new Error('Recurring successor creation returned no task');
+              nextTask = normalizeTaskRow(createResult.rows[0]);
+            }
+            if (task) results.push({ task, prior, nextTask, transition });
+          }
+          await client.query('commit');
+          return results;
+        } catch (err) {
+          await client.query('rollback').catch(() => {});
+          throw err;
+        }
+      } finally {
+        client.release();
+      }
     },
 
     async archiveTask(id) {
@@ -508,8 +801,8 @@ export function createTasksRepository(db) {
       return result.rows[0] ? normalizeTaskRow(result.rows[0]) : null;
     },
 
-    async recordActivity(taskId, eventType, message) {
-      const q = buildRecordActivity(taskId, eventType, message);
+    async recordActivity(taskId, eventType, message, actor = 'user') {
+      const q = buildRecordActivity(taskId, eventType, message, actor);
       const result = await db.query(q.text, q.values);
       return normalizeActivityRow(result.rows[0]);
     },

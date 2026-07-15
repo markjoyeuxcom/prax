@@ -5,7 +5,15 @@ import { renderTaskDrawerHtml } from '../../public/js/renderTaskDetail.js';
 const NOW = new Date('2026-07-06T09:00:00');
 
 function makeState(overrides = {}) {
-  return { taskNotesDraftId: null, taskNotesDraft: '', ...overrides };
+  return {
+    taskNotesDraftId: null,
+    taskTitleDraft: '',
+    taskDescriptionDraft: '',
+    taskNotesDraft: '',
+    taskDraftSaveStatus: 'Saved',
+    taskDraftRecoveryReason: null,
+    ...overrides,
+  };
 }
 
 function makeTask(overrides = {}) {
@@ -21,7 +29,7 @@ function makeTask(overrides = {}) {
 }
 
 function makeContext(overrides = {}) {
-  return { project: null, documents: [], checklist: [], activity: [], readOnly: false, now: NOW, ...overrides };
+  return { project: null, projects: [], documents: [], checklist: [], activity: [], readOnly: false, now: NOW, ...overrides };
 }
 
 function render({ state = makeState(), task = makeTask(), context = makeContext() } = {}) {
@@ -68,6 +76,20 @@ test('there is no separate edit form entry point', () => {
 test('head renders a project chip tinted with the project color', () => {
   const html = render({ context: makeContext({ project: { id: 'p1', name: 'Homelab', color: '#7A9E7E' } }) });
   assert.match(html, /class="chip chip--project"[^>]*#7A9E7E[^>]*>Homelab</);
+});
+
+test('drawer exposes a named native project selector for reassignment', () => {
+  const projects = [
+    { id: 'p1', name: 'Homelab' },
+    { id: 'p2', name: 'Work' },
+  ];
+  const html = render({
+    task: makeTask({ projectId: 'p2' }),
+    context: makeContext({ project: projects[1], projects }),
+  });
+  assert.match(html, /<select class="text-input" data-task-project aria-label="Project">/);
+  assert.match(html, /<option value="p1">Homelab<\/option>/);
+  assert.match(html, /<option value="p2" selected>Work<\/option>/);
 });
 
 test('head renders a due chip from the dueFlags bucket', () => {
@@ -126,8 +148,27 @@ test('priority row outlines only the current priority', () => {
 
 test('due row renders a date input with the task due date plus a clear button', () => {
   const html = render({ task: makeTask({ dueDate: '2026-07-10' }) });
-  assert.match(html, /<input class="date-input" type="date" data-task-due value="2026-07-10">/);
+  assert.match(html, /<input class="date-input" type="date" data-task-due value="2026-07-10" aria-label="Due date">/);
   assert.match(html, /data-action="clear-task-due"/);
+});
+
+test('task lifecycle controls expose named groups and pressed state', () => {
+  const html = render({ task: makeTask({ status: 'in-progress', priority: 'medium', recurrence: 'weekly' }) });
+  for (const label of ['Status', 'Priority', 'Schedule', 'Repeat', 'Snooze']) {
+    assert.match(html, new RegExp(`role="group" aria-label="${label}"`));
+  }
+  assert.match(html, /data-status="in-progress" aria-pressed="true"/);
+  assert.match(html, /data-priority="medium" aria-pressed="true"/);
+  assert.match(html, /data-recurrence="weekly" aria-pressed="true"/);
+});
+
+test('the transient label draft survives unrelated drawer renders', () => {
+  const html = render({
+    state: makeState({ taskLabelDraftId: 't1', taskLabelDraft: '@PagerDuty' }),
+    task: makeTask({ labels: ['waiting'] }),
+  });
+  assert.match(html, /data-task-label-input[^>]*value="@PagerDuty"/);
+  assert.match(html, /aria-label="Remove label waiting"/);
 });
 
 // ---- description ---------------------------------------------------------------
@@ -165,6 +206,33 @@ test('an empty draft for this task still wins over saved notes', () => {
   const html = render({ state, task: makeTask({ notes: 'saved body' }) });
   assert.match(html, /data-task-notes[^>]*><\/textarea>/);
   assert.doesNotMatch(html, /saved body/);
+});
+
+test('one coherent task draft survives drawer renders across all three text fields', () => {
+  const state = makeState({
+    taskNotesDraftId: 't1',
+    taskTitleDraft: 'Draft title',
+    taskDescriptionDraft: 'Draft description',
+    taskNotesDraft: 'Draft notes',
+    taskDraftSaveStatus: 'Unsaved changes',
+  });
+  const html = render({
+    state,
+    task: makeTask({ title: 'Saved title', description: 'Saved description', notes: 'Saved notes' }),
+  });
+  assert.match(html, /data-task-title value="Draft title"/);
+  assert.match(html, /data-task-description[^>]*>Draft description<\/textarea>/);
+  assert.match(html, /data-task-notes[^>]*>Draft notes<\/textarea>/);
+  assert.match(html, /data-task-draft-save-status>Unsaved changes</);
+});
+
+test('failed and recovered task drafts expose one explicit save action', () => {
+  const failed = render({ state: makeState({ taskDraftSaveStatus: 'Save failed', taskDraftRecoveryReason: 'failed' }) });
+  assert.match(failed, /data-task-draft-save-action[^>]*>Retry<\/button>/);
+  assert.doesNotMatch(failed, /data-task-draft-save-action hidden/);
+
+  const recovered = render({ state: makeState({ taskDraftSaveStatus: 'Recovered draft', taskDraftRecoveryReason: 'recovered' }) });
+  assert.match(recovered, /data-task-draft-save-action[^>]*>Save recovered draft<\/button>/);
 });
 
 // ---- checklist ---------------------------------------------------------------
@@ -259,10 +327,11 @@ test('footer offers restore + permanent delete for archived tasks', () => {
   assert.doesNotMatch(html, /data-action="archive-task"/);
 });
 
-test('readOnly disables the status pills, priority pills, due input, and notes', () => {
+test('readOnly disables the project selector, status pills, priority pills, due input, and notes', () => {
   const html = render({ task: makeTask({ description: 'legacy text' }), context: makeContext({ readOnly: true }) });
   assert.equal((html.match(/data-action="set-task-status"[^>]*\sdisabled>/g) || []).length, 5);
   assert.equal((html.match(/data-action="set-task-priority"[^>]*\sdisabled>/g) || []).length, 3);
+  assert.match(html, /data-task-project[^>]*\sdisabled>/);
   assert.match(html, /data-task-due[^>]*\sdisabled>/);
   assert.match(html, /data-action="clear-task-due" disabled>/);
   assert.match(html, /data-task-notes[^>]*\sdisabled>/);
