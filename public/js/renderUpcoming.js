@@ -2,7 +2,7 @@ import { escapeHtml } from './renderHelpers.js';
 import { isOpen } from './statusMap.js';
 import { dueFlag, dueBucket } from './dueFlags.js';
 import { logo } from './icons.js';
-import { renderTaskGroupsHtml } from './renderList.js';
+import { renderTaskCollectionProgressHtml, renderTaskGroupsHtml } from './renderList.js';
 import { projectChipHtml, isSnoozed } from './renderToday.js';
 import { isoDate, addDays } from './dateHelpers.js';
 
@@ -47,7 +47,7 @@ export function buildUpcomingGroups(tasks, projects, { now = new Date(), days = 
   return { groups, flatIds: groups.flatMap((g) => g.tasks.map((t) => t.id)), badge };
 }
 
-export function renderUpcomingHtml(state, groups, { now = new Date() } = {}) {
+export function renderUpcomingHtml(state, groups, { now = new Date(), collection = null } = {}) {
   const dateLabel = new Date(now).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
   const head = '<header class="page-head"><h1 class="page-head__title">Upcoming</h1></header>'
     + `<p class="page-head__sub">${escapeHtml(dateLabel)} — the next 7 days across your projects.</p>`;
@@ -56,6 +56,7 @@ export function renderUpcomingHtml(state, groups, { now = new Date() } = {}) {
       + '<p class="empty__title">Nothing coming up</p>'
       + '<p class="empty__sub">No dated tasks in the next week. Enjoy the runway.</p>'
       + '</div>'
-    : renderTaskGroupsHtml(state, groups, { rowExtra: projectChipHtml });
+    : renderTaskGroupsHtml(state, groups, { rowExtra: projectChipHtml })
+      + renderTaskCollectionProgressHtml(collection);
   return `<div class="page">${head}${body}</div>`;
 }

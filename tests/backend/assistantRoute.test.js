@@ -77,6 +77,32 @@ test('a write tool suspends for confirmation and does NOT mutate until approved'
   await app.close();
 });
 
+test('an approved write remains visible when the follow-up model call fails', async () => {
+  let calls = 0;
+  const chat = {
+    backend: 'fake', model: 'fake', supportsTools: true,
+    async complete() {
+      calls += 1;
+      if (calls === 1) {
+        return { text: '', model: 'fake', toolCalls: [{ id: 'write-1', name: 'create_task', input: { title: 'Committed before outage', project: 'inbox' } }] };
+      }
+      throw new Error('provider down');
+    },
+  };
+  const app = await makeApp({ chat });
+  const proposed = await post(app, { messages: [{ role: 'user', content: 'create it' }] });
+  const result = await post(app, { messages: proposed.body.messages, decisions: { 'write-1': 'approve' } });
+  assert.equal(result.body.status, 'error');
+  assert.equal(result.body.reason, 'generation-failed');
+  assert.equal(result.body.didWrite, true);
+  const toolTurn = result.body.messages.at(-1);
+  assert.equal(toolTurn.role, 'tool');
+  assert.equal(toolTurn.results[0].isError, false);
+  const titles = await listTaskTitles(app);
+  assert.equal(titles.filter((title) => title === 'Committed before outage').length, 1);
+  await app.close();
+});
+
 test('didWrite is false for read-only turns and declined writes', async () => {
   const app = await makeApp();
   // a pure read turn never mutates

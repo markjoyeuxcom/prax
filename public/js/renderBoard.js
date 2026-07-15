@@ -10,6 +10,7 @@ import { BOARD_COLUMNS, designStatus, isBoardable } from './statusMap.js';
 import { chip, escapeHtml, prioDotClass } from './renderHelpers.js';
 import { dueFlag } from './dueFlags.js';
 import { icon } from './icons.js';
+import { TASK_RENDER_BATCH_SIZE } from './renderList.js';
 
 // Column labels + dot tones in design vocabulary (Prax.dc.html colDefs).
 const COLUMN_META = {
@@ -63,6 +64,25 @@ export function buildBoardColumns(state = {}, tasks = []) {
   });
 }
 
+// A board keeps every workflow column present while bounding card mounts. The
+// budget is divided evenly so one busy column cannot hide every later column;
+// full column counts remain visible in the headers.
+export function limitBoardColumns(columns = [], limit = TASK_RENDER_BATCH_SIZE) {
+  const safeColumns = Array.isArray(columns) ? columns : [];
+  const normalizedLimit = Number.isFinite(Number(limit))
+    ? Math.max(0, Math.floor(Number(limit)))
+    : TASK_RENDER_BATCH_SIZE;
+  const perColumn = safeColumns.length ? Math.ceil(normalizedLimit / safeColumns.length) : 0;
+  const visibleColumns = safeColumns.map((column) => ({
+    ...column,
+    totalCount: Array.isArray(column.cards) ? column.cards.length : 0,
+    cards: (Array.isArray(column.cards) ? column.cards : []).slice(0, perColumn),
+  }));
+  const total = visibleColumns.reduce((sum, column) => sum + column.totalCount, 0);
+  const shown = visibleColumns.reduce((sum, column) => sum + column.cards.length, 0);
+  return { columns: visibleColumns, total, shown, hasMore: shown < total };
+}
+
 // projectsById may be a plain object or a Map keyed by project id.
 function lookupProject(projectsById, projectId) {
   if (!projectsById || !projectId) return null;
@@ -87,7 +107,7 @@ function renderCard(state, task, projectsById, now) {
     chips.push(chip(
       project.name,
       'project',
-      `style="background: color-mix(in oklab, ${color} 13%, transparent); color: ${color};"`,
+      `style="--project-color:${color};background:color-mix(in oklab, ${color} 13%, transparent)"`,
     ));
   }
   const due = dueFlag(task.dueDate, { dueTime: task.dueTime, done: isDone, now });
@@ -133,12 +153,12 @@ function renderColumn(state, column, projectsById, now) {
   const head = '<div class="board-col__head">'
     + `<span class="board-col__dot" style="--dot: ${dot};"></span>`
     + `<span>${escapeHtml(column.label)}</span>`
-    + `<span class="board-col__count">${column.cards.length}</span>`
+    + `<span class="board-col__count">${Number.isInteger(column.totalCount) ? column.totalCount : column.cards.length}</span>`
     + '</div>';
 
   const cards = column.cards.map(task => renderCard(state, task, projectsById, now)).join('');
   const endInd = column.endInd ? '<div class="drop-ind"></div>' : '';
-  const emptySlot = column.cards.length === 0
+  const emptySlot = (Number.isInteger(column.totalCount) ? column.totalCount : column.cards.length) === 0
     ? '<div class="empty-slot">Drop cards here</div>'
     : '';
 
@@ -148,8 +168,12 @@ function renderColumn(state, column, projectsById, now) {
 }
 
 // `now` is injectable (options bag) so due chips are deterministic in tests.
-export function renderBoardHtml(state = {}, columns = [], projectsById = null, { now = new Date() } = {}) {
+export function renderBoardHtml(state = {}, columns = [], projectsById = null, { now = new Date(), collection = null } = {}) {
   const safeColumns = Array.isArray(columns) ? columns : [];
   const cols = safeColumns.map(column => renderColumn(state, column, projectsById, now)).join('');
-  return `<div class="board-wrap"><div class="board">${cols}</div></div>`;
+  const progress = collection?.hasMore
+    ? `<div class="collection-progress" role="status"><span>Showing ${collection.shown} of ${collection.total} task cards.</span>`
+      + '<button class="btn-ghost" type="button" data-action="show-more-tasks">Show more cards</button></div>'
+    : '';
+  return `<div class="board-wrap"><div class="board">${cols}</div>${progress}</div>`;
 }

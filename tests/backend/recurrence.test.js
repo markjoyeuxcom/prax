@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isValidRecurrence, nextDueDate } from '../../server/recurrence.js';
+import {
+  isValidRecurrence, nextDueDate, planTaskRecurrenceTransition,
+} from '../../server/recurrence.js';
 
 const WED = new Date(2026, 6, 8); // 2026-07-08, a Wednesday
 
@@ -8,7 +10,7 @@ test('isValidRecurrence accepts presets, every:Nd/Nw, and clearing', () => {
   for (const r of ['daily', 'weekly', 'monthly', 'every:3d', 'every:2w', '', null, undefined]) {
     assert.equal(isValidRecurrence(r), true, `expected ${r} valid`);
   }
-  for (const r of ['yearly', 'every:0d', 'every:d', 'every:3m', 'weekly ', 5, {}]) {
+  for (const r of ['yearly', 'every:0d', 'every:d', 'every:3m', 'weekly ', 'every:10001d', `every:${'9'.repeat(30)}d`, 5, {}]) {
     assert.equal(isValidRecurrence(r), false, `expected ${r} invalid`);
   }
 });
@@ -31,6 +33,7 @@ test('nextDueDate rolls forward past today when the task is completed late', () 
   assert.equal(nextDueDate('daily', '2026-06-01', WED), '2026-07-09');
   // weekly overdue → first weekly slot strictly after today
   assert.equal(nextDueDate('weekly', '2026-06-24', WED), '2026-07-15');
+  assert.equal(nextDueDate('daily', '1900-01-01', WED), '2026-07-09');
 });
 
 test('nextDueDate falls back to today when the task has no due date', () => {
@@ -41,4 +44,57 @@ test('nextDueDate falls back to today when the task has no due date', () => {
 test('nextDueDate returns null for no/invalid recurrence', () => {
   assert.equal(nextDueDate(null, '2026-07-08', WED), null);
   assert.equal(nextDueDate('yearly', '2026-07-08', WED), null);
+});
+
+const RECURRING_TASK = {
+  id: 'task-1',
+  title: 'Rotate certificates',
+  description: 'Follow the runbook',
+  notes: 'Confirm propagation',
+  priority: 'high',
+  status: 'planned',
+  projectId: 'project-1',
+  dueDate: '2026-07-08',
+  dueTime: '09:30',
+  recurrence: 'weekly',
+  labels: ['maintenance'],
+};
+
+test('recurrence transition plans one complete successor from the proposed task', () => {
+  const plan = planTaskRecurrenceTransition(RECURRING_TASK, {
+    status: 'completed',
+    title: 'Rotate edge certificates',
+  }, { now: WED });
+
+  assert.deepEqual(plan.fields, { status: 'completed', title: 'Rotate edge certificates' });
+  assert.equal(plan.reopenedAsOneOff, false);
+  assert.deepEqual(plan.nextTask, {
+    title: 'Rotate edge certificates',
+    description: 'Follow the runbook',
+    notes: 'Confirm propagation',
+    priority: 'high',
+    status: 'planned',
+    projectId: 'project-1',
+    dueDate: '2026-07-15',
+    dueTime: '09:30',
+    recurrence: 'weekly',
+    labels: ['maintenance'],
+    sortOrder: 0,
+  });
+});
+
+test('recurrence transition is a no-op without a completion edge', () => {
+  assert.equal(planTaskRecurrenceTransition(RECURRING_TASK, { priority: 'low' }, { now: WED }).nextTask, null);
+  assert.equal(planTaskRecurrenceTransition({ ...RECURRING_TASK, status: 'completed' }, { status: 'completed' }, { now: WED }).nextTask, null);
+});
+
+test('reopening a completed occurrence makes only that occurrence one-off', () => {
+  const plan = planTaskRecurrenceTransition(
+    { ...RECURRING_TASK, status: 'completed' },
+    { status: 'planned', recurrence: 'weekly' },
+    { now: WED },
+  );
+  assert.deepEqual(plan.fields, { status: 'planned', recurrence: null });
+  assert.equal(plan.nextTask, null);
+  assert.equal(plan.reopenedAsOneOff, true);
 });

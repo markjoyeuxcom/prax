@@ -4,12 +4,4 @@ resources:
   - ../../base
 images:
   - name: ghcr.io/awaybreaktoday/prax
-    newTag: v0.15.0
-patches:
-  - target:
-      kind: HTTPRoute
-      name: prax
-    patch: |
-      - op: replace
-        path: /spec/hostnames/0
-        value: prax-staging.example.com
+    newTag: v0.20.0

@@ -34,15 +34,18 @@ test('the read tools are annotated read-only; the write tools are not', () => {
 test('start_runbook_run snapshots steps and defaults the title to empty', async () => {
   const calls = [];
   const run = { id: RUN_ID, documentId: DOC_ID, status: 'running', steps: [{ id: STEP_ID, text: 'Stop writes', checkedAt: null }] };
-  const client = { startRunbookRun: async (id, title) => { calls.push([id, title]); return run; } };
+  const client = { startRunbookRun: async (id, title, runId) => { calls.push([id, title, runId]); return run; } };
   const tool = byName(createRunTools(client), 'start_runbook_run');
 
-  const res = await tool.handler({ documentId: DOC_ID });
-  assert.deepEqual(calls[0], [DOC_ID, '']); // title defaulted
+  const res = await tool.handler({ documentId: DOC_ID, runId: RUN_ID });
+  assert.deepEqual(calls[0], [DOC_ID, '', RUN_ID]); // title defaulted, stable id forwarded
   assert.equal(data(res).id, RUN_ID);
 
-  await tool.handler({ documentId: DOC_ID, title: 'DR drill' });
-  assert.deepEqual(calls[1], [DOC_ID, 'DR drill']);
+  await tool.handler({ documentId: DOC_ID, title: 'DR drill', runId: RUN_ID });
+  assert.deepEqual(calls[1], [DOC_ID, 'DR drill', RUN_ID]);
+  const invalidRunId = await tool.handler({ documentId: DOC_ID, runId: BAD_ID });
+  assert.equal(invalidRunId.isError, true);
+  assert.match(invalidRunId.content[0].text, /runId must be a valid UUID/);
 });
 
 test('start_runbook_run rejects a non-UUID document id before calling the API', async () => {
@@ -54,13 +57,15 @@ test('start_runbook_run rejects a non-UUID document id before calling the API', 
   assert.equal(called, false);
 });
 
-test('list_runbook_runs returns the run list (and coerces non-arrays to [])', async () => {
+test('list_runbook_runs returns a paginated run list (and coerces non-arrays to [])', async () => {
   const runs = [{ id: RUN_ID, status: 'completed', stepCount: 3, doneCount: 3 }];
   const okTool = byName(createRunTools({ listRunbookRuns: async () => runs }), 'list_runbook_runs');
-  assert.deepEqual(data(await okTool.handler({ documentId: DOC_ID })), runs);
+  const page = data(await okTool.handler({ documentId: DOC_ID }));
+  assert.deepEqual(page.items, runs);
+  assert.equal(page.page.total, 1);
 
   const nullTool = byName(createRunTools({ listRunbookRuns: async () => null }), 'list_runbook_runs');
-  assert.deepEqual(data(await nullTool.handler({ documentId: DOC_ID })), []);
+  assert.deepEqual(data(await nullTool.handler({ documentId: DOC_ID })).items, []);
 });
 
 test('get_runbook_run returns the chronicle, and 404s become a friendly error', async () => {

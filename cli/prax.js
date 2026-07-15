@@ -8,6 +8,8 @@ import { createClient } from './lib/apiClient.js';
 import { formatSearchResults, formatDocument } from './lib/format.js';
 import { recall, formatRecall } from './lib/recall.js';
 import { remember } from './lib/remember.js';
+import { confirmDocumentVerification } from './lib/verify.js';
+import { searchLibrary } from './lib/search.js';
 
 function parseArgs(argv) {
   const positionals = [];
@@ -64,7 +66,7 @@ Usage:
   prax recall [query...] [--project <slug>] [--limit <n>] [--recent [n]] [--json]
   prax get <id> [--json]
   prax remember <title> [--body <text>] [--memory] [--type note|runbook|decision|known-issue|reference|post-mortem] [--tag a,b] [--ref <url>]
-  prax verify <id> [--as <name>]
+  prax verify <id> --as <human-name>
   prax unverify <id>
   prax supersede <oldId> --with <newId>
 
@@ -136,13 +138,12 @@ async function main(argv) {
     const { project } = await resolveProjectName(flags, client);
     const query = positionals.slice(1).join(' ');
     if (!query) throw new Error('search requires a query.');
-    let results;
-    try {
-      results = await client.semanticSearch(project, query, { all: Boolean(flags.all) });
-    } catch {
-      results = await client.keywordSearch(project, query, { all: Boolean(flags.all) });
-    }
-    out(flags.json ? results : formatSearchResults(results));
+    const envelope = await searchLibrary(client, {
+      project, query, all: Boolean(flags.all),
+    });
+    out(flags.json
+      ? envelope
+      : `${envelope.retrieval.degraded ? 'Note: semantic search is not configured; showing keyword results.\n\n' : ''}${formatSearchResults(envelope.items)}`);
     return;
   }
 
@@ -193,11 +194,32 @@ async function main(argv) {
     return;
   }
 
-  if (command === 'verify' || command === 'unverify') {
+  if (command === 'verify') {
     const id = positionals[1];
-    if (!id) throw new Error(`${command} requires a document id.`);
-    const doc = await client.verify(id, { verified: command === 'verify', as: flags.as || 'cli' });
-    out(flags.json ? doc : `${command === 'verify' ? 'Verified' : 'Unverified'} ${id}.`);
+    if (!id) throw new Error('verify requires a document id.');
+    if (flags.json) throw new Error('verify is interactive and does not support --json.');
+    const actor = flags.as === undefined || flags.as === true ? '' : String(flags.as).trim();
+    if (!actor) throw new Error('verify requires --as <human-name> for attribution.');
+    const current = await client.getDocument(id);
+    if (!/^[0-9a-f]{64}$/i.test(current?.contentHash || '')) {
+      throw new Error('the document has no valid content hash and cannot be verified safely.');
+    }
+    out(formatDocument(current));
+    await confirmDocumentVerification({
+      document: current, actor, input: process.stdin, output: process.stdout,
+    });
+    const doc = await client.verify(id, {
+      verified: true, as: actor, contentHash: current.contentHash,
+    });
+    out(`Verified ${doc.id} as ${actor}.`);
+    return;
+  }
+
+  if (command === 'unverify') {
+    const id = positionals[1];
+    if (!id) throw new Error('unverify requires a document id.');
+    const doc = await client.verify(id, { verified: false });
+    out(flags.json ? doc : `Unverified ${id}.`);
     return;
   }
 

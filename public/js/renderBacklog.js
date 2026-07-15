@@ -5,8 +5,9 @@
 // restore-task / delete-archived-task on archive rows.
 
 import { escapeHtml, prioDotClass } from './renderHelpers.js';
+import { renderTaskCollectionProgressHtml } from './renderList.js';
 
-export function renderBacklogHtml(state, tasks = []) {
+export function renderBacklogHtml(state, tasks = [], { collection = null } = {}) {
   const safeTasks = Array.isArray(tasks) ? tasks : [];
   const hint = '<p class="view-hint">Someday / maybe — no dates, no pressure.</p>';
 
@@ -23,10 +24,10 @@ export function renderBacklogHtml(state, tasks = []) {
       + '</div>';
   }).join('');
 
-  return `${hint}<div class="rows">${rows}</div>`;
+  return `${hint}<div class="rows">${rows}</div>${renderTaskCollectionProgressHtml(collection)}`;
 }
 
-export function renderArchiveHtml(state, tasks = []) {
+export function renderArchiveHtml(state, tasks = [], { collection = null } = {}) {
   const safeTasks = Array.isArray(tasks) ? tasks : [];
 
   if (!safeTasks.length) {
@@ -42,5 +43,5 @@ export function renderArchiveHtml(state, tasks = []) {
       + '</div>';
   }).join('');
 
-  return `<div class="rows">${rows}</div>`;
+  return `<div class="rows">${rows}</div>${renderTaskCollectionProgressHtml(collection)}`;
 }

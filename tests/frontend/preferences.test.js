@@ -132,7 +132,7 @@ test('applyPreferences writes the theme attribute and property overrides', () =>
   applyPreferences({ theme: 'dark', accent: 'indigo', readingScale: 1.1 }, body);
 
   assert.equal(body.getAttribute('data-theme'), 'dark');
-  assert.equal(body.style.getPropertyValue('--accent'), ACCENT_CSS.indigo);
+  assert.equal(body.style.getPropertyValue('--accent-choice'), ACCENT_CSS.indigo);
   assert.equal(body.style.getPropertyValue('--reading-scale'), '1.1');
   // integer-pixel editor line-height: round(15 * 1.1 * 1.7) = round(28.05) = 28
   assert.equal(body.style.getPropertyValue('--pe-lh'), '28px');
@@ -177,13 +177,13 @@ test('applyPreferences writes the preview-font attribute (drives --prose-font)',
   assert.equal(body.getAttribute('data-preview-font'), 'serif');
 });
 
-test('applyPreferences clears the accent override for the default fern accent', () => {
+test('applyPreferences clears the accent-choice override for the default fern accent', () => {
   const body = bodyStub();
 
   applyPreferences({ theme: 'light', accent: 'indigo' }, body);
   applyPreferences({ theme: 'light', accent: 'fern' }, body);
 
-  assert.equal(body.style.getPropertyValue('--accent'), undefined);
+  assert.equal(body.style.getPropertyValue('--accent-choice'), undefined);
 });
 
 test('line numbers preference is a strict boolean, default off', () => {

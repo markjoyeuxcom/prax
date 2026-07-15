@@ -1,7 +1,8 @@
 export const LOCAL_STORAGE_KEY = 'prax.preferences';
 
 // Prax appearance preferences. Theme is light "Porcelain" / dark "Deep Fern";
-// accent is one of four oklch swatches applied as a --accent override; the
+// accent is one of nine oklch swatches applied as a --accent-choice override;
+// CSS derives a light- or dark-theme-safe --accent from that vivid choice. The
 // reading scale (0.85–1.25) applies to editor/preview prose only; chromeOS
 // picks macOS traffic lights vs Windows controls in the titlebar.
 export const DEFAULT_PREFERENCES = Object.freeze({
@@ -119,8 +120,11 @@ export function applyPreferences(preferences, body = globalThis.document?.body) 
   body?.setAttribute?.('data-editor-font', normalized.editorFont);
   body?.setAttribute?.('data-preview-font', normalized.previewFont);
   const accentCss = ACCENT_CSS[normalized.accent];
-  if (accentCss) body?.style?.setProperty?.('--accent', accentCss);
-  else body?.style?.removeProperty?.('--accent');
+  // Remove the pre-accessibility-ratchet property if applyPreferences runs on
+  // a live DOM that was styled by an older bundle.
+  body?.style?.removeProperty?.('--accent');
+  if (accentCss) body?.style?.setProperty?.('--accent-choice', accentCss);
+  else body?.style?.removeProperty?.('--accent-choice');
   body?.style?.setProperty?.('--reading-scale', String(normalized.readingScale));
   // Integer-pixel editor line-height (base 15px × 1.7, scaled), so the plain
   // editor's <textarea> caret and the highlight layers round identically on

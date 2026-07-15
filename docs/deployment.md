@@ -5,8 +5,8 @@ embedded SQLite file on a persistent volume — there is no separate database se
 manifests use a Kustomize **base + overlays** layout under `deploy/`, designed for GitOps with
 Argo CD.
 
-> **These are sanitized example manifests** for self-hosters — the hostnames (`example.com`) and
-> the gateway are placeholders to adapt to your own cluster, not a turnkey config. The
+> **These are sanitized example manifests** for self-hosters. The opt-in exposure example uses
+> placeholder Gateway and hostname values to adapt to your own cluster; it is not turnkey. The
 > maintainer's live deployment config is kept in a separate private GitOps repo; this `deploy/`
 > tree is a reference example.
 
@@ -14,9 +14,9 @@ Argo CD.
 
 ```text
 deploy/base/                          # env-agnostic manifests (no namespace field)
-deploy/overlays/dev/                  # dev: image tag + hostname patch
-deploy/overlays/staging/              # staging: image tag + hostname patch
-deploy/overlays/prod/                 # prod: image tag + hostname patch
+deploy/overlays/dev/                  # dev: image tag
+deploy/overlays/staging/              # staging: image tag
+deploy/overlays/prod/                 # prod: image tag
 ```
 
 `deploy/base/` contains:
@@ -25,11 +25,28 @@ deploy/overlays/prod/                 # prod: image tag + hostname patch
 - `pvc.yaml` — `prax-data` PersistentVolumeClaim for the SQLite file
 - `deployment.yaml` — app `Deployment`
 - `service.yaml` — `ClusterIP` `Service`
-- `httproute.yaml` — Gateway API `HTTPRoute` (placeholder hostname; patched by each overlay)
+- `httproute.yaml` — opt-in Gateway API example; intentionally excluded from rendered resources
 - `kustomization.yaml`
 
 No manifest in `deploy/base/` sets a `namespace:` field. The namespace is injected by Argo CD at
 sync time.
+
+## Bind safety
+
+The application defaults to `HOST=127.0.0.1`. Any non-loopback bind fails before the database is
+opened unless the environment also contains:
+
+```text
+PRAX_ALLOW_UNAUTHENTICATED_NETWORK=true
+```
+
+The image does not bake in either a network bind or this acknowledgement. Compose and the
+Kubernetes ConfigMap set both explicitly because the process must listen on the container/pod
+network. The flag adds no authentication and is not evidence that a reverse proxy is safe; it only
+makes network reachability an operator decision instead of an accidental `HOST` change.
+
+Settings → Data & admin reports whether the running process is local-only or network-reachable and
+always reports the application's authentication mode as `none`.
 
 ## Argo CD ApplicationSet
 
@@ -43,15 +60,15 @@ environment. Each Application:
 
 ## Per-environment overlays
 
-Each overlay pins the image tag and patches the `HTTPRoute` hostname:
+Each overlay pins the image tag. Exposure is intentionally not part of the rendered base:
 
-| Environment | Namespace                   | Hostname                              |
-|-------------|----------------------------|---------------------------------------|
-| dev         | `prax-dev`      | `prax-dev.example.com`   |
-| staging     | `prax-staging`  | `prax-staging.example.com` |
-| prod        | `prax-prod`     | `prax.example.com`       |
+| Environment | Namespace |
+|-------------|-----------|
+| dev | `prax-dev` |
+| staging | `prax-staging` |
+| prod | `prax-prod` |
 
-Overlays are currently pinned to `v0.15.0`. CI-driven `newTag` bumping on release is planned as
+Overlays are currently pinned to `v0.20.0`. CI-driven `newTag` bumping on release is planned as
 future work.
 
 ## Data Volume
@@ -108,24 +125,32 @@ Update the `newTag` in each overlay's `kustomization.yaml` to deploy a new versi
 
 ## Semantic Search
 
-Semantic search is currently unavailable on the embedded SQLite engine. The base ConfigMap
-disables it:
+Semantic search works with the embedded SQLite engine: vectors are stored in the database and
+cosine-ranked in process. The base ConfigMap keeps it off by default so a deployment never gains
+an external embedding dependency or sends document text to a provider without an explicit
+operator choice:
 
 ```yaml
-# Semantic search returns with the sqlite-vec follow-up (Phase 5).
 EMBEDDING_BACKEND: "none"
 ```
 
-All three environments inherit this. It returns with the sqlite-vec follow-up (Phase 5); until
-then, leave `EMBEDDING_BACKEND` at `none`.
+All three environments inherit this. To enable semantic search, provide a supported backend and
+its model/URL/key through deployment secrets and environment configuration; keep it at `none` for
+keyword-only, fully local operation.
 
-## Exposure: Gateway API HTTPRoute
+## Exposure: authentication is required
 
-The app is exposed via a Gateway API `HTTPRoute` attached to the `external-gateway` in the
-`gateway-system` namespace. TLS is terminated at the gateway — no TLS config lives in the
-app manifests.
+The rendered base creates only a `ClusterIP` Service. It deliberately does **not** include an
+Ingress or `HTTPRoute`, because Prax has no built-in authentication and anyone who reaches it
+has full workspace read/write access. ClusterIP is internal to Kubernetes, not local-only: any pod
+allowed to reach the Service by cluster network policy reaches an unauthenticated Prax API. Apply
+namespace/network policy appropriate to the cluster's trust model even when no external route exists.
 
-Each overlay patches the `HTTPRoute` hostname (see the table above).
+`deploy/base/httproute.yaml` is an opt-in starting point, not a rendered resource. Before adding
+it to an overlay, configure your Gateway implementation's authentication mechanism (for example
+an OIDC-aware proxy, forward-auth filter, or provider-specific security policy) and TLS. Verify
+that an unauthenticated request is rejected before publishing DNS. Gateway API core does not
+define a portable authentication filter, so the exact policy is cluster-specific.
 
 ## Cluster-side Prerequisites
 
@@ -133,10 +158,11 @@ These must be in place before syncing — they are the cluster operator's respon
 
 1. **Default StorageClass** (or one the cluster binds automatically) so the `prax-data`
    PVC provisions — the manifest does not name a `storageClassName`.
-2. **`external-gateway`** in `gateway-system` must:
+2. If opting into network exposure, the selected Gateway must:
    - Have `allowedRoutes` configured to permit routes from `prax-*` namespaces.
+   - Enforce authentication for the Prax hostname before traffic reaches the Service.
    - Terminate TLS for `*.example.com`.
-3. **DNS** records for all three hostnames pointing at the gateway's external IP/hostname.
+3. **DNS**, when exposed, for the hostname you add to the authenticated route.
 
 ## Local Render Check
 
@@ -157,9 +183,9 @@ kubectl kustomize deploy/overlays/prod
 ## Data Movement
 
 The authoritative backup is a copy of the database file — see
-[backup-restore.md](backup-restore.md) for taking one with `sqlite3 .backup` against the live
-file (or a plain file copy while stopped), the Kubernetes `kubectl exec`/`kubectl cp` recipe,
-and the restore procedure.
+[backup-restore.md](backup-restore.md) for taking a validated online snapshot with the shipped
+`npm run backup` command (or a plain file copy while stopped), the Kubernetes
+`kubectl exec`/`kubectl cp` recipe, and the rehearsed restore procedure.
 
 For portability rather than backup, the Admin panel exports tasks as a `moomora.tasks` JSON
 envelope and library documents as a ZIP of `.md` files. Import accepts current Prax Console

@@ -32,6 +32,12 @@ function toItem(doc, { full = false } = {}) {
     title: doc.title,
     documentType: doc.documentType,
     verified: Boolean(doc.verified),
+    verifiedAt: doc.verifiedAt || null,
+    verifiedBy: doc.verifiedBy || null,
+    status: doc.status || 'active',
+    updatedBy: doc.updatedBy || null,
+    kind: doc.kind || 'source',
+    stale: Boolean(doc.stale),
     // Overview cards keep their (capped) formatted body; everything else gets a
     // tight single-line snippet.
     text: full ? (body.length > OVERVIEW_LEN ? `${body.slice(0, OVERVIEW_LEN)}…` : body) : snippet(body),
@@ -43,7 +49,9 @@ function toItem(doc, { full = false } = {}) {
 // given, recency otherwise); order is preserved within each section.
 // `limit` is a single pack-wide budget, spent in section order (overview →
 // relevant → runbooks → unverified) so the pack can never exceed it.
-export function buildContextPack(docs, { project = null, query = '', limit = DEFAULT_LIMIT } = {}) {
+export function buildContextPack(docs, {
+  project = null, query = '', limit = DEFAULT_LIMIT, retrieval = null,
+} = {}) {
   const active = (Array.isArray(docs) ? docs : [])
     .filter((d) => (d.status || 'active') === 'active')
     .filter(isSubstantive); // drop scratch/empty docs ("Untitled", "Test 3")
@@ -69,6 +77,7 @@ export function buildContextPack(docs, { project = null, query = '', limit = DEF
   return {
     project: project ? { id: project.id, slug: project.slug, name: project.name, status: project.status } : null,
     query: query || null,
+    retrieval,
     sections,
   };
 }
@@ -78,6 +87,12 @@ export function renderContextPackMarkdown(pack) {
   const p = pack.project;
   lines.push(`# Context: ${p ? p.name : 'Library'}${p && p.status ? ` (${p.status})` : ''}`);
   if (pack.query) lines.push(`\n_Query: ${pack.query}_`);
+  if (pack.retrieval) {
+    const suffix = pack.retrieval.fallback
+      ? ` fallback (${pack.retrieval.reason || 'unspecified'})`
+      : '';
+    lines.push(`\n_Retrieval: ${pack.retrieval.mode}${suffix}_`);
+  }
   for (const section of pack.sections) {
     lines.push(`\n## ${section.title}`);
     for (const it of section.items) {

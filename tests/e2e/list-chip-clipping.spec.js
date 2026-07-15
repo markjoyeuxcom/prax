@@ -19,11 +19,16 @@ test('SYNTH chip stays visible on a card with a very long title', async ({ page 
 
   await page.goto('/');
   await page.locator('[data-action="nav-library"]').first().click();
+  await page.getByRole('searchbox', { name: 'Search library' }).fill(prefix);
   const card = page.locator('.doc-card', { hasText: prefix });
   await expect(card).toBeVisible();
 
-  // Other specs share the demo instance and may push this card below the
-  // fold — scroll first so the assertion only measures clipping.
+  // The production server is shared across the serial suite, so accumulated
+  // facet content may place this unique result below the physical viewport.
+  // Normalize only the vertical position before measuring the horizontal
+  // ancestor-clipping regression this test owns.
   await card.scrollIntoViewIfNeeded();
+  await expect(card).toBeInViewport();
+  await expect(card.locator('.chip--synth')).toBeVisible();
   await expect(card.locator('.chip--synth')).toBeInViewport();
 });

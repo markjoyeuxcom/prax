@@ -6,10 +6,13 @@ import {
   buildCreateDocument,
   buildDeleteDocument,
   buildGetDocument,
+  buildGetDocumentCreationReceipt,
   buildListActiveDocumentsForExport,
   buildRestoreDocument,
+  buildSetDocumentEmbedding,
   buildUpdateDocument,
   createLibraryRepository,
+  documentMatchesCreateFields,
   normalizeDocumentRow,
 } from '../../server/libraryRepository.js';
 
@@ -110,6 +113,67 @@ test('buildCreateDocument returns a parameterized insert query', () => {
     'source',
     true,
   ]);
+});
+
+test('buildCreateDocument can use a caller id with an exact-once conflict guard', () => {
+  const query = buildCreateDocument({
+    id: DOCUMENT_ID,
+    title: 'Imported note',
+    body: '# Imported note',
+    documentType: 'note',
+    projectId: PROJECT_UUID,
+    tags: ['imported'],
+    sourceFilename: 'imported.md',
+  }, { ignoreIdConflict: true });
+
+  assert.match(query.text, /insert into markdown_documents \(id, title/);
+  assert.match(query.text, /values \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, \$11\)/);
+  assert.match(query.text, /on conflict\(id\) do nothing/);
+  assert.deepEqual(query.values.slice(0, 7), [
+    DOCUMENT_ID,
+    'Imported note',
+    '# Imported note',
+    'note',
+    PROJECT_UUID,
+    '["imported"]',
+    'imported.md',
+  ]);
+});
+
+test('generated document creation persists an internal operation receipt', () => {
+  const query = buildCreateDocument({
+    id: DOCUMENT_ID,
+    title: 'Generated',
+    body: '# Generated',
+    documentType: 'runbook',
+    projectId: PROJECT_UUID,
+    tags: ['draft'],
+    updatedBy: 'agent',
+    kind: 'synthesized',
+    creationOperation: 'generate-runbook',
+    creationIntentHash: 'abc123',
+  }, { ignoreIdConflict: true });
+  assert.match(query.text, /creation_operation, creation_intent_hash/);
+  assert.deepEqual(query.values.slice(-2), ['generate-runbook', 'abc123']);
+  assert.deepEqual(buildGetDocumentCreationReceipt(DOCUMENT_ID).values, [DOCUMENT_ID]);
+});
+
+test('documentMatchesCreateFields accepts an exact replay and rejects conflicting identity reuse', () => {
+  const fields = {
+    id: DOCUMENT_ID,
+    title: 'Imported note',
+    body: '# Imported note',
+    documentType: 'note',
+    projectId: PROJECT_UUID,
+    tags: ['imported'],
+    sourceFilename: 'imported.md',
+    kind: 'source',
+    updatedBy: 'user',
+  };
+  assert.equal(documentMatchesCreateFields({ ...fields }, fields), true);
+  assert.equal(documentMatchesCreateFields({ ...fields, title: 'Different' }, fields), false);
+  assert.equal(documentMatchesCreateFields({ ...fields, projectId: 'elsewhere' }, fields), false);
+  assert.equal(documentMatchesCreateFields({ ...fields, tags: ['imported', 'extra'] }, fields), false);
 });
 
 test('buildUpdateDocument returns only provided document fields', () => {
@@ -246,12 +310,24 @@ test('buildUpdateDocument always stamps updated_by and recomputes hash only when
   const withBody = buildUpdateDocument('id', { body: 'new body', updatedBy: 'agent' });
   assert.match(withBody.text, /updated_by = \$/);
   assert.match(withBody.text, /content_hash = \$/);
+  assert.match(withBody.text, /verified = 0/);
+  assert.match(withBody.text, /verified_at = null/);
+  assert.match(withBody.text, /verified_by = null/);
   assert.ok(withBody.values.includes(sha('new body')));
   assert.ok(withBody.values.includes('agent'));
 
   const noBody = buildUpdateDocument('id', { title: 'renamed', updatedBy: 'user' });
   assert.match(noBody.text, /updated_by = \$/);
   assert.doesNotMatch(noBody.text, /content_hash = \$/);
+  assert.doesNotMatch(noBody.text, /verified = 0/);
+});
+
+test('buildSetDocumentEmbedding rejects a stale result when content changed in flight', () => {
+  const q = buildSetDocumentEmbedding(DOCUMENT_ID, {
+    vector: [0.1], backend: 'fake', model: 'm', dim: 1, contentHash: 'old-hash',
+  });
+  assert.match(q.text, /where id = \$1 and content_hash = \$6/);
+  assert.equal(q.values[5], 'old-hash');
 });
 
 test('normalizeDocumentRow exposes contentHash and updatedBy', () => {

@@ -1,0 +1,50 @@
+{
+  "format": "prax.performance-budget",
+  "version": 1,
+  "status": "approved",
+  "title": "Large-workspace OrbStack Linux arm64 excellence boundary",
+  "rationale": "The proposal preserves direct-manipulation feedback below 150 ms for quick capture, keeps shell/task feedback below one second at p95, and keeps the heavier Library/editor completion paths below 1.25/1.5 seconds at p95. HTTP limits retain roughly 2x or greater observed headroom while still detecting eager full-collection regressions. The 512 MiB RSS, 10 MiB deterministic database, and CPU limits bound the owned 5,000-task/750-document harness without treating one unusually fast sample as the boundary. Values are review material until a human confirms that these limits match the perceived excellence boundary on this reference class.",
+  "approval": {
+    "approvedBy": "project-owner",
+    "approvedAt": "2026-07-14T15:23:23Z",
+    "statement": "I approve these thresholds as the Prax reference-hardware excellence boundary."
+  },
+  "reference": {
+    "profile": "large",
+    "samples": 11,
+    "warmups": 3,
+    "platform": "linux",
+    "release": "7.0.11-orbstack-00360-gc9bc4d96ac70",
+    "architecture": "arm64",
+    "cpuModel": "unknown",
+    "minimumLogicalCpuCount": 14,
+    "minimumTotalMemoryBytes": 16000000000,
+    "nodeMajor": 24,
+    "chromiumMajor": 149
+  },
+  "harness": {
+    "command": "npm run measure:performance -- --profile large --samples 11 --warmups 3 --output docs/quality-evidence/performance/2026-07-14-linux-arm64-candidate.json"
+  },
+  "thresholds": {
+    "http": {
+      "projects": { "p50Ms": 3, "p95Ms": 10 },
+      "tasks-all": { "p50Ms": 40, "p95Ms": 60 },
+      "tasks-search": { "p50Ms": 5, "p95Ms": 10 },
+      "library-all": { "p50Ms": 12, "p95Ms": 20 },
+      "document-detail": { "p50Ms": 5, "p95Ms": 10 }
+    },
+    "browser": {
+      "shell-feedback": { "p50Ms": 500, "p95Ms": 750 },
+      "task-collection-completion": { "p50Ms": 600, "p95Ms": 900 },
+      "quick-capture-feedback": { "p50Ms": 75, "p95Ms": 150 },
+      "library-completion": { "p50Ms": 850, "p95Ms": 1250 },
+      "editor-completion": { "p50Ms": 1000, "p95Ms": 1500 }
+    },
+    "resources": {
+      "databaseBytes": 10485760,
+      "nodeRssAfterBytes": 536870912,
+      "userCpuMicroseconds": 4000000,
+      "systemCpuMicroseconds": 500000
+    }
+  }
+}

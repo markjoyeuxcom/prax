@@ -1,10 +1,14 @@
+import { createHash } from 'node:crypto';
 import { ZipArchive } from 'archiver';
-import { createLibraryRepository } from './libraryRepository.js';
+import { createLibraryRepository, documentMatchesCreateFields } from './libraryRepository.js';
 import { createProjectsRepository } from './projectsRepository.js';
 import { createTasksRepository } from './tasksRepository.js';
 import { createDocumentLinksRepository, DOCUMENT_LINK_RELATIONS } from './documentLinksRepository.js';
 import { createDocumentExternalRefsRepository, sanitizeUrl, sanitizeLabel } from './documentExternalRefsRepository.js';
-import { createRunbookRunsRepository } from './runbookRunsRepository.js';
+import {
+  createRunbookRunsRepository,
+  RunbookRunConflictError,
+} from './runbookRunsRepository.js';
 import { parseRunbookSteps } from './runbookSteps.js';
 import {
   documentFilename,
@@ -15,7 +19,7 @@ import {
 } from './libraryExport.js';
 import { createEmbeddingService } from './embeddingService.js';
 import { buildContextPack, renderContextPackMarkdown, contentLength, isSubstantive } from './contextPack.js';
-import { buildAskMessages, buildAnswerContext, collectSources } from './askLibrary.js';
+import { buildAskMessages, buildAnswerContext, collectSources, validateAnswerCitations } from './askLibrary.js';
 import { buildRunSummary, buildPostMortemMessages, fallbackPostMortem, postMortemTitle } from './postMortem.js';
 import { buildRunbookMessages, parseGeneratedRunbook } from './generateRunbook.js';
 import { suggestWikiLinks, applyWikiLink } from './wikiLinkSuggest.js';
@@ -50,12 +54,19 @@ function originFrom(request) {
   return origin === 'agent' ? 'agent' : 'user';
 }
 
+function generationIntentHash(operation, intent) {
+  return createHash('sha256')
+    .update(JSON.stringify({ operation, ...intent }))
+    .digest('hex');
+}
+
 function isValidTags(value) {
   return value === undefined || (Array.isArray(value) && value.every(tag => typeof tag === 'string' && tag.trim().length > 0));
 }
 
 function validateDocumentPayload(payload, { partial = false } = {}) {
   if (!isPlainObject(payload)) return 'document payload is invalid';
+  if (!partial && payload.id !== undefined && !isValidUuid(payload.id)) return 'id is invalid';
   if (!partial || payload.title !== undefined) {
     if (typeof payload.title !== 'string' || payload.title.trim().length === 0) return 'title is required';
   }
@@ -86,6 +97,7 @@ function cleanTags(tags) {
 
 function cleanDocumentPayload(payload) {
   return {
+    ...(payload.id ? { id: payload.id } : {}),
     title: payload.title.trim(),
     body: payload.body,
     documentType: payload.documentType,
@@ -113,8 +125,10 @@ export async function registerLibraryRoutes(app, options = {}) {
   const projectsRepository = options.projectsRepository || app.projectsRepository || createProjectsRepository(app.db);
   const tasksRepository = options.tasksRepository || app.tasksRepository || (app.db ? createTasksRepository(app.db) : null);
   const runbookRunsRepository = options.runbookRunsRepository || app.runbookRunsRepository || (app.db ? createRunbookRunsRepository(app.db) : null);
-  const documentLinksRepository = options.documentLinksRepository || app.documentLinksRepository || createDocumentLinksRepository(app.db);
-  const documentExternalRefsRepository = options.documentExternalRefsRepository || app.documentExternalRefsRepository || createDocumentExternalRefsRepository(app.db);
+  const documentLinksRepository = options.documentLinksRepository || app.documentLinksRepository
+    || (app.db ? createDocumentLinksRepository(app.db) : null);
+  const documentExternalRefsRepository = options.documentExternalRefsRepository || app.documentExternalRefsRepository
+    || (app.db ? createDocumentExternalRefsRepository(app.db) : null);
 
   // Behavioral tests may inject an embedder/embeddingService directly — those
   // win. Otherwise the runtime provider resolves the current settings (cached
@@ -174,6 +188,37 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (service) service.embedDocument(documentId); // not awaited
   }
 
+  async function generatedDocumentReplay(id, operation, intentHash) {
+    if (!id) return { state: 'new' };
+    if (typeof repository.getDocumentCreationReceipt !== 'function'
+      || typeof repository.createDocumentIdempotent !== 'function') {
+      return { state: 'unavailable' };
+    }
+    const document = await repository.getDocument(id);
+    if (!document) return { state: 'new' };
+    const receipt = await repository.getDocumentCreationReceipt(id);
+    if (receipt?.operation === operation && receipt.intentHash === intentHash) {
+      return { state: 'replay', document };
+    }
+    return { state: 'conflict' };
+  }
+
+  async function commitGeneratedDocument(candidate, { id, operation, intentHash }) {
+    if (!id) {
+      return { document: await repository.createDocument(candidate), created: true };
+    }
+    const result = await repository.createDocumentIdempotent({
+      ...candidate,
+      id,
+      creationOperation: operation,
+      creationIntentHash: intentHash,
+    });
+    if (result.created) return result;
+    const receipt = await repository.getDocumentCreationReceipt(id);
+    if (receipt?.operation === operation && receipt.intentHash === intentHash) return result;
+    return { conflict: true };
+  }
+
   function toRef(doc) {
     return {
       id: doc.id,
@@ -181,7 +226,12 @@ export async function registerLibraryRoutes(app, options = {}) {
       documentType: doc.documentType,
       projectId: doc.projectId,
       tags: doc.tags || [],
+      kind: doc.kind || 'source',
+      updatedBy: doc.updatedBy || null,
       verified: Boolean(doc.verified),
+      verifiedAt: doc.verifiedAt || null,
+      verifiedBy: doc.verifiedBy || null,
+      stale: Boolean(doc.stale),
       status: doc.status || 'active',
       snippet: String(doc.body || '').slice(0, 200),
       // The semantic ranker computes a real cosine similarity per hit; surface
@@ -277,13 +327,36 @@ export async function registerLibraryRoutes(app, options = {}) {
     }
 
     const includeRetired = request.query.all === 'true';
+    const paged = request.query.page === 'true';
+    // The legacy array response remains shape-compatible but must be complete;
+    // only explicit paged mode is bounded. Ranking already evaluates every
+    // candidate in the repository, so the unpaged slice can safely retain all
+    // relevant hits rather than silently stopping at 20.
+    let limit = Number.MAX_SAFE_INTEGER;
+    let offset = 0;
+    if (paged) {
+      const requestedLimit = request.query.limit === undefined ? 20 : Number(request.query.limit);
+      const requestedOffset = request.query.offset === undefined ? 0 : Number(request.query.offset);
+      if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 50) {
+        reply.code(400);
+        return { message: 'limit must be an integer from 1 through 50' };
+      }
+      if (!Number.isInteger(requestedOffset) || requestedOffset < 0) {
+        reply.code(400);
+        return { message: 'offset must be a non-negative integer' };
+      }
+      limit = requestedLimit;
+      offset = requestedOffset;
+    }
     let docs;
     try {
       const { vector } = await embedder.embed(String(q), { query: true });
       const search = app.embeddingSearch || {};
       docs = await repository.searchDocumentsSemantic(vector, embedder.backend, {
         projectId,
-        limit: 20,
+        limit,
+        offset,
+        page: paged,
         minSimilarity: search.minSimilarity,
         topDrop: search.topDrop,
         includeRetired,
@@ -298,7 +371,25 @@ export async function registerLibraryRoutes(app, options = {}) {
       reply.code(503);
       return { message: 'semantic search backend is unavailable' };
     }
-    return docs.map(toRef);
+    if (!paged) return docs.map(toRef);
+
+    // Tolerate array-returning injected repositories in tests/extensions while
+    // the built-in repository supplies the exact total in paged mode.
+    const items = Array.isArray(docs) ? docs : (Array.isArray(docs?.items) ? docs.items : []);
+    const total = Number.isInteger(docs?.total) && docs.total >= 0 ? docs.total : items.length;
+    const returned = items.length;
+    const hasMore = offset + returned < total;
+    return {
+      items: items.map(toRef),
+      page: {
+        offset,
+        limit,
+        returned,
+        total,
+        hasMore,
+        nextOffset: hasMore ? offset + returned : null,
+      },
+    };
   });
 
   app.post('/api/library/embeddings/reindex', async (request, reply) => {
@@ -322,8 +413,23 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (resolvedId === null) { reply.code(400); return { message: 'project is invalid' }; }
     request.body.projectId = resolvedId;
 
+    const candidate = { ...cleanDocumentPayload(request.body), updatedBy: originFrom(request) };
+    if (candidate.id) {
+      if (typeof repository.createDocumentIdempotent !== 'function') {
+        reply.code(503);
+        return { message: 'idempotent document creation is unavailable' };
+      }
+      const result = await repository.createDocumentIdempotent(candidate);
+      if (!result.document || (!result.created && !documentMatchesCreateFields(result.document, candidate))) {
+        reply.code(409);
+        return { message: 'document id was already used for different content' };
+      }
+      reply.code(result.created ? 201 : 200);
+      if (result.created) await embedOnWrite(result.document.id);
+      return result.document;
+    }
     reply.code(201);
-    const created = await repository.createDocument({ ...cleanDocumentPayload(request.body), updatedBy: originFrom(request) });
+    const created = await repository.createDocument(candidate);
     await embedOnWrite(created.id); // gate awaited; the embed itself is not
     return created;
   });
@@ -412,6 +518,7 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (!isValidUuid(request.params.id)) { reply.code(400); return { message: 'document id is invalid' }; }
     const direction = request.query.direction || 'both';
     if (!['outbound', 'inbound', 'both'].includes(direction)) { reply.code(400); return { message: 'direction is invalid' }; }
+    if (!(await repository.getDocument(request.params.id))) { reply.code(404); return { message: 'document not found' }; }
     return documentLinksRepository.listDocumentLinks(request.params.id, direction);
   });
 
@@ -431,15 +538,35 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (!runbookRunsRepository) { reply.code(409); return { message: 'runs are not available' }; }
     const doc = await repository.getDocument(request.params.id);
     if (!doc || doc.archivedAt) { reply.code(404); return { message: 'document not found' }; }
+    if (doc.documentType !== 'runbook') { reply.code(409); return { message: 'only runbook documents can be started' }; }
     const steps = parseRunbookSteps(doc.body);
-    const title = isPlainObject(request.body) && typeof request.body.title === 'string' ? request.body.title.trim() : '';
-    const run = await runbookRunsRepository.createRun({ documentId: doc.id, title, startedBy: originFrom(request), steps });
-    reply.code(201);
-    return run;
+    const body = isPlainObject(request.body) ? request.body : {};
+    const title = typeof body.title === 'string' ? body.title.trim() : '';
+    if (body.id !== undefined && !isValidUuid(body.id)) {
+      reply.code(400); return { message: 'run id is invalid' };
+    }
+    try {
+      const run = await runbookRunsRepository.createRun({
+        id: body.id || null,
+        documentId: doc.id,
+        documentTitle: doc.title,
+        projectId: doc.projectId,
+        title,
+        startedBy: originFrom(request),
+        steps,
+      });
+      reply.code(run.alreadyStarted ? 200 : 201);
+      return run;
+    } catch (error) {
+      if (!(error instanceof RunbookRunConflictError)) throw error;
+      reply.code(409);
+      return { message: error.message, reason: error.reason };
+    }
   });
 
   app.get('/api/library/documents/:id/runs', async (request, reply) => {
     if (!isValidUuid(request.params.id)) { reply.code(400); return { message: 'document id is invalid' }; }
+    if (!(await repository.getDocument(request.params.id))) { reply.code(404); return { message: 'document not found' }; }
     if (!runbookRunsRepository) return [];
     return runbookRunsRepository.listRunsForDocument(request.params.id);
   });
@@ -460,11 +587,17 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (!isPlainObject(request.body) || typeof request.body.checked !== 'boolean') {
       reply.code(400); return { message: 'checked (boolean) is required' };
     }
-    const step = await runbookRunsRepository.setStepChecked(request.params.runId, request.params.stepId, {
-      checked: request.body.checked, checkedBy: originFrom(request),
-    });
-    if (!step) { reply.code(404); return { message: 'step not found' }; }
-    return step;
+    try {
+      const step = await runbookRunsRepository.setStepChecked(request.params.runId, request.params.stepId, {
+        checked: request.body.checked, checkedBy: originFrom(request),
+      });
+      if (!step) { reply.code(404); return { message: 'step not found' }; }
+      return step;
+    } catch (error) {
+      if (!(error instanceof RunbookRunConflictError)) throw error;
+      reply.code(409);
+      return { message: error.message, reason: error.reason };
+    }
   });
 
   app.patch('/api/library/runs/:runId', async (request, reply) => {
@@ -474,9 +607,17 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (!['running', 'completed', 'aborted'].includes(status)) {
       reply.code(400); return { message: 'status must be running, completed, or aborted' };
     }
-    const run = await runbookRunsRepository.setRunStatus(request.params.runId, status);
-    if (!run) { reply.code(404); return { message: 'run not found' }; }
-    return run;
+    try {
+      const run = await runbookRunsRepository.setRunStatus(request.params.runId, status, {
+        changedBy: originFrom(request),
+      });
+      if (!run) { reply.code(404); return { message: 'run not found' }; }
+      return run;
+    } catch (error) {
+      if (!(error instanceof RunbookRunConflictError)) throw error;
+      reply.code(409);
+      return { message: error.message, reason: error.reason };
+    }
   });
 
   // Auto post-mortem: turn a run's chronicle into a drafted post-mortem document
@@ -485,39 +626,68 @@ export async function registerLibraryRoutes(app, options = {}) {
   // built from the chronicle otherwise. Never 500s on the AI path.
   app.post('/api/library/runs/:runId/post-mortem', async (request, reply) => {
     if (!isValidUuid(request.params.runId)) { reply.code(400); return { message: 'run id is invalid' }; }
+    const requestBody = isPlainObject(request.body) ? request.body : {};
+    const resultId = requestBody.id;
+    if (resultId !== undefined && !isValidUuid(resultId)) {
+      reply.code(400); return { message: 'document id is invalid' };
+    }
     if (!runbookRunsRepository) { reply.code(404); return { message: 'run not found' }; }
     const run = await runbookRunsRepository.getRun(request.params.runId);
     if (!run) { reply.code(404); return { message: 'run not found' }; }
-    const doc = await repository.getDocument(run.documentId);
-    if (!doc) { reply.code(409); return { message: 'the runbook this run came from no longer exists' }; }
+    const doc = run.documentId ? await repository.getDocument(run.documentId) : null;
+    const documentTitle = run.documentTitle || doc?.title || 'Deleted runbook';
+    const projectId = run.projectId || doc?.projectId || null;
+    const project = projectId ? await projectsRepository.resolveProject(projectId) : null;
+    if (!project) { reply.code(409); return { message: 'the project this run came from no longer exists' }; }
 
-    const summary = buildRunSummary(run, doc.title);
-    let body = fallbackPostMortem(run, summary, doc.title);
+    const operation = 'generate-post-mortem';
+    const intentHash = generationIntentHash(operation, { runId: run.id, projectId: project.id });
+    const prior = await generatedDocumentReplay(resultId, operation, intentHash);
+    if (prior.state === 'unavailable') {
+      reply.code(503); return { message: 'idempotent document generation is unavailable' };
+    }
+    if (prior.state === 'conflict') {
+      reply.code(409); return { message: 'document id was already used for a different generation intent' };
+    }
+    if (prior.state === 'replay') {
+      return { document: prior.document, generated: null, model: null, replayed: true };
+    }
+
+    const summary = buildRunSummary(run, documentTitle);
+    let body = fallbackPostMortem(run, summary, documentTitle);
     let generated = false;
     let model = null;
     const chat = await resolveChat();
     if (chat) {
       try {
-        const res = await chat.complete(buildPostMortemMessages(run, summary, doc.title), { temperature: 0.3, maxTokens: 1500 });
+        const res = await chat.complete(buildPostMortemMessages(run, summary, documentTitle), { temperature: 0.3, maxTokens: 1500 });
         if (res && typeof res.text === 'string' && res.text.trim()) { body = res.text; generated = true; model = res.model || chat.model || null; }
       } catch (err) {
         request.log.error({ err }, 'post-mortem generation failed');
       }
     }
 
-    reply.code(201);
-    const created = await repository.createDocument({
-      title: postMortemTitle(run, doc.title),
+    const committed = await commitGeneratedDocument({
+      title: postMortemTitle(run, documentTitle),
       body,
       // First-class type since migration 0010; the tag stays for continuity.
       documentType: 'post-mortem',
-      projectId: doc.projectId,
+      projectId: project.id,
       tags: ['post-mortem'],
       kind: 'synthesized',
       updatedBy: 'agent', // AI-authored → lands agent-written, needs human verify
-    });
-    await embedOnWrite(created.id);
-    return { document: created, generated, model };
+    }, { id: resultId, operation, intentHash });
+    if (committed.conflict) {
+      reply.code(409); return { message: 'document id was already used for a different generation intent' };
+    }
+    reply.code(committed.created ? 201 : 200);
+    if (committed.created) await embedOnWrite(committed.document.id);
+    return {
+      document: committed.document,
+      generated: committed.created ? generated : null,
+      model: committed.created ? model : null,
+      replayed: !committed.created,
+    };
   });
 
   // Generate a runbook from an alert/incident description. Unlike ask/post-mortem
@@ -529,9 +699,26 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (!body) { reply.code(400); return { message: 'body is invalid' }; }
     const description = typeof body.description === 'string' ? body.description.trim() : '';
     if (!description) { reply.code(400); return { message: 'description is required' }; }
+    const resultId = body.id;
+    if (resultId !== undefined && !isValidUuid(resultId)) {
+      reply.code(400); return { message: 'document id is invalid' };
+    }
     const projectId = await resolveProjectId(body.project);
     if (projectId === null) { reply.code(400); return { message: 'project is invalid' }; }
     if (projectId === undefined) { reply.code(400); return { message: 'project is required' }; }
+
+    const operation = 'generate-runbook';
+    const intentHash = generationIntentHash(operation, { description, projectId });
+    const prior = await generatedDocumentReplay(resultId, operation, intentHash);
+    if (prior.state === 'unavailable') {
+      reply.code(503); return { message: 'idempotent document generation is unavailable' };
+    }
+    if (prior.state === 'conflict') {
+      reply.code(409); return { message: 'document id was already used for a different generation intent' };
+    }
+    if (prior.state === 'replay') {
+      return { document: prior.document, model: null, replayed: true };
+    }
 
     const chat = await resolveChat();
     if (!chat) { reply.code(409); return { message: 'no AI model is configured — set one in Settings ▸ Intelligence' }; }
@@ -544,8 +731,7 @@ export async function registerLibraryRoutes(app, options = {}) {
     }
     const { title, body: docBody } = parseGeneratedRunbook(generated?.text, description);
 
-    reply.code(201);
-    const created = await repository.createDocument({
+    const committed = await commitGeneratedDocument({
       title,
       body: docBody,
       documentType: 'runbook',
@@ -553,9 +739,17 @@ export async function registerLibraryRoutes(app, options = {}) {
       tags: ['draft'],
       kind: 'synthesized',
       updatedBy: 'agent', // AI-authored → agent-written, needs human verify
-    });
-    await embedOnWrite(created.id);
-    return { document: created, model: generated?.model || chat.model || null };
+    }, { id: resultId, operation, intentHash });
+    if (committed.conflict) {
+      reply.code(409); return { message: 'document id was already used for a different generation intent' };
+    }
+    reply.code(committed.created ? 201 : 200);
+    if (committed.created) await embedOnWrite(committed.document.id);
+    return {
+      document: committed.document,
+      model: committed.created ? (generated?.model || chat.model || null) : null,
+      replayed: !committed.created,
+    };
   });
 
   // "More like this" — documents most similar to this one by embedding. Reuses
@@ -600,9 +794,24 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (!isValidUuid(request.params.id)) { reply.code(400); return { message: 'document id is invalid' }; }
     const body = isPlainObject(request.body) ? request.body : {};
     if (typeof body.verified !== 'boolean') { reply.code(400); return { message: 'verified must be a boolean' }; }
+    if (body.contentHash !== undefined && !/^[0-9a-f]{64}$/i.test(body.contentHash)) {
+      reply.code(400); return { message: 'contentHash is invalid' };
+    }
     const verifiedBy = body.verified ? (typeof body.as === 'string' && body.as.trim() ? body.as.trim() : 'user') : null;
-    const document = await repository.verifyDocument(request.params.id, { verified: body.verified, verifiedBy });
-    if (!document) { reply.code(404); return { message: 'document not found' }; }
+    const expectedHash = body.verified ? (body.contentHash || null) : null;
+    const document = await repository.verifyDocument(request.params.id, {
+      verified: body.verified, verifiedBy, contentHash: expectedHash,
+    });
+    if (!document) {
+      const current = await repository.getDocument(request.params.id);
+      if (expectedHash && current && current.contentHash !== expectedHash) {
+        reply.code(409); return { message: 'document changed since it was reviewed; review the current content before verifying' };
+      }
+      // Same-state verification replay is success without rewriting the first
+      // reviewer/timestamp. This makes a lost response safe to retry.
+      if (body.verified && current?.verified) return current;
+      reply.code(404); return { message: 'document not found' };
+    }
     return document;
   });
 
@@ -614,7 +823,6 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (oldId === newId) { reply.code(400); return { message: 'a document cannot supersede itself' }; }
     const link = await documentLinksRepository.linkDocuments(newId, oldId, 'supersedes');
     if (!link.linked) { reply.code(404); return { message: 'document not found' }; }
-    await repository.markDocumentSuperseded(oldId);
     return repository.getDocument(oldId);
   });
 
@@ -628,7 +836,15 @@ export async function registerLibraryRoutes(app, options = {}) {
 
     let docs = [];
     const embedder = query ? await resolveEmbedder() : null;
-    if (query && embedder && await semanticEnabled()) {
+    const semanticReady = Boolean(query && embedder && await semanticEnabled());
+    let retrieval = query
+      ? {
+        mode: 'recency',
+        fallback: true,
+        reason: !embedder ? 'semantic-not-configured' : (semanticReady ? 'semantic-no-match' : 'semantic-disabled'),
+      }
+      : { mode: 'recency', fallback: false, reason: null };
+    if (semanticReady) {
       try {
         const { vector } = await embedder.embed(query, { query: true });
         const search = app.embeddingSearch || {};
@@ -638,17 +854,19 @@ export async function registerLibraryRoutes(app, options = {}) {
           minSimilarity: search.minSimilarity,
           topDrop: search.topDrop,
         });
+        if (docs.length > 0) retrieval = { mode: 'semantic', fallback: false, reason: null };
       } catch (err) {
         // Degrade to recency rather than fail — keyword/recency always works.
         request.log.error({ err }, 'context-pack semantic embed failed');
         docs = [];
+        retrieval = { mode: 'recency', fallback: true, reason: 'semantic-unavailable' };
       }
     }
     if (docs.length === 0) {
       docs = await repository.listDocuments({ projectId: project.id, status: 'active' });
     }
 
-    const pack = buildContextPack(docs, { project, query, limit });
+    const pack = buildContextPack(docs, { project, query, limit, retrieval });
     if (request.query.format === 'json') return pack;
     reply.header('Content-Type', 'text/markdown; charset=utf-8');
     return renderContextPackMarkdown(pack);
@@ -675,25 +893,31 @@ export async function registerLibraryRoutes(app, options = {}) {
     const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 50) : 12;
 
     let docs = [];
+    let retrieval = { mode: 'keyword', fallback: true, reason: 'semantic-not-configured' };
     const embedder = await resolveEmbedder();
-    if (embedder && await semanticEnabled()) {
+    const semanticReady = Boolean(embedder && await semanticEnabled());
+    if (embedder && !semanticReady) retrieval.reason = 'semantic-disabled';
+    if (semanticReady) {
       try {
         const { vector } = await embedder.embed(query, { query: true });
         const search = app.embeddingSearch || {};
         docs = await repository.searchDocumentsSemantic(vector, embedder.backend, {
           projectId, limit: 50, minSimilarity: search.minSimilarity, topDrop: search.topDrop,
         });
+        if (docs.length > 0) retrieval = { mode: 'semantic', fallback: false, reason: null };
+        else retrieval = { mode: 'keyword', fallback: true, reason: 'semantic-no-match' };
       } catch (err) {
         // Degrade to keyword rather than fail — FTS always works.
         request.log.error({ err }, 'library context-pack semantic embed failed');
         docs = [];
+        retrieval = { mode: 'keyword', fallback: true, reason: 'semantic-unavailable' };
       }
     }
     if (docs.length === 0) {
       docs = await repository.listDocuments({ projectId, status: 'active', q: query });
     }
 
-    const pack = buildContextPack(docs, { project, query, limit });
+    const pack = buildContextPack(docs, { project, query, limit, retrieval });
     if (request.query.format === 'json') return pack;
     reply.header('Content-Type', 'text/markdown; charset=utf-8');
     return renderContextPackMarkdown(pack);
@@ -721,6 +945,7 @@ export async function registerLibraryRoutes(app, options = {}) {
     const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 50) : 12;
 
     let docs = [];
+    let retrieval = { mode: 'keyword', fallback: false, reason: null };
     const embedder = await resolveEmbedder();
     if (embedder && await semanticEnabled()) {
       try {
@@ -729,32 +954,39 @@ export async function registerLibraryRoutes(app, options = {}) {
         docs = await repository.searchDocumentsSemantic(vector, embedder.backend, {
           projectId, limit: 50, minSimilarity: search.minSimilarity, topDrop: search.topDrop,
         });
+        if (docs.length > 0) retrieval = { mode: 'semantic', fallback: false, reason: null };
+        else retrieval = { mode: 'keyword', fallback: true, reason: 'semantic-no-match' };
       } catch (err) {
         request.log.error({ err }, 'library ask semantic embed failed');
         docs = [];
+        retrieval = { mode: 'keyword', fallback: true, reason: 'semantic-unavailable' };
       }
     }
     if (docs.length === 0) {
       docs = await repository.listDocuments({ projectId, status: 'active', q: query });
     }
 
-    const pack = buildContextPack(docs, { project, query, limit });
+    const pack = buildContextPack(docs, { project, query, limit, retrieval });
     const markdown = renderContextPackMarkdown(pack);
     const sources = collectSources(pack);
 
     const chat = await resolveChat();
     if (!chat) {
-      return { query, answer: null, degraded: true, reason: 'no-chat-model', markdown, sources, model: null };
+      return { query, answer: null, degraded: true, reason: 'no-chat-model', markdown, sources, retrieval, model: null };
     }
     try {
       // Generate from the FULL bodies of the top docs (not the snippet pack), so
       // the answer is grounded in complete content — runbook steps, commands, etc.
       const context = buildAnswerContext(docs);
       const { text, model } = await chat.complete(buildAskMessages(query, context), { temperature: 0.2, maxTokens: 1024 });
-      return { query, answer: text, degraded: false, markdown, sources, model };
+      const citation = validateAnswerCitations(text, sources);
+      if (!citation.valid) {
+        return { query, answer: null, degraded: true, reason: 'citation-validation-failed', markdown, sources, retrieval, model };
+      }
+      return { query, answer: text, degraded: false, markdown, sources, retrieval, citation, model };
     } catch (err) {
       request.log.error({ err }, 'library ask generation failed');
-      return { query, answer: null, degraded: true, reason: 'generation-failed', error: err?.message || 'generation failed', markdown, sources, model: chat.model || null };
+      return { query, answer: null, degraded: true, reason: 'generation-failed', markdown, sources, retrieval, model: chat.model || null };
     }
   });
 
@@ -800,9 +1032,12 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (!isValidUuid(targetId)) { reply.code(400); return { message: 'targetId is invalid' }; }
     if (!DOCUMENT_LINK_RELATIONS.includes(relation)) { reply.code(400); return { message: 'relation is invalid' }; }
     const removed = await documentLinksRepository.unlinkDocuments(sourceId, targetId, relation);
-    if (!removed) { reply.code(404); return { message: 'link not found' }; }
-    if (relation === 'supersedes') {
-      await repository.revertSupersededIfOrphan(targetId);
+    if (!removed) {
+      const [source, target] = await Promise.all([
+        repository.getDocument(sourceId),
+        repository.getDocument(targetId),
+      ]);
+      if (!source || !target) { reply.code(404); return { message: 'document not found' }; }
     }
     return documentLinksRepository.listDocumentLinks(sourceId, 'outbound');
   });
@@ -812,6 +1047,7 @@ export async function registerLibraryRoutes(app, options = {}) {
   // document_links (the target is a URL, not a local doc row).
   app.get('/api/library/documents/:id/external-refs', async (request, reply) => {
     if (!isValidUuid(request.params.id)) { reply.code(400); return { message: 'document id is invalid' }; }
+    if (!(await repository.getDocument(request.params.id))) { reply.code(404); return { message: 'document not found' }; }
     return documentExternalRefsRepository.listExternalRefs(request.params.id);
   });
 
@@ -832,7 +1068,9 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (!isValidUuid(documentId)) { reply.code(400); return { message: 'document id is invalid' }; }
     if (!isValidUuid(request.params.refId)) { reply.code(400); return { message: 'ref id is invalid' }; }
     const removed = await documentExternalRefsRepository.removeExternalRef(documentId, request.params.refId);
-    if (!removed) { reply.code(404); return { message: 'reference not found' }; }
+    if (!removed && !(await repository.getDocument(documentId))) {
+      reply.code(404); return { message: 'document not found' };
+    }
     return documentExternalRefsRepository.listExternalRefs(documentId);
   });
 

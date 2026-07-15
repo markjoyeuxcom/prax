@@ -48,5 +48,7 @@ test('list_task_activity calls listTaskActivity and returns the events', async (
   const tool = byName(createActivityTools(client), 'list_task_activity');
   const res = await tool.handler({ taskId: TASK_ID });
   assert.equal(received, TASK_ID);
-  assert.deepEqual(JSON.parse(res.content[0].text), SAMPLE_EVENTS);
+  const data = JSON.parse(res.content[0].text);
+  assert.deepEqual(data.items, SAMPLE_EVENTS);
+  assert.equal(data.page.total, 2);
 });

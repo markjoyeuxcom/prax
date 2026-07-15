@@ -85,7 +85,7 @@ test('renderTodayHtml adds a project chip tinted with the project color after th
     task({ id: 'ghost', dueDate: '2026-07-04', projectId: 'nope' }),
   ], PROJECTS, { now: NOW });
   const html = renderTodayHtml(baseState(), groups, { now: NOW });
-  assert.match(html, /Patch node<\/span><span class="chip chip--project" style="background:color-mix\(in oklab, #7c9885 13%, transparent\);color:#7c9885">Homelab</);
+  assert.match(html, /Patch node<\/span><span class="chip chip--project" style="--project-color:#7c9885;background:color-mix\(in oklab, #7c9885 13%, transparent\)">Homelab</);
   assert.match(html, /class="chip chip--project"[^>]*>No project</);
 });
 
@@ -96,7 +96,7 @@ test('renderTodayHtml rows keep the list-row affordances', () => {
     task({ id: 'b', dueDate: '2026-07-06' }),
   ], PROJECTS, { now: NOW });
   const html = renderTodayHtml(state, groups, { now: NOW });
-  assert.match(html, /class="task-row is-selected"[^>]*data-action="open-task" data-task-id="a" aria-current="true"/);
+  assert.match(html, /class="task-row is-selected"[^>]*data-task-id="a"[^>]*>[\s\S]*data-action="open-task" data-task-id="a" aria-current="true"/);
   assert.match(html, /class="task-row is-multi"[^>]*data-task-id="b"/);
   assert.match(html, /data-action="toggle-task-done" data-task-id="a"/);
   assert.match(html, /class="chip chip--due-overdue">Jul 4 · overdue</);

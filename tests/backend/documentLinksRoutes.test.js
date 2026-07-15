@@ -45,7 +45,7 @@ function createFakeDocumentLinksRepository() {
 function build() {
   return buildApp({
     skipDb: true,
-    libraryRepository: { async getDocument() { return null; } },
+    libraryRepository: { async getDocument(id) { return [DOC_A, DOC_B].includes(id) ? { id } : null; } },
     projectsRepository: { async resolveProject() { return null; } },
     documentLinksRepository: createFakeDocumentLinksRepository(),
   });
@@ -96,6 +96,14 @@ test('GET links honours direction and DELETE removes', async () => {
   assert.equal(del.statusCode, 200);
   assert.deepEqual(del.json(), []);
   const delAgain = await app.inject({ method: 'DELETE', url: `/api/library/documents/${DOC_A}/links/${DOC_B}?relation=derived-from` });
-  assert.equal(delAgain.statusCode, 404);
+  assert.equal(delAgain.statusCode, 200);
+  assert.deepEqual(delAgain.json(), []);
+  await app.close();
+});
+
+test('GET and replayed DELETE return 404 when a document owner is missing', async () => {
+  const app = await build();
+  assert.equal((await app.inject({ method: 'GET', url: `/api/library/documents/${MISSING}/links` })).statusCode, 404);
+  assert.equal((await app.inject({ method: 'DELETE', url: `/api/library/documents/${DOC_A}/links/${MISSING}?relation=derived-from` })).statusCode, 404);
   await app.close();
 });

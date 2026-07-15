@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import { isValidUuid } from '../validate.js';
 import { okResult, errorResult, withErrorHandling } from '../toolResult.js';
-import { toTaskRef, capResults } from '../shape.js';
+import { toTaskRef } from '../shape.js';
+import { paginateResults, paginationInput } from '../pagination.js';
+import { runStableMutation, stableMutationId } from '../stableMutation.js';
 // The SAME filter grammar the desktop smart views use — imported across the
 // tree so a human smart view and an agent query are evaluated identically. It
 // depends only on pure modules (no DOM).
@@ -16,15 +18,16 @@ export function createTaskTools(client) {
       name: 'search_tasks',
       title: 'Search tasks',
       description:
-        'Search active Prax tasks. Returns summaries (id, title, status, priority, projectId, dueDate, labels). Call get_task for the full record. Pass `filter` for a cross-project query in the same language as the desktop smart views.',
+        'Search active Prax tasks. Returns a paginated collection of summaries (id, title, status, priority, projectId, dueDate, labels). Call get_task for the full record. Pass `filter` for a cross-project query in the same language as the desktop smart views.',
       annotations: { readOnlyHint: true },
       inputSchema: {
         query: z.string().optional().describe('Text matched against task title.'),
         project: z.string().optional().describe('Limit to one project (name, slug, or id); omit for all.'),
         status: STATUS.optional().describe('Limit to one status.'),
         filter: z.string().optional().describe('Prax filter expression, e.g. "p1 & overdue", "@waiting & #homelab", "due:today", "is:recurring". Atoms: @label, #project, p1-3/priority:, status:, done/open, overdue, due:today|tomorrow|soon|week|none|YYYY-MM-DD, is:snoozed, is:recurring, bareword=title; operators & | - ( ).'),
+        ...paginationInput(),
       },
-      handler: withErrorHandling(async ({ query, project, status, filter }) => {
+      handler: withErrorHandling(async ({ query, project, status, filter, limit, offset }) => {
         const tasks = await client.listTasks({ q: query, project, status });
         let list = Array.isArray(tasks) ? tasks : [];
         if (filter && filter.trim()) {
@@ -35,7 +38,7 @@ export function createTaskTools(client) {
           const ctx = { now: new Date(), resolveProjectId: projectResolver(projects) };
           list = list.filter((task) => predicate(task, ctx));
         }
-        return okResult(capResults(list.map(toTaskRef)));
+        return okResult(paginateResults(list.map(toTaskRef), { limit, offset }));
       }),
     },
     {
@@ -49,15 +52,17 @@ export function createTaskTools(client) {
       handler: withErrorHandling(async ({ id }) => {
         if (!isValidUuid(id)) return errorResult('id must be a valid UUID.');
         const task = await client.getTask(id);
-        if (!task) return errorResult(`No task with id ${id} (it may be archived or deleted).`);
+        if (!task) return errorResult(`No task with id ${id} (it is missing or was permanently deleted).`);
         return okResult(task);
       }),
     },
     {
       name: 'create_task',
       title: 'Create task',
-      description: 'Create a new task. priority defaults to medium and status to planned if omitted. For a repeating task, set recurrence (e.g. "daily").',
+      description: 'Create a new task. priority defaults to medium and status to planned if omitted. For a repeating task, set recurrence (e.g. "daily"). Reuse id with the same fields to retry safely.',
+      annotations: { idempotentHint: true, destructiveHint: false },
       inputSchema: {
+        id: z.string().optional().describe('Optional caller-stable UUID. Reuse it with identical fields when retrying.'),
         title: z.string().min(1).describe('Task title.'),
         project: z.string().describe('Project name, slug, or id (a name is matched case-insensitively, spaces or hyphens).'),
         description: z.string().optional(),
@@ -69,9 +74,12 @@ export function createTaskTools(client) {
         labels: z.array(z.string()).optional().describe('Cross-cutting labels (e.g. ["waiting","cert-rotation"]); normalized lowercase.'),
       },
       handler: withErrorHandling(async (args) => {
+        if (args.id !== undefined && !isValidUuid(args.id)) return errorResult('id must be a valid UUID when provided.');
+        const id = stableMutationId(args.id);
         // The API requires priority and status on create; apply the documented
         // defaults here so callers can omit them (args override these).
-        const task = await client.createTask({ priority: 'medium', status: 'planned', ...args });
+        const task = await runStableMutation({ label: 'Task creation', id, inputName: 'id' }, () =>
+          client.createTask({ priority: 'medium', status: 'planned', ...args, id }));
         return okResult(task);
       }),
     },
@@ -79,6 +87,7 @@ export function createTaskTools(client) {
       name: 'update_task',
       title: 'Update task',
       description: 'Update one or more fields of an existing task.',
+      annotations: { idempotentHint: true, destructiveHint: true },
       inputSchema: {
         id: z.string().describe('Task UUID.'),
         title: z.string().min(1).optional(),

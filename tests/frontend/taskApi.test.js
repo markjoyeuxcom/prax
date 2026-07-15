@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   archiveTask,
+  createTask,
   exportTasks,
+  fetchTask,
   fetchTaskDocuments,
   importTasks,
   deleteArchivedTask,
@@ -19,12 +21,44 @@ import {
   fetchTaskActivity,
 } from '../../public/js/taskApi.js';
 
-function jsonResponse(body, ok = true) {
+function jsonResponse(body, ok = true, status = ok ? 200 : 400) {
   return {
     ok,
+    status,
     json: async () => body,
   };
 }
+
+test('createTask preserves the client UUID used for safe retries', async () => {
+  const calls = [];
+  globalThis.fetch = async (...args) => {
+    calls.push(args);
+    return jsonResponse({ id: '11111111-1111-4111-8111-111111111111' });
+  };
+  const payload = {
+    id: '11111111-1111-4111-8111-111111111111',
+    title: 'Exact-once capture',
+    priority: 'medium',
+    status: 'planned',
+    project: 'work',
+  };
+
+  await createTask(payload);
+  assert.equal(calls[0][0], '/api/tasks');
+  assert.equal(calls[0][1].method, 'POST');
+  assert.equal(calls[0][1].body, JSON.stringify(payload));
+});
+
+test('fetchTask reads one encoded task id', async () => {
+  const calls = [];
+  globalThis.fetch = async (...args) => {
+    calls.push(args);
+    return jsonResponse({ id: 'task/one' });
+  };
+
+  assert.deepEqual(await fetchTask('task/one'), { id: 'task/one' });
+  assert.equal(calls[0][0], '/api/tasks/task%2Fone');
+});
 
 test('updateTask sends a PATCH request with JSON payload', async () => {
   const calls = [];
@@ -144,13 +178,27 @@ test('importTasks posts explicit import modes', async () => {
     project: 'p1',
     mode: 'replace',
     tasks: [{ title: 'Imported task' }],
+    format: 'moomora.tasks',
+    version: 1,
+    requestId: '11111111-1111-4111-8111-111111111111',
   });
 
   assert.equal(calls[0][1].body, JSON.stringify({
     project: 'p1',
     mode: 'replace',
     tasks: [{ title: 'Imported task' }],
+    requestId: '11111111-1111-4111-8111-111111111111',
+    format: 'moomora.tasks',
+    version: 1,
   }));
+});
+
+test('importTasks exposes the server rejection message and status', async () => {
+  globalThis.fetch = async () => jsonResponse({ message: 'requestId was already used' }, false, 409);
+  await assert.rejects(
+    () => importTasks({ project: 'p1', tasks: [{ title: 'Imported task' }] }),
+    (error) => error.message === 'requestId was already used' && error.status === 409,
+  );
 });
 
 test('reorderTasks sends a PATCH request with ordered task updates', async () => {
@@ -196,7 +244,7 @@ test('importTasks throws when the API rejects the request', async () => {
 
   await assert.rejects(
     () => importTasks({ project: 'p1', tasks: [] }),
-    /Failed to import tasks/,
+    /bad/,
   );
 });
 

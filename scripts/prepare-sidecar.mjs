@@ -53,6 +53,7 @@ execSync('npm ci --omit=dev --ignore-scripts --no-audit --no-fund', {
 rmSync(join(staging, 'package-lock.json'));
 
 console.log('[prepare-sidecar] staging the Node runtime as the sidecar binary…');
+rmSync(binaries, { recursive: true, force: true });
 mkdirSync(binaries, { recursive: true });
 const suffix = process.platform === 'win32' ? '.exe' : '';
 const sidecar = join(binaries, `prax-server-${targetTriple()}${suffix}`);

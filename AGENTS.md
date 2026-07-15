@@ -71,6 +71,10 @@ the CLI for "what does *this project* know."
 
 ## Engineering conventions
 
+- The active product-quality policy is
+  `docs/superpowers/specs/2026-07-13-exceptional-prax-quality-standard.md`. Its Gate A invariants
+  apply immediately: do not knowingly introduce or preserve an invariant violation, and turn
+  confirmed defect classes into durable regression evidence where practical.
 - Run `npm test` (unit + contract suite) and `npm run check` (syntax-checks entry points) before
   proposing a change.
 - The repo follows a spec → plan → review workflow; design specs/plans live under

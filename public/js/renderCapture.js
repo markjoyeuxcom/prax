@@ -24,8 +24,9 @@ function nlPreviewHtml(state, projects) {
   const fields = state.nlCaptureFields;
   if (!fields) return '';
   const chips = [];
+  const disabled = state?.captureSubmitting ? ' disabled' : '';
   const chip = (field, label, { tone = '', dot = '' } = {}) =>
-    `<button type="button" class="nlchip${tone ? ` nlchip--${tone}` : ''}" data-action="drop-nl-field" data-field="${escapeHtml(field)}" title="Click to remove">${dot}${escapeHtml(label)}<span class="nlchip__x" aria-hidden="true">×</span></button>`;
+    `<button type="button" class="nlchip${tone ? ` nlchip--${tone}` : ''}" data-action="drop-nl-field" data-field="${escapeHtml(field)}" aria-label="Remove ${escapeHtml(label)}" title="Click to remove"${disabled}>${dot}${escapeHtml(label)}<span class="nlchip__x" aria-hidden="true">×</span></button>`;
 
   if (fields.project) {
     const proj = (projects || []).find((p) => p.slug === fields.project);
@@ -40,7 +41,7 @@ function nlPreviewHtml(state, projects) {
   }
   if (fields.recurrence) chips.push(chip('recurrence', `↻ ${fields.recurrence}`));
   for (const label of fields.labels || []) {
-    chips.push(`<button type="button" class="nlchip" data-action="drop-nl-label" data-value="${escapeHtml(label)}" title="Click to remove">@${escapeHtml(label)}<span class="nlchip__x" aria-hidden="true">×</span></button>`);
+    chips.push(`<button type="button" class="nlchip" data-action="drop-nl-label" data-value="${escapeHtml(label)}" aria-label="Remove label ${escapeHtml(label)}" title="Click to remove"${disabled}>@${escapeHtml(label)}<span class="nlchip__x" aria-hidden="true">×</span></button>`);
   }
 
   const ignored = (state.nlCaptureDropped || []).length
@@ -54,11 +55,13 @@ export function renderCaptureHtml(state, project, projects = []) {
   const dueHint = state?.captureDueDate && !state?.nlCaptureFields ? '<span class="capture__due">Due today</span>' : '';
   const canNl = Boolean(state?.chatStatus?.available);
   const previewing = Boolean(state?.nlCaptureFields);
+  const submitting = Boolean(state?.captureSubmitting);
+  const disabled = submitting ? ' disabled' : '';
   const menu = state?.captureMenuOpen
     ? '<div class="menu capture__menu" role="listbox" aria-label="Choose project">'
       + projects.map((p) => {
         const selected = p.id === project?.id;
-        return `<button type="button" class="menu__item capture__menu-item${selected ? ' is-selected' : ''}" role="option"${selected ? ' aria-selected="true"' : ''} data-action="set-capture-project" data-project-id="${escapeHtml(p.id)}">`
+        return `<button type="button" class="menu__item capture__menu-item${selected ? ' is-selected' : ''}" role="option" aria-selected="${selected}" data-action="set-capture-project" data-project-id="${escapeHtml(p.id)}"${disabled}>`
           + `<span class="proj-dot" style="--dot:${escapeHtml(p.color || 'var(--accent)')}" aria-hidden="true"></span>`
           + `<span class="capture__menu-name">${escapeHtml(p.name)}</span>`
           + (selected ? icon('check', 12) : '')
@@ -67,9 +70,14 @@ export function renderCaptureHtml(state, project, projects = []) {
       + '</div>'
     : '';
   const error = state?.nlCaptureError
-    ? `<div class="capture__nl-error">${escapeHtml(state.nlCaptureError)}</div>`
+    ? `<div class="capture__nl-error" role="alert">${escapeHtml(state.nlCaptureError)}</div>`
     : '';
-  const hint = state?.nlCaptureLoading
+  const captureNotice = state?.captureError
+    ? `<div class="capture__notice${state.captureRecovered ? ' capture__notice--recovered' : ''}" role="${state.captureRecovered ? 'status' : 'alert'}">${escapeHtml(state.captureError)}</div>`
+    : '';
+  const hint = submitting
+    ? '<span class="capture__hint capture__hint--busy" role="status">Adding task…</span>'
+    : state?.nlCaptureLoading
     ? '<span class="capture__hint capture__hint--busy">✦ Parsing…</span>'
     : previewing
       ? '<span class="capture__hint"><span class="kbd">↵</span> add task · <span class="kbd">⌘↵</span> re-parse · <span class="kbd">esc</span> cancel</span>'
@@ -78,15 +86,16 @@ export function renderCaptureHtml(state, project, projects = []) {
         : '<span class="capture__hint"><span class="kbd">↵</span> add task</span>';
   return `
     <div class="overlay-center" data-overlay="capture" data-action="close-capture">
-      <div class="capture" role="dialog" aria-label="Quick capture">
+      <div class="capture" role="dialog" aria-modal="true" aria-label="Quick capture" aria-busy="${submitting}">
         <div class="capture__row">
           ${icon('check')}
-          <input class="capture__input" type="text" data-capture-input placeholder="What needs doing?  —  try “rotate certs #homelab @cert !high fri”" value="${escapeHtml(state?.captureQuery ?? '')}" autocomplete="off" spellcheck="false">
+          <input class="capture__input" type="text" data-capture-input aria-label="Task title" placeholder="What needs doing?  —  try “rotate certs #homelab @cert !high fri”" value="${escapeHtml(state?.captureQuery ?? '')}" autocomplete="off" spellcheck="false"${disabled}>
         </div>
         ${nlPreviewHtml(state, projects)}
         ${error}
+        ${captureNotice}
         <div class="capture__foot">
-          <button type="button" class="capture__proj" data-action="toggle-capture-menu" aria-haspopup="listbox" aria-expanded="${state?.captureMenuOpen ? 'true' : 'false'}">
+          <button type="button" class="capture__proj" data-action="toggle-capture-menu" aria-label="Choose destination project, current ${escapeHtml(project?.name ?? 'No project')}" aria-haspopup="listbox" aria-expanded="${state?.captureMenuOpen ? 'true' : 'false'}"${disabled}>
             <span class="capture__proj-label">Adding to</span>
             <span class="proj-dot" style="--dot:${color}" aria-hidden="true"></span>${escapeHtml(project?.name ?? 'Inbox')}
             <span class="capture__caret" aria-hidden="true">▾</span>
@@ -94,6 +103,7 @@ export function renderCaptureHtml(state, project, projects = []) {
           <span class="capture__foot-right">
             ${dueHint}
             ${hint}
+            <button type="button" class="btn-primary capture__submit" data-action="submit-capture"${submitting || state?.nlCaptureLoading || !String(state?.captureQuery || '').trim() ? ' disabled' : ''}>${submitting ? 'Adding…' : 'Add task'}</button>
           </span>
         </div>
         ${menu}

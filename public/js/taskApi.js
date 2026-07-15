@@ -8,6 +8,12 @@ export async function fetchTasks(filters = {}) {
   return response.json();
 }
 
+export async function fetchTask(id) {
+  const response = await fetch(`/api/tasks/${encodeURIComponent(id)}`);
+  if (!response.ok) throw new Error('Failed to load task');
+  return response.json();
+}
+
 export async function exportTasks(filters = {}) {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {
@@ -53,13 +59,26 @@ export function parseNlFilter(payload, opts) {
   return postNlParse('/api/tasks/nl-filter', payload, opts);
 }
 
-export async function importTasks({ project, mode = 'skip', tasks }) {
+export async function importTasks({ project, mode = 'skip', tasks, format, version, requestId }) {
+  const payload = {
+    project,
+    mode,
+    tasks,
+    ...(requestId !== undefined ? { requestId } : {}),
+    ...(format !== undefined ? { format } : {}),
+    ...(version !== undefined ? { version } : {}),
+  };
   const response = await fetch('/api/tasks/import', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ project, mode, tasks }),
+    body: JSON.stringify(payload),
   });
-  if (!response.ok) throw new Error('Failed to import tasks');
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    const error = new Error(body?.message || 'Failed to import tasks');
+    error.status = response.status;
+    throw error;
+  }
   return response.json();
 }
 

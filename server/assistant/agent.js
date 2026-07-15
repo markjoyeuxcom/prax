@@ -142,7 +142,18 @@ export async function runAssistant({ chat, tools, system, messages, decisions = 
   let model = chat.model;
   for (let step = 0; step < maxSteps; step++) {
     const forModel = sys ? [{ role: 'system', content: sys }, ...history] : history;
-    const res = await chat.complete(forModel, { tools: schemas, temperature: 0.2, maxTokens: 1500 });
+    let res;
+    try {
+      res = await chat.complete(forModel, { tools: schemas, temperature: 0.2, maxTokens: 1500 });
+    } catch (err) {
+      // An approved write may already have executed while resuming this turn.
+      // Preserve the tool result and didWrite flag so the client refreshes and
+      // never invites a duplicate retry under the impression nothing happened.
+      return {
+        status: 'error', degraded: true, reason: 'generation-failed',
+        error: err?.message || 'failed', messages: history, model, didWrite,
+      };
+    }
     model = res.model || model;
 
     if (res.toolCalls && res.toolCalls.length) {

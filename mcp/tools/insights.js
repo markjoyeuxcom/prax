@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { isValidUuid } from '../validate.js';
 import { okResult, errorResult, textResult, withErrorHandling } from '../toolResult.js';
+import { runStableMutation, stableMutationId } from '../stableMutation.js';
 
 // AI "insight" tools that synthesize over the library. ask_prax answers a
 // question with a grounded, cited answer (degrading to the raw context pack when
@@ -21,16 +22,26 @@ export function createInsightTools(client) {
       },
       handler: withErrorHandling(async ({ query, project, limit }) => {
         const res = await client.ask({ q: query, project, limit });
+        const retrieval = res?.retrieval;
+        const retrievalNote = retrieval
+          ? `Retrieval: ${retrieval.mode}${retrieval.fallback ? ` fallback (${retrieval.reason || 'unspecified'})` : ''}.`
+          : 'Retrieval: unspecified.';
+        const pack = res && typeof res.markdown === 'string' ? res.markdown : '';
+        const packNamesRetrieval = /_Retrieval:/.test(pack);
+        const degradedNote = res?.degraded
+          ? `Prax degraded (${res.reason || 'unspecified'}).${packNamesRetrieval ? '' : ` ${retrievalNote}`}`
+          : retrieval?.fallback && !packNamesRetrieval ? retrievalNote : '';
         // Prefer the synthesized answer; fall back to the retrieved pack.
         const answer = res && typeof res.answer === 'string' && res.answer.trim() ? res.answer : null;
         if (answer) {
           const sources = Array.isArray(res.sources) && res.sources.length
             ? `\n\n---\nSources: ${res.sources.map((s) => `[${s.title}]${s.verified ? '' : ' (unverified)'}`).join(', ')}`
             : '';
-          return textResult(`${answer}${sources}`);
+          const status = degradedNote ? `\n\n---\n${degradedNote}` : '';
+          return textResult(`${answer}${sources}${status}`);
         }
-        const pack = res && typeof res.markdown === 'string' ? res.markdown : '';
-        return textResult(pack || 'No matching documents in the library.');
+        const status = degradedNote ? `${degradedNote}\n\n` : '';
+        return textResult(`${status}${pack || 'No matching documents in the library.'}`);
       }),
     },
     {
@@ -38,12 +49,17 @@ export function createInsightTools(client) {
       title: 'Generate a post-mortem',
       description:
         'Draft a post-mortem document from a completed runbook run’s chronicle (steps, timestamps, actors). Creates an agent-written, unverified post-mortem document in the runbook’s project for a human to review and verify. Uses the configured chat model to narrate, or a deterministic template when none is set.',
+      annotations: { idempotentHint: true, destructiveHint: false },
       inputSchema: {
         runId: z.string().describe('UUID of the runbook run to summarize (from list_runbook_runs / get_runbook_run).'),
+        documentId: z.string().optional().describe('Optional caller-stable result-document UUID. Reuse it with the same runId when retrying.'),
       },
-      handler: withErrorHandling(async ({ runId }) => {
+      handler: withErrorHandling(async ({ runId, documentId }) => {
         if (!isValidUuid(runId)) return errorResult('runId must be a valid UUID.');
-        const res = await client.generatePostMortem(runId);
+        if (documentId !== undefined && !isValidUuid(documentId)) return errorResult('documentId must be a valid UUID when provided.');
+        const id = stableMutationId(documentId);
+        const res = await runStableMutation({ label: 'Post-mortem generation', id, inputName: 'documentId' }, () =>
+          client.generatePostMortem(runId, id));
         return okResult(res);
       }),
     },
@@ -52,12 +68,17 @@ export function createInsightTools(client) {
       title: 'Generate a runbook',
       description:
         'Draft a runnable runbook from an alert or incident description. The server’s chat model writes it (checkbox steps, commands, rollback); the result is an agent-written, unverified runbook in the given project for a human to review and verify. Requires a chat model configured (Settings ▸ Intelligence).',
+      annotations: { idempotentHint: true, destructiveHint: false },
       inputSchema: {
         description: z.string().min(1).describe('The alert or incident to write a runbook for.'),
         project: z.string().describe('Project slug or id to file the runbook under.'),
+        documentId: z.string().optional().describe('Optional caller-stable result-document UUID. Reuse it with identical intent when retrying.'),
       },
-      handler: withErrorHandling(async ({ description, project }) => {
-        const res = await client.generateRunbook({ description, project });
+      handler: withErrorHandling(async ({ description, project, documentId }) => {
+        if (documentId !== undefined && !isValidUuid(documentId)) return errorResult('documentId must be a valid UUID when provided.');
+        const id = stableMutationId(documentId);
+        const res = await runStableMutation({ label: 'Runbook generation', id, inputName: 'documentId' }, () =>
+          client.generateRunbook({ description, project, id }));
         return okResult(res);
       }),
     },

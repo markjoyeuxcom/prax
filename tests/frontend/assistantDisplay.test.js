@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { assistantDisplayItems } from '../../public/js/renderAssistant.js';
+import { assistantDisplayItems, renderAssistantHtml } from '../../public/js/renderAssistant.js';
 
 test('assistantDisplayItems pairs each tool-call turn with its result turn', () => {
   const items = assistantDisplayItems([
@@ -34,4 +34,24 @@ test('assistantDisplayItems tolerates a tool call with no result yet (in flight)
   ]);
   const tools = items.find((i) => i.kind === 'tools');
   assert.equal(tools.calls[0].result, null);
+});
+
+test('assistant partial success is an announced status, while hard failure is an alert', () => {
+  const base = {
+    assistantStatus: { available: true, model: 'fake', toolCount: 1, supportsTools: true },
+    assistantMessages: [],
+    assistantLoading: false,
+    assistantPending: null,
+    assistantInput: '',
+  };
+  const partial = renderAssistantHtml({
+    ...base,
+    assistantError: 'The approved change completed. Do not repeat the action.',
+    assistantErrorKind: 'partial',
+  });
+  assert.match(partial, /class="asst__notice asst__notice--partial" role="status" data-assistant-outcome="partial"/);
+  assert.doesNotMatch(partial, /asst__notice--error/);
+
+  const error = renderAssistantHtml({ ...base, assistantError: 'Provider unavailable.', assistantErrorKind: 'error' });
+  assert.match(error, /class="asst__notice asst__notice--error" role="alert" data-assistant-outcome="error"/);
 });

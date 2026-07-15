@@ -44,7 +44,15 @@ test('0010 rebuild preserves data, links, and FTS; retypes tagged post-mortems; 
 
   // Apply 0010 from the real migrations dir (0001–0009 already recorded).
   const result = await runMigrations(db, { logger: SILENT });
-  assert.deepEqual(result.applied, ['0010_document_type_taxonomy.sql', '0011_add_document_external_refs.sql']);
+  assert.deepEqual(result.applied, [
+    '0010_document_type_taxonomy.sql',
+    '0011_add_document_external_refs.sql',
+    '0012_enforce_supersession_lifecycle.sql',
+    '0013_add_durable_run_chronicle.sql',
+    '0014_add_task_import_operations.sql',
+    '0015_add_document_creation_receipts.sql',
+    '0016_add_task_activity_actor.sql',
+  ]);
 
   // Every row survived, fields intact.
   const docs = (await db.query('select id, title, document_type from markdown_documents order by id')).rows;

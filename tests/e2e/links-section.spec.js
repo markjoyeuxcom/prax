@@ -33,20 +33,23 @@ test('Links section stays visible across every editor mode', async ({ page }) =>
   const links = page.locator('[data-document-links]');
   await expect(links).toBeVisible();
 
-  // edit
+  // Edit is the distraction-free writing surface; supporting sections live in
+  // preview contexts only.
   await page.locator('[data-action="set-editor-mode"][data-mode="edit"]').click();
-  await expect(links).toBeVisible();
+  await expect(links).toHaveCount(0);
 
-  // focus hides the chrome but keeps the document content sections
+  // Focus keeps the same edit-only contract.
   await page.locator('[data-action="toggle-focus"]').click();
-  await expect(links).toBeVisible();
+  await expect(links).toHaveCount(0);
   await page.locator('[data-action="toggle-focus"]').click();
 
   // split
   await page.locator('[data-action="set-editor-mode"][data-mode="split"]').click();
   await expect(links).toBeVisible();
 
-  // info-edit renders above the workspace; Links stays visible. Cancel after.
+  // Document info lives in the document-actions menu and renders above the
+  // workspace; Links stays visible. Cancel after.
+  await page.locator('[data-action="toggle-doc-menu"]').click();
   await page.locator('[data-action="edit-document-info"]').click();
   await expect(links).toBeVisible();
   await page.locator('[data-action="cancel-document-info"]').click();

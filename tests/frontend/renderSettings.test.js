@@ -7,6 +7,7 @@ function baseState(overrides = {}) {
     preferences: { theme: 'light', accent: 'fern', chromeOS: 'mac', readingScale: 1 },
     semanticStatus: { available: false },
     adminImportMode: 'skip',
+    adminImportProjectId: 'p1',
     projects: [
       { id: 'p1', name: 'Homelab' },
       { id: 'p2', name: 'Work' },
@@ -115,8 +116,8 @@ test('renders the nine accent swatches (incl blue + red) and marks the active on
   assert.match(html, /data-accent="rose"[^>]*background:oklch\(0\.58 0\.16 18\)/);   // red
   assert.match(html, /class="swatch is-active" data-action="set-accent" data-accent="clay"/);
   assert.doesNotMatch(html, /class="swatch is-active" data-action="set-accent" data-accent="fern"/);
-  // fern has no --accent override; its swatch falls back to the token value
-  assert.match(html, /data-accent="fern"[^>]*background:oklch\(0\.52 0\.09 175\)/);
+  // fern has no --accent-choice override; its swatch shows the vivid token
+  assert.match(html, /data-accent="fern"[^>]*background:oklch\(0\.60 0\.09 175\)/);
   assert.match(html, /data-accent="indigo"[^>]*background:oklch\(0\.60 0\.11 265\)/);
   assert.match(html, /title="Fern \(default\)"/);
   assert.match(html, /title="Indigo"/);
@@ -210,6 +211,41 @@ test('all six provider cards render as buttons with backend payloads', () => {
   }
   assert.match(html, /Claude · Voyage AI/);
 });
+
+test('provider status failures stay distinct from Off and lock mutations until retry', () => {
+  const html = renderSettingsHtml(baseState({
+    settingsTab: 'intelligence',
+    semanticStatus: { available: false, loadError: 'Semantic status failed', loading: false },
+    chatStatus: { available: false, loadError: 'Answer status failed', loading: false },
+  }), baseModel());
+  assert.match(html, /role="alert"[^>]*>Semantic status failed/);
+  assert.match(html, /role="alert"[^>]*>Answer status failed/);
+  assert.match(html, /data-action="retry-intelligence-status"/);
+  assert.match(html, /data-action="set-ai-provider" data-backend="ollama" disabled/);
+  assert.match(html, /data-action="set-ai-chat-provider" data-backend="anthropic" disabled/);
+  assert.doesNotMatch(html, /Pick a provider below/);
+});
+
+test('pending provider mutation locks both sections and retains in-memory correction drafts', () => {
+  const html = renderSettingsHtml(baseState({
+    settingsTab: 'intelligence',
+    intelligenceSettingsPending: true,
+    semanticStatus: {
+      available: true, enabled: true, backend: 'openai', connected: false,
+      baseUrl: 'https://old.example/v1', model: 'old-embed', keyRequired: true, hasApiKey: false,
+    },
+    semanticSettingsDraft: {
+      backend: 'openai', baseUrl: 'https://new.example/v1', model: 'new-embed', apiKey: 'draft-secret',
+    },
+    chatStatus: { available: false, backend: 'none' },
+  }), baseModel());
+  assert.match(html, /data-ai-base-url value="https:\/\/new\.example\/v1" disabled/);
+  assert.match(html, /data-ai-model value="new-embed" disabled/);
+  assert.match(html, /data-ai-key value="draft-secret"[^>]* disabled/);
+  assert.match(html, /data-action="save-ai-provider" disabled aria-busy="true">Saving…/);
+  assert.match(html, /data-action="set-ai-chat-provider" data-backend="none" disabled/);
+  assert.match(html, /data-action="toggle-semantic-search"[^>]*disabled aria-busy="true"/);
+});
 // ---- Data & admin ----------------------------------------------------------
 
 test('task export rows carry actions and the active project name', () => {
@@ -220,11 +256,43 @@ test('task export rows carry actions and the active project name', () => {
   assert.match(html, /Every task and checklist item in Homelab\./);
 });
 
+test('deployment row distinguishes local, network/no-auth, loading, and failed status', () => {
+  const local = renderSettingsHtml(baseState({
+    settingsTab: 'data',
+    deploymentStatus: { networkScope: 'local', bindHost: '127.0.0.1', authentication: 'none' },
+  }), baseModel());
+  assert.match(local, /Deployment security/);
+  assert.match(local, /Local only/);
+  assert.match(local, /Listening on 127\.0\.0\.1/);
+  assert.match(local, /no user accounts or authorization/);
+
+  const network = renderSettingsHtml(baseState({
+    settingsTab: 'data',
+    deploymentStatus: { networkScope: 'network', bindHost: '0.0.0.0', authentication: 'none', networkAcknowledged: true },
+  }), baseModel());
+  assert.match(network, /Trusted network — no authentication/);
+  assert.match(network, /Anyone who can reach Prax can read and change this workspace/);
+  assert.match(network, /authenticated TLS proxy/);
+
+  const loading = renderSettingsHtml(baseState({
+    settingsTab: 'data', deploymentStatus: { loading: true, error: '' },
+  }), baseModel());
+  assert.match(loading, /Checking bind scope/);
+
+  const failed = renderSettingsHtml(baseState({
+    settingsTab: 'data', deploymentStatus: { loading: false, error: 'Status failed' },
+  }), baseModel());
+  assert.match(failed, /role="alert"[^>]*>Status failed/);
+  assert.match(failed, /data-action="refresh-deployment-status"/);
+});
+
 test('library export row carries actions and the active document count', () => {
   const html = renderSettingsHtml(baseState({ settingsTab: 'data' }), baseModel());
   assert.match(html, /Export library as Markdown/);
   assert.match(html, /data-action="export-library-project"/);
   assert.match(html, /data-action="export-library-all"/);
+  assert.match(html, /data-action="export-library-project"[^>]*>Export project…<\/button>/);
+  assert.match(html, /data-action="export-library-all"[^>]*>Export entire library…<\/button>/);
   assert.match(html, /4 documents in Homelab\./);
 });
 
@@ -240,7 +308,31 @@ test('import row: action, mode radios with checked state, file input, no replace
   assert.match(html, /Append/);
   assert.match(html, /Replace project/);
   assert.match(html, /data-import-file accept="application\/json,\.json"/);
+  assert.match(html, /data-import-project/);
+  assert.match(html, /Restore tasks and checklist items into <strong>Homelab<\/strong>/);
+  assert.match(html, /<option value="p1" selected>Homelab<\/option>/);
   assert.doesNotMatch(html, /data-replace-confirm/);
+});
+
+test('import row retains the parsed filename and locks every consequential control while pending', () => {
+  const html = renderSettingsHtml(baseState({
+    settingsTab: 'data',
+    adminImportFileName: 'prax-homelab.json',
+    adminImportPending: true,
+  }), baseModel());
+  assert.match(html, /data-import-file-summary[^>]*>Selected: prax-homelab\.json/);
+  assert.match(html, /data-import-project[^>]*disabled/);
+  assert.match(html, /name="import-mode" value="skip" checked disabled/);
+  assert.match(html, /data-import-file[^>]*disabled/);
+  assert.match(html, /data-action="import-tasks" disabled aria-busy="true">Importing…/);
+});
+
+test('import row reports a recovered committed result truthfully', () => {
+  const html = renderSettingsHtml(baseState({
+    settingsTab: 'data',
+    adminImportResult: { imported: 3, skipped: 1, replayed: true },
+  }), baseModel());
+  assert.match(html, /Imported 3; skipped 1 · recovered from an earlier commit/);
 });
 
 test('import row marks the append mode checked', () => {
@@ -328,6 +420,7 @@ test('escapes backend name, doc titles, sources, and project names', () => {
       staleSources: [{ title: '<script>src</script>' }],
     }],
     orphanDocs: [{ documentId: 'd2', title: '<script>orphan</script>' }],
+    deploymentStatus: { networkScope: 'network', bindHost: '<script>bind</script>', authentication: 'none' },
   };
   const intel = renderSettingsHtml(baseState({ ...hostile, settingsTab: 'intelligence' }), baseModel({ activeProjectName: '<script>active</script>' }));
   const data = renderSettingsHtml(baseState({ ...hostile, settingsTab: 'data' }), baseModel({ activeProjectName: '<script>active</script>' }));
@@ -339,6 +432,7 @@ test('escapes backend name, doc titles, sources, and project names', () => {
   assert.match(data, /&lt;script&gt;src&lt;\/script&gt;/);
   assert.match(data, /&lt;script&gt;orphan&lt;\/script&gt;/);
   assert.match(data, /&lt;script&gt;active&lt;\/script&gt;/);
+  assert.match(data, /&lt;script&gt;bind&lt;\/script&gt;/);
 });
 
 test('appearance offers the editor line-numbers switch reflecting the preference', () => {

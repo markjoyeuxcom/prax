@@ -1,12 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "desktop-remote",
-  "description": "The app is served by the localhost sidecar; the injected drag-region handler needs window-dragging IPC from that origin so the merged macOS titlebar can move/zoom the window.",
+  "description": "The app is served by the localhost sidecar and the Rust window navigation policy pins the exact runtime port. Window IPC supports the merged titlebar; the Library export command is bounded by its mandatory native Save dialog and accepts no destination path from the webview. Restart remains bundled-origin only.",
   "windows": ["main"],
   "remote": {
-    "urls": ["http://127.0.0.1:*", "http://localhost:*"]
+    "urls": ["http://127.0.0.1:*"]
   },
   "permissions": [
+    "allow-save-library-export",
     "core:window:allow-start-dragging",
     "core:window:allow-internal-toggle-maximize"
   ]

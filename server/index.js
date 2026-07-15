@@ -14,11 +14,29 @@ import { createEmbedderProvider } from './embedderProvider.js';
 import { createChatProvider } from './chatProvider.js';
 import { registerSettingsRoutes } from './settingsRoutes.js';
 import { registerAssistantRoutes } from './assistantRoutes.js';
+import {
+  announceDesktopReady,
+  createGracefulShutdown,
+  installDesktopStdinControl,
+} from './desktopLifecycle.js';
 
 export async function buildApp(options = {}) {
   const config = options.config || loadConfig();
   const app = Fastify({ logger: options.logger || false });
   const db = options.db || (options.skipDb ? null : createDb(config.databaseFile));
+
+  // The desktop webview exposes a deliberately tiny native IPC surface, so
+  // served content must not be able to load arbitrary script or embed Prax in
+  // another page. `unsafe-inline` remains style-only because the current UI
+  // uses constrained inline layout/custom-property values; scripts are local.
+  app.addHook('onSend', async (_request, reply, payload) => {
+    reply
+      .header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+      .header('Referrer-Policy', 'no-referrer')
+      .header('X-Content-Type-Options', 'nosniff')
+      .header('X-Frame-Options', 'DENY');
+    return payload;
+  });
 
   if (db && !options.skipDb && !options.db) {
     await runMigrations(db, { logger: app.log });
@@ -71,7 +89,7 @@ export async function buildApp(options = {}) {
   await registerLibraryRoutes(app, options);
   await registerProjectsRoutes(app, options);
   await registerChecklistRoutes(app, options);
-  await registerSettingsRoutes(app, { appSettingsRepository, embedder: options.embedder, embedderProvider, chat: options.chat, chatProvider, libraryRepository });
+  await registerSettingsRoutes(app, { config, appSettingsRepository, embedder: options.embedder, embedderProvider, chat: options.chat, chatProvider, libraryRepository });
   registerAssistantRoutes(app, options);
 
   await app.register(fastifyStatic, {
@@ -89,18 +107,25 @@ export async function buildApp(options = {}) {
 if (import.meta.url === `file://${process.argv[1]}`) {
   const config = loadConfig();
   const app = await buildApp({ config, logger: true });
-  await app.listen({ host: config.host, port: config.port });
+  const address = await app.listen({ host: config.host, port: config.port });
+
+  const shutdown = createGracefulShutdown({
+    close: () => app.close(),
+    exit(code, error) {
+      if (error) app.log.error({ err: error }, 'graceful shutdown failed');
+      process.exit(code);
+    },
+  });
+
+  if (process.env.PRAX_DESKTOP_CONTROL === 'stdio') {
+    installDesktopStdinControl({ input: process.stdin, shutdown });
+    announceDesktopReady(process.stdout, address);
+  }
 
   // Graceful shutdown: close Fastify (which closes the embedded database via
   // the onClose hook) before exiting. The desktop wrapper and orchestrators
   // send SIGTERM; Ctrl-C sends SIGINT.
   for (const signal of ['SIGTERM', 'SIGINT']) {
-    process.once(signal, async () => {
-      try {
-        await app.close();
-      } finally {
-        process.exit(0);
-      }
-    });
+    process.once(signal, () => { void shutdown(); });
   }
 }

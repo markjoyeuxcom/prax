@@ -33,6 +33,7 @@ may add fields over time.
 {
   "format": "moomora.tasks",
   "version": 1,
+  "requestId": "11111111-1111-4111-8111-111111111111",
   "exportedAt": "2026-05-29T12:00:00.000Z",
   "project": "homelab",
   "tasks": []
@@ -55,7 +56,11 @@ may add fields over time.
 | `status` | `"high-priority"` \| `"in-progress"` \| `"planned"` \| `"completed"` \| `"notes"` |
 | `projectId` | UUID |
 | `dueDate` | `"YYYY-MM-DD"` \| `null` |
+| `dueTime` | `"HH:MM"` \| `null` |
 | `deferredUntil` | ISO-8601 timestamp \| `null` (snooze target; hidden from Today until it passes) |
+| `recurrence` | `daily` \| `weekly` \| `monthly` \| `every:Nd` \| `every:Nw` \| `null` |
+| `labels` | string array |
+| `checklist` | checklist item array (`label`, `completed`, plus runtime metadata) |
 | `sortOrder` | 32-bit signed integer |
 | `createdAt` | ISO-8601 timestamp |
 | `updatedAt` | ISO-8601 timestamp |
@@ -73,22 +78,40 @@ may add fields over time.
 }
 ```
 
-- `project` (slug or id) is **required**. `format` is validated if present; `version` is
-  accepted but not validated.
+- `project` (slug or id) is **required**. `format` is validated if present; when `version` is
+  present it must be the integer `1`. Importers must reject unknown versions rather than silently
+  interpreting them as v1.
+- `requestId` is an optional caller UUID for exact-once batch retry. The first normalized import
+  intent commits its task/checklist mutation and durable result together. Replaying the same UUID
+  and intent performs no mutation and returns the original result with `"replayed": true`; reusing
+  it for different normalized intent returns `409`. The Settings UI always supplies and retains one
+  until the commit is confirmed.
 - `projectId` is assigned server-side and is **never** read from the payload.
-- Per-task accepted fields: `title` (required), `description`, `priority` (default
-  `"medium"`), `status` (default `"planned"`), `dueDate`, `sortOrder` (defaults to the array
-  index), `archivedAt`.
+- Per-task accepted fields: `title` (required), `description`, `notes`, `priority` (default
+  `"medium"`), `status` (default `"planned"`), `dueDate`, `dueTime`, `deferredUntil`,
+  `recurrence`, `labels`, `checklist`, `sortOrder` (defaults to the array index), `archivedAt`.
+- Checklist item IDs/timestamps are regenerated on import; label, completion state, and order are
+  preserved.
+- Task IDs, `projectId`, `createdAt`, and `updatedAt` are runtime identity: they are regenerated or
+  remapped to the selected target project. Every field in the accepted-fields list is preserved
+  semantically; `description` and `notes` preserve exact whitespace.
 - **Max 500 tasks** per import.
+- **Max 500 checklist items total** per import.
 - **Modes:** `"skip"` (default — skip duplicates), `"append"` (insert all as new),
   `"replace"` (clear the target project, then insert).
 - **Duplicate key** (skip mode): `[ title (lowercased), projectId, status, dueDate ]`.
-- Response: `{ "mode", "imported": <count>, "skipped": <count>, "tasks": [] }`.
+- Response: `{ "mode", "imported": <count>, "skipped": <count>, "tasks": [], "replayed"?: <boolean> }`.
+- In the shipped SQLite path, task rows, checklist rows, and a replace-mode project deletion commit
+  in one transaction. A failed checklist write cannot leave a partially imported project.
 
 ## Format 2 — Library `.md` front-matter
 
 Library export (`GET /api/library/export`) produces a ZIP of `.md` files. Each file is YAML
 front-matter followed by the Markdown body, in this key order:
+
+The Prax UI opens a scope/destination dialog before calling this route. Desktop Prax uses a native
+Save dialog, browsers with File System Access use their Save picker, and other browsers download to
+their configured Downloads location. These host behaviors do not alter the HTTP/export format.
 
 ```markdown
 ---
@@ -169,8 +192,16 @@ The server fetches the document's outbound links and computes refs in single-pro
 before rendering. Returns 404 for a missing or archived document, 400 for an invalid UUID.
 
 **Not currently supported:** library `.md` / document **import (round-trip)**. Library export
-is one-way today. Documents are created/edited via the app, the HTTP API, or the MCP
-`create_document` / `update_document` tools.
+is one-way today. **Import Markdown…** opens an explicit destination-project dialog and creates one
+project-owned source note per selected file. It retains the file body/filename but does not parse
+Prax front matter or restore type, provenance, trust, or graph links. The dialog retains failed files,
+reports committed and remaining counts separately, and offers an exact-once-safe retry.
+
+`POST /api/library/documents` requires `project` and accepts an optional caller UUID `id`. With an
+`id`, the first create returns `201`; replaying the same create intent returns the existing document
+with `200`; reusing the UUID for different title/body/type/project/tags/source/provenance intent
+returns `409`. Without `id`, ordinary server-identified creation is unchanged. Documents are also
+created/edited through the MCP `create_document` / `update_document` tools.
 
 ## Format 3 — MCP tools
 
@@ -182,44 +213,136 @@ required/optional status, and enum option sets. Shared enums: `STATUS`
 
 | Tool | Inputs | Read-only |
 |------|--------|-----------|
-| `search_tasks` | `query?`, `project?`, `status?:STATUS` | yes |
+| `search_tasks` | `query?`, `project?`, `status?:STATUS`, `filter?`, `limit?`, `offset?` | yes |
 | `get_task` | `id` | yes |
-| `create_task` | `title`, `project`, `description?`, `priority?:PRIORITY`, `status?:STATUS`, `dueDate?`, `dueTime?`, `recurrence?` | — |
-| `update_task` | `id`, `title?`, `description?`, `notes?`, `priority?:PRIORITY`, `status?:STATUS`, `project?`, `dueDate?`, `dueTime?`, `recurrence?` | — |
-| `search_documents` | `query?`, `project?`, `documentType?:DOCUMENT_TYPE`, `tags?`, `kind?:KIND`, `status?:{active\|superseded\|deprecated\|all}` | yes |
+| `create_task` | `title`, `project`, `id?`, `description?`, `priority?:PRIORITY`, `status?:STATUS`, `dueDate?`, `dueTime?`, `recurrence?`, `labels?` | — |
+| `update_task` | `id`, `title?`, `description?`, `notes?`, `priority?:PRIORITY`, `status?:STATUS`, `project?`, `dueDate?`, `dueTime?`, `recurrence?`, `labels?` | — |
+| `search_documents` | `query?`, `project?`, `documentType?:DOCUMENT_TYPE`, `tags?`, `kind?:KIND`, `status?:{active\|superseded\|deprecated\|all}`, `limit?`, `offset?` | yes |
 | `ask_library` | `query`, `project?`, `limit?` → Markdown context pack (semantic when configured, keyword otherwise) | yes |
 | `get_document` | `id` | yes |
-| `create_document` | `title`, `body`, `documentType:DOCUMENT_TYPE`, `project`, `tags?`, `kind?:KIND` | — |
+| `create_document` | `title`, `body`, `documentType:DOCUMENT_TYPE`, `project`, `id?`, `tags?`, `kind?:KIND` | — |
 | `update_document` | `id`, `title?`, `body?`, `documentType?:DOCUMENT_TYPE`, `project?`, `tags?`, `kind?:KIND` | — |
-| `list_task_documents` | `taskId` | yes |
+| `list_task_documents` | `taskId`, `limit?`, `offset?` | yes |
 | `link_task_document` | `taskId`, `documentId` | — |
 | `unlink_task_document` | `taskId`, `documentId` | — |
-| `list_task_checklist` | `taskId` | yes |
-| `add_checklist_item` | `taskId`, `label` | — |
+| `list_task_checklist` | `taskId`, `limit?`, `offset?` | yes |
+| `add_checklist_item` | `taskId`, `label`, `itemId?` | — |
 | `set_checklist_item` | `taskId`, `itemId`, `completed` | — |
 | `delete_checklist_item` | `taskId`, `itemId` | — |
-| `list_task_activity` | `taskId` | yes |
-| `list_document_links` | `documentId`, `direction?:{outbound\|inbound\|both}` | yes |
+| `list_task_activity` | `taskId`, `limit?`, `offset?` | yes |
+| `list_document_links` | `documentId`, `direction?:{outbound\|inbound\|both}`, `limit?`, `offset?` | yes |
 | `link_documents` | `sourceId`, `targetId`, `relation:{derived-from\|supersedes}` | — |
 | `unlink_documents` | `sourceId`, `targetId`, `relation:{derived-from\|supersedes}` | — |
 | `supersede_document` | `documentId`, `supersededBy` | — |
-| `list_stale_documents` | `project?` | yes |
-| `list_orphan_documents` | `project?` | yes |
-| `search_documents_semantic` | `query`, `project?` | yes |
+| `list_external_refs` | `documentId`, `limit?`, `offset?` | yes |
+| `add_external_ref` | `documentId`, `url`, `label?` | — |
+| `remove_external_ref` | `documentId`, `refId` | — |
+| `list_stale_documents` | `project?`, `limit?`, `offset?` | yes |
+| `list_orphan_documents` | `project?`, `limit?`, `offset?` | yes |
+| `search_documents_semantic` | `query`, `project?`, `limit?`, `offset?` | yes |
+| `start_runbook_run` | `documentId`, `title?`, `runId?` | — |
+| `list_runbook_runs` | `documentId`, `limit?`, `offset?` | yes |
+| `get_runbook_run` | `runId` | yes |
+| `set_run_step` | `runId`, `stepId`, `checked` | — |
+| `set_run_status` | `runId`, `status:{running\|completed\|aborted}` | — |
+| `ask_prax` | `query`, `project?`, `limit?` → grounded answer or degraded context pack | yes |
+| `generate_post_mortem` | `runId`, `documentId?` | — |
+| `generate_runbook` | `description`, `project`, `documentId?` | — |
 
 MCP-owned output shapes:
 
-- Task summary (from `search_tasks`): `{ id, title, status, priority, projectId, dueDate }`.
+- Task summary (from `search_tasks`): `{ id, title, status, priority, projectId, dueDate, labels }`.
 - Document summary (from `search_documents`): `{ id, title, documentType, projectId, tags, snippet }` (snippet ≤ 200 chars).
 - `link_task_document` → `{ linked: true, taskId, documentId, documents: [] }`.
 - `unlink_task_document` → `{ unlinked: true, taskId, documentId }`.
 - `delete_checklist_item` → `{ deleted: true, taskId, itemId }`.
-- List results are capped at **20** items.
+- Task activity items include `actor: "user"|"agent"`; MCP task writes stamp `agent` through
+  `x-prax-origin`, while pre-migration history defaults to `user`.
+
+Collection tools return a versioned pagination envelope rather than a bare array:
+
+```json
+{
+  "schemaVersion": 1,
+  "items": [],
+  "page": {
+    "offset": 0,
+    "limit": 20,
+    "returned": 0,
+    "total": 0,
+    "hasMore": false,
+    "nextOffset": null
+  }
+}
+```
+
+- `limit` defaults to 20 and must be an integer from 1 through 50.
+- `offset` defaults to 0 and must be a non-negative integer.
+- `total` is the exact size of the matching collection.
+- When `hasMore` is true, pass `nextOffset` as the next call's `offset`.
+- The envelope applies to every `search_*` / `list_*` tool whose primary result is a
+  collection: task/document search, task links/checklists/activity, document links/external
+  refs, graph maintenance, semantic search, and runbook-run history.
+- `search_documents_semantic` returns a friendly non-collection message when semantic search
+  is unavailable, directing the caller to keyword search.
+
+Runbook execution records are independent runtime data. A full run returned by
+`GET /api/library/runs/:runId` / `get_runbook_run` has this additive shape:
+
+```json
+{
+  "id": "uuid",
+  "documentId": "uuid-or-null",
+  "documentTitle": "snapshotted source title",
+  "projectId": "uuid-or-null",
+  "title": "optional operation label",
+  "status": "running | aborted | completed",
+  "startedBy": "user | agent",
+  "startedAt": "ISO-8601",
+  "finishedAt": "ISO-8601-or-null",
+  "finishedBy": "user | agent | null",
+  "steps": [],
+  "events": []
+}
+```
+
+Steps are the snapshotted instructions plus current checkbox state. Events are ordered by a
+monotonic `sequence` and contain `{ id, runId, sequence, type, stepId, stepText, actor,
+createdAt }`; `type` is `started`, `step-checked`, `step-unchecked`, `aborted`, `resumed`, or
+`completed`. The event ledger is append-only. Deleting the source document sets `documentId` to
+`null` but retains the run, source-title/project snapshot, steps, and events.
+
+`POST /api/library/documents/:id/runs` accepts `{ "title"?: string, "id"?: uuid }`. Supplying
+`id` makes start retry-safe: the first request returns `201`; the same start intent returns the
+existing run with `200`; conflicting reuse returns `409`. Only non-archived runbook documents may
+start. `PATCH /api/library/runs/:runId/steps/:stepId` changes steps only while running.
+`PATCH /api/library/runs/:runId` enforces `running → aborted|completed` and
+`aborted → running`; completed is terminal. Same-state requests are idempotent and preserve the
+original timestamp/actor without appending another event. Invalid transitions return `409`.
 
 Full-record tools (`get_task`, `get_document`, `create_*`, `update_*`) return the full task or
 document record (the fields in the tables above). Operations intentionally **not** exposed over
 MCP — archive, permanent delete, reorder, project CRUD, task import/export, library export —
 remain HTTP-only.
+
+Machine creation identity is caller-stable and exact-once. `create_task` and `create_document`
+accept optional `id`; `add_checklist_item` accepts optional `itemId`; `start_runbook_run` accepts
+`runId`; and generated-document tools accept optional `documentId`. MCP allocates one when omitted.
+An exact retry returns the original record, conflicting identity reuse returns 409, and a transport
+failure that remains unresolved reports an **unknown outcome plus the retry ID** rather than claiming
+the write failed. The MCP client retries these and other declared-idempotent writes once after a
+transport failure. Mutation annotations expose `idempotentHint`; overwrite/removal/lifecycle tools
+also expose `destructiveHint`.
+
+Child collections are owner-aware: task documents/checklists/activity and document links/external
+refs/run history return 404 for a missing task/document, while a valid owner with no children returns
+an empty collection. Relationship/ref/checklist removals implement desired absence: replaying a
+removal for an existing owner succeeds with the current empty/remaining collection (or 204 for a
+checklist item); a missing owner remains 404.
+
+Context packs include `retrieval: { mode: "semantic"|"keyword"|"recency", fallback, reason }`
+in JSON and render the same status in Markdown. `ask_prax` also preserves known generation and
+retrieval degradation in its prose result; it never strips fallback metadata from the HTTP response.
 
 Document graph: `document_links` are directed, typed edges (`derived-from`, `supersedes`)
 between documents, created/removed/listed via the tools above and the
@@ -241,6 +364,12 @@ the editor's line-per-ref round-trip. Display kind (GitHub / GitLab / Link) is d
 the host at render time and never stored; the UI only renders `http(s)`/`mailto` URLs as
 clickable links. Refs are runtime metadata, **not** part of the portable `.md` export
 (like the trust fields).
+
+Generated runbooks and post-mortems accept an optional result-document `id` over HTTP. Their result
+document stores an internal operation kind and SHA-256 hash of canonical caller intent. A retry
+checks that receipt before invoking the model, returns `200` with `replayed: true`, and does not
+generate again. The same ID with changed intent returns 409. The receipt is runtime-only and is not
+part of full document records or portable export.
 
 Document provenance: documents expose `contentHash` (SHA-256 of the body) and `updatedBy`
 (`"user"` | `"agent"`). Every document write stamps `updatedBy` from the `x-prax-origin`
@@ -270,7 +399,7 @@ trust state is managed via the `verify`/`supersede` endpoints below.
 | `verified` | boolean | `true` when a human has blessed the document. Agent writes (MCP `create_document` / `update_document`, CLI `remember`) land `false` by default; the `0007` migration backfills existing rows: `updated_by = 'user'` → `true`, `updated_by = 'agent'` → `false`. |
 | `verifiedAt` | ISO-8601 timestamp \| `null` | When the document was last verified (or unverified). `null` when `verified` is `false` and has never been set. |
 | `verifiedBy` | string \| `null` | Who verified the document (a name, `"cli"`, `"user"`, etc.). `null` when unverified. |
-| `status` | `"active"` \| `"superseded"` \| `"deprecated"` | Lifecycle state. New documents are `"active"`. `POST .../supersede` sets the old document to `"superseded"`. `"deprecated"` is reserved for manual use (stale, no replacement). |
+| `status` | `"active"` \| `"superseded"` \| `"deprecated"` | Lifecycle state. New documents are `"active"`. A live inbound `supersedes` link makes an active document `"superseded"`. `"deprecated"` is reserved for manual use (stale, no replacement). |
 
 All read paths that return document records (`get_document`, search rows, stale/orphan rows,
 context-pack items) include these four fields. Retrieval is **active-only** by default: only
@@ -289,22 +418,35 @@ trusted-network model anyone on the network can call the verify endpoint. See
 
 These endpoints manage the trust/lifecycle state of library documents. `verify` is
 deliberately **not** exposed as an MCP tool — verification is a human act (Library UI button
-or `prax verify --as`), so `verified` keeps meaning "a human blessed it." `supersede` **is**
+or attended `prax verify <id> --as <human-name>` with document-specific confirmation), so
+`verified` keeps meaning "a human blessed it." `supersede` **is**
 available to agents via the `supersede_document` MCP tool (content lifecycle, not self-blessing),
 in addition to the HTTP route below.
 
 `POST /api/library/documents/:id/verify`
 
-Body: `{ "verified": <boolean>, "as": "<name>" }` (`as` is optional; defaults to `"user"`
-when `verified: true`). Sets `verified`, `verifiedAt`, and `verifiedBy`. Returns the full
-updated document record (404 if not found, 400 if `verified` is not a boolean).
+Body: `{ "verified": <boolean>, "as": "<name>", "contentHash"?: "<sha256>" }` (`as` is
+optional; defaults to `"user"` when `verified: true`). The attended CLI and Library UI send the
+hash of the exact content the human reviewed. Verification applies atomically only while that hash
+still matches; a concurrent edit returns 409 and remains unverified. Legacy HTTP callers may omit
+the hash. Same-state replay returns the first verification without rewriting its reviewer or
+timestamp. The endpoint sets `verified`, `verifiedAt`, and `verifiedBy` and returns the full updated
+document record (404 if not found, 400 on invalid input).
 
 `POST /api/library/documents/:id/supersede`
 
 Body: `{ "supersededBy": "<newDocumentId>" }`. Records a `supersedes` link from `newDocumentId`
-to the old document, then sets the old document's `status` to `"superseded"`. Returns the
+to the old document; SQLite derives the old document's `status = "superseded"` atomically in the
+same statement. Returns the
 full updated old-document record (400 on invalid UUIDs or self-supersede, 404 if either
 document is not found).
+
+The typed relation is the lifecycle source of truth for every path, including generic
+`POST .../:id/links` / `link_documents`. Removing a `supersedes` edge, archiving its source, or
+permanently deleting its source reactivates the target only when no other live replacement remains;
+restoring the source reapplies the relation. Migration `0012` reconciles older databases as it
+installs these invariants. Consequently a machine caller cannot receive a successful relation
+write while leaving lifecycle status incoherent.
 
 `GET /api/projects/:idOrSlug/context-pack`
 
@@ -320,8 +462,8 @@ falls back to recency otherwise.
 
 Semantic search ranks documents by embedding similarity (meaning), not keywords, so a
 paraphrased query can find topically-relevant docs that share no words with it. It is
-**retrieval-only** — no text is generated. Availability is **Postgres-only**: it requires the
-pgvector extension and a configured `EMBEDDING_BACKEND`: `ollama`, `openai` (any
+**retrieval-only** — no text is generated. Embeddings are stored in SQLite and cosine-ranked in
+process; no vector extension is required. It requires a configured `EMBEDDING_BACKEND`: `ollama`, `openai` (any
 OpenAI-compatible `/v1/embeddings` server — real OpenAI, llama.cpp, vLLM, LiteLLM, … via
 `OPENAI_BASE_URL` + optional `OPENAI_API_KEY`), or the deterministic `fake` test backend. The
 default `EMBEDDING_BACKEND=none` leaves the feature absent. On top of that config gate, a
@@ -329,9 +471,11 @@ server-side runtime toggle (stored in the `app_settings` table, key `semantic_se
 turns it on and off live, consistently across the UI and MCP; all backend config (URLs, models,
 keys) is env-only. An optional `EMBEDDING_QUERY_PREFIX` is prepended to **search-query** embeddings
 only (never to document embeddings) for instruct-tuned models — e.g. `qwen3-embedding`'s
-`Instruct: …\nQuery:` or `nomic`'s `search_query: ` — so changing it needs no reindex. `search_documents_semantic` returns the **same ref shape** as keyword `search_documents`
-(`{ id, title, documentType, projectId, tags, snippet }`); the embedding vector is never
-returned. When the feature is disabled or not configured the tool yields a friendly fallback
+`Instruct: …\nQuery:` or `nomic`'s `search_query: ` — so changing it needs no reindex.
+`search_documents_semantic` returns trust-bearing references (`id`, `title`, `documentType`,
+`projectId`, `tags`, `snippet`, `kind`, `updatedBy`, `verified`, `verifiedAt`, `verifiedBy`,
+`stale`, `status`, and `similarity`); the embedding vector is never returned. When the feature is
+disabled or not configured the tool yields a friendly fallback
 message (use `search_documents` instead) rather than an error. The supporting routes —
 `GET /api/library/documents/semantic-search` (cosine-ranked refs; 409 when disabled, 400 on a
 blank query, 503 when a configured backend is unreachable), `POST /api/library/embeddings/reindex`
@@ -340,11 +484,25 @@ changing the embedding model or upgrading), and `GET`/`PUT /api/settings/semanti
 (read-only status + the boolean toggle) — are **HTTP-only** and not part of the MCP surface. Each
 document is embedded as its **title + body** together (so a query matching the title retrieves it).
 
+The HTTP search keeps its legacy complete array response by default. Explicit pagination uses
+`?page=true&limit=<1..50>&offset=<non-negative integer>` and returns
+`{ items, page: { offset, limit, returned, total, hasMore, nextOffset } }`; `total` is the exact
+number of relevant results after the configured cutoff. The web UI uses this envelope and offers
+Load more until all results are visible.
+
 Results are filtered by a gap-based relevance cutoff: only documents scoring within
 `EMBEDDING_SEARCH_TOP_DROP` (default 0.20) of the best match and at least
 `EMBEDDING_SEARCH_MIN_SIMILARITY` (default 0.45) cosine similarity are returned, so an unrelated
 query can return few or no results rather than the whole ranked library. Both thresholds are
 env-tunable (defaults calibrated for `qwen3-embedding:0.6b`).
+
+`POST /api/library/ask` accepts `{ q, project?, limit? }` and returns a grounded answer or the
+retrieved context pack. Its response includes `sources` with trust fields and
+`retrieval: { mode: "semantic"|"keyword", fallback, reason }`. Semantic failure or no-match
+keyword fallback is explicit. Generated answers over a non-empty source set must cite an exact
+retrieved title; otherwise the route returns `degraded: true`,
+`reason: "citation-validation-failed"`, and the context pack instead. Provider exceptions are
+logged server-side and are never returned verbatim.
 
 ## Format 4 — iCalendar task feed (`GET /api/calendar.ics`)
 

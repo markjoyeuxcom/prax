@@ -6,6 +6,9 @@ test('idle state shows the hint and no copy button', () => {
   const html = renderAskPraxHtml({ askPraxOpen: true, askPraxQuery: '' }, {});
   assert.match(html, /data-overlay="askprax"/);
   assert.match(html, /data-ask-prax-input/);
+  assert.match(html, /role="dialog" aria-modal="true"/);
+  assert.match(html, /aria-label="Question for Prax"/);
+  assert.match(html, /data-action="run-ask-prax" disabled/);
   assert.match(html, /answers from your library and cites the sources/);
   assert.doesNotMatch(html, /copy-ask-prax/);
 });
@@ -18,24 +21,35 @@ test('loading and error states', () => {
 test('a generated answer renders the body, cited sources (verified vs not), model note, and copy', () => {
   const state = { askPraxOpen: true, askPraxResult: {
     answer: 'Promote the standby.', degraded: false, model: 'gemini-1.5-flash',
-    sources: [{ title: 'Postgres failover', verified: true }, { title: 'Scratch', verified: false }],
+    sources: [{ id: 'p1', title: 'Postgres failover', documentType: 'runbook', verified: true }, { id: 's1', title: 'Scratch', documentType: 'note', kind: 'synthesized', stale: true, verified: false }],
   } };
   const html = renderAskPraxHtml(state, { bodyHtml: '<p>Promote the standby.</p>' });
   assert.match(html, /<p>Promote the standby\.<\/p>/);
   assert.match(html, /Postgres failover/);
-  assert.match(html, /is-verified">Postgres failover/);
-  assert.match(html, /Scratch · unverified/);
+  assert.match(html, /class="askprax__src is-verified"[^>]*data-action="open-ask-source"[^>]*data-document-id="p1"/);
+  assert.match(html, /aria-label="Open Postgres failover, runbook, verified"/);
+  assert.match(html, /Scratch · synthesized, stale, unverified/);
   assert.match(html, /Answered by gemini-1\.5-flash/);
   assert.match(html, /data-action="copy-ask-prax"/);
   assert.doesNotMatch(html, /No AI model is set/);   // not degraded
 });
 
 test('a degraded result shows the "no model" notice (or generation-failed) and still lists sources', () => {
-  const noModel = renderAskPraxHtml({ askPraxOpen: true, askPraxResult: { answer: null, degraded: true, reason: 'no-chat-model', markdown: '# pack', sources: [{ title: 'Doc', verified: true }] } }, { bodyHtml: '<h1>pack</h1>' });
+  const noModel = renderAskPraxHtml({ askPraxOpen: true, askPraxResult: { answer: null, degraded: true, reason: 'no-chat-model', markdown: '# pack', sources: [{ id: 'd1', title: 'Doc', verified: true }] } }, { bodyHtml: '<h1>pack</h1>' });
   assert.match(noModel, /No AI model is set/);
-  assert.match(noModel, />Doc</);
+  assert.match(noModel, />Doc · verified</);
   assert.doesNotMatch(noModel, /Answered by/);       // no model note when degraded
 
   const failed = renderAskPraxHtml({ askPraxOpen: true, askPraxResult: { answer: null, degraded: true, reason: 'generation-failed', markdown: '# pack', sources: [] } }, { bodyHtml: '<h1>pack</h1>' });
   assert.match(failed, /AI model failed to answer/);
+});
+
+test('retrieval fallback and citation-validation degradation are explicit', () => {
+  const fallback = renderAskPraxHtml({ askPraxOpen: true, askPraxQuery: 'q', askPraxResult: {
+    answer: null, degraded: true, reason: 'citation-validation-failed', markdown: '# pack', sources: [],
+    retrieval: { mode: 'keyword', fallback: true, reason: 'semantic-unavailable' },
+  } }, { bodyHtml: '<h1>pack</h1>' });
+  assert.match(fallback, /Semantic retrieval was unavailable/);
+  assert.match(fallback, /withheld it/);
+  assert.doesNotMatch(fallback, /private provider detail/);
 });

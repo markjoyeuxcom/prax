@@ -123,7 +123,10 @@ export function renderAssistantHtml(state, { renderMarkdown = (s) => escapeHtml(
     }
   }
   if (state.assistantError) {
-    body += `<div class="asst__notice asst__notice--error">${escapeHtml(state.assistantError)}</div>`;
+    const partial = state.assistantErrorKind === 'partial';
+    const kind = partial ? 'partial' : 'error';
+    const role = partial ? 'status' : 'alert';
+    body += `<div class="asst__notice asst__notice--${kind}" role="${role}" data-assistant-outcome="${kind}">${escapeHtml(state.assistantError)}</div>`;
   }
 
   const busy = state.assistantLoading || Boolean(state.assistantPending && state.assistantPending.length);

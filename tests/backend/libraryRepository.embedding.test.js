@@ -15,7 +15,10 @@ import {
 // rows (embedding included) and the cosine ranking happens in JS.
 test('buildSearchDocumentsSemantic selects candidates with the pg-era filters + embedding', () => {
   const q = buildSearchDocumentsSemantic('fake', {});
-  assert.match(q.text, /select id, title, document_type, project_id, tags, body, kind, verified, status, embedding/);
+  assert.match(q.text, /d\.kind, d\.updated_by, d\.verified, d\.verified_at, d\.verified_by/);
+  assert.match(q.text, /d\.status, d\.embedding/);
+  assert.match(q.text, /as stale/);
+  assert.match(q.text, /dl\.relation = 'derived-from'/);
   assert.match(q.text, /archived_at is null/);
   assert.match(q.text, /embedding is not null/);
   assert.match(q.text, /embedding_backend = \$1/);
@@ -55,7 +58,7 @@ test('cosineSimilarity rejects vectors with null/NaN/non-number entries instead 
 
 test('searchDocumentsSemantic ranks by cosine in JS, applies limit + cutoff, never leaks embeddings', async () => {
   const rows = [
-    { id: 'near', title: 'Near', document_type: 'note', project_id: 'p1', tags: '["a"]', body: 'b', kind: 'source', verified: 1, status: 'active', embedding: JSON.stringify([1, 0]) },
+    { id: 'near', title: 'Near', document_type: 'note', project_id: 'p1', tags: '["a"]', body: 'b', kind: 'synthesized', updated_by: 'agent', verified: 1, verified_at: '2026-07-13T12:00:00.000Z', verified_by: 'operator', stale: 1, status: 'active', embedding: JSON.stringify([1, 0]) },
     { id: 'far', title: 'Far', document_type: 'note', project_id: 'p1', tags: '[]', body: 'b', kind: 'source', verified: 0, status: 'active', embedding: JSON.stringify([0, 1]) },
     { id: 'close', title: 'Close', document_type: 'note', project_id: 'p1', tags: '[]', body: 'b', kind: 'source', verified: 0, status: 'active', embedding: JSON.stringify([0.9, 0.1]) },
     { id: 'broken', title: 'Broken', document_type: 'note', project_id: 'p1', tags: '[]', body: 'b', kind: 'source', verified: 0, status: 'active', embedding: 'not-json' },
@@ -69,6 +72,11 @@ test('searchDocumentsSemantic ranks by cosine in JS, applies limit + cutoff, nev
   assert.ok(Math.abs(docs[0].similarity - 1) < 1e-9);           // similarity float rides along
   assert.deepEqual(docs[0].tags, ['a']);                        // tags parsed
   assert.equal(docs[0].verified, true);                         // 0/1 normalized
+  assert.equal(docs[0].kind, 'synthesized');
+  assert.equal(docs[0].updatedBy, 'agent');
+  assert.equal(docs[0].verifiedAt, '2026-07-13T12:00:00.000Z');
+  assert.equal(docs[0].verifiedBy, 'operator');
+  assert.equal(docs[0].stale, true);
   for (const d of docs) {
     assert.ok(!('embedding' in d), 'embedding must never leave the repository');
   }
@@ -81,6 +89,19 @@ test('searchDocumentsSemantic honours the limit before the cutoff (pg parity)', 
   const repo = createLibraryRepository(db);
   const docs = await repo.searchDocumentsSemantic([1, 0], 'fake', { limit: 2, minSimilarity: 0, topDrop: 1 });
   assert.deepEqual(docs.map((d) => d.id), ['a', 'b']);
+});
+
+test('searchDocumentsSemantic paged mode reports the exact relevant total', async () => {
+  const mk = (id, x, y) => ({ id, title: id, document_type: 'note', project_id: 'p1', tags: '[]', body: 'b', kind: 'source', verified: 0, status: 'active', embedding: JSON.stringify([x, y]) });
+  const rows = [mk('a', 1, 0), mk('b', 0.99, 0.1), mk('c', 0.98, 0.2), mk('far', 0, 1)];
+  const db = { query: async () => ({ rows }) };
+  const repo = createLibraryRepository(db);
+  const page = await repo.searchDocumentsSemantic([1, 0], 'fake', {
+    page: true, limit: 1, offset: 1, minSimilarity: 0.5, topDrop: 0.2,
+  });
+  assert.deepEqual(page.items.map((d) => d.id), ['b']);
+  assert.equal(page.total, 3);
+  assert.ok(!('embedding' in page.items[0]));
 });
 
 test('buildListDocumentsNeedingEmbedding selects null/stale/mismatched rows', () => {

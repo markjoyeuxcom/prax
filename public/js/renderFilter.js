@@ -2,7 +2,7 @@ import { escapeHtml } from './renderHelpers.js';
 import { isOpen } from './statusMap.js';
 import { dueFlag } from './dueFlags.js';
 import { logo } from './icons.js';
-import { renderTaskGroupsHtml } from './renderList.js';
+import { renderTaskCollectionProgressHtml, renderTaskGroupsHtml } from './renderList.js';
 import { projectChipHtml } from './renderToday.js';
 import { projectResolver } from './taskFilter.js';
 
@@ -69,6 +69,7 @@ export function renderFilterHtml(state, model) {
     : '';
   const body = model.groups.length
     ? renderTaskGroupsHtml(state, model.groups, { rowExtra: projectChipHtml })
+      + renderTaskCollectionProgressHtml(model.collection)
     : `<div class="empty">${logo(48)}`
       + '<p class="empty__title">No matches</p>'
       + `<p class="empty__sub">${expr.trim() ? 'No tasks match this filter.' : 'Type a filter — e.g. p1 &amp; overdue, or @waiting. Or describe it in English and press ⌘↵.'}</p>`

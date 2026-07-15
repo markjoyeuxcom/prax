@@ -17,15 +17,19 @@ test('exposes the four document-link tools', () => {
   assert.deepEqual(names, ['link_documents', 'list_document_links', 'supersede_document', 'unlink_documents']);
 });
 
-test('list_document_links validates uuid, passes direction, caps at 20', async () => {
+test('list_document_links validates uuid, passes direction, and exposes the next page', async () => {
   let received;
   const many = Array.from({ length: 25 }, (_, i) => ({ documentId: `d-${i}` }));
   const client = { listDocumentLinks: async (id, dir) => { received = [id, dir]; return many; } };
   const tool = byName(createDocumentLinkTools(client), 'list_document_links');
   assert.equal((await tool.handler({ documentId: 'bad' })).isError, true);
-  const res = await tool.handler({ documentId: SRC, direction: 'inbound' });
+  const res = await tool.handler({ documentId: SRC, direction: 'inbound', limit: 10, offset: 10 });
   assert.deepEqual(received, [SRC, 'inbound']);
-  assert.equal(JSON.parse(res.content[0].text).length, 20);
+  const data = JSON.parse(res.content[0].text);
+  assert.equal(data.items.length, 10);
+  assert.deepEqual(data.page, {
+    offset: 10, limit: 10, returned: 10, total: 25, hasMore: true, nextOffset: 20,
+  });
 });
 
 test('link_documents validates both uuids then returns a stable shape', async () => {

@@ -1,5 +1,8 @@
 # Prax Desktop — Phased Task Checklist
 
+> Historical implementation checklist. Prax now ships this architecture; use
+> [`BUILD.md`](BUILD.md) and the packaged-desktop quality spec for current behavior and evidence.
+
 Execution plan for shipping Prax as a local desktop app (Tauri + embedded SQLite).
 Work top to bottom; each phase has a clear exit gate. See [`README.md`](README.md) for the
 decisions behind this and the two prompts (`design-brief.md`, `engineering-prompt.md`).

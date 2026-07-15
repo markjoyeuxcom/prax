@@ -57,13 +57,14 @@ function createFakeRepository() {
       const task = tasks.find(item => item.id === id);
       return task ? { ...task } : null;
     },
-    async recordActivity(taskId, eventType, message) {
+    async recordActivity(taskId, eventType, message, actor = 'user') {
       activitySeq += 1;
       const event = {
         id: `activity-${activitySeq}`,
         taskId,
         eventType,
         message,
+        actor,
         createdAt: 'now',
       };
       activity.push(event);
@@ -465,6 +466,84 @@ test('POST /api/tasks creates a task with project slug resolved to projectId', a
   await app.close();
 });
 
+test('POST /api/tasks treats a caller UUID as an exact-once creation identity', async () => {
+  let stored = null;
+  let activityWrites = 0;
+  const repository = {
+    ...createFakeRepository(),
+    async createTaskIdempotent(task) {
+      if (stored) return { task: stored, created: false };
+      stored = { ...task, createdAt: 'now', updatedAt: 'now', archivedAt: null };
+      return { task: stored, created: true };
+    },
+    async recordActivity() { activityWrites += 1; },
+  };
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: repository,
+    projectsRepository: createFakeProjectsRepository(),
+  });
+  const payload = {
+    id: CREATED_TASK_ID,
+    title: 'Idempotent capture',
+    priority: 'medium',
+    status: 'planned',
+    project: 'homelab',
+    labels: ['waiting'],
+    sortOrder: 4,
+  };
+
+  const first = await app.inject({ method: 'POST', url: '/api/tasks', payload });
+  const replay = await app.inject({ method: 'POST', url: '/api/tasks', payload });
+  assert.equal(first.statusCode, 201);
+  assert.equal(replay.statusCode, 200);
+  assert.equal(replay.json().id, CREATED_TASK_ID);
+  assert.equal(activityWrites, 1);
+  await app.close();
+});
+
+test('POST /api/tasks rejects reuse of a creation UUID for different content', async () => {
+  const repository = {
+    ...createFakeRepository(),
+    async createTaskIdempotent(task) {
+      return {
+        created: false,
+        task: { ...task, title: 'Existing different task', createdAt: 'now', updatedAt: 'now' },
+      };
+    },
+  };
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: repository,
+    projectsRepository: createFakeProjectsRepository(),
+  });
+  const response = await app.inject({
+    method: 'POST', url: '/api/tasks',
+    payload: {
+      id: CREATED_TASK_ID, title: 'New content', priority: 'medium', status: 'planned',
+      project: 'homelab',
+    },
+  });
+  assert.equal(response.statusCode, 409);
+  assert.match(response.json().message, /different content/);
+  await app.close();
+});
+
+test('POST /api/tasks validates a caller-supplied creation UUID', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
+  });
+  const response = await app.inject({
+    method: 'POST', url: '/api/tasks',
+    payload: { id: 'not-a-uuid', title: 'x', priority: 'medium', status: 'planned', project: 'homelab' },
+  });
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json().message, 'id is invalid');
+  await app.close();
+});
+
 test('POST /api/tasks passes recurrence through to createTask (repeating task)', async () => {
   const calls = [];
   const repository = {
@@ -571,7 +650,7 @@ test('POST /api/tasks rejects missing project with 400', async () => {
   await app.close();
 });
 
-test('POST /api/tasks/import imports sanitized tasks into the requested project', async () => {
+test('POST /api/tasks/import normalizes identity fields and preserves portable text', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
@@ -602,7 +681,7 @@ test('POST /api/tasks/import imports sanitized tasks into the requested project'
   assert.equal(response.json().imported, 1);
   assert.equal(response.json().skipped, 0);
   assert.equal(response.json().tasks[0].title, 'Imported task');
-  assert.equal(response.json().tasks[0].description, 'From backup');
+  assert.equal(response.json().tasks[0].description, '  From backup  ');
   assert.equal(response.json().tasks[0].projectId, PROJECT_UUID);
 
   await app.close();
@@ -1722,7 +1801,7 @@ test('DELETE /api/tasks/:id/documents/:documentId removes link and returns updat
   await app.close();
 });
 
-test('DELETE /api/tasks/:id/documents/:documentId returns 404 for missing link', async () => {
+test('DELETE /api/tasks/:id/documents/:documentId is idempotent for a missing link', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: createFakeRepository(),
@@ -1734,8 +1813,8 @@ test('DELETE /api/tasks/:id/documents/:documentId returns 404 for missing link',
     url: `/api/tasks/${TASK_ID}/documents/${DOCUMENT_ID}`,
   });
 
-  assert.equal(response.statusCode, 404);
-  assert.equal(response.json().message, 'link not found');
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json(), []);
 
   await app.close();
 });
@@ -1795,6 +1874,7 @@ test('GET /api/tasks/:id/activity logs a created event after POST /api/tasks', a
       dueDate: '2026-05-12',
       sortOrder: 0,
     },
+    headers: { 'x-prax-origin': 'agent' },
   });
   assert.equal(created.statusCode, 201);
   const taskId = created.json().id;
@@ -1806,7 +1886,7 @@ test('GET /api/tasks/:id/activity logs a created event after POST /api/tasks', a
 
   assert.equal(response.statusCode, 200);
   const events = response.json();
-  assert.ok(events.some(event => event.eventType === 'created'));
+  assert.equal(events.find(event => event.eventType === 'created')?.actor, 'agent');
 
   await app.close();
 });
@@ -1906,5 +1986,17 @@ test('GET /api/tasks/:id/activity rejects malformed task id', async () => {
   assert.equal(response.statusCode, 400);
   assert.match(response.json().message, /task id/);
 
+  await app.close();
+});
+
+test('task child collections and replayed unlink return 404 for a missing owner', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: createFakeRepository(),
+    projectsRepository: createFakeProjectsRepository(),
+  });
+  assert.equal((await app.inject({ method: 'GET', url: `/api/tasks/${MISSING_TASK_ID}/documents` })).statusCode, 404);
+  assert.equal((await app.inject({ method: 'GET', url: `/api/tasks/${MISSING_TASK_ID}/activity` })).statusCode, 404);
+  assert.equal((await app.inject({ method: 'DELETE', url: `/api/tasks/${MISSING_TASK_ID}/documents/${DOCUMENT_ID}` })).statusCode, 404);
   await app.close();
 });

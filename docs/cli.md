@@ -81,11 +81,15 @@ Flags:
 - `--limit <n>` — cap the total number of documents in the pack (server default: 12, max: 50)
 
 The Markdown output groups documents into labelled sections — see [Output shape](#context-output-shape) below.
+Both Markdown and JSON name the retrieval mode. Query fallback is explicit (for example,
+`recency fallback (semantic-unavailable)`), so a machine never mistakes fallback context for a
+semantic match.
 
 ### `search <query> [--all] [--json]`
 
 Search the project library. Attempts semantic (embedding) search first and falls back to
-keyword search automatically when semantic search is unavailable.
+keyword search only when the server explicitly reports that semantic search is not configured.
+The fallback is always labelled; other semantic failures are returned as errors.
 
 ```bash
 prax search "postgres backup"
@@ -96,7 +100,8 @@ prax search "postgres backup" --json
 Flags:
 
 - `--all` — include archived and superseded documents (default: active only)
-- `--json` — emit raw JSON results
+- `--json` — emit `{ schemaVersion, retrieval, items }`; `retrieval` names the semantic/keyword
+  mode and whether the result is degraded
 
 Each result shows the document title, a trust tag (`[verified]`, `[unverified]`, or
 `[superseded]`), the document id, and a short snippet.
@@ -130,7 +135,7 @@ Flags:
 - `--tag <t>` — a single tag to attach (repeated invocations replace the tag list)
 - `--ref <url>` — attach an external reference (a PR, dashboard, or issue URL) to the memory. Best-effort: a rejected URL warns on stderr but never fails the remember.
 
-### `verify <id> [--as <name>]`
+### `verify <id> --as <human-name>`
 
 Mark a document as verified (human-blessed). Sets `verified: true`, stamps `verifiedAt` and
 `verifiedBy`.
@@ -139,7 +144,11 @@ Mark a document as verified (human-blessed). Sets `verified: true`, stamps `veri
 prax verify c58d3108-4f93-4a50-ac42-0c1d61e61b08 --as mark
 ```
 
-The `--as` flag sets the `verifiedBy` string (defaults to `"cli"` if omitted).
+Verification is an attended trust action. The command refuses non-interactive input, requires an
+explicit human name, prints the full current document for review, and asks for a document-specific
+confirmation phrase before changing trust. It does not support `--json`. Use the Library UI when
+an interactive terminal is unavailable. The write includes the reviewed document's content hash;
+if it changes before confirmation, Prax returns a conflict instead of verifying unseen content.
 
 ### `unverify <id>`
 
@@ -166,7 +175,7 @@ Documents carry two trust/workflow fields:
 
 - **`verified`** (boolean) — whether a human has blessed this document. Agent writes (CLI
   `remember`, MCP `create_document` / `update_document`) land unverified by default. A human
-  runs `verify <id>` to bless them.
+  runs the attended `verify <id> --as <name>` flow (or uses the Library UI) to bless them.
 - **`status`** (`active` | `superseded` | `deprecated`) — lifecycle state. `supersede <oldId>
   --with <newId>` sets the old document's status to `superseded`. Deprecated is a manual
   state for documents that are stale but have no direct replacement.

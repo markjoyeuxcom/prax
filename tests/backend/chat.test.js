@@ -38,6 +38,24 @@ test('fake chat is deterministic and available', async () => {
   assert.equal(await c.isAvailable(), true);
 });
 
+test('fake chat can deterministically fail after receiving a committed tool result', async () => {
+  const c = createFakeChat();
+  const tools = [{ name: 'create_task' }];
+  const user = { role: 'user', content: 'call_fail_after create_task {"title":"Once"}' };
+  const proposed = await c.complete([user], { tools });
+  assert.equal(proposed.toolCalls[0].name, 'create_task');
+  assert.deepEqual(proposed.toolCalls[0].input, { title: 'Once' });
+
+  await assert.rejects(
+    c.complete([
+      user,
+      { role: 'assistant', content: '', toolCalls: proposed.toolCalls },
+      { role: 'tool', results: [{ id: proposed.toolCalls[0].id, name: 'create_task', content: 'created Once', isError: false }] },
+    ], { tools }),
+    /fake provider failure after committed tool result/,
+  );
+});
+
 test('createChat resolves backends and null for none; throws on unknown', () => {
   assert.equal(createChat({ chatBackend: 'none' }), null);
   assert.equal(createChat({ chatBackend: 'fake' }).backend, 'fake');

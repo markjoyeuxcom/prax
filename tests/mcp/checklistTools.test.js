@@ -39,18 +39,20 @@ test('list_task_checklist calls listChecklist and returns the items', async () =
   const tool = byName(createChecklistTools(client), 'list_task_checklist');
   const res = await tool.handler({ taskId: TASK_ID });
   assert.equal(received, TASK_ID);
-  assert.deepEqual(JSON.parse(res.content[0].text), [SAMPLE_ITEM]);
+  const data = JSON.parse(res.content[0].text);
+  assert.deepEqual(data.items, [SAMPLE_ITEM]);
+  assert.equal(data.page.total, 1);
 });
 
 test('add_checklist_item validates taskId and forwards label to addChecklistItem', async () => {
   let received;
   const client = {
-    addChecklistItem: async (taskId, label) => { received = { taskId, label }; return SAMPLE_ITEM; },
+    addChecklistItem: async (taskId, label, itemId) => { received = { taskId, label, itemId }; return SAMPLE_ITEM; },
   };
   const tool = byName(createChecklistTools(client), 'add_checklist_item');
   assert.match((await tool.handler({ taskId: 'bad', label: 'x' })).content[0].text, /taskId must be a valid UUID/);
-  const res = await tool.handler({ taskId: TASK_ID, label: 'Restore from backup' });
-  assert.deepEqual(received, { taskId: TASK_ID, label: 'Restore from backup' });
+  const res = await tool.handler({ taskId: TASK_ID, label: 'Restore from backup', itemId: ITEM_ID });
+  assert.deepEqual(received, { taskId: TASK_ID, label: 'Restore from backup', itemId: ITEM_ID });
   assert.deepEqual(JSON.parse(res.content[0].text), SAMPLE_ITEM);
 });
 

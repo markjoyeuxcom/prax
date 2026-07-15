@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildListGroups, renderListHtml, renderBulkBarHtml } from '../../public/js/renderList.js';
+import {
+  buildListGroups, limitTaskGroups, renderListHtml, renderBulkBarHtml,
+} from '../../public/js/renderList.js';
 
 // Fixed clock for deterministic due buckets: Monday, July 6 2026.
 const NOW = new Date('2026-07-06T09:00:00');
@@ -61,6 +63,34 @@ test('buildListGroups drops empty groups', () => {
   assert.deepEqual(groups.map((g) => g.key), ['today']);
 });
 
+test('limitTaskGroups bounds the DOM across groups while preserving full counts and visible keyboard order', () => {
+  const collection = limitTaskGroups([
+    { key: 'first', label: 'First', tasks: [task({ id: 'a' }), task({ id: 'b' })] },
+    { key: 'second', label: 'Second', tasks: [task({ id: 'c' }), task({ id: 'd' })] },
+  ], 3);
+
+  assert.deepEqual(collection.flatIds, ['a', 'b', 'c']);
+  assert.equal(collection.shown, 3);
+  assert.equal(collection.total, 4);
+  assert.equal(collection.hasMore, true);
+  assert.deepEqual(collection.groups.map((group) => [group.key, group.tasks.length, group.totalCount]), [
+    ['first', 2, 2],
+    ['second', 1, 2],
+  ]);
+});
+
+test('renderListHtml announces bounded task rendering and keeps the full group count', () => {
+  const collection = limitTaskGroups([
+    { key: 'open', label: 'Open', tasks: [task({ id: 'a' }), task({ id: 'b' })] },
+  ], 1);
+  const html = renderListHtml(baseState(), collection.groups, { collection });
+
+  assert.match(html, /Open <span class="group-label__count">2<\/span>/);
+  assert.match(html, /Showing 1 of 2 tasks/);
+  assert.match(html, /data-action="show-more-tasks"[^>]*>Show 1 more/);
+  assert.doesNotMatch(html, /data-task-id="b"/);
+});
+
 test('buildListGroups groups by design priority when groupBy=priority', () => {
   const tasks = [
     task({ id: 'lo', priority: 'low' }),
@@ -110,9 +140,21 @@ test('renderListHtml marks the keyboard selection and multi-selection', () => {
   const state = baseState({ selectedTaskId: 'a', multiSelectIds: ['b'] });
   const { groups } = buildListGroups(state, [task({ id: 'a' }), task({ id: 'b' })], { now: NOW });
   const html = renderListHtml(state, groups);
-  assert.match(html, /class="task-row is-selected"[^>]*data-task-id="a"[^>]*aria-current="true"/);
+  assert.match(html, /class="task-row is-selected"[^>]*data-task-id="a"[^>]*>[\s\S]*data-action="open-task" data-task-id="a" aria-current="true"/);
   assert.match(html, /class="task-row is-multi"[^>]*data-task-id="b"/);
-  assert.doesNotMatch(html, /data-task-id="b"[^>]*aria-current/);
+  assert.doesNotMatch(html, /data-action="open-task" data-task-id="b"[^>]*aria-current/);
+});
+
+test('renderListHtml exposes an explicit pressed-state selection control for every task', () => {
+  const state = baseState({ multiSelectIds: ['b'] });
+  const { groups } = buildListGroups(state, [
+    task({ id: 'a', title: 'Alpha task' }),
+    task({ id: 'b', title: 'Beta task' }),
+  ], { now: NOW });
+  const html = renderListHtml(state, groups);
+
+  assert.match(html, /class="task-select"[^>]*data-action="toggle-task-selection"[^>]*data-task-id="a"[^>]*aria-label="Select Alpha task"[^>]*aria-pressed="false"/);
+  assert.match(html, /class="task-select is-selected"[^>]*data-action="toggle-task-selection"[^>]*data-task-id="b"[^>]*aria-label="Deselect Beta task"[^>]*aria-pressed="true"/);
 });
 
 test('renderListHtml styles completed rows as done with a filled check', () => {

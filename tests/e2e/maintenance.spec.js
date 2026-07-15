@@ -5,7 +5,8 @@ async function openMaintenance(page) {
   await page.goto('/');
   // Maintenance lives in Settings ▸ Data & admin now.
   await page.locator('[data-action="nav-settings"]').first().click();
-  await expect(page.getByText('MAINTENANCE')).toBeVisible();
+  await page.locator('[data-action="set-settings-tab"][data-tab="data"]').click();
+  await expect(page.getByText('MAINTENANCE', { exact: true })).toBeVisible();
 }
 
 test('Maintenance shows stale and orphan docs', async ({ page }) => {

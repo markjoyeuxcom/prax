@@ -7,10 +7,37 @@ function numberFromEnv(value, fallback) {
   return Number.isFinite(n) && value !== '' && value != null ? n : fallback;
 }
 
+// Prax has no built-in authentication. Keep host classification deliberately
+// conservative: an arbitrary hostname may resolve beyond this machine, so only
+// the conventional localhost name and literal loopback ranges are local.
+export function isLoopbackHost(value) {
+  const host = String(value || '').trim().toLowerCase().replace(/^\[|\]$/g, '');
+  if (host === 'localhost' || host === '::1' || host === '0:0:0:0:0:0:0:1') return true;
+  if (/^127(?:\.\d{1,3}){3}$/.test(host)) {
+    return host.split('.').every((part) => Number(part) >= 0 && Number(part) <= 255);
+  }
+  if (host.startsWith('::ffff:')) return isLoopbackHost(host.slice('::ffff:'.length));
+  return false;
+}
+
+export function assertSafeNetworkBinding(config) {
+  if (isLoopbackHost(config.host) || config.allowUnauthenticatedNetwork === true) return;
+  throw new Error(
+    `Refusing to bind unauthenticated Prax to non-loopback host "${config.host}". `
+    + 'Prax has no built-in authentication. Use HOST=127.0.0.1, or set '
+    + 'PRAX_ALLOW_UNAUTHENTICATED_NETWORK=true only for a trusted network or behind an '
+    + 'authenticated TLS proxy.',
+  );
+}
+
 export function loadConfig(env = process.env) {
-  return {
-    host: env.HOST || '0.0.0.0',
+  const config = {
+    // Secure local-first default. Containers/orchestrators that need pod-level
+    // reachability must set HOST=0.0.0.0 and explicitly acknowledge the
+    // resulting unauthenticated network listener.
+    host: env.HOST || '127.0.0.1',
     port: Number(env.PORT || 3000),
+    allowUnauthenticatedNetwork: env.PRAX_ALLOW_UNAUTHENTICATED_NETWORK === 'true',
     // Embedded SQLite file. PRAX_DB_FILE is canonical; DATABASE_URL is still
     // read as a plain file path so pre-rename setups keep working. The
     // desktop wrapper points this at the OS app-data directory.
@@ -32,4 +59,6 @@ export function loadConfig(env = process.env) {
     anthropicBaseUrl: env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com',
     anthropicApiKey: env.ANTHROPIC_API_KEY || '',
   };
+  assertSafeNetworkBinding(config);
+  return config;
 }

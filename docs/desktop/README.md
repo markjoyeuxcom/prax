@@ -1,7 +1,8 @@
 # Prax Desktop — Planning Docs
 
-Planning material for turning Prax (today a self-hosted web app) into a
-local, double-click-to-run desktop app for macOS and Windows with a modern, non-console UI.
+Architecture and historical planning material for Prax's shipped Tauri desktop application. The
+current build, lifecycle, release, update, and recovery contract lives in [`BUILD.md`](BUILD.md);
+the design briefs and phased checklist below explain how that implementation was reached.
 
 ## Decisions so far
 
@@ -9,9 +10,9 @@ local, double-click-to-run desktop app for macOS and Windows with a modern, non-
 - **Backend:** keep the existing Node/Fastify server, run it as a Tauri **sidecar**; the
   webview points at `http://127.0.0.1:<port>`. Frontend stays a static bundle served by
   Fastify, so the web app, MCP server, and CLI keep sharing one backend.
-- **Database:** **embedded SQLite** (in-process, single file) — lowest memory/footprint,
-  no separate DB process. This replaces PostgreSQL + pgvector and requires a real
-  data-layer rewrite (SQL dialect, migrations, FTS5, and `sqlite-vec` for semantic search).
+- **Database:** **embedded SQLite** (in-process, single file) — lowest memory/footprint and no
+  separate database process. FTS5 handles full-text retrieval; semantic providers degrade
+  explicitly when none is configured.
 - **Aesthetic:** drop the terminal/console look entirely for a modern, native desktop
   GUI/UX; the visual design is briefed out with full creative freedom.
 
@@ -24,7 +25,7 @@ local, double-click-to-run desktop app for macOS and Windows with a modern, non-
 - [`checklist.md`](checklist.md) — phased execution checklist (design → frontend →
   SQLite data-layer rewrite → Tauri wrapper → packaging → optional `sqlite-vec`).
 
-## Suggested order
+## Historical implementation order
 
 1. Run `design-brief.md` → get the new frontend design.
 2. Implement the design into `public/`.

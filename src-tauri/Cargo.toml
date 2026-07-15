@@ -13,8 +13,10 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-single-instance = "2"
+tempfile = "3"
 
 # macOS: disable the press-and-hold accent picker for this app so held keys
 # repeat in the editor (same version the tauri tree already pins).

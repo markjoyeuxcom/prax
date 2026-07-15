@@ -35,6 +35,25 @@ export function buildAddChecklistItem(taskId, label) {
   };
 }
 
+export function buildAddChecklistItemIdempotent(taskId, label, id) {
+  return {
+    text: `
+      insert into task_checklist_items (id, task_id, label, sort_order)
+      values ($1, $2, $3, (select coalesce(max(sort_order), -1) + 1 from task_checklist_items where task_id = $2))
+      on conflict(id) do nothing
+      returning *
+    `,
+    values: [id, taskId, label],
+  };
+}
+
+export function buildGetChecklistItem(id) {
+  return {
+    text: 'select * from task_checklist_items where id = $1 limit 1',
+    values: [id],
+  };
+}
+
 export function buildSetChecklistItemCompleted(taskId, itemId, completed) {
   return {
     text: `update task_checklist_items set completed = $3, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') where id = $2 and task_id = $1 returning *`,
@@ -60,6 +79,19 @@ export function createChecklistRepository(db) {
       const q = buildAddChecklistItem(taskId, label);
       const result = await db.query(q.text, q.values);
       return normalizeChecklistRow(result.rows[0]);
+    },
+    async addChecklistItemIdempotent(taskId, label, id) {
+      const q = buildAddChecklistItemIdempotent(taskId, label, id);
+      const created = await db.query(q.text, q.values);
+      if (created.rows[0]) {
+        return { item: normalizeChecklistRow(created.rows[0]), created: true };
+      }
+      const get = buildGetChecklistItem(id);
+      const existing = await db.query(get.text, get.values);
+      return {
+        item: existing.rows[0] ? normalizeChecklistRow(existing.rows[0]) : null,
+        created: false,
+      };
     },
     async setChecklistItemCompleted(taskId, itemId, completed) {
       const q = buildSetChecklistItemCompleted(taskId, itemId, completed);

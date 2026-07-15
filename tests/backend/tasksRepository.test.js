@@ -4,9 +4,11 @@ import {
   createTasksRepository,
   buildDeleteArchivedTask,
   buildImportTasks,
+  buildImportChecklistItem,
   buildReplaceProjectTasks,
   normalizeTaskRow,
   buildCreateTask,
+  taskMatchesCreateFields,
   buildReorderTasks,
   buildRestoreTask,
   buildUpdateTask,
@@ -107,6 +109,32 @@ test('buildCreateTask places notes at $9 and serializes labels at $11', () => {
   assert.equal(query.values[10], '["waiting","cert"]');
 });
 
+test('buildCreateTask can use a caller UUID as an idempotent insert identity', () => {
+  const id = '11111111-1111-4111-8111-111111111111';
+  const query = buildCreateTask({
+    id, title: 'T', description: '', priority: 'low', status: 'planned',
+    projectId: PROJECT_ID, dueDate: null, dueTime: null, sortOrder: 0,
+    notes: '', recurrence: null, labels: [],
+  }, { ignoreIdConflict: true });
+  assert.match(query.text, /insert into tasks \(id, title,/);
+  assert.match(query.text, /on conflict\(id\) do nothing/);
+  assert.equal(query.values[0], id);
+  assert.equal(query.values.length, 12);
+});
+
+test('taskMatchesCreateFields requires exact canonical creation content', () => {
+  const fields = {
+    id: '11111111-1111-4111-8111-111111111111',
+    title: 'Exact task', description: '', notes: '', priority: 'high', status: 'planned',
+    projectId: PROJECT_ID, dueDate: null, dueTime: null, recurrence: null,
+    labels: ['waiting'], sortOrder: 2,
+  };
+  const task = { ...fields };
+  assert.equal(taskMatchesCreateFields(task, fields), true);
+  assert.equal(taskMatchesCreateFields({ ...task, title: 'Different' }, fields), false);
+  assert.equal(taskMatchesCreateFields({ ...task, labels: [] }, fields), false);
+});
+
 test('buildUpdateTask maps notes to the notes column', () => {
   const q = buildUpdateTask('11111111-1111-4111-8111-111111111111', { notes: 'Handoff: paused on step 3.' });
   assert.match(q.text, /notes = \$2/);
@@ -195,18 +223,28 @@ test('buildImportTasks returns a parameterized batch insert query', () => {
   assert.deepEqual(query.values, [
     'Imported task',
     'From backup',
+    null,
     'medium',
     'planned',
     PROJECT_ID,
     '2026-05-18',
+    null,
+    null,
+    null,
+    '[]',
     2,
     null,
     'Archived task',
     '',
+    null,
     'low',
     'completed',
     PROJECT_ID,
     null,
+    null,
+    null,
+    null,
+    '[]',
     3,
     '2026-05-11T12:00:00.000Z',
   ]);
@@ -217,6 +255,58 @@ test('buildImportTasks rejects empty imports', () => {
     () => buildImportTasks([]),
     /No task import records provided/,
   );
+});
+
+test('buildImportChecklistItem preserves label, completion state, and explicit order', () => {
+  const query = buildImportChecklistItem(
+    '11111111-1111-4111-8111-111111111111',
+    { label: 'Verify restored task', completed: true },
+    3,
+  );
+  assert.match(query.text, /insert into task_checklist_items/);
+  assert.match(query.text, /completed, sort_order/);
+  assert.deepEqual(query.values, [
+    '11111111-1111-4111-8111-111111111111',
+    'Verify restored task',
+    true,
+    3,
+  ]);
+});
+
+test('atomic portable import rolls back replace deletion and tasks when a checklist write fails', async () => {
+  const calls = [];
+  let released = false;
+  const client = {
+    async query(text, values = []) {
+      calls.push({ text: String(text).trim(), values });
+      if (/insert into task_checklist_items/.test(text)) throw new Error('injected checklist failure');
+      if (/insert into tasks/.test(text)) {
+        return { rows: [{ id: '11111111-1111-4111-8111-111111111111' }] };
+      }
+      return { rows: [] };
+    },
+    release() { released = true; },
+  };
+  const repository = createTasksRepository({
+    async connect() { return client; },
+  });
+
+  await assert.rejects(
+    () => repository.importTasksWithChecklists([{
+      title: 'Atomic task',
+      projectId: PROJECT_ID,
+      checklist: [{ label: 'Fails', completed: true }],
+    }], { replaceProjectId: PROJECT_ID }),
+    /injected checklist failure/,
+  );
+
+  assert.match(calls[0].text, /begin immediate/);
+  assert.ok(calls.some((call) => /delete from tasks/.test(call.text)), 'replace deletion ran in transaction');
+  assert.ok(calls.some((call) => /insert into tasks/.test(call.text)), 'task insert ran in transaction');
+  assert.ok(calls.some((call) => /insert into task_checklist_items/.test(call.text)), 'checklist insert was attempted');
+  assert.match(calls.at(-1).text, /rollback/);
+  assert.equal(calls.some((call) => /^commit$/.test(call.text)), false);
+  assert.equal(released, true);
 });
 
 test('buildReplaceProjectTasks deletes one project and inserts imported tasks', () => {
@@ -241,14 +331,19 @@ test('buildReplaceProjectTasks deletes one project and inserts imported tasks', 
   assert.match(query.insert.text, /insert into tasks/);
   assert.match(query.insert.text, /returning \*/);
   // project_id is bound to $1 (the target project), not a per-row value, so the
-  // values array carries the target id once followed by the 7 other columns.
+  // values array carries the target id once followed by every other column.
   assert.deepEqual(query.insert.values, [
     PROJECT_ID,
     'Imported task',
     '',
+    null,
     'medium',
     'planned',
     null,
+    null,
+    null,
+    null,
+    '[]',
     0,
     null,
   ]);
@@ -262,7 +357,7 @@ test('buildReplaceProjectTasks forces every row into the target project', () => 
   ]);
 
   // Both rows must bind project_id to $1; the stray/absent projectId is ignored.
-  assert.match(query.insert.text, /\$1, \$\d+, \$\d+, \$\d+\)/);
+  assert.equal((query.insert.text.match(/\$1(?!\d)/g) || []).length, 2);
   assert.ok(!query.insert.values.includes(OTHER_PROJECT));
   assert.equal(query.insert.values.filter(value => value === PROJECT_ID).length, 1);
 });
@@ -462,10 +557,10 @@ test('unlinkTaskDocument returns false when link does not exist', async () => {
 });
 
 test('buildRecordActivity inserts an event', () => {
-  const q = buildRecordActivity(PROJECT_ID, 'status', 'Status → in-progress');
+  const q = buildRecordActivity(PROJECT_ID, 'status', 'Status → in-progress', 'agent');
   assert.match(q.text, /insert into task_activity/);
-  assert.match(q.text, /\(task_id, event_type, message\)/);
-  assert.deepEqual(q.values, [PROJECT_ID, 'status', 'Status → in-progress']);
+  assert.match(q.text, /\(task_id, event_type, message, actor\)/);
+  assert.deepEqual(q.values, [PROJECT_ID, 'status', 'Status → in-progress', 'agent']);
 });
 
 test('buildListTaskActivity orders newest first', () => {
@@ -528,7 +623,7 @@ test('listTaskBoardExtras normalizes aggregate rows for board cards', async () =
 test('normalizeActivityRow maps columns', () => {
   assert.deepEqual(
     normalizeActivityRow({ id: 'a', task_id: PROJECT_ID, event_type: 'created', message: 'Task created', created_at: 'c' }),
-    { id: 'a', taskId: PROJECT_ID, eventType: 'created', message: 'Task created', createdAt: 'c' },
+    { id: 'a', taskId: PROJECT_ID, eventType: 'created', message: 'Task created', actor: 'user', createdAt: 'c' },
   );
 });
 

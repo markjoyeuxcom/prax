@@ -8,6 +8,7 @@ import { toMessages } from './messages.js';
 // On the tool-calling path (opts.tools present) it becomes a scriptable agent so
 // the loop and the write-confirmation flow can be tested without an LLM:
 //   - a user turn `call <tool> {json}` → emits that exact tool call
+//   - `call_fail_after <tool> {json}` → emits it, then fails after its result
 //   - after a tool-result turn → returns `[fake-chat] done: <first result line>`
 //   - otherwise → the plain echo (no tool call), i.e. a final text answer
 export function createFakeChat({ model = 'fake-chat' } = {}) {
@@ -21,18 +22,21 @@ export function createFakeChat({ model = 'fake-chat' } = {}) {
 
       if (tools) {
         const last = raw[raw.length - 1];
+        const lastUser = [...raw].reverse().find((m) => m && m.role === 'user' && typeof m.content === 'string');
+        const directive = lastUser && /^(call|call_fail_after)\s+([a-z_]+)\s*(\{[\s\S]*\})?\s*$/i.exec(lastUser.content.trim());
         // We just fed tool results back → answer with a summary (ends the loop).
         if (last && last.role === 'tool' && Array.isArray(last.results)) {
+          if (directive?.[1].toLowerCase() === 'call_fail_after') {
+            throw new Error('fake provider failure after committed tool result');
+          }
           const line = String(last.results[0]?.content ?? '').split('\n')[0].slice(0, 200);
           return { text: `[fake-chat] done: ${line}`, model, toolCalls: null };
         }
-        // A `call <tool> {json}` directive in the latest user turn → that call.
-        const lastUser = [...raw].reverse().find((m) => m && m.role === 'user' && typeof m.content === 'string');
-        const directive = lastUser && /^call\s+([a-z_]+)\s*(\{[\s\S]*\})?\s*$/i.exec(lastUser.content.trim());
+        // A call directive in the latest user turn → that exact tool call.
         if (directive) {
           let input = {};
-          try { input = directive[2] ? JSON.parse(directive[2]) : {}; } catch { input = {}; }
-          return { text: '', model, toolCalls: [{ id: `fake_${directive[1]}`, name: directive[1], input }] };
+          try { input = directive[3] ? JSON.parse(directive[3]) : {}; } catch { input = {}; }
+          return { text: '', model, toolCalls: [{ id: `fake_${directive[2]}`, name: directive[2], input }] };
         }
         // No directive → plain text answer, no tool call.
         const firstLine = (lastUser?.content || '').split('\n')[0].slice(0, 200);

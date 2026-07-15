@@ -29,15 +29,18 @@ test('list_task_documents returns the linked docs', async () => {
   const client = { listTaskDocuments: async () => [{ id: DOC_ID, title: 'Runbook' }] };
   const tool = byName(createLinkTools(client), 'list_task_documents');
   const res = await tool.handler({ taskId: TASK_ID });
-  assert.deepEqual(JSON.parse(res.content[0].text), [{ id: DOC_ID, title: 'Runbook' }]);
+  assert.deepEqual(JSON.parse(res.content[0].text).items, [{ id: DOC_ID, title: 'Runbook' }]);
 });
 
-test('list_task_documents caps the result at 20', async () => {
+test('list_task_documents paginates the result with an exact total', async () => {
   const many = Array.from({ length: 25 }, (_, i) => ({ id: `doc-${i}`, title: `Doc ${i}` }));
   const client = { listTaskDocuments: async () => many };
   const tool = byName(createLinkTools(client), 'list_task_documents');
   const res = await tool.handler({ taskId: TASK_ID });
-  assert.equal(JSON.parse(res.content[0].text).length, 20);
+  const data = JSON.parse(res.content[0].text);
+  assert.equal(data.items.length, 20);
+  assert.equal(data.page.total, 25);
+  assert.equal(data.page.nextOffset, 20);
 });
 
 test('link_task_document validates both UUIDs then calls the client', async () => {

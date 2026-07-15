@@ -23,8 +23,11 @@ function makeState(overrides = {}) {
     editorMode: 'split',
     editorFocus: false,
     outlineOpen: false,
+    documentDraftId: baseDoc.id,
+    documentDraftTitle: baseDoc.title,
     documentDraftBody: baseDoc.body,
     documentSaveStatus: 'Saved',
+    documentDraftRecoveryReason: null,
     isDocumentInfoEditorOpen: false,
     documentInfoError: '',
     documentLinks: null,
@@ -36,7 +39,15 @@ function render(stateOverrides = {}, docOverrides = {}, model = {}) {
   return renderEditorHtml(
     makeState(stateOverrides),
     { ...baseDoc, ...docOverrides },
-    { previewHtml: '<p>preview</p>', ...model },
+    {
+      previewHtml: '<p>preview</p>',
+      project: { id: 'p1', name: 'Homelab', color: '#4C8B78' },
+      projects: [
+        { id: 'p1', name: 'Homelab' },
+        { id: 'p2', name: 'Work' },
+      ],
+      ...model,
+    },
   );
 }
 
@@ -199,6 +210,11 @@ test('the header keeps the prototype shape: no trust strip, actions behind the m
   assert.equal(html.includes('>SOURCE<'), false);
 });
 
+test('the editor header always identifies the owning project', () => {
+  const html = render();
+  assert.match(html, /editor-head__tags[^>]*>[\s\S]*?chip chip--project[^>]*>Homelab<\/span>/);
+});
+
 test('the open menu carries meta and verify/supersede/archive/delete/info for a source doc', () => {
   const html = render({ docMenuOpen: true });
   assert.match(html, /menu__meta">Source · updated by user · unverified</);
@@ -266,11 +282,31 @@ test('info form renders fields and error when open', () => {
   assert.match(html, /data-doc-info-type/);
   assert.match(html, /value="runbook" selected/);
   assert.match(html, /value="note"/);
+  assert.match(html, /data-doc-info-project/);
+  assert.match(html, /value="p1" selected>Homelab/);
+  assert.match(html, /value="p2">Work/);
   assert.match(html, /data-doc-info-tags value="postgres, backup"/);
   assert.match(html, /data-doc-info-source value="restore.md"/);
   assert.match(html, /data-action="save-document-info"/);
   assert.match(html, /data-action="cancel-document-info"/);
   assert.match(html, /role="alert">Title is required/);
+});
+
+test('info form retains a completed current owner while allowing reassignment', () => {
+  const html = render(
+    { isDocumentInfoEditorOpen: true },
+    { projectId: 'completed' },
+    {
+      project: { id: 'completed', name: 'Completed project', color: '#888888' },
+      projects: [
+        { id: 'completed', name: 'Completed project', status: 'completed' },
+        { id: 'p2', name: 'Work', status: 'active' },
+      ],
+    },
+  );
+  assert.match(html, /data-doc-info-project/);
+  assert.match(html, /value="completed" selected>Completed project/);
+  assert.match(html, /value="p2">Work/);
 });
 
 test('info form absent when closed', () => {
@@ -303,14 +339,34 @@ test('foot shows word, character, and read-time counts from the draft', () => {
 
 test('foot carries the save status span', () => {
   const html = render({ documentSaveStatus: 'Autosaving...' });
-  assert.match(html, /Markdown · <span data-document-save-status>Autosaving\.\.\.<\/span>/);
+  assert.match(html, /data-document-save-status role="status" aria-live="polite">Autosaving\.\.\.<\/span>/);
+  assert.match(html, /data-document-save-action hidden/);
+});
+
+test('foot exposes an explicit recovery action after failure and reload', () => {
+  const failed = render({ documentSaveStatus: 'Save failed', documentDraftRecoveryReason: 'failed' });
+  assert.match(failed, /data-document-save-action>Retry<\/button>/);
+
+  const recovered = render({ documentSaveStatus: 'Recovered draft', documentDraftRecoveryReason: 'recovered' });
+  assert.match(recovered, /data-document-save-action>Save recovered draft<\/button>/);
+
+  const conflict = render({
+    documentSaveStatus: 'Recovered draft — saved copy changed',
+    documentDraftRecoveryReason: 'conflict',
+  });
+  assert.match(conflict, /data-document-save-action>Review and save<\/button>/);
+});
+
+test('head renders the active draft title without mutating the saved document', () => {
+  const html = render({ documentDraftTitle: 'Recovered title' });
+  assert.match(html, /data-doc-title value="Recovered title"/);
 });
 
 // ---- escaping ------------------------------------------------------------------
 
 test('escapes hostile doc titles and draft bodies', () => {
   const hostile = '</textarea><script>alert(1)</script>';
-  const html = render({ documentDraftBody: hostile }, { title: hostile });
+  const html = render({ documentDraftTitle: hostile, documentDraftBody: hostile }, { title: hostile });
   assert.equal(html.includes('<script>'), false);
   assert.ok(html.includes('&lt;/textarea&gt;&lt;script&gt;'));
 });

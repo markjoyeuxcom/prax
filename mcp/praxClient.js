@@ -19,7 +19,9 @@ export function createPraxClient({
 
   const root = String(baseUrl).replace(/\/+$/, '');
 
-  async function request(method, path, { query, body, headers: extraHeaders } = {}) {
+  async function request(method, path, {
+    query, body, headers: extraHeaders, retryUnavailable = false,
+  } = {}) {
     const url = new URL(root + path);
     if (query) {
       for (const [key, value] of Object.entries(query)) {
@@ -35,18 +37,23 @@ export function createPraxClient({
     if (extraHeaders) Object.assign(headers, extraHeaders);
 
     let response;
-    try {
-      // Requires native fetch (Node 17.3+). A non-native injected fetch may ignore `signal`, dropping the timeout.
-      response = await fetch(url.toString(), {
-        method,
-        headers,
-        body: body === undefined ? undefined : JSON.stringify(body),
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-    } catch (err) {
-      throw new PraxUnavailableError(
-        `Prax API not reachable at ${root} — is the server running? (${err.message})`,
-      );
+    const attempts = retryUnavailable ? 2 : 1;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      try {
+        // Requires native fetch (Node 17.3+). A non-native injected fetch may ignore `signal`, dropping the timeout.
+        response = await fetch(url.toString(), {
+          method,
+          headers,
+          body: body === undefined ? undefined : JSON.stringify(body),
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+        break;
+      } catch (err) {
+        if (attempt + 1 < attempts) continue;
+        throw new PraxUnavailableError(
+          `Prax API not reachable at ${root} — is the server running? (${err.message})`,
+        );
+      }
     }
 
     if (response.status === 204) return null;
@@ -68,9 +75,9 @@ export function createPraxClient({
     return payload;
   }
 
-  async function patchOrNull(path, patch, headers) {
+  async function patchOrNull(path, patch, headers, retryUnavailable = false) {
     try {
-      return await request('PATCH', path, { body: patch, headers });
+      return await request('PATCH', path, { body: patch, headers, retryUnavailable });
     } catch (err) {
       if (err instanceof PraxApiError && err.status === 404) return null;
       throw err;
@@ -90,8 +97,10 @@ export function createPraxClient({
     listDocuments: ({ q, project, documentType, kind, status } = {}) =>
       request('GET', '/api/library/documents', { query: { q, project, documentType, kind, status } }),
 
-    searchDocumentsSemantic: (query, project) =>
-      request('GET', '/api/library/documents/semantic-search', { query: { q: query, project } }),
+    searchDocumentsSemantic: (query, project, { limit, offset } = {}) =>
+      request('GET', '/api/library/documents/semantic-search', {
+        query: { q: query, project, page: true, limit, offset },
+      }),
 
     // Query-scoped, library-wide context pack (Markdown). request() wraps the
     // non-JSON markdown body as { message }, so unwrap it to the raw string.
@@ -108,21 +117,33 @@ export function createPraxClient({
 
     // Generate a post-mortem document from a runbook run's chronicle. Returns
     // { document, generated, model }. Agent-authored → stamped agent-written.
-    generatePostMortem: (runId) =>
-      request('POST', `/api/library/runs/${runId}/post-mortem`, { headers: { 'x-prax-origin': 'agent' } }),
+    generatePostMortem: (runId, documentId) =>
+      request('POST', `/api/library/runs/${runId}/post-mortem`, {
+        body: documentId ? { id: documentId } : {},
+        headers: { 'x-prax-origin': 'agent' },
+        retryUnavailable: Boolean(documentId),
+      }),
 
     // Generate a runbook from an alert/incident description. Returns
     // { document, model }. Requires a chat model configured on the server.
-    generateRunbook: ({ description, project } = {}) =>
-      request('POST', '/api/library/runbooks/generate', { body: { description, project }, headers: { 'x-prax-origin': 'agent' } }),
+    generateRunbook: ({ description, project, id } = {}) =>
+      request('POST', '/api/library/runbooks/generate', {
+        body: { description, project, ...(id ? { id } : {}) },
+        headers: { 'x-prax-origin': 'agent' },
+        retryUnavailable: Boolean(id),
+      }),
 
     getDocument: (id) => getOrNull(`/api/library/documents/${id}`),
 
     createDocument: (payload) =>
-      request('POST', '/api/library/documents', { body: payload, headers: { 'x-prax-origin': 'agent' } }),
+      request('POST', '/api/library/documents', {
+        body: payload,
+        headers: { 'x-prax-origin': 'agent' },
+        retryUnavailable: Boolean(payload?.id),
+      }),
 
     updateDocument: (id, patch) =>
-      patchOrNull(`/api/library/documents/${id}`, patch, { 'x-prax-origin': 'agent' }),
+      patchOrNull(`/api/library/documents/${id}`, patch, { 'x-prax-origin': 'agent' }, true),
 
     listTasks: ({ q, project, status } = {}) =>
       request('GET', '/api/tasks', { query: { q, project, status } }),
@@ -132,19 +153,27 @@ export function createPraxClient({
     getTask: (id) => getOrNull(`/api/tasks/${id}`),
 
     createTask: (payload) =>
-      request('POST', '/api/tasks', { body: payload }),
+      request('POST', '/api/tasks', {
+        body: payload,
+        headers: { 'x-prax-origin': 'agent' },
+        retryUnavailable: Boolean(payload?.id),
+      }),
 
     updateTask: (id, patch) =>
-      patchOrNull(`/api/tasks/${id}`, patch),
+      patchOrNull(`/api/tasks/${id}`, patch, { 'x-prax-origin': 'agent' }, true),
 
     listTaskDocuments: (taskId) =>
       request('GET', `/api/tasks/${taskId}/documents`, {}),
 
     linkTaskDocument: (taskId, documentId) =>
-      request('POST', `/api/tasks/${taskId}/documents`, { body: { documentId } }),
+      request('POST', `/api/tasks/${taskId}/documents`, {
+        body: { documentId }, headers: { 'x-prax-origin': 'agent' }, retryUnavailable: true,
+      }),
 
     unlinkTaskDocument: (taskId, documentId) =>
-      request('DELETE', `/api/tasks/${taskId}/documents/${documentId}`, {}),
+      request('DELETE', `/api/tasks/${taskId}/documents/${documentId}`, {
+        headers: { 'x-prax-origin': 'agent' }, retryUnavailable: true,
+      }),
 
     listDocumentLinks: (documentId, direction) =>
       request('GET', `/api/library/documents/${documentId}/links`, { query: { direction } }),
@@ -156,10 +185,14 @@ export function createPraxClient({
       request('GET', '/api/library/maintenance/orphans', { query: { project } }),
 
     linkDocuments: (sourceId, targetId, relation) =>
-      request('POST', `/api/library/documents/${sourceId}/links`, { body: { targetId, relation } }),
+      request('POST', `/api/library/documents/${sourceId}/links`, {
+        body: { targetId, relation }, headers: { 'x-prax-origin': 'agent' }, retryUnavailable: true,
+      }),
 
     unlinkDocuments: (sourceId, targetId, relation) =>
-      request('DELETE', `/api/library/documents/${sourceId}/links/${targetId}`, { query: { relation } }),
+      request('DELETE', `/api/library/documents/${sourceId}/links/${targetId}`, {
+        query: { relation }, headers: { 'x-prax-origin': 'agent' }, retryUnavailable: true,
+      }),
 
     listExternalRefs: (documentId) =>
       request('GET', `/api/library/documents/${documentId}/external-refs`),
@@ -168,28 +201,40 @@ export function createPraxClient({
       request('POST', `/api/library/documents/${documentId}/external-refs`, {
         body: { url, label },
         headers: { 'x-prax-origin': 'agent' },
+        retryUnavailable: true,
       }),
 
     removeExternalRef: (documentId, refId) =>
-      request('DELETE', `/api/library/documents/${documentId}/external-refs/${refId}`),
+      request('DELETE', `/api/library/documents/${documentId}/external-refs/${refId}`, {
+        headers: { 'x-prax-origin': 'agent' }, retryUnavailable: true,
+      }),
 
     supersedeDocument: (id, supersededBy) =>
       request('POST', `/api/library/documents/${id}/supersede`, {
         body: { supersededBy },
         headers: { 'x-prax-origin': 'agent' },
+        retryUnavailable: true,
       }),
 
     listChecklist: (taskId) =>
       request('GET', `/api/tasks/${taskId}/checklist`, {}),
 
-    addChecklistItem: (taskId, label) =>
-      request('POST', `/api/tasks/${taskId}/checklist`, { body: { label } }),
+    addChecklistItem: (taskId, label, itemId) =>
+      request('POST', `/api/tasks/${taskId}/checklist`, {
+        body: { label, ...(itemId ? { id: itemId } : {}) },
+        headers: { 'x-prax-origin': 'agent' },
+        retryUnavailable: Boolean(itemId),
+      }),
 
     setChecklistItem: (taskId, itemId, completed) =>
-      request('PATCH', `/api/tasks/${taskId}/checklist/${itemId}`, { body: { completed } }),
+      request('PATCH', `/api/tasks/${taskId}/checklist/${itemId}`, {
+        body: { completed }, headers: { 'x-prax-origin': 'agent' }, retryUnavailable: true,
+      }),
 
     deleteChecklistItem: (taskId, itemId) =>
-      request('DELETE', `/api/tasks/${taskId}/checklist/${itemId}`, {}),
+      request('DELETE', `/api/tasks/${taskId}/checklist/${itemId}`, {
+        headers: { 'x-prax-origin': 'agent' }, retryUnavailable: true,
+      }),
 
     listTaskActivity: (taskId) =>
       request('GET', `/api/tasks/${taskId}/activity`, {}),
@@ -197,9 +242,10 @@ export function createPraxClient({
     // ---- Runbook execution (runs) ----
     // Writes stamp the agent as the actor via x-prax-origin; getRunbookRun /
     // setRunStep / setRunStatus null-coalesce a 404 so the tools can message it.
-    startRunbookRun: (documentId, title) =>
+    startRunbookRun: (documentId, title, runId) =>
       request('POST', `/api/library/documents/${documentId}/runs`, {
-        body: { title }, headers: { 'x-prax-origin': 'agent' },
+        body: { title, ...(runId ? { id: runId } : {}) }, headers: { 'x-prax-origin': 'agent' },
+        retryUnavailable: Boolean(runId),
       }),
 
     listRunbookRuns: (documentId) =>
@@ -208,9 +254,9 @@ export function createPraxClient({
     getRunbookRun: (runId) => getOrNull(`/api/library/runs/${runId}`),
 
     setRunStep: (runId, stepId, checked) =>
-      patchOrNull(`/api/library/runs/${runId}/steps/${stepId}`, { checked }, { 'x-prax-origin': 'agent' }),
+      patchOrNull(`/api/library/runs/${runId}/steps/${stepId}`, { checked }, { 'x-prax-origin': 'agent' }, true),
 
     setRunStatus: (runId, status) =>
-      patchOrNull(`/api/library/runs/${runId}`, { status }, { 'x-prax-origin': 'agent' }),
+      patchOrNull(`/api/library/runs/${runId}`, { status }, { 'x-prax-origin': 'agent' }, true),
   };
 }

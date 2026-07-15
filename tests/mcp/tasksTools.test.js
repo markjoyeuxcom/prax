@@ -27,8 +27,8 @@ test('search_tasks maps args and returns task summaries', async () => {
   const res = await tool.handler({ query: 'backup', project: 'homelab', status: 'planned' });
   assert.deepEqual(received, { q: 'backup', project: 'homelab', status: 'planned' });
   const data = JSON.parse(res.content[0].text);
-  assert.equal('description' in data[0], false);
-  assert.equal(data[0].priority, 'high');
+  assert.equal('description' in data.items[0], false);
+  assert.equal(data.items[0].priority, 'high');
 });
 
 test('search_tasks applies a shared filter expression over the fetched tasks', async () => {
@@ -45,11 +45,11 @@ test('search_tasks applies a shared filter expression over the fetched tasks', a
 
   const res = await tool.handler({ filter: '@waiting & #homelab' });
   const data = JSON.parse(res.content[0].text);
-  assert.deepEqual(data.map((t) => t.id), ['a', 'c']);
-  assert.deepEqual(data[0].labels, ['waiting']); // labels surfaced in the ref
+  assert.deepEqual(data.items.map((t) => t.id), ['a', 'c']);
+  assert.deepEqual(data.items[0].labels, ['waiting']); // labels surfaced in the ref
 
   // p1 restricts to the high-priority one
-  assert.deepEqual(JSON.parse((await tool.handler({ filter: '@waiting & p1' })).content[0].text).map((t) => t.id), ['a']);
+  assert.deepEqual(JSON.parse((await tool.handler({ filter: '@waiting & p1' })).content[0].text).items.map((t) => t.id), ['a']);
 
   // an invalid filter is a friendly error, not a crash
   const bad = await tool.handler({ filter: '(p1' });
@@ -74,7 +74,7 @@ test('create_task forwards args to the client', async () => {
   let received;
   const client = { createTask: async (p) => { received = p; return { id: 'new', ...p }; } };
   const tool = byName(createTaskTools(client), 'create_task');
-  const payload = { title: 'New', project: 'work', priority: 'medium', status: 'planned' };
+  const payload = { id: TASK_ID, title: 'New', project: 'work', priority: 'medium', status: 'planned' };
   await tool.handler(payload);
   assert.deepEqual(received, payload);
 });
@@ -83,9 +83,9 @@ test('create_task applies priority/status defaults the API requires', async () =
   let received;
   const client = { createTask: async (p) => { received = p; return { id: 'new', ...p }; } };
   const tool = byName(createTaskTools(client), 'create_task');
-  await tool.handler({ title: 'Minimal', project: 'homelab' });
+  await tool.handler({ id: TASK_ID, title: 'Minimal', project: 'homelab' });
   assert.deepEqual(received, {
-    priority: 'medium', status: 'planned', title: 'Minimal', project: 'homelab',
+    priority: 'medium', status: 'planned', id: TASK_ID, title: 'Minimal', project: 'homelab',
   });
 });
 
@@ -96,6 +96,17 @@ test('create_task lets explicit priority/status override the defaults', async ()
   await tool.handler({ title: 'X', project: 'work', priority: 'high', status: 'in-progress' });
   assert.equal(received.priority, 'high');
   assert.equal(received.status, 'in-progress');
+});
+
+test('create_task reports its stable retry id when the outcome remains unknown', async () => {
+  const { PraxUnavailableError } = await import('../../mcp/errors.js');
+  const tool = byName(createTaskTools({
+    createTask: async () => { throw new PraxUnavailableError('connection lost'); },
+  }), 'create_task');
+  const res = await tool.handler({ id: TASK_ID, title: 'X', project: 'work' });
+  assert.equal(res.isError, true);
+  assert.match(res.content[0].text, new RegExp(`id="${TASK_ID}"`));
+  assert.match(res.content[0].text, /outcome is unknown/);
 });
 
 test('update_task rejects empty patch and bad UUID, maps missing to error', async () => {

@@ -1,3 +1,6 @@
+# OPT-IN EXAMPLE ONLY — deliberately not included by base/kustomization.yaml.
+# Prax has no built-in authentication. Add this resource only behind a Gateway
+# or policy that enforces authentication and TLS for every request.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:

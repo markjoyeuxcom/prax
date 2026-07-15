@@ -1,6 +1,6 @@
 // Pure helpers for auto-generating a post-mortem from a runbook run's chronicle.
 // All IO (fetching the run, the chat call, creating the doc) lives in the route;
-// these turn a run + its steps into a factual summary, an LLM prompt, and a
+// these turn a run + its current steps + append-only events into a factual summary, an LLM prompt, and a
 // deterministic fallback draft.
 
 function parse(iso) {
@@ -23,8 +23,9 @@ export function postMortemTitle(run, docTitle = '') {
   return `Post-mortem: ${name}${date ? ` — ${date}` : ''}`;
 }
 
-// A factual, deterministic chronicle of the run: header stats + a per-step
-// timeline (done/pending, time, actor, gap since the previous checked step).
+// A factual, deterministic chronicle of the run: header stats + the append-only
+// event timeline, followed by current step state. Legacy runs without events
+// retain the older checked-step reconstruction.
 // This is both the LLM's source material and the backbone of the fallback draft.
 export function buildRunSummary(run, docTitle = '') {
   if (!run) return '';
@@ -35,11 +36,33 @@ export function buildRunSummary(run, docTitle = '') {
     `Status: ${run.status}`,
     `Started: ${run.startedAt || '(unknown)'} by ${run.startedBy || 'user'}`,
   ];
-  if (run.finishedAt) lines.push(`Finished: ${run.finishedAt}`);
+  if (run.finishedAt) lines.push(`Finished: ${run.finishedAt} by ${run.finishedBy || 'unknown'}`);
   const dur = elapsed(run.startedAt, run.finishedAt);
   if (dur) lines.push(`Duration: ${dur}`);
   lines.push(`Steps completed: ${done} of ${steps.length}`);
   lines.push('', 'Timeline:');
+  const events = Array.isArray(run.events) ? run.events : [];
+  if (events.length) {
+    let previous = null;
+    for (const event of events) {
+      const gap = previous ? elapsed(previous, event.createdAt) : '';
+      const actor = event.actor || 'unknown';
+      let description;
+      if (event.type === 'started') description = '[started] Run';
+      else if (event.type === 'step-checked') description = `[done] ${event.stepText || 'Step'}`;
+      else if (event.type === 'step-unchecked') description = `[undone] ${event.stepText || 'Step'}`;
+      else if (event.type === 'aborted') description = '[aborted] Run';
+      else if (event.type === 'resumed') description = '[resumed] Run';
+      else if (event.type === 'completed') description = '[completed] Run';
+      else description = `[${event.type || 'event'}] Run`;
+      lines.push(`- ${description} — ${event.createdAt || '(unknown)'} (by ${actor}${gap ? `, +${gap}` : ''})`);
+      previous = event.createdAt || previous;
+    }
+    lines.push('', 'Current step state:');
+    for (const step of steps) lines.push(`- [${step.checkedAt ? 'done' : 'not done'}] ${step.text}`);
+    return lines.join('\n');
+  }
+
   // Order the executed steps by when they were checked (steps can be ticked out
   // of position), and note the gap between consecutive checks.
   const checked = steps.filter((s) => s.checkedAt).slice().sort((a, b) => String(a.checkedAt).localeCompare(String(b.checkedAt)));
