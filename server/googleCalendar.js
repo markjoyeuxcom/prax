@@ -233,6 +233,8 @@ export function createGoogleCalendarProvider({ appSettingsRepository, fetch = gl
         accountEmail: settings.accountEmail || null,
         lastSyncAt: settings.lastSyncAt || null,
         lastSyncSummary: settings.lastSyncSummary || null,
+        lastPushAt: settings.lastPushAt || null,
+        lastPushError: settings.lastPushError || null,
         hasClientSecret: Boolean(settings.clientSecret),
       };
     },

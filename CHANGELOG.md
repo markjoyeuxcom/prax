@@ -158,6 +158,22 @@ fresh empty `[Unreleased]` section is started.
 
 ### Added
 
+- **Google Calendar push sync (Phase 2) — live incremental push + reconcile sweep.** Task
+  changes now reach Google **within seconds, automatically** — no Sync now click. Every task
+  mutation route (create, edit, complete, archive, restore, permanent delete, recurring
+  successors, board drags that flip status) notifies a **debounced, coalescing pusher** that
+  decides per task: still an open dated task → upsert its event; anything else → delete exactly
+  its derived event. The push is **fully detached from the mutation** — a Google failure or a
+  disconnected integration can never fail, slow, or block a task operation (mutations while not
+  connected produce zero Google traffic). Bursts (imports, project replaces, >25 queued changes)
+  collapse into **one full reconcile** instead of hammering per-event calls, and a background
+  **15-minute sweep** re-runs the reconcile so anything a failed push missed heals itself. The
+  Integrations card gains an honest **live-push status line**: last-push heartbeat, or the exact
+  push error with the truthful caveat that the sweep will retry it (`lastPushAt`/`lastPushError`
+  in the status API — the MCP server and in-app assistant inherit live push for free since they
+  mutate through the same routes). Because pure re-sorts never touch eligibility, drag-reorders
+  push nothing unless a status actually changed.
+
 - **Google Calendar push sync (Phase 1) — connect, dedicated calendar, Sync now.** Prax pushes
   open dated tasks into a dedicated **"Prax" calendar** it creates in your Google account: a
   **one-way projection** (tasks stay the source of truth) using the granular
@@ -172,8 +188,8 @@ fresh empty `[Unreleased]` section is started.
   reports honestly — pushed/removed counts, per-task failures shown as degraded, never clean
   success; every Google failure degrades (200 + reason) and never breaks task operations.
   Disconnect revokes the token at Google and deliberately leaves the calendar. New Settings ▸
-  **Integrations** tab with connect/sync/disconnect and truthful status. Phase 2 (per-mutation
-  incremental push + reconcile sweep) is next.
+  **Integrations** tab with connect/sync/disconnect and truthful status. Phase 2 (above) adds
+  the per-mutation incremental push + reconcile sweep.
 
 - **Exceptional-quality baseline — the product-wide quality program.** *(Entry added
   retroactively for the `400452f` commit, which shipped without one.)* Adopts

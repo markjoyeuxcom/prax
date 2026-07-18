@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   GOOGLE_CALENDAR_SCOPE,
+  GoogleApiError,
   buildGoogleAuthUrl,
   buildPkcePair,
   createGoogleCalendarClient,
@@ -10,6 +11,7 @@ import {
   taskToGoogleEvent,
 } from '../../server/googleCalendar.js';
 import { isCalendarEligible } from '../../server/icsFeed.js';
+import { createCalendarPusher } from '../../server/googleCalendarSync.js';
 import { buildApp } from '../../server/index.js';
 
 const TASK = {
@@ -190,6 +192,142 @@ test('the full connect + sync + disconnect journey against a stubbed Google', as
   assert.equal(disconnect.json().connected, false);
   assert.equal(disconnect.json().configured, true);
   assert.ok(stub.log.some((c) => c.url.includes('revoke')), 'the refresh token was revoked at Google');
+
+  await app.close();
+});
+
+// ---- incremental pusher (Phase 2) ----
+
+function fakePushHarness({ clientError = null, tasks = [] } = {}) {
+  const settings = { calendarId: 'cal-1' };
+  const calls = [];
+  const client = {
+    async ensurePraxCalendar(existing) { return existing || 'cal-1'; },
+    async listEventIds() { calls.push({ op: 'list' }); return []; },
+    async upsertEvent(calendarId, event) { calls.push({ op: 'upsert', id: event.id }); },
+    async deleteEvent(calendarId, eventId) { calls.push({ op: 'delete', id: eventId }); },
+  };
+  const provider = {
+    async client() { if (clientError) throw clientError; return client; },
+    async getSettings() { return { ...settings }; },
+    async putSettings(patch) { Object.assign(settings, patch); },
+  };
+  const byId = new Map(tasks.map((t) => [t.id, t]));
+  const tasksRepository = {
+    async getTask(id) { return byId.get(id) || null; },
+    async listTasks() { return [...byId.values()].filter((t) => !t.archivedAt); },
+  };
+  return { provider, tasksRepository, calls, settings, byId };
+}
+
+test('pusher: eligible task upserts, ineligible deletes by derived id, repeats coalesce', async () => {
+  const done = { ...TASK, id: '22222222-2222-4222-8222-222222222222', status: 'completed' };
+  const h = fakePushHarness({ tasks: [TASK, done] });
+  const pusher = createCalendarPusher({ provider: h.provider, tasksRepository: h.tasksRepository, debounceMs: 1 });
+
+  pusher.notifyTaskChanged([TASK.id]);
+  pusher.notifyTaskChanged([TASK.id, done.id]); // repeat notify must coalesce
+  const result = await pusher.flush();
+
+  assert.equal(result.pushed, 1);
+  assert.equal(result.removed, 1);
+  assert.deepEqual(h.calls, [
+    { op: 'upsert', id: googleEventId(TASK.id) },
+    { op: 'delete', id: googleEventId(done.id) },
+  ]);
+  assert.ok(h.settings.lastPushAt, 'a successful push stamps lastPushAt');
+  assert.equal(h.settings.lastPushError, null);
+  pusher.stop();
+});
+
+test('pusher: a deleted (unknown) task removes its event; bulk collapses to full reconcile', async () => {
+  const h = fakePushHarness({ tasks: [TASK] });
+  const pusher = createCalendarPusher({ provider: h.provider, tasksRepository: h.tasksRepository, debounceMs: 1 });
+
+  const goneId = '33333333-3333-4333-8333-333333333333';
+  pusher.notifyTaskChanged([goneId]);
+  await pusher.flush();
+  assert.deepEqual(h.calls.pop(), { op: 'delete', id: googleEventId(goneId) });
+
+  pusher.notifyBulkChange();
+  const bulk = await pusher.flush();
+  assert.ok(h.calls.some((c) => c.op === 'list'), 'bulk change runs the full reconcile (lists events)');
+  assert.equal(bulk.pushed, 1, 'the eligible task is pushed by the reconcile');
+  pusher.stop();
+});
+
+test('pusher: not-connected drains silently; real failures land in lastPushError', async () => {
+  const notConnected = fakePushHarness({ clientError: new GoogleApiError('connect first', { reason: 'not-connected' }) });
+  const idle = createCalendarPusher({ provider: notConnected.provider, tasksRepository: notConnected.tasksRepository, debounceMs: 1 });
+  idle.notifyTaskChanged([TASK.id]);
+  const skipped = await idle.flush();
+  assert.equal(skipped.skipped, true);
+  assert.equal(notConnected.settings.lastPushError, undefined, 'not-connected is normal, not an error');
+  idle.stop();
+
+  const h = fakePushHarness({ tasks: [TASK] });
+  h.provider.client = async () => ({
+    async ensurePraxCalendar(existing) { return existing || 'cal-1'; },
+    async upsertEvent() { throw new Error('rate limited'); },
+    async deleteEvent() {},
+    async listEventIds() { return []; },
+  });
+  const failing = createCalendarPusher({ provider: h.provider, tasksRepository: h.tasksRepository, debounceMs: 1 });
+  failing.notifyTaskChanged([TASK.id]);
+  const failed = await failing.flush();
+  assert.equal(failed.failed, 1);
+  assert.match(h.settings.lastPushError, /rate limited/);
+  failing.stop();
+});
+
+test('task routes push incrementally: create appears, archive disappears — without Sync now', async () => {
+  const stub = googleStub();
+  const { loadConfig } = await import('../../server/config.js');
+  const config = loadConfig({ PRAX_DB_FILE: ':memory:', EMBEDDING_BACKEND: 'none' });
+  const app = await buildApp({ config, googleFetch: stub, calendarPushDebounceMs: 1 });
+
+  // Mutations while not connected must succeed and touch Google not at all.
+  const early = await app.inject({ method: 'POST', url: '/api/tasks', payload: { title: 'Before connect', project: 'inbox', priority: 'medium', status: 'planned', dueDate: '2026-07-30' } });
+  assert.equal(early.statusCode, 201);
+  await app.calendarPusher.flush();
+  assert.equal(stub.log.length, 0, 'no Google traffic before the integration is connected');
+
+  // Connect (settings + OAuth callback against the stub).
+  await app.inject({ method: 'PUT', url: '/api/integrations/google-calendar/settings', payload: { clientId: 'cid', clientSecret: 's' } });
+  const connect = await app.inject({ method: 'POST', url: '/api/integrations/google-calendar/connect', headers: { host: '127.0.0.1:3000' } });
+  const state = new URL(connect.json().authUrl).searchParams.get('state');
+  await app.inject({ method: 'GET', url: `/api/integrations/google-calendar/callback?code=c&state=${state}` });
+
+  // Create → the event shows up in Google without anyone clicking Sync now.
+  const created = await app.inject({ method: 'POST', url: '/api/tasks', payload: { title: 'Dated', project: 'inbox', priority: 'medium', status: 'planned', dueDate: '2026-07-24' } });
+  assert.equal(created.statusCode, 201);
+  const taskId = created.json().id;
+  await app.calendarPusher.flush();
+  const upsert = stub.log.find((c) => c.method === 'POST' && c.url.endsWith('/events'));
+  assert.ok(upsert, 'the create was pushed incrementally');
+  assert.equal(JSON.parse(upsert.body).id, googleEventId(taskId));
+
+  // Complete → the event is removed.
+  await app.inject({ method: 'PATCH', url: `/api/tasks/${taskId}`, payload: { status: 'completed' } });
+  await app.calendarPusher.flush();
+  assert.ok(
+    stub.log.some((c) => c.method === 'DELETE' && c.url.includes(googleEventId(taskId))),
+    'completing the task deleted its event',
+  );
+
+  // Archive an eligible task → its event is removed too.
+  const other = (await app.inject({ method: 'POST', url: '/api/tasks', payload: { title: 'Doomed', project: 'inbox', priority: 'medium', status: 'planned', dueDate: '2026-07-25' } })).json();
+  await app.calendarPusher.flush();
+  await app.inject({ method: 'DELETE', url: `/api/tasks/${other.id}` });
+  await app.calendarPusher.flush();
+  assert.ok(
+    stub.log.some((c) => c.method === 'DELETE' && c.url.includes(googleEventId(other.id))),
+    'archiving the task deleted its event',
+  );
+
+  const status = (await app.inject({ method: 'GET', url: '/api/integrations/google-calendar' })).json();
+  assert.ok(status.lastPushAt, 'status reports the incremental push heartbeat');
+  assert.equal(status.lastPushError, null);
 
   await app.close();
 });

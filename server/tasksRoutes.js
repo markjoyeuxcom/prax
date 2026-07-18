@@ -408,6 +408,12 @@ export async function registerTasksRoutes(app, options = {}) {
     return null;
   }
 
+  // Fire-and-forget Google Calendar push (Phase 2). The pusher is decorated by
+  // registerGoogleCalendarRoutes AFTER these routes register, so it is resolved
+  // lazily at request time; it never throws and never blocks the mutation.
+  const notifyCalendar = (ids) => { try { app.calendarPusher?.notifyTaskChanged(ids); } catch { /* push is best-effort */ } };
+  const notifyCalendarBulk = () => { try { app.calendarPusher?.notifyBulkChange(); } catch { /* push is best-effort */ } };
+
   const logActivity = async (taskId, eventType, message, actor = 'user') => {
     try { if (repository.recordActivity) await repository.recordActivity(taskId, eventType, message, actor); }
     catch { /* activity logging is best-effort; never fail the mutation */ }
@@ -565,6 +571,7 @@ export async function registerTasksRoutes(app, options = {}) {
           : await repository.importTasks(tasksToImport)
       : [];
     if (!hasAtomicImport) await restoreImportedChecklists(tasks, candidates);
+    if (tasks.length || mode === 'replace') notifyCalendarBulk();
     reply.code(tasks.length ? 201 : 200);
     return {
       mode,
@@ -599,12 +606,16 @@ export async function registerTasksRoutes(app, options = {}) {
         return { message: 'task id was already used for different content' };
       }
       reply.code(result.created ? 201 : 200);
-      if (result.created) await logActivity(result.task.id, 'created', 'Task created', originFrom(request));
+      if (result.created) {
+        await logActivity(result.task.id, 'created', 'Task created', originFrom(request));
+        notifyCalendar([result.task.id]);
+      }
       return result.task;
     }
     const created = await repository.createTask(candidate);
     reply.code(201);
     await logActivity(created.id, 'created', 'Task created', originFrom(request));
+    notifyCalendar([created.id]);
     return created;
   });
 
@@ -643,15 +654,23 @@ export async function registerTasksRoutes(app, options = {}) {
       reordered = await repository.reorderTasks(updates);
     }
 
+    const calendarChanged = [];
     for (const task of reordered) {
       if (!task) continue;
       const priorStatus = (lifecycleResults?.find(result => result.task.id === task.id)?.prior || priors.get(task.id))?.status;
       if (priorStatus !== undefined && priorStatus !== task.status) {
         await logActivity(task.id, 'status', `Status → ${task.status}`, originFrom(request));
+        calendarChanged.push(task.id);
       }
       const nextTask = lifecycleResults?.find(result => result.task.id === task.id)?.nextTask;
-      if (nextTask) await logActivity(nextTask.id, 'created', 'Recurring task created', originFrom(request));
+      if (nextTask) {
+        await logActivity(nextTask.id, 'created', 'Recurring task created', originFrom(request));
+        calendarChanged.push(nextTask.id);
+      }
     }
+    // Pure re-sorts never touch the calendar; only status flips (and the
+    // recurring successors they spawn) change what Google should show.
+    if (calendarChanged.length) notifyCalendar(calendarChanged);
 
     return reordered;
   });
@@ -730,6 +749,7 @@ export async function registerTasksRoutes(app, options = {}) {
       return { message: 'task not found' };
     }
     await logActivity(task.id, 'restored', 'Task restored', originFrom(request));
+    notifyCalendar([task.id]);
     return task;
   });
 
@@ -744,6 +764,7 @@ export async function registerTasksRoutes(app, options = {}) {
       reply.code(404);
       return { message: 'task not found' };
     }
+    notifyCalendar([task.id]);
     return task;
   });
 
@@ -791,6 +812,7 @@ export async function registerTasksRoutes(app, options = {}) {
       reply.code(404);
       return { message: 'task not found' };
     }
+    notifyCalendar([task.id, result?.nextTask?.id].filter(Boolean));
     const authoritativePrior = result?.prior || prior;
     if (authoritativePrior && authoritativePrior.status !== task.status) {
       await logActivity(task.id, 'status', `Status → ${task.status}`, originFrom(request));
@@ -817,6 +839,7 @@ export async function registerTasksRoutes(app, options = {}) {
       return { message: 'task not found' };
     }
     await logActivity(task.id, 'archived', 'Task archived', originFrom(request));
+    notifyCalendar([task.id]);
     return task;
   });
 

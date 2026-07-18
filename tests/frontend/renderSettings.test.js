@@ -353,6 +353,29 @@ test('connected but never synced says so instead of inventing a sync time', () =
   assert.doesNotMatch(html, /last sync:/);
 });
 
+test('connected: live-push line shows heartbeat, error, or the default promise', () => {
+  const connectedState = (statusOverrides) => baseState({
+    settingsTab: 'integrations',
+    googleCalendarStatus: gcalStatus({ configured: true, connected: true, hasClientSecret: true, ...statusOverrides }),
+  });
+  // No push yet: promise the behavior without inventing a timestamp.
+  const fresh = renderSettingsHtml(connectedState({}), baseModel());
+  assert.match(fresh, /data-gcal-push[^>]*>Live push on — task changes appear in Google within seconds\./);
+  // Heartbeat: the last successful incremental push time.
+  const pushed = renderSettingsHtml(connectedState({ lastPushAt: '2026-07-18T15:00:00.000Z' }), baseModel());
+  assert.match(pushed, /data-gcal-push[^>]*>Live push on — last change pushed /);
+  // Error: visible alert, honest about the sweep repairing it.
+  const failed = renderSettingsHtml(connectedState({ lastPushAt: '2026-07-18T15:00:00.000Z', lastPushError: '2 pushes failed: rate limited' }), baseModel());
+  assert.match(failed, /data-gcal-push role="alert"/);
+  assert.match(failed, /Live push issue: 2 pushes failed: rate limited \(auto-retried by the background sweep\)/);
+  // Not connected: no push line at all.
+  const disconnected = renderSettingsHtml(baseState({
+    settingsTab: 'integrations',
+    googleCalendarStatus: gcalStatus({ configured: true, hasClientSecret: true, lastPushAt: '2026-07-18T15:00:00.000Z' }),
+  }), baseModel());
+  assert.doesNotMatch(disconnected, /data-gcal-push/);
+});
+
 test('sync notices render in the degraded message area with per-failure lines', () => {
   const html = renderSettingsHtml(baseState({
     settingsTab: 'integrations',

@@ -43,10 +43,19 @@ you create your own (free, ~5 minutes), exactly like other self-hosted tools:
 
 ## Sync
 
-Click **Sync now** to push. The result is reported honestly: pushed /
+Once connected, sync is **live**: creating, editing, completing, archiving,
+or restoring a task pushes the change to Google within a few seconds,
+automatically. Big changes (imports, project replaces) run one full
+reconcile instead of many per-event calls, and a background sweep re-runs
+the reconcile every 15 minutes so anything a failed push missed heals
+itself. The Integrations card shows the live-push status — last push time,
+or the exact error if a push failed (the sweep retries it).
+
+**Sync now** is still there as a manual full reconcile: it pushes every
+eligible task and removes every stale event, and reports honestly — pushed /
 removed counts, and any per-task failures — a partial failure is shown as
 degraded, never as clean success. Google being unreachable degrades the
-integration status; it never breaks task operations.
+integration status; it never breaks or slows task operations.
 
 **Disconnect** revokes the token at Google and clears the connection locally.
 The "Prax" calendar is deliberately left in your Google account (delete it
