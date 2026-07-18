@@ -378,6 +378,17 @@ function renderIntegrationsCard(state) {
           ? 'Configured but not connected — click Connect to sign in with Google.'
           : 'Not configured — save a Google OAuth client id and secret to begin.';
 
+  // Live incremental push (Phase 2): task edits push to Google within seconds.
+  // A push error is worth a visible warning — the sweep will repair it, but
+  // until then Google is behind what Prax shows.
+  const pushLine = !connected || loading || status.loadError
+    ? ''
+    : status.lastPushError
+      ? `<div class="settings-row__desc" data-gcal-push role="alert" style="margin-top:2px; color:var(--danger);">Live push issue: ${escapeHtml(status.lastPushError)} (auto-retried by the background sweep)</div>`
+      : status.lastPushAt
+        ? `<div class="settings-row__desc" data-gcal-push style="margin-top:2px;">Live push on — last change pushed ${escapeHtml(formatSyncTime(status.lastPushAt))}.</div>`
+        : `<div class="settings-row__desc" data-gcal-push style="margin-top:2px;">Live push on — task changes appear in Google within seconds.</div>`;
+
   // Sync results and degraded messages (multi-line: one line per failure).
   const notice = state.googleCalendarNotice
     ? `<div class="settings-row__desc" data-gcal-notice role="status" style="margin-top:6px; white-space:pre-line;">${escapeHtml(state.googleCalendarNotice)}</div>`
@@ -395,6 +406,7 @@ function renderIntegrationsCard(state) {
         <div class="settings-row__label">Google Calendar</div>
         <div class="settings-row__desc">One-way push: open tasks with a due date are copied into a dedicated “Prax” calendar in your Google account — nothing in Google is read back. Create a <strong>Desktop</strong>-type OAuth client in Google Cloud Console and paste its id and secret below.</div>
         <div class="settings-row__desc" data-gcal-status style="margin-top:6px;">${statusLine}</div>
+        ${pushLine}
         ${notice}
       </div>
     </div>

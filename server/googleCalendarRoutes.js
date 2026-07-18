@@ -3,15 +3,13 @@
 // the UI shows an honest integration status instead of a crash.
 import { randomBytes } from 'node:crypto';
 import { createTasksRepository } from './tasksRepository.js';
-import { isCalendarEligible } from './icsFeed.js';
 import {
   GoogleApiError,
   buildGoogleAuthUrl,
   buildPkcePair,
   createGoogleCalendarProvider,
-  planCalendarSync,
-  taskToGoogleEvent,
 } from './googleCalendar.js';
+import { createCalendarPusher, runFullSync } from './googleCalendarSync.js';
 
 const CONNECT_STATE_TTL_MS = 10 * 60 * 1000;
 
@@ -24,6 +22,17 @@ export async function registerGoogleCalendarRoutes(app, options = {}) {
   const provider = options.googleCalendarProvider
     || createGoogleCalendarProvider({ appSettingsRepository: options.appSettingsRepository || app.appSettingsRepository, fetch: options.googleFetch });
   const tasksRepository = options.tasksRepository || app.tasksRepository || createTasksRepository(app.db);
+
+  // Incremental push (Phase 2): task routes notify this after mutations; the
+  // sweep repairs anything a failed or missed push left behind.
+  const pusher = createCalendarPusher({
+    provider,
+    tasksRepository,
+    ...(options.calendarPushDebounceMs !== undefined ? { debounceMs: options.calendarPushDebounceMs } : {}),
+  });
+  app.decorate('calendarPusher', pusher);
+  pusher.startSweep();
+  app.addHook('onClose', async () => pusher.stop());
 
   // Pending OAuth states live in memory only: single-user local app, short
   // TTL, and a restart mid-consent just means clicking Connect again.
@@ -105,44 +114,18 @@ export async function registerGoogleCalendarRoutes(app, options = {}) {
 
   app.post('/api/integrations/google-calendar/sync', async () => {
     try {
-      const client = await provider.client();
-      const settings = await provider.getSettings();
-      const calendarId = await client.ensurePraxCalendar(settings.calendarId || null);
-      if (calendarId !== settings.calendarId) await provider.putSettings({ calendarId });
-
-      const now = new Date();
-      const tasks = (await tasksRepository.listTasks({})).filter((task) => isCalendarEligible(task, now));
-      const existing = await client.listEventIds(calendarId);
-      const plan = planCalendarSync(tasks, existing);
-
-      let pushed = 0;
-      let removed = 0;
-      const failures = [];
-      for (const task of plan.upserts) {
-        try {
-          await client.upsertEvent(calendarId, taskToGoogleEvent(task));
-          pushed += 1;
-        } catch (err) {
-          failures.push({ taskId: task.id, title: task.title, message: err.message });
-        }
-      }
-      for (const eventId of plan.deletes) {
-        try {
-          await client.deleteEvent(calendarId, eventId);
-          removed += 1;
-        } catch (err) {
-          failures.push({ eventId, message: err.message });
-        }
-      }
-
-      const summary = failures.length
-        ? `${pushed} pushed, ${removed} removed, ${failures.length} FAILED`
-        : `${pushed} pushed, ${removed} removed`;
-      await provider.putSettings({ lastSyncAt: new Date().toISOString(), lastSyncSummary: summary });
+      // Flush any queued incremental pushes first so the reconcile sees the
+      // final state, then run the full sync (now also the sweep's engine).
+      await pusher.flush();
+      const result = await runFullSync({ provider, tasksRepository });
       // Partial failure is reported as such — never as clean success.
       return {
-        pushed, removed, failed: failures.length, failures: failures.slice(0, 10), summary,
-        ...(failures.length ? { degraded: true, reason: 'partial-failure' } : {}),
+        pushed: result.pushed,
+        removed: result.removed,
+        failed: result.failed,
+        failures: result.failures.slice(0, 10),
+        summary: result.summary,
+        ...(result.failed ? { degraded: true, reason: 'partial-failure' } : {}),
       };
     } catch (err) {
       return degradedFrom(err);
