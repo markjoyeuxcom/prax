@@ -121,17 +121,24 @@ export function buildUpdateDocument(id, fields) {
   }
 
   // An agent-origin mutation revokes a prior human verification ONLY when it
-  // actually changes the content: verification blesses content (QINV-04), so
-  // a metadata-only agent edit (retag, project move) or a byte-identical body
-  // keeps the badge, while an agent content change loses it. SET expressions
-  // evaluate against the pre-update row, so content_hash below is the STORED
-  // hash being compared to the incoming body's hash. A legacy NULL stored
-  // hash compares unequal and revokes — the safe default.
-  if (fields.updatedBy === 'agent' && bodyProvided) {
+  // actually changes what the human blessed: the body (compared via
+  // content_hash) or the TITLE — retitling a verified runbook changes its
+  // identity for retrieval, citations, and wiki-links just as surely as a
+  // body edit. Pure metadata (retag, project move) or byte-identical values
+  // keep the badge. SET expressions evaluate against the pre-update row, so
+  // content_hash/title below are the STORED values compared to the incoming
+  // ones. A legacy NULL stored hash compares unequal and revokes — the safe
+  // default.
+  const titleEntryIndex = entries.findIndex(([key]) => key === 'title');
+  const agentContentGuards = [];
+  if (bodyProvided) agentContentGuards.push(`content_hash = $${hashIndex}`);
+  if (titleEntryIndex !== -1) agentContentGuards.push(`title = $${titleEntryIndex + 2}`);
+  if (fields.updatedBy === 'agent' && agentContentGuards.length) {
+    const unchanged = agentContentGuards.join(' and ');
     assignments.push(
-      `verified = case when content_hash = $${hashIndex} then verified else 0 end`,
-      `verified_at = case when content_hash = $${hashIndex} then verified_at else null end`,
-      `verified_by = case when content_hash = $${hashIndex} then verified_by else null end`,
+      `verified = case when ${unchanged} then verified else 0 end`,
+      `verified_at = case when ${unchanged} then verified_at else null end`,
+      `verified_by = case when ${unchanged} then verified_by else null end`,
     );
   }
 
@@ -519,7 +526,13 @@ export function createLibraryRepository(db) {
     async restoreDocument(id) {
       const query = buildRestoreDocument(id);
       const result = await db.query(query.text, query.values);
-      return result.rows[0] ? normalizeDocumentRow(result.rows[0]) : null;
+      if (!result.rows[0]) return null;
+      // RETURNING reflects only this statement's write — the 0018 restore
+      // trigger recomputes status AFTER it, so the returned row can carry a
+      // stale lifecycle state. Re-read so every consumer (route, cache, UI)
+      // sees what is actually stored.
+      const fresh = await db.query('select * from markdown_documents where id = $1', [id]);
+      return normalizeDocumentRow(fresh.rows[0] || result.rows[0]);
     },
 
     async deleteDocument(id) {

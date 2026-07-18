@@ -83,6 +83,82 @@ test('an out-of-band description edit survives a notes-only autosave', async ({ 
   expect(settled.notes).toBe(draftNotes);
 });
 
+test('an untouched drawer never resends values a task refresh folded into it', async ({ page, request }) => {
+  const prefix = `wave1-untouched-fold-${Date.now()}`;
+  const task = await createDrawerTask(page.request, prefix);
+  const agentNotes = 'Notes rewritten by the MCP agent';
+  const drawerPatches = [];
+  await openDrawer(page, task);
+  await page.route(`**/api/tasks/${task.id}`, async (route) => {
+    if (route.request().method() === 'PATCH') drawerPatches.push(route.request().postDataJSON());
+    await route.continue();
+  });
+
+  // The agent edit lands out-of-band; the user touches nothing in the drawer.
+  const agentPatch = await request.patch(`/api/tasks/${task.id}`, { data: { notes: agentNotes } });
+  expect(agentPatch.ok()).toBe(true);
+
+  // A successful quick capture runs loadTasks() + renderApp() with the drawer
+  // still open: the refresh reconcile folds the agent's notes into draft
+  // state while the drawer DOM still shows the old value. Reading that stale
+  // unfocused DOM as "typing" armed an autosave that PATCHed the old notes
+  // back over the agent's edit.
+  await page.keyboard.press('n');
+  const capture = page.getByRole('dialog', { name: 'Quick capture' });
+  await expect(capture).toBeVisible();
+  await capture.getByLabel('Task title').fill(`${prefix} unrelated capture`);
+  await capture.getByRole('button', { name: 'Add task', exact: true }).click();
+  await expect(page.locator('.toast')).toContainText('Added to');
+
+  await expect(page.locator('[data-task-notes]')).toHaveValue(agentNotes);
+  await page.waitForTimeout(2000);
+  expect(drawerPatches).toEqual([]);
+  const settled = await (await page.request.get(`/api/tasks/${task.id}`)).json();
+  expect(settled.notes).toBe(agentNotes);
+});
+
+test('a committed notes-only save with a lost response reconciles as saved despite an agent description edit', async ({ page, request }) => {
+  const prefix = `wave1-lost-notes-${Date.now()}`;
+  const task = await createDrawerTask(page.request, prefix);
+  const draftNotes = 'Notes committed but the response was lost';
+  const agentDescription = 'Description rewritten by the MCP agent';
+  let notesPatches = 0;
+  await openDrawer(page, task);
+  await page.route(`**/api/tasks/${task.id}`, async (route) => {
+    const isNotesPatch = route.request().method() === 'PATCH'
+      && Object.hasOwn(route.request().postDataJSON(), 'notes');
+    if (!isNotesPatch) {
+      await route.continue();
+      return;
+    }
+    notesPatches += 1;
+    // The agent's description edit commits first, then the notes PATCH
+    // commits but its response is lost. The readback must judge only the
+    // SENT field (notes) — a whole-snapshot compare read the agent's
+    // description as a conflict and blocked close for a save that landed.
+    const agentPatch = await request.patch(`/api/tasks/${task.id}`, { data: { description: agentDescription } });
+    expect(agentPatch.ok()).toBe(true);
+    await route.fetch();
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ message: 'injected lost notes response' }),
+    });
+  });
+
+  const autosaveFlushed = page.waitForResponse((response) => response.url().endsWith(`/api/tasks/${task.id}`)
+    && response.request().method() === 'PATCH');
+  await page.locator('[data-task-notes]').fill(draftNotes);
+  await autosaveFlushed;
+
+  await expect(page.locator('[data-task-draft-save-status]')).toHaveText('Saved');
+  await page.waitForTimeout(1500);
+  expect(notesPatches).toBe(1);
+  const settled = await (await page.request.get(`/api/tasks/${task.id}`)).json();
+  expect(settled.description).toBe(agentDescription);
+  expect(settled.notes).toBe(draftNotes);
+});
+
 test('a Document-info rename survives the next body-keystroke autosave', async ({ page }) => {
   const prefix = `wave1-doc-rename-${Date.now()}`;
   const projectId = await resolveProjectId(page.request, 'homelab');

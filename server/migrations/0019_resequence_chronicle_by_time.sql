@@ -20,6 +20,11 @@ where run_id in (
   select run_id from runbook_run_events group by run_id having count(*) > 1
 );
 
+-- Tie-break by rowid, NOT by sequence: SQLite applies the UPDATE row by row,
+-- so peer.sequence mutates mid-statement and two events sharing created_at
+-- could compute the same final value (a unique-constraint failure). rowid is
+-- stable, unique, and follows insert order — which is the original sequence
+-- order for both the 0013 backfill and live appends.
 update runbook_run_events
 set sequence = (
   select count(*)
@@ -28,7 +33,7 @@ set sequence = (
     and (
       peer.created_at < runbook_run_events.created_at
       or (peer.created_at = runbook_run_events.created_at
-          and peer.sequence < runbook_run_events.sequence)
+          and peer.rowid < runbook_run_events.rowid)
     )
 )
 where run_id in (

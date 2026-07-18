@@ -798,7 +798,10 @@ export async function registerLibraryRoutes(app, options = {}) {
       reply.code(400); return { message: 'contentHash is invalid' };
     }
     const verifiedBy = body.verified ? (typeof body.as === 'string' && body.as.trim() ? body.as.trim() : 'user') : null;
-    const expectedHash = body.verified ? (body.contentHash || null) : null;
+    // Stored hashes are lowercase hex; the format validation above accepts
+    // either case, so normalize — an uppercase spelling of the CORRECT hash
+    // must not read as "content changed since review".
+    const expectedHash = body.verified ? (body.contentHash ? body.contentHash.toLowerCase() : null) : null;
     const document = await repository.verifyDocument(request.params.id, {
       verified: body.verified, verifiedBy, contentHash: expectedHash,
     });

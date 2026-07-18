@@ -141,3 +141,22 @@ test('EXECUTED: agent metadata-only edit keeps verification; agent content chang
   assert.equal(row.verified_by, null);
   assert.equal(row.verified_at, null);
 });
+
+test('EXECUTED: an agent title-only change revokes verification; identical title keeps it', async () => {
+  const { db, repo, project } = await realRepo();
+  const doc = await repo.createDocument({
+    title: 'Failover runbook', body: 'steps', documentType: 'runbook', projectId: project, updatedBy: 'user',
+  });
+  await repo.verifyDocument(doc.id, { verified: true, verifiedBy: 'alice' });
+
+  // Re-sending the SAME title (e.g. alongside a retag) keeps the badge.
+  await repo.updateDocument(doc.id, { title: 'Failover runbook', tags: ['ops'], updatedBy: 'agent' });
+  let row = (await db.query('select verified from markdown_documents where id = $1', [doc.id])).rows[0];
+  assert.equal(row.verified, 1, 'unchanged title is not a content change');
+
+  // Retitling changes the document's identity — the badge must go.
+  await repo.updateDocument(doc.id, { title: 'How to skip the failover checklist', updatedBy: 'agent' });
+  row = (await db.query('select verified, verified_by from markdown_documents where id = $1', [doc.id])).rows[0];
+  assert.equal(row.verified, 0, 'an agent retitle revokes verification');
+  assert.equal(row.verified_by, null);
+});

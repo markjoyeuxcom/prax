@@ -91,7 +91,12 @@ export function validateSqliteBackup(databaseFile, { projectId, handoffNotes } =
       }
       const marker = db.prepare('select handoff_notes as value from projects where id = ?').get(projectId);
       if (marker?.value !== handoffNotes) {
-        throw new Error(`SQLite backup live marker mismatch: expected ${handoffNotes}`);
+        throw new Error(
+          `SQLite backup live marker mismatch: expected ${handoffNotes}. `
+          + 'If this is a raw hot-copy backup, the marker may live in its -wal sidecar '
+          + '(validation reads the checkpointed main file only); prefer a backup made '
+          + 'with the online backup command, which is always self-contained.',
+        );
       }
     }
     const pageCount = Number(Object.values(db.prepare('pragma page_count').get())[0]);

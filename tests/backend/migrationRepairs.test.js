@@ -99,7 +99,7 @@ test('0019 re-sequences a position-ordered chronicle by check time', async () =>
       select count(*) from runbook_run_events peer
       where peer.run_id = runbook_run_events.run_id
         and (peer.created_at < runbook_run_events.created_at
-          or (peer.created_at = runbook_run_events.created_at and peer.sequence < runbook_run_events.sequence))
+          or (peer.created_at = runbook_run_events.created_at and peer.rowid < runbook_run_events.rowid))
     )
     where run_id in (select run_id from runbook_run_events group by run_id having count(*) > 1)
   `);
@@ -113,4 +113,73 @@ test('0019 re-sequences a position-ordered chronicle by check time', async () =>
     [2, 'step-checked', 'step 1'],
     [3, 'completed', null],
   ], 'the ledger order now matches the timestamps it always carried');
+});
+
+// Closing-review regression: two events sharing created_at must not collide
+// on the unique(run_id, sequence) constraint — the tie-break is rowid, which
+// is stable while the UPDATE mutates sequences row by row.
+test('0019 re-sequencing survives created_at ties without unique collisions', async () => {
+  const { db, project } = await migratedDb();
+  await db.query(
+    `insert into markdown_documents (id, title, body, document_type, project_id)
+     values ('00000000-0000-4000-8000-00000000000e', 'RB2', '- [ ] a', 'runbook', $1)`,
+    [project],
+  );
+  await db.query(
+    `insert into runbook_runs (id, document_id, document_title, project_id, title, status, started_at)
+     values ('00000000-0000-4000-8000-0000000000e2', '00000000-0000-4000-8000-00000000000e', 'RB2', $1, 'RB2 run', 'completed', '2026-07-01T09:00:00Z')`,
+    [project],
+  );
+  // Three events, two sharing the same timestamp, inserted out of final order.
+  await db.query(`
+    insert into runbook_run_events (run_id, sequence, event_type, step_text, actor, created_at) values
+      ('00000000-0000-4000-8000-0000000000e2', 0, 'started',      null,     'op', '2026-07-01T09:00:00Z'),
+      ('00000000-0000-4000-8000-0000000000e2', 1, 'step-checked', 'tie-a',  'op', '2026-07-01T09:30:00Z'),
+      ('00000000-0000-4000-8000-0000000000e2', 2, 'step-checked', 'tie-b',  'op', '2026-07-01T09:30:00Z')
+  `);
+  await db.query(`
+    update runbook_run_events set sequence = sequence + 1000000
+    where run_id in (select run_id from runbook_run_events group by run_id having count(*) > 1)
+  `);
+  await db.query(`
+    update runbook_run_events
+    set sequence = (
+      select count(*) from runbook_run_events peer
+      where peer.run_id = runbook_run_events.run_id
+        and (peer.created_at < runbook_run_events.created_at
+          or (peer.created_at = runbook_run_events.created_at and peer.rowid < runbook_run_events.rowid))
+    )
+    where run_id in (select run_id from runbook_run_events group by run_id having count(*) > 1)
+  `);
+  const rows = (await db.query(
+    "select sequence, step_text from runbook_run_events where run_id = '00000000-0000-4000-8000-0000000000e2' order by sequence",
+  )).rows;
+  assert.deepEqual(rows.map((r) => r.sequence), [0, 1, 2], 'unique, gapless sequences despite the tie');
+  assert.deepEqual(rows.map((r) => r.step_text), [null, 'tie-a', 'tie-b'], 'ties keep insert order');
+});
+
+// Closing-review regression: RETURNING does not see AFTER-trigger writes, so
+// restoreDocument must re-read — the restore response's status has to match
+// what is actually stored.
+test('restoreDocument returns the post-trigger status', async () => {
+  const { db, project } = await migratedDb();
+  const { createLibraryRepository } = await import('../../server/libraryRepository.js');
+  const repo = createLibraryRepository(db);
+  await db.query(
+    `insert into markdown_documents (id, title, body, document_type, project_id)
+     values ('00000000-0000-4000-8000-00000000000f', 'Old', 'v1', 'runbook', $1),
+            ('00000000-0000-4000-8000-000000000010', 'New', 'v2', 'runbook', $1)`,
+    [project],
+  );
+  await db.query(
+    `insert into document_links (source_document_id, target_document_id, relation)
+     values ('00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-00000000000f', 'supersedes')`,
+  );
+  // Strand: archive target, archive superseder (flips archived target active),
+  // restore superseder — then restore the target via the REPOSITORY.
+  await db.query("update markdown_documents set archived_at = '2026-07-01T00:00:00Z' where id = '00000000-0000-4000-8000-00000000000f'");
+  await db.query("update markdown_documents set archived_at = '2026-07-02T00:00:00Z' where id = '00000000-0000-4000-8000-000000000010'");
+  await db.query("update markdown_documents set archived_at = null where id = '00000000-0000-4000-8000-000000000010'");
+  const restored = await repo.restoreDocument('00000000-0000-4000-8000-00000000000f');
+  assert.equal(restored.status, 'superseded', 'the response reflects the trigger-recomputed status');
 });

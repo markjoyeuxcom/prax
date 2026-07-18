@@ -23,6 +23,10 @@ export function canonicalTaskCreatePayload(payload = {}) {
 
 export function taskMatchesCreatePayload(task, payload) {
   if (!task || !payload) return false;
+  // An archived row is not an acknowledgeable create (mirrors the server's
+  // taskMatchesCreateFields): treating it as one would convert the honest
+  // archived-replay 409 into "Added to project" for a task no view shows.
+  if (task.archivedAt) return false;
   const expected = canonicalTaskCreatePayload(payload);
   return (!expected.id || task.id === expected.id)
     && task.title === expected.title

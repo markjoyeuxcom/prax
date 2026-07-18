@@ -133,3 +133,44 @@ test('clear still removes ownerless (legacy) and corrupt payloads by default', (
   assert.equal(clearTaskCaptureRecovery(storage), true);
   assert.equal(storage.getItem(TASK_CAPTURE_RECOVERY_KEY), null);
 });
+
+test('store refuses to overwrite another tab\'s draft by default', () => {
+  const storage = memoryStorage();
+  storage.setItem(TASK_CAPTURE_RECOVERY_KEY, foreignDraft());
+  // A crashed tab's pending recovery outranks casual typing here.
+  assert.equal(storeTaskCaptureRecovery(storage, recovery({ query: 'Typing in tab B' })), false);
+  const kept = loadTaskCaptureRecovery(storage);
+  assert.equal(kept.query, 'Ship release');
+  assert.equal(kept.owner, 'some-other-tab');
+});
+
+test('force store takes the slot and stamps this tab as owner', () => {
+  const storage = memoryStorage();
+  storage.setItem(TASK_CAPTURE_RECOVERY_KEY, foreignDraft());
+  assert.equal(storeTaskCaptureRecovery(storage, recovery({ query: 'Adopted here' }), { force: true }), true);
+  const adopted = loadTaskCaptureRecovery(storage);
+  assert.equal(adopted.query, 'Adopted here');
+  assert.notEqual(adopted.owner, 'some-other-tab');
+});
+
+test('adopting a restored draft (force re-stamp) makes it clearable by this tab', () => {
+  const storage = memoryStorage();
+  // The stored stamp predates this load (a reload mints a fresh owner token).
+  storage.setItem(TASK_CAPTURE_RECOVERY_KEY, foreignDraft());
+  // restoreCaptureRecovery adopts the draft into this tab with one force store.
+  assert.equal(storeTaskCaptureRecovery(storage, recovery(), { force: true }), true);
+  // The user empties the restored draft in one input event: the empty-draft
+  // path routes through the OWNER-GUARDED clear, which now succeeds — before
+  // the re-stamp it refused forever and the deleted draft resurrected.
+  assert.equal(storeTaskCaptureRecovery(storage, recovery({ query: '' })), false);
+  assert.equal(loadTaskCaptureRecovery(storage), null);
+});
+
+test('emptying an unrelated capture leaves another tab\'s draft in place', () => {
+  const storage = memoryStorage();
+  storage.setItem(TASK_CAPTURE_RECOVERY_KEY, foreignDraft());
+  // An empty capture closed in this tab (Esc without restoring anything) must
+  // not destroy the other tab's pending recovery.
+  assert.equal(storeTaskCaptureRecovery(storage, recovery({ query: '' })), false);
+  assert.equal(loadTaskCaptureRecovery(storage).query, 'Ship release');
+});

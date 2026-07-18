@@ -113,3 +113,39 @@ test('GET and idempotent DELETE still return 404 for a missing owner task', asyn
   assert.equal((await app.inject({ method: 'DELETE', url: `/api/tasks/${TASK}/checklist/${randomUUID()}` })).statusCode, 404);
   await app.close();
 });
+
+// Closing-review regression: idempotent replays outrank the per-task cap —
+// replaying the create of the item that FILLED the checklist must return its
+// truthful 200, never a 400 claiming the committed write was refused.
+test('replaying the cap-filling checklist item returns 200, not the cap 400', async () => {
+  const { buildApp } = await import('../../server/index.js');
+  const { loadConfig } = await import('../../server/config.js');
+  const config = loadConfig({ PRAX_DB_FILE: ':memory:', EMBEDDING_BACKEND: 'none' });
+  const app = await buildApp({ config });
+  const task = (await app.inject({
+    method: 'POST', url: '/api/tasks',
+    payload: { title: 'Cap task', project: 'inbox', priority: 'medium', status: 'planned' },
+  })).json();
+  for (let i = 0; i < 199; i += 1) {
+    await app.inject({ method: 'POST', url: `/api/tasks/${task.id}/checklist`, payload: { label: `step ${i}` } });
+  }
+  const itemId = '99999999-9999-4999-8999-999999999999';
+  const first = await app.inject({
+    method: 'POST', url: `/api/tasks/${task.id}/checklist`, payload: { label: 'final step', id: itemId },
+  });
+  assert.equal(first.statusCode, 201, 'item 200 fills the checklist');
+  const replay = await app.inject({
+    method: 'POST', url: `/api/tasks/${task.id}/checklist`, payload: { label: 'final step', id: itemId },
+  });
+  assert.equal(replay.statusCode, 200, 'the replay is idempotent success');
+  assert.equal(replay.json().id, itemId);
+  const conflict = await app.inject({
+    method: 'POST', url: `/api/tasks/${task.id}/checklist`, payload: { label: 'different', id: itemId },
+  });
+  assert.equal(conflict.statusCode, 409, 'same id, different content still conflicts');
+  const overCap = await app.inject({
+    method: 'POST', url: `/api/tasks/${task.id}/checklist`, payload: { label: 'one too many' },
+  });
+  assert.equal(overCap.statusCode, 400, 'a genuinely new item at cap still refuses');
+  await app.close();
+});

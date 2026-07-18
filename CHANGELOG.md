@@ -14,6 +14,38 @@ fresh empty `[Unreleased]` section is started.
 
 ### Fixed
 
+- **Quality-baseline remediation, closing wave — the fix pass reviewed against itself.** The
+  plan's final ground rule: an adversarial re-review of the whole Waves 1–4 diff (24 candidates,
+  1 refuted, 11 distinct confirmed defects — several inside the fixes themselves), all corrected:
+  - **Restores report the truth**: SQLite's `RETURNING` does not see AFTER-trigger writes, so a
+    restore whose status the 0018 trigger recomputed returned a stale lifecycle state to every
+    API consumer; `restoreDocument` re-reads the row.
+  - **The chronicle re-sequencing survives timestamp ties** (0019 amended): the tie-break is now
+    `rowid` — the old `sequence` tie-break mutated mid-statement and two same-second events
+    could collide on the uniqueness constraint.
+  - **The drawer's DOM capture respects state**: renderApp used to re-read all three drawer
+    fields from the live DOM, silently re-installing stale values as "typing" after every
+    state-side fold — which made the out-of-band-edit protection undo itself and made **Discard
+    draft autosave the discarded text back**. Only the focused field is captured now.
+  - **Per-field saves get per-field reconciliation**: the lost-response readback compared whole
+    snapshots, misreporting a committed notes-only save as a conflict whenever an agent had
+    edited an untouched field.
+  - **The capture owner guard is coherent**: restores adopt ownership (a reloaded tab can edit
+    and discard its own draft again), stores refuse to overwrite a foreign tab's pending crash
+    draft, and closing an EMPTY capture no longer force-destroys another tab's recovery.
+  - **The capture client honours the archived-replay rejection** — its readback matcher now
+    excludes archived rows like the server's, instead of converting the honest 409 back into
+    "Added to project".
+  - **An agent retitle revokes verification**: title is part of what the human blessed —
+    retrieval, citations, and wiki-links all key on it; identical titles and pure metadata still
+    keep the badge.
+  - **Legacy checklists restore**: the import bound is decoupled from the new creation cap (a
+    pre-cap database can legally hold more than 200 items per task; its export must restore) —
+    and the replay of the checklist item that *filled* a task returns its truthful idempotent
+    200 instead of a cap 400 claiming a committed write was refused.
+  - Verify's content-hash guard accepts either hex case; the raw-hot-copy marker-mismatch error
+    now explains the WAL-resident-marker cause instead of implying the backup is bad.
+
 - **Quality-baseline remediation, Waves 3+4 — lifecycle coherence, agent-surface honesty, and
   operational safety.** The remaining eleven confirmed findings from the 2026-07-18 adversarial
   review, closing out the remediation plan:
