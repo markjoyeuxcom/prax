@@ -589,6 +589,11 @@ export async function registerTasksRoutes(app, options = {}) {
       const result = await repository.createTaskIdempotent(candidate);
       if (!result.task || (!result.created && !taskMatchesCreateFields(result.task, candidate))) {
         reply.code(409);
+        // A replay that matches an ARCHIVED row must not report success for a
+        // task no view shows — but it deserves a truthful, distinct message.
+        if (result.task?.archivedAt) {
+          return { message: 'this capture was already created and has since been archived' };
+        }
         return { message: 'task id was already used for different content' };
       }
       reply.code(result.created ? 201 : 200);
@@ -788,7 +793,13 @@ export async function registerTasksRoutes(app, options = {}) {
     if (authoritativePrior && authoritativePrior.status !== task.status) {
       await logActivity(task.id, 'status', `Status → ${task.status}`, originFrom(request));
     }
-    if (result?.nextTask) await logActivity(result.nextTask.id, 'created', 'Recurring task created', originFrom(request));
+    if (result?.nextTask) {
+      await logActivity(result.nextTask.id, 'created', 'Recurring task created', originFrom(request));
+      // Additive: lets the client derive the "next occurrence scheduled"
+      // toast from the OUTCOME instead of inferring it from the recurrence
+      // token being truthy (which lied whenever no successor was spawned).
+      return { ...task, nextOccurrenceTaskId: result.nextTask.id };
+    }
     return task;
   });
 

@@ -40,3 +40,61 @@ test('runAssistant sends the current date in the system turn to the model', asyn
   assert.match(sawSystem, /You are Prax/);          // base prompt present
   assert.match(sawSystem, /Thursday, 2026-07-09/);  // and the date
 });
+
+// Regression (2026-07-18 review): didWrite reflects the OUTCOME, not the
+// approval. An approved write whose handler throws mutated nothing — when the
+// follow-up model call then also fails, the client must not tell the user
+// "the approved change completed... do not repeat the action".
+test('didWrite stays false when an approved write handler throws', async () => {
+  const failingChat = {
+    model: 'stub',
+    supportsTools: true,
+    async complete() { throw new Error('model unavailable'); },
+  };
+  const tools = [{
+    name: 'create_task',
+    description: 'create',
+    parameters: {},
+    readOnly: false,
+    async handler() { throw new Error('db locked'); },
+  }];
+  const res = await runAssistant({
+    chat: failingChat,
+    tools,
+    messages: [
+      { role: 'user', content: 'add a task' },
+      { role: 'assistant', toolCalls: [{ id: 'c1', name: 'create_task', input: { title: 'x' } }] },
+    ],
+    decisions: { c1: 'approve' },
+  });
+  assert.equal(res.status, 'error');
+  assert.equal(res.didWrite, false, 'a failed write must not claim completion');
+  const toolTurn = res.messages.find((m) => m.role === 'tool');
+  assert.equal(toolTurn.results[0].isError, true);
+});
+
+test('didWrite is true when an approved write succeeds, even if the follow-up model call fails', async () => {
+  const failingChat = {
+    model: 'stub',
+    supportsTools: true,
+    async complete() { throw new Error('model unavailable'); },
+  };
+  const tools = [{
+    name: 'create_task',
+    description: 'create',
+    parameters: {},
+    readOnly: false,
+    async handler() { return { content: [{ text: '{"id":"t1"}' }] }; },
+  }];
+  const res = await runAssistant({
+    chat: failingChat,
+    tools,
+    messages: [
+      { role: 'user', content: 'add a task' },
+      { role: 'assistant', toolCalls: [{ id: 'c1', name: 'create_task', input: { title: 'x' } }] },
+    ],
+    decisions: { c1: 'approve' },
+  });
+  assert.equal(res.status, 'error');
+  assert.equal(res.didWrite, true, 'a committed write must surface so the client refreshes');
+});

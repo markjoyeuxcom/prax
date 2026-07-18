@@ -95,7 +95,12 @@ export function planTaskRecurrenceTransition(prior, patch, { now = new Date() } 
   const proposed = { ...(prior || {}), ...fields };
   let reopenedAsOneOff = false;
 
-  if (prior?.status === 'completed' && proposed.status !== 'completed' && prior.recurrence) {
+  // Reopening detaches the occurrence from the series ONLY when the caller
+  // did not speak to recurrence in the same PATCH: an explicit value in the
+  // patch is the caller's intent and must never be silently overwritten.
+  const callerSetRecurrence = Object.prototype.hasOwnProperty.call(patch || {}, 'recurrence');
+  if (prior?.status === 'completed' && proposed.status !== 'completed'
+    && prior.recurrence && !callerSetRecurrence) {
     fields.recurrence = null;
     proposed.recurrence = null;
     reopenedAsOneOff = true;

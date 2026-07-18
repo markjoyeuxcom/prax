@@ -204,7 +204,7 @@ test('current and historical CI workspaces survive authoritative destructive res
 
   assert.equal(report.historical.profile, 'ci');
   assert.equal(report.historical.seededThrough, '0009_add_project_repo_url.sql');
-  assert.equal(report.historical.migratedTo, '0016_add_task_activity_actor.sql');
+  assert.equal(report.historical.migratedTo, '0017_clamp_task_recurrence_intervals.sql');
   assert.deepEqual(report.historical.migrationsAppliedAfterRestore, [
     '0010_document_type_taxonomy.sql',
     '0011_add_document_external_refs.sql',
@@ -213,6 +213,7 @@ test('current and historical CI workspaces survive authoritative destructive res
     '0014_add_task_import_operations.sql',
     '0015_add_document_creation_receipts.sql',
     '0016_add_task_activity_actor.sql',
+    '0017_clamp_task_recurrence_intervals.sql',
   ]);
   assert.ok(report.historical.sourceWalBytes > 0);
   assert.equal(report.historical.sourceDestroyedBeforeRestore, true);

@@ -14,6 +14,42 @@ fresh empty `[Unreleased]` section is started.
 
 ### Fixed
 
+- **Quality-baseline remediation, Wave 2 — misleading success and duplicate mutations.** Seven
+  more confirmed findings from the 2026-07-18 adversarial review, each with its reproduction
+  landed as a regression test:
+  - **The assistant's `didWrite` now reflects the outcome, not the approval.** An approved write
+    whose handler threw still set `didWrite: true`, so a follow-up model failure told the user
+    "The approved change completed … Do not repeat the action" about a write that never happened
+    — the inverse of the misleading-success bug the flag exists to prevent. Derived from the
+    per-call `isError` outcomes now.
+  - **Legacy recurring series survive the interval cap.** The `every:N` cap (10000) was applied
+    retroactively at validation time only, silently ending pre-upgrade series on completion while
+    the UI toasted "next occurrence scheduled". Migration `0017` clamps stored over-cap intervals
+    (preserving the series), and the completion toast now derives from the PATCH response's new
+    additive `nextOccurrenceTaskId` — when no successor was actually spawned, the toast says so.
+  - **Reopening a completed occurrence no longer discards an explicit recurrence in the same
+    PATCH** — the one-off detachment applies only when the caller did not speak to recurrence.
+  - **An idempotent create replay never "succeeds" against an archived row.** Capture announced
+    "Added to project" for a task no view shows; the replay now requires a live row and an
+    archived match returns a truthful, distinct 409.
+  - **Capture distinguishes permanent rejections from transient failures.** `createTask` surfaces
+    the response status + server message; a deterministic 4xx shows "The server rejected this
+    capture … edit it and try again" (and drops the retry identity) instead of the false
+    "retry unchanged is safe".
+  - **Typing in the capture no longer destroys the exact-once retry identity** — type a character
+    and delete it again and the retry still reuses the same request id; submit mints a new
+    identity only when the intent actually diverges.
+  - **A timed-out MCP request is never automatically re-sent.** The client retried timeout aborts
+    as if the server were unreachable — but a timed-out generation may still be processing, so
+    the re-send ran it twice (duplicate post-mortems/runbooks). Only connection-level failures
+    (request provably never started) retry; timed-out callers keep their stable identity for a
+    deliberate retry.
+  - **No more no-exit draft traps.** A document or task archived/deleted externally while its
+    draft was dirty vetoed every navigation with a retry that could never succeed — and the task
+    drawer rendered *nothing* while its invisible draft blocked the app. Both surfaces gain an
+    explicit confirmed **Discard draft** affordance; a vanished task now renders a "Task
+    unavailable" panel offering **Keep draft & close** (device copy retained) or discard.
+
 - **Quality-baseline remediation, Wave 1 — data loss and trust integrity.** Seven confirmed
   defects from the 2026-07-18 adversarial review of the quality-baseline commit, each fixed with
   its executed reproduction landed as a permanent regression test

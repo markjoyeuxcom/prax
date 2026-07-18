@@ -131,6 +131,10 @@ export function buildCreateTask(task, { ignoreIdConflict = false } = {}) {
 
 export function taskMatchesCreateFields(task, fields) {
   if (!task || !fields) return false;
+  // An ARCHIVED row can never satisfy a create replay: returning it as
+  // "already created" makes capture announce success for a task no view
+  // shows. The retry should create a fresh, visible task instead.
+  if (task.archivedAt) return false;
   const labels = Array.isArray(fields.labels) ? fields.labels : [];
   return (!fields.id || task.id === fields.id)
     && task.title === fields.title

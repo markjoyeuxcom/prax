@@ -30,7 +30,20 @@ export async function createTask(task) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(task),
   });
-  if (!response.ok) throw new Error('Failed to create task');
+  if (!response.ok) {
+    // Surface the status + server message: the capture retry flow must be
+    // able to distinguish a permanent rejection (409 identity conflict,
+    // 400 validation) from a transient failure where an unchanged retry is
+    // genuinely safe.
+    let message = 'Failed to create task';
+    try {
+      const payload = await response.json();
+      if (payload?.message) message = payload.message;
+    } catch { /* non-JSON error body */ }
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
+  }
   return response.json();
 }
 
