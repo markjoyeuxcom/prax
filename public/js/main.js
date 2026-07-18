@@ -26,6 +26,8 @@ import {
   fetchStaleDocuments, fetchOrphanDocuments, fetchDeploymentStatus, fetchSemanticStatus,
   setSemanticEnabled, putSemanticSettings, reindexEmbeddings, semanticSearch,
   fetchChatStatus, putChatSettings,
+  fetchGoogleCalendarStatus, putGoogleCalendarSettings, connectGoogleCalendar,
+  syncGoogleCalendar, disconnectGoogleCalendar,
   verifyDocument, supersedeDocument,
   startRun, fetchRuns, fetchRun, setRunStep, setRunStatus, createPostMortem,
   askPrax, generateRunbook, fetchHealth, narrateBrief,
@@ -142,6 +144,7 @@ let documentsLoadToken = 0;       // only the newest Active/Archive collection m
 let semanticSearchToken = 0;      // stale/superseded meaning searches never install
 let askPraxToken = 0;             // stale/closed grounded-answer requests never install
 let drawerContextToken = 0;       // a late task-context load cannot replace a newer drawer
+let gcalPollToken = 0;            // stale Google-connect polls (left Settings / newer op) never install
 let restoreMarkdownImportFocus = false;
 let restoreLibraryExportFocus = false;
 let libraryExportReturnAction = 'export-library';
@@ -330,6 +333,64 @@ async function loadChatStatus() {
       },
     });
   }
+}
+
+async function loadGoogleCalendarStatus() {
+  setState({ googleCalendarStatus: { ...(state.googleCalendarStatus || {}), loading: true, loadError: '' } });
+  try {
+    setState({ googleCalendarStatus: { ...(await fetchGoogleCalendarStatus()), loading: false, loadError: '' } });
+  } catch {
+    setState({
+      googleCalendarStatus: {
+        ...(state.googleCalendarStatus || {}),
+        loading: false,
+        loadError: 'Prax could not load Google Calendar settings.',
+      },
+    });
+  }
+}
+
+// Google-connect polling: consent happens in an external browser tab and the
+// app only learns the outcome when the OAuth callback lands on the server.
+// Poll the status endpoint (3s, up to 2 minutes) until `connected` flips, and
+// go stale silently when the user leaves Settings or a newer connect /
+// disconnect bumps the token.
+const GCAL_POLL_INTERVAL_MS = 3000;
+const GCAL_POLL_MAX_ATTEMPTS = 40; // 40 × 3s = 2 minutes
+
+function stopGoogleCalendarPolling() {
+  gcalPollToken += 1;
+}
+
+function startGoogleCalendarPolling() {
+  gcalPollToken += 1;
+  const token = gcalPollToken;
+  let attempts = 0;
+  const tick = async () => {
+    if (token !== gcalPollToken) return;
+    if (state.navType !== 'settings') return; // user left Settings — stop quietly
+    attempts += 1;
+    try {
+      const status = await fetchGoogleCalendarStatus();
+      if (token !== gcalPollToken) return;
+      if (status.connected) {
+        setState({
+          googleCalendarStatus: { ...status, loading: false, loadError: '' },
+          googleCalendarNotice: 'Google Calendar connected — the dedicated “Prax” calendar is ready.',
+        });
+        if (state.navType === 'settings') renderApp();
+        return;
+      }
+    } catch { /* transient poll failure — keep waiting for the callback */ }
+    if (token !== gcalPollToken) return;
+    if (attempts >= GCAL_POLL_MAX_ATTEMPTS) {
+      setState({ googleCalendarNotice: 'Google sign-in did not complete. Click Connect to try again.' });
+      if (state.navType === 'settings') renderApp();
+      return;
+    }
+    setTimeout(tick, GCAL_POLL_INTERVAL_MS);
+  };
+  setTimeout(tick, GCAL_POLL_INTERVAL_MS);
 }
 
 async function reconcileSemanticSettingsMutation(patch, error) {
@@ -3183,6 +3244,7 @@ async function goSettings() {
   loadDeploymentStatus().then(renderApp);
   loadSemanticStatus().then(renderApp);
   loadChatStatus().then(renderApp);
+  loadGoogleCalendarStatus().then(renderApp);
   loadMaintenance().then(renderApp);
   renderApp();
   return true;
@@ -3877,7 +3939,16 @@ async function handleAction(action, el, event) {
       renderApp();
       break;
     }
-    case 'set-settings-tab': setState({ settingsTab: el.dataset.tab }); renderApp(); break;
+    case 'set-settings-tab': {
+      setState({ settingsTab: el.dataset.tab });
+      // Integrations loads lazily: fetch the Google Calendar status the first
+      // time the tab opens (goSettings also primes it on entering Settings).
+      if (el.dataset.tab === 'integrations' && !state.googleCalendarStatus) {
+        loadGoogleCalendarStatus().then(renderApp);
+      }
+      renderApp();
+      break;
+    }
     case 'refresh-deployment-status': loadDeploymentStatus().then(renderApp); renderApp(); break;
     case 'nav-project': await goProject(el.dataset.projectId); break;
     case 'rename-project': startRenameProject(el.dataset.projectId); break;
@@ -4731,6 +4802,135 @@ async function handleAction(action, el, event) {
       renderApp();
       break;
     }
+    // ---- Google Calendar integration ----
+    // Every branch keeps failures out of the console: transport errors become
+    // googleCalendarNotice text, mirroring the backend's degraded-not-crashed
+    // contract.
+    case 'retry-google-calendar-status': {
+      if (state.googleCalendarPending) break;
+      loadGoogleCalendarStatus().then(renderApp);
+      renderApp();
+      break;
+    }
+    case 'save-google-calendar': {
+      if (state.googleCalendarPending) break;
+      const draft = state.googleCalendarDraft || { clientId: '', clientSecret: '' };
+      const patch = {};
+      // Only send non-empty fields: PUT '' would wipe a saved value, and the
+      // secret input is legitimately empty when '(saved)' is shown.
+      if ((draft.clientId || '').trim()) patch.clientId = draft.clientId.trim();
+      if ((draft.clientSecret || '').trim()) patch.clientSecret = draft.clientSecret.trim();
+      if (!patch.clientId && !patch.clientSecret) {
+        setState({ googleCalendarNotice: 'Enter the OAuth client id and secret before saving.' });
+        renderApp();
+        break;
+      }
+      setState({ googleCalendarPending: true, googleCalendarNotice: 'Saving the OAuth client…' });
+      renderApp();
+      try {
+        const status = await putGoogleCalendarSettings(patch);
+        setState({
+          googleCalendarStatus: { ...status, loading: false, loadError: '' },
+          googleCalendarPending: false,
+          // The secret is write-only: clear it from the draft once saved so a
+          // later Save cannot resend a stale one — the field now shows the
+          // '(saved)' placeholder instead.
+          googleCalendarDraft: { clientId: draft.clientId, clientSecret: '' },
+          googleCalendarNotice: status.configured
+            ? 'OAuth client saved — click Connect to sign in with Google.'
+            : 'Saved. Add the missing client id or secret to finish configuring.',
+        });
+      } catch (err) {
+        setState({
+          googleCalendarPending: false,
+          googleCalendarNotice: err?.message || 'Prax could not save the Google Calendar settings.',
+        });
+      }
+      renderApp();
+      break;
+    }
+    case 'connect-google-calendar': {
+      if (state.googleCalendarPending) break;
+      setState({ googleCalendarPending: true, googleCalendarNotice: 'Starting Google sign-in…' });
+      renderApp();
+      try {
+        const { authUrl } = await connectGoogleCalendar();
+        window.open(authUrl, '_blank');
+        setState({
+          googleCalendarPending: false,
+          googleCalendarNotice: 'Waiting for the Google sign-in to finish in the opened tab…',
+        });
+        startGoogleCalendarPolling();
+      } catch (err) {
+        // 409 (not configured) surfaces the server's actionable message.
+        setState({
+          googleCalendarPending: false,
+          googleCalendarNotice: err?.message || 'Prax could not start the Google sign-in.',
+        });
+      }
+      renderApp();
+      break;
+    }
+    case 'sync-google-calendar': {
+      if (state.googleCalendarPending) break;
+      setState({ googleCalendarPending: true, googleCalendarNotice: 'Syncing to Google Calendar…' });
+      renderApp();
+      let notice;
+      try {
+        const result = await syncGoogleCalendar();
+        if (result.degraded && !result.summary) {
+          // Whole-sync failure envelope { degraded, reason, message }.
+          notice = `Sync failed: ${result.message || result.reason || 'Google Calendar failed'}`;
+        } else {
+          notice = `Synced: ${result.summary}`;
+          if (result.degraded && Array.isArray(result.failures) && result.failures.length) {
+            notice += `\n${result.failures
+              .map((f) => `Failed: ${f.title || f.eventId || f.taskId || 'item'} — ${f.message || 'unknown error'}`)
+              .join('\n')}`;
+          }
+        }
+      } catch (err) {
+        notice = err?.message || 'Google Calendar sync failed.';
+      }
+      // Refresh lastSyncAt/lastSyncSummary; a failed refresh keeps the old
+      // status — the notice above already reports the sync outcome.
+      try {
+        setState({ googleCalendarStatus: { ...(await fetchGoogleCalendarStatus()), loading: false, loadError: '' } });
+      } catch { /* keep the previous status */ }
+      setState({ googleCalendarPending: false, googleCalendarNotice: notice });
+      renderApp();
+      break;
+    }
+    case 'disconnect-google-calendar': {
+      if (!el.dataset.confirmed) {
+        openConfirm({
+          message: 'Disconnect Google Calendar? The “Prax” calendar stays in your Google account; Prax just stops pushing to it.',
+          okLabel: 'Disconnect', danger: true,
+          action: 'disconnect-google-calendar',
+        });
+        break;
+      }
+      setState({ confirm: null });
+      if (state.googleCalendarPending) { renderApp(); break; }
+      stopGoogleCalendarPolling();
+      setState({ googleCalendarPending: true, googleCalendarNotice: 'Disconnecting…' });
+      renderApp();
+      try {
+        const status = await disconnectGoogleCalendar();
+        setState({
+          googleCalendarStatus: { ...status, loading: false, loadError: '' },
+          googleCalendarPending: false,
+          googleCalendarNotice: 'Disconnected. The “Prax” calendar remains in Google Calendar.',
+        });
+      } catch {
+        setState({
+          googleCalendarPending: false,
+          googleCalendarNotice: 'Prax could not disconnect Google Calendar. Reload the status and try again.',
+        });
+      }
+      renderApp();
+      break;
+    }
     case 'reindex-embeddings': case 'force-reindex-embeddings': {
       const force = action === 'force-reindex-embeddings';
       if (force && !el.dataset.confirmed) {
@@ -4958,6 +5158,16 @@ function bindEvents() {
     }
     if (target.matches?.('[data-doc-title]')) {
       handleDocumentDraftTitleChange(target.value);
+      return;
+    }
+    if (target.matches?.('[data-gcal-client-id]')) {
+      // Mirror to state (no re-render) so the OAuth draft survives re-renders
+      // without stealing focus — the render reads googleCalendarDraft back.
+      setState({ googleCalendarDraft: { ...state.googleCalendarDraft, clientId: target.value } });
+      return;
+    }
+    if (target.matches?.('[data-gcal-client-secret]')) {
+      setState({ googleCalendarDraft: { ...state.googleCalendarDraft, clientSecret: target.value } });
       return;
     }
     if (target.matches?.('[data-link-picker-search]')) {

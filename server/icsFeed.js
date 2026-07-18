@@ -116,3 +116,14 @@ export function tasksToIcs(tasks, { calendarName = 'Prax', projectNamesById, now
   lines.push('END:VCALENDAR');
   return `${lines.map(foldIcsLine).join('\r\n')}\r\n`;
 }
+
+// The single "belongs on a calendar" rule, shared by the ICS feed and the
+// Google Calendar push: open dated tasks only — completed is done, 'notes'
+// is the design-vocab backlog, and a snoozed task is hidden everywhere in
+// the app until it wakes.
+export function isCalendarEligible(task, now = new Date()) {
+  return Boolean(task && task.dueDate)
+    && task.status !== 'completed'
+    && task.status !== 'notes'
+    && !(task.deferredUntil && new Date(task.deferredUntil) > now);
+}

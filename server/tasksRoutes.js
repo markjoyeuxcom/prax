@@ -3,7 +3,7 @@ import { createTasksRepository, taskMatchesCreateFields } from './tasksRepositor
 import { createProjectsRepository } from './projectsRepository.js';
 import { createChecklistRepository, MAX_CHECKLIST_ITEMS_PER_TASK } from './checklistRepository.js';
 import { isValidRecurrence, planTaskRecurrenceTransition } from './recurrence.js';
-import { tasksToIcs } from './icsFeed.js';
+import { tasksToIcs, isCalendarEligible } from './icsFeed.js';
 import {
   cleanNlText, boundGrounding, buildNlCaptureMessages, coerceNlCaptureFields,
   buildNlFilterMessages, coerceNlFilterExpr, auditFilterExpr,
@@ -477,9 +477,7 @@ export async function registerTasksRoutes(app, options = {}) {
     // subscribed calendar must not resurface what the user just deferred.
     // Archived is already excluded by listTasks' default.
     const feedNow = new Date();
-    const dated = (tasks || []).filter((task) => task.dueDate
-      && task.status !== 'completed' && task.status !== 'notes'
-      && !(task.deferredUntil && new Date(task.deferredUntil) > feedNow));
+    const dated = (tasks || []).filter((task) => isCalendarEligible(task, feedNow));
     const projects = await projectsRepository.listProjects();
     const names = new Map((projects || []).map((p) => [p.id, p.name]));
     reply.header('Content-Type', 'text/calendar; charset=utf-8');

@@ -158,6 +158,23 @@ fresh empty `[Unreleased]` section is started.
 
 ### Added
 
+- **Google Calendar push sync (Phase 1) — connect, dedicated calendar, Sync now.** Prax pushes
+  open dated tasks into a dedicated **"Prax" calendar** it creates in your Google account: a
+  **one-way projection** (tasks stay the source of truth) using the granular
+  `calendar.app.created` scope, so Prax can only ever touch calendars it created itself. You
+  bring your own Desktop-type OAuth client (setup guide: [docs/google-calendar.md](docs/google-calendar.md));
+  the client id/secret live in `app_settings` beside the AI keys and are **never echoed** by the
+  API. Connect runs the installed-app OAuth flow — PKCE + loopback redirect to whatever port
+  Prax is on — with single-use, expiring state. Events use **stable IDs derived from task ids**
+  (idempotent upserts; a stale task deletes exactly its own event), all-day vs timed mapping
+  mirrors the ICS feed via a shared `isCalendarEligible` rule (open dated tasks; completed,
+  backlog, archived, and snoozed excluded), and recurring tasks carry no RRULE. **Sync now**
+  reports honestly — pushed/removed counts, per-task failures shown as degraded, never clean
+  success; every Google failure degrades (200 + reason) and never breaks task operations.
+  Disconnect revokes the token at Google and deliberately leaves the calendar. New Settings ▸
+  **Integrations** tab with connect/sync/disconnect and truthful status. Phase 2 (per-mutation
+  incremental push + reconcile sweep) is next.
+
 - **Exceptional-quality baseline — the product-wide quality program.** *(Entry added
   retroactively for the `400452f` commit, which shipped without one.)* Adopts
   [Exceptional Prax — Product Quality Standard](docs/superpowers/specs/2026-07-13-exceptional-prax-quality-standard.md)

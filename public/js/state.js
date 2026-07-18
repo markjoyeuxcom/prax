@@ -210,6 +210,12 @@ export const state = {
   searchRegexp: false,
   searchMatchInfo: { total: 0, current: 0, valid: true },
 
+  // ---- integrations (Google Calendar one-way push) ----
+  googleCalendarStatus: null,      // null until the Integrations tab loads it; then { configured, connected, ... , loading, loadError }
+  googleCalendarDraft: { clientId: '', clientSecret: '' }, // render-stable OAuth client inputs (the API never echoes the secret back)
+  googleCalendarPending: false,    // a save/connect/sync/disconnect is in flight (locks the card)
+  googleCalendarNotice: null,      // string|null — sync results / degraded messages shown under the status line
+
   // ---- settings ----
   preferences: { ...DEFAULT_PREFERENCES },
   adminImportMode: 'skip',
@@ -220,7 +226,7 @@ export const state = {
   adminImportError: '',             // actionable validation/transport/reconciliation status
   adminImportResult: null,          // last known committed { imported, skipped, replayed }
   adminImportRequest: null,         // { id, intent } retained for unchanged lost-response retry
-  settingsTab: 'appearance',    // 'appearance' | 'intelligence' | 'data'
+  settingsTab: 'appearance',    // 'appearance' | 'intelligence' | 'integrations' | 'data'
 };
 
 export function setState(patch) {
