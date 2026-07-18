@@ -1187,6 +1187,36 @@ function applyTaskDraftSave(savedTask, { taskId, sentDraft }) {
   return true;
 }
 
+// A per-field save can only be judged through the fields it actually SENT:
+// unsent fields deliberately mirror out-of-band edits (assistant, MCP, second
+// window), so a whole-snapshot compare misreads a landed notes-only save plus
+// a foreign description edit as a blocking conflict.
+function taskDraftFieldText(field, value) {
+  return field === 'title' ? normalizeTaskDraftTitle(value) : String(value ?? '');
+}
+
+// The fields a save of `draft` sends: those diverging from the seeded baseline
+// (no baseline ⇒ everything is sent). Mirrors saveTaskDrawerDraft's patch.
+function taskDraftSentFields(draft, draftBaseline) {
+  return ['title', 'description', 'notes']
+    .filter((field) => !draftBaseline || draft[field] !== draftBaseline[field]);
+}
+
+// committed: every sent field reads back as the sent value — the write landed.
+function taskDraftSaveCommitted(observed, sentDraft, sentFields) {
+  return sentFields.every(
+    (field) => taskDraftFieldText(field, observed[field]) === taskDraftFieldText(field, sentDraft[field]),
+  );
+}
+
+// conflict: a SENT field diverges from the pre-save local copy — someone else
+// won a field this draft is contending for. Unsent fields never participate.
+function taskDraftSaveConflicts(observed, localTask, sentFields) {
+  return sentFields.some(
+    (field) => taskDraftFieldText(field, observed[field]) !== taskDraftFieldText(field, localTask[field]),
+  );
+}
+
 function markTaskDraftConflict(observedTask, taskId) {
   applyTaskPatchLocal(taskId, normalizeTask(observedTask));
   if (state.drawerTaskId !== taskId) return;
@@ -1231,14 +1261,16 @@ async function saveTaskDrawerDraft({ status = 'Saving...' } = {}) {
           return applyTaskDraftSave(saved, { taskId, sentDraft });
         } catch {
           // A response may be lost after commit. Read the canonical task once
-          // while holding the task queue; never repeat the PATCH.
+          // while holding the task queue; never repeat the PATCH. Judge only
+          // the fields the PATCH carried.
           try {
-            const baseline = taskById(taskId);
+            const localTask = taskById(taskId);
             const observed = normalizeTask(await fetchTask(taskId));
-            if (!taskDraftIsDirty(observed, sentDraft)) {
+            const sentFields = Object.keys(patch);
+            if (taskDraftSaveCommitted(observed, sentDraft, sentFields)) {
               return applyTaskDraftSave(observed, { taskId, sentDraft });
             }
-            if (baseline && taskDraftIsDirty(observed, baseline)) {
+            if (localTask && taskDraftSaveConflicts(observed, localTask, sentFields)) {
               markTaskDraftConflict(observed, taskId);
               return false;
             }
@@ -1275,15 +1307,18 @@ async function requestTaskDraftSave({ confirmed = false } = {}) {
   if (confirmed) return saveTaskDrawerDraft();
   const taskId = state.taskNotesDraftId;
   if (taskId && ['failed', 'recovered', 'conflict'].includes(state.taskDraftRecoveryReason)) {
-    const baseline = taskById(taskId);
+    const localTask = taskById(taskId);
     const sentDraft = taskDraftSnapshot();
+    // The retry would re-send only the fields diverging from the seeded
+    // baseline — the saved copy is judged through those fields alone.
+    const sentFields = taskDraftSentFields(sentDraft, state.taskDraftBaseline);
     setTaskDraftStatusInPlace('Checking saved copy...');
     try {
       const observed = normalizeTask(await fetchTask(taskId));
-      if (!taskDraftIsDirty(observed, sentDraft)) {
+      if (taskDraftSaveCommitted(observed, sentDraft, sentFields)) {
         return applyTaskDraftSave(observed, { taskId, sentDraft });
       }
-      if (baseline && taskDraftIsDirty(observed, baseline)) {
+      if (localTask && taskDraftSaveConflicts(observed, localTask, sentFields)) {
         markTaskDraftConflict(observed, taskId);
       }
     } catch {
@@ -2517,8 +2552,8 @@ function captureRecoveryDraft() {
   };
 }
 
-function persistCaptureRecovery() {
-  return storeTaskCaptureRecovery(taskCaptureStorage(), captureRecoveryDraft());
+function persistCaptureRecovery(options) {
+  return storeTaskCaptureRecovery(taskCaptureStorage(), captureRecoveryDraft(), options);
 }
 
 function clearCaptureRequestPatch() {
@@ -2551,10 +2586,15 @@ function openFreshCapture() {
 
 function discardCapture() {
   if (state.captureSubmitting) return false;
-  // force: the user explicitly discarded the capture on screen. After a
-  // reload+restore that draft is stored under the pre-reload owner token, so
-  // an owner-guarded clear would resurrect what was just thrown away.
-  clearTaskCaptureRecovery(taskCaptureStorage(), { force: true });
+  // force only when THIS tab displays capture content the user is throwing
+  // away (typed text, a parsed preview, a restored recovery, or a pending
+  // retry identity) — a restored draft may still carry a stale owner stamp
+  // that an owner-guarded clear would resurrect. Closing an EMPTY capture
+  // (Esc, palette, assistant) expresses no verdict on another tab's stored
+  // draft, so that clear stays owner-guarded.
+  const displaysDraft = Boolean(state.captureQuery
+    || state.nlCaptureFields || state.captureRecovered || state.captureRequestPayload);
+  clearTaskCaptureRecovery(taskCaptureStorage(), { force: displaysDraft });
   setState({
     captureOpen: false,
     captureQuery: '',
@@ -2603,6 +2643,11 @@ function restoreCaptureRecovery() {
     nlCaptureRaw: recovery.nlRaw,
     nlCaptureError: null,
   });
+  // Adopt the draft into THIS tab: the stored stamp predates this load, and
+  // without a re-stamp the tab could never clear or empty its own restored
+  // draft (owner-guarded paths would refuse forever). Single-slot trade-off:
+  // if two tabs restore the same draft, the later adoption wins the slot.
+  persistCaptureRecovery({ force: true });
   return true;
 }
 
@@ -3498,22 +3543,25 @@ function renderCaptureOverlayLayer({ restoreFocus = false } = {}) {
 function renderApp() {
   if (!appRoot) return;
   // A render can land between the browser updating an input's DOM value and
-  // dispatching its input event (notably when drawer context resolves). Capture
-  // the live coherent draft before replacing the drawer so no keystroke is lost.
+  // dispatching its input event (notably when drawer context resolves). Only
+  // the FOCUSED field can hold such an unflushed keystroke — an unfocused
+  // field's DOM is whatever the last render wrote, and after a state-side
+  // fold (refresh reconcile, save rebase, discard reseed) that DOM is stale:
+  // capturing it would re-install the folded-away value as "user typing" and
+  // autosave it back over the out-of-band edit or the discard.
   const liveDrawer = appRoot.querySelector('.drawer[data-task-id]');
   if (liveDrawer?.dataset.taskId === state.drawerTaskId
     && state.taskNotesDraftId === state.drawerTaskId
     && !taskById(state.drawerTaskId)?.archivedAt) {
-    const liveDraft = {
-      title: liveDrawer.querySelector('[data-task-title]')?.value ?? state.taskTitleDraft,
-      description: liveDrawer.querySelector('[data-task-description]')?.value ?? state.taskDescriptionDraft,
-      notes: liveDrawer.querySelector('[data-task-notes]')?.value ?? state.taskNotesDraft,
-    };
-    const currentDraft = taskDraftSnapshot();
-    if (liveDraft.title !== currentDraft.title
-      || liveDraft.description !== currentDraft.description
-      || liveDraft.notes !== currentDraft.notes) {
-      handleTaskDrawerDraftChange(liveDraft);
+    const active = document.activeElement;
+    const focusedField = active instanceof HTMLElement && liveDrawer.contains(active)
+      ? (active.matches('[data-task-title]') ? 'title'
+        : active.matches('[data-task-description]') ? 'description'
+          : active.matches('[data-task-notes]') ? 'notes'
+            : null)
+      : null;
+    if (focusedField && active.value !== taskDraftSnapshot()[focusedField]) {
+      handleTaskDrawerDraftChange({ [focusedField]: active.value });
     }
   }
   // Rebuilding innerHTML destroys any mounted CodeMirror DOM — drop the
@@ -5370,9 +5418,11 @@ async function submitCapturedTask(fields) {
     renderApp();
     return;
   }
-  // force: this capture just landed on the server, so the stored draft is
-  // fulfilled — even when its owner stamp predates a reload of this tab.
-  clearTaskCaptureRecovery(taskCaptureStorage(), { force: true });
+  // Owner-guarded (no force): the entry is this tab's own fulfilled draft —
+  // typing and restore both stamp this tab as owner. A foreign stamp means
+  // another tab took the slot for ITS draft, which this success says nothing
+  // about, so that entry must survive.
+  clearTaskCaptureRecovery(taskCaptureStorage());
   setState({
     captureOpen: false,
     captureQuery: '',

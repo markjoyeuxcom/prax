@@ -51,10 +51,13 @@ const TASK_EXPORT_FORMAT = 'moomora.tasks';
 const TASK_EXPORT_VERSION = 1;
 const MIN_SORT_ORDER = -2147483648;
 const MAX_SORT_ORDER = 2147483647;
-// The app must always be able to restore its own export: these bounds are
-// deliberately at-or-above anything creation allows to accumulate (checklist
-// items share MAX_CHECKLIST_ITEMS_PER_TASK with the creation route).
+// The app must always be able to restore its own export — and "its own"
+// includes databases populated BEFORE any creation-side cap existed, so the
+// import bound is deliberately decoupled from (and far above) the creation
+// route's MAX_CHECKLIST_ITEMS_PER_TASK. The creation cap prevents new
+// accumulation; import must accept whatever a legal database ever held.
 const MAX_IMPORT_TASKS = 5000;
+const MAX_IMPORT_CHECKLIST_ITEMS_PER_TASK = 10000;
 const MAX_BOARD_EXTRA_TASKS = 200;
 
 function isValidDateString(value) {
@@ -147,10 +150,11 @@ function validateTaskImportPayload(payload) {
     if (task.notes !== undefined && typeof task.notes !== 'string') return 'notes is invalid';
     if (task.checklist !== undefined) {
       if (!Array.isArray(task.checklist)) return 'checklist is invalid';
-      // Per-task, matching the creation route: the old batch-wide cumulative
-      // cap rejected legitimate exports once the WHOLE workspace passed it.
-      if (task.checklist.length > MAX_CHECKLIST_ITEMS_PER_TASK) {
-        return `checklist cannot exceed ${MAX_CHECKLIST_ITEMS_PER_TASK} items per task`;
+      // Per-task DoS bound only — NOT the creation cap: a pre-cap database
+      // can legally hold more than the creation route now allows, and its
+      // export must remain restorable.
+      if (task.checklist.length > MAX_IMPORT_CHECKLIST_ITEMS_PER_TASK) {
+        return `checklist cannot exceed ${MAX_IMPORT_CHECKLIST_ITEMS_PER_TASK} items per task`;
       }
       if (task.checklist.some((item) => !item || typeof item.label !== 'string' || !item.label.trim()
         || (item.completed !== undefined && typeof item.completed !== 'boolean'))) return 'checklist is invalid';

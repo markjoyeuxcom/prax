@@ -776,16 +776,18 @@ test('POST /api/tasks/import bounds checklists per task, not per batch', async (
   assert.equal(ok.statusCode, 201, '800 items across 20 tasks import fine');
   assert.equal(ok.json().imported, 20);
 
-  const oversizedSingle = await app.inject({
+  // 201 items exceeds the CREATION cap but not the import bound — a legacy
+  // database could hold it, so its export must restore.
+  const legacySingle = await app.inject({
     method: 'POST',
     url: '/api/tasks/import',
     payload: {
       project: 'homelab',
-      tasks: [{ title: 'Too big', checklist: Array.from({ length: 201 }, (_, j) => ({ label: `s${j}` })) }],
+      tasks: [{ title: 'Legacy big checklist', checklist: Array.from({ length: 201 }, (_, j) => ({ label: `s${j}` })) }],
     },
   });
-  assert.equal(oversizedSingle.statusCode, 400);
-  assert.match(oversizedSingle.json().message, /items per task/);
+  assert.equal(legacySingle.statusCode, 201);
+  assert.equal(legacySingle.json().imported, 1);
 
   await app.close();
 });

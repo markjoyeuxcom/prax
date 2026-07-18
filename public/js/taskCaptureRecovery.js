@@ -78,11 +78,21 @@ export function loadTaskCaptureRecovery(storage) {
   }
 }
 
-export function storeTaskCaptureRecovery(storage, draft) {
+export function storeTaskCaptureRecovery(storage, draft, { force = false } = {}) {
   if (!storage?.setItem) return false;
   const normalized = normalizeRecovery({ schemaVersion: SCHEMA_VERSION, ...draft });
   if (!normalized) {
-    clearTaskCaptureRecovery(storage);
+    // Emptied draft ⇒ the slot should clear, under the same ownership rules
+    // as the write that was refused/allowed.
+    clearTaskCaptureRecovery(storage, { force });
+    return false;
+  }
+  if (!force && foreignOwnerHolds(storage)) {
+    // Single shared slot: an entry stamped by another tab is most likely a
+    // crashed tab's pending recovery, and that outranks casual typing here —
+    // this tab's capture stays live on screen but is NOT persisted while the
+    // foreign entry stands (the foreign draft has no other copy; this one
+    // does, in the open overlay). Adoption paths pass force to take the slot.
     return false;
   }
   try {
@@ -99,17 +109,20 @@ export function storeTaskCaptureRecovery(storage, draft) {
   }
 }
 
+// True when the shared slot holds a draft stamped by ANOTHER tab. Unreadable
+// or legacy payloads carry no owner and protect nothing.
+function foreignOwnerHolds(storage) {
+  let stored = null;
+  try {
+    stored = normalizeRecovery(JSON.parse(storage.getItem?.(TASK_CAPTURE_RECOVERY_KEY)));
+  } catch { /* corrupt payload protects nothing */ }
+  return Boolean(stored?.owner && stored.owner !== CAPTURE_RECOVERY_OWNER);
+}
+
 export function clearTaskCaptureRecovery(storage, { force = false } = {}) {
   if (!storage?.removeItem) return false;
-  if (!force) {
-    // A draft stamped by another tab is that tab's unfinished work — leave it.
-    // Unreadable/legacy payloads carry no owner and stay removable.
-    let stored = null;
-    try {
-      stored = normalizeRecovery(JSON.parse(storage.getItem?.(TASK_CAPTURE_RECOVERY_KEY)));
-    } catch { /* corrupt payload protects nothing */ }
-    if (stored?.owner && stored.owner !== CAPTURE_RECOVERY_OWNER) return false;
-  }
+  // A draft stamped by another tab is that tab's unfinished work — leave it.
+  if (!force && foreignOwnerHolds(storage)) return false;
   try {
     storage.removeItem(TASK_CAPTURE_RECOVERY_KEY);
     return true;

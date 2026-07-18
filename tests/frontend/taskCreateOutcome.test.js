@@ -60,3 +60,25 @@ test('taskMatchesCreatePayload acknowledges only an exact observable create', ()
   assert.equal(taskMatchesCreatePayload({ ...task, sortOrder: 9 }, payload), false);
   assert.equal(taskMatchesCreatePayload(null, payload), false);
 });
+
+test('taskMatchesCreatePayload never acknowledges an archived row', () => {
+  // Mirrors the server's taskMatchesCreateFields: the GET readback after an
+  // archived-replay 409 returns the archived row, and matching it would turn
+  // the server's honest 409 back into "Added to project".
+  const task = {
+    id: ID,
+    title: 'Capture me',
+    description: '',
+    notes: '',
+    priority: 'high',
+    status: 'planned',
+    projectId: PROJECT,
+    dueDate: '2026-07-14',
+    dueTime: null,
+    recurrence: null,
+    labels: ['waiting', 'ops'],
+    sortOrder: 8,
+  };
+  assert.equal(taskMatchesCreatePayload({ ...task, archivedAt: '2026-07-18T12:00:00.000Z' }, payload), false);
+  assert.equal(taskMatchesCreatePayload({ ...task, archivedAt: null }, payload), true);
+});

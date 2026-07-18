@@ -197,8 +197,8 @@ test('SHAPE: replace mode clears the project then inserts', async () => {
 // Deliberately re-pinned 2026-07-18: the bounds now guarantee the app can
 // restore its OWN export. Tasks cap raised 500 → 5000 (a mature workspace
 // exceeded 500); the checklist bound moved from a batch-wide cumulative 500
-// (which rejected legitimate whole-workspace exports) to per-task, shared
-// with the creation route (MAX_CHECKLIST_ITEMS_PER_TASK = 200).
+// to a per-task DoS bound (10000) deliberately DECOUPLED from the creation
+// cap — a pre-cap database can legally hold more than creation now allows.
 test('SHAPE: import rejects more than 5000 tasks', async () => {
   const app = await buildContractApp();
   const tasks = Array.from({ length: 5001 }, (_, i) => ({ title: `Task ${i}` }));
@@ -208,27 +208,37 @@ test('SHAPE: import rejects more than 5000 tasks', async () => {
   await app.close();
 });
 
-test('SHAPE: the checklist bound is per task (200), never batch-cumulative', async () => {
+test('SHAPE: the import checklist bound is decoupled from the creation cap', async () => {
   const app = await buildContractApp();
-  const oversized = Array.from({ length: 201 }, (_, i) => ({ label: `Step ${i}` }));
+  // A pre-cap database could legally hold more than the creation route's 200:
+  // its export MUST restore. The import bound is a DoS guard only (10000).
+  const legacy = Array.from({ length: 250 }, (_, i) => ({ label: `Step ${i}` }));
+  const ok = await app.inject({
+    method: 'POST', url: '/api/tasks/import',
+    payload: { project: 'homelab', tasks: [{ title: 'Legacy checklist', checklist: legacy }] },
+  });
+  assert.equal(ok.statusCode, 201, 'a legacy 250-item checklist restores');
+  assert.equal(ok.json().imported, 1);
+
+  const absurd = Array.from({ length: 10001 }, (_, i) => ({ label: `S${i}` }));
   const res = await app.inject({
     method: 'POST', url: '/api/tasks/import',
-    payload: { project: 'homelab', tasks: [{ title: 'Oversized checklist', checklist: oversized }] },
+    payload: { project: 'homelab', tasks: [{ title: 'Oversized checklist', checklist: absurd }] },
   });
   assert.equal(res.statusCode, 400);
   assert.match(res.json().message, /items per task/);
 
-  // 3 tasks × 180 items = 540 total — over the OLD cumulative cap, and must import.
+  // 3 tasks x 180 items = 540 total — over the OLD cumulative cap, and must import.
   const manyTasks = Array.from({ length: 3 }, (_, i) => ({
     title: `Task ${i}`,
     checklist: Array.from({ length: 180 }, (_, j) => ({ label: `Step ${j}` })),
   }));
-  const ok = await app.inject({
+  const many = await app.inject({
     method: 'POST', url: '/api/tasks/import',
     payload: { project: 'homelab', tasks: manyTasks },
   });
-  assert.equal(ok.statusCode, 201);
-  assert.equal(ok.json().imported, 3);
+  assert.equal(many.statusCode, 201);
+  assert.equal(many.json().imported, 3);
   await app.close();
 });
 

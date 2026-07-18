@@ -27,6 +27,20 @@ export async function registerChecklistRoutes(app, options = {}) {
       if (!task || task.archivedAt) { reply.code(404); return { message: 'task not found' }; }
     }
     const existing = await repository.listChecklist(request.params.id);
+    // Idempotent replays outrank the cap: replaying the create of an item
+    // that already exists (including the one that FILLED the checklist) must
+    // return its truthful 200, not a 400 claiming a committed write was
+    // refused — the exact-once retry contract depends on it.
+    if (itemId !== undefined) {
+      const replayed = existing.find((item) => item.id === itemId);
+      if (replayed) {
+        if (replayed.label !== label) {
+          reply.code(409); return { message: 'checklist item id was already used for different content' };
+        }
+        reply.code(200);
+        return replayed;
+      }
+    }
     if (existing.length >= MAX_CHECKLIST_ITEMS_PER_TASK) {
       reply.code(400);
       return { message: `a task holds at most ${MAX_CHECKLIST_ITEMS_PER_TASK} checklist items` };
