@@ -1092,6 +1092,15 @@ export async function registerLibraryRoutes(app, options = {}) {
     return documentLinksRepository.listOrphanDocuments(projectId);
   });
 
+  // Detached runs: operational records whose source runbook was deleted. They
+  // survive with snapshot context (document_title, project, title), but the
+  // per-document runs listing 404s once the doc is gone — this keeps them
+  // reachable.
+  app.get('/api/library/maintenance/detached-runs', async () => {
+    if (!runbookRunsRepository) return [];
+    return runbookRunsRepository.listDetachedRuns();
+  });
+
   // Knowledge-base health: one call that surfaces the docs needing attention —
   // unverified drafts to review (esp. agent-written), stale derivations, orphans
   // with no links, and empty stubs. A curation dashboard over signals the

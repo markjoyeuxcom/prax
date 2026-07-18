@@ -20,6 +20,10 @@ export function isLoopbackHost(value) {
   return false;
 }
 
+// Must run immediately before every listen call — never inside loadConfig.
+// Non-listening CLIs (backup, migrate) load the same env-derived config, and a
+// listener-only safety check must not cost a HOST=0.0.0.0 deployment its
+// backup tooling.
 export function assertSafeNetworkBinding(config) {
   if (isLoopbackHost(config.host) || config.allowUnauthenticatedNetwork === true) return;
   throw new Error(
@@ -59,6 +63,5 @@ export function loadConfig(env = process.env) {
     anthropicBaseUrl: env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com',
     anthropicApiKey: env.ANTHROPIC_API_KEY || '',
   };
-  assertSafeNetworkBinding(config);
   return config;
 }

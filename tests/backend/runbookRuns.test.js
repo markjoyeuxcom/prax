@@ -197,6 +197,54 @@ test('source deletion preserves the independent run snapshot, steps, and chronic
   assert.deepEqual(preserved.events.map((event) => event.type), ['started', 'step-checked', 'completed']);
 });
 
+test('getRun reads run, steps, and events as one snapshot despite a concurrent write', async () => {
+  const { db, repo, documentId } = await freshRepo();
+  const run = await repo.createRun({ documentId, steps: [{ text: 'A' }, { text: 'B' }] });
+
+  // Queue a destructive write immediately behind the read. Without a
+  // transaction the delete lands between the run-row read and the steps read
+  // (each top-level query re-acquires the db gate), yielding a "running run
+  // with zero steps" — a state that never existed. The transaction holds the
+  // session gate across all three reads, so the write waits for the snapshot.
+  const snapshotPromise = repo.getRun(run.id);
+  const deletePromise = db.query('delete from runbook_run_steps where run_id = $1', [run.id]);
+  const snapshot = await snapshotPromise;
+  await deletePromise;
+  assert.deepEqual(snapshot.steps.map((step) => step.text), ['A', 'B']);
+  assert.deepEqual(snapshot.events.map((event) => event.type), ['started']);
+
+  // The guard orders the write after the snapshot — it does not lose it.
+  const after = await repo.getRun(run.id);
+  assert.deepEqual(after.steps, []);
+});
+
+test('listDetachedRuns lists only runs whose source document was deleted, with snapshot context', async () => {
+  const { db, repo, documentId, projectId } = await freshRepo();
+  await repo.createRun({ documentId, documentTitle: 'Restore', projectId, title: 'Still attached', steps: [{ text: 'A' }] });
+  const doomedDoc = await db.query(
+    "insert into markdown_documents (title, document_type, project_id, body) values ('Doomed', 'runbook', $1, '# Doomed') returning id",
+    [projectId],
+  );
+  const doomed = await repo.createRun({
+    documentId: doomedDoc.rows[0].id,
+    documentTitle: 'Doomed',
+    projectId,
+    title: 'Deletion drill',
+    steps: [{ text: 'B' }, { text: 'C' }],
+  });
+  await repo.setStepChecked(doomed.id, doomed.steps[0].id, { checked: true, checkedBy: 'ada' });
+
+  assert.deepEqual(await repo.listDetachedRuns(), []);
+  await db.query('delete from markdown_documents where id = $1', [doomedDoc.rows[0].id]);
+  const detached = await repo.listDetachedRuns();
+  assert.deepEqual(detached.map((run) => run.id), [doomed.id]);
+  assert.equal(detached[0].documentId, null);
+  assert.equal(detached[0].documentTitle, 'Doomed');
+  assert.equal(detached[0].title, 'Deletion drill');
+  assert.equal(detached[0].stepCount, 2);
+  assert.equal(detached[0].doneCount, 1);
+});
+
 test('listRunsForDocument returns runs newest-first with step + done counts', async () => {
   const { repo, documentId } = await freshRepo();
   const run = await repo.createRun({ documentId, steps: [{ text: 'A' }, { text: 'B' }, { text: 'C' }] });

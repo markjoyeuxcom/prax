@@ -1093,7 +1093,11 @@ function scheduleTaskDraftAutosave() {
   clearTimeout(taskDraftSaveTimer);
   taskDraftSaveTimer = setTimeout(() => {
     if (state.taskNotesDraftId === state.drawerTaskId && state.isTaskNotesDirty
-      && !['recovered', 'conflict'].includes(state.taskDraftRecoveryReason)) {
+      && !['recovered', 'conflict'].includes(state.taskDraftRecoveryReason)
+      // An empty title can never save — autosaving would just re-fail 'Title
+      // required' every tick while the user is mid-edit. Stay quiet until a
+      // title exists; a manual save/close still surfaces the requirement.
+      && normalizeTaskDraftTitle(state.taskTitleDraft)) {
       setTaskDraftStatusInPlace('Autosaving...');
       saveTaskDrawerDraft({ status: null });
     }
@@ -1206,8 +1210,9 @@ async function saveTaskDrawerDraft({ status = 'Saving...' } = {}) {
   if (!baseline || sentDraft.notes !== baseline.notes) patch.notes = sentDraft.notes;
   if (Object.prototype.hasOwnProperty.call(patch, 'title') && !patch.title) {
     setState({ taskDraftRecoveryReason: 'failed' });
+    // The in-place status is the signal — no toast: showToast re-renders the
+    // app, which destroys the focused title input mid-edit.
     setTaskDraftStatusInPlace('Title required');
-    showToast('Task title is required before this draft can be saved.');
     return false;
   }
   if (Object.keys(patch).length === 0) {
@@ -2528,6 +2533,8 @@ function clearCaptureRequestPatch() {
 function openFreshCapture() {
   if (state.captureSubmitting) return false;
   captureReturnElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  // Owner-guarded (no force): starting fresh HERE is not a verdict on a draft
+  // another tab is still typing — only this tab's own leftover is dropped.
   clearTaskCaptureRecovery(taskCaptureStorage());
   setState({
     captureOpen: true,
@@ -2544,7 +2551,10 @@ function openFreshCapture() {
 
 function discardCapture() {
   if (state.captureSubmitting) return false;
-  clearTaskCaptureRecovery(taskCaptureStorage());
+  // force: the user explicitly discarded the capture on screen. After a
+  // reload+restore that draft is stored under the pre-reload owner token, so
+  // an owner-guarded clear would resurrect what was just thrown away.
+  clearTaskCaptureRecovery(taskCaptureStorage(), { force: true });
   setState({
     captureOpen: false,
     captureQuery: '',
@@ -2562,7 +2572,9 @@ function restoreCaptureRecovery() {
   if (recovery.requestPayload) {
     const observed = state.tasks.find(task => task.id === recovery.requestPayload.id);
     if (taskMatchesCreatePayload(observed, recovery.requestPayload)) {
-      clearTaskCaptureRecovery(taskCaptureStorage());
+      // force: the stored payload was confirmed created — it is stale for
+      // every tab, and its owner token predates this reload anyway.
+      clearTaskCaptureRecovery(taskCaptureStorage(), { force: true });
       showToast('Task was added before reload.');
       return false;
     }
@@ -5358,7 +5370,9 @@ async function submitCapturedTask(fields) {
     renderApp();
     return;
   }
-  clearTaskCaptureRecovery(taskCaptureStorage());
+  // force: this capture just landed on the server, so the stored draft is
+  // fulfilled — even when its owner stamp predates a reload of this tab.
+  clearTaskCaptureRecovery(taskCaptureStorage(), { force: true });
   setState({
     captureOpen: false,
     captureQuery: '',

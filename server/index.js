@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
-import { loadConfig } from './config.js';
+import { assertSafeNetworkBinding, isLoopbackHost, loadConfig } from './config.js';
 import { createDb } from './db.js';
 import { runMigrations } from './migrate.js';
 import { registerTasksRoutes } from './tasksRoutes.js';
@@ -31,7 +31,7 @@ export async function buildApp(options = {}) {
   // uses constrained inline layout/custom-property values; scripts are local.
   app.addHook('onSend', async (_request, reply, payload) => {
     reply
-      .header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+      .header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
       .header('Referrer-Policy', 'no-referrer')
       .header('X-Content-Type-Options', 'nosniff')
       .header('X-Frame-Options', 'DENY');
@@ -107,7 +107,21 @@ export async function buildApp(options = {}) {
 if (import.meta.url === `file://${process.argv[1]}`) {
   const config = loadConfig();
   const app = await buildApp({ config, logger: true });
+  // The refusal lives on the listen path, not in loadConfig: non-listening
+  // CLIs (backup, migrate) read the same env and must keep working under a
+  // HOST=0.0.0.0 deployment.
+  assertSafeNetworkBinding(config);
   const address = await app.listen({ host: config.host, port: config.port });
+  // The bind must be loud: a container publishing a loopback-bound port
+  // black-holes with otherwise healthy logs, and a non-loopback bind exposes
+  // an API with no built-in authentication.
+  app.log.info(`Prax bound to host ${config.host} port ${config.port} (${address})`);
+  if (!isLoopbackHost(config.host)) {
+    app.log.warn(
+      `Prax is reachable beyond this machine on host ${config.host} and has no built-in `
+      + 'authentication; restrict exposure at the network boundary (container/firewall/proxy)',
+    );
+  }
 
   const shutdown = createGracefulShutdown({
     close: () => app.close(),

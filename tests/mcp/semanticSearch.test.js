@@ -52,3 +52,17 @@ test('handler propagates a non-409 failure as an error result', async () => {
   const res = await tool.handler({ query: 'x' });
   assert.equal(res.isError, true);
 });
+
+// Regression (2026-07-18 review): a bare-array response (pre-envelope server
+// that ignored pagination params) must be sliced client-side — the old
+// fallback wrapped the FULL array in a "paginated" envelope.
+test('bare-array fallback applies limit/offset instead of returning everything', async () => {
+  const rows = Array.from({ length: 60 }, (_, i) => ({ id: `d${i}`, title: `Doc ${i}` }));
+  const tools = createSemanticSearchTools({ searchDocumentsSemantic: async () => rows });
+  const tool = tools.find((t) => t.name === 'search_documents_semantic');
+  const res = JSON.parse((await tool.handler({ query: 'q', limit: 20, offset: 20 })).content[0].text);
+  assert.equal(res.items.length, 20, 'sliced to the requested page');
+  assert.equal(res.items[0].id, 'd20', 'offset applied');
+  assert.equal(res.page.total, 60);
+  assert.equal(res.page.nextOffset, 40);
+});

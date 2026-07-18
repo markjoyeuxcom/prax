@@ -10,7 +10,7 @@ import { performance } from 'node:perf_hooks';
 import { chromium } from '@playwright/test';
 
 import { createQualityFixture, QUALITY_FIXTURE_PROFILES } from './create-quality-fixture.js';
-import { loadConfig } from '../server/config.js';
+import { assertSafeNetworkBinding, loadConfig } from '../server/config.js';
 import { buildApp } from '../server/index.js';
 
 export const PERFORMANCE_REPORT_FORMAT = 'prax.quality-performance';
@@ -241,6 +241,9 @@ export async function measureQualityPerformance(options = {}) {
     });
     const appStarted = performance.now();
     app = await buildApp({ config, logger: false });
+    // Guard every listen path: the unauthenticated-network refusal no longer
+    // runs in loadConfig (non-listening CLIs share that code path).
+    assertSafeNetworkBinding(config);
     const address = await app.listen({ host: config.host, port: 0 });
     const appReadyMs = performance.now() - appStarted;
     const baseUrl = typeof address === 'string' ? address : `http://127.0.0.1:${address.port}`;
