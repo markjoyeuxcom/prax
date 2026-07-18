@@ -1,5 +1,12 @@
 import { toIso } from './columnTypes.js';
 
+// One bound, enforced at BOTH creation and import: whatever the app lets a
+// task accumulate, the app must be able to restore. A creation-side cap that
+// import does not honour (or vice versa) makes the app's own export
+// unrestorable — the 2026-07-18 review confirmed exactly that with the old
+// import-wide 500-item cumulative cap.
+export const MAX_CHECKLIST_ITEMS_PER_TASK = 200;
+
 export function normalizeChecklistRow(row) {
   return {
     id: row.id,

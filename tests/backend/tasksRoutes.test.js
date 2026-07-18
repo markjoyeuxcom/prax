@@ -720,6 +720,76 @@ test('POST /api/tasks/import skips duplicates by default', async () => {
   await app.close();
 });
 
+// Regression (2026-07-18 review): skip-mode compares against the TARGET only.
+// Two legitimately distinct tasks that share the lossy dedupe key (same
+// title/status/dueDate, different notes) used to dedupe against EACH OTHER,
+// so restoring the app's own export into an empty project dropped one.
+test('POST /api/tasks/import skip mode keeps distinct in-batch tasks that share the lossy key', async () => {
+  const repository = createFakeRepository();
+  repository.tasks = [];
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: repository,
+    projectsRepository: createFakeProjectsRepository(),
+  });
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/tasks/import',
+    payload: {
+      project: 'homelab',
+      tasks: [
+        { title: 'Review backups', status: 'planned', dueDate: '2026-05-12', notes: 'primary site' },
+        { title: 'Review backups', status: 'planned', dueDate: '2026-05-12', notes: 'secondary site' },
+      ],
+    },
+  });
+
+  assert.equal(response.statusCode, 201);
+  assert.equal(response.json().imported, 2, 'both distinct tasks import');
+  assert.equal(response.json().skipped, 0);
+
+  await app.close();
+});
+
+// Regression (2026-07-18 review): the checklist bound is per task, matching
+// creation — the old batch-wide cumulative 500 cap made a legitimate export
+// of a mature workspace unrestorable.
+test('POST /api/tasks/import bounds checklists per task, not per batch', async () => {
+  const repository = createFakeRepository();
+  repository.tasks = [];
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: repository,
+    projectsRepository: createFakeProjectsRepository(),
+  });
+
+  const manyTasksModestChecklists = Array.from({ length: 20 }, (_, i) => ({
+    title: `Task ${i}`,
+    checklist: Array.from({ length: 40 }, (_, j) => ({ label: `step ${j}` })),
+  }));
+  const ok = await app.inject({
+    method: 'POST',
+    url: '/api/tasks/import',
+    payload: { project: 'homelab', tasks: manyTasksModestChecklists },
+  });
+  assert.equal(ok.statusCode, 201, '800 items across 20 tasks import fine');
+  assert.equal(ok.json().imported, 20);
+
+  const oversizedSingle = await app.inject({
+    method: 'POST',
+    url: '/api/tasks/import',
+    payload: {
+      project: 'homelab',
+      tasks: [{ title: 'Too big', checklist: Array.from({ length: 201 }, (_, j) => ({ label: `s${j}` })) }],
+    },
+  });
+  assert.equal(oversizedSingle.statusCode, 400);
+  assert.match(oversizedSingle.json().message, /items per task/);
+
+  await app.close();
+});
+
 test('POST /api/tasks/import appends duplicates when requested', async () => {
   const app = await buildApp({
     skipDb: true,

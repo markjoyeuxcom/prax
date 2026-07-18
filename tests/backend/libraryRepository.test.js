@@ -310,16 +310,24 @@ test('buildUpdateDocument always stamps updated_by and recomputes hash only when
   const withBody = buildUpdateDocument('id', { body: 'new body', updatedBy: 'agent' });
   assert.match(withBody.text, /updated_by = \$/);
   assert.match(withBody.text, /content_hash = \$/);
-  assert.match(withBody.text, /verified = 0/);
-  assert.match(withBody.text, /verified_at = null/);
-  assert.match(withBody.text, /verified_by = null/);
+  // Agent revocation is conditional on the content ACTUALLY changing: the
+  // stored hash is compared to the incoming body's hash, so a byte-identical
+  // body keeps the human verification and a changed one loses it (QINV-04).
+  assert.match(withBody.text, /verified = case when content_hash = \$\d+ then verified else 0 end/);
+  assert.match(withBody.text, /verified_at = case when content_hash = \$\d+ then verified_at else null end/);
+  assert.match(withBody.text, /verified_by = case when content_hash = \$\d+ then verified_by else null end/);
   assert.ok(withBody.values.includes(sha('new body')));
   assert.ok(withBody.values.includes('agent'));
 
   const noBody = buildUpdateDocument('id', { title: 'renamed', updatedBy: 'user' });
   assert.match(noBody.text, /updated_by = \$/);
   assert.doesNotMatch(noBody.text, /content_hash = \$/);
-  assert.doesNotMatch(noBody.text, /verified = 0/);
+  assert.doesNotMatch(noBody.text, /verified/);
+
+  // Agent metadata-only edits (retag, project move) never touch verification:
+  // the content the human blessed did not change.
+  const agentRetag = buildUpdateDocument('id', { tags: ['ops'], updatedBy: 'agent' });
+  assert.doesNotMatch(agentRetag.text, /verified/);
 });
 
 test('buildSetDocumentEmbedding rejects a stale result when content changed in flight', () => {

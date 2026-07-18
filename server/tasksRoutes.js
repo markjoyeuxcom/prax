@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createTasksRepository, taskMatchesCreateFields } from './tasksRepository.js';
 import { createProjectsRepository } from './projectsRepository.js';
-import { createChecklistRepository } from './checklistRepository.js';
+import { createChecklistRepository, MAX_CHECKLIST_ITEMS_PER_TASK } from './checklistRepository.js';
 import { isValidRecurrence, planTaskRecurrenceTransition } from './recurrence.js';
 import { tasksToIcs } from './icsFeed.js';
 import {
@@ -51,8 +51,10 @@ const TASK_EXPORT_FORMAT = 'moomora.tasks';
 const TASK_EXPORT_VERSION = 1;
 const MIN_SORT_ORDER = -2147483648;
 const MAX_SORT_ORDER = 2147483647;
-const MAX_IMPORT_TASKS = 500;
-const MAX_IMPORT_CHECKLIST_ITEMS = 500;
+// The app must always be able to restore its own export: these bounds are
+// deliberately at-or-above anything creation allows to accumulate (checklist
+// items share MAX_CHECKLIST_ITEMS_PER_TASK with the creation route).
+const MAX_IMPORT_TASKS = 5000;
 const MAX_BOARD_EXTRA_TASKS = 200;
 
 function isValidDateString(value) {
@@ -131,7 +133,6 @@ function validateTaskImportPayload(payload) {
   if (!tasks || tasks.length === 0) return 'tasks must include at least one task';
   if (tasks.length > MAX_IMPORT_TASKS) return `tasks cannot exceed ${MAX_IMPORT_TASKS} records`;
 
-  let checklistItemCount = 0;
   for (const task of tasks) {
     if (!task || typeof task !== 'object' || Array.isArray(task)) return 'tasks must include valid task records';
     if (typeof task.title !== 'string' || task.title.trim() === '') return 'title is required';
@@ -146,8 +147,11 @@ function validateTaskImportPayload(payload) {
     if (task.notes !== undefined && typeof task.notes !== 'string') return 'notes is invalid';
     if (task.checklist !== undefined) {
       if (!Array.isArray(task.checklist)) return 'checklist is invalid';
-      checklistItemCount += task.checklist.length;
-      if (checklistItemCount > MAX_IMPORT_CHECKLIST_ITEMS) return 'checklist is invalid';
+      // Per-task, matching the creation route: the old batch-wide cumulative
+      // cap rejected legitimate exports once the WHOLE workspace passed it.
+      if (task.checklist.length > MAX_CHECKLIST_ITEMS_PER_TASK) {
+        return `checklist cannot exceed ${MAX_CHECKLIST_ITEMS_PER_TASK} items per task`;
+      }
       if (task.checklist.some((item) => !item || typeof item.label !== 'string' || !item.label.trim()
         || (item.completed !== undefined && typeof item.completed !== 'boolean'))) return 'checklist is invalid';
     }
@@ -198,15 +202,16 @@ function duplicateKeyForTask(task) {
   ].join('\u001f');
 }
 
+// Mirrors filterTaskImportDuplicates in tasksRepository.js: skip-mode
+// compares incoming tasks against the TARGET only — deduping within the
+// batch dropped distinct tasks that share the lossy key on restore.
 function filterDuplicateTasks(importedTasks, existingTasks) {
   const existingKeys = new Set(existingTasks.map(duplicateKeyForTask));
   return importedTasks.reduce((result, task) => {
-    const key = duplicateKeyForTask(task);
-    if (existingKeys.has(key)) {
+    if (existingKeys.has(duplicateKeyForTask(task))) {
       result.skipped += 1;
       return result;
     }
-    existingKeys.add(key);
     result.tasks.push(task);
     return result;
   }, { tasks: [], skipped: 0 });

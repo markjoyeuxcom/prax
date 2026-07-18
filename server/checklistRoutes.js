@@ -1,4 +1,4 @@
-import { createChecklistRepository } from './checklistRepository.js';
+import { createChecklistRepository, MAX_CHECKLIST_ITEMS_PER_TASK } from './checklistRepository.js';
 import { createTasksRepository } from './tasksRepository.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -25,6 +25,11 @@ export async function registerChecklistRoutes(app, options = {}) {
     if (typeof tasksRepository?.getTask === 'function') {
       const task = await tasksRepository.getTask(request.params.id);
       if (!task || task.archivedAt) { reply.code(404); return { message: 'task not found' }; }
+    }
+    const existing = await repository.listChecklist(request.params.id);
+    if (existing.length >= MAX_CHECKLIST_ITEMS_PER_TASK) {
+      reply.code(400);
+      return { message: `a task holds at most ${MAX_CHECKLIST_ITEMS_PER_TASK} checklist items` };
     }
     if (itemId !== undefined) {
       if (typeof repository.addChecklistItemIdempotent !== 'function') {

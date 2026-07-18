@@ -39,6 +39,7 @@ export const state = {
   taskChecklist: [],
   taskActivity: [],
   taskNotesDraftId: null,          // shared task text-draft id (legacy name retained for render compatibility)
+  taskDraftBaseline: null,         // {title,description,notes} the open drawer was seeded from; saves diff against this
   taskTitleDraft: '',
   taskDescriptionDraft: '',
   taskNotesDraft: '',

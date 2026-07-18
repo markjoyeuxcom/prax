@@ -112,16 +112,27 @@ export function buildUpdateDocument(id, fields) {
   values.push(fields.updatedBy || 'user');
   assignments.push(`updated_by = $${values.length}`);
 
-  // Any agent-origin mutation invalidates a prior human verification. Without
-  // this, an MCP/assistant edit could change trusted content while retaining
-  // the VERIFIED badge and inclusion in trusted context-pack sections.
-  if (fields.updatedBy === 'agent') {
-    assignments.push('verified = 0', 'verified_at = null', 'verified_by = null');
+  const bodyProvided = Object.prototype.hasOwnProperty.call(fields, 'body');
+  let hashIndex = null;
+  if (bodyProvided) {
+    values.push(hashBody(fields.body));
+    hashIndex = values.length;
+    assignments.push(`content_hash = $${hashIndex}`);
   }
 
-  if (Object.prototype.hasOwnProperty.call(fields, 'body')) {
-    values.push(hashBody(fields.body));
-    assignments.push(`content_hash = $${values.length}`);
+  // An agent-origin mutation revokes a prior human verification ONLY when it
+  // actually changes the content: verification blesses content (QINV-04), so
+  // a metadata-only agent edit (retag, project move) or a byte-identical body
+  // keeps the badge, while an agent content change loses it. SET expressions
+  // evaluate against the pre-update row, so content_hash below is the STORED
+  // hash being compared to the incoming body's hash. A legacy NULL stored
+  // hash compares unequal and revokes — the safe default.
+  if (fields.updatedBy === 'agent' && bodyProvided) {
+    assignments.push(
+      `verified = case when content_hash = $${hashIndex} then verified else 0 end`,
+      `verified_at = case when content_hash = $${hashIndex} then verified_at else null end`,
+      `verified_by = case when content_hash = $${hashIndex} then verified_by else null end`,
+    );
   }
 
   return {
@@ -192,7 +203,7 @@ export function buildVerifyDocument(id, { verified, verifiedBy = null, contentHa
         update markdown_documents
         set verified = 1, verified_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), verified_by = $2
         where id = $1 and archived_at is null${hashGuard}
-          and not (verified = 1 and verified_by = $2)
+          and not (verified = 1 and verified_by is $2)
         returning *
       `,
       values: [id, verifiedBy, ...(contentHash ? [contentHash] : [])],
