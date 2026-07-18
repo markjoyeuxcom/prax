@@ -15,7 +15,10 @@ test('buildVerifyDocument sets verified + stamps when verifying', () => {
   const q = buildVerifyDocument(ID, { verified: true, verifiedBy: 'mark', contentHash: hash });
   assert.match(q.text, /set verified = 1, verified_at = strftime\('%Y-%m-%dT%H:%M:%fZ','now'\), verified_by = \$2/);
   assert.match(q.text, /where id = \$1 and archived_at is null and content_hash = \$3/);
-  assert.match(q.text, /not \(verified = 1 and verified_by = \$2\)/);
+  // Null-safe IS: a user-created doc is born verified with verified_by NULL,
+  // and `verified_by = $2` is NULL under three-valued logic — the guard would
+  // exclude the row and the explicit review would never be stamped.
+  assert.match(q.text, /not \(verified = 1 and verified_by is \$2\)/);
   assert.match(q.text, /returning \*/);
   assert.deepEqual(q.values, [ID, 'mark', hash]);
 });
@@ -75,4 +78,66 @@ test('verifyDocument returns the normalized row', async () => {
   const repo = createLibraryRepository(db);
   const out = await repo.verifyDocument(ID, { verified: true, verifiedBy: 'mark' });
   assert.equal(out.verified, true);
+});
+
+// ---------------------------------------------------------------------------
+// EXECUTED trust regressions (2026-07-18 review): these run the real SQL
+// against a real migrated database — the prior tests only regex-matched the
+// query text, which is exactly how the NULL-guard bug shipped green.
+// ---------------------------------------------------------------------------
+
+const SILENT = { info() {}, error() {} };
+
+async function realRepo() {
+  const { createDb } = await import('../../server/db.js');
+  const { runMigrations } = await import('../../server/migrate.js');
+  const db = createDb(':memory:');
+  await runMigrations(db, { logger: SILENT });
+  const project = (await db.query("select id from projects where slug='inbox'")).rows[0].id;
+  return { db, repo: createLibraryRepository(db), project };
+}
+
+test('EXECUTED: explicit verification stamps a user-created (implicitly verified) document', async () => {
+  const { db, repo, project } = await realRepo();
+  const doc = await repo.createDocument({
+    title: 'Runbook', body: 'steps', documentType: 'runbook', projectId: project, updatedBy: 'user',
+  });
+  assert.equal(doc.verified, true, 'user-created docs are born verified');
+
+  const stamped = await repo.verifyDocument(doc.id, { verified: true, verifiedBy: 'mark' });
+  assert.ok(stamped, 'the update must hit the row (NULL verified_by must not exclude it)');
+  const row = (await db.query('select verified, verified_at, verified_by from markdown_documents where id = $1', [doc.id])).rows[0];
+  assert.equal(row.verified, 1);
+  assert.equal(row.verified_by, 'mark', 'the reviewer is recorded');
+  assert.ok(row.verified_at, 'the review time is recorded');
+
+  // Same-reviewer replay stays a no-op that preserves the first stamp.
+  const replay = await repo.verifyDocument(doc.id, { verified: true, verifiedBy: 'mark' });
+  assert.equal(replay, null, 'replay does not rewrite the stamp');
+});
+
+test('EXECUTED: agent metadata-only edit keeps verification; agent content change revokes it', async () => {
+  const { db, repo, project } = await realRepo();
+  const doc = await repo.createDocument({
+    title: 'Decision', body: 'we chose X', documentType: 'decision', projectId: project, updatedBy: 'user',
+  });
+  await repo.verifyDocument(doc.id, { verified: true, verifiedBy: 'alice' });
+
+  // Retag (no body) — verification untouched.
+  await repo.updateDocument(doc.id, { tags: ['ops'], updatedBy: 'agent' });
+  let row = (await db.query('select verified, verified_by from markdown_documents where id = $1', [doc.id])).rows[0];
+  assert.equal(row.verified, 1, 'metadata-only agent edit keeps the badge');
+  assert.equal(row.verified_by, 'alice');
+
+  // Byte-identical body resent by an agent — verification untouched.
+  await repo.updateDocument(doc.id, { body: 'we chose X', updatedBy: 'agent' });
+  row = (await db.query('select verified, verified_by from markdown_documents where id = $1', [doc.id])).rows[0];
+  assert.equal(row.verified, 1, 'byte-identical agent body keeps the badge');
+
+  // Real content change by an agent — verification revoked.
+  await repo.updateDocument(doc.id, { body: 'we chose Y', updatedBy: 'agent' });
+  row = (await db.query('select verified, verified_at, verified_by from markdown_documents where id = $1', [doc.id])).rows[0];
+  assert.equal(row.verified, 0, 'agent content change revokes the badge');
+  assert.equal(row.verified_by, null);
+  assert.equal(row.verified_at, null);
 });

@@ -194,24 +194,41 @@ test('SHAPE: replace mode clears the project then inserts', async () => {
   await app.close();
 });
 
-test('SHAPE: import rejects more than 500 tasks', async () => {
+// Deliberately re-pinned 2026-07-18: the bounds now guarantee the app can
+// restore its OWN export. Tasks cap raised 500 → 5000 (a mature workspace
+// exceeded 500); the checklist bound moved from a batch-wide cumulative 500
+// (which rejected legitimate whole-workspace exports) to per-task, shared
+// with the creation route (MAX_CHECKLIST_ITEMS_PER_TASK = 200).
+test('SHAPE: import rejects more than 5000 tasks', async () => {
   const app = await buildContractApp();
-  const tasks = Array.from({ length: 501 }, (_, i) => ({ title: `Task ${i}` }));
+  const tasks = Array.from({ length: 5001 }, (_, i) => ({ title: `Task ${i}` }));
   const res = await app.inject({ method: 'POST', url: '/api/tasks/import', payload: { project: 'homelab', tasks } });
   assert.equal(res.statusCode, 400);
-  assert.match(res.json().message, /cannot exceed 500/);
+  assert.match(res.json().message, /cannot exceed 5000/);
   await app.close();
 });
 
-test('SHAPE: import rejects more than 500 checklist items in total', async () => {
+test('SHAPE: the checklist bound is per task (200), never batch-cumulative', async () => {
   const app = await buildContractApp();
-  const checklist = Array.from({ length: 501 }, (_, i) => ({ label: `Step ${i}` }));
+  const oversized = Array.from({ length: 201 }, (_, i) => ({ label: `Step ${i}` }));
   const res = await app.inject({
     method: 'POST', url: '/api/tasks/import',
-    payload: { project: 'homelab', tasks: [{ title: 'Oversized checklist', checklist }] },
+    payload: { project: 'homelab', tasks: [{ title: 'Oversized checklist', checklist: oversized }] },
   });
   assert.equal(res.statusCode, 400);
-  assert.equal(res.json().message, 'checklist is invalid');
+  assert.match(res.json().message, /items per task/);
+
+  // 3 tasks × 180 items = 540 total — over the OLD cumulative cap, and must import.
+  const manyTasks = Array.from({ length: 3 }, (_, i) => ({
+    title: `Task ${i}`,
+    checklist: Array.from({ length: 180 }, (_, j) => ({ label: `Step ${j}` })),
+  }));
+  const ok = await app.inject({
+    method: 'POST', url: '/api/tasks/import',
+    payload: { project: 'homelab', tasks: manyTasks },
+  });
+  assert.equal(ok.statusCode, 201);
+  assert.equal(ok.json().imported, 3);
   await app.close();
 });
 

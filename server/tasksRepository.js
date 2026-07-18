@@ -66,14 +66,17 @@ function taskImportDuplicateKey(task) {
   ].join('\u001f');
 }
 
+// Skip-mode compares incoming tasks against what the TARGET already has —
+// never against each other. The key is deliberately lossy (title/project/
+// status/dueDate), so two legitimately distinct tasks in one export (same
+// title+date, different notes/labels) can share it; deduping within the
+// batch silently dropped one of them on restore into an empty project.
 function filterTaskImportDuplicates(importedTasks, existingTasks) {
   const keys = new Set(existingTasks.map(taskImportDuplicateKey));
   return importedTasks.reduce((result, task) => {
-    const key = taskImportDuplicateKey(task);
-    if (keys.has(key)) {
+    if (keys.has(taskImportDuplicateKey(task))) {
       result.skipped += 1;
     } else {
-      keys.add(key);
       result.tasks.push(task);
     }
     return result;

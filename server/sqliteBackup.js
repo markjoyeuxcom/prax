@@ -147,15 +147,42 @@ export function restoreDatabaseFromBackup(backupFile, targetFile, { ownerDirecto
   validateSqliteBackup(source, marker);
   mkdirSync(dirname(target), { recursive: true });
   const staging = join(dirname(target), `.${basename(target)}.restore-${process.pid}-${Date.now()}.tmp`);
-  if (existsSync(staging)) throw new Error(`SQLite restore staging file already exists: ${staging}`);
+  if (databaseArtifacts(staging).some(existsSync)) {
+    throw new Error(`SQLite restore staging file already exists: ${staging}`);
+  }
   try {
-    copyFileSync(source, staging);
+    // A raw file-copy backup (docs/backup-restore.md endorses keeping the -wal
+    // and -shm siblings) holds committed transactions in the WAL — and
+    // validateSqliteBackup reads THROUGH that WAL, so validation and the
+    // restored bytes must see the same state. Copy every artifact, then
+    // checkpoint the staging copy so the restored file is self-contained.
+    // Copying only the main file silently discarded everything in the WAL
+    // while reporting a checksummed success.
+    const [sourceDb, sourceWal, sourceShm] = databaseArtifacts(source);
+    const [stagingDb, stagingWal, stagingShm] = databaseArtifacts(staging);
+    copyFileSync(sourceDb, stagingDb);
+    if (existsSync(sourceWal)) copyFileSync(sourceWal, stagingWal);
+    if (existsSync(sourceShm)) copyFileSync(sourceShm, stagingShm);
+    const checkpointDb = new DatabaseSync(staging, { timeout: 5000 });
+    try {
+      checkpointDb.exec('pragma wal_checkpoint(TRUNCATE)');
+    } finally {
+      checkpointDb.close();
+    }
     syncFile(staging);
     validateSqliteBackup(staging, marker);
+    // Opening a WAL-mode file — even the read-only validation above — creates
+    // fresh 0-byte -wal / -shm companions. Drop them after the LAST open so
+    // the rename leaves no orphaned staging sidecars behind.
+    for (const sidecar of [stagingWal, stagingShm]) {
+      if (existsSync(sidecar)) unlinkSync(sidecar);
+    }
     renameSync(staging, target);
     return { targetFile: target, bytes: statSync(target).size, sha256: fileDigest(target) };
   } catch (error) {
-    if (existsSync(staging)) unlinkSync(staging);
+    for (const artifact of databaseArtifacts(staging)) {
+      if (existsSync(artifact)) unlinkSync(artifact);
+    }
     throw error;
   }
 }

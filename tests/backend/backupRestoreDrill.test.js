@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -74,6 +74,51 @@ test('online backup and restore are non-overwriting and reject corrupt artifacts
     /Refusing to overwrite existing SQLite restore target/,
   );
   assert.equal(validateSqliteBackup(target).integrityCheck, 'ok', 'existing target remains intact');
+});
+
+// Regression (2026-07-18 review): a raw file-copy backup keeps committed
+// transactions in its -wal sibling, validateSqliteBackup reads THROUGH that
+// WAL, but restore used to copy only the main file — silently discarding
+// every WAL-resident transaction while reporting a checksummed success. The
+// restore must deliver exactly the state validation saw.
+test('restore carries WAL-resident transactions from a raw file-copy backup', () => {
+  const directory = tempDirectory();
+  const livePath = join(directory, 'live.db');
+  const backup = join(directory, 'backup.db');
+  const target = join(directory, 'target.db');
+
+  // Rows committed in WAL mode with the connection HELD OPEN, so the WAL is
+  // not checkpointed into the main file (closing would fold it in).
+  const live = new DatabaseSync(livePath);
+  live.exec('pragma journal_mode = wal;');
+  live.exec('create table sample (id integer primary key, value text not null);');
+  const insert = live.prepare('insert into sample (value) values (?)');
+  for (let i = 0; i < 20; i += 1) insert.run(`wal-row-${i}`);
+
+  // Hot copy of db + wal + shm — the raw backup shape docs/backup-restore.md endorses.
+  copyFileSync(livePath, backup);
+  copyFileSync(`${livePath}-wal`, `${backup}-wal`);
+  if (existsSync(`${livePath}-shm`)) copyFileSync(`${livePath}-shm`, `${backup}-shm`);
+  live.close();
+
+  const validated = validateSqliteBackup(backup);
+  assert.equal(validated.integrityCheck, 'ok');
+
+  restoreDatabaseFromBackup(backup, target, { ownerDirectory: directory });
+  // Sidecar checks must precede any open: opening a WAL-mode file (even
+  // read-only) creates fresh -wal/-shm companions.
+  assert.equal(existsSync(`${target}-wal`), false, 'restored target is self-contained');
+  assert.equal(existsSync(`${target}-shm`), false, 'restored target is self-contained');
+  const orphans = readdirSync(directory).filter((name) => name.includes('.restore-'));
+  assert.deepEqual(orphans, [], 'no staging artifacts left behind');
+
+  const restored = new DatabaseSync(target, { readOnly: true });
+  assert.equal(
+    restored.prepare('select count(*) as n from sample').get().n,
+    20,
+    'every WAL-resident committed row survives the restore',
+  );
+  restored.close();
 });
 
 test('online backup fails closed when the destination filesystem is unavailable', async () => {

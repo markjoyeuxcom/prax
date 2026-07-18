@@ -206,7 +206,33 @@ async function loadProjects() {
 async function loadTasks({ announceReminders = true } = {}) {
   const tasks = await fetchTasks({});
   setState({ tasks: tasks.map(normalizeTask), apiStatus: 'connected' });
+  reconcileTaskDrawerAfterRefresh();
   if (announceReminders) checkDueReminders();
+}
+
+// After a refresh installs newer server state, fold it into the open drawer's
+// UNTOUCHED fields (draft still equals the seeded baseline): the user sees an
+// out-of-band edit live, and the next save cannot resend the stale value.
+// Touched fields keep both draft and baseline, so the existing conflict
+// detection still notices a same-field divergence on save failure.
+function reconcileTaskDrawerAfterRefresh() {
+  const taskId = state.drawerTaskId;
+  if (!taskId || state.taskNotesDraftId !== taskId || !state.taskDraftBaseline) return;
+  const server = taskById(taskId);
+  if (!server || server.archivedAt) return;
+  const baseline = state.taskDraftBaseline;
+  const draft = taskDraftSnapshot();
+  const draftKeys = { title: 'taskTitleDraft', description: 'taskDescriptionDraft', notes: 'taskNotesDraft' };
+  const nextBaseline = { ...baseline };
+  const patch = {};
+  for (const [field, draftKey] of Object.entries(draftKeys)) {
+    const untouched = draft[field] === baseline[field];
+    if (untouched && (server[field] ?? '') !== baseline[field]) {
+      patch[draftKey] = server[field] ?? '';
+      nextBaseline[field] = server[field] ?? '';
+    }
+  }
+  if (Object.keys(patch).length) setState({ ...patch, taskDraftBaseline: nextBaseline });
 }
 
 // Due-date reminders: announce tasks that are due/overdue. A native desktop
@@ -1025,6 +1051,13 @@ function seedTaskDrawerDraft(task) {
   if (resolved.clear) clearTaskDraftRecovery(storage, task.id);
   setState({
     taskNotesDraftId: task?.id || null,
+    // The server values this drawer was seeded from. Saves send ONLY fields
+    // whose draft diverges from this baseline, and refreshes fold newer
+    // server values into untouched fields — so an out-of-band agent edit to
+    // a field the user never touched is no longer overwritten by autosave.
+    taskDraftBaseline: task
+      ? { title: task.title, description: task.description, notes: task.notes }
+      : null,
     taskTitleDraft: resolved.title,
     taskDescriptionDraft: resolved.description,
     taskNotesDraft: resolved.notes,
@@ -1052,7 +1085,12 @@ function handleTaskDrawerDraftChange(patch) {
   const task = taskById(state.drawerTaskId);
   if (!task) return;
   const draft = { ...taskDraftSnapshot(), ...patch };
-  const dirty = taskDraftIsDirty(task, draft);
+  // Dirty means "the USER diverged from the seeded baseline" — comparing
+  // against the live task would flip dirty when an out-of-band refresh
+  // installs someone else's edit, arming an autosave the user never caused.
+  const dirty = state.taskDraftBaseline
+    ? taskDraftIsDirty(state.taskDraftBaseline, draft)
+    : taskDraftIsDirty(task, draft);
   const storage = taskDraftStorage();
   const stored = dirty
     ? storeTaskDraftRecovery(storage, { task, ...draft })
@@ -1077,6 +1115,22 @@ function applyTaskDraftSave(savedTask, { taskId, sentDraft }) {
   const saved = normalizeTask(savedTask);
   applyTaskPatchLocal(taskId, saved);
   const stillActive = state.drawerTaskId === taskId && state.taskNotesDraftId === taskId;
+  // The saved row is the new server baseline for the per-field diff — and
+  // fields the user had NOT touched must follow it into the draft, or the
+  // rebased baseline makes the stale draft read as typing and the next
+  // autosave resurrects the old value over an out-of-band edit one second
+  // after the fix suppressed it.
+  if (stillActive) {
+    const prevBaseline = state.taskDraftBaseline;
+    const draft = taskDraftSnapshot();
+    const patch = { taskDraftBaseline: { title: saved.title, description: saved.description, notes: saved.notes } };
+    if (prevBaseline) {
+      if (draft.title === prevBaseline.title) patch.taskTitleDraft = saved.title;
+      if (draft.description === prevBaseline.description) patch.taskDescriptionDraft = saved.description;
+      if (draft.notes === prevBaseline.notes) patch.taskNotesDraft = saved.notes;
+    }
+    setState(patch);
+  }
   if (stillActive && taskDraftIsDirty(saved, taskDraftSnapshot())) {
     const stored = storeTaskDraftRecovery(taskDraftStorage(), {
       task: saved,
@@ -1123,23 +1177,33 @@ async function saveTaskDrawerDraft({ status = 'Saving...' } = {}) {
   if (!taskId || !state.isTaskNotesDirty) return true;
   if (taskDraftSavePromise) return taskDraftSavePromise;
   const sentDraft = taskDraftSnapshot();
-  const title = normalizeTaskDraftTitle(sentDraft.title);
-  if (!title) {
+  // PATCH only the fields the user actually changed from the seeded baseline:
+  // bundling all three overwrote out-of-band edits (assistant, MCP, second
+  // window) to fields the user never touched.
+  const baseline = state.taskDraftBaseline;
+  const patch = {};
+  if (!baseline || sentDraft.title !== baseline.title) patch.title = normalizeTaskDraftTitle(sentDraft.title);
+  if (!baseline || sentDraft.description !== baseline.description) patch.description = sentDraft.description;
+  if (!baseline || sentDraft.notes !== baseline.notes) patch.notes = sentDraft.notes;
+  if (Object.prototype.hasOwnProperty.call(patch, 'title') && !patch.title) {
     setState({ taskDraftRecoveryReason: 'failed' });
     setTaskDraftStatusInPlace('Title required');
     showToast('Task title is required before this draft can be saved.');
     return false;
+  }
+  if (Object.keys(patch).length === 0) {
+    // Nothing diverges from the server baseline — the draft is already saved.
+    clearTaskDraftRecovery(taskDraftStorage(), taskId, sentDraft);
+    setState({ isTaskNotesDirty: false, taskDraftRecoveryReason: null, isTaskDraftStored: true });
+    setTaskDraftStatusInPlace('Saved');
+    return true;
   }
   if (status) setTaskDraftStatusInPlace(status);
   taskDraftSavePromise = (async () => {
     try {
       return await enqueueTaskMutation(taskId, async () => {
         try {
-          const saved = await updateTask(taskId, {
-            title,
-            description: sentDraft.description,
-            notes: sentDraft.notes,
-          });
+          const saved = await updateTask(taskId, patch);
           return applyTaskDraftSave(saved, { taskId, sentDraft });
         } catch {
           // A response may be lost after commit. Read the canonical task once
@@ -3001,9 +3065,20 @@ async function navigateTopLevel(patch) {
 async function goProject(projectId, tab = 'list') {
   if (!projectId) return navigateTopLevel({ navType: 'all' });
   if (!(await prepareEditorNavigation())) return false;
+  // Same drawer-draft protection as closeTaskDrawer/openTaskDrawer: project
+  // navigation (palette open-task, g-b board chord, project cards) used to
+  // clear the drawer without flushing, silently discarding notes typed just
+  // before the jump.
+  if (state.drawerTaskId && !(await flushTaskDrawerDraft())) {
+    showToast(['recovered', 'conflict'].includes(state.taskDraftRecoveryReason)
+      ? 'Review and save the recovered task draft before leaving.'
+      : 'Save this task draft before leaving.');
+    return false;
+  }
   setState({
     navType: 'project', navId: projectId, tab, editorFocus: false,
     selectedTaskId: null, multiSelectIds: [], drawerTaskId: null,
+    taskNotesDraftId: null, taskDraftBaseline: null,
     taskLabelDraftId: null, taskLabelDraft: '',
   });
   persistActiveProject(projectId);
@@ -4148,6 +4223,14 @@ async function handleAction(action, el, event) {
       const docId = state.editorDocId;
       try {
         await updateDocument(docId, { title, documentType, project, tags, sourceFilename });
+        // The editor's draft model sends title+body on every autosave, so the
+        // draft title must follow the rename — otherwise the next body
+        // keystroke autosaves the OLD title back over it. The info form only
+        // opens on a clean draft (edit-document-info flushes first), so
+        // overwriting the draft title here cannot discard typed input.
+        if (state.editorDocId === docId && state.documentDraftId === docId) {
+          setState({ documentDraftTitle: title });
+        }
         const refsFailed = await reconcileExternalRefs(docId, refsText);
         await loadDocuments();
         setState({ isDocumentInfoEditorOpen: false });

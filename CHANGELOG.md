@@ -12,6 +12,41 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Quality-baseline remediation, Wave 1 — data loss and trust integrity.** Seven confirmed
+  defects from the 2026-07-18 adversarial review of the quality-baseline commit, each fixed with
+  its executed reproduction landed as a permanent regression test
+  (plan: `docs/superpowers/plans/2026-07-18-quality-baseline-remediation.md`):
+  - **Restoring a raw file-copy backup no longer discards WAL-resident transactions.** The
+    restore validated the backup *through* its `-wal` sidecar but copied only the main db file —
+    committed data vanished while the restore reported checksummed success. Restore now copies
+    db + `-wal` + `-shm` into staging, checkpoints, re-validates, and leaves no sidecar orphans.
+  - **Explicitly verifying a user-created document now actually records the reviewer.** The
+    re-verification guard compared `verified_by = $2` against a NULL column — NULL under SQL
+    three-valued logic — so the UPDATE matched zero rows and the route's replay fallback masked
+    the no-op as a 200. Null-safe `IS` comparison; the review is stamped.
+  - **An agent retag or byte-identical body no longer destroys human verification.** Agent-origin
+    updates revoked verification unconditionally; revocation is now conditional on the stored
+    `content_hash` actually changing (QINV-04's own rule), so metadata-only agent edits keep the
+    badge and agent content changes still lose it. Both trust fixes carry *executed* regression
+    tests against a real migrated database — the prior tests regex-matched the SQL text, which is
+    exactly how the NULL-guard bug shipped green.
+  - **The task-drawer autosave can no longer overwrite out-of-band edits.** Saves now PATCH only
+    the fields whose draft diverges from the seeded baseline (new `taskDraftBaseline`), and a
+    task refresh folds newer server values into untouched fields — an assistant/MCP edit to the
+    description survives a user's notes-only autosave, live in the open drawer.
+  - **Renaming a document via Document info is no longer silently reverted** by the next body
+    autosave (the draft title now follows the rename).
+  - **Project navigation (palette, board chord, project cards) can no longer silently discard a
+    dirty drawer draft** — `goProject` gets the same flush-and-veto guard as every other
+    drawer-closing path.
+  - **The app can always restore its own export.** Skip-mode import no longer dedupes incoming
+    tasks against *each other* on the lossy title/status/dueDate key (distinct tasks sharing the
+    key all import), and the batch-wide cumulative 500-checklist-item cap became a per-task
+    bound (200) shared with the creation route; the task cap rose to 5000. Contract pins
+    re-pinned deliberately.
+
 ### Added
 
 - **Calendar view + ICS feed — see dated tasks on a month grid, and subscribe from a real calendar app.** A new **Calendar** entry in the sidebar (and narrow-window rail) renders open dated tasks on a Monday-start month grid: compact chips show the priority dot, time-of-day, and title; **today** gets an accent ring; ‹ / **Today** / › page between months; clicking a day opens a detail strip below the grid that reuses the standard task rows (so the drawer, done-toggle, and project chips behave exactly like every list view), and clicking a chip opens the task drawer directly. <kbd>Esc</kbd> dismisses the day strip like every other transient surface. The inclusion rule is identical to Upcoming: open tasks only — completed, backlog, archived, and snoozed tasks stay hidden. Grid arithmetic runs on a **UTC clock**, so the month layout is host-timezone-independent (even Samoa's skipped 2011-12-30 renders exactly once — regression-tested under `TZ=Pacific/Apia`).
