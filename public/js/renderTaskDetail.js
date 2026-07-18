@@ -271,6 +271,7 @@ function renderFoot(state, task, readOnly) {
         ${readOnly ? '' : `<div class="task-draft-save">
           <span role="status" data-task-draft-save-status>${escapeHtml(state.taskDraftSaveStatus || 'Saved')}</span>
           <button type="button" class="task-draft-save__action" data-action="retry-task-draft-save" data-task-draft-save-action${['failed', 'recovered', 'conflict'].includes(state.taskDraftRecoveryReason) ? '' : ' hidden'}>${state.taskDraftRecoveryReason === 'conflict' ? 'Review and save' : (state.taskDraftRecoveryReason === 'recovered' ? 'Save recovered draft' : 'Retry')}</button>
+          <button type="button" class="task-draft-save__action" data-action="discard-task-draft"${['failed', 'recovered', 'conflict'].includes(state.taskDraftRecoveryReason) ? '' : ' hidden'}>Discard draft</button>
         </div>`}
         ${buttons}
       </div>`;
@@ -313,5 +314,28 @@ export function renderTaskDrawerHtml(state, task, context = {}) {
     <aside class="drawer" role="dialog" aria-modal="true" aria-label="Task detail" data-task-id="${escapeHtml(task.id)}">${renderHead(state, task, context, isDone, readOnly)}
       <div class="drawer__scroll">${renderFieldRows(state, task, context, dis, ro)}${renderNotesSection(state, task, dis)}${renderChecklistSection(checklist, readOnly, dis)}${renderDocsSection(documents, readOnly)}${renderActivitySection(activity)}
       </div>${renderFoot(state, task, readOnly)}
+    </aside>`;
+}
+
+// Fallback drawer for a task that vanished out from under an open drawer
+// (archived or deleted externally). Rendering NOTHING while the draft state
+// persisted made an invisible dirty draft veto every close and navigation —
+// this panel names the situation and offers the two honest exits.
+export function renderMissingTaskDrawerHtml(state) {
+  const dirty = Boolean(state.isTaskNotesDirty || state.taskDraftRecoveryReason);
+  return `
+    <div class="scrim"></div>
+    <aside class="drawer" role="dialog" aria-modal="true" aria-label="Task unavailable">
+      <div class="drawer__head"><h2 class="drawer__title">Task unavailable</h2></div>
+      <div class="drawer-section">
+        <p class="view-hint">This task was archived or deleted elsewhere while its drawer was open.</p>
+        ${dirty
+    ? `<p class="view-hint">Your unsaved draft is kept on this device.</p>
+        <div style="display:flex; gap:8px;">
+          <button class="btn-outline" type="button" data-action="keep-task-draft-close">Keep draft &amp; close</button>
+          <button class="btn-outline btn-outline--danger" type="button" data-action="discard-task-draft">Discard draft</button>
+        </div>`
+    : '<button class="btn-outline" type="button" data-action="keep-task-draft-close">Close</button>'}
+      </div>
     </aside>`;
 }

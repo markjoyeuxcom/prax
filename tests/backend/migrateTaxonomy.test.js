@@ -52,6 +52,7 @@ test('0010 rebuild preserves data, links, and FTS; retypes tagged post-mortems; 
     '0014_add_task_import_operations.sql',
     '0015_add_document_creation_receipts.sql',
     '0016_add_task_activity_actor.sql',
+    '0017_clamp_task_recurrence_intervals.sql',
   ]);
 
   // Every row survived, fields intact.

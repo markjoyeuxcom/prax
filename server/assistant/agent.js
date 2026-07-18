@@ -135,7 +135,15 @@ export async function runAssistant({ chat, tools, system, messages, decisions = 
   const tail = history[history.length - 1];
   if (decisions && isToolCallTurn(tail)) {
     const results = await executeToolCalls(tail.toolCalls, byName, decisions);
-    if (tail.toolCalls.some((c) => !byName.get(c.name)?.readOnly && decisions[c.id] === 'approve')) didWrite = true;
+    // didWrite reflects the OUTCOME, not the approval: an approved write
+    // whose handler threw (or returned isError) mutated nothing, and telling
+    // the client "the approved change completed — do not repeat the action"
+    // about it is the inverse of the misleading-success bug this flag exists
+    // to prevent.
+    const resultById = new Map(results.map((r) => [r.id, r]));
+    if (tail.toolCalls.some((c) => !byName.get(c.name)?.readOnly
+      && decisions[c.id] === 'approve'
+      && resultById.get(c.id)?.isError !== true)) didWrite = true;
     history.push({ role: 'tool', results });
   }
 

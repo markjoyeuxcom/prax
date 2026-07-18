@@ -234,3 +234,39 @@ test('startRunbookRun forwards a caller-stable id and agent provenance', async (
   assert.deepEqual(JSON.parse(call.options.body), { title: 'Incident', id: 'run-id' });
   assert.equal(call.options.headers['x-prax-origin'], 'agent');
 });
+
+// Regression (2026-07-18 review): a timeout is NOT "unreachable" — the server
+// may still be processing (a model generation in flight), and an automatic
+// re-send runs the mutation twice. Only connection-level failures retry.
+test('retryUnavailable does not re-send after a timeout abort', async () => {
+  const calls = [];
+  const timeoutFetch = async (url, options) => {
+    calls.push({ url, options });
+    const err = new Error('The operation was aborted due to timeout');
+    err.name = 'TimeoutError';
+    throw err;
+  };
+  const client = createPraxClient({ baseUrl: BASE, fetch: timeoutFetch });
+  await assert.rejects(
+    () => client.generateRunbook({ description: 'incident', project: 'homelab', id: '11111111-1111-4111-8111-111111111111' }),
+    (err) => err instanceof PraxUnavailableError && /may still be processing/.test(err.message),
+  );
+  assert.equal(calls.length, 1, 'the request must not be re-sent after a timeout');
+});
+
+test('retryUnavailable still retries once on a connection-level failure', async () => {
+  const calls = [];
+  const refusedThenOk = async (url, options) => {
+    calls.push({ url, options });
+    if (calls.length === 1) {
+      const err = new Error('connect ECONNREFUSED 127.0.0.1:3000');
+      err.name = 'TypeError';
+      throw err;
+    }
+    return jsonResponse(200, { id: 'd1' });
+  };
+  const client = createPraxClient({ baseUrl: BASE, fetch: refusedThenOk });
+  const doc = await client.generateRunbook({ description: 'incident', project: 'homelab', id: '11111111-1111-4111-8111-111111111111' });
+  assert.equal(doc.id, 'd1');
+  assert.equal(calls.length, 2, 'a never-started request is safe to retry');
+});

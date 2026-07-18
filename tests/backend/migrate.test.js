@@ -138,7 +138,7 @@ test('runMigrations applies the real consolidated schema against real SQLite', a
   const { createDb } = await import('../../server/db.js');
   const db = createDb(':memory:');
   const result = await runMigrations(db, { logger: SILENT });
-  assert.deepEqual(result.applied, ['0001_init.sql', '0002_add_inbox_project.sql', '0003_add_task_deferred_until.sql', '0004_add_project_oncall.sql', '0005_add_runbook_runs.sql', '0006_add_task_recurrence.sql', '0007_add_task_labels.sql', '0008_add_task_due_time.sql', '0009_add_project_repo_url.sql', '0010_document_type_taxonomy.sql', '0011_add_document_external_refs.sql', '0012_enforce_supersession_lifecycle.sql', '0013_add_durable_run_chronicle.sql', '0014_add_task_import_operations.sql', '0015_add_document_creation_receipts.sql', '0016_add_task_activity_actor.sql']);
+  assert.deepEqual(result.applied, ['0001_init.sql', '0002_add_inbox_project.sql', '0003_add_task_deferred_until.sql', '0004_add_project_oncall.sql', '0005_add_runbook_runs.sql', '0006_add_task_recurrence.sql', '0007_add_task_labels.sql', '0008_add_task_due_time.sql', '0009_add_project_repo_url.sql', '0010_document_type_taxonomy.sql', '0011_add_document_external_refs.sql', '0012_enforce_supersession_lifecycle.sql', '0013_add_durable_run_chronicle.sql', '0014_add_task_import_operations.sql', '0015_add_document_creation_receipts.sql', '0016_add_task_activity_actor.sql', '0017_clamp_task_recurrence_intervals.sql']);
   const { rows } = await db.query('select slug from projects order by sort_order');
   assert.deepEqual(rows.map(r => r.slug), ['inbox', 'personal', 'work', 'homelab']);
   // idempotent second run

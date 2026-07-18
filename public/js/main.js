@@ -91,7 +91,7 @@ import { parseTaskFilter, projectResolver } from './taskFilter.js';
 import { createSmartView, smartViewsFromJson } from './taskSmartViews.js';
 import { renderBoardHtml, buildBoardColumns, limitBoardColumns } from './renderBoard.js';
 import { renderBacklogHtml, renderArchiveHtml } from './renderBacklog.js';
-import { renderTaskDrawerHtml } from './renderTaskDetail.js';
+import { renderTaskDrawerHtml, renderMissingTaskDrawerHtml } from './renderTaskDetail.js';
 import { renderLinkPickerHtml } from './renderLinkPicker.js';
 import { LIBRARY_RENDER_BATCH_SIZE, renderLibraryHtml, buildLibraryModel } from './renderLibrary.js';
 import { templateById } from './documentTemplates.js';
@@ -892,6 +892,23 @@ async function patchTask(id, apiPatch, { failure = 'update this task' } = {}) {
   // server-side. Collection refresh is separate and cannot redefine success.
   if (normalized.recurrence && normalized.status === 'completed') {
     try { await loadTasks(); } catch { lifecycleRefreshFailed = true; }
+    // A lost PATCH response reconciled via GET readback never carries the
+    // route's additive nextOccurrenceTaskId — but the successor was committed
+    // in the same transaction, so find it in the refreshed collection rather
+    // than toasting "could not be scheduled" about a schedule that happened.
+    if (!normalized.nextOccurrenceTaskId && !lifecycleRefreshFailed) {
+      const successor = state.tasks.find((t) => t.id !== normalized.id
+        && t.projectId === normalized.projectId
+        && t.title === normalized.title
+        && t.recurrence === normalized.recurrence
+        && t.status !== 'completed' && !t.archivedAt
+        && (!normalized.dueDate || (t.dueDate && t.dueDate > normalized.dueDate)));
+      if (successor) normalized = { ...normalized, nextOccurrenceTaskId: successor.id };
+    } else if (!normalized.nextOccurrenceTaskId && lifecycleRefreshFailed) {
+      // The atomic transition committed with the completion; only the
+      // collection refresh failed — the successor exists but is not loaded.
+      normalized = { ...normalized, nextOccurrenceTaskId: 'unloaded' };
+    }
   }
   renderApp();
   return lifecycleRefreshFailed ? { ...normalized, lifecycleRefreshFailed: true } : normalized;
@@ -930,9 +947,11 @@ async function toggleTaskDone(id) {
   if (saved) {
     const message = done
       ? (wasRecurring ? 'Reopened as one-off — future occurrences are unchanged.' : 'Reopened')
-      : (saved.recurrence
+      : (saved.nextOccurrenceTaskId
         ? `Completed — next occurrence scheduled${saved.lifecycleRefreshFailed ? '; reload to show it' : ''}.`
-        : 'Completed — nice.');
+        : (saved.recurrence
+          ? 'Completed — but the next occurrence could not be scheduled.'
+          : 'Completed — nice.'));
     showToast(message, async () => {
       dismissToast();
       const undone = await patchTask(id, { status: prior });
@@ -3378,6 +3397,11 @@ function renderOverlaysHtml() {
         activity: state.taskActivity,
         readOnly: Boolean(task.archivedAt),
       });
+    } else {
+      // The task vanished (archived/deleted externally, dropped by a refresh).
+      // Rendering nothing here while the draft state persisted left an
+      // INVISIBLE dirty draft vetoing every close and navigation forever.
+      html += renderMissingTaskDrawerHtml(state);
     }
   }
   if (state.isLinkPickerOpen) html += renderLinkPickerHtml(state);
@@ -3891,6 +3915,52 @@ async function handleAction(action, el, event) {
 
     // ---- drawer ----
     case 'close-drawer': await closeTaskDrawer(); break;
+    // Explicit exit from a failed/recovered/conflict draft (incl. the
+    // missing-task fallback drawer): drop the device copy after confirming,
+    // reset the draft from the live task, or close outright when the task is
+    // gone — the trap was a veto loop with no discard affordance.
+    case 'discard-task-draft': {
+      const confirmed = el.dataset.confirmed === '1';
+      if (!confirmed) {
+        openConfirm({
+          message: 'Discard the unsaved task draft? The copy kept on this device will be deleted.',
+          okLabel: 'Discard draft',
+          action: 'discard-task-draft',
+        });
+        break;
+      }
+      setState({ confirm: null });
+      const taskId = state.taskNotesDraftId || state.drawerTaskId;
+      if (taskId) clearTaskDraftRecovery(taskDraftStorage(), taskId);
+      const live = taskId ? taskById(taskId) : null;
+      if (live) {
+        seedTaskDrawerDraft(live);
+        setTaskDraftStatusInPlace('Draft discarded');
+      } else {
+        setState({
+          drawerTaskId: null, taskNotesDraftId: null, taskDraftBaseline: null,
+          taskTitleDraft: '', taskDescriptionDraft: '', taskNotesDraft: '',
+          isTaskNotesDirty: false, taskDraftRecoveryReason: null,
+          taskDraftSaveStatus: 'Saved', isTaskDraftStored: true,
+          taskLabelDraftId: null, taskLabelDraft: '',
+        });
+      }
+      renderApp();
+      break;
+    }
+    // Missing-task fallback: keep the device copy (it re-offers if the task
+    // is ever restored) but release the in-memory drawer state so the app is
+    // navigable again.
+    case 'keep-task-draft-close': {
+      setState({
+        drawerTaskId: null, taskNotesDraftId: null, taskDraftBaseline: null,
+        isTaskNotesDirty: false, taskDraftRecoveryReason: null,
+        taskDraftSaveStatus: 'Saved',
+        taskLabelDraftId: null, taskLabelDraft: '',
+      });
+      renderApp();
+      break;
+    }
     case 'retry-task-draft-save': {
       const confirmed = el.dataset.confirmed === '1';
       if (confirmed) {
@@ -3904,10 +3974,12 @@ async function handleAction(action, el, event) {
       const before = taskById(state.drawerTaskId);
       const saved = await patchTask(state.drawerTaskId, { status: el.dataset.status });
       if (before && saved && before.status !== saved.status) {
-        if (saved.status === 'completed' && saved.recurrence) {
+        if (saved.status === 'completed' && saved.nextOccurrenceTaskId) {
           showToast(saved.lifecycleRefreshFailed
             ? 'Completed — next occurrence scheduled; reload to show it.'
             : 'Completed — next occurrence scheduled.');
+        } else if (saved.status === 'completed' && saved.recurrence) {
+          showToast('Completed — but the next occurrence could not be scheduled.');
         } else if (before.status === 'completed' && before.recurrence) {
           showToast('Reopened as one-off — future occurrences are unchanged.');
         }
@@ -4129,6 +4201,45 @@ async function handleAction(action, el, event) {
 
     // ---- editor ----
     case 'back-to-library': await goLibrary(); break;
+    // Explicit exit from a failed/recovered/conflict document draft: without
+    // it, a doc archived/deleted externally left the retry failing forever
+    // and every navigation vetoed — only a reload escaped.
+    case 'discard-document-draft': {
+      const confirmed = el.dataset.confirmed === '1';
+      if (!confirmed) {
+        openConfirm({
+          message: 'Discard the unsaved changes to this document? The draft kept on this device will be deleted.',
+          okLabel: 'Discard draft',
+          action: 'discard-document-draft',
+        });
+        break;
+      }
+      setState({ confirm: null });
+      const docId = state.documentDraftId || state.editorDocId;
+      if (docId) clearDocumentDraftRecovery(documentDraftStorage(), docId);
+      const doc = (state.documents || []).find((d) => d.id === docId) || null;
+      if (doc) {
+        setState({
+          documentDraftTitle: doc.title || '',
+          documentDraftBody: doc.body || '',
+          isDocumentDirty: false,
+          documentDraftRecoveryReason: null,
+          documentSaveStatus: 'Draft discarded',
+          isDocumentDraftStored: true,
+        });
+        renderApp();
+      } else {
+        // The document is gone — release the draft state and leave.
+        setState({
+          isDocumentDirty: false,
+          documentDraftRecoveryReason: null,
+          documentSaveStatus: 'Saved',
+          isDocumentDraftStored: true,
+        });
+        await goLibrary();
+      }
+      break;
+    }
     case 'retry-document-save': {
       const confirmed = el.dataset.confirmed === '1';
       if (confirmed) {
@@ -4681,7 +4792,11 @@ function bindEvents() {
       return;
     }
     if (target.matches?.('[data-capture-input]')) {
-      setState({ captureQuery: target.value, ...clearCaptureRequestPatch() });
+      // Keep the exact-once retry identity: submit compares the current
+      // intent key against the stored one, so typing a character and
+      // deleting it again still reuses the SAME request id — clearing here
+      // minted a fresh id and made "retry unchanged" able to duplicate.
+      setState({ captureQuery: target.value, captureError: null, captureRecovered: false });
       persistCaptureRecovery();
       const submit = appRoot.querySelector('[data-action="submit-capture"]');
       if (submit) submit.disabled = !target.value.trim();
@@ -5225,10 +5340,19 @@ async function submitCapturedTask(fields) {
   let outcome;
   try {
     outcome = await createCapturedTaskWithReadback(payload);
-  } catch {
+  } catch (writeError) {
+    // A deterministic 4xx rejection is not retry-safe advice: the server
+    // said no to THIS payload/identity, so repeating it unchanged can only
+    // fail (or 409 forever on the same id). Drop the retry identity so the
+    // next submit mints a fresh one, and say what actually happened.
+    const permanent = Number.isInteger(writeError?.status)
+      && writeError.status >= 400 && writeError.status < 500;
     setState({
       captureSubmitting: false,
-      captureError: 'Could not confirm creation. Your task is saved here; retry unchanged is safe.',
+      ...(permanent ? { captureRequestPayload: null, captureRequestIntent: null } : {}),
+      captureError: permanent
+        ? `The server rejected this capture: ${writeError.message}. Edit it and try again.`
+        : 'Could not confirm creation. Your task is saved here; retry unchanged is safe.',
     });
     persistCaptureRecovery();
     renderApp();

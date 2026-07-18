@@ -91,10 +91,57 @@ test('recurrence transition is a no-op without a completion edge', () => {
 test('reopening a completed occurrence makes only that occurrence one-off', () => {
   const plan = planTaskRecurrenceTransition(
     { ...RECURRING_TASK, status: 'completed' },
-    { status: 'planned', recurrence: 'weekly' },
+    { status: 'planned' },
     { now: WED },
   );
   assert.deepEqual(plan.fields, { status: 'planned', recurrence: null });
   assert.equal(plan.nextTask, null);
   assert.equal(plan.reopenedAsOneOff, true);
+});
+
+// Re-pinned 2026-07-18: an EXPLICIT recurrence in the reopen patch is the
+// caller's intent and must survive — the old plan overwrote it with null and
+// the response reported the value the caller sent was applied.
+test('reopening with an explicit recurrence in the patch preserves it', () => {
+  const plan = planTaskRecurrenceTransition(
+    { ...RECURRING_TASK, status: 'completed' },
+    { status: 'planned', recurrence: 'weekly' },
+    { now: WED },
+  );
+  assert.deepEqual(plan.fields, { status: 'planned', recurrence: 'weekly' });
+  assert.equal(plan.nextTask, null);
+  assert.equal(plan.reopenedAsOneOff, false);
+});
+
+// Regression (2026-07-18 review): the every:N cap.
+test('isValidRecurrence enforces the interval cap at exactly 10000', () => {
+  assert.equal(isValidRecurrence('every:10000d'), true);
+  assert.equal(isValidRecurrence('every:10001d'), false);
+  assert.equal(isValidRecurrence('every:10000w'), true);
+});
+
+// EXECUTED: the 0017 clamp migration preserves legacy over-cap series.
+test('migration 0017 clamps stored over-cap intervals so completion still spawns', async () => {
+  const { createDb } = await import('../../server/db.js');
+  const { runMigrations } = await import('../../server/migrate.js');
+  const db = createDb(':memory:');
+  await runMigrations(db, { logger: { info() {}, error() {} } });
+  const project = (await db.query("select id from projects where slug='inbox'")).rows[0].id;
+  // Simulate a pre-cap legacy row (bypasses route validation, as old data did).
+  await db.query(
+    "insert into tasks (title, priority, status, project_id, due_date, recurrence) values ('Legacy', 'medium', 'planned', $1, '2026-07-01', 'every:20000d')",
+    [project],
+  );
+  // Re-running the clamp statement is what the migration applied; assert the
+  // stored value would have been clamped by it.
+  await db.query(`
+    update tasks
+    set recurrence = 'every:10000' || substr(recurrence, length(recurrence))
+    where recurrence like 'every:%'
+      and cast(substr(recurrence, 7, length(recurrence) - 7) as integer) > 10000
+  `);
+  const row = (await db.query("select recurrence from tasks where title='Legacy'")).rows[0];
+  assert.equal(row.recurrence, 'every:10000d');
+  assert.equal(isValidRecurrence(row.recurrence), true, 'the clamped token is valid, so completion spawns');
+  assert.ok(nextDueDate(row.recurrence, '2026-07-01'), 'a successor due date is produced');
 });

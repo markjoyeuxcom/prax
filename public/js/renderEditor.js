@@ -438,7 +438,8 @@ export function renderEditorHtml(state, doc, model = {}) {
     <footer class="editor-foot">
       <span data-editor-counts>${words} words · ${body.length} characters · ${readTime} min read</span>
       <span class="editor-foot__save">Markdown · <span data-document-save-status role="status" aria-live="polite">${escapeHtml(saveStatus)}</span>
-        ${readOnly ? '' : `<button class="editor-foot__save-action" type="button" data-action="retry-document-save" data-document-save-action${showRecoveryAction ? '' : ' hidden'}>${escapeHtml(recoveryLabel)}</button>`}
+        ${readOnly ? '' : `<button class="editor-foot__save-action" type="button" data-action="retry-document-save" data-document-save-action${showRecoveryAction ? '' : ' hidden'}>${escapeHtml(recoveryLabel)}</button>
+        <button class="editor-foot__save-action" type="button" data-action="discard-document-draft"${showRecoveryAction ? '' : ' hidden'}>Discard draft</button>`}
       </span>
     </footer>
   </div>`;

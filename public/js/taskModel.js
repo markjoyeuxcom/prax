@@ -60,6 +60,10 @@ export function normalizeTask(task) {
     createdAt: task.createdAt || null,
     updatedAt: task.updatedAt || null,
     completedAt: task.completedAt || task.completed_at || null,
+    // Additive PATCH-response field: present only when completing a recurring
+    // task actually spawned its successor. The completion toast derives from
+    // this outcome — a truthy recurrence token alone proved nothing.
+    nextOccurrenceTaskId: task.nextOccurrenceTaskId || null,
   };
 }
 

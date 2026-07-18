@@ -49,10 +49,17 @@ export function createPraxClient({
         });
         break;
       } catch (err) {
-        if (attempt + 1 < attempts) continue;
-        throw new PraxUnavailableError(
-          `Prax API not reachable at ${root} — is the server running? (${err.message})`,
-        );
+        // A timeout is NOT "unreachable": the server may still be processing
+        // the request (e.g. a model generation in flight), so an automatic
+        // re-send runs the mutation twice. Only connection-level failures —
+        // where the request provably never started — are retried; timed-out
+        // callers keep their stable identity and can retry deliberately.
+        const abortName = err?.name || err?.cause?.name;
+        const timedOut = abortName === 'TimeoutError' || abortName === 'AbortError';
+        if (!timedOut && attempt + 1 < attempts) continue;
+        throw new PraxUnavailableError(timedOut
+          ? `Prax API timed out after ${timeoutMs}ms — the request may still be processing; it was not re-sent. (${err.message})`
+          : `Prax API not reachable at ${root} — is the server running? (${err.message})`);
       }
     }
 
