@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -121,6 +121,37 @@ test('restore carries WAL-resident transactions from a raw file-copy backup', ()
   restored.close();
 });
 
+// Regression (2026-07-18 review): validating a WAL-mode backup with a plain
+// read-only open created persistent -wal/-shm sidecars next to the artifact,
+// so the NEXT backup to the same rotated path refused with "Refusing to
+// overwrite existing SQLite backup artifact".
+test('validation leaves no sidecars that block the next backup to the same path', async () => {
+  const directory = tempDirectory();
+  const source = join(directory, 'live.db');
+  const backup = join(directory, 'backup.db');
+  // WAL-mode source: the online backup copies the WAL journal-mode header, so
+  // the backup file itself is the shape whose validation used to shed sidecars.
+  const live = new DatabaseSync(source);
+  live.exec(`
+    pragma journal_mode = wal;
+    create table sample (id integer primary key, value text not null);
+  `);
+  live.prepare('insert into sample (value) values (?)').run('sidecar sentinel');
+  live.close();
+
+  await createOnlineBackup(source, backup, { rate: 1 });
+  assert.equal(validateSqliteBackup(backup).integrityCheck, 'ok');
+  assert.equal(validateSqliteBackup(backup).integrityCheck, 'ok', 'repeat validation stays clean');
+  assert.equal(existsSync(`${backup}-wal`), false, 'validation must not leave a -wal sidecar');
+  assert.equal(existsSync(`${backup}-shm`), false, 'validation must not leave a -shm sidecar');
+
+  // Operator rotation flow: move/delete the previous artifact, back up to the
+  // same path again. Leftover validation sidecars used to make this refuse.
+  unlinkSync(backup);
+  await createOnlineBackup(source, backup, { rate: 1 });
+  assert.equal(validateSqliteBackup(backup).integrityCheck, 'ok');
+});
+
 test('online backup fails closed when the destination filesystem is unavailable', async () => {
   const directory = tempDirectory();
   const source = join(directory, 'source.db');
@@ -204,7 +235,7 @@ test('current and historical CI workspaces survive authoritative destructive res
 
   assert.equal(report.historical.profile, 'ci');
   assert.equal(report.historical.seededThrough, '0009_add_project_repo_url.sql');
-  assert.equal(report.historical.migratedTo, '0017_clamp_task_recurrence_intervals.sql');
+  assert.equal(report.historical.migratedTo, '0019_resequence_chronicle_by_time.sql');
   assert.deepEqual(report.historical.migrationsAppliedAfterRestore, [
     '0010_document_type_taxonomy.sql',
     '0011_add_document_external_refs.sql',
@@ -214,6 +245,8 @@ test('current and historical CI workspaces survive authoritative destructive res
     '0015_add_document_creation_receipts.sql',
     '0016_add_task_activity_actor.sql',
     '0017_clamp_task_recurrence_intervals.sql',
+    '0018_reconcile_restored_supersession.sql',
+    '0019_resequence_chronicle_by_time.sql',
   ]);
   assert.ok(report.historical.sourceWalBytes > 0);
   assert.equal(report.historical.sourceDestroyedBeforeRestore, true);

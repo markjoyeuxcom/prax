@@ -606,3 +606,74 @@ test('POST /api/library/documents accepts every taxonomy type; rejects unknown t
   assert.equal(bad.json().message, 'documentType is invalid');
   await app.close();
 });
+
+// ---- Detached runs (deleted source runbook) ---------------------------------
+// Runs survive their document's deletion with document_id null + snapshot
+// columns, but the per-document listing 404s once the doc is gone. The
+// maintenance surface is the only way to reach them.
+
+test('GET /api/library/maintenance/detached-runs lists runs whose source runbook was deleted', async () => {
+  const { loadConfig } = await import('../../server/config.js');
+  const app = await buildApp({
+    config: loadConfig({ PRAX_DB_FILE: ':memory:', EMBEDDING_BACKEND: 'none' }),
+  });
+
+  const created = await app.inject({
+    method: 'POST',
+    url: '/api/library/documents',
+    payload: {
+      title: 'Failover runbook',
+      body: '# Failover\n\n- [ ] Stop writes\n- [ ] Promote replica\n',
+      documentType: 'runbook',
+      project: 'homelab',
+    },
+  });
+  assert.equal(created.statusCode, 201);
+  const runbookId = created.json().id;
+  const started = await app.inject({
+    method: 'POST',
+    url: `/api/library/documents/${runbookId}/runs`,
+    payload: { title: 'DR drill' },
+  });
+  assert.equal(started.statusCode, 201);
+  const run = started.json();
+
+  // While the source exists, the run is attached — the maintenance list is empty.
+  const before = await app.inject({ method: 'GET', url: '/api/library/maintenance/detached-runs' });
+  assert.equal(before.statusCode, 200);
+  assert.deepEqual(before.json(), []);
+
+  assert.equal((await app.inject({
+    method: 'DELETE', url: `/api/library/documents/${runbookId}/permanent`,
+  })).statusCode, 200);
+  // The per-document listing is now unreachable (this was the whole gap)...
+  assert.equal((await app.inject({
+    method: 'GET', url: `/api/library/documents/${runbookId}/runs`,
+  })).statusCode, 404);
+  // ...and the detached listing surfaces the run with its snapshot context.
+  const after = await app.inject({ method: 'GET', url: '/api/library/maintenance/detached-runs' });
+  assert.equal(after.statusCode, 200);
+  assert.equal(after.json().length, 1);
+  assert.equal(after.json()[0].id, run.id);
+  assert.equal(after.json()[0].documentId, null);
+  assert.equal(after.json()[0].documentTitle, 'Failover runbook');
+  assert.equal(after.json()[0].title, 'DR drill');
+  assert.equal(after.json()[0].stepCount, 2);
+
+  await app.close();
+});
+
+test('GET /api/library/maintenance/detached-runs returns [] when runs are unavailable', async () => {
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: { listTasks: async () => [] },
+    libraryRepository: createFakeLibraryRepository(),
+    projectsRepository: createFakeProjectsRepository(),
+  });
+
+  const res = await app.inject({ method: 'GET', url: '/api/library/maintenance/detached-runs' });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json(), []);
+
+  await app.close();
+});

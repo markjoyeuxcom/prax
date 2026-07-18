@@ -170,3 +170,17 @@ test('POST /api/library/ask validates the query and the project', async () => {
   assert.equal(badProject.statusCode, 400);
   await app.close();
 });
+
+// Regression (2026-07-18 review): citation matching is case-insensitive, as
+// its contract comment always claimed — a fully grounded answer citing
+// [postgres failover runbook] must not be discarded as uncited.
+test('validateAnswerCitations accepts known titles regardless of casing', () => {
+  const sources = [{ title: 'Postgres Failover Runbook' }];
+  const lower = validateAnswerCitations('See [postgres failover runbook] for steps.', sources);
+  assert.equal(lower.valid, true);
+  assert.deepEqual(lower.citations, ['Postgres Failover Runbook'], 'canonical title returned');
+  const upper = validateAnswerCitations('See [POSTGRES FAILOVER RUNBOOK].', sources);
+  assert.equal(upper.valid, true);
+  const unknown = validateAnswerCitations('See [Some Other Doc].', sources);
+  assert.equal(unknown.valid, false, 'genuinely unknown citations still reject');
+});

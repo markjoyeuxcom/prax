@@ -14,6 +14,47 @@ fresh empty `[Unreleased]` section is started.
 
 ### Fixed
 
+- **Quality-baseline remediation, Waves 3+4 — lifecycle coherence, agent-surface honesty, and
+  operational safety.** The remaining eleven confirmed findings from the 2026-07-18 adversarial
+  review, closing out the remediation plan:
+  - **Supersession survives archive/restore cycles** (migration `0018`): restoring a document now
+    recomputes its own status from its live inbound `supersedes` edges — the archived-target gap
+    let a restored doc sit live and `active` with a live edge — and a repair pass fixes rows the
+    0012 reconcile could not see. `deprecated` remains untouchable by the lifecycle.
+  - **The incident ledger's order matches its timestamps** (migration `0019`): the 0013 backfill
+    sequenced legacy step-checked events by runbook *position*; re-sequenced by `created_at`
+    under the uniqueness constraint (two-phase), a no-op for live-written rows.
+  - **Run reads are one snapshot**: `getRun` wraps its three reads in a transaction, so a
+    concurrent step-check can no longer produce a status/steps/events mix that never existed.
+  - **"Durable" runs are findable after their runbook is deleted**: new
+    `GET /api/library/maintenance/detached-runs` lists runs whose document is gone, with their
+    snapshot titles — preserved-but-unreachable was preservation in name only.
+  - **Ask Prax citation matching is case-insensitive**, as its contract comment always claimed —
+    a grounded answer citing `[postgres failover runbook]` is no longer discarded as uncited.
+  - **Opening quick capture in one tab no longer destroys another tab's unfinished draft**: the
+    shared recovery entry carries an owner token; only the writing tab (or an explicit discard /
+    confirmed creation) clears it.
+  - **Clearing the drawer title no longer starts a once-per-second toast/focus-steal loop**: the
+    title-required signal is the in-place status, and the autosave timer stands down while the
+    title is empty (manual save/close still surfaces the requirement).
+  - **MCP pagination is honest end-to-end**: the bare-array fallback (pre-envelope servers) now
+    applies limit/offset instead of returning everything, and an empty page can never emit a
+    non-advancing cursor (`nextOffset === offset` looped agents forever).
+  - **`docker run -p` works again**: the image bakes `HOST=0.0.0.0` + the explicit
+    acknowledgement (a container binding loopback black-holes its published port with healthy
+    logs; exposure stays the operator's decision at the network boundary, and bare-metal keeps
+    the secure loopback default). The server now logs its bind loudly, warning when reachable
+    beyond the machine. Contract pin inverted deliberately.
+  - **Backup/migrate CLIs work under `HOST=0.0.0.0`**: the bind refusal moved from `loadConfig()`
+    to the listen path — tools that never open a socket no longer die on a network error during
+    the documented incident-recovery runbook.
+  - **Backups no longer block their successors**: validation opens via an `immutable=1` URI (no
+    `-wal`/`-shm` sidecars created; defensive cleanup for URI-less builds), so a validated backup
+    path stays writable for the next rotation.
+  - **A crashed desktop shell no longer orphans the server**: stdin EOF (parent died without
+    saying `shutdown`) now triggers the same graceful shutdown. And the CSP allows `https:`
+    images, matching the markdown preview's documented contract — remote screenshots render again.
+
 - **Quality-baseline remediation, Wave 2 — misleading success and duplicate mutations.** Seven
   more confirmed findings from the 2026-07-18 adversarial review, each with its reproduction
   landed as a regression test:
@@ -84,6 +125,22 @@ fresh empty `[Unreleased]` section is started.
     re-pinned deliberately.
 
 ### Added
+
+- **Exceptional-quality baseline — the product-wide quality program.** *(Entry added
+  retroactively for the `400452f` commit, which shipped without one.)* Adopts
+  [Exceptional Prax — Product Quality Standard](docs/superpowers/specs/2026-07-13-exceptional-prax-quality-standard.md)
+  (product promise, two-speed Gate A/B ratchet, invariants, critical journeys, scorecards) and
+  lands its infrastructure in one pass: fixes for a prior external review's findings; **MCP
+  pagination** (paged envelopes with `total`/`hasMore`/`nextOffset` replace the silent 20-item
+  cap across every list tool); **exact-once task import** with durable request identity
+  (migration `0014`) and creation receipts (`0015`); **supersession lifecycle enforcement** in
+  SQL triggers (`0012`); a **durable runbook chronicle** that survives document deletion
+  (`0013`); **SQLite backup/restore machinery** with an operator CLI and restore drills; task,
+  document, and capture **draft recovery** (localStorage) with a task mutation queue; secure
+  deployment defaults (loopback bind + explicit network acknowledgement, CSP and security
+  headers, `/readyz`); a large **Tauri desktop lifecycle rework** (readiness protocol, splash,
+  export dialogs); the mature-workspace **quality fixture** + performance measurement/gates; and
+  14 e2e journey specs that encode the standard's invariants as executable tests.
 
 - **Calendar view + ICS feed — see dated tasks on a month grid, and subscribe from a real calendar app.** A new **Calendar** entry in the sidebar (and narrow-window rail) renders open dated tasks on a Monday-start month grid: compact chips show the priority dot, time-of-day, and title; **today** gets an accent ring; ‹ / **Today** / › page between months; clicking a day opens a detail strip below the grid that reuses the standard task rows (so the drawer, done-toggle, and project chips behave exactly like every list view), and clicking a chip opens the task drawer directly. <kbd>Esc</kbd> dismisses the day strip like every other transient surface. The inclusion rule is identical to Upcoming: open tasks only — completed, backlog, archived, and snoozed tasks stay hidden. Grid arithmetic runs on a **UTC clock**, so the month layout is host-timezone-independent (even Samoa's skipped 2011-12-30 renders exactly once — regression-tested under `TZ=Pacific/Apia`).
   Alongside it, `GET /api/calendar.ics` serves the same open dated tasks as a standards-compliant **iCalendar feed** (pure `server/icsFeed.js`: RFC 5545 escaping, 75-octet multibyte-safe line folding, stable `<taskId>@prax` UIDs so a resubscribed feed updates in place): tasks without a time are all-day events, timed tasks use **floating local times** (matching the app's wall-clock semantics), priorities map to ICS priorities, and the project becomes the event category. `?project=<slug>` scopes the feed and names the calendar after the project. Recurring tasks deliberately carry **no RRULE** — Prax spawns the next instance server-side on completion, so an RRULE would double-count. The Calendar view shows the feed URL with a copy button when the origin is durable (server/Docker); the desktop shell hides it, because its port changes per launch. *(Hardened by an adversarial review that executed its attacks — 9 candidates, 0 refuted: the feed resurfacing snoozed tasks the app hides everywhere else; a year-9999 due date emitting a grammar-invalid expanded-year DTEND that could break the whole subscribed feed (now omitted — the spec default is exactly one day); the desktop shell advertising a launch-scoped subscribe URL that dies on relaunch; day cells advertising `role="button"` keyboard operability that no code path honored — worse, Enter on a focused cell reopened an unrelated task's drawer; Escape being unable to dismiss the day strip; and the timezone-dependent grid arithmetic above.)*

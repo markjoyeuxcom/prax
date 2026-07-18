@@ -26,7 +26,10 @@ export function pageEnvelope(items, total, args = {}) {
   const safeItems = Array.isArray(items) ? items : [];
   const safeTotal = Number.isInteger(total) && total >= 0 ? total : safeItems.length;
   const returned = safeItems.length;
-  const hasMore = offset + returned < safeTotal;
+  // An empty page can never advance the cursor: with returned === 0,
+  // "hasMore" would emit nextOffset === offset and an agent following the
+  // documented cursor contract loops forever on the same request.
+  const hasMore = returned > 0 && offset + returned < safeTotal;
 
   return {
     schemaVersion: COLLECTION_SCHEMA_VERSION,

@@ -179,8 +179,43 @@ export function createRunbookRunsRepository(db) {
       }));
     },
 
+    // Runs that outlived their source runbook (deletion nulls document_id but
+    // keeps the snapshot columns). The per-document listing can never reach
+    // them — its document lookup 404s — so this is their listing surface.
+    async listDetachedRuns() {
+      const res = await db.query(
+        `select r.*,
+           (select count(*) from runbook_run_steps s where s.run_id = r.id) as step_count,
+           (select count(*) from runbook_run_steps s where s.run_id = r.id and s.checked_at is not null) as done_count
+         from runbook_runs r
+         where r.document_id is null
+         order by r.started_at desc`,
+      );
+      return res.rows.map((row) => ({
+        ...normalizeRunRow(row),
+        stepCount: Number(row.step_count) || 0,
+        doneCount: Number(row.done_count) || 0,
+      }));
+    },
+
+    // A run read is three queries (run row, steps, events); one transaction
+    // makes them a single snapshot, so a write landing between them cannot
+    // yield a run whose steps/chronicle it never actually had.
     async getRun(runId) {
-      return loadRun(db, runId);
+      const client = await db.connect();
+      try {
+        await client.query('begin immediate');
+        try {
+          const run = await loadRun(client, runId);
+          await client.query('commit');
+          return run;
+        } catch (err) {
+          await client.query('rollback').catch(() => {});
+          throw err;
+        }
+      } finally {
+        client.release();
+      }
     },
 
     // Current checkbox state is materialized for fast rendering; every actual

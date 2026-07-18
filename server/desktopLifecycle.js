@@ -35,6 +35,8 @@ export function installDesktopStdinControl({ input, shutdown }) {
     if (disposed) return;
     disposed = true;
     input.off('data', onData);
+    input.off('end', onParentGone);
+    input.off('close', onParentGone);
   }
 
   function onData(chunk) {
@@ -51,8 +53,19 @@ export function installDesktopStdinControl({ input, shutdown }) {
     }
   }
 
+  // Stdin EOF means the Tauri parent is gone — crash, force-quit, OOM-kill —
+  // without ever writing 'shutdown'. Ignoring it left the sidecar running
+  // forever as an orphan holding the database open (and, after an update, an
+  // old-version server still mutating it).
+  function onParentGone() {
+    dispose();
+    void shutdown();
+  }
+
   input.setEncoding?.('utf8');
   input.on('data', onData);
+  input.on('end', onParentGone);
+  input.on('close', onParentGone);
   input.resume?.();
   return dispose;
 }

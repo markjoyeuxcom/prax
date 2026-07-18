@@ -38,7 +38,11 @@ function recovery(overrides = {}) {
 test('capture recovery round-trips visible and parsed draft state', () => {
   const storage = memoryStorage();
   assert.equal(storeTaskCaptureRecovery(storage, recovery()), true);
-  assert.deepEqual(loadTaskCaptureRecovery(storage), recovery({
+  // Every write stamps this tab's owner token (multi-tab clear guard).
+  const { owner, ...loaded } = loadTaskCaptureRecovery(storage);
+  assert.equal(typeof owner, 'string');
+  assert.ok(owner.length > 0);
+  assert.deepEqual(loaded, recovery({
     nlFields: { priority: 'high', labels: ['waiting'] },
   }));
 });
@@ -78,4 +82,54 @@ test('empty, malformed, and explicitly cleared capture recovery does not resurre
   storeTaskCaptureRecovery(storage, recovery());
   assert.equal(clearTaskCaptureRecovery(storage), true);
   assert.equal(loadTaskCaptureRecovery(storage), null);
+});
+
+// ---- Multi-tab ownership guard ----------------------------------------------
+// The key is shared across tabs. A tab that opens a fresh capture must not
+// clobber a draft another tab is still typing — but the user explicitly
+// discarding, or a confirmed-created payload, must clear regardless of owner.
+
+function foreignDraft(overrides = {}) {
+  // What another tab's storeTaskCaptureRecovery would persist: same schema,
+  // its own owner token.
+  return JSON.stringify({
+    schemaVersion: 1,
+    ...recovery(overrides),
+    owner: 'some-other-tab',
+    savedAt: new Date().toISOString(),
+  });
+}
+
+test('clear skips a draft owned by another tab by default', () => {
+  const storage = memoryStorage();
+  storage.setItem(TASK_CAPTURE_RECOVERY_KEY, foreignDraft());
+  assert.equal(clearTaskCaptureRecovery(storage), false);
+  assert.equal(loadTaskCaptureRecovery(storage).query, 'Ship release');
+  // ...and a load still reads it: recovery restore after reload is cross-tab.
+  assert.equal(loadTaskCaptureRecovery(storage).owner, 'some-other-tab');
+});
+
+test('force clears a draft regardless of its owner', () => {
+  const storage = memoryStorage();
+  storage.setItem(TASK_CAPTURE_RECOVERY_KEY, foreignDraft());
+  assert.equal(clearTaskCaptureRecovery(storage, { force: true }), true);
+  assert.equal(loadTaskCaptureRecovery(storage), null);
+});
+
+test('clear removes this tab\'s own draft without force', () => {
+  const storage = memoryStorage();
+  storeTaskCaptureRecovery(storage, recovery());
+  assert.equal(clearTaskCaptureRecovery(storage), true);
+  assert.equal(loadTaskCaptureRecovery(storage), null);
+});
+
+test('clear still removes ownerless (legacy) and corrupt payloads by default', () => {
+  const storage = memoryStorage();
+  const { owner, ...legacy } = JSON.parse(foreignDraft());
+  storage.setItem(TASK_CAPTURE_RECOVERY_KEY, JSON.stringify(legacy));
+  assert.equal(clearTaskCaptureRecovery(storage), true);
+  assert.equal(storage.getItem(TASK_CAPTURE_RECOVERY_KEY), null);
+  storage.setItem(TASK_CAPTURE_RECOVERY_KEY, '{bad json');
+  assert.equal(clearTaskCaptureRecovery(storage), true);
+  assert.equal(storage.getItem(TASK_CAPTURE_RECOVERY_KEY), null);
 });

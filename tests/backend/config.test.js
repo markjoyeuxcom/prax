@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isLoopbackHost, loadConfig } from '../../server/config.js';
+import { assertSafeNetworkBinding, isLoopbackHost, loadConfig } from '../../server/config.js';
 
 test('loadConfig exposes embedding defaults', () => {
   const c = loadConfig({});
@@ -19,21 +19,37 @@ test('loopback classification is conservative across IPv4, IPv6, and hostnames',
   }
 });
 
-test('loadConfig refuses an accidental unauthenticated network bind', () => {
+// Regression (2026-07-18 review): the refusal used to run inside loadConfig,
+// which broke non-listening CLIs (backup, migrate) under a HOST=0.0.0.0
+// deployment. Config load must stay permissive; only the listen path refuses.
+test('the unauthenticated network bind refusal guards listen, not config load', () => {
+  const config = loadConfig({ HOST: '0.0.0.0' });
+  assert.equal(config.host, '0.0.0.0');
+  assert.equal(config.allowUnauthenticatedNetwork, false);
   assert.throws(
-    () => loadConfig({ HOST: '0.0.0.0' }),
+    () => assertSafeNetworkBinding(config),
     /Refusing to bind unauthenticated Prax.*PRAX_ALLOW_UNAUTHENTICATED_NETWORK=true/,
   );
 });
 
-test('loadConfig permits a deliberately acknowledged network bind for containers', () => {
+test('a deliberately acknowledged network bind passes the listen assertion', () => {
   const config = loadConfig({
     HOST: '0.0.0.0',
     PRAX_ALLOW_UNAUTHENTICATED_NETWORK: 'true',
   });
   assert.equal(config.host, '0.0.0.0');
   assert.equal(config.allowUnauthenticatedNetwork, true);
-  assert.throws(() => loadConfig({ HOST: '0.0.0.0', PRAX_ALLOW_UNAUTHENTICATED_NETWORK: 'TRUE' }));
+  assertSafeNetworkBinding(config);
+  // Acknowledgement is an exact opt-in: any other spelling still refuses.
+  assert.throws(
+    () => assertSafeNetworkBinding(loadConfig({ HOST: '0.0.0.0', PRAX_ALLOW_UNAUTHENTICATED_NETWORK: 'TRUE' })),
+    /Refusing to bind unauthenticated Prax/,
+  );
+});
+
+test('loopback binds pass the listen assertion without acknowledgement', () => {
+  assertSafeNetworkBinding(loadConfig({}));
+  assertSafeNetworkBinding(loadConfig({ HOST: 'localhost' }));
 });
 
 test('loadConfig reads embedding env overrides', () => {

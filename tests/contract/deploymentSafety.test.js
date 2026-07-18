@@ -5,10 +5,17 @@ import { readFile } from 'node:fs/promises';
 const root = new URL('../../', import.meta.url);
 const read = async (path) => readFile(new URL(path, root), 'utf8');
 
-test('container image does not bake in a remotely reachable unauthenticated listener', async () => {
+// Re-pinned 2026-07-18 (plan item 22): the image BAKES the container bind.
+// A container serving loopback is unusable by definition — `docker run -p`
+// published a port that black-holed while the logs looked healthy. Inside the
+// container boundary 0.0.0.0 is the only useful bind, and exposure remains
+// the operator's decision at the port-publish/network layer (the compose and
+// k8s pins below keep host-side exposure loopback/ClusterIP-only). Bare-metal
+// keeps the secure loopback default in server/config.js.
+test('container image bakes the container-network bind with the explicit acknowledgement', async () => {
   const dockerfile = await read('deploy/Dockerfile');
-  assert.doesNotMatch(dockerfile, /^ENV HOST=/m);
-  assert.doesNotMatch(dockerfile, /PRAX_ALLOW_UNAUTHENTICATED_NETWORK/);
+  assert.match(dockerfile, /^ENV HOST=0\.0\.0\.0\s*$/m);
+  assert.match(dockerfile, /^ENV PRAX_ALLOW_UNAUTHENTICATED_NETWORK=true\s*$/m);
 });
 
 test('Compose opts the container process in but publishes Prax on host loopback only', async () => {

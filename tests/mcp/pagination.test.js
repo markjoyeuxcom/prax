@@ -52,3 +52,10 @@ test('pagination input schemas enforce integer bounds', () => {
   assert.equal(schema.offset.safeParse(-1).success, false);
   assert.equal(schema.offset.safeParse(1.5).success, false);
 });
+
+// Regressions (2026-07-18 review): the cursor contract.
+test('an empty page never advances the cursor (no infinite loop for agents)', () => {
+  const page = pageEnvelope([], 50, { limit: 20, offset: 10 });
+  assert.equal(page.page.hasMore, false);
+  assert.equal(page.page.nextOffset, null);
+});

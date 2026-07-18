@@ -93,10 +93,15 @@ export function collectSources(pack) {
 // exact citation is not presented as grounded. Unknown square-bracket
 // citations are rejected too (Markdown links and checkboxes are ignored).
 export function validateAnswerCitations(answer, sources) {
-  const known = new Set((Array.isArray(sources) ? sources : [])
+  // Case-insensitive lookup that returns the CANONICAL title: the comparison
+  // used to be case-sensitive despite the comment below promising otherwise,
+  // so a model citing [postgres failover runbook] for "Postgres Failover
+  // Runbook" had its fully-grounded answer discarded as uncited.
+  const knownByFold = new Map((Array.isArray(sources) ? sources : [])
     .map((source) => String(source?.title || '').trim())
-    .filter(Boolean));
-  if (known.size === 0) return { valid: true, citations: [], unknown: [] };
+    .filter(Boolean)
+    .map((title) => [title.toLowerCase(), title]));
+  if (knownByFold.size === 0) return { valid: true, citations: [], unknown: [] };
 
   const citations = [];
   const unknown = [];
@@ -106,7 +111,7 @@ export function validateAnswerCitations(answer, sources) {
   while ((match = pattern.exec(text)) !== null) {
     const title = match[1].trim();
     if (!title || /^(?:x| )$/i.test(title)) continue;
-    if (known.has(title)) citations.push(title);
+    if (knownByFold.has(title.toLowerCase())) citations.push(knownByFold.get(title.toLowerCase()));
     // Technical answers legitimately contain array indexes, shell tests, and
     // other bracket syntax. Treat only title-like capitalized phrases as an
     // unknown citation; exact known titles are accepted regardless of casing.

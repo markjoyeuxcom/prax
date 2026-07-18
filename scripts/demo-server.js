@@ -1,5 +1,5 @@
 import { randomUUID, createHash } from 'node:crypto';
-import { loadConfig } from '../server/config.js';
+import { assertSafeNetworkBinding, loadConfig } from '../server/config.js';
 
 const hashBody = (b) => createHash('sha256').update(String(b ?? '')).digest('hex');
 import { buildApp } from '../server/index.js';
@@ -716,4 +716,7 @@ const app = await buildApp({
   embeddingService: null,
 });
 
+// Guard every listen path: the unauthenticated-network refusal no longer runs
+// in loadConfig (non-listening CLIs share that code path).
+assertSafeNetworkBinding(config);
 await app.listen({ host: config.host, port: config.port });
