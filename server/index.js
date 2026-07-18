@@ -13,6 +13,7 @@ import { createEmbedder } from './embedder/index.js';
 import { createEmbedderProvider } from './embedderProvider.js';
 import { createChatProvider } from './chatProvider.js';
 import { registerSettingsRoutes } from './settingsRoutes.js';
+import { registerGoogleCalendarRoutes } from './googleCalendarRoutes.js';
 import { registerAssistantRoutes } from './assistantRoutes.js';
 import {
   announceDesktopReady,
@@ -90,6 +91,7 @@ export async function buildApp(options = {}) {
   await registerProjectsRoutes(app, options);
   await registerChecklistRoutes(app, options);
   await registerSettingsRoutes(app, { config, appSettingsRepository, embedder: options.embedder, embedderProvider, chat: options.chat, chatProvider, libraryRepository });
+  await registerGoogleCalendarRoutes(app, { ...options, appSettingsRepository });
   registerAssistantRoutes(app, options);
 
   await app.register(fastifyStatic, {

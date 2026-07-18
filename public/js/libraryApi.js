@@ -184,6 +184,59 @@ export async function putChatSettings(patch) {
   return response.json();
 }
 
+// Google Calendar integration — status / settings / connect / sync / disconnect.
+// Status is { configured, connected, calendarId, accountEmail, lastSyncAt,
+// lastSyncSummary, hasClientSecret } — the client secret is write-only and
+// never returned. Sync failures come back 200 { degraded, reason, message }.
+export async function fetchGoogleCalendarStatus() {
+  const res = await fetch('/api/integrations/google-calendar');
+  if (!res.ok) throw new Error('Failed to load Google Calendar status');
+  return res.json();
+}
+
+export async function putGoogleCalendarSettings(patch) {
+  const response = await fetch('/api/integrations/google-calendar/settings', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(patch || {}),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    const error = new Error(payload?.message || 'Failed to update Google Calendar settings');
+    error.status = response.status;
+    throw error;
+  }
+  return response.json();
+}
+
+// Begins the OAuth consent flow: returns { authUrl } to open in a browser tab.
+// 409 (not configured yet) throws with the server's actionable message.
+export async function connectGoogleCalendar() {
+  const response = await fetch('/api/integrations/google-calendar/connect', { method: 'POST' });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    const error = new Error(payload?.message || 'Failed to start the Google sign-in');
+    error.status = response.status;
+    throw error;
+  }
+  return response.json();
+}
+
+// One-way push of open dated tasks. Returns { pushed, removed, failed,
+// failures, summary, degraded?, reason?, message? } — partial failure is
+// reported as degraded, never as clean success.
+export async function syncGoogleCalendar() {
+  const res = await fetch('/api/integrations/google-calendar/sync', { method: 'POST' });
+  if (!res.ok) throw new Error('Google Calendar sync failed');
+  return res.json();
+}
+
+export async function disconnectGoogleCalendar() {
+  const res = await fetch('/api/integrations/google-calendar/disconnect', { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to disconnect Google Calendar');
+  return res.json();
+}
+
 export async function setSemanticEnabled(enabled) {
   const res = await fetch('/api/settings/semantic-search', {
     method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled }),

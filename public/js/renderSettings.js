@@ -6,7 +6,7 @@ import {
   READING_SCALE_MAX,
 } from './preferences.js';
 
-// Settings view — Appearance / Intelligence / Data & admin cards.
+// Settings view — Appearance / Intelligence / Integrations / Data & admin cards.
 // Pure state → HTML string; events delegate via data-action in main.js.
 // Intelligence shows the REAL backend status (no fake provider switching);
 // the old admin panel + library maintenance fold into Data & admin.
@@ -341,6 +341,86 @@ function renderIntelligenceCard(state) {
   </section>`;
 }
 
+// Last-sync timestamps render as local date + time; an unparseable value falls
+// back to the raw string rather than "Invalid Date".
+function formatSyncTime(iso) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return String(iso);
+  return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+// Integrations tab — Google Calendar one-way push. Mirrors the Intelligence
+// card's conventions: real backend status only, write-only secret (never
+// echoed — hasClientSecret drives a placeholder), pending locks every
+// consequential control, degraded notices live in state.
+function renderIntegrationsCard(state) {
+  const status = state.googleCalendarStatus && typeof state.googleCalendarStatus === 'object'
+    ? state.googleCalendarStatus
+    : null;
+  const draft = state.googleCalendarDraft && typeof state.googleCalendarDraft === 'object'
+    ? state.googleCalendarDraft
+    : { clientId: '', clientSecret: '' };
+  const pending = Boolean(state.googleCalendarPending);
+  const loading = !status || status.loading === true;
+  const locked = pending || loading || Boolean(status?.loadError);
+  const configured = status?.configured === true;
+  const connected = status?.connected === true;
+
+  const statusLine = loading
+    ? 'Checking Google Calendar status…'
+    : status.loadError
+      ? `<span role="alert" style="color:var(--danger);">${escapeHtml(status.loadError)}</span> <button class="settings-link" type="button" data-action="retry-google-calendar-status">Retry status</button>`
+      : connected
+        ? `Connected${status.accountEmail ? ` as ${escapeHtml(status.accountEmail)}` : ''} — calendar created${status.lastSyncAt
+          ? `; last sync: ${escapeHtml(formatSyncTime(status.lastSyncAt))} — ${escapeHtml(status.lastSyncSummary || '')}`
+          : '; not synced yet'}.`
+        : configured
+          ? 'Configured but not connected — click Connect to sign in with Google.'
+          : 'Not configured — save a Google OAuth client id and secret to begin.';
+
+  // Sync results and degraded messages (multi-line: one line per failure).
+  const notice = state.googleCalendarNotice
+    ? `<div class="settings-row__desc" data-gcal-notice role="status" style="margin-top:6px; white-space:pre-line;">${escapeHtml(state.googleCalendarNotice)}</div>`
+    : '';
+
+  const secretPlaceholder = status?.hasClientSecret ? '(saved)' : 'required';
+
+  return `
+  <section class="settings-card">
+    <h2 class="settings-card__title">Integrations</h2>
+    <p class="settings-card__sub">Connect Prax to outside services.</p>
+
+    <div class="settings-row">
+      <div class="settings-row__text">
+        <div class="settings-row__label">Google Calendar</div>
+        <div class="settings-row__desc">One-way push: open tasks with a due date are copied into a dedicated “Prax” calendar in your Google account — nothing in Google is read back. Create a <strong>Desktop</strong>-type OAuth client in Google Cloud Console and paste its id and secret below.</div>
+        <div class="settings-row__desc" data-gcal-status style="margin-top:6px;">${statusLine}</div>
+        ${notice}
+      </div>
+    </div>
+
+    <div class="settings-row">
+      <div class="settings-row__text" style="display:flex; flex-direction:column; gap:8px;">
+        <div class="settings-row__label">OAuth client</div>
+        <div class="editor-info__field"><label>Client ID</label><input class="text-input" type="text" data-gcal-client-id value="${escapeHtml(draft.clientId || '')}" autocomplete="off"${locked ? ' disabled' : ''}></div>
+        <div class="editor-info__field"><label>Client secret</label><input class="text-input" type="password" data-gcal-client-secret value="${escapeHtml(draft.clientSecret || '')}" placeholder="${secretPlaceholder}" autocomplete="off"${locked ? ' disabled' : ''}></div>
+        <div class="settings-row__desc">The secret is stored in the local database and never returned by the API.</div>
+        <div style="display:flex; justify-content:flex-end;"><button class="btn-outline" type="button" data-action="save-google-calendar"${locked ? ' disabled' : ''}>Save</button></div>
+      </div>
+    </div>
+
+    <div class="settings-row">
+      <div class="settings-row__text">
+        <div class="settings-row__label">Connection</div>
+        <div class="settings-row__desc">Connect opens Google sign-in in a new tab; Prax notices the callback automatically. Sync now pushes open dated tasks. Disconnect keeps the “Prax” calendar in Google.</div>
+      </div>
+      <button class="btn-outline" type="button" data-action="connect-google-calendar"${configured && !locked ? '' : ' disabled'}>Connect</button>
+      <button class="btn-outline" type="button" data-action="sync-google-calendar"${connected && !locked ? '' : ' disabled'}>Sync now</button>
+      <button class="btn-outline" type="button" data-action="disconnect-google-calendar"${connected && !locked ? '' : ' disabled'}>Disconnect…</button>
+    </div>
+  </section>`;
+}
+
 function importModeRadio(mode, label, activeMode, { disabled = false } = {}) {
   return `
         <label style="display:inline-flex; align-items:center; gap:5px; font-size:12px;">
@@ -514,6 +594,7 @@ function renderDataCard(state, model) {
 const SETTINGS_TABS = [
   ['appearance', 'Appearance'],
   ['intelligence', 'Intelligence'],
+  ['integrations', 'Integrations'],
   ['data', 'Data & admin'],
 ];
 
@@ -524,9 +605,11 @@ export function renderSettingsHtml(state, model = {}) {
     : 'appearance';
   const card = tab === 'intelligence'
     ? renderIntelligenceCard(state)
-    : tab === 'data'
-      ? renderDataCard(state, model)
-      : renderAppearanceCard(preferences);
+    : tab === 'integrations'
+      ? renderIntegrationsCard(state)
+      : tab === 'data'
+        ? renderDataCard(state, model)
+        : renderAppearanceCard(preferences);
   return `
   <div class="page page--settings">
     <div class="page-head">

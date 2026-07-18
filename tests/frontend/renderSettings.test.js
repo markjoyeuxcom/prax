@@ -246,6 +246,177 @@ test('pending provider mutation locks both sections and retains in-memory correc
   assert.match(html, /data-action="set-ai-chat-provider" data-backend="none" disabled/);
   assert.match(html, /data-action="toggle-semantic-search"[^>]*disabled aria-busy="true"/);
 });
+// ---- Integrations ----------------------------------------------------------
+
+function gcalStatus(overrides = {}) {
+  return {
+    configured: false,
+    connected: false,
+    calendarId: null,
+    accountEmail: null,
+    lastSyncAt: null,
+    lastSyncSummary: null,
+    hasClientSecret: false,
+    ...overrides,
+  };
+}
+
+test('integrations tab renders in the strip (after intelligence) with the Google Calendar card', () => {
+  const html = renderSettingsHtml(baseState({ settingsTab: 'integrations' }), baseModel());
+  assert.match(html, /class="tabs__tab is-active"[^>]*data-action="set-settings-tab" data-tab="integrations"/);
+  assert.match(html, /settings-card__title">Integrations</);
+  assert.doesNotMatch(html, /settings-card__title">Appearance</);
+  // explainer: one-way push into the dedicated calendar + Desktop OAuth hint
+  assert.match(html, /One-way push/);
+  assert.match(html, /“Prax” calendar/);
+  assert.match(html, /<strong>Desktop<\/strong>-type OAuth client in Google Cloud Console/);
+  // config inputs + all four actions
+  assert.match(html, /type="text" data-gcal-client-id/);
+  assert.match(html, /type="password" data-gcal-client-secret/);
+  assert.match(html, /data-action="save-google-calendar"/);
+  assert.match(html, /data-action="connect-google-calendar"/);
+  assert.match(html, /data-action="sync-google-calendar"/);
+  assert.match(html, /data-action="disconnect-google-calendar"/);
+  // tab order: appearance, intelligence, integrations, data
+  const order = ['data-tab="appearance"', 'data-tab="intelligence"', 'data-tab="integrations"', 'data-tab="data"']
+    .map((needle) => html.indexOf(needle));
+  assert.ok(order.every((index) => index !== -1));
+  assert.deepEqual(order, [...order].sort((a, b) => a - b));
+});
+
+test('null status renders the checking line and locks the card until loaded', () => {
+  const html = renderSettingsHtml(baseState({ settingsTab: 'integrations', googleCalendarStatus: null }), baseModel());
+  assert.match(html, /data-gcal-status[^>]*>Checking Google Calendar status…/);
+  assert.match(html, /data-gcal-client-id[^>]*disabled/);
+  assert.match(html, /data-action="save-google-calendar" disabled/);
+  assert.match(html, /data-action="connect-google-calendar" disabled/);
+});
+
+test('not configured: invitation status, save enabled, connect/sync/disconnect disabled', () => {
+  const html = renderSettingsHtml(baseState({
+    settingsTab: 'integrations',
+    googleCalendarStatus: gcalStatus(),
+  }), baseModel());
+  assert.match(html, /Not configured — save a Google OAuth client id and secret to begin\./);
+  assert.match(html, /data-action="save-google-calendar">Save</);
+  assert.doesNotMatch(html, /data-action="save-google-calendar" disabled/);
+  assert.match(html, /data-action="connect-google-calendar" disabled/);
+  assert.match(html, /data-action="sync-google-calendar" disabled/);
+  assert.match(html, /data-action="disconnect-google-calendar" disabled/);
+  // no secret saved yet: the placeholder says required, like the AI key field
+  assert.match(html, /data-gcal-client-secret value="" placeholder="required"/);
+});
+
+test('configured but not connected: connect enabled, sync/disconnect still disabled', () => {
+  const html = renderSettingsHtml(baseState({
+    settingsTab: 'integrations',
+    googleCalendarStatus: gcalStatus({ configured: true, hasClientSecret: true }),
+  }), baseModel());
+  assert.match(html, /Configured but not connected — click Connect to sign in with Google\./);
+  assert.match(html, /data-action="connect-google-calendar">Connect</);
+  assert.match(html, /data-action="sync-google-calendar" disabled/);
+  assert.match(html, /data-action="disconnect-google-calendar" disabled/);
+});
+
+test('the client secret is never echoed — hasClientSecret shows the (saved) placeholder', () => {
+  const html = renderSettingsHtml(baseState({
+    settingsTab: 'integrations',
+    googleCalendarStatus: gcalStatus({ configured: true, hasClientSecret: true }),
+  }), baseModel());
+  assert.match(html, /type="password" data-gcal-client-secret value="" placeholder="\(saved\)"/);
+  assert.doesNotMatch(html, /data-gcal-client-secret value="[^"]+"/);
+});
+
+test('connected: status line carries account, calendar-created, last sync time and summary', () => {
+  const html = renderSettingsHtml(baseState({
+    settingsTab: 'integrations',
+    googleCalendarStatus: gcalStatus({
+      configured: true, connected: true, calendarId: 'cal_1',
+      accountEmail: 'mark@example.com',
+      lastSyncAt: '2026-07-18T14:00:00.000Z', lastSyncSummary: '3 pushed, 1 removed',
+      hasClientSecret: true,
+    }),
+  }), baseModel());
+  assert.match(html, /Connected as mark@example\.com — calendar created; last sync: /);
+  assert.match(html, /3 pushed, 1 removed/);
+  assert.match(html, /data-action="sync-google-calendar">Sync now</);
+  assert.match(html, /data-action="disconnect-google-calendar">Disconnect…</);
+  assert.match(html, /data-action="connect-google-calendar">Connect</);
+});
+
+test('connected but never synced says so instead of inventing a sync time', () => {
+  const html = renderSettingsHtml(baseState({
+    settingsTab: 'integrations',
+    googleCalendarStatus: gcalStatus({ configured: true, connected: true, hasClientSecret: true }),
+  }), baseModel());
+  assert.match(html, /Connected — calendar created; not synced yet\./);
+  assert.doesNotMatch(html, /last sync:/);
+});
+
+test('sync notices render in the degraded message area with per-failure lines', () => {
+  const html = renderSettingsHtml(baseState({
+    settingsTab: 'integrations',
+    googleCalendarStatus: gcalStatus({ configured: true, connected: true, hasClientSecret: true }),
+    googleCalendarNotice: 'Synced: 2 pushed, 0 removed, 1 FAILED\nFailed: Ship the report — 403 forbidden',
+  }), baseModel());
+  assert.match(html, /data-gcal-notice role="status"[^>]*white-space:pre-line/);
+  assert.match(html, /Synced: 2 pushed, 0 removed, 1 FAILED/);
+  assert.match(html, /Failed: Ship the report — 403 forbidden/);
+});
+
+test('pending Google Calendar mutation locks inputs and every action button', () => {
+  const html = renderSettingsHtml(baseState({
+    settingsTab: 'integrations',
+    googleCalendarPending: true,
+    googleCalendarStatus: gcalStatus({ configured: true, connected: true, hasClientSecret: true }),
+  }), baseModel());
+  assert.match(html, /data-gcal-client-id[^>]*disabled/);
+  assert.match(html, /data-gcal-client-secret[^>]*disabled/);
+  assert.match(html, /data-action="save-google-calendar" disabled/);
+  assert.match(html, /data-action="connect-google-calendar" disabled/);
+  assert.match(html, /data-action="sync-google-calendar" disabled/);
+  assert.match(html, /data-action="disconnect-google-calendar" disabled/);
+});
+
+test('status load failures alert and offer a retry, locking mutations meanwhile', () => {
+  const html = renderSettingsHtml(baseState({
+    settingsTab: 'integrations',
+    googleCalendarStatus: { loading: false, loadError: 'Google Calendar status failed' },
+  }), baseModel());
+  assert.match(html, /role="alert"[^>]*>Google Calendar status failed/);
+  assert.match(html, /data-action="retry-google-calendar-status"/);
+  assert.match(html, /data-action="save-google-calendar" disabled/);
+  assert.match(html, /data-action="connect-google-calendar" disabled/);
+});
+
+test('the draft keeps typed OAuth values render-stable and escapes them', () => {
+  const html = renderSettingsHtml(baseState({
+    settingsTab: 'integrations',
+    googleCalendarStatus: gcalStatus(),
+    googleCalendarDraft: { clientId: '123.apps.googleusercontent.com', clientSecret: 'typed-"secret"' },
+  }), baseModel());
+  assert.match(html, /data-gcal-client-id value="123\.apps\.googleusercontent\.com"/);
+  // the user's own in-progress typing is preserved (this is the draft, not an echo)
+  assert.match(html, /data-gcal-client-secret value="typed-&quot;secret&quot;"/);
+});
+
+test('escapes hostile Google Calendar status fields and notices', () => {
+  const html = renderSettingsHtml(baseState({
+    settingsTab: 'integrations',
+    googleCalendarStatus: gcalStatus({
+      configured: true, connected: true, hasClientSecret: true,
+      accountEmail: '<script>mail</script>',
+      lastSyncAt: '2026-07-18T14:00:00.000Z',
+      lastSyncSummary: '<script>sum</script>',
+    }),
+    googleCalendarNotice: '<script>notice</script>',
+  }), baseModel());
+  assert.ok(!html.includes('<script>'));
+  assert.match(html, /&lt;script&gt;mail&lt;\/script&gt;/);
+  assert.match(html, /&lt;script&gt;sum&lt;\/script&gt;/);
+  assert.match(html, /&lt;script&gt;notice&lt;\/script&gt;/);
+});
+
 // ---- Data & admin ----------------------------------------------------------
 
 test('task export rows carry actions and the active project name', () => {
