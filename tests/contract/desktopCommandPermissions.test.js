@@ -6,6 +6,8 @@ const COMMAND = 'save_library_export';
 const PERMISSION = `allow-${COMMAND.replaceAll('_', '-')}`;
 const RESTART_COMMAND = 'restart_prax';
 const RESTART_PERMISSION = `allow-${RESTART_COMMAND.replaceAll('_', '-')}`;
+const CAPTURE_COMMAND = 'hide_capture_window';
+const CAPTURE_PERMISSION = `allow-${CAPTURE_COMMAND.replaceAll('_', '-')}`;
 
 test('the localhost desktop webview has an explicit grant for every exported Library save command', () => {
   const rust = readFileSync(new URL('../../src-tauri/src/lib.rs', import.meta.url), 'utf8');
@@ -19,11 +21,21 @@ test('the localhost desktop webview has an explicit grant for every exported Lib
     'utf8',
   ));
 
+  const captureCapability = JSON.parse(readFileSync(
+    new URL('../../src-tauri/capabilities/capture.json', import.meta.url),
+    'utf8',
+  ));
+
   assert.match(rust, new RegExp(`#\\[tauri::command\\][\\s\\S]*?async fn ${COMMAND}\\b`));
   assert.doesNotMatch(rust, /blocking_save_file/);
   assert.match(rust, /dialog\.save_file\(move \|selected\|/);
   assert.match(rust, /spawn_blocking\(move \|\| receiver\.recv\(\)\)/);
-  assert.match(build, new RegExp(`AppManifest::new\\(\\)\\.commands\\(&\\["${COMMAND}", "${RESTART_COMMAND}"\\]\\)`));
+  // The IPC surface is pinned command-by-command: growing it must update this
+  // list consciously. (Pin updated for the system-wide capture bar's
+  // hide_capture_window — its ONLY IPC.)
+  assert.match(build, new RegExp(
+    `AppManifest::new\\(\\)\\.commands\\(&\\[\\s*"${COMMAND}",\\s*"${RESTART_COMMAND}",\\s*"${CAPTURE_COMMAND}",\\s*\\]\\)`,
+  ));
   assert.ok(capability.remote.urls.includes('http://127.0.0.1:*'));
   assert.ok(capability.permissions.includes(PERMISSION));
   assert.deepEqual(
@@ -32,6 +44,14 @@ test('the localhost desktop webview has an explicit grant for every exported Lib
   );
   assert.ok(localCapability.permissions.includes(RESTART_PERMISSION));
   assert.ok(!capability.permissions.includes(RESTART_PERMISSION));
+
+  // The capture bar window gets exactly one permission (hide itself) and the
+  // main-window capabilities never gain it.
+  assert.deepEqual(captureCapability.windows, ['capture']);
+  assert.ok(captureCapability.remote.urls.includes('http://127.0.0.1:*'));
+  assert.deepEqual(captureCapability.permissions, [CAPTURE_PERMISSION]);
+  assert.ok(!capability.permissions.includes(CAPTURE_PERMISSION));
+  assert.ok(!localCapability.permissions.includes(CAPTURE_PERMISSION));
 });
 
 test('desktop sidecar owns its ephemeral bind and supports bounded graceful recovery', () => {

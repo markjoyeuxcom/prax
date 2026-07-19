@@ -22,8 +22,17 @@ use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
+#[cfg(desktop)]
+use tauri::menu::{Menu, MenuItem};
+#[cfg(desktop)]
+use tauri::tray::TrayIconBuilder;
+#[cfg(desktop)]
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 const READY_PREFIX: &str = "PRAX_DESKTOP_READY ";
+// System-wide capture summon. Contended defaults are useless — this chord is
+// rarely claimed; registration failure surfaces in the tray tooltip.
+const CAPTURE_SHORTCUT: &str = "CmdOrCtrl+Shift+Space";
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_SERVER_LOG_BYTES: u64 = 5 * 1024 * 1024;
@@ -492,6 +501,20 @@ fn open_window(
             .title_bar_style(tauri::TitleBarStyle::Overlay)
             .hidden_title(true);
         let window = builder.build();
+        // The sidecar-served app window closes to the tray (capture and quick
+        // reopen stay alive); recovery windows keep close-to-exit so a failed
+        // startup cannot leave a hidden zombie process.
+        if let Ok(window) = &window {
+            if sidecar_port.is_some() {
+                let hidden = window.clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = hidden.hide();
+                    }
+                });
+            }
+        }
         if let (Ok(window), Some((heading, detail))) = (window, recovery) {
             let _ = window.eval(&format!(
                 "addEventListener('DOMContentLoaded',()=>{{document.body.dataset.state='error';document.getElementById('heading').textContent={heading:?};document.getElementById('detail').textContent={detail:?};document.getElementById('restart').hidden=false;}});"
@@ -503,6 +526,135 @@ fn open_window(
 #[tauri::command]
 fn restart_prax(app: AppHandle) {
     begin_server_shutdown(app, AfterShutdown::Restart);
+}
+
+// Esc / post-capture dismissal from the capture bar page. Hide, never destroy:
+// the next summon is instant and the draft field state survives.
+#[tauri::command]
+fn hide_capture_window(app: AppHandle) {
+    if let Some(window) = app.get_webview_window("capture") {
+        let _ = window.hide();
+    }
+}
+
+fn current_sidecar_port(app: &AppHandle) -> Option<u16> {
+    match &*app.state::<ServerProcess>().phase.lock().unwrap() {
+        ServerPhase::Ready(port) => Some(*port),
+        _ => None,
+    }
+}
+
+fn platform_name() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "windows") {
+        "windows"
+    } else {
+        "linux"
+    }
+}
+
+// Tray "Open Prax", macOS dock reopen, and second-launch focus all funnel
+// here: show the hidden main window, or rebuild it if it was destroyed.
+fn show_main_window(handle: &AppHandle) {
+    if let Some(window) = handle.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    } else if let Some(port) = current_sidecar_port(handle) {
+        let url = format!(
+            "http://127.0.0.1:{port}/?shell=desktop&platform={}",
+            platform_name()
+        )
+        .parse()
+        .expect("port url always parses");
+        open_window(handle, WebviewUrl::External(url), Some(port), None);
+    }
+}
+
+// Summon the system-wide capture bar: a small always-on-top window served by
+// the sidecar (capture.html), created once and then shown/hidden. Before the
+// server is ready there is nothing to capture into — fall back to the main
+// window so the user sees the real startup state instead of nothing.
+fn open_capture_window(handle: &AppHandle) {
+    let Some(port) = current_sidecar_port(handle) else {
+        show_main_window(handle);
+        return;
+    };
+    let handle = handle.clone();
+    let _ = handle.clone().run_on_main_thread(move || {
+        if let Some(existing) = handle.get_webview_window("capture") {
+            let _ = existing.show();
+            let _ = existing.set_focus();
+            return;
+        }
+        let url: tauri::Url = format!("http://127.0.0.1:{port}/capture.html?shell=desktop")
+            .parse()
+            .expect("capture url always parses");
+        let window = WebviewWindowBuilder::new(&handle, "capture", WebviewUrl::External(url))
+            .title("Prax capture")
+            .inner_size(640.0, 128.0)
+            .resizable(false)
+            .decorations(false)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .center()
+            .on_navigation(move |url| navigation_allowed(url, Some(port)))
+            .build();
+        if let Ok(window) = window {
+            // Focus leaving the bar dismisses it (hide, not destroy).
+            let dismissed = window.clone();
+            window.on_window_event(move |event| {
+                if let tauri::WindowEvent::Focused(false) = event {
+                    let _ = dismissed.hide();
+                }
+            });
+            let _ = window.set_focus();
+        }
+    });
+}
+
+#[cfg(desktop)]
+fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
+    let capture = MenuItem::with_id(app, "capture", "Capture task", true, None::<&str>)?;
+    let open = MenuItem::with_id(app, "open", "Open Prax", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit Prax", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&capture, &open, &quit])?;
+    let mut tray = TrayIconBuilder::with_id("prax-tray")
+        .menu(&menu)
+        .show_menu_on_left_click(true)
+        .tooltip("Prax")
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "capture" => open_capture_window(app),
+            "open" => show_main_window(app),
+            "quit" => begin_server_shutdown(app.clone(), AfterShutdown::Exit(0)),
+            _ => {}
+        });
+    if let Some(icon) = app.default_window_icon() {
+        tray = tray.icon(icon.clone());
+    }
+    tray.build(app)?;
+    Ok(())
+}
+
+// Registration failure (another app owns the chord) is a degraded state, not
+// an error: the tray path still works, and the tooltip says what happened.
+#[cfg(desktop)]
+fn register_capture_shortcut(handle: &AppHandle) {
+    let outcome = handle
+        .global_shortcut()
+        .on_shortcut(CAPTURE_SHORTCUT, |app, _shortcut, event| {
+            if event.state() == ShortcutState::Pressed {
+                open_capture_window(app);
+            }
+        });
+    if let Err(error) = outcome {
+        if let Some(tray) = handle.tray_by_id("prax-tray") {
+            let _ = tray.set_tooltip(Some(format!(
+                "Prax — capture shortcut unavailable: {error}"
+            )));
+        }
+    }
 }
 
 fn smoke_data_dir_from_args<I>(args: I) -> Result<Option<PathBuf>, String>
@@ -541,22 +693,33 @@ pub fn run() {
     let smoke_data_dir = smoke_data_dir_from_args(std::env::args())
         .expect("invalid Prax desktop smoke-test arguments");
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            // Second launch: focus the existing window instead of opening a
-            // second app over the same database.
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.set_focus();
-                let _ = window.unminimize();
-            }
+            // Second launch: surface the existing instance (the main window
+            // may be hidden in the tray) instead of opening a second app over
+            // the same database.
+            show_main_window(app);
         }))
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![save_library_export, restart_prax])
+        .plugin(tauri_plugin_shell::init());
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
+
+    builder
+        .invoke_handler(tauri::generate_handler![
+            save_library_export,
+            restart_prax,
+            hide_capture_window
+        ])
         .manage(ServerProcess::new())
         .setup(move |app| {
             let handle = app.handle().clone();
             let data_dir = prepare_data_dir(&handle, smoke_data_dir.clone())?;
+
+            // The tray exists before (and regardless of) server startup, so
+            // Quit and Open Prax always work — even during a failed launch.
+            #[cfg(desktop)]
+            setup_tray(app)?;
 
             // The server starts before any webview work — its liveness must
             // not depend on the platform webview initializing.
@@ -591,17 +754,16 @@ pub fn run() {
                     });
 
                 if let Ok(port) = ready {
-                    let platform = if cfg!(target_os = "macos") {
-                        "macos"
-                    } else if cfg!(target_os = "windows") {
-                        "windows"
-                    } else {
-                        "linux"
-                    };
+                    let platform = platform_name();
                     let url = format!("http://127.0.0.1:{port}/?shell=desktop&platform={platform}")
                         .parse()
                         .expect("port url always parses");
                     open_window(&handle, WebviewUrl::External(url), Some(port), None);
+
+                    // The summon chord only means something once there is a
+                    // server to capture into.
+                    #[cfg(desktop)]
+                    register_capture_shortcut(&handle);
 
                     if smoke_data_dir.is_some() {
                         std::thread::sleep(Duration::from_secs(1));
@@ -633,6 +795,9 @@ pub fn run() {
                 }
             }
             RunEvent::Exit => force_kill_server(app),
+            // macOS dock icon click while every window is hidden in the tray.
+            #[cfg(target_os = "macos")]
+            RunEvent::Reopen { .. } => show_main_window(app),
             _ => {}
         });
 }

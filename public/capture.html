@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prax capture</title>
+<style>
+  /* Standalone by design: the bar must render instantly with zero app-css
+     coupling. Colors follow the OS theme. */
+  :root {
+    --bg: #fdfdfb; --fg: #1f2a24; --muted: #6b7a72; --line: #d8ded9;
+    --accent: #2f6f4f; --danger: #a03030; --ok: #2f6f4f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #17201b; --fg: #e6ece8; --muted: #93a29a; --line: #2c3831; --accent: #6fae8f; --danger: #e08a8a; --ok: #8fc9ab; }
+  }
+  html, body { margin: 0; background: transparent; }
+  .bar {
+    box-sizing: border-box; margin: 8px; padding: 14px 16px 10px;
+    background: var(--bg); color: var(--fg);
+    border: 1px solid var(--line); border-radius: 12px;
+    box-shadow: 0 12px 32px rgba(0,0,0,.25);
+    font: 14px/1.4 system-ui, -apple-system, sans-serif;
+  }
+  input {
+    width: 100%; box-sizing: border-box; border: 0; outline: none;
+    background: transparent; color: var(--fg);
+    font: 17px/1.4 system-ui, -apple-system, sans-serif;
+  }
+  input::placeholder { color: var(--muted); }
+  .meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; min-height: 18px; }
+  .hint { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hint[data-kind="error"] { color: var(--danger); }
+  .hint[data-kind="ok"] { color: var(--ok); }
+  .keys { color: var(--muted); font-size: 11px; white-space: nowrap; }
+  .keys b { font-weight: 600; color: var(--fg); }
+</style>
+</head>
+<body>
+  <div class="bar">
+    <input id="capture-input" type="text" autocomplete="off" spellcheck="false"
+      placeholder="Capture a task…  (#project @label !high tomorrow)" aria-label="Capture a task">
+    <div class="meta">
+      <div class="hint" id="capture-hint" role="status"></div>
+      <div class="keys"><b>Enter</b> save · <b>Esc</b> close</div>
+    </div>
+  </div>
+  <script type="module" src="/js/captureBar.js"></script>
+</body>
+</html>

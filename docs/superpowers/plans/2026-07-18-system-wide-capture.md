@@ -5,7 +5,7 @@ tiny capture bar that writes to the Inbox through the existing exact-once pipeli
 switching to (or even opening) the main Prax window.
 
 **Roadmap:** [Workflow & Self-Organisation Roadmap](2026-07-18-workflow-selforganisation-roadmap.md) · item 1
-**Status:** Proposed
+**Status:** Increments 1–2 shipped; increment 3 (shortcut preference, per-OS packaging pass) open
 
 ## Current state
 
@@ -44,29 +44,32 @@ switching to (or even opening) the main Prax window.
 
 ### Increment 1 — tray + shortcut + minimal capture window
 
-- [ ] Add `tauri-plugin-global-shortcut = "2"` and the core `tray-icon` feature to
-      [src-tauri/Cargo.toml](../../../src-tauri/Cargo.toml); add matching capability
-      permissions under `src-tauri/capabilities/`.
-- [ ] Tray icon with menu: **Capture** (summon bar), **Open Prax** (show/focus main window),
-      **Quit**. Main-window close hides to tray instead of exiting (preference-gated later).
-- [ ] Register the global shortcut after `ServerPhase::Ready`; on failure set a
-      `shortcut_status` the capture window can read (Tauri command), and reflect it in the
-      tray tooltip. Registration failure is a degraded state, never a crash.
-- [ ] `public/capture.html` + `public/js/captureBar.js`: single text input, Enter submits,
-      Esc hides; posts to `POST /api/tasks` with a client-generated id and `project: 'inbox'`;
-      failure renders inline and keeps the text.
-- [ ] Summon → always-on-top window at top-center, input focused; blur hides (text
-      preserved for next summon via the recovery store).
+- [x] Add `tauri-plugin-global-shortcut = "2"` and the core `tray-icon` feature to
+      [src-tauri/Cargo.toml](../../../src-tauri/Cargo.toml); `hide_capture_window` command
+      in build.rs + a dedicated `desktop-capture` capability for the capture window.
+- [x] Tray icon with menu: **Capture task**, **Open Prax** (shows or rebuilds the main
+      window), **Quit Prax**. The sidecar-served main window closes to the tray; recovery
+      windows keep close-to-exit so a failed startup cannot leave a hidden zombie. macOS
+      dock reopen and second-launch both funnel through `show_main_window`.
+- [x] Global shortcut (`CmdOrCtrl+Shift+Space`) registered after the server is ready;
+      registration failure surfaces in the tray tooltip and the tray path keeps working.
+      *(Shipped tooltip-only; the capture-window footer status was dropped as redundant.)*
+- [x] `public/capture.html` + `captureBar.js`/`captureBarCore.js`: Enter submits with a
+      client-generated id (exact-once retry identity kept while text is unchanged; dropped
+      on deterministic 4xx), Esc hides via IPC, failure renders inline and keeps the text.
+- [x] Summon shows the always-on-top window (created once, then shown/hidden), input
+      focused per summon; blur hides; drafts survive via localStorage.
 
 ### Increment 2 — shorthand + capture parity
 
-- [ ] Wire `captureShorthand.js` token parsing into the bar (`#project @label`, priority,
-      due tokens) with the same inline token pills the in-app capture shows.
-- [ ] Show the resolved destination ("→ Inbox" / "→ #project") before submit; unknown
-      project tokens fall back to Inbox with the token kept in the title, same as in-app.
-- [ ] Adopt the capture-recovery owner token so an in-app tab and the capture bar cannot
-      clobber each other's crash drafts (guard logic already exists in
-      `taskCaptureRecovery.js`).
+- [x] `captureShorthand.js` token parsing wired in (`#project @label !priority`, due
+      keywords/ISO dates) with a live destination hint line.
+- [x] Resolved destination shown before submit; unknown project tokens fall back to Inbox
+      with the token restored into the title.
+- [x] Draft isolation from the in-app capture: the bar uses its OWN storage key
+      (`prax.captureBar.draft`) instead of adopting the shared owner token — the two
+      surfaces can never clobber each other because they never share a slot. *(Deliberate
+      simplification of the planned owner-token adoption; strictly safer.)*
 
 ### Increment 3 — polish + packaging
 
@@ -79,14 +82,19 @@ switching to (or even opening) the main Prax window.
 
 ## Verification
 
-- Unit: shorthand parsing reuse (no new parser), capture payload building, failure-path
-  text retention, owner-token adoption (`node --test`).
-- E2e: `capture.html` served by the plain server is drivable in Playwright — cover submit
-  success, server-error retention, Esc-preserves-draft. Tray/shortcut themselves are
-  shell-side and not Playwright-reachable: cover with a documented manual check per OS
-  (the packaged-desktop-reliability plan's precedent).
-- Gates: `npm test`, `npx playwright test`; no schema change, so no migration pins or
-  portable/restore drills are touched.
+- Unit: `tests/frontend/captureBarCore.test.js` — 7 tests (shorthand resolution, unknown
+  token survival, token-only guard, payload assembly, hint, draft round-trip + broken
+  storage). All pass.
+- E2e: `tests/e2e/capture-bar.spec.js` — 4 journeys: shorthand create, failed-submit
+  retention + exact-once retry (no duplicate), draft-survives-reload, unknown-token →
+  Inbox. All pass against the production server.
+- Rust: `cargo check` clean (no warnings) and the 5 existing shell unit tests pass on the
+  linux toolchain (sidecar binary stubbed for the check — gitignored). **The
+  tray/shortcut/window behavior itself needs the documented manual check on macOS at next
+  packaged build** (Playwright cannot reach the shell), per the packaged-desktop
+  precedent.
+- Gates: `npm test`, `npx playwright test` — green; no schema change, so no migration pins
+  or portable/restore drills touched.
 
 ## Risks / notes
 

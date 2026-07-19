@@ -158,6 +158,21 @@ fresh empty `[Unreleased]` section is started.
 
 ### Added
 
+- **System-wide capture — tray icon + global hotkey capture bar (desktop).** Press
+  **⌘⇧Space** (Ctrl+Shift+Space on Windows/Linux) anywhere on the desktop and a small
+  always-on-top capture bar appears — type, Enter, done; the task lands in the Inbox (or a
+  `#project`) without switching to Prax. The bar is served by the local server
+  (`capture.html`) and reuses the exact in-app capture semantics: shorthand tokens
+  (`#project @label !high tomorrow`), a live destination hint, and **exact-once creation**
+  (client-generated id; an ambiguous failure keeps your text and Enter replays the same
+  create — never a duplicate; unknown `#project` tokens fall back to Inbox with the token
+  kept in the title). Typed text survives restarts via a draft store deliberately separate
+  from the in-app capture's crash-recovery slot. The new tray icon offers Capture task /
+  Open Prax / Quit; the main window now closes to the tray, macOS dock-reopen and second
+  launches resurface it, and if another app owns the shortcut the tray tooltip says so —
+  the tray path keeps working (degraded, never broken). First item of the
+  [workflow & self-organisation roadmap](docs/superpowers/plans/2026-07-18-workflow-selforganisation-roadmap.md).
+
 - **Google Calendar push sync (Phase 2) — live incremental push + reconcile sweep.** Task
   changes now reach Google **within seconds, automatically** — no Sync now click. Every task
   mutation route (create, edit, complete, archive, restore, permanent delete, recurring
