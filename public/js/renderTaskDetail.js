@@ -249,10 +249,45 @@ function renderDocsSection(documents, readOnly) {
     : mutedText('No linked runbooks or notes.');
   const linkButton = readOnly
     ? ''
-    : '<button class="pill-btn" type="button" data-action="open-link-picker">＋ Link doc</button>';
+    : '<button class="pill-btn" type="button" data-action="open-link-picker">＋ Link doc</button>'
+      + '<button class="pill-btn" type="button" data-action="start-working-note" title="Create a note pre-linked to this task and open it">＋ Working note</button>';
   return `
       <section class="drawer-section">
         <div class="drawer-section__head"><span>Linked documents</span>${linkButton}</div>${rows}
+      </section>`;
+}
+
+// Related knowledge (context surface): semantic suggestions filled AFTER the
+// drawer renders. Advisory — a quiet labelled line for loading/off/failed
+// states, never an error; renders nothing at all until the fill starts.
+function renderRelatedSection(state, task, readOnly) {
+  const related = state.taskRelatedDocs;
+  if (!related || related.taskId !== task.id) return '';
+  let body;
+  if (related.loading) {
+    body = mutedText('Looking for related notes…');
+  } else if (related.degraded) {
+    body = related.reason === 'semantic-off'
+      ? mutedText('Semantic search is off — related notes need an embedding model (Settings ▸ Intelligence).')
+      : mutedText('Related notes are unavailable right now.');
+  } else if (!related.suggestions.length) {
+    body = mutedText('No related notes found.');
+  } else {
+    body = related.suggestions.map((doc) => {
+      const id = escapeHtml(doc.id);
+      const dismiss = readOnly ? '' : `<span data-action="dismiss-related-doc" data-document-id="${id}" title="Not relevant (this session)">✕</span>`;
+      const link = readOnly ? '' : `<span class="doc-row__link" data-action="link-related-doc" data-document-id="${id}" title="Link to this task">＋ Link</span>`;
+      return `
+        <button class="doc-row" type="button" data-action="open-linked-doc" data-document-id="${id}">
+          ${icon('doc')}
+          <span class="doc-row__title">${escapeHtml(doc.title || 'Untitled document')}</span>
+          ${chip(doc.documentType || 'note', `type-${escapeHtml(doc.documentType || 'note')}`)}${link}${dismiss}
+        </button>`;
+    }).join('');
+  }
+  return `
+      <section class="drawer-section" data-related-knowledge>
+        <div class="drawer-section__head"><span>Related knowledge</span></div>${body}
       </section>`;
 }
 
@@ -320,7 +355,7 @@ export function renderTaskDrawerHtml(state, task, context = {}) {
   return `
     <div class="scrim" data-action="close-drawer"></div>
     <aside class="drawer" role="dialog" aria-modal="true" aria-label="Task detail" data-task-id="${escapeHtml(task.id)}">${renderHead(state, task, context, isDone, readOnly)}
-      <div class="drawer__scroll">${renderFieldRows(state, task, context, dis, ro)}${renderNotesSection(state, task, dis)}${renderChecklistSection(checklist, readOnly, dis)}${renderDocsSection(documents, readOnly)}${renderActivitySection(activity)}
+      <div class="drawer__scroll">${renderFieldRows(state, task, context, dis, ro)}${renderNotesSection(state, task, dis)}${renderChecklistSection(checklist, readOnly, dis)}${renderDocsSection(documents, readOnly)}${renderRelatedSection(state, task, readOnly)}${renderActivitySection(activity)}
       </div>${renderFoot(state, task, readOnly)}
     </aside>`;
 }

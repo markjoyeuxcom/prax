@@ -585,6 +585,11 @@ a { color: var(--accent); }
 .planmode__summary { color: var(--ink2); font-size: 13px; }
 .planmode__foot { display: flex; justify-content: flex-end; color: var(--ink3); font-size: 11.5px; }
 
+/* Related knowledge (context surface) */
+.doc-row__link { color: var(--accent); font-size: 12px; font-weight: 550; white-space: nowrap; }
+.doc-row__link:hover { text-decoration: underline; }
+
+
 .chip--type-runbook { background: var(--accent-soft); color: var(--accent); font-size: 10px; letter-spacing: .06em; }
 .chip--type-note { background: var(--line); color: var(--ink2); font-size: 10px; letter-spacing: .06em; }
 .chip--type-decision { background: color-mix(in oklab, #7c5cbf 14%, transparent); color: #7c5cbf; font-size: 10px; letter-spacing: .06em; }

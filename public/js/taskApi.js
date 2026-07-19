@@ -145,6 +145,14 @@ export async function fetchTaskDocuments(taskId) {
   return response.json();
 }
 
+// Related-knowledge suggestions for the drawer. Advisory: always resolves
+// ({ suggestions, degraded?, reason? }); the caller renders quiet degrade.
+export async function fetchRelatedDocuments(taskId) {
+  const response = await fetch(`/api/tasks/${taskId}/related-documents`);
+  if (!response.ok) return { suggestions: [], degraded: true, reason: 'search-failed' };
+  return response.json();
+}
+
 export async function linkTaskDocument(taskId, documentId) {
   const response = await fetch(`/api/tasks/${taskId}/documents`, {
     method: 'POST',
