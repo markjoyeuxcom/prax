@@ -74,6 +74,7 @@ import { tasksFromImportPayload, exportFilename, normalizeImportMode } from './i
 import { createSavedLibraryView, savedLibraryViewsFromJson } from './librarySavedViews.js';
 import { parseCaptureShorthand, mergeNlCapture } from './captureShorthand.js';
 import { computeDueReminders, isOverdue } from './dueReminders.js';
+import { dueBucket } from './dueFlags.js';
 import { normalizeLabel } from './labels.js';
 import { parseExternalRefLines } from './externalRefKind.js';
 import { mountCodeMirrorEditor } from '../vendor/codemirror-editor.js';
@@ -87,6 +88,7 @@ import {
   TASK_RENDER_BATCH_SIZE, renderListHtml, renderBulkBarHtml, buildListGroups, limitTaskGroups,
 } from './renderList.js';
 import { renderTodayHtml, buildTodayGroups } from './renderToday.js';
+import { renderPlanModeHtml } from './renderPlanMode.js';
 import { renderUpcomingHtml, buildUpcomingGroups } from './renderUpcoming.js';
 import { renderCalendarHtml, buildCalendarModel, monthKeyOf, shiftMonthKey } from './renderCalendar.js';
 import { renderFilterHtml, buildFilterGroups } from './renderFilter.js';
@@ -254,6 +256,23 @@ function fireNativeReminder(task) {
     new Notification(title, { body: task.title, tag: `prax-due-${task.id}` });
     return true;
   } catch { return false; }
+}
+
+// Evening shutdown nudge (preference, default off): one gentle toast per day
+// once the hour passes and planned items are still open. Delivery only — the
+// decision walk lives behind the Today view's Shut down button.
+const SHUTDOWN_NUDGE_KEY = 'prax.shutdownNudge.lastShown';
+function checkShutdownNudge(now = new Date()) {
+  if (!state.preferences?.shutdownNudge) return;
+  if (now.getHours() < 17) return;
+  const today = todayISODate(now);
+  try {
+    if (localStorage.getItem(SHUTDOWN_NUDGE_KEY) === today) return;
+  } catch { return; }
+  const openPlanned = (state.tasks || []).filter((task) => planEligible(task, now) && task.plannedFor === today).length;
+  if (!openPlanned) return;
+  try { localStorage.setItem(SHUTDOWN_NUDGE_KEY, today); } catch { /* no storage, no stamp */ }
+  showToast(`${openPlanned} planned task${openPlanned === 1 ? '' : 's'} still open — shut down today from the Today view.`, null, 8000);
 }
 
 function checkDueReminders() {
@@ -508,6 +527,95 @@ async function scanLibraryWithAi() {
     setState({ healthAiReviewLoading: false, healthAiReviewError: 'Could not complete the AI review.' });
   }
   if (token === aiReviewToken) renderApp();
+}
+
+// ---- Today plan & shutdown ritual (2026-07-18 plan) -------------------------
+// One queue-walking overlay, two modes. Every action is a normal PATCH; the
+// server classifies planned/carried and owns carry_count. A failure keeps the
+// current item on screen with a toast — skipping data loss is not an option.
+
+function planEligible(task, now) {
+  return task && task.status !== 'completed' && !task.archivedAt
+    && !(task.deferredUntil && new Date(task.deferredUntil) > now);
+}
+
+function buildPlanQueue(now = new Date()) {
+  const today = todayISODate(now);
+  const tasks = state.tasks || [];
+  const seen = new Set();
+  const queue = [];
+  const push = (task, bucket) => {
+    if (!task || seen.has(task.id)) return;
+    seen.add(task.id);
+    queue.push({ id: task.id, bucket });
+  };
+  const open = tasks.filter((task) => planEligible(task, now));
+  // Stale plans first: yesterday's unshut-down working set demands a verdict.
+  open.filter((task) => task.plannedFor && task.plannedFor < today)
+    .forEach((task) => push(task, 'stale'));
+  const unplanned = open.filter((task) => task.plannedFor !== today && !(task.plannedFor && task.plannedFor < today));
+  const bucketOf = (task) => dueBucket(task.dueDate, { now });
+  unplanned.filter((task) => bucketOf(task) === 'overdue').forEach((task) => push(task, 'overdue'));
+  unplanned.filter((task) => bucketOf(task) === 'today').forEach((task) => push(task, 'today'));
+  const inboxId = inboxProjectId();
+  unplanned.filter((task) => task.projectId === inboxId && !task.dueDate).forEach((task) => push(task, 'inbox'));
+  unplanned.filter((task) => task.dueDate && task.dueDate > today && task.dueDate <= todayISODate(new Date(now.getTime() + 7 * 86_400_000)))
+    .forEach((task) => push(task, 'upcoming'));
+  return queue;
+}
+
+function openPlanMode() {
+  const queue = buildPlanQueue(new Date());
+  setState({ planMode: { mode: 'plan', queue, index: 0, added: 0, carried: 0, dropped: 0, rescheduled: 0 } });
+  renderApp();
+}
+
+function openShutdown() {
+  const today = todayISODate();
+  const queue = (state.tasks || [])
+    .filter((task) => planEligible(task, new Date()) && task.plannedFor === today)
+    .map((task) => ({ id: task.id, bucket: 'planned' }));
+  const done = (state.tasks || []).filter((task) => task.plannedFor === today && task.status === 'completed' && !task.archivedAt).length;
+  setState({ planMode: { mode: 'shutdown', queue, index: 0, added: 0, carried: 0, dropped: 0, rescheduled: 0, done } });
+  renderApp();
+}
+
+function mergePlanTask(updated) {
+  setState({ tasks: state.tasks.map((task) => (task.id === updated.id ? normalizeTask(updated) : task)) });
+}
+
+async function planModeAct(action) {
+  const planMode = state.planMode;
+  if (!planMode) return;
+  const entry = planMode.queue[planMode.index];
+  const advance = (patch = {}) => {
+    setState({ planMode: { ...state.planMode, ...patch, index: state.planMode.index + 1 } });
+    renderApp();
+  };
+  if (!entry || action === 'skip') { advance(); return; }
+  const today = todayISODate();
+  try {
+    if (action === 'add' || action === 'today') {
+      const time = document.querySelector('[data-plan-time]')?.value || '';
+      const fields = { plannedFor: today, ...(time ? { dueTime: time, ...(state.tasks.find(t => t.id === entry.id)?.dueDate ? {} : { dueDate: today }) } : {}) };
+      mergePlanTask(await updateTask(entry.id, fields));
+      advance({ added: planMode.added + 1 });
+    } else if (action === 'carry') {
+      const tomorrow = todayISODate(new Date(Date.now() + 86_400_000));
+      mergePlanTask(await updateTask(entry.id, { plannedFor: tomorrow }));
+      advance({ carried: planMode.carried + 1 });
+    } else if (action === 'reschedule') {
+      const date = document.querySelector('[data-shutdown-date]')?.value || '';
+      if (!date) { showToast('Pick a reschedule date first'); return; }
+      mergePlanTask(await updateTask(entry.id, { dueDate: date, plannedFor: null }));
+      advance({ rescheduled: planMode.rescheduled + 1 });
+    } else if (action === 'drop') {
+      mergePlanTask(await updateTask(entry.id, { plannedFor: null }));
+      advance({ dropped: planMode.dropped + 1 });
+    }
+  } catch {
+    showToast('Could not save that decision — Prax may be unreachable. The item stays here.');
+  }
 }
 
 function openDailyBrief() {
@@ -3260,6 +3368,7 @@ function escapeCascade() {
   if (state.askPraxOpen) { closeAskPrax(); return; }
   if (state.genRbOpen) { setState({ genRbOpen: false }); renderApp(); return; }
   if (state.dailyBriefOpen) { setState({ dailyBriefOpen: false }); renderApp(); return; }
+  if (state.planMode) { setState({ planMode: null }); renderApp(); return; }
   if (state.libraryExportOpen) { closeLibraryExport(); return; }
   if (state.markdownImportOpen) { closeMarkdownImport(); return; }
   if (state.confirm) { setState({ confirm: null }); renderApp(); return; }
@@ -3354,10 +3463,14 @@ function renderMainHtml() {
   }
   switch (state.navType) {
     case 'today': {
-      const { groups, snoozedCount } = buildTodayGroups(state.tasks, state.projects, { now });
-      const collection = limitTaskGroups(groups, taskCollectionLimit('today'));
+      const built = buildTodayGroups(state.tasks, state.projects, { now });
+      const collection = limitTaskGroups(built.groups, taskCollectionLimit('today'));
       flatIds = collection.flatIds;
-      return renderTodayHtml(state, collection.groups, { now, snoozedCount, collection });
+      return renderTodayHtml(state, collection.groups, {
+        now, snoozedCount: built.snoozedCount, collection,
+        plannedCount: built.plannedCount, plannedDone: built.plannedDone,
+        stalePlannedCount: built.stalePlannedCount,
+      });
     }
     case 'all': {
       const groups = buildProjectGroups(state.managedProjects, state.tasks);
@@ -3577,6 +3690,7 @@ function renderOverlaysHtml() {
   if (state.writeContext && state.navType === 'editor') {
     html += renderWritingPreviewHtml(state, { resultHtml: state.writeResult ? renderMarkdownHtml(state.writeResult, { resolveWikiLink }) : '' });
   }
+  if (state.planMode) html += renderPlanModeHtml(state);
   if (state.confirm) html += renderConfirmHtml(state.confirm);
   html += renderToastHtml(state);
   return html;
@@ -4220,6 +4334,19 @@ async function handleAction(action, el, event) {
     case 'run-generate-runbook': runGenerateRunbook(); break;
     case 'open-daily-brief': openDailyBrief(); break;
     case 'close-daily-brief': setState({ dailyBriefOpen: false }); renderApp(); break;
+    case 'open-plan-mode': openPlanMode(); break;
+    case 'open-shutdown': openShutdown(); break;
+    case 'close-plan-mode': {
+      if (el.dataset.overlay === 'planmode' && event.target !== el) break; // backdrop only
+      setState({ planMode: null }); renderApp(); break;
+    }
+    case 'plan-mode-add': await planModeAct('add'); break;
+    case 'plan-mode-today': await planModeAct('today'); break;
+    case 'plan-mode-drop': await planModeAct('drop'); break;
+    case 'plan-mode-skip': await planModeAct('skip'); break;
+    case 'shutdown-carry': await planModeAct('carry'); break;
+    case 'shutdown-reschedule': await planModeAct('reschedule'); break;
+    case 'shutdown-drop': await planModeAct('drop'); break;
     case 'draft-daily-brief': draftDailyBrief(); break;
     case 'copy-daily-brief': copyDailyBrief(); break;
     case 'open-assistant': openAssistant(); break;
@@ -4623,6 +4750,11 @@ async function handleAction(action, el, event) {
       const preferences = savePreferences({ ...state.preferences, reminders: enabled });
       setState({ preferences });
       if (enabled) checkDueReminders();
+      renderApp();
+      break;
+    }
+    case 'toggle-shutdown-nudge': {
+      setState({ preferences: savePreferences({ ...state.preferences, shutdownNudge: !state.preferences.shutdownNudge }) });
       renderApp();
       break;
     }
@@ -5299,6 +5431,22 @@ function bindEvents() {
       }
       return;
     }
+    // Plan mode / shutdown: Enter = primary decision, S = skip. Inputs keep
+    // their own keys (a time/date field must accept typing and its Enter).
+    if (state.planMode && !target.matches?.('input, select, textarea')) {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        await planModeAct(state.planMode.mode === 'plan'
+          ? (state.planMode.queue[state.planMode.index]?.bucket === 'stale' ? 'today' : 'add')
+          : 'carry');
+        return;
+      }
+      if (event.key.toLowerCase() === 's' && !event.metaKey && !event.ctrlKey) {
+        event.preventDefault();
+        await planModeAct('skip');
+        return;
+      }
+    }
     // ⌘F / Ctrl+F opens the editor find panel from anywhere in the editor view
     // (document, panel inputs, preview) — never the browser's find-in-page.
     if (state.navType === 'editor' && (event.metaKey || event.ctrlKey)
@@ -5520,6 +5668,7 @@ async function runNlCapture() {
       // the preview shows EVERY field the created task will carry (and removal
       // works). confirmNlCapture uses the preview alone — no invisible fallback.
       if (!fields.dueDate && state.captureDueDate) fields.dueDate = state.captureDueDate;
+      if (state.planMode?.mode === 'plan') fields.plannedFor = todayISODate();
       nlCaptureSetQuery = title || text;
       setState({
         nlCaptureLoading: false,
@@ -5623,6 +5772,7 @@ async function submitCapturedTask(fields) {
     recurrence: fields.recurrence || null,
     labels: fields.labels || [],
     sortOrder: state.tasks.length,
+    ...(fields.plannedFor ? { plannedFor: fields.plannedFor } : {}),
   };
   setState({
     captureSubmitting: true,
@@ -5746,6 +5896,8 @@ async function addQuickTask(rawTitle) {
   await submitCapturedTask({
     title, priority, project: projectToken, labels,
     dueDate: dueDate || state.captureDueDate || null,
+    // Captured mid-planning: the new task joins today's working set.
+    ...(state.planMode?.mode === 'plan' ? { plannedFor: todayISODate() } : {}),
   });
 }
 
@@ -5868,7 +6020,7 @@ async function init() {
     });
     // Heartbeat so a task that ticks over to "due" while the app sits open still
     // gets a reminder (e.g. across midnight). Cheap: a filter over state.tasks.
-    if (typeof setInterval === 'function') setInterval(checkDueReminders, 15 * 60 * 1000);
+    if (typeof setInterval === 'function') setInterval(() => { checkDueReminders(); checkShutdownNudge(); }, 15 * 60 * 1000);
   } catch (err) {
     appRoot.innerHTML = `<main class="empty" style="height:100vh"><h2 class="empty__title">Prax could not load</h2><p class="empty__sub">${escapeHtml(err?.message || 'Unknown error')}</p></main>`;
     setState({ apiStatus: 'error' });

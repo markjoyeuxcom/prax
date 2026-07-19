@@ -12,6 +12,7 @@ export const state = {
   managedProjects: [],          // all statuses (All-projects view)
 
   // ---- routing ----
+  planMode: null,               // { mode:'plan'|'shutdown', queue, index, added, carried, dropped, rescheduled, done? }
   navType: 'project',           // 'today' | 'project' | 'all' | 'library' | 'editor' | 'run' | 'filter' | 'upcoming' | 'calendar' | 'settings'
   navId: null,                  // project id when navType === 'project'
   calendarMonth: null,          // 'YYYY-MM' shown in the Calendar view; null = current month

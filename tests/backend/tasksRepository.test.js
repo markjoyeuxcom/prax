@@ -58,6 +58,8 @@ test('normalizeTaskRow maps database fields to API task fields', () => {
     sortOrder: 2,
     archivedAt: null,
     deferralCount: 0,
+    plannedFor: null,
+    carryCount: 0,
     createdAt: '2026-05-10T10:00:00.000Z',
     updatedAt: '2026-05-10T10:00:00.000Z',
   });
@@ -94,9 +96,10 @@ test('buildCreateTask returns parameterized insert query', () => {
   });
 
   assert.match(query.text, /insert into tasks/);
-  assert.equal(query.values.length, 11); // + due_time
+  assert.equal(query.values.length, 12); // + due_time + planned_for
   assert.equal(query.values[0], 'Wire API adapter');
-  assert.equal(query.values[10], '[]'); // labels default, serialized (now last)
+  assert.equal(query.values[10], '[]'); // labels default, serialized
+  assert.equal(query.values[11], null); // planned_for (unplanned by default)
 });
 
 test('buildCreateTask places notes at $9 and serializes labels at $11', () => {
@@ -105,7 +108,7 @@ test('buildCreateTask places notes at $9 and serializes labels at $11', () => {
     projectId: PROJECT_ID, dueDate: null, dueTime: null, sortOrder: 0,
     notes: 'Handoff context', labels: ['waiting', 'cert'],
   });
-  assert.match(query.text, /due_time, sort_order, notes, recurrence, labels\)/);
+  assert.match(query.text, /due_time, sort_order, notes, recurrence, labels, planned_for\)/);
   assert.equal(query.values[8], 'Handoff context');
   assert.equal(query.values[10], '["waiting","cert"]');
 });
@@ -120,7 +123,7 @@ test('buildCreateTask can use a caller UUID as an idempotent insert identity', (
   assert.match(query.text, /insert into tasks \(id, title,/);
   assert.match(query.text, /on conflict\(id\) do nothing/);
   assert.equal(query.values[0], id);
-  assert.equal(query.values.length, 12);
+  assert.equal(query.values.length, 13);
 });
 
 test('taskMatchesCreateFields requires exact canonical creation content', () => {
@@ -236,6 +239,8 @@ test('buildImportTasks returns a parameterized batch insert query', () => {
     2,
     null,
     0,
+    null,
+    0,
     'Archived task',
     '',
     null,
@@ -249,6 +254,8 @@ test('buildImportTasks returns a parameterized batch insert query', () => {
     '[]',
     3,
     '2026-05-11T12:00:00.000Z',
+    0,
+    null,
     0,
   ]);
 });
@@ -347,6 +354,8 @@ test('buildReplaceProjectTasks deletes one project and inserts imported tasks', 
     null,
     null,
     '[]',
+    0,
+    null,
     0,
     null,
     0,

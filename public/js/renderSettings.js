@@ -204,6 +204,13 @@ function renderAppearanceCard(preferences) {
         </div>
       </div>
       <div class="settings-row">
+        <div class="settings-row__text">
+          <div class="settings-row__label">Evening shutdown nudge</div>
+          <div class="settings-row__desc">After 5pm, one gentle reminder if today's planned tasks are still open — the shutdown walk lives on the Today view.</div>
+        </div>
+        <button class="switch${preferences.shutdownNudge ? ' is-on' : ''}" type="button" data-action="toggle-shutdown-nudge" role="switch" aria-checked="${Boolean(preferences.shutdownNudge)}" aria-label="Evening shutdown nudge"><span></span></button>
+      </div>
+      <div class="settings-row">
       <div class="settings-row__text">
         <div class="settings-row__label" style="display:flex; align-items:center; justify-content:space-between;">
           <span>Reading text size</span>

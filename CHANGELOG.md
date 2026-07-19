@@ -158,6 +158,25 @@ fresh empty `[Unreleased]` section is started.
 
 ### Added
 
+- **Today plan & shutdown ritual — Today stops showing what's due and starts asking what
+  you'll do.** Tasks gain a **plan date** (`plannedFor`, migration `0021`): **Plan today**
+  walks stale plans → overdue → due today → inbox → this week with keyboard-first
+  add/skip (optional time input timeboxes the task — the date+time flow straight to
+  Google Calendar via the live push; capturing mid-pass joins the plan automatically), and
+  Today then leads with a **Planned** section, the honest score ("planned 5 — 2 done" —
+  computed, no streaks), and due buckets that never double-show planned items. **Shut
+  down** walks every unfinished planned item with exactly three verdicts: **Carry to
+  tomorrow** (bumps a server-computed `carry_count` + a `carried` chronicle event — the
+  old → new day recorded), **Reschedule** (a due-date change, honestly counted by the
+  slippage rules), or **Drop from plan** (deliberately unrecorded — dropping a plan is not
+  a confession). Skipped shutdowns surface next morning as a **stale-plan banner** whose
+  Review walks those items first; moving a stale plan forward counts as a carry, because
+  the day still moved. `planned:today|none|any|date` joins the filter grammar (smart
+  views + agents), "carried n×" joins the slippage chips, both fields round-trip
+  export/import, clients cannot forge the counter, and an opt-in evening nudge (Settings)
+  reminds once per day after 5pm. Planning is fully optional: an unplanned Today behaves
+  exactly as before.
+
 - **Slippage honesty — your own procrastination, made visible the way the app's failures
   are.** Tasks now carry a **deferral count**: snoozing an open task into the future or
   moving its due date later bumps a server-side counter (one pinned rule in

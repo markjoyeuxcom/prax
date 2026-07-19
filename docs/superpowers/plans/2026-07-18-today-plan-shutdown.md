@@ -8,7 +8,7 @@ rescheduled, or dropped — with the carries recorded.
 **Roadmap:** [Workflow & Self-Organisation Roadmap](2026-07-18-workflow-selforganisation-roadmap.md) · item 2
 **Depends on:** [Slippage honesty](2026-07-18-slippage-honesty.md) increment 1 (chronicle
 event pattern + slip semantics; carry counting extends it).
-**Status:** Proposed
+**Status:** Shipped (all three increments; timeboxing shipped inside the pass)
 
 ## Current state
 
@@ -57,33 +57,45 @@ event pattern + slip semantics; carry counting extends it).
 
 ### Increment 1 — working set data model + planned rendering
 
-- [ ] Migration `00XX_add_task_planning.sql`: `planned_for` (text, nullable ISO date),
+- [x] Migration `0021_add_task_planning.sql`: `planned_for` (text, nullable ISO date),
       `carry_count` (integer not null default 0). Pin cascade + contract doc + portable
       round-trip fixtures updated; both fields survive export/import and archive/restore.
-- [ ] `PATCH` accepts `plannedFor` (validated ISO date or null) through
+- [x] `PATCH` accepts `plannedFor` (validated ISO date or null) through
       `validateTaskPatchPayload` / `cleanTaskPatchPayload`; exposed in payloads and the
       task filter grammar (`planned:today`, `planned:none`) so smart views compose.
-- [ ] Today renders Planned / Also due sections from `planned_for`; planned-today counts;
+- [x] Today renders Planned / due-bucket sections from `planned_for`; planned-today counts;
       stale-plan banner for un-shut-down previous days.
 
 ### Increment 2 — the planning pass
 
-- [ ] Plan-mode overlay on Today: bucket walk (order above), keyboard add/skip/snooze,
+- [x] Plan-mode overlay on Today: bucket walk (order above), keyboard add/skip/snooze,
       inline due-time assignment; every action is a normal PATCH.
-- [ ] Capture-from-plan: the existing capture pre-set gains `plannedFor = today` so a task
+- [x] Capture-from-plan: the existing capture pre-set gains `plannedFor = today` so a task
       captured mid-planning joins the set.
-- [ ] `planned` chronicle event on entering the working set (actor-aware: an agent
+- [x] `planned` chronicle event on entering the working set (actor-aware: an agent
       planning via MCP records as agent — the existing actor column).
 
 ### Increment 3 — shutdown
 
-- [ ] Shutdown overlay: per-item Carry / Reschedule / Drop with the semantics above;
+- [x] Shutdown overlay: per-item Carry / Reschedule / Drop with the semantics above;
       `carried` event + `carry_count` increment transactional with the PATCH.
-- [ ] Preference: shutdown nudge hour (default off; delivered through the existing
+- [x] Preference: shutdown nudge toggle (default off, fires after 17:00; delivered through the existing
       reminder machinery in `dueReminders.js` + main.js delivery, same native/in-app path).
-- [ ] Carry chip ("carried 3×") joins the slippage chips; CHANGELOG entry.
+- [x] Carry chip ("carried n×") joins the slippage chips; CHANGELOG entry.
 
-## Verification
+## Verification (as shipped)
+
+- Unit: `tests/backend/planning.test.js` (10-case classify table + route integration:
+  carry increments in the same UPDATE, forged carryCount ignored, drop records nothing,
+  export→import round trip, 400 on malformed dates) and `tests/frontend/planToday.test.js`
+  (groups split, score, banner, overlay modes, `planned:` atom, carried chip).
+- E2e: `tests/e2e/today-plan.spec.js` — full ritual journey (plan two → complete one →
+  shutdown walks the survivor → carry rolls to tomorrow with server-truth assertions) and
+  the stale-banner → Review → carried verdict.
+- Gates: 1735 unit, 84 e2e, portable + restore drills green; pin cascade + frozen task
+  keys + create-query pins updated deliberately.
+
+## Original verification sketch
 
 - Unit: plannedFor validation, working-set selection (incl. timezone day boundaries — reuse
   the reminders' local-date convention), shutdown transitions (carry increments exactly

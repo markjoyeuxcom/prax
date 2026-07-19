@@ -21,6 +21,8 @@ export const DEFAULT_PREFERENCES = Object.freeze({
   slippageDeferrals: 3,
   slippageAgeDays: 30,
   wipLimit: 0,
+  // Evening shutdown nudge (Today plan ritual) — opt-in.
+  shutdownNudge: false,
 });
 
 export const SLIPPAGE_DEFERRAL_OPTIONS = Object.freeze([2, 3, 5]);
@@ -97,6 +99,7 @@ export function normalizePreferences(value = {}) {
       ? source.slippageAgeDays : DEFAULT_PREFERENCES.slippageAgeDays,
     wipLimit: WIP_LIMIT_OPTIONS.includes(source.wipLimit)
       ? source.wipLimit : DEFAULT_PREFERENCES.wipLimit,
+    shutdownNudge: source.shutdownNudge === true, // opt-in; defaults off
   };
 }
 
