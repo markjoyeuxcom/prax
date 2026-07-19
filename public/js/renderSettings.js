@@ -211,6 +211,13 @@ function renderAppearanceCard(preferences) {
         <button class="switch${preferences.shutdownNudge ? ' is-on' : ''}" type="button" data-action="toggle-shutdown-nudge" role="switch" aria-checked="${Boolean(preferences.shutdownNudge)}" aria-label="Evening shutdown nudge"><span></span></button>
       </div>
       <div class="settings-row">
+        <div class="settings-row__text">
+          <div class="settings-row__label">Weekly review nudge</div>
+          <div class="settings-row__desc">Sunday evening, one reminder if this week's review hasn't been generated (Library ▸ Weekly review).</div>
+        </div>
+        <button class="switch${preferences.weeklyReviewNudge ? ' is-on' : ''}" type="button" data-action="toggle-weekly-review-nudge" role="switch" aria-checked="${Boolean(preferences.weeklyReviewNudge)}" aria-label="Weekly review nudge"><span></span></button>
+      </div>
+      <div class="settings-row">
       <div class="settings-row__text">
         <div class="settings-row__label" style="display:flex; align-items:center; justify-content:space-between;">
           <span>Reading text size</span>

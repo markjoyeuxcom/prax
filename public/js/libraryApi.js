@@ -185,6 +185,18 @@ export async function putChatSettings(patch) {
 }
 
 // Google Calendar integration — status / settings / connect / sync / disconnect.
+// Weekly review: compiles the week into an idempotent Library doc. Returns
+// { documentId, created|updated, weekId, stats } or { degraded, reason }.
+export async function generateWeeklyReview(options = {}) {
+  const response = await fetch('/api/library/weekly-review', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options),
+  });
+  if (!response.ok) throw new Error('weekly review failed');
+  return response.json();
+}
+
 // Status is { configured, connected, calendarId, accountEmail, lastSyncAt,
 // lastSyncSummary, hasClientSecret } — the client secret is write-only and
 // never returned. Sync failures come back 200 { degraded, reason, message }.

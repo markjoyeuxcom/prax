@@ -4,6 +4,7 @@ import { createLibraryRepository, documentMatchesCreateFields } from './libraryR
 import { createProjectsRepository } from './projectsRepository.js';
 import { createTasksRepository } from './tasksRepository.js';
 import { createDocumentLinksRepository, DOCUMENT_LINK_RELATIONS } from './documentLinksRepository.js';
+import { addDaysUtc, compileWeeklyReview, isoWeekId, weekStartOf, weeklyReviewTitle } from './weeklyReview.js';
 import { createDocumentExternalRefsRepository, sanitizeUrl, sanitizeLabel } from './documentExternalRefsRepository.js';
 import {
   createRunbookRunsRepository,
@@ -400,6 +401,92 @@ export async function registerLibraryRoutes(app, options = {}) {
     const force = request.query.force === 'true' || request.query.force === true;
     const result = await service.reindex({ force });
     return result;
+  });
+
+  // Weekly review (2026-07-18 plan): one click compiles an honest
+  // week-in-review and writes it into the Library, idempotent by ISO week —
+  // regenerating updates the same document in place. Advisory regime: every
+  // failure is a 200 { degraded, reason }, and a review the human VERIFIED is
+  // refused rather than overwritten (the agent-edit trust rules would revoke
+  // that blessing silently otherwise).
+  app.post('/api/library/weekly-review', async (request) => {
+    try {
+      const body = request.body && typeof request.body === 'object' && !Array.isArray(request.body) ? request.body : {};
+      // Default anchor is YESTERDAY, so a Monday-morning run reviews last week.
+      const anchor = typeof body.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.date)
+        ? new Date(`${body.date}T00:00:00.000Z`)
+        : new Date(Date.now() - 86_400_000);
+      const weekStart = weekStartOf(anchor);
+      const weekId = isoWeekId(anchor);
+      const title = weeklyReviewTitle(weekId);
+
+      if (!tasksRepository?.listActivityInRange) {
+        return { degraded: true, reason: 'unavailable', message: 'weekly review needs the task chronicle' };
+      }
+      const [tasks, projects, documents, activity] = await Promise.all([
+        tasksRepository.listTasks({ archived: 'all' }),
+        projectsRepository.listProjects(),
+        repository.listDocuments({}),
+        tasksRepository.listActivityInRange(`${weekStart}T00:00:00.000Z`, `${addDaysUtc(weekStart, 7)}T00:00:00.000Z`),
+      ]);
+      const compiled = compileWeeklyReview({ tasks, activity, projects, documents, weekStart, now: new Date() });
+
+      let markdown = compiled.markdown;
+      let narrated = false;
+      if (body.narrate === true) {
+        const chat = await resolveChat();
+        if (chat) {
+          try {
+            const { text } = await chat.complete([
+              { role: 'system', content: 'You write short, honest weekly-review narratives. No cheerleading, no invented facts — only what the data below says. 4-7 sentences, first person.' },
+              { role: 'user', content: markdown },
+            ], { temperature: 0.4, maxTokens: 400 });
+            if (text && text.trim()) {
+              markdown += `\n\n## Narrative\n\n${text.trim()}\n\n*AI-narrated from the sections above.*`;
+              narrated = true;
+            }
+          } catch { /* narration is optional; the deterministic review stands alone */ }
+        }
+      }
+
+      const existing = documents.find((doc) => doc.title === title && !doc.archivedAt) || null;
+      if (existing?.verified) {
+        return {
+          degraded: true,
+          reason: 'verified-review',
+          message: 'This week\'s review was verified by you — regenerating would revoke that. Unverify it first if you want a fresh one.',
+          documentId: existing.id,
+        };
+      }
+      let document;
+      if (existing) {
+        document = await repository.updateDocument(existing.id, {
+          body: markdown, tags: ['weekly-review'], updatedBy: 'agent',
+        });
+      } else {
+        // Documents are project-owned; the cross-project review lives in the
+        // system Inbox (always present, guarded server-side).
+        const inbox = await projectsRepository.resolveProject('inbox');
+        if (!inbox) return { degraded: true, reason: 'unavailable', message: 'the system Inbox project is missing' };
+        document = await repository.createDocument({
+          title, body: markdown, documentType: 'note', projectId: inbox.id,
+          tags: ['weekly-review'], updatedBy: 'agent', kind: 'synthesized',
+        });
+      }
+      await embedOnWrite(document.id);
+      return {
+        documentId: document.id,
+        created: !existing,
+        updated: Boolean(existing),
+        weekId,
+        stats: compiled.stats,
+        narrated,
+        ...(body.narrate === true && !narrated ? { narrationDegraded: true, narrationReason: 'no-chat-model' } : {}),
+      };
+    } catch (err) {
+      request.log?.error?.({ err }, 'weekly-review failed');
+      return { degraded: true, reason: 'compile-failed', message: err?.message || 'weekly review failed' };
+    }
   });
 
   app.post('/api/library/documents', async (request, reply) => {

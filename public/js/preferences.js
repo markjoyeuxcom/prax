@@ -23,6 +23,8 @@ export const DEFAULT_PREFERENCES = Object.freeze({
   wipLimit: 0,
   // Evening shutdown nudge (Today plan ritual) — opt-in.
   shutdownNudge: false,
+  // Sunday-evening weekly-review nudge — opt-in.
+  weeklyReviewNudge: false,
 });
 
 export const SLIPPAGE_DEFERRAL_OPTIONS = Object.freeze([2, 3, 5]);
@@ -100,6 +102,7 @@ export function normalizePreferences(value = {}) {
     wipLimit: WIP_LIMIT_OPTIONS.includes(source.wipLimit)
       ? source.wipLimit : DEFAULT_PREFERENCES.wipLimit,
     shutdownNudge: source.shutdownNudge === true, // opt-in; defaults off
+    weeklyReviewNudge: source.weeklyReviewNudge === true, // opt-in; defaults off
   };
 }
 

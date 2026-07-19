@@ -840,6 +840,16 @@ export function createTasksRepository(db) {
       return result.rows.map(normalizeActivityRow);
     },
 
+    // Cross-task chronicle slice for the weekly review. Bounded by the range
+    // (a one-click weekly query — a full-table date scan is fine locally).
+    async listActivityInRange(fromIso, toIsoExclusive) {
+      const result = await db.query(
+        'select * from task_activity where created_at >= $1 and created_at < $2 order by created_at asc',
+        [fromIso, toIsoExclusive],
+      );
+      return result.rows.map(normalizeActivityRow);
+    },
+
     async listTaskBoardExtras(taskIds) {
       if (!Array.isArray(taskIds) || taskIds.length === 0) return [];
       const q = buildListTaskBoardExtras(taskIds);
