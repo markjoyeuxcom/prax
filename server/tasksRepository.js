@@ -17,12 +17,12 @@ const CREATE_COLUMN_MAP = {
 const IMPORT_FIELDS = [
   'title', 'description', 'notes', 'priority', 'status', 'projectId',
   'dueDate', 'dueTime', 'deferredUntil', 'recurrence', 'labels',
-  'sortOrder', 'archivedAt',
+  'sortOrder', 'archivedAt', 'deferralCount',
 ];
 const IMPORT_COLUMNS = [
   'title', 'description', 'notes', 'priority', 'status', 'project_id',
   'due_date', 'due_time', 'deferred_until', 'recurrence', 'labels',
-  'sort_order', 'archived_at',
+  'sort_order', 'archived_at', 'deferral_count',
 ];
 const UPDATE_COLUMN_MAP = {
   title: 'title',
@@ -37,6 +37,9 @@ const UPDATE_COLUMN_MAP = {
   labels: 'labels',
   sortOrder: 'sort_order',
   notes: 'notes',
+  // Server-computed only (slippage.js via the PATCH route) — never accepted
+  // from client patch payloads; imports restore it through IMPORT_FIELDS.
+  deferralCount: 'deferral_count',
 };
 
 // Labels are a JSON text array (like markdown_documents.tags). Local copies of
@@ -108,6 +111,7 @@ export function normalizeTaskRow(row) {
     labels: parseJsonArray(row.labels),
     sortOrder: row.sort_order,
     archivedAt: toIso(row.archived_at),
+    deferralCount: Number(row.deferral_count) || 0,
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
   };
@@ -124,7 +128,9 @@ export function buildCreateTask(task, { ignoreIdConflict = false } = {}) {
       returning *
     `,
     values: fields.map(field =>
-      field === 'labels' ? serializeLabels(task.labels) : (task[field] ?? null),
+      field === 'labels' ? serializeLabels(task.labels)
+        : field === 'deferralCount' ? (Number.isInteger(task.deferralCount) && task.deferralCount > 0 ? task.deferralCount : 0)
+          : (task[field] ?? null),
     ),
   };
 }
@@ -169,7 +175,9 @@ export function buildImportTasks(tasks) {
       returning *
     `,
     values: tasks.flatMap(task => IMPORT_FIELDS.map(field => (
-      field === 'labels' ? serializeLabels(task.labels) : (task[field] ?? null)
+      field === 'labels' ? serializeLabels(task.labels)
+        : field === 'deferralCount' ? (Number.isInteger(task.deferralCount) && task.deferralCount > 0 ? task.deferralCount : 0)
+          : (task[field] ?? null)
     ))),
   };
 }
@@ -237,7 +245,9 @@ export function buildReplaceProjectTasks(projectId, tasks) {
         returning *
       `,
       values: [projectId, ...tasks.flatMap(task => REPLACE_FIELDS.map(field => (
-        field === 'labels' ? serializeLabels(task.labels) : (task[field] ?? null)
+        field === 'labels' ? serializeLabels(task.labels)
+        : field === 'deferralCount' ? (Number.isInteger(task.deferralCount) && task.deferralCount > 0 ? task.deferralCount : 0)
+          : (task[field] ?? null)
       )))],
     },
   };

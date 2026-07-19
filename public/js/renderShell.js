@@ -5,6 +5,7 @@
 
 import { escapeHtml } from './renderHelpers.js';
 import { icon, logo } from './icons.js';
+import { BUILT_IN_SMART_VIEWS } from './taskSmartViews.js';
 
 // ---------------------------------------------------------------------------
 // Project colors
@@ -169,18 +170,22 @@ function sidebarSavedViews(state) {
 }
 
 // Saved task smart views — a filter expression per row, opened via
-// select-smart-view; a hover-× deletes. Mirrors sidebarSavedViews.
+// select-smart-view; a hover-× deletes. Mirrors sidebarSavedViews. Built-in
+// views (Stale) render in the same section but carry no delete affordance.
 function sidebarSmartViews(state) {
-  const views = state.taskSmartViews || [];
+  const views = [...(state.taskSmartViews || []), ...BUILT_IN_SMART_VIEWS];
   if (!views.length) return '';
   const items = views.map((view) => {
     const active = state.navType === 'filter' && state.activeSmartViewId === view.id;
+    const remove = view.builtIn
+      ? ''
+      : `<button type="button" class="side-item__del" data-action="delete-smart-view" data-view-id="${escapeHtml(view.id)}" title="Delete smart view" aria-label="Delete smart view ${escapeHtml(view.label || '')}">×</button>`;
     return '<div class="side-item-row">'
       + `<button type="button" class="side-item side-item--saved${active ? ' is-active' : ''}" data-action="select-smart-view" data-view-id="${escapeHtml(view.id)}"${active ? ' aria-current="true"' : ''}>`
       + icon('filter')
       + `<span class="side-item__label">${escapeHtml(view.label)}</span>`
       + '</button>'
-      + `<button type="button" class="side-item__del" data-action="delete-smart-view" data-view-id="${escapeHtml(view.id)}" title="Delete smart view" aria-label="Delete smart view ${escapeHtml(view.label || '')}">×</button>`
+      + remove
       + '</div>';
   }).join('');
   return `<div class="side-section"><span>Smart views</span></div>${items}`;

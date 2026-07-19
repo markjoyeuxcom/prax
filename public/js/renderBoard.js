@@ -9,6 +9,7 @@
 import { BOARD_COLUMNS, designStatus, isBoardable } from './statusMap.js';
 import { chip, escapeHtml, prioDotClass } from './renderHelpers.js';
 import { dueFlag } from './dueFlags.js';
+import { slippageChips } from './slippageFlags.js';
 import { icon } from './icons.js';
 import { TASK_RENDER_BATCH_SIZE } from './renderList.js';
 
@@ -112,6 +113,9 @@ function renderCard(state, task, projectsById, now) {
   }
   const due = dueFlag(task.dueDate, { dueTime: task.dueTime, done: isDone, now });
   if (due) chips.push(chip(due.label, `due-${due.bucket}`));
+  for (const slip of slippageChips(task, { now, preferences: state.preferences || {} })) {
+    chips.push(chip(slip.label, slip.variant));
+  }
 
   const signals = [];
   if (extras && extras.checklistTotal > 0) {
@@ -150,10 +154,18 @@ function renderCard(state, task, projectsById, now) {
 
 function renderColumn(state, column, projectsById, now) {
   const dot = TONE_VARS[column.tone] || TONE_VARS.muted;
+  const count = Number.isInteger(column.totalCount) ? column.totalCount : column.cards.length;
+  // WIP limit (preference, 0 = off): the In-progress header tells the truth
+  // when the column runs over — it never blocks the drop.
+  const wipLimit = Number(state.preferences?.wipLimit) || 0;
+  const overWip = column.key === 'inprogress' && wipLimit > 0 && count > wipLimit;
+  const countHtml = overWip
+    ? `<span class="board-col__count is-over-wip" title="Over the work-in-progress limit">${count}/${wipLimit}</span>`
+    : `<span class="board-col__count">${count}</span>`;
   const head = '<div class="board-col__head">'
     + `<span class="board-col__dot" style="--dot: ${dot};"></span>`
     + `<span>${escapeHtml(column.label)}</span>`
-    + `<span class="board-col__count">${Number.isInteger(column.totalCount) ? column.totalCount : column.cards.length}</span>`
+    + countHtml
     + '</div>';
 
   const cards = column.cards.map(task => renderCard(state, task, projectsById, now)).join('');

@@ -207,7 +207,11 @@ test('sidebar saved views render only when present', () => {
 test('sidebar has a Filter nav item and renders task smart views with delete', () => {
   const plain = renderSidebarHtml(makeState(), { todayBadge: 0, projectOpen: {} });
   assert.match(plain, /data-action="nav-filter"/);
-  assert.doesNotMatch(plain, /Smart views/); // section hidden when there are none
+  // The section always renders now: the built-in Stale view lives there, with
+  // no delete control (it is app code, not user data).
+  assert.match(plain, /Smart views/);
+  assert.match(plain, /data-action="select-smart-view" data-view-id="builtin-stale"/);
+  assert.doesNotMatch(plain, /data-action="delete-smart-view" data-view-id="builtin-stale"/);
 
   const withViews = renderSidebarHtml(makeState({
     navType: 'filter', activeSmartViewId: 'p1-overdue',

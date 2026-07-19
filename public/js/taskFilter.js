@@ -22,6 +22,8 @@
 //   overdue             due date is before today
 //   due:today|tomorrow|soon|week|none|YYYY-MM-DD
 //   is:snoozed|is:recurring
+//   stale:<days>        open, not snoozed, untouched (updatedAt) for >= days
+//   deferrals:<n>       consciously pushed (deferral_count) at least n times
 //   <bareword>          case-insensitive title substring (preserves `q` search)
 //
 // parseTaskFilter(expr, { partial }) -> { ok, predicate, error }; it NEVER
@@ -118,6 +120,22 @@ function compileTerm(raw) {
   }
   if (lower === 'is:snoozed') return (task, ctx) => Boolean(task.deferredUntil) && new Date(task.deferredUntil) > ctx.now;
   if (lower === 'is:recurring') return (task) => task.recurrence != null;
+  if (lower.startsWith('stale:')) {
+    const days = Number(lower.slice('stale:'.length));
+    if (!Number.isInteger(days) || days < 1) return () => false;
+    return (task, ctx) => {
+      if (task.status === 'completed') return false;
+      if (task.deferredUntil && new Date(task.deferredUntil) > ctx.now) return false;
+      if (!task.updatedAt) return false;
+      const touched = new Date(task.updatedAt);
+      return !Number.isNaN(touched.getTime()) && (ctx.now - touched) >= days * 86_400_000;
+    };
+  }
+  if (lower.startsWith('deferrals:')) {
+    const min = Number(lower.slice('deferrals:'.length));
+    if (!Number.isInteger(min) || min < 1) return () => false;
+    return (task) => (Number(task.deferralCount) || 0) >= min;
+  }
 
   // Bareword: case-insensitive title substring (keeps the old `q` semantics).
   return (task) => String(task.title || '').toLowerCase().includes(lower);

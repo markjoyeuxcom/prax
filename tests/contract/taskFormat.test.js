@@ -8,8 +8,8 @@ const SEED_TASK_ID = '11111111-1111-4111-8111-111111111111';
 
 // The current task field set this regression test locks (order-independent).
 const FROZEN_TASK_KEYS = [
-  'archivedAt', 'createdAt', 'deferredUntil', 'description', 'dueDate', 'dueTime', 'id', 'labels', 'notes',
-  'priority', 'projectId', 'recurrence', 'sortOrder', 'status', 'title', 'updatedAt',
+  'archivedAt', 'createdAt', 'deferralCount', 'deferredUntil', 'description', 'dueDate', 'dueTime', 'id',
+  'labels', 'notes', 'priority', 'projectId', 'recurrence', 'sortOrder', 'status', 'title', 'updatedAt',
 ].sort();
 
 function createFakeProjectsRepository() {
@@ -41,6 +41,7 @@ function createFakeTasksRepository() {
     createdAt: 'now',
     updatedAt: 'now',
     archivedAt: null,
+    deferralCount: 0,
   }];
   let seq = 0;
   return {

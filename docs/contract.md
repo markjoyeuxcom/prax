@@ -62,6 +62,7 @@ may add fields over time.
 | `labels` | string array |
 | `checklist` | checklist item array (`label`, `completed`, plus runtime metadata) |
 | `sortOrder` | 32-bit signed integer |
+| `deferralCount` | non-negative integer — times the task was consciously pushed (snoozed into the future, or due date moved later while open). Server-computed on PATCH; never accepted from patch payloads; round-trips through export/import. Counting began at migration `0020` — earlier history was never recorded, so older tasks honestly start at 0. |
 | `createdAt` | ISO-8601 timestamp |
 | `updatedAt` | ISO-8601 timestamp |
 | `archivedAt` | ISO-8601 timestamp \| `null` |
@@ -89,7 +90,8 @@ may add fields over time.
 - `projectId` is assigned server-side and is **never** read from the payload.
 - Per-task accepted fields: `title` (required), `description`, `notes`, `priority` (default
   `"medium"`), `status` (default `"planned"`), `dueDate`, `dueTime`, `deferredUntil`,
-  `recurrence`, `labels`, `checklist`, `sortOrder` (defaults to the array index), `archivedAt`.
+  `recurrence`, `labels`, `checklist`, `sortOrder` (defaults to the array index), `archivedAt`,
+  `deferralCount` (non-negative integer; invalid values are rejected with `400`, not clamped).
 - Checklist item IDs/timestamps are regenerated on import; label, completion state, and order are
   preserved.
 - Task IDs, `projectId`, `createdAt`, and `updatedAt` are runtime identity: they are regenerated or

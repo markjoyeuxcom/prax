@@ -15,7 +15,17 @@ export const DEFAULT_PREFERENCES = Object.freeze({
   editorEngine: 'codemirror',
   editorFont: 'proportional',
   previewFont: 'serif',
+  // Slippage honesty: chips past thresholds, and an optional board WIP limit
+  // (0 = off). Signals only — nothing here ever blocks an action.
+  slippageChips: true,
+  slippageDeferrals: 3,
+  slippageAgeDays: 30,
+  wipLimit: 0,
 });
+
+export const SLIPPAGE_DEFERRAL_OPTIONS = Object.freeze([2, 3, 5]);
+export const SLIPPAGE_AGE_OPTIONS = Object.freeze([14, 30, 60, 90]);
+export const WIP_LIMIT_OPTIONS = Object.freeze([0, 3, 4, 5]);
 
 export const THEME_OPTIONS = Object.freeze(['light', 'dark']);
 export const EDITOR_ENGINE_OPTIONS = Object.freeze(['codemirror', 'plain']);
@@ -80,6 +90,13 @@ export function normalizePreferences(value = {}) {
     editorEngine: isAllowed(source.editorEngine, EDITOR_ENGINE_OPTIONS) ? source.editorEngine : DEFAULT_PREFERENCES.editorEngine,
     editorFont: isAllowed(source.editorFont, EDITOR_FONT_OPTIONS) ? source.editorFont : DEFAULT_PREFERENCES.editorFont,
     previewFont: isAllowed(source.previewFont, PREVIEW_FONT_OPTIONS) ? source.previewFont : DEFAULT_PREFERENCES.previewFont,
+    slippageChips: source.slippageChips !== false, // opt-out; defaults on
+    slippageDeferrals: SLIPPAGE_DEFERRAL_OPTIONS.includes(source.slippageDeferrals)
+      ? source.slippageDeferrals : DEFAULT_PREFERENCES.slippageDeferrals,
+    slippageAgeDays: SLIPPAGE_AGE_OPTIONS.includes(source.slippageAgeDays)
+      ? source.slippageAgeDays : DEFAULT_PREFERENCES.slippageAgeDays,
+    wipLimit: WIP_LIMIT_OPTIONS.includes(source.wipLimit)
+      ? source.wipLimit : DEFAULT_PREFERENCES.wipLimit,
   };
 }
 

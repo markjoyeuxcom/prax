@@ -556,6 +556,9 @@ a { color: var(--accent); }
 .chip--due-overdue { background: var(--hi-soft); color: var(--hi); }
 .chip--due-today, .chip--due-soon { background: var(--med-soft); color: var(--med); }
 .chip--due-later, .chip--due-done { background: var(--line); color: var(--ink2); }
+/* Slippage honesty chips — subdued, informative, never alarm-red. */
+.chip--slip-deferred { background: var(--med-soft); color: var(--med); }
+.chip--slip-age { background: var(--line); color: var(--ink3); }
 .chip--type-runbook { background: var(--accent-soft); color: var(--accent); font-size: 10px; letter-spacing: .06em; }
 .chip--type-note { background: var(--line); color: var(--ink2); font-size: 10px; letter-spacing: .06em; }
 .chip--type-decision { background: color-mix(in oklab, #7c5cbf 14%, transparent); color: #7c5cbf; font-size: 10px; letter-spacing: .06em; }
@@ -824,6 +827,7 @@ a { color: var(--accent); }
 }
 .board-col__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dot, var(--ink3)); }
 .board-col__count { font-weight: 450; color: var(--ink3); }
+.board-col__count.is-over-wip { color: var(--hi); font-weight: 600; }
 
 .board-card {
   background: var(--card);

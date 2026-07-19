@@ -3,6 +3,7 @@ import { createTasksRepository, taskMatchesCreateFields } from './tasksRepositor
 import { createProjectsRepository } from './projectsRepository.js';
 import { createChecklistRepository, MAX_CHECKLIST_ITEMS_PER_TASK } from './checklistRepository.js';
 import { isValidRecurrence, planTaskRecurrenceTransition } from './recurrence.js';
+import { classifySlip } from './slippage.js';
 import { tasksToIcs, isCalendarEligible } from './icsFeed.js';
 import {
   cleanNlText, boundGrounding, buildNlCaptureMessages, coerceNlCaptureFields,
@@ -144,6 +145,8 @@ function validateTaskImportPayload(payload) {
     if (task.dueDate !== undefined && !isValidDateString(task.dueDate)) return 'dueDate is invalid';
     if (task.dueTime !== undefined && !isValidTimeString(task.dueTime)) return 'dueTime is invalid';
     if (task.deferredUntil !== undefined && !isValidDeferredUntil(task.deferredUntil)) return 'deferredUntil is invalid';
+    if (task.deferralCount !== undefined && task.deferralCount !== null
+      && (!Number.isInteger(task.deferralCount) || task.deferralCount < 0)) return 'deferralCount is invalid';
     if (task.recurrence !== undefined && !isValidRecurrence(task.recurrence)) return 'recurrence is invalid';
     if (!isValidLabels(task.labels)) return 'labels is invalid';
     if (task.description !== undefined && typeof task.description !== 'string') return 'description is invalid';
@@ -191,6 +194,7 @@ function cleanTaskImportPayload(payload) {
     labels: normalizeLabels(task.labels),
     sortOrder: Number.isInteger(task.sortOrder) ? task.sortOrder : index,
     archivedAt: task.archivedAt || null,
+    deferralCount: Number.isInteger(task.deferralCount) && task.deferralCount > 0 ? task.deferralCount : 0,
     checklist: Array.isArray(task.checklist)
       ? task.checklist.map((item) => ({ label: item.label.trim(), completed: Boolean(item.completed) }))
       : [],
@@ -795,6 +799,11 @@ export async function registerTasksRoutes(app, options = {}) {
     }
 
     const prior = repository.getTask ? await repository.getTask(request.params.id) : null;
+    // Slippage (slippage.js): a conscious push of a live commitment bumps the
+    // counter INSIDE the same UPDATE as the change itself — a failed patch
+    // can never increment it — and records an honest chronicle event after.
+    const slip = classifySlip(prior, fields);
+    if (slip.kind !== 'none') fields.deferralCount = (prior?.deferralCount ?? 0) + 1;
     let result = null;
     let task;
     if (repository.updateTaskLifecycle) {
@@ -816,6 +825,9 @@ export async function registerTasksRoutes(app, options = {}) {
     const authoritativePrior = result?.prior || prior;
     if (authoritativePrior && authoritativePrior.status !== task.status) {
       await logActivity(task.id, 'status', `Status → ${task.status}`, originFrom(request));
+    }
+    if (slip.kind !== 'none') {
+      await logActivity(task.id, slip.kind, slip.message, originFrom(request));
     }
     if (result?.nextTask) {
       await logActivity(result.nextTask.id, 'created', 'Recurring task created', originFrom(request));

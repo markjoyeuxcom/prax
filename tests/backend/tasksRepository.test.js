@@ -57,6 +57,7 @@ test('normalizeTaskRow maps database fields to API task fields', () => {
     labels: [],
     sortOrder: 2,
     archivedAt: null,
+    deferralCount: 0,
     createdAt: '2026-05-10T10:00:00.000Z',
     updatedAt: '2026-05-10T10:00:00.000Z',
   });
@@ -234,6 +235,7 @@ test('buildImportTasks returns a parameterized batch insert query', () => {
     '[]',
     2,
     null,
+    0,
     'Archived task',
     '',
     null,
@@ -247,6 +249,7 @@ test('buildImportTasks returns a parameterized batch insert query', () => {
     '[]',
     3,
     '2026-05-11T12:00:00.000Z',
+    0,
   ]);
 });
 
@@ -346,6 +349,7 @@ test('buildReplaceProjectTasks deletes one project and inserts imported tasks', 
     '[]',
     0,
     null,
+    0,
   ]);
 });
 
