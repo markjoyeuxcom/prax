@@ -28,6 +28,10 @@ export function slippageChips(task, { now = new Date(), preferences = {} } = {})
   if (deferrals >= thresholds.deferrals) {
     chips.push({ label: `deferred ${deferrals}×`, variant: 'slip-deferred' });
   }
+  const carries = Number(task.carryCount) || 0;
+  if (carries >= thresholds.deferrals) {
+    chips.push({ label: `carried ${carries}×`, variant: 'slip-deferred' });
+  }
   const created = task.createdAt ? new Date(task.createdAt) : null;
   if (created && !Number.isNaN(created.getTime())) {
     const days = Math.floor((now - created) / 86_400_000);

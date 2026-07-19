@@ -4,6 +4,7 @@ import { createProjectsRepository } from './projectsRepository.js';
 import { createChecklistRepository, MAX_CHECKLIST_ITEMS_PER_TASK } from './checklistRepository.js';
 import { isValidRecurrence, planTaskRecurrenceTransition } from './recurrence.js';
 import { classifySlip } from './slippage.js';
+import { classifyPlanChange } from './planning.js';
 import { tasksToIcs, isCalendarEligible } from './icsFeed.js';
 import {
   cleanNlText, boundGrounding, buildNlCaptureMessages, coerceNlCaptureFields,
@@ -14,7 +15,7 @@ const PRIORITIES = new Set(['high', 'medium', 'low']);
 const STATUSES = new Set(['high-priority', 'in-progress', 'planned', 'completed', 'notes']);
 // 'project' (slug-or-id) is the client-facing field; 'projectId' is resolved
 // server-side and injected into the patch by the handler — never accepted raw.
-const PATCH_FIELDS = ['title', 'description', 'notes', 'priority', 'status', 'project', 'dueDate', 'dueTime', 'deferredUntil', 'recurrence', 'labels', 'sortOrder'];
+const PATCH_FIELDS = ['title', 'description', 'notes', 'priority', 'status', 'project', 'dueDate', 'dueTime', 'deferredUntil', 'recurrence', 'labels', 'sortOrder', 'plannedFor'];
 
 const MAX_LABELS = 25;
 
@@ -110,6 +111,7 @@ function validateTaskPayload(payload) {
   if (!STATUSES.has(payload.status)) return 'status is invalid';
   if (typeof payload.project !== 'string' || payload.project.trim() === '') return 'project is required';
   if (!isValidDateString(payload.dueDate)) return 'dueDate is invalid';
+  if (!isValidDateString(payload.plannedFor)) return 'plannedFor is invalid';
   if (!isValidTimeString(payload.dueTime)) return 'dueTime is invalid';
   if (!isValidLabels(payload.labels)) return 'labels is invalid';
   if (!isValidRecurrence(payload.recurrence)) return 'recurrence is invalid';
@@ -147,6 +149,9 @@ function validateTaskImportPayload(payload) {
     if (task.deferredUntil !== undefined && !isValidDeferredUntil(task.deferredUntil)) return 'deferredUntil is invalid';
     if (task.deferralCount !== undefined && task.deferralCount !== null
       && (!Number.isInteger(task.deferralCount) || task.deferralCount < 0)) return 'deferralCount is invalid';
+    if (task.plannedFor !== undefined && !isValidDateString(task.plannedFor)) return 'plannedFor is invalid';
+    if (task.carryCount !== undefined && task.carryCount !== null
+      && (!Number.isInteger(task.carryCount) || task.carryCount < 0)) return 'carryCount is invalid';
     if (task.recurrence !== undefined && !isValidRecurrence(task.recurrence)) return 'recurrence is invalid';
     if (!isValidLabels(task.labels)) return 'labels is invalid';
     if (task.description !== undefined && typeof task.description !== 'string') return 'description is invalid';
@@ -195,6 +200,8 @@ function cleanTaskImportPayload(payload) {
     sortOrder: Number.isInteger(task.sortOrder) ? task.sortOrder : index,
     archivedAt: task.archivedAt || null,
     deferralCount: Number.isInteger(task.deferralCount) && task.deferralCount > 0 ? task.deferralCount : 0,
+    plannedFor: task.plannedFor || null,
+    carryCount: Number.isInteger(task.carryCount) && task.carryCount > 0 ? task.carryCount : 0,
     checklist: Array.isArray(task.checklist)
       ? task.checklist.map((item) => ({ label: item.label.trim(), completed: Boolean(item.completed) }))
       : [],
@@ -239,6 +246,7 @@ function cleanTaskPayload(payload) {
     recurrence: payload.recurrence || null,
     labels: normalizeLabels(payload.labels),
     sortOrder: Number.isFinite(payload.sortOrder) ? payload.sortOrder : 0,
+    plannedFor: payload.plannedFor || null,
   };
 }
 
@@ -307,6 +315,12 @@ function validateTaskPatchPayload(payload) {
     return 'deferredUntil is invalid';
   }
   if (
+    Object.prototype.hasOwnProperty.call(payload, 'plannedFor') &&
+    !isValidDateString(payload.plannedFor)
+  ) {
+    return 'plannedFor is invalid';
+  }
+  if (
     Object.prototype.hasOwnProperty.call(payload, 'recurrence') &&
     !isValidRecurrence(payload.recurrence)
   ) {
@@ -336,7 +350,7 @@ function cleanTaskPatchPayload(payload) {
       fields[field] = payload[field].trim();
       return fields;
     }
-    if ((field === 'dueDate' || field === 'dueTime' || field === 'deferredUntil' || field === 'recurrence') && payload[field] === '') {
+    if ((field === 'dueDate' || field === 'dueTime' || field === 'deferredUntil' || field === 'recurrence' || field === 'plannedFor') && payload[field] === '') {
       fields[field] = null;
       return fields;
     }
@@ -804,6 +818,10 @@ export async function registerTasksRoutes(app, options = {}) {
     // can never increment it — and records an honest chronicle event after.
     const slip = classifySlip(prior, fields);
     if (slip.kind !== 'none') fields.deferralCount = (prior?.deferralCount ?? 0) + 1;
+    // Planning (planning.js): entering a day's working set records 'planned';
+    // rolling an existing plan later is a carry — counted in the same UPDATE.
+    const plan = classifyPlanChange(prior, fields);
+    if (plan.kind === 'carried') fields.carryCount = (prior?.carryCount ?? 0) + 1;
     let result = null;
     let task;
     if (repository.updateTaskLifecycle) {
@@ -828,6 +846,9 @@ export async function registerTasksRoutes(app, options = {}) {
     }
     if (slip.kind !== 'none') {
       await logActivity(task.id, slip.kind, slip.message, originFrom(request));
+    }
+    if (plan.kind !== 'none') {
+      await logActivity(task.id, plan.kind, plan.message, originFrom(request));
     }
     if (result?.nextTask) {
       await logActivity(result.nextTask.id, 'created', 'Recurring task created', originFrom(request));

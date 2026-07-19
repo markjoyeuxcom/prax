@@ -58,6 +58,8 @@ export function normalizeTask(task) {
     order: Number.isFinite(task.sortOrder) ? task.sortOrder : task.order || 0,
     archivedAt: task.archivedAt || null,
     deferralCount: Number(task.deferralCount) || 0,
+    plannedFor: task.plannedFor || null,
+    carryCount: Number(task.carryCount) || 0,
     createdAt: task.createdAt || null,
     updatedAt: task.updatedAt || null,
     completedAt: task.completedAt || task.completed_at || null,

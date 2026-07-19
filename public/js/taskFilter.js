@@ -23,6 +23,7 @@
 //   due:today|tomorrow|soon|week|none|YYYY-MM-DD
 //   is:snoozed|is:recurring
 //   stale:<days>        open, not snoozed, untouched (updatedAt) for >= days
+//   planned:today|none|any|YYYY-MM-DD   the Today-plan working set
 //   deferrals:<n>       consciously pushed (deferral_count) at least n times
 //   <bareword>          case-insensitive title substring (preserves `q` search)
 //
@@ -135,6 +136,14 @@ function compileTerm(raw) {
     const min = Number(lower.slice('deferrals:'.length));
     if (!Number.isInteger(min) || min < 1) return () => false;
     return (task) => (Number(task.deferralCount) || 0) >= min;
+  }
+  if (lower.startsWith('planned:')) {
+    const arg = lower.slice('planned:'.length);
+    if (arg === 'none') return (task) => !task.plannedFor;
+    if (arg === 'any') return (task) => Boolean(task.plannedFor);
+    if (arg === 'today') return (task, ctx) => task.plannedFor === isoDate(ctx.now);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(arg)) return (task) => task.plannedFor === arg;
+    return () => false;
   }
 
   // Bareword: case-insensitive title substring (keeps the old `q` semantics).

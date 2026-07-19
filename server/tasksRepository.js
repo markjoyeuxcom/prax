@@ -1,6 +1,6 @@
 import { toIso } from './columnTypes.js';
 
-const ALLOWED_CREATE_FIELDS = ['title', 'description', 'priority', 'status', 'projectId', 'dueDate', 'dueTime', 'sortOrder', 'notes', 'recurrence', 'labels'];
+const ALLOWED_CREATE_FIELDS = ['title', 'description', 'priority', 'status', 'projectId', 'dueDate', 'dueTime', 'sortOrder', 'notes', 'recurrence', 'labels', 'plannedFor'];
 const CREATE_COLUMN_MAP = {
   title: 'title',
   description: 'description',
@@ -13,16 +13,17 @@ const CREATE_COLUMN_MAP = {
   notes: 'notes',
   recurrence: 'recurrence',
   labels: 'labels',
+  plannedFor: 'planned_for',
 };
 const IMPORT_FIELDS = [
   'title', 'description', 'notes', 'priority', 'status', 'projectId',
   'dueDate', 'dueTime', 'deferredUntil', 'recurrence', 'labels',
-  'sortOrder', 'archivedAt', 'deferralCount',
+  'sortOrder', 'archivedAt', 'deferralCount', 'plannedFor', 'carryCount',
 ];
 const IMPORT_COLUMNS = [
   'title', 'description', 'notes', 'priority', 'status', 'project_id',
   'due_date', 'due_time', 'deferred_until', 'recurrence', 'labels',
-  'sort_order', 'archived_at', 'deferral_count',
+  'sort_order', 'archived_at', 'deferral_count', 'planned_for', 'carry_count',
 ];
 const UPDATE_COLUMN_MAP = {
   title: 'title',
@@ -37,9 +38,12 @@ const UPDATE_COLUMN_MAP = {
   labels: 'labels',
   sortOrder: 'sort_order',
   notes: 'notes',
-  // Server-computed only (slippage.js via the PATCH route) — never accepted
-  // from client patch payloads; imports restore it through IMPORT_FIELDS.
+  // Server-computed only (slippage.js / planning.js via the PATCH route) —
+  // never accepted from client patch payloads; imports restore them through
+  // IMPORT_FIELDS. plannedFor IS client-writable (it is the planning feature).
   deferralCount: 'deferral_count',
+  plannedFor: 'planned_for',
+  carryCount: 'carry_count',
 };
 
 // Labels are a JSON text array (like markdown_documents.tags). Local copies of
@@ -112,6 +116,8 @@ export function normalizeTaskRow(row) {
     sortOrder: row.sort_order,
     archivedAt: toIso(row.archived_at),
     deferralCount: Number(row.deferral_count) || 0,
+    plannedFor: toDateOnly(row.planned_for),
+    carryCount: Number(row.carry_count) || 0,
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
   };
@@ -129,7 +135,8 @@ export function buildCreateTask(task, { ignoreIdConflict = false } = {}) {
     `,
     values: fields.map(field =>
       field === 'labels' ? serializeLabels(task.labels)
-        : field === 'deferralCount' ? (Number.isInteger(task.deferralCount) && task.deferralCount > 0 ? task.deferralCount : 0)
+        : field === 'deferralCount' || field === 'carryCount'
+          ? (Number.isInteger(task[field]) && task[field] > 0 ? task[field] : 0)
           : (task[field] ?? null),
     ),
   };
@@ -155,6 +162,7 @@ export function taskMatchesCreateFields(task, fields) {
     && Array.isArray(task.labels)
     && task.labels.length === labels.length
     && task.labels.every((label, index) => label === labels[index])
+    && (task.plannedFor || null) === (fields.plannedFor || null)
     && task.sortOrder === fields.sortOrder;
 }
 
@@ -176,7 +184,8 @@ export function buildImportTasks(tasks) {
     `,
     values: tasks.flatMap(task => IMPORT_FIELDS.map(field => (
       field === 'labels' ? serializeLabels(task.labels)
-        : field === 'deferralCount' ? (Number.isInteger(task.deferralCount) && task.deferralCount > 0 ? task.deferralCount : 0)
+        : field === 'deferralCount' || field === 'carryCount'
+          ? (Number.isInteger(task[field]) && task[field] > 0 ? task[field] : 0)
           : (task[field] ?? null)
     ))),
   };
@@ -246,7 +255,8 @@ export function buildReplaceProjectTasks(projectId, tasks) {
       `,
       values: [projectId, ...tasks.flatMap(task => REPLACE_FIELDS.map(field => (
         field === 'labels' ? serializeLabels(task.labels)
-        : field === 'deferralCount' ? (Number.isInteger(task.deferralCount) && task.deferralCount > 0 ? task.deferralCount : 0)
+        : field === 'deferralCount' || field === 'carryCount'
+          ? (Number.isInteger(task[field]) && task[field] > 0 ? task[field] : 0)
           : (task[field] ?? null)
       )))],
     },

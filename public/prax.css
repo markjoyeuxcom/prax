@@ -559,6 +559,32 @@ a { color: var(--accent); }
 /* Slippage honesty chips — subdued, informative, never alarm-red. */
 .chip--slip-deferred { background: var(--med-soft); color: var(--med); }
 .chip--slip-age { background: var(--line); color: var(--ink3); }
+
+/* Today plan & shutdown ritual ------------------------------------------- */
+.today-planscore { color: var(--accent); font-weight: 550; }
+.today-staleplan {
+  margin: 10px 0 2px; padding: 9px 12px; border-radius: 9px;
+  background: var(--med-soft); color: var(--med); font-size: 13px;
+}
+.today-staleplan .settings-link { margin-left: 4px; }
+.planmode {
+  width: min(30rem, calc(100vw - 3rem)); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px 14px;
+  box-shadow: 0 18px 48px rgba(0,0,0,.28); display: flex; flex-direction: column; gap: 12px;
+}
+.planmode__head { display: flex; align-items: center; gap: 8px; color: var(--ink2); }
+.planmode__head-title { font-weight: 600; color: var(--ink); }
+.planmode__bucket { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink3); display: flex; justify-content: space-between; }
+.planmode__progress { text-transform: none; letter-spacing: 0; }
+.planmode__card { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.planmode__title { font-weight: 600; font-size: 15px; }
+.planmode__meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.planmode__due { color: var(--ink3); font-size: 12.5px; }
+.planmode__actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.planmode__doneword { font-weight: 600; font-size: 15px; }
+.planmode__summary { color: var(--ink2); font-size: 13px; }
+.planmode__foot { display: flex; justify-content: flex-end; color: var(--ink3); font-size: 11.5px; }
+
 .chip--type-runbook { background: var(--accent-soft); color: var(--accent); font-size: 10px; letter-spacing: .06em; }
 .chip--type-note { background: var(--line); color: var(--ink2); font-size: 10px; letter-spacing: .06em; }
 .chip--type-decision { background: color-mix(in oklab, #7c5cbf 14%, transparent); color: #7c5cbf; font-size: 10px; letter-spacing: .06em; }

@@ -56,6 +56,7 @@ test('0010 rebuild preserves data, links, and FTS; retypes tagged post-mortems; 
     '0018_reconcile_restored_supersession.sql',
     '0019_resequence_chronicle_by_time.sql',
     '0020_add_task_deferral_count.sql',
+    '0021_add_task_planning.sql',
   ]);
 
   // Every row survived, fields intact.
