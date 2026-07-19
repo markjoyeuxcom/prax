@@ -5,6 +5,7 @@ import { createProjectsRepository } from './projectsRepository.js';
 import { createTasksRepository } from './tasksRepository.js';
 import { createDocumentLinksRepository, DOCUMENT_LINK_RELATIONS } from './documentLinksRepository.js';
 import { addDaysUtc, compileWeeklyReview, isoWeekId, weekStartOf, weeklyReviewTitle } from './weeklyReview.js';
+import { buildRelatedQuery } from './relatedDocuments.js';
 import { createDocumentExternalRefsRepository, sanitizeUrl, sanitizeLabel } from './documentExternalRefsRepository.js';
 import {
   createRunbookRunsRepository,
@@ -401,6 +402,39 @@ export async function registerLibraryRoutes(app, options = {}) {
     const force = request.query.force === 'true' || request.query.force === true;
     const result = await service.reindex({ force });
     return result;
+  });
+
+  // Task context surface (2026-07-18 plan): the Library knowledge that helps
+  // do a task, surfaced in its drawer. Strictly advisory — ALWAYS 200, loads
+  // after the drawer renders, and with embeddings off it degrades to a quiet
+  // labelled line. Already-linked and archived docs are excluded; the task's
+  // text is embedded transiently, never indexed.
+  app.get('/api/tasks/:id/related-documents', async (request) => {
+    try {
+      if (!isValidUuid(request.params.id)) return { suggestions: [], degraded: true, reason: 'invalid-task' };
+      const task = tasksRepository?.getTask ? await tasksRepository.getTask(request.params.id) : null;
+      if (!task) return { suggestions: [], degraded: true, reason: 'task-not-found' };
+      const embedder = await resolveEmbedder();
+      if (!embedder || !(await semanticEnabled())) return { suggestions: [], degraded: true, reason: 'semantic-off' };
+      const query = buildRelatedQuery(task);
+      if (!query) return { suggestions: [] };
+      const linked = new Set((await tasksRepository.listTaskDocuments(task.id)).map((doc) => doc.id));
+      const { vector } = await embedder.embed(query, { query: true });
+      const docs = await repository.searchDocumentsSemantic(vector, embedder.backend, { limit: 12 });
+      const suggestions = docs
+        .filter((doc) => !linked.has(doc.id))
+        .slice(0, 5)
+        .map((doc) => ({
+          id: doc.id,
+          title: doc.title,
+          documentType: doc.documentType,
+          similarity: Number.isFinite(doc.similarity) ? Number(doc.similarity.toFixed(3)) : null,
+        }));
+      return { suggestions };
+    } catch (err) {
+      request.log?.error?.({ err }, 'related-documents failed');
+      return { suggestions: [], degraded: true, reason: 'search-failed' };
+    }
   });
 
   // Weekly review (2026-07-18 plan): one click compiles an honest

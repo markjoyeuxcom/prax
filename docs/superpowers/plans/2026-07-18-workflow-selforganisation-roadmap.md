@@ -1,7 +1,7 @@
 # Workflow & Self-Organisation Roadmap
 
 **Date:** 2026-07-18
-**Status:** Proposed — nothing started
+**Status:** SHIPPED — all five items landed (2026-07-19), each with its own commit, tests, and gates; see the per-item plans for as-shipped notes
 **Source:** Product review of the full feature set after the Google Calendar push work.
 
 **Detailed plans:**

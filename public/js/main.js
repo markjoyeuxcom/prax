@@ -11,7 +11,7 @@ import {
 } from './preferences.js';
 import {
   fetchTasks, fetchTask, createTask, updateTask, reorderTasks, archiveTask, restoreTask,
-  deleteArchivedTask, exportTasks, importTasks, fetchTaskDocuments,
+  deleteArchivedTask, exportTasks, importTasks, fetchTaskDocuments, fetchRelatedDocuments,
   linkTaskDocument, unlinkTaskDocument, fetchTaskChecklist, addChecklistItem,
   setChecklistItem, deleteChecklistItem, fetchTaskActivity, fetchTaskBoardExtras,
   parseNlCapture, parseNlFilter,
@@ -792,7 +792,31 @@ async function loadDrawerContext(taskId) {
     taskActivity: activity.status === 'fulfilled' ? activity.value : [],
   });
   renderApp();
+  // Related knowledge fills AFTER the drawer renders (advisory regime: it may
+  // never delay the drawer). The token guard drops a stale fill.
+  loadRelatedDocuments(taskId, token);
   return true;
+}
+
+// Session-scoped dismissals: a dismissed suggestion stays gone for this tab's
+// lifetime, per task — not a server concern.
+const relatedDismissed = new Set();
+
+async function loadRelatedDocuments(taskId, token) {
+  setState({ taskRelatedDocs: { taskId, loading: true, suggestions: [] } });
+  renderApp();
+  const result = await fetchRelatedDocuments(taskId).catch(() => ({ suggestions: [], degraded: true, reason: 'search-failed' }));
+  if (token !== drawerContextToken || state.drawerTaskId !== taskId) return;
+  setState({
+    taskRelatedDocs: {
+      taskId,
+      loading: false,
+      suggestions: (result.suggestions || []).filter((doc) => !relatedDismissed.has(`${taskId}:${doc.id}`)),
+      degraded: Boolean(result.degraded),
+      reason: result.reason || null,
+    },
+  });
+  renderApp();
 }
 
 async function loadDocumentTaskBacklinks(documentId) {
@@ -4352,6 +4376,69 @@ async function handleAction(action, el, event) {
     case 'run-generate-runbook': runGenerateRunbook(); break;
     case 'open-daily-brief': openDailyBrief(); break;
     case 'close-daily-brief': setState({ dailyBriefOpen: false }); renderApp(); break;
+    case 'link-related-doc': {
+      event.stopPropagation();
+      const documentId = el.dataset.documentId;
+      const taskId = state.drawerTaskId;
+      if (!documentId || !taskId) break;
+      try {
+        const documents = await linkTaskDocument(taskId, documentId);
+        setState({
+          taskDocuments: documents,
+          taskRelatedDocs: state.taskRelatedDocs && state.taskRelatedDocs.taskId === taskId
+            ? { ...state.taskRelatedDocs, suggestions: state.taskRelatedDocs.suggestions.filter((doc) => doc.id !== documentId) }
+            : state.taskRelatedDocs,
+        });
+        showToast('Linked.');
+      } catch {
+        showToast('Could not link the document.');
+      }
+      renderApp();
+      break;
+    }
+    case 'dismiss-related-doc': {
+      event.stopPropagation();
+      const documentId = el.dataset.documentId;
+      const taskId = state.drawerTaskId;
+      if (!documentId || !taskId) break;
+      relatedDismissed.add(`${taskId}:${documentId}`);
+      if (state.taskRelatedDocs?.taskId === taskId) {
+        setState({ taskRelatedDocs: { ...state.taskRelatedDocs, suggestions: state.taskRelatedDocs.suggestions.filter((doc) => doc.id !== documentId) } });
+      }
+      renderApp();
+      break;
+    }
+    case 'start-working-note': {
+      const taskId = state.drawerTaskId;
+      const task = state.tasks.find((candidate) => candidate.id === taskId);
+      if (!task) break;
+      const project = projectsById()[task.projectId];
+      try {
+        const doc = await createDocument({
+          title: `Working note — ${task.title || 'Untitled task'}`,
+          project: project?.slug || project?.id || 'inbox',
+          documentType: 'note',
+          body: `# Working note — ${task.title || 'Untitled task'}
+
+_Task:_ ${task.title || 'Untitled task'}`
+            + `${project ? ` _(${project.name})_` : ''}
+
+## Context
+
+
+## Findings
+
+`,
+        });
+        await linkTaskDocument(taskId, doc.id).catch(() => {});
+        await loadDocuments();
+        await openDocumentInEditor(doc.id);
+        showToast('Working note created and linked.');
+      } catch (err) {
+        showToast(err?.message || 'Could not create the working note.');
+      }
+      break;
+    }
     case 'generate-weekly-review': {
       if (el.dataset.busy) break;
       el.dataset.busy = '1';

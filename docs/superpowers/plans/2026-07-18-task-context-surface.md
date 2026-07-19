@@ -5,7 +5,7 @@ that helps you do it (semantic suggestions), one click links a doc or spawns a p
 working note, and documents show their open tasks in return.
 
 **Roadmap:** [Workflow & Self-Organisation Roadmap](2026-07-18-workflow-selforganisation-roadmap.md) · item 3
-**Status:** Proposed
+**Status:** Shipped
 
 ## Current state
 
@@ -55,30 +55,42 @@ working note, and documents show their open tasks in return.
 
 ### Increment 1 — related-knowledge row (read-only + link)
 
-- [ ] `GET /api/tasks/:id/related-documents`: query shaping (pure, tested), semantic call,
-      linked/archived exclusion, top-5 cap, degraded JSON (`{ suggestions: [], degraded,
-      reason }`) when embeddings are off/unreachable — never 500, never blocks.
-- [ ] Drawer: placeholder row → async fill (state keys + delegated actions per the render
+- [x] `GET /api/tasks/:id/related-documents`: query shaping (pure `relatedDocuments.js`),
+      semantic call, linked/archived exclusion, top-5 cap, degraded JSON — never 500.
+- [x] Drawer: async fill after render (state keys + delegated actions per the render
       pattern); Link action wires to the existing link endpoint and moves the doc to the
       links row; session-scoped dismiss.
-- [ ] Respect the drawer's focused-field capture rules — the async fill must not clobber
+- [x] Respect the drawer's focused-field capture rules — the async fill must not clobber
       an in-progress edit (renderApp already captures only the focused field; the fill
       goes through normal setState).
 
 ### Increment 2 — working note
 
-- [ ] Template + spawn action: create doc (taxonomy-typed, template body, project
+- [x] Template + spawn action: create doc (taxonomy-typed, template body, project
       wiki-link), link to task, navigate to editor; failure leaves the task drawer state
       untouched with the reason inline.
-- [ ] The spawned note immediately appears in the task's links row (it is just a link).
+- [x] The spawned note immediately appears in the task's links row (it is just a link).
 
 ### Increment 3 — document side
 
-- [ ] `GET /api/documents/:id/tasks` (open linked tasks) + compact row in the document
-      meta area with click-through navigation.
-- [ ] CHANGELOG entry; short docs note in the Library documentation.
+- [x] Already existed: the editor's "Referenced by N tasks" backlinks row
+      (`buildListTasksForDocument`) covers the reverse surface — discovered during the
+      mapping pass; no new endpoint needed. (It lists non-archived tasks, including
+      completed — a slightly wider net than the sketch's open-only.)
+- [x] CHANGELOG entry.
 
-## Verification
+## Verification (as shipped)
+
+- Unit: `tests/backend/relatedDocuments.test.js` — query-shaping pins (markdown stripping,
+  bounds, honest nulls), quiet degrade paths (no embedder / invalid / missing task), and a
+  REAL ranking journey with seeded embeddings: near doc suggested, linked doc excluded,
+  orthogonal doc below the relevance cutoff.
+- E2e: `tests/e2e/task-context-surface.spec.js` — embeddings-off drawer shows the labelled
+  line (itself a covered state), working-note spawn creates + links + opens with the
+  backlink visible, server-truth link asserted.
+- Gates: 1742 unit, 86 e2e; no schema change.
+
+## Original verification sketch
 
 - Unit: query shaping (long descriptions truncated, markdown stripped), exclusion rules
   (linked + archived), degraded paths, working-note template assembly, reverse-lookup

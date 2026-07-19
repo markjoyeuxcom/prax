@@ -158,6 +158,20 @@ fresh empty `[Unreleased]` section is started.
 
 ### Added
 
+- **Task context surface — the Library feeds the task you're doing.** The task drawer
+  gains a **Related knowledge** row: semantic suggestions from your notes and runbooks,
+  shaped from the task's title + description in one pinned query-builder
+  (`server/relatedDocuments.js` — markdown stripped, bounded, embedded transiently at
+  request time; tasks are never written into the Library's index). Strictly advisory: the
+  row fills **after** the drawer renders, already-linked and archived docs are excluded,
+  and with embeddings off it degrades to one quiet labelled line pointing at Settings ▸
+  Intelligence — never an error, never a delay. Each suggestion offers open, **＋ Link**
+  (becomes a real task↔doc link), or a session-scoped dismiss. **＋ Working note** spawns
+  a note titled after the task, seeded with a Context/Findings skeleton, pre-linked, and
+  opened in the editor — one click from "starting work" to "taking notes that will be
+  findable next time." The reverse surface (a document's "Referenced by N tasks"
+  backlinks) already existed and completes the loop.
+
 - **One-click weekly review — the week, compiled into a Library document.** Library ▸
   **Weekly review** compiles an honest week-in-review from live data: **Shipped**
   (completed this week, by project), **Stalled** (in progress, zero chronicle events all
