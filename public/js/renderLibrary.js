@@ -188,6 +188,7 @@ function renderPageHead(state, model) {
         <button class="btn-ghost" type="button" data-action="open-ask-prax" title="Ask Prax a question, answered from your library">${icon('spark', 13)}<span>Ask Prax</span></button>
         <button class="btn-ghost" type="button" data-action="open-generate-runbook" title="Generate a runbook from an incident description">${icon('spark', 13)}<span>New runbook</span></button>
         <button class="btn-ghost" type="button" data-action="open-health" title="Library health — docs needing attention">Health</button>
+        <button class="btn-ghost" type="button" data-action="generate-weekly-review" title="Compile last week — shipped, stalled, slipped, aging inbox, silent projects — into a Library doc (idempotent per week)">Weekly review</button>
         <button class="btn-ghost" type="button" data-action="import-documents" title="Choose Markdown files and their destination project">Import Markdown…</button>
         <button class="btn-ghost" type="button" data-action="export-library" title="Choose scope and where to save the Markdown archive">Export…</button>
         <button class="btn-ghost" type="button" data-action="toggle-library-view" aria-pressed="${model.archive}">${model.archive ? 'Active' : 'Archive'}</button>

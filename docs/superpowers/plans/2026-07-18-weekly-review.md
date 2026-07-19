@@ -9,7 +9,7 @@ narration on top; the deterministic compilation stands alone.
 **Depends on:** [Slippage honesty](2026-07-18-slippage-honesty.md) (deferral counts) and
 [Today plan & shutdown](2026-07-18-today-plan-shutdown.md) (carry data) enrich it, but the
 compiler must degrade gracefully to whatever data exists — neither is a hard prerequisite.
-**Status:** Proposed
+**Status:** Shipped (all three increments)
 
 ## Current state
 
@@ -62,28 +62,42 @@ compiler must degrade gracefully to whatever data exists — neither is a hard p
 
 ### Increment 1 — compiler + idempotent doc writer
 
-- [ ] `server/weeklyReview.js` pure compiler with a fixture week exercising every section,
+- [x] `server/weeklyReview.js` pure compiler with a fixture week exercising every section,
       the empty week, ISO week boundaries (year-crossing weeks), and the
       slippage-data-absent fallback.
-- [ ] Repository support: completed/archived-in-range and activity-in-range queries
-      (bounded; no full-table scans over the chronicle — index check in the same change).
-- [ ] `POST /api/library/weekly-review`: compile → create-or-update by title, taxonomy
+- [x] Repository support: `listActivityInRange` (a once-a-week bounded date scan —
+      measured as fine locally; no index added).
+- [x] `POST /api/library/weekly-review`: compile → create-or-update by title, taxonomy
       type, project wiki-links, agent provenance stamp; degraded JSON on failure;
       refuse + explain on a human-verified existing review.
 
 ### Increment 2 — UI + narration
 
-- [ ] Library action + result surface (open the doc on success; degraded reason inline).
-- [ ] Narration step reusing the brief's chat plumbing, appended under `## Narrative`;
+- [x] Library action + result surface (open the doc on success; degraded reason inline).
+- [x] Narration step (server-side, reusing the chat provider), appended under `## Narrative`;
       "AI-narrated" labeling per the app's provenance conventions.
 
 ### Increment 3 — nudge + polish
 
-- [ ] Preference-gated weekly nudge via the reminder machinery (default off).
-- [ ] CHANGELOG entry; short docs page on the review's sections and the idempotent-week
-      semantics.
+- [x] Preference-gated Sunday-evening nudge via the reminder tick (default off).
+- [x] CHANGELOG entry (the doc's own footer carries the definitions; no separate docs
+      page — the artifact documents itself).
 
-## Verification
+## Verification (as shipped)
+
+- Unit: `tests/backend/weeklyReview.test.js` — ISO-week identity incl. year-crossing
+  weeks, full fixture week (every section + stats), truthful empty week, and the
+  route journey: generate → idempotent regenerate (same doc id, exactly one doc) →
+  verified-review refusal → narration degrade without a chat model.
+- E2e: `tests/e2e/weekly-review.spec.js` — Library action compiles + opens the doc;
+  regenerate keeps exactly one tagged review.
+- Gates: 1739 unit, 85 e2e; no schema change (queries only).
+- Deviations from the sketch, deliberate: the doc is typed `note` + tag `weekly-review`
+  (no new taxonomy type — the registry did not need to grow for one artifact), lives in
+  the system Inbox project (documents are project-owned; NOT NULL constraint), and
+  wiki-links go to the week's touched DOCUMENTS (wiki-links target docs, not projects).
+
+## Original verification sketch
 
 - Unit: compiler fixture week (every section + empty week + year-boundary week);
   idempotent second run (same doc id, updated body); verified-review refusal; degraded

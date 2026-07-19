@@ -34,6 +34,7 @@ import {
   askPrax, generateRunbook, fetchHealth, narrateBrief,
   assistantChat, fetchAssistantStatus,
   fetchLinkSuggestions, applyWikiLink, runAiReview, runWritingAction,
+  generateWeeklyReview,
 } from './libraryApi.js';
 import { normalizeTask } from './taskModel.js';
 import { apiStatus, designStatus, isOpen } from './statusMap.js';
@@ -273,6 +274,23 @@ function checkShutdownNudge(now = new Date()) {
   if (!openPlanned) return;
   try { localStorage.setItem(SHUTDOWN_NUDGE_KEY, today); } catch { /* no storage, no stamp */ }
   showToast(`${openPlanned} planned task${openPlanned === 1 ? '' : 's'} still open — shut down today from the Today view.`, null, 8000);
+}
+
+// Weekly-review nudge (preference, default off): Sunday evening, once, only
+// while this week's review doc does not exist yet.
+const WEEKLY_NUDGE_KEY = 'prax.weeklyReviewNudge.lastShown';
+function checkWeeklyReviewNudge(now = new Date()) {
+  if (!state.preferences?.weeklyReviewNudge) return;
+  if (now.getDay() !== 0 || now.getHours() < 17) return; // Sunday evenings
+  const today = todayISODate(now);
+  try {
+    if (localStorage.getItem(WEEKLY_NUDGE_KEY) === today) return;
+  } catch { return; }
+  const hasReview = (state.documents || []).some((doc) => /^Weekly review — \d{4}-W\d{2}$/.test(doc.title || '') && !doc.archivedAt
+    && new Date(doc.updatedAt || 0).getTime() > now.getTime() - 6 * 86_400_000);
+  if (hasReview) return;
+  try { localStorage.setItem(WEEKLY_NUDGE_KEY, today); } catch { /* no storage, no stamp */ }
+  showToast('No weekly review yet — one click in the Library compiles it.', null, 8000);
 }
 
 function checkDueReminders() {
@@ -4334,6 +4352,28 @@ async function handleAction(action, el, event) {
     case 'run-generate-runbook': runGenerateRunbook(); break;
     case 'open-daily-brief': openDailyBrief(); break;
     case 'close-daily-brief': setState({ dailyBriefOpen: false }); renderApp(); break;
+    case 'generate-weekly-review': {
+      if (el.dataset.busy) break;
+      el.dataset.busy = '1';
+      showToast('Compiling the week…');
+      try {
+        const result = await generateWeeklyReview();
+        if (result.degraded) {
+          showToast(result.message || 'Weekly review unavailable.');
+          // A verified review still exists — open it so the refusal is legible.
+          if (result.documentId) await openDocumentInEditor(result.documentId);
+        } else {
+          await loadDocuments();
+          showToast(result.created ? 'Weekly review created.' : 'Weekly review updated.');
+          await openDocumentInEditor(result.documentId);
+        }
+      } catch {
+        showToast('Weekly review failed — Prax may be unreachable.');
+      } finally {
+        delete el.dataset.busy;
+      }
+      break;
+    }
     case 'open-plan-mode': openPlanMode(); break;
     case 'open-shutdown': openShutdown(); break;
     case 'close-plan-mode': {
@@ -4750,6 +4790,11 @@ async function handleAction(action, el, event) {
       const preferences = savePreferences({ ...state.preferences, reminders: enabled });
       setState({ preferences });
       if (enabled) checkDueReminders();
+      renderApp();
+      break;
+    }
+    case 'toggle-weekly-review-nudge': {
+      setState({ preferences: savePreferences({ ...state.preferences, weeklyReviewNudge: !state.preferences.weeklyReviewNudge }) });
       renderApp();
       break;
     }
@@ -6020,7 +6065,7 @@ async function init() {
     });
     // Heartbeat so a task that ticks over to "due" while the app sits open still
     // gets a reminder (e.g. across midnight). Cheap: a filter over state.tasks.
-    if (typeof setInterval === 'function') setInterval(() => { checkDueReminders(); checkShutdownNudge(); }, 15 * 60 * 1000);
+    if (typeof setInterval === 'function') setInterval(() => { checkDueReminders(); checkShutdownNudge(); checkWeeklyReviewNudge(); }, 15 * 60 * 1000);
   } catch (err) {
     appRoot.innerHTML = `<main class="empty" style="height:100vh"><h2 class="empty__title">Prax could not load</h2><p class="empty__sub">${escapeHtml(err?.message || 'Unknown error')}</p></main>`;
     setState({ apiStatus: 'error' });

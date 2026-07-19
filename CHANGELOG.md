@@ -158,6 +158,23 @@ fresh empty `[Unreleased]` section is started.
 
 ### Added
 
+- **One-click weekly review — the week, compiled into a Library document.** Library ▸
+  **Weekly review** compiles an honest week-in-review from live data: **Shipped**
+  (completed this week, by project), **Stalled** (in progress, zero chronicle events all
+  week), **Most slipped** (top deferred/rescheduled/carried offenders — the slippage and
+  carry data feeding straight back), **Inbox aging**, **Silent projects**, **Next week**
+  (due + planned, day by day), and the documents touched (wiki-linked, so reviews join
+  the graph). An **empty week compiles truthfully** ("Nothing shipped this week.") — never
+  padded, never omitted — and the doc footer states its own definitions (UTC Monday–Sunday
+  weeks). Reviews are **idempotent by ISO week** (`Weekly review — 2026-W29`): regenerating
+  updates the same document in place, never duplicates; a review you **verified** is
+  refused rather than silently overwritten (regenerating would revoke your blessing).
+  Written as a synthesized, agent-provenance doc in the system Inbox with a
+  `weekly-review` tag — searchable, semantically embeddable, and recallable by agents
+  ("what was I struggling with in June"). Optional AI narration appends a labelled
+  `## Narrative` (degrades honestly without a chat model), and an opt-in Sunday-evening
+  nudge reminds you while the week's review doesn't exist yet.
+
 - **Today plan & shutdown ritual — Today stops showing what's due and starts asking what
   you'll do.** Tasks gain a **plan date** (`plannedFor`, migration `0021`): **Plan today**
   walks stale plans → overdue → due today → inbox → this week with keyboard-first
