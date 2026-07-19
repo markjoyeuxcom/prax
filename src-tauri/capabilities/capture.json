@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop-capture",
+  "description": "The system-wide capture bar window, served by the localhost sidecar like the main app. Its only IPC is hiding its own window (Esc / after a successful capture); task creation goes over plain HTTP to the sidecar.",
+  "windows": ["capture"],
+  "remote": {
+    "urls": ["http://127.0.0.1:*"]
+  },
+  "permissions": ["allow-hide-capture-window"]
+}
