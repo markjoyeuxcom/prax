@@ -3,6 +3,19 @@ import { parseTaskFilter } from './taskFilter.js';
 // Saved task smart views — a named filter expression, stored in localStorage
 // exactly like saved library views (local-first; per-device). The portable,
 // agent-shareable artifact is the expression string itself.
+
+// Built-in views ship with the app (not stored, not deletable). Stale is the
+// slippage-honesty mirror: open work untouched for a month — deliberately
+// excluding the backlog, which is a parking lot by intent.
+export const BUILT_IN_SMART_VIEWS = Object.freeze([
+  Object.freeze({ id: 'builtin-stale', label: 'Stale', expr: 'stale:30 -status:backlog', builtIn: true }),
+]);
+
+export function findSmartView(views, id) {
+  return (views || []).find((view) => view.id === id)
+    || BUILT_IN_SMART_VIEWS.find((view) => view.id === id)
+    || null;
+}
 function slugFromLabel(label) {
   return String(label || '')
     .trim()

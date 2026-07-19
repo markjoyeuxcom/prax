@@ -5,7 +5,7 @@ per-task deferral counts and age surfaced as calm chips, a built-in Stale view, 
 optional WIP limit on the board — signals, never enforcement.
 
 **Roadmap:** [Workflow & Self-Organisation Roadmap](2026-07-18-workflow-selforganisation-roadmap.md) · item 4
-**Status:** Proposed
+**Status:** Shipped (all three increments)
 
 ## Current state
 
@@ -57,40 +57,45 @@ optional WIP limit on the board — signals, never enforcement.
 
 ### Increment 1 — counters + chronicle events (backend)
 
-- [ ] Pure `server/slippage.js`: `classifySlip(prior, fields, now)` → `none | deferred |
+- [x] Pure `server/slippage.js`: `classifySlip(prior, fields, now)` → `none | deferred |
       rescheduled` with the old→new payload; exhaustive unit tests (undated→dated, earlier
       moves, reopen, snooze-clear, completed tasks never slip).
-- [ ] Migration `00XX_add_task_deferral_count.sql` (next free number): `deferral_count`
-      integer not null default 0. Update the four pinned manifests deliberately.
-- [ ] PATCH route: on slip, increment inside the same transaction as the update, record the
+- [x] Migration `0020_add_task_deferral_count.sql`: `deferral_count` integer not null
+      default 0. All four pinned manifests updated deliberately.
+- [x] PATCH route: on slip, increment inside the same transaction as the update, record the
       chronicle event with the honest message ("Due moved 2026-07-20 → 2026-07-24").
-- [ ] Expose `deferralCount` and `lastActivityAt` in task payloads; include
-      `deferralCount` in export/import round-trip (contract doc + portable fixtures), and
-      preserve it across archive/restore.
+- [x] `deferralCount` exposed in task payloads (server + client task model); export/import
+      round-trip with 400-not-clamp validation; contract doc updated; archive/restore
+      preserve it. *(`lastActivityAt` was NOT added: `updatedAt` already carries the
+      untouched-since signal — Stale reads it directly, no join, no new column.)*
 
 ### Increment 2 — chips + Stale view (frontend)
 
-- [ ] Chips in list/board/drawer via a small pure `slippageFlags.js` (mirrors
+- [x] Chips in list/board/drawer via a small pure `slippageFlags.js` (mirrors
       `dueFlags.js`); thresholds from preferences with the defaults above.
-- [ ] Built-in **Stale** smart view registered in `taskSmartViews.js`; sidebar placement
+- [x] Built-in **Stale** smart view registered in `taskSmartViews.js`; sidebar placement
       alongside Upcoming; empty state says what Stale means.
-- [ ] Preferences UI: thresholds + chip visibility toggle (off entirely for users who
+- [x] Preferences UI: thresholds + chip visibility toggle (off entirely for users who
       don't want the mirror).
 
 ### Increment 3 — WIP limit (board)
 
-- [ ] Preference: WIP limit number (0 = off). Board In-progress header renders `n/limit`
-      with the warning treatment when exceeded; no drag behavior changes.
-- [ ] CHANGELOG entry covering all three increments.
+- [x] Preference: WIP limit (Off/3/4/5). Board In-progress header renders `n/limit` with
+      the warning treatment when exceeded; no drag behavior changes.
+- [x] CHANGELOG entry covering all three increments.
 
 ## Verification
 
-- Unit: `classifySlip` exhaustive table; increment-in-transaction (a failed PATCH does not
-  bump the count); chip threshold logic; Stale predicate through the shared filter grammar.
-- E2e: snooze a task twice → chip appears at threshold; drag past WIP limit → over-limit
-  header renders and the drag still lands.
-- Gates: `npm test`, `npx playwright test`, `npm run verify:portable`, `npm run
-  verify:restore` (schema change), migration pin cascade updated.
+- Unit: `tests/backend/slippage.test.js` (15-case classify table + route integration:
+  atomic increment, rejected-patch no-increment, forged-client-count ignored, export→import
+  round trip incl. 400 on negative) and `tests/frontend/slippageFlags.test.js` (chips,
+  thresholds, `stale:`/`deferrals:` atoms, built-in view). All pass.
+- E2e: `tests/e2e/slippage-honesty.spec.js` — chip at threshold in Upcoming + exact drawer
+  count, WIP overrun header, built-in Stale view navigation. All pass.
+- Gates: 1728 unit, 82 e2e, `verify:portable` + `verify:restore` green; pins updated in
+  migrate/migrateTaxonomy/qualityFixture/backupRestoreDrill + frozen task-key contract.
+- Found-in-passing fix: the client `normalizeTask` whitelist was silently dropping any
+  field the model didn't know — `deferralCount` now flows through it explicitly.
 
 ## Risks / notes
 

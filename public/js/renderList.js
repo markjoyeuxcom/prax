@@ -1,6 +1,7 @@
 import { escapeHtml, chip, prioDotClass } from './renderHelpers.js';
 import { designPriority, designStatus } from './statusMap.js';
 import { dueFlag } from './dueFlags.js';
+import { slippageChips } from './slippageFlags.js';
 import { icon, logo } from './icons.js';
 
 // Project ▸ List tab — grouped task rows (docs/desktop/design-handoff.md §1).
@@ -132,6 +133,9 @@ export function renderTaskRowHtml(state, task, { afterTitle = '' } = {}) {
     signals.push(`<span class="task-row__signal">${icon('doc', 12)}${Number(extras.docsCount)}</span>`);
   }
   const dueChip = task.dueInfo ? chip(task.dueInfo.label, `due-${task.dueInfo.bucket}`) : '';
+  // Slippage honesty chips (thresholds live in preferences; [] when off).
+  const slipChips = slippageChips(task, { preferences: state.preferences || {} })
+    .map((slip) => chip(slip.label, slip.variant)).join('');
 
   return `<div class="${classes.join(' ')}" data-task-id="${id}">`
     + `<button class="task-check${done ? ' is-done' : ''}" type="button" data-action="toggle-task-done" data-task-id="${id}" aria-label="${done ? 'Mark not done' : 'Mark done'}">${done ? '✓' : ''}</button>`
@@ -139,7 +143,7 @@ export function renderTaskRowHtml(state, task, { afterTitle = '' } = {}) {
     + `<span class="${prioDotClass(task.priority)}" aria-hidden="true"></span>`
     + `<span class="task-row__title">${escapeHtml(task.title)}</span>`
     + afterTitle
-    + `<span class="task-row__meta">${signals.join('')}${dueChip}</span>`
+    + `<span class="task-row__meta">${signals.join('')}${slipChips}${dueChip}</span>`
     + '</button>'
     + `<button class="task-select${multi ? ' is-selected' : ''}" type="button" data-action="toggle-task-selection" data-task-id="${id}" aria-label="${multi ? 'Deselect' : 'Select'} ${escapeHtml(task.title || 'Untitled task')}" aria-pressed="${multi}">${multi ? '✓' : ''}</button>`
     + '</div>';

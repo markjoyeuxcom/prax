@@ -7,6 +7,7 @@
 import { state, setState, loadActiveProject, persistActiveProject } from './state.js';
 import {
   applyPreferences, loadPreferences, savePreferences, resetPreferences,
+  SLIPPAGE_DEFERRAL_OPTIONS, SLIPPAGE_AGE_OPTIONS, WIP_LIMIT_OPTIONS,
 } from './preferences.js';
 import {
   fetchTasks, fetchTask, createTask, updateTask, reorderTasks, archiveTask, restoreTask,
@@ -90,7 +91,7 @@ import { renderUpcomingHtml, buildUpcomingGroups } from './renderUpcoming.js';
 import { renderCalendarHtml, buildCalendarModel, monthKeyOf, shiftMonthKey } from './renderCalendar.js';
 import { renderFilterHtml, buildFilterGroups } from './renderFilter.js';
 import { parseTaskFilter, projectResolver } from './taskFilter.js';
-import { createSmartView, smartViewsFromJson } from './taskSmartViews.js';
+import { createSmartView, findSmartView, smartViewsFromJson } from './taskSmartViews.js';
 import { renderBoardHtml, buildBoardColumns, limitBoardColumns } from './renderBoard.js';
 import { renderBacklogHtml, renderArchiveHtml } from './renderBacklog.js';
 import { renderTaskDrawerHtml, renderMissingTaskDrawerHtml } from './renderTaskDetail.js';
@@ -3875,7 +3876,7 @@ async function handleAction(action, el, event) {
     case 'nav-filter': await goFilter(); break;
     case 'nav-settings': await goSettings(); break;
     case 'select-smart-view': {
-      const view = (state.taskSmartViews || []).find(v => v.id === el.dataset.viewId);
+      const view = findSmartView(state.taskSmartViews, el.dataset.viewId);
       if (view) await goFilter({ expr: view.expr, smartViewId: view.id });
       break;
     }
@@ -4622,6 +4623,32 @@ async function handleAction(action, el, event) {
       const preferences = savePreferences({ ...state.preferences, reminders: enabled });
       setState({ preferences });
       if (enabled) checkDueReminders();
+      renderApp();
+      break;
+    }
+    case 'toggle-slippage-chips': {
+      setState({ preferences: savePreferences({ ...state.preferences, slippageChips: !state.preferences.slippageChips }) });
+      renderApp();
+      break;
+    }
+    case 'set-slippage-deferrals': {
+      const value = Number(el.dataset.value);
+      if (!SLIPPAGE_DEFERRAL_OPTIONS.includes(value)) break;
+      setState({ preferences: savePreferences({ ...state.preferences, slippageDeferrals: value }) });
+      renderApp();
+      break;
+    }
+    case 'set-slippage-age': {
+      const value = Number(el.dataset.value);
+      if (!SLIPPAGE_AGE_OPTIONS.includes(value)) break;
+      setState({ preferences: savePreferences({ ...state.preferences, slippageAgeDays: value }) });
+      renderApp();
+      break;
+    }
+    case 'set-wip-limit': {
+      const value = Number(el.dataset.value);
+      if (!WIP_LIMIT_OPTIONS.includes(value)) break;
+      setState({ preferences: savePreferences({ ...state.preferences, wipLimit: value }) });
       renderApp();
       break;
     }

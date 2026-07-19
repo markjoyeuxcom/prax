@@ -4,6 +4,9 @@ import {
   ACCENT_OPTIONS,
   READING_SCALE_MIN,
   READING_SCALE_MAX,
+  SLIPPAGE_DEFERRAL_OPTIONS,
+  SLIPPAGE_AGE_OPTIONS,
+  WIP_LIMIT_OPTIONS,
 } from './preferences.js';
 
 // Settings view — Appearance / Intelligence / Integrations / Data & admin cards.
@@ -161,6 +164,44 @@ function renderAppearanceCard(preferences) {
           <div class="settings-row__desc">Nudge you when a task is due or overdue while Prax is open.${remindersNotifHint(preferences)}</div>
         </div>
         <button class="switch${preferences.reminders ? ' is-on' : ''}" type="button" data-action="toggle-reminders" role="switch" aria-checked="${Boolean(preferences.reminders)}" aria-label="Due-date reminders"><span></span></button>
+      </div>
+      <div class="settings-row">
+        <div class="settings-row__text">
+          <div class="settings-row__label">Slippage chips</div>
+          <div class="settings-row__desc">Show "deferred n×" and task-age chips on open tasks past the thresholds below. Honest signals only — nothing is blocked.</div>
+        </div>
+        <button class="switch${preferences.slippageChips ? ' is-on' : ''}" type="button" data-action="toggle-slippage-chips" role="switch" aria-checked="${Boolean(preferences.slippageChips)}" aria-label="Slippage chips"><span></span></button>
+      </div>
+      ${preferences.slippageChips ? `
+      <div class="settings-row">
+        <div class="settings-row__text">
+          <div class="settings-row__label">Chip thresholds</div>
+          <div class="settings-row__desc">Deferrals before the chip appears, and the age (days) that counts as old.</div>
+        </div>
+        <div class="seg" aria-label="Deferral threshold">
+          ${SLIPPAGE_DEFERRAL_OPTIONS.map((n) => {
+            const on = preferences.slippageDeferrals === n;
+            return `<button type="button"${on ? ' class="is-active"' : ''} data-action="set-slippage-deferrals" data-value="${n}" aria-pressed="${on}">${n}×</button>`;
+          }).join('')}
+        </div>
+        <div class="seg" aria-label="Age threshold">
+          ${SLIPPAGE_AGE_OPTIONS.map((days) => {
+            const on = preferences.slippageAgeDays === days;
+            return `<button type="button"${on ? ' class="is-active"' : ''} data-action="set-slippage-age" data-value="${days}" aria-pressed="${on}">${days}d</button>`;
+          }).join('')}
+        </div>
+      </div>` : ''}
+      <div class="settings-row">
+        <div class="settings-row__text">
+          <div class="settings-row__label">Board WIP limit</div>
+          <div class="settings-row__desc">When In progress holds more than this many tasks, its header shows the overrun. Drags always land — the board tells the truth, it does not enforce.</div>
+        </div>
+        <div class="seg" aria-label="WIP limit">
+          ${WIP_LIMIT_OPTIONS.map((n) => {
+            const on = (preferences.wipLimit || 0) === n;
+            return `<button type="button"${on ? ' class="is-active"' : ''} data-action="set-wip-limit" data-value="${n}" aria-pressed="${on}">${n === 0 ? 'Off' : n}</button>`;
+          }).join('')}
+        </div>
       </div>
       <div class="settings-row">
       <div class="settings-row__text">

@@ -172,12 +172,20 @@ function renderRecurrenceControls(task, dis) {
 function renderSnoozeControls(task, dis) {
   const id = escapeHtml(task.id);
   const snoozed = Boolean(task.deferredUntil) && new Date(task.deferredUntil) > new Date();
+  // The drawer states the exact slippage count (chips elsewhere only appear
+  // past the preference thresholds) — the mirror, not the nag.
+  const deferrals = Number(task.deferralCount) || 0;
+  const slipNote = deferrals > 0 && task.status !== 'completed'
+    ? `<span class="snooze-until" data-slippage-count title="Times this task was snoozed or its due date pushed later">deferred ${deferrals}×</span>`
+    : '';
   if (snoozed) {
     return `<span class="snooze-until">Until ${escapeHtml(formatDeferredUntil(task.deferredUntil))}</span>`
-      + `<button class="pill-btn" type="button" data-action="unsnooze-task" data-task-id="${id}"${dis}>Unsnooze</button>`;
+      + `<button class="pill-btn" type="button" data-action="unsnooze-task" data-task-id="${id}"${dis}>Unsnooze</button>`
+      + slipNote;
   }
   return `<button class="pill-btn" type="button" data-action="snooze-task" data-snooze="tomorrow" data-task-id="${id}"${dis}>Tomorrow</button>`
-    + `<button class="pill-btn" type="button" data-action="snooze-task" data-snooze="week" data-task-id="${id}"${dis}>Next week</button>`;
+    + `<button class="pill-btn" type="button" data-action="snooze-task" data-snooze="week" data-task-id="${id}"${dis}>Next week</button>`
+    + slipNote;
 }
 
 // Notes value: the in-flight draft wins only when it belongs to this task

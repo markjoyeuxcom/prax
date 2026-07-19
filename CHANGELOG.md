@@ -158,6 +158,22 @@ fresh empty `[Unreleased]` section is started.
 
 ### Added
 
+- **Slippage honesty — your own procrastination, made visible the way the app's failures
+  are.** Tasks now carry a **deferral count**: snoozing an open task into the future or
+  moving its due date later bumps a server-side counter (one pinned rule in
+  `server/slippage.js` — completing, scheduling an undated task, pulling a date earlier,
+  and unsnoozing never count) and records an honest `deferred`/`rescheduled` chronicle
+  event with the old → new detail. Open tasks past the thresholds wear calm chips
+  ("deferred 4×", "60d old") in lists and board cards; the drawer states the exact count;
+  thresholds and an off-switch live in Settings. A built-in **Stale** smart view (open,
+  not snoozed, untouched 30+ days, backlog excluded — it's a parking lot by intent) joins
+  the sidebar via new `stale:<days>` and `deferrals:<n>` filter-grammar atoms, available
+  to saved views and agents alike. An optional **board WIP limit** renders the In-progress
+  overrun (`5/3`) without ever blocking a drag — signals, never enforcement. Counts
+  round-trip through export/import, clients cannot forge them, and counting starts
+  honestly at zero (historic snoozes were never recorded; the app does not invent a
+  backfill). Migration `0020`.
+
 - **System-wide capture — tray icon + global hotkey capture bar (desktop).** Press
   **⌘⇧Space** (Ctrl+Shift+Space on Windows/Linux) anywhere on the desktop and a small
   always-on-top capture bar appears — type, Enter, done; the task lands in the Inbox (or a
