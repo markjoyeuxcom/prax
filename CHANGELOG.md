@@ -158,6 +158,15 @@ fresh empty `[Unreleased]` section is started.
 
 ### Changed
 
+- **Pinned favorites — star what you use daily.** Every row in the panel grows a
+  hover-revealed **☆ star**: pinned projects and views float into a leading **Pinned**
+  section on their tab (kept in list order, honest about staleness — a pin for a deleted
+  project simply never renders), and pinned items also **rank first in ⌘K results**. Pins
+  are per-device view state in localStorage, exactly like smart views — never server data.
+  Projects and smart views pin by id; Library saved views pin by label (their only stable
+  identity). The last piece of the sidebar-at-scale work: rail for destinations, panel to
+  browse, ⌘K to teleport, pins for the daily five.
+
 - **⌘K jumps to projects and views.** The command palette gains **Projects** and **Views**
   result groups while you type: any active or on-hold project (Inbox included), any smart
   view (built-in Stale too), and any Library saved view is now two keystrokes away —

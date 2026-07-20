@@ -43,6 +43,34 @@ test('rail navigates, panel lists projects, filter narrows and reports no matche
   await expect(page.locator('.titlebar__crumb')).toContainText(`Panel Alpha ${stamp}`);
 });
 
+test('pinning a project floats it into the Pinned section, survives reload, and unpins cleanly', async ({ page, request }) => {
+  const stamp = Date.now();
+  await createProject(request, `AA First ${stamp}`);
+  const target = await createProject(request, `ZZ Pinme ${stamp}`);
+
+  await page.goto('/');
+  const panel = page.locator('.panel');
+  const row = panel.locator('.side-item-row', { hasText: `ZZ Pinme ${stamp}` });
+  await row.hover();
+  await row.locator('[data-action="toggle-pin"]').click();
+
+  // The pinned project leads the list under the Pinned header.
+  await expect(panel.locator('.side-section', { hasText: 'Pinned' })).toBeVisible();
+  const rowIds = await panel.locator('[data-action="nav-project"]').evaluateAll(
+    (els) => els.map((el) => el.dataset.projectId),
+  );
+  expect(rowIds[0]).toBe(target.id);
+
+  // Pins are per-device state: a reload keeps them.
+  await page.reload();
+  await expect(panel.locator('.side-section', { hasText: 'Pinned' })).toBeVisible();
+  await expect(panel.locator('[data-action="toggle-pin"][data-key="' + target.id + '"]')).toHaveText('★');
+
+  // Unpin: the section disappears with its last member.
+  await panel.locator('[data-action="toggle-pin"][data-key="' + target.id + '"]').click();
+  await expect(panel.locator('.side-section', { hasText: 'Pinned' })).toHaveCount(0);
+});
+
 test('⌘K jumps to a project and to the built-in Stale view by name', async ({ page, request }) => {
   const stamp = Date.now();
   const project = await createProject(request, `Palette Target ${stamp}`);

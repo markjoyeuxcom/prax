@@ -6,6 +6,7 @@
 import { escapeHtml } from './renderHelpers.js';
 import { icon, logo } from './icons.js';
 import { BUILT_IN_SMART_VIEWS } from './taskSmartViews.js';
+import { isPinned, splitPinned } from './pinned.js';
 
 // ---------------------------------------------------------------------------
 // Project colors
@@ -172,20 +173,41 @@ function panelMatches(filter, label) {
   return !filter || String(label || '').toLowerCase().includes(filter);
 }
 
+// Every panel row carries a pin star (hover-revealed; always visible once
+// pinned). Pinned rows float into a leading "Pinned" section per tab.
+function pinButton(kind, key, label, pinned, { solo = true } = {}) {
+  const on = isPinned(pinned, kind, key);
+  return `<button type="button" class="side-item__pin${solo ? ' side-item__pin--solo' : ''}${on ? ' is-pinned' : ''}" data-action="toggle-pin" data-kind="${kind}" data-key="${escapeHtml(key)}" title="${on ? 'Unpin' : 'Pin'}" aria-label="${on ? 'Unpin' : 'Pin'} ${escapeHtml(label || '')}" aria-pressed="${on}">${on ? '★' : '☆'}</button>`;
+}
+
+function pinnedSectionHtml(pinnedRows, restRows) {
+  if (!pinnedRows.length) return restRows.join('');
+  return '<div class="side-section"><span>Pinned</span></div>'
+    + pinnedRows.join('')
+    + (restRows.length ? '<div class="panel__rest-gap"></div>' : '')
+    + restRows.join('');
+}
+
 function panelProjectRows(state, counts, filter) {
-  const rows = sidebarProjects(state)
+  const items = sidebarProjects(state)
     .filter((project) => panelMatches(filter, project.name))
     .map((project) => {
       const active = isCurrentProject(state, project.id);
       const openCount = counts?.projectOpen?.[project.id] || 0;
       const dotClass = `proj-dot${project.status === 'on-hold' ? ' is-onhold' : ''}`;
-      return `<button type="button" class="side-item${active ? ' is-active' : ''}" data-action="nav-project" data-project-id="${escapeHtml(project.id)}"${active ? ' aria-current="true"' : ''}>`
+      const row = '<div class="side-item-row">'
+        + `<button type="button" class="side-item side-item--saved${active ? ' is-active' : ''}" data-action="nav-project" data-project-id="${escapeHtml(project.id)}"${active ? ' aria-current="true"' : ''}>`
         + `<span class="${dotClass}" style="--dot: ${projectColor(project)}"></span>`
         + `<span class="side-item__label">${escapeHtml(project.name)}</span>`
         + `<span class="side-item__count">${openCount || ''}</span>`
-        + '</button>';
+        + '</button>'
+        + pinButton('projects', project.id, project.name, state.pinned)
+        + '</div>';
+      return { key: project.id, row };
     });
-  return rows.length ? rows.join('') : '<div class="panel__empty">No matches.</div>';
+  if (!items.length) return '<div class="panel__empty">No matches.</div>';
+  const { pinned, rest } = splitPinned(items, state.pinned?.projects);
+  return pinnedSectionHtml(pinned.map((item) => item.row), rest.map((item) => item.row));
 }
 
 function panelViewRows(state, filter) {
@@ -196,36 +218,51 @@ function panelViewRows(state, filter) {
       const remove = view.builtIn
         ? ''
         : `<button type="button" class="side-item__del" data-action="delete-smart-view" data-view-id="${escapeHtml(view.id)}" title="Delete smart view" aria-label="Delete smart view ${escapeHtml(view.label || '')}">×</button>`;
-      return '<div class="side-item-row">'
-        + `<button type="button" class="side-item side-item--saved${active ? ' is-active' : ''}" data-action="select-smart-view" data-view-id="${escapeHtml(view.id)}"${active ? ' aria-current="true"' : ''}>`
+      const row = '<div class="side-item-row">'
+        + `<button type="button" class="side-item side-item--saved${remove ? ' side-item--twoctl' : ''}${active ? ' is-active' : ''}" data-action="select-smart-view" data-view-id="${escapeHtml(view.id)}"${active ? ' aria-current="true"' : ''}>`
         + icon('filter')
         + `<span class="side-item__label">${escapeHtml(view.label)}</span>`
         + '</button>'
+        + pinButton('smartViews', view.id, view.label, state.pinned, { solo: !remove })
         + remove
         + '</div>';
+      return { key: `sv:${view.id}`, row };
     });
 
   const library = (state.librarySavedViews || [])
     .filter((view) => panelMatches(filter, view?.label))
     .map((view) => {
-      // delete-library-view is index-addressed against the UNFILTERED list.
+      // delete-library-view is index-addressed against the UNFILTERED list;
+      // pins use the label — a library view's only stable identity.
       const realIndex = (state.librarySavedViews || []).indexOf(view);
       const active = state.navType === 'library'
         && (state.activeLibraryTags || []).join() === (view?.tags || []).join();
-      return '<div class="side-item-row">'
-        + `<button type="button" class="side-item side-item--saved${active ? ' is-active' : ''}" data-action="select-saved-view" data-view-index="${realIndex}"${active ? ' aria-current="true"' : ''}>`
+      const row = '<div class="side-item-row">'
+        + `<button type="button" class="side-item side-item--saved side-item--twoctl${active ? ' is-active' : ''}" data-action="select-saved-view" data-view-index="${realIndex}"${active ? ' aria-current="true"' : ''}>`
         + icon('tag')
         + `<span class="side-item__label">${escapeHtml(view?.label)}</span>`
         + '</button>'
+        + pinButton('libraryViews', view?.label || '', view?.label, state.pinned)
         + `<button type="button" class="side-item__del" data-action="delete-library-view" data-view-index="${realIndex}" title="Delete saved view" aria-label="Delete saved view ${escapeHtml(view?.label || '')}">×</button>`
         + '</div>';
+      return { key: `lv:${view?.label}`, row };
     });
 
-  const librarySection = library.length
-    ? `<div class="side-section"><span>Library views</span></div>${library.join('')}`
-    : '';
   if (!smart.length && !library.length) return '<div class="panel__empty">No matches.</div>';
-  return smart.join('') + librarySection;
+  const pinnedKeys = [
+    ...(state.pinned?.smartViews || []).map((id) => `sv:${id}`),
+    ...(state.pinned?.libraryViews || []).map((label) => `lv:${label}`),
+  ];
+  const smartSplit = splitPinned(smart, pinnedKeys);
+  const librarySplit = splitPinned(library, pinnedKeys);
+  const pinnedRows = [...smartSplit.pinned, ...librarySplit.pinned].map((item) => item.row);
+  const restRows = [
+    ...smartSplit.rest.map((item) => item.row),
+    ...(librarySplit.rest.length
+      ? [`<div class="side-section"><span>Library views</span></div>`, ...librarySplit.rest.map((item) => item.row)]
+      : []),
+  ];
+  return pinnedSectionHtml(pinnedRows, restRows);
 }
 
 export function renderPanelHtml(state, counts = {}) {
