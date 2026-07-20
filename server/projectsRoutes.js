@@ -94,6 +94,16 @@ export async function registerProjectsRoutes(app, options = {}) {
         fields[key] = trimmed === '' ? null : trimmed;
       }
     }
+    // Area is a section HEADER in the panel — bounded so one typo cannot
+    // become a paragraph-wide heading. '' clears, like the other ops fields.
+    if (body.area !== undefined) {
+      if (typeof body.area !== 'string' || body.area.trim().length > 60) {
+        reply.code(400);
+        return { message: 'area is invalid' };
+      }
+      const trimmedArea = body.area.trim();
+      fields.area = trimmedArea === '' ? null : trimmedArea;
+    }
     if (Object.keys(fields).length === 0) {
       reply.code(400);
       return { message: 'project update requires at least one field' };

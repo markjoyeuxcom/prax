@@ -15,12 +15,12 @@ test('normalizeProjectRow maps snake_case to camelCase', () => {
   const row = {
     id: 'p1', name: 'Work', slug: 'work', status: 'active',
     sort_order: 1, on_call: 'Ada', handoff_notes: 'watch the DB', repo_url: 'git@github.com:org/work.git',
-    created_at: 'c', updated_at: 'u',
+    area: 'Ops', created_at: 'c', updated_at: 'u',
   };
   assert.deepEqual(normalizeProjectRow(row), {
     id: 'p1', name: 'Work', slug: 'work', status: 'active',
     sortOrder: 1, onCall: 'Ada', handoffNotes: 'watch the DB', repoUrl: 'git@github.com:org/work.git',
-    createdAt: 'c', updatedAt: 'u',
+    area: 'Ops', createdAt: 'c', updatedAt: 'u',
   });
 });
 
@@ -29,6 +29,7 @@ test('normalizeProjectRow defaults missing on-call / handoff / repo URL to null'
   assert.equal(p.onCall, null);
   assert.equal(p.handoffNotes, null);
   assert.equal(p.repoUrl, null);
+  assert.equal(p.area, null);
 });
 
 test('buildListProjects filters by status when provided', () => {

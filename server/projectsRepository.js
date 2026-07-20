@@ -8,6 +8,7 @@ const UPDATE_COLUMN_MAP = {
   onCall: 'on_call',
   handoffNotes: 'handoff_notes',
   repoUrl: 'repo_url',
+  area: 'area',
 };
 
 export function normalizeProjectRow(row) {
@@ -20,6 +21,7 @@ export function normalizeProjectRow(row) {
     onCall: row.on_call ?? null,
     handoffNotes: row.handoff_notes ?? null,
     repoUrl: row.repo_url ?? null,
+    area: row.area ?? null,
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
   };

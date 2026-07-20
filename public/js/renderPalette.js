@@ -47,7 +47,8 @@ export function buildPaletteGroups(state, { tasks = [], documents = [], projects
       .slice(0, MAX_SEARCH_ITEMS)
       .map((project) => ({
         title: project.name,
-        sub: project.status === 'on-hold' ? 'Project · on hold' : 'Project',
+        sub: ['Project', project.area || null, project.status === 'on-hold' ? 'on hold' : null]
+          .filter(Boolean).join(' · '),
         icon: project.slug === 'inbox' ? 'inbox' : 'grid',
         action: 'go-project',
         id: project.id,

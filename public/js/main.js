@@ -96,6 +96,7 @@ import { renderFilterHtml, buildFilterGroups } from './renderFilter.js';
 import { parseTaskFilter, projectResolver } from './taskFilter.js';
 import { createSmartView, findSmartView, smartViewsFromJson } from './taskSmartViews.js';
 import { loadPinned, savePinned, togglePinned } from './pinned.js';
+import { loadCollapsed, saveCollapsed, toggleCollapsed } from './collapsed.js';
 import { renderBoardHtml, buildBoardColumns, limitBoardColumns } from './renderBoard.js';
 import { renderBacklogHtml, renderArchiveHtml } from './renderBacklog.js';
 import { renderTaskDrawerHtml, renderMissingTaskDrawerHtml } from './renderTaskDetail.js';
@@ -3476,6 +3477,8 @@ function renderProjectOps(project) {
       <input class="proj-ops__input" type="text" data-project-handoff data-project-id="${id}" value="${escapeHtml(project.handoffNotes || '')}" placeholder="notes for the next shift…" aria-label="Handoff notes"></label>
     <label class="proj-ops__field proj-ops__field--repo"><span class="proj-ops__label">Repo</span>
       <input class="proj-ops__input" type="text" data-project-repourl data-project-id="${id}" value="${escapeHtml(project.repoUrl || '')}" placeholder="git@github.com:org/repo.git" aria-label="Repository URL"></label>
+    <label class="proj-ops__field"><span class="proj-ops__label">Area</span>
+      <input class="proj-ops__input" type="text" data-project-area data-project-id="${id}" value="${escapeHtml(project.area || '')}" placeholder="e.g. Work" maxlength="60" aria-label="Area"></label>
   </div>`;
 }
 
@@ -4050,6 +4053,11 @@ async function handleAction(action, el, event) {
     }
     case 'nav-filter': await goFilter(); break;
     case 'nav-settings': await goSettings(); break;
+    case 'toggle-section': {
+      setState({ collapsedSections: saveCollapsed(toggleCollapsed(state.collapsedSections, el.dataset.sectionKey)) });
+      renderApp();
+      break;
+    }
     case 'toggle-pin': {
       event.stopPropagation();
       setState({ pinned: savePinned(togglePinned(state.pinned, el.dataset.kind, el.dataset.key)) });
@@ -4083,7 +4091,7 @@ async function handleAction(action, el, event) {
         openConfirm({
           message: 'Name this smart view',
           okLabel: 'Save view', action: 'save-smart-view',
-          input: { value: '', placeholder: 'View name' },
+          input: { value: '', placeholder: 'View name (or Folder/Name)' },
         });
         break;
       }
@@ -5454,12 +5462,13 @@ function bindEvents() {
       }
       return;
     }
-    if (target.matches?.('[data-project-oncall]') || target.matches?.('[data-project-handoff]') || target.matches?.('[data-project-repourl]')) {
+    if (target.matches?.('[data-project-oncall]') || target.matches?.('[data-project-handoff]') || target.matches?.('[data-project-repourl]') || target.matches?.('[data-project-area]')) {
       // Debounced save; don't re-render (would steal focus from the input the
       // user is typing in). Local state updates silently so it persists.
       const id = target.dataset.projectId;
       const field = target.matches('[data-project-oncall]') ? 'onCall'
         : target.matches('[data-project-handoff]') ? 'handoffNotes'
+        : target.matches('[data-project-area]') ? 'area'
         : 'repoUrl';
       const value = target.value;
       clearTimeout(projectOpsSaveTimer);
@@ -6155,7 +6164,7 @@ async function init() {
   // macOS merges the native titlebar into the app's top bar (overlay style) —
   // inset the bar so the traffic lights sit inside it.
   document.body.classList.toggle('is-desktop-mac', desktopShell && desktopPlatform === 'macos');
-  setState({ preferences, librarySavedViews: loadSavedViews(), taskSmartViews: loadSmartViews(), pinned: loadPinned(), winW: window.innerWidth, desktopShell, desktopPlatform });
+  setState({ preferences, librarySavedViews: loadSavedViews(), taskSmartViews: loadSmartViews(), pinned: loadPinned(), collapsedSections: loadCollapsed(), winW: window.innerWidth, desktopShell, desktopPlatform });
   applyPreferences(preferences);
   appRoot.innerHTML = '<main class="empty" style="height:100vh"><p class="empty__sub">Loading Prax…</p></main>';
   try {
