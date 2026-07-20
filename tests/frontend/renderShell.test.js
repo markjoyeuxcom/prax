@@ -177,7 +177,7 @@ test('panel project rows keep dots, counts, active state, and exclude the pinned
     makeState({ navType: 'project', navId: 'p1', projects: [INBOX, ...PROJECTS] }),
     { projectOpen: { p1: 4, 'inbox-id': 3 } },
   );
-  assert.match(html, /class="side-item is-active" data-action="nav-project" data-project-id="p1" aria-current="true"/);
+  assert.match(html, /class="side-item side-item--saved is-active" data-action="nav-project" data-project-id="p1" aria-current="true"/);
   assert.match(html, /class="side-item__count">4</);
   assert.match(html, /data-project-id="p2"[^>]*><span class="proj-dot is-onhold" style="--dot: oklch\(/);
   assert.doesNotMatch(html, /data-project-id="inbox-id"/, 'Inbox lives in the rail, not the panel');
@@ -227,7 +227,7 @@ test('panel Views tab marks the active smart view', () => {
     activeSmartViewId: 'p1-overdue',
     taskSmartViews: [{ id: 'p1-overdue', label: 'P1 overdue', expr: 'p1 & overdue' }],
   }), {});
-  assert.match(html, /class="side-item side-item--saved is-active"[^>]*data-view-id="p1-overdue" aria-current="true"/);
+  assert.match(html, /class="side-item side-item--saved side-item--twoctl is-active"[^>]*data-view-id="p1-overdue" aria-current="true"/);
 });
 
 test('panel Views filter narrows by label and keeps library-view delete indices UNFILTERED', () => {
@@ -326,4 +326,47 @@ test('desktop shell titlebar is the drag region with no left ornament', () => {
   assert.doesNotMatch(html, /titlebar" data-tauri-drag-region><svg/);
   const web = renderTitlebarHtml(makeState());
   assert.doesNotMatch(web, /data-tauri-drag-region/);
+});
+
+// ---------------------------------------------------------------------------
+// Pinned favorites
+// ---------------------------------------------------------------------------
+
+test('pinned projects float into a leading Pinned section in list order; stars reflect state', () => {
+  const state = makeState({
+    projects: PROJECTS,
+    pinned: { projects: ['p2'], smartViews: [], libraryViews: [] },
+  });
+  const html = renderPanelHtml(state, {});
+  assert.match(html, /<span>Pinned<\/span>/);
+  const pinnedPos = html.indexOf('data-project-id="p2"');
+  const restPos = html.indexOf('data-project-id="p1"');
+  assert.ok(pinnedPos !== -1 && pinnedPos < restPos, 'the pinned project renders first');
+  assert.match(html, /data-action="toggle-pin" data-kind="projects" data-key="p2"[^>]*aria-pressed="true"[^>]*>★/);
+  assert.match(html, /data-action="toggle-pin" data-kind="projects" data-key="p1"[^>]*aria-pressed="false"[^>]*>☆/);
+});
+
+test('a stale pin for a deleted project renders no Pinned section', () => {
+  const html = renderPanelHtml(makeState({
+    projects: PROJECTS,
+    pinned: { projects: ['ghost'], smartViews: [], libraryViews: [] },
+  }), {});
+  assert.doesNotMatch(html, /<span>Pinned<\/span>/);
+});
+
+test('Views tab: pinned smart and library views share the Pinned section; library keys are labels', () => {
+  const html = renderPanelHtml(makeState({
+    panelTab: 'views',
+    taskSmartViews: [{ id: 'sv1', label: 'Waiting on', expr: '@waiting' }],
+    librarySavedViews: [{ label: 'Deploy docs', tags: ['deploy'] }],
+    pinned: { projects: [], smartViews: ['builtin-stale'], libraryViews: ['Deploy docs'] },
+  }), {});
+  assert.match(html, /<span>Pinned<\/span>/);
+  const pinnedHeader = html.indexOf('Pinned');
+  const stale = html.indexOf('data-view-id="builtin-stale"');
+  const deploy = html.indexOf('data-action="select-saved-view"');
+  const waiting = html.indexOf('data-view-id="sv1"');
+  assert.ok(stale > pinnedHeader && deploy > pinnedHeader, 'both pinned kinds lead');
+  assert.ok(waiting > stale, 'unpinned smart view renders after the pinned block');
+  assert.match(html, /data-action="toggle-pin" data-kind="libraryViews" data-key="Deploy docs"/);
 });

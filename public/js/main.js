@@ -95,6 +95,7 @@ import { renderCalendarHtml, buildCalendarModel, monthKeyOf, shiftMonthKey } fro
 import { renderFilterHtml, buildFilterGroups } from './renderFilter.js';
 import { parseTaskFilter, projectResolver } from './taskFilter.js';
 import { createSmartView, findSmartView, smartViewsFromJson } from './taskSmartViews.js';
+import { loadPinned, savePinned, togglePinned } from './pinned.js';
 import { renderBoardHtml, buildBoardColumns, limitBoardColumns } from './renderBoard.js';
 import { renderBacklogHtml, renderArchiveHtml } from './renderBacklog.js';
 import { renderTaskDrawerHtml, renderMissingTaskDrawerHtml } from './renderTaskDetail.js';
@@ -4049,6 +4050,12 @@ async function handleAction(action, el, event) {
     }
     case 'nav-filter': await goFilter(); break;
     case 'nav-settings': await goSettings(); break;
+    case 'toggle-pin': {
+      event.stopPropagation();
+      setState({ pinned: savePinned(togglePinned(state.pinned, el.dataset.kind, el.dataset.key)) });
+      renderApp();
+      break;
+    }
     case 'set-panel-tab': {
       const tab = el.dataset.tab === 'views' ? 'views' : 'projects';
       // Switching tabs clears the filter — a projects query rarely means
@@ -6148,7 +6155,7 @@ async function init() {
   // macOS merges the native titlebar into the app's top bar (overlay style) —
   // inset the bar so the traffic lights sit inside it.
   document.body.classList.toggle('is-desktop-mac', desktopShell && desktopPlatform === 'macos');
-  setState({ preferences, librarySavedViews: loadSavedViews(), taskSmartViews: loadSmartViews(), winW: window.innerWidth, desktopShell, desktopPlatform });
+  setState({ preferences, librarySavedViews: loadSavedViews(), taskSmartViews: loadSmartViews(), pinned: loadPinned(), winW: window.innerWidth, desktopShell, desktopPlatform });
   applyPreferences(preferences);
   appRoot.innerHTML = '<main class="empty" style="height:100vh"><p class="empty__sub">Loading Prax…</p></main>';
   try {

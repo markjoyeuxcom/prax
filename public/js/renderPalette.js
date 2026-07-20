@@ -1,6 +1,7 @@
 import { escapeHtml } from './renderHelpers.js';
 import { icon, logo } from './icons.js';
 import { BUILT_IN_SMART_VIEWS } from './taskSmartViews.js';
+import { isPinned } from './pinned.js';
 
 // Command palette (⌘K, design-handoff §10) — Commands always (filtered by the
 // query); Projects/Views/Tasks/Documents groups only while a query is typed.
@@ -36,9 +37,13 @@ export function buildPaletteGroups(state, { tasks = [], documents = [], projects
   if (query) {
     const projectNames = new Map(projects.map((project) => [project.id, project.name]));
 
+    const pinnedFirst = (kind, keyOf) => (a, b) => (
+      Number(isPinned(state?.pinned, kind, keyOf(b))) - Number(isPinned(state?.pinned, kind, keyOf(a)))
+    );
     const projectItems = projects
       .filter((project) => (project?.status === 'active' || project?.status === 'on-hold' || project?.slug === 'inbox')
         && matches(project.name))
+      .sort(pinnedFirst('projects', (project) => project.id))
       .slice(0, MAX_SEARCH_ITEMS)
       .map((project) => ({
         title: project.name,
@@ -61,7 +66,14 @@ export function buildPaletteGroups(state, { tasks = [], documents = [], projects
       .map(({ view, index }) => ({
         title: view.label, sub: 'Library view', icon: 'tag', action: 'go-library-view', index,
       }));
-    const viewItems = [...smartViewItems, ...libraryViewItems].slice(0, MAX_SEARCH_ITEMS);
+    const viewItems = [...smartViewItems, ...libraryViewItems]
+      .sort((a, b) => {
+        const pin = (item) => (item.action === 'go-smart-view'
+          ? isPinned(state?.pinned, 'smartViews', item.id)
+          : isPinned(state?.pinned, 'libraryViews', item.title));
+        return Number(pin(b)) - Number(pin(a));
+      })
+      .slice(0, MAX_SEARCH_ITEMS);
     if (viewItems.length) groups.push({ label: 'Views', items: viewItems });
 
     const taskItems = tasks
