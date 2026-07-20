@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   renderTitlebarHtml,
-  renderSidebarHtml,
+  renderPanelHtml,
   renderRailHtml,
   renderStatusbarHtml,
   projectColor,
@@ -19,6 +19,8 @@ function makeState(overrides = {}) {
     activeLibraryTags: [],
     editorDocId: null,
     editorFocus: false,
+    panelTab: 'projects',
+    panelFilter: '',
     preferences: { theme: 'light', accent: 'fern', chromeOS: 'mac', readingScale: 1 },
     ...overrides,
   };
@@ -105,83 +107,39 @@ test('titlebar hides right actions (incl. win controls) in editor focus mode', (
 });
 
 // ---------------------------------------------------------------------------
-// Sidebar
+// Icon rail — primary navigation at every width
 // ---------------------------------------------------------------------------
-
-test('sidebar renders brand, the three nav items, and the projects header', () => {
-  const html = renderSidebarHtml(makeState(), { todayBadge: 0, projectOpen: {} });
-  assert.match(html, /class="sidebar__wordmark">prax</);
-  assert.match(html, /class="sidebar__byline">by moomora</);
-  assert.match(html, /data-action="nav-today"/);
-  assert.match(html, /data-action="nav-all"/);
-  assert.match(html, /data-action="nav-library"/);
-  assert.match(html, /<span>Projects<\/span>/);
-  assert.match(html, /data-action="manage-projects"/);
-});
-
-test('sidebar Today badge renders only when the count is > 0', () => {
-  const withBadge = renderSidebarHtml(makeState(), { todayBadge: 3, projectOpen: {} });
-  assert.match(withBadge, /class="badge">3</);
-  const withoutBadge = renderSidebarHtml(makeState(), { todayBadge: 0, projectOpen: {} });
-  assert.doesNotMatch(withoutBadge, /class="badge"/);
-});
-
-test('sidebar marks the current nav item active with nav accent + aria-current', () => {
-  const html = renderSidebarHtml(makeState({ navType: 'today' }), { todayBadge: 0, projectOpen: {} });
-  assert.match(html, /class="side-item is-active is-active--nav" data-action="nav-today" aria-current="true"/);
-  assert.doesNotMatch(html, /is-active[^"]*" data-action="nav-all"/);
-});
-
-test('sidebar Library nav item stays active while in the editor', () => {
-  const html = renderSidebarHtml(makeState({ navType: 'editor' }), { todayBadge: 0, projectOpen: {} });
-  assert.match(html, /class="side-item is-active is-active--nav" data-action="nav-library" aria-current="true"/);
-});
-
-test('sidebar marks the current project active with aria-current', () => {
-  const html = renderSidebarHtml(
-    makeState({ navType: 'project', navId: 'p1', projects: PROJECTS }),
-    { todayBadge: 0, projectOpen: { p1: 4 } },
-  );
-  assert.match(html, /class="side-item is-active" data-action="nav-project" data-project-id="p1" aria-current="true"/);
-  assert.match(html, /class="side-item__count">4</);
-  // the other project is present but not active
-  assert.match(html, /class="side-item" data-action="nav-project" data-project-id="p2"/);
-});
-
-test('sidebar on-hold project renders the is-onhold ring dot; active projects do not', () => {
-  const html = renderSidebarHtml(makeState({ projects: PROJECTS }), { todayBadge: 0, projectOpen: {} });
-  assert.match(html, /data-project-id="p2"[^>]*><span class="proj-dot is-onhold" style="--dot: oklch\(/);
-  assert.match(html, /data-project-id="p1"[^>]*><span class="proj-dot" style="--dot: oklch\(/);
-});
-
-test('sidebar renders an empty open count when a project has no open tasks', () => {
-  const html = renderSidebarHtml(makeState({ projects: PROJECTS }), { todayBadge: 0, projectOpen: { p1: 0 } });
-  assert.match(html, /class="side-item__count"><\/span>/);
-});
-
-test('sidebar hides projects that are not active or on-hold', () => {
-  const html = renderSidebarHtml(makeState({
-    projects: [...PROJECTS, { id: 'p3', name: 'Done thing', status: 'completed' }],
-  }), { todayBadge: 0, projectOpen: {} });
-  assert.doesNotMatch(html, /data-project-id="p3"/);
-});
 
 const INBOX = { id: 'inbox-id', name: 'Inbox', slug: 'inbox', status: 'active' };
 
-test('sidebar pins Inbox as a top-level item with its count, not duplicated in the project list', () => {
-  const html = renderSidebarHtml(
-    makeState({ projects: [INBOX, ...PROJECTS] }),
-    { todayBadge: 0, projectOpen: { 'inbox-id': 3 } },
-  );
-  assert.match(html, /data-action="nav-project" data-project-id="inbox-id"[^>]*>[\s\S]*?Inbox/);
-  assert.match(html, /class="badge">3<\/span>/);
-  // Pinned once; excluded from the regular Projects section.
-  assert.equal(html.match(/data-project-id="inbox-id"/g).length, 1);
+test('rail renders every top-level nav with tooltips, Settings pinned last', () => {
+  const html = renderRailHtml(makeState());
+  assert.match(html, /class="rail"/);
+  assert.match(html, /title="Today" data-action="nav-today"/);
+  assert.match(html, /title="Upcoming" data-action="nav-upcoming"/);
+  assert.match(html, /title="Calendar" data-action="nav-calendar"/);
+  assert.match(html, /title="All projects" data-action="nav-all"/);
+  assert.match(html, /title="Library" data-action="nav-library"/);
+  assert.match(html, /title="Filter" data-action="nav-filter"/);
+  assert.match(html, /class="rail__spacer"><\/div><button[^>]*title="Settings" data-action="nav-settings"/);
 });
 
-test('sidebar omits the Inbox item until the Inbox project exists', () => {
-  const html = renderSidebarHtml(makeState({ projects: PROJECTS }), { todayBadge: 0, projectOpen: {} });
-  assert.doesNotMatch(html, /side-item__label">Inbox</);
+test('rail marks active nav; Library stays active in the editor; Settings gets its own state', () => {
+  const library = renderRailHtml(makeState({ navType: 'library' }));
+  assert.match(library, /class="rail__btn is-active" title="Library"/);
+  const editor = renderRailHtml(makeState({ navType: 'editor' }));
+  assert.match(editor, /class="rail__btn is-active" title="Library"/);
+  const settings = renderRailHtml(makeState({ navType: 'settings' }));
+  assert.match(settings, /class="rail__btn is-active" title="Settings" data-action="nav-settings" aria-current="true"/);
+});
+
+test('rail badges: Today count and Inbox open count render only when > 0, capped at 99+', () => {
+  const state = makeState({ projects: [INBOX] });
+  const quiet = renderRailHtml(state, { todayBadge: 0, projectOpen: { 'inbox-id': 0 } });
+  assert.doesNotMatch(quiet, /rail__badge/);
+  const busy = renderRailHtml(state, { todayBadge: 4, projectOpen: { 'inbox-id': 130 } });
+  assert.match(busy, /title="Today"[^>]*>[\s\S]*?class="rail__badge">4</);
+  assert.match(busy, /title="Inbox"[^>]*>[\s\S]*?class="rail__badge">99\+</);
 });
 
 test('rail includes an Inbox button navigating to the Inbox project', () => {
@@ -189,101 +147,126 @@ test('rail includes an Inbox button navigating to the Inbox project', () => {
   assert.match(html, /class="rail__btn[^"]*" title="Inbox" data-action="nav-project" data-project-id="inbox-id"/);
 });
 
-test('sidebar saved views render only when present', () => {
-  const none = renderSidebarHtml(makeState(), { todayBadge: 0, projectOpen: {} });
-  assert.doesNotMatch(none, /Saved views/);
-  assert.doesNotMatch(none, /data-action="select-saved-view"/);
-
-  const withViews = renderSidebarHtml(makeState({
-    librarySavedViews: [{ label: 'Deploy notes', tags: ['deploy'] }],
-  }), { todayBadge: 0, projectOpen: {} });
-  assert.match(withViews, /<span>Saved views<\/span>/);
-  assert.match(withViews, /data-action="select-saved-view" data-view-index="0"/);
-  assert.match(withViews, /Deploy notes/);
-  // Each saved view carries a delete control scoped to its index.
-  assert.match(withViews, /data-action="delete-library-view" data-view-index="0"/);
+test('rail project dots render in narrow mode and are suppressed when the panel owns projects', () => {
+  const state = makeState({ navType: 'project', navId: 'p2', projects: PROJECTS });
+  const narrow = renderRailHtml(state, {}, { showProjects: true });
+  assert.match(narrow, /class="rail__divider"/);
+  assert.match(narrow, /class="rail__proj is-active" title="Reading Pipeline" data-action="nav-project" data-project-id="p2"/);
+  assert.match(narrow, /class="rail__proj" title="Homelab"/);
+  const wide = renderRailHtml(state, {}, { showProjects: false });
+  assert.doesNotMatch(wide, /rail__proj/);
+  assert.doesNotMatch(wide, /rail__divider/);
 });
 
-test('sidebar has a Filter nav item and renders task smart views with delete', () => {
-  const plain = renderSidebarHtml(makeState(), { todayBadge: 0, projectOpen: {} });
-  assert.match(plain, /data-action="nav-filter"/);
-  // The section always renders now: the built-in Stale view lives there, with
-  // no delete control (it is app code, not user data).
-  assert.match(plain, /Smart views/);
-  assert.match(plain, /data-action="select-smart-view" data-view-id="builtin-stale"/);
-  assert.doesNotMatch(plain, /data-action="delete-smart-view" data-view-id="builtin-stale"/);
+// ---------------------------------------------------------------------------
+// Browser panel — Projects tab
+// ---------------------------------------------------------------------------
 
-  const withViews = renderSidebarHtml(makeState({
-    navType: 'filter', activeSmartViewId: 'p1-overdue',
+test('panel renders brand, both tab counts, the filter box, and manage-projects on the Projects tab', () => {
+  const html = renderPanelHtml(makeState({ projects: PROJECTS }), {});
+  assert.match(html, /class="sidebar__wordmark">prax</);
+  assert.match(html, /class="sidebar__byline">by moomora</);
+  assert.match(html, /data-action="set-panel-tab" data-tab="projects" aria-selected="true">Projects <span class="panel__tabcount">2</);
+  assert.match(html, /data-action="set-panel-tab" data-tab="views" aria-selected="false">Views <span class="panel__tabcount">1</); // built-in Stale
+  assert.match(html, /data-panel-filter[^>]*placeholder="Filter 2 projects…"/);
+  assert.match(html, /data-action="manage-projects"/);
+});
+
+test('panel project rows keep dots, counts, active state, and exclude the pinned Inbox', () => {
+  const html = renderPanelHtml(
+    makeState({ navType: 'project', navId: 'p1', projects: [INBOX, ...PROJECTS] }),
+    { projectOpen: { p1: 4, 'inbox-id': 3 } },
+  );
+  assert.match(html, /class="side-item is-active" data-action="nav-project" data-project-id="p1" aria-current="true"/);
+  assert.match(html, /class="side-item__count">4</);
+  assert.match(html, /data-project-id="p2"[^>]*><span class="proj-dot is-onhold" style="--dot: oklch\(/);
+  assert.doesNotMatch(html, /data-project-id="inbox-id"/, 'Inbox lives in the rail, not the panel');
+});
+
+test('panel hides projects that are not active or on-hold', () => {
+  const html = renderPanelHtml(makeState({
+    projects: [...PROJECTS, { id: 'p3', name: 'Done thing', status: 'completed' }],
+  }), {});
+  assert.doesNotMatch(html, /data-project-id="p3"/);
+});
+
+test('panel filter narrows projects case-insensitively and reports no matches honestly', () => {
+  const state = makeState({ projects: PROJECTS, panelFilter: 'home' });
+  const html = renderPanelHtml(state, {});
+  assert.match(html, /data-project-id="p1"/);
+  assert.doesNotMatch(html, /data-project-id="p2"/);
+  assert.match(html, /data-panel-filter[^>]*value="home"/, 'the typed filter survives re-renders');
+  const none = renderPanelHtml(makeState({ projects: PROJECTS, panelFilter: 'zzz' }), {});
+  assert.match(none, /class="panel__empty">No matches\.</);
+});
+
+// ---------------------------------------------------------------------------
+// Browser panel — Views tab
+// ---------------------------------------------------------------------------
+
+test('panel Views tab renders smart views (built-in Stale without delete) and library views with delete', () => {
+  const html = renderPanelHtml(makeState({
+    panelTab: 'views',
     taskSmartViews: [{ id: 'p1-overdue', label: 'P1 overdue', expr: 'p1 & overdue' }],
-  }), { todayBadge: 0, projectOpen: {} });
-  assert.match(withViews, /<span>Smart views<\/span>/);
-  assert.match(withViews, /data-action="select-smart-view" data-view-id="p1-overdue"/);
-  assert.match(withViews, /data-action="delete-smart-view" data-view-id="p1-overdue"/);
-  assert.match(withViews, /class="side-item side-item--saved is-active"/); // active view highlighted
+    librarySavedViews: [{ label: 'Deploy notes', tags: ['deploy'] }],
+  }), {});
+  assert.match(html, /data-action="select-smart-view" data-view-id="p1-overdue"/);
+  assert.match(html, /data-action="delete-smart-view" data-view-id="p1-overdue"/);
+  assert.match(html, /data-action="select-smart-view" data-view-id="builtin-stale"/);
+  assert.doesNotMatch(html, /data-action="delete-smart-view" data-view-id="builtin-stale"/);
+  assert.match(html, /<span>Library views<\/span>/);
+  assert.match(html, /data-action="select-saved-view" data-view-index="0"/);
+  assert.match(html, /data-action="delete-library-view" data-view-index="0"/);
+  assert.doesNotMatch(html, /data-action="manage-projects"/, 'the ＋ belongs to the Projects tab');
 });
 
-test('sidebar saved-view delete control is per-index and escapes the label', () => {
-  const html = renderSidebarHtml(makeState({
+test('panel Views tab marks the active smart view', () => {
+  const html = renderPanelHtml(makeState({
+    panelTab: 'views',
+    navType: 'filter',
+    activeSmartViewId: 'p1-overdue',
+    taskSmartViews: [{ id: 'p1-overdue', label: 'P1 overdue', expr: 'p1 & overdue' }],
+  }), {});
+  assert.match(html, /class="side-item side-item--saved is-active"[^>]*data-view-id="p1-overdue" aria-current="true"/);
+});
+
+test('panel Views filter narrows by label and keeps library-view delete indices UNFILTERED', () => {
+  const html = renderPanelHtml(makeState({
+    panelTab: 'views',
+    panelFilter: 'retro',
+    taskSmartViews: [{ id: 'v1', label: 'P1 overdue', expr: 'p1' }],
     librarySavedViews: [
       { label: 'Deploy notes', tags: ['deploy'] },
-      { label: '<script>x</script>', tags: ['x'] },
+      { label: 'Retro notes', tags: ['retro'] },
     ],
-  }), { todayBadge: 0, projectOpen: {} });
-  assert.match(html, /data-action="delete-library-view" data-view-index="0"/);
+  }), {});
+  assert.doesNotMatch(html, /data-view-id="v1"/);
+  assert.doesNotMatch(html, /Deploy notes/);
+  // "Retro notes" is index 1 in the stored list — the delete action must
+  // address the unfiltered index or it would delete the wrong view.
+  assert.match(html, /data-action="select-saved-view" data-view-index="1"/);
   assert.match(html, /data-action="delete-library-view" data-view-index="1"/);
-  assert.doesNotMatch(html, /<script>x<\/script>/);
 });
 
-test('sidebar settings item is pinned and active on the settings view', () => {
-  const html = renderSidebarHtml(makeState({ navType: 'settings' }), { todayBadge: 0, projectOpen: {} });
-  assert.match(html, /class="sidebar__settings"/);
-  assert.match(html, /class="side-item is-active" data-action="nav-settings" aria-current="true"/);
-
-  const idle = renderSidebarHtml(makeState({ navType: 'today' }), { todayBadge: 0, projectOpen: {} });
-  assert.match(idle, /class="side-item" data-action="nav-settings"/);
-});
-
-test('sidebar and titlebar escape hostile project names', () => {
+test('panel escapes hostile project and view names', () => {
   const state = makeState({
     navType: 'project',
     navId: 'px',
     projects: [{ id: 'px', name: '<script>alert(1)</script>', status: 'active' }],
   });
-  const sidebar = renderSidebarHtml(state, { todayBadge: 0, projectOpen: {} });
-  assert.doesNotMatch(sidebar, /<script>alert\(1\)<\/script>/);
-  assert.match(sidebar, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  const panel = renderPanelHtml(state, {});
+  assert.doesNotMatch(panel, /<script>alert\(1\)<\/script>/);
+  assert.match(panel, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+
+  const views = renderPanelHtml(makeState({
+    panelTab: 'views',
+    librarySavedViews: [{ label: '<script>x</script>', tags: ['x'] }],
+  }), {});
+  assert.doesNotMatch(views, /<script>x<\/script>/);
 
   const titlebar = renderTitlebarHtml(state);
   assert.doesNotMatch(titlebar, /<script>alert\(1\)<\/script>/);
   assert.match(titlebar, /prax — &lt;script&gt;/);
-});
-
-// ---------------------------------------------------------------------------
-// Icon rail
-// ---------------------------------------------------------------------------
-
-test('rail renders four nav buttons with tooltips and a divider', () => {
-  const html = renderRailHtml(makeState());
-  assert.match(html, /class="rail"/);
-  assert.match(html, /title="Today" data-action="nav-today"/);
-  assert.match(html, /title="All projects" data-action="nav-all"/);
-  assert.match(html, /title="Library" data-action="nav-library"/);
-  assert.match(html, /title="Settings" data-action="nav-settings"/);
-  assert.match(html, /class="rail__divider"/);
-});
-
-test('rail marks the active nav button and the current project dot', () => {
-  const html = renderRailHtml(makeState({ navType: 'project', navId: 'p2', projects: PROJECTS }));
-  assert.match(html, /class="rail__proj is-active" title="Reading Pipeline" data-action="nav-project" data-project-id="p2"/);
-  assert.match(html, /class="rail__proj" title="Homelab"/);
-  assert.doesNotMatch(html, /class="rail__btn is-active"/);
-
-  const library = renderRailHtml(makeState({ navType: 'library' }));
-  assert.match(library, /class="rail__btn is-active" title="Library"/);
-
-  const editor = renderRailHtml(makeState({ navType: 'editor' }));
-  assert.match(editor, /class="rail__btn is-active" title="Library"/);
 });
 
 // ---------------------------------------------------------------------------
@@ -324,26 +307,23 @@ test('desktop shell suppresses the fake window chrome (the OS provides it)', () 
   assert.match(desktopMac, /data-action="open-capture"/);
 });
 
-test('desktop shell keeps the mark inline with the wordmark, smaller than in the browser', () => {
-  const sidebar = renderSidebarHtml(makeState({ desktopShell: true }), {});
-  assert.match(sidebar, /sidebar__brand"><svg width="20"[^>]*><\/svg>|sidebar__brand"><svg width="20"/);
-  assert.match(sidebar, /sidebar__wordmark">prax</);
-  // the narrow rail still starts with its nav buttons (icon under the lights reads as a button)
+test('desktop shell keeps the panel mark inline with the wordmark, smaller than in the browser', () => {
+  const panel = renderPanelHtml(makeState({ desktopShell: true }), {});
+  assert.match(panel, /sidebar__brand"><svg width="20"/);
+  assert.match(panel, /sidebar__wordmark">prax</);
+  // the rail hides its logo in the shell (an icon under the lights reads as a button)
   const rail = renderRailHtml(makeState({ desktopShell: true }));
   assert.doesNotMatch(rail, /aria-label="Navigation"><svg/);
   // browser mode keeps the full-size logo
-  const webSidebar = renderSidebarHtml(makeState(), {});
-  assert.match(webSidebar, /sidebar__brand"><svg width="25"/);
+  const webPanel = renderPanelHtml(makeState(), {});
+  assert.match(webPanel, /sidebar__brand"><svg width="25"/);
 });
 
 test('desktop shell titlebar is the drag region with no left ornament', () => {
   const html = renderTitlebarHtml(makeState({ desktopShell: true }));
-  // draggable strip (titlebar + crumb both carry the attribute)
   assert.match(html, /<div class="titlebar" data-tauri-drag-region>/);
   assert.match(html, /titlebar__crumb" data-tauri-drag-region/);
-  // no logo or fake controls at the left — the real traffic lights live there
-  assert.doesNotMatch(html, /<svg/.source ? /titlebar" data-tauri-drag-region><svg/ : /x/);
-  // browser mode keeps its ornament and has no drag attribute
+  assert.doesNotMatch(html, /titlebar" data-tauri-drag-region><svg/);
   const web = renderTitlebarHtml(makeState());
   assert.doesNotMatch(web, /data-tauri-drag-region/);
 });

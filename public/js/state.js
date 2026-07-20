@@ -13,6 +13,8 @@ export const state = {
 
   // ---- routing ----
   planMode: null,               // { mode:'plan'|'shutdown', queue, index, added, carried, dropped, rescheduled, done? }
+  panelTab: 'projects',         // rail+panel shell: which browser tab ('projects' | 'views')
+  panelFilter: '',              // type-to-filter text for the active panel tab
   taskRelatedDocs: null,        // { taskId, loading, suggestions, degraded, reason } — drawer Related knowledge
   navType: 'project',           // 'today' | 'project' | 'all' | 'library' | 'editor' | 'run' | 'filter' | 'upcoming' | 'calendar' | 'settings'
   navId: null,                  // project id when navType === 'project'

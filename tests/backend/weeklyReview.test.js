@@ -80,6 +80,11 @@ async function reviewApp() {
 
 test('generate -> idempotent regenerate -> verified refusal, through the real app', async ({ }) => {
   const app = await reviewApp();
+  // Pin the reviewed week to TODAY's week. The route's default anchor is
+  // yesterday (so a Monday run reviews last week) — which means on Mondays a
+  // seed completed "now" falls outside the default week and shipped would be
+  // honestly 0. The pin makes the test deterministic on every weekday.
+  const anchor = { date: new Date().toISOString().slice(0, 10) };
   // Seed a completed task this week so the review has content.
   const created = (await app.inject({
     method: 'POST', url: '/api/tasks',
@@ -87,7 +92,7 @@ test('generate -> idempotent regenerate -> verified refusal, through the real ap
   })).json();
   await app.inject({ method: 'PATCH', url: `/api/tasks/${created.id}`, payload: { status: 'completed' } });
 
-  const first = (await app.inject({ method: 'POST', url: '/api/library/weekly-review', payload: {} })).json();
+  const first = (await app.inject({ method: 'POST', url: '/api/library/weekly-review', payload: anchor })).json();
   assert.equal(first.degraded, undefined, JSON.stringify(first));
   assert.equal(first.created, true);
   assert.match(first.weekId, /^\d{4}-W\d{2}$/);
@@ -102,7 +107,7 @@ test('generate -> idempotent regenerate -> verified refusal, through the real ap
   assert.match(doc.body, /## Shipped/);
 
   // Regenerate: same document, updated in place — never a duplicate.
-  const second = (await app.inject({ method: 'POST', url: '/api/library/weekly-review', payload: {} })).json();
+  const second = (await app.inject({ method: 'POST', url: '/api/library/weekly-review', payload: anchor })).json();
   assert.equal(second.updated, true);
   assert.equal(second.documentId, first.documentId);
   const all = (await app.inject({ method: 'GET', url: '/api/library/documents' })).json();
@@ -112,7 +117,7 @@ test('generate -> idempotent regenerate -> verified refusal, through the real ap
   // A verified review is refused, not silently overwritten.
   const verify = await app.inject({ method: 'POST', url: `/api/library/documents/${first.documentId}/verify`, payload: { verified: true } });
   assert.equal(verify.statusCode, 200, `verify endpoint responded ${verify.statusCode}`);
-  const refused = (await app.inject({ method: 'POST', url: '/api/library/weekly-review', payload: {} })).json();
+  const refused = (await app.inject({ method: 'POST', url: '/api/library/weekly-review', payload: anchor })).json();
   assert.equal(refused.degraded, true);
   assert.equal(refused.reason, 'verified-review');
   assert.equal(refused.documentId, first.documentId);
@@ -120,7 +125,7 @@ test('generate -> idempotent regenerate -> verified refusal, through the real ap
   // Narration without a chat model degrades honestly but the review stands.
   const unverify = await app.inject({ method: 'POST', url: `/api/library/documents/${first.documentId}/verify`, payload: { verified: false } });
   assert.equal(unverify.statusCode, 200);
-  const narrated = (await app.inject({ method: 'POST', url: '/api/library/weekly-review', payload: { narrate: true } })).json();
+  const narrated = (await app.inject({ method: 'POST', url: '/api/library/weekly-review', payload: { ...anchor, narrate: true } })).json();
   assert.equal(narrated.narrated, false);
   assert.equal(narrated.narrationDegraded, true);
   assert.equal(narrated.updated, true);

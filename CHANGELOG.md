@@ -156,6 +156,24 @@ fresh empty `[Unreleased]` section is started.
     bound (200) shared with the creation route; the task cap rose to 5000. Contract pins
     re-pinned deliberately.
 
+### Changed
+
+- **Rail + panel shell — the sidebar becomes a browser.** The single wide sidebar is
+  replaced by a two-level shell built for scale (chosen from three mocked layouts): a slim
+  **icon rail** owns every top-level destination (Today, Upcoming, Calendar, Inbox, All
+  projects, Library, Filter, Settings pinned at the bottom — now with mini count badges on
+  Today and Inbox), and a **browser panel** beside it owns the growing lists: a
+  **Projects / Views tab pair with live counts** and a **type-to-filter box** that narrows
+  as you type and reports "No matches" honestly. The Views tab gathers task smart views
+  (built-in Stale included) and Library saved views in one place. Every classic affordance
+  survived the move unchanged — project dots and open counts, hover-× deletes, active
+  states, manage-projects ＋, and the full `data-action` vocabulary (which is why the
+  entire e2e suite still means what it meant). Narrow windows (<940px) keep the familiar
+  rail-only mode with project dots. Found by the WCAG gate during the build: the ＋ button
+  originally sat inside `role="tablist"` (axe `aria-required-children`, critical) — moved
+  beside it. Follow-ups that layer on this shell without rework: ⌘K jump targets for
+  projects/views, pinned favorites, and area grouping.
+
 ### Added
 
 - **Task context surface — the Library feeds the task you're doing.** The task drawer
