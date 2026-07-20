@@ -158,6 +158,17 @@ fresh empty `[Unreleased]` section is started.
 
 ### Changed
 
+- **Customizable capture shortcut + desktop tray polish.** Settings ▸ Appearance (desktop
+  app only) gains a **Capture shortcut** row: type a chord (`CmdOrCtrl`, `Alt`, `Shift`,
+  `Super` + a key), Apply, and it re-registers **live — no restart**. The chord persists
+  in the app database (travels with backups); the shell fetches it at startup and remains
+  the honest arbiter: a chord another app owns reports "Saved, but not active" with the
+  exact reason, and the tray tooltip says so too. Leave it **empty to disable** — the tray
+  Capture item always works. Polish: the macOS tray icon renders as a **template icon**
+  (correct in light and dark menubars) and the capture bar now summons on whatever
+  Space/desktop is active. The desktop checklist gains a per-OS manual-check section for
+  the whole tray/capture/shortcut surface. Completes the system-wide capture plan.
+
 - **Areas and folders — scale becomes structure (layout option C).** Projects gain an
   **area** (migration `0022`): free text, edited inline in the All-projects ops row beside
   on-call/handoff/repo, and the panel's Projects tab groups by it — areas as alphabetical

@@ -4,6 +4,7 @@ fn main() {
             "save_library_export",
             "restart_prax",
             "hide_capture_window",
+            "set_capture_shortcut",
         ]),
     );
     tauri_build::try_build(attributes).expect("failed to build Prax desktop metadata");

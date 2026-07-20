@@ -8,6 +8,8 @@ const RESTART_COMMAND = 'restart_prax';
 const RESTART_PERMISSION = `allow-${RESTART_COMMAND.replaceAll('_', '-')}`;
 const CAPTURE_COMMAND = 'hide_capture_window';
 const CAPTURE_PERMISSION = `allow-${CAPTURE_COMMAND.replaceAll('_', '-')}`;
+const SHORTCUT_COMMAND = 'set_capture_shortcut';
+const SHORTCUT_PERMISSION = `allow-${SHORTCUT_COMMAND.replaceAll('_', '-')}`;
 
 test('the localhost desktop webview has an explicit grant for every exported Library save command', () => {
   const rust = readFileSync(new URL('../../src-tauri/src/lib.rs', import.meta.url), 'utf8');
@@ -34,13 +36,15 @@ test('the localhost desktop webview has an explicit grant for every exported Lib
   // list consciously. (Pin updated for the system-wide capture bar's
   // hide_capture_window — its ONLY IPC.)
   assert.match(build, new RegExp(
-    `AppManifest::new\\(\\)\\.commands\\(&\\[\\s*"${COMMAND}",\\s*"${RESTART_COMMAND}",\\s*"${CAPTURE_COMMAND}",\\s*\\]\\)`,
+    `AppManifest::new\\(\\)\\.commands\\(&\\[\\s*"${COMMAND}",\\s*"${RESTART_COMMAND}",\\s*"${CAPTURE_COMMAND}",\\s*"${SHORTCUT_COMMAND}",\\s*\\]\\)`,
   ));
   assert.ok(capability.remote.urls.includes('http://127.0.0.1:*'));
   assert.ok(capability.permissions.includes(PERMISSION));
+  // The main webview's non-core grants: the export save + the live shortcut
+  // re-registration (persistence itself is plain HTTP, not IPC).
   assert.deepEqual(
     capability.permissions.filter(permission => !permission.startsWith('core:')),
-    [PERMISSION],
+    [PERMISSION, SHORTCUT_PERMISSION],
   );
   assert.ok(localCapability.permissions.includes(RESTART_PERMISSION));
   assert.ok(!capability.permissions.includes(RESTART_PERMISSION));
@@ -52,6 +56,10 @@ test('the localhost desktop webview has an explicit grant for every exported Lib
   assert.deepEqual(captureCapability.permissions, [CAPTURE_PERMISSION]);
   assert.ok(!capability.permissions.includes(CAPTURE_PERMISSION));
   assert.ok(!localCapability.permissions.includes(CAPTURE_PERMISSION));
+  // The capture-bar window can hide itself and nothing more — the shortcut
+  // command belongs to the settings-bearing main window only.
+  assert.ok(!captureCapability.permissions.includes(SHORTCUT_PERMISSION));
+  assert.ok(!localCapability.permissions.includes(SHORTCUT_PERMISSION));
 });
 
 test('desktop sidecar owns its ephemeral bind and supports bounded graceful recovery', () => {

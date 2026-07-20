@@ -644,3 +644,23 @@ test('appearance offers the due-date reminders switch reflecting the preference'
   assert.match(off, /data-action="toggle-reminders"/);
   assert.doesNotMatch(off, /toggle-reminders"[^>]*aria-checked="true"/);
 });
+
+test('capture-shortcut row is desktop-only, shows the stored chord, and renders apply outcomes', () => {
+  const web = renderSettingsHtml(baseState({ settingsTab: 'appearance' }), baseModel());
+  assert.doesNotMatch(web, /data-capture-shortcut/, 'a browser tab has no global shortcut');
+
+  const desktop = renderSettingsHtml(baseState({
+    settingsTab: 'appearance',
+    desktopShell: true,
+    captureShortcut: { shortcut: 'Alt+Space', default: 'CmdOrCtrl+Shift+Space' },
+    captureShortcutNotice: 'Registered Alt+Space.',
+  }), baseModel());
+  assert.match(desktop, /data-capture-shortcut value="Alt\+Space"/);
+  assert.match(desktop, /data-action="apply-capture-shortcut"/);
+  assert.match(desktop, /data-shortcut-notice[^>]*>Registered Alt\+Space\./);
+  assert.match(desktop, /Leave empty to disable/);
+
+  // Before the load resolves the input is empty with the default placeholder.
+  const unloaded = renderSettingsHtml(baseState({ settingsTab: 'appearance', desktopShell: true }), baseModel());
+  assert.match(unloaded, /data-capture-shortcut value=""[^>]*placeholder="CmdOrCtrl\+Shift\+Space"/);
+});

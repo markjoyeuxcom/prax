@@ -34,7 +34,7 @@ import {
   askPrax, generateRunbook, fetchHealth, narrateBrief,
   assistantChat, fetchAssistantStatus,
   fetchLinkSuggestions, applyWikiLink, runAiReview, runWritingAction,
-  generateWeeklyReview,
+  generateWeeklyReview, fetchCaptureShortcut, saveCaptureShortcut,
 } from './libraryApi.js';
 import { normalizeTask } from './taskModel.js';
 import { apiStatus, designStatus, isOpen } from './statusMap.js';
@@ -4052,7 +4052,7 @@ async function handleAction(action, el, event) {
       break;
     }
     case 'nav-filter': await goFilter(); break;
-    case 'nav-settings': await goSettings(); break;
+    case 'nav-settings': await goSettings(); loadCaptureShortcut(); break;
     case 'toggle-section': {
       setState({ collapsedSections: saveCollapsed(toggleCollapsed(state.collapsedSections, el.dataset.sectionKey)) });
       renderApp();
@@ -4478,6 +4478,31 @@ _Task:_ ${task.title || 'Untitled task'}`
       } catch (err) {
         showToast(err?.message || 'Could not create the working note.');
       }
+      break;
+    }
+    case 'apply-capture-shortcut': {
+      const input = appRoot.querySelector('[data-capture-shortcut]');
+      if (!input) break;
+      const shortcut = input.value.trim();
+      try {
+        const saved = await saveCaptureShortcut(shortcut);
+        let notice;
+        if (window.__TAURI__?.core?.invoke) {
+          try {
+            await window.__TAURI__.core.invoke('set_capture_shortcut', { shortcut });
+            notice = shortcut ? `Registered ${shortcut}.` : 'Shortcut off — the tray Capture item still works.';
+          } catch (err) {
+            // Saved but NOT registered: the shell's verdict is the truth.
+            notice = `Saved, but not active: ${String(err)}`;
+          }
+        } else {
+          notice = 'Saved. Takes effect in the desktop app.';
+        }
+        setState({ captureShortcut: saved, captureShortcutNotice: notice });
+      } catch (err) {
+        setState({ captureShortcutNotice: err?.message || 'Could not save the shortcut.' });
+      }
+      renderApp();
       break;
     }
     case 'generate-weekly-review': {
@@ -6142,6 +6167,17 @@ function loadSavedViews() {
   } catch {
     return [];
   }
+}
+
+// Desktop-only settings surface; a failed load leaves the row on its
+// placeholder default rather than inventing a value.
+async function loadCaptureShortcut() {
+  if (!state.desktopShell || state.captureShortcut) return;
+  try {
+    const loaded = await fetchCaptureShortcut();
+    setState({ captureShortcut: loaded });
+    if (state.navType === 'settings') renderApp();
+  } catch { /* row keeps its placeholder */ }
 }
 
 function loadSmartViews() {

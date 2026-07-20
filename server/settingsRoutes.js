@@ -151,4 +151,33 @@ export async function registerSettingsRoutes(app, options = {}) {
     await appSettings.putSetting(SETTING_KEY, Boolean(body.enabled));
     return semanticStatus();
   });
+
+  // ---- Desktop capture shortcut ---------------------------------------------
+  // The chord lives in app_settings (travels with backups, one source of
+  // truth); the desktop shell fetches it once the server is ready and
+  // re-registers live when the UI saves a change. '' means disabled — the
+  // tray Capture item always works regardless.
+  const CAPTURE_SHORTCUT_KEY = 'capture_shortcut';
+  const CAPTURE_SHORTCUT_DEFAULT = 'CmdOrCtrl+Shift+Space';
+
+  app.get('/api/settings/capture-shortcut', async () => {
+    const stored = await appSettings.getSetting(CAPTURE_SHORTCUT_KEY, null).catch(() => null);
+    return {
+      shortcut: typeof stored === 'string' ? stored : CAPTURE_SHORTCUT_DEFAULT,
+      default: CAPTURE_SHORTCUT_DEFAULT,
+    };
+  });
+
+  app.put('/api/settings/capture-shortcut', async (request, reply) => {
+    const body = request.body && typeof request.body === 'object' && !Array.isArray(request.body) ? request.body : {};
+    if (typeof body.shortcut !== 'string' || body.shortcut.length > 64) {
+      reply.code(400);
+      return { message: 'shortcut must be a string of at most 64 characters' };
+    }
+    // Stored as typed (trimmed); chord VALIDITY is the shell's verdict — it
+    // is the only party that can truly know, and it reports failure honestly.
+    await appSettings.putSetting(CAPTURE_SHORTCUT_KEY, body.shortcut.trim());
+    const stored = await appSettings.getSetting(CAPTURE_SHORTCUT_KEY, null).catch(() => null);
+    return { shortcut: typeof stored === 'string' ? stored : CAPTURE_SHORTCUT_DEFAULT, default: CAPTURE_SHORTCUT_DEFAULT };
+  });
 }

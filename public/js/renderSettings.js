@@ -72,7 +72,31 @@ function accentSwatch(key, activeAccent) {
   return `<button type="button" class="swatch${active ? ' is-active' : ''}" data-action="set-accent" data-accent="${key}" title="${escapeHtml(ACCENT_TITLES[key] || key)}" style="background:${css};"></button>`;
 }
 
-function renderAppearanceCard(preferences) {
+// Desktop-only: the system-wide capture chord. Persistence is server-side
+// (app_settings); Apply asks the SHELL to re-register live — the shell is
+// the only party that knows whether a chord is actually free, so its
+// verdict (success or the exact failure) renders here, never a guess.
+function renderCaptureShortcutRow(state) {
+  if (!state?.desktopShell) return '';
+  const loaded = state.captureShortcut;
+  const value = loaded ? loaded.shortcut : '';
+  const fallback = loaded?.default || 'CmdOrCtrl+Shift+Space';
+  const notice = state.captureShortcutNotice
+    ? `<div class="settings-row__desc" data-shortcut-notice role="status" style="margin-top:4px;">${escapeHtml(state.captureShortcutNotice)}</div>`
+    : '';
+  return `
+      <div class="settings-row">
+        <div class="settings-row__text">
+          <div class="settings-row__label">Capture shortcut</div>
+          <div class="settings-row__desc">Summons the system-wide capture bar from any app. Modifier names: CmdOrCtrl, Alt, Shift, Super. Leave empty to disable — the tray Capture item always works.</div>
+          ${notice}
+        </div>
+        <input class="text-input" type="text" data-capture-shortcut value="${escapeHtml(value)}" placeholder="${escapeHtml(fallback)}" autocomplete="off" spellcheck="false" style="width:200px;" aria-label="Capture shortcut">
+        <button class="btn-outline" type="button" data-action="apply-capture-shortcut">Apply</button>
+      </div>`;
+}
+
+function renderAppearanceCard(preferences, state = {}) {
   const theme = preferences.theme === 'dark' ? 'dark' : 'light';
   const chrome = preferences.chromeOS === 'win' ? 'win' : 'mac';
   const accent = ACCENT_OPTIONS.includes(preferences.accent) ? preferences.accent : 'fern';
@@ -217,6 +241,7 @@ function renderAppearanceCard(preferences) {
         </div>
         <button class="switch${preferences.weeklyReviewNudge ? ' is-on' : ''}" type="button" data-action="toggle-weekly-review-nudge" role="switch" aria-checked="${Boolean(preferences.weeklyReviewNudge)}" aria-label="Weekly review nudge"><span></span></button>
       </div>
+      ${renderCaptureShortcutRow(state)}
       <div class="settings-row">
       <div class="settings-row__text">
         <div class="settings-row__label" style="display:flex; align-items:center; justify-content:space-between;">
@@ -676,7 +701,7 @@ export function renderSettingsHtml(state, model = {}) {
       ? renderIntegrationsCard(state)
       : tab === 'data'
         ? renderDataCard(state, model)
-        : renderAppearanceCard(preferences);
+        : renderAppearanceCard(preferences, state);
   return `
   <div class="page page--settings">
     <div class="page-head">
