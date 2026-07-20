@@ -158,6 +158,15 @@ fresh empty `[Unreleased]` section is started.
 
 ### Changed
 
+- **⌘K jumps to projects and views.** The command palette gains **Projects** and **Views**
+  result groups while you type: any active or on-hold project (Inbox included), any smart
+  view (built-in Stale too), and any Library saved view is now two keystrokes away —
+  `⌘K`, a few letters, Enter. Navigation targets rank above content search (a short query
+  usually means "take me there"), on-hold projects say so in the result line, and library
+  views jump by their stored identity so a filtered result can never open the wrong one.
+  The companion to the rail + panel shell below: at 60 projects and 80 views, nobody
+  scrolls.
+
 - **Rail + panel shell — the sidebar becomes a browser.** The single wide sidebar is
   replaced by a two-level shell built for scale (chosen from three mocked layouts): a slim
   **icon rail** owns every top-level destination (Today, Upcoming, Calendar, Inbox, All

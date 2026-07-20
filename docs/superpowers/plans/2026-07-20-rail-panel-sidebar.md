@@ -57,9 +57,9 @@ over fold-and-pin (A) and areas (C).
 ## Verification (as shipped)
 
 - Unit + e2e suites green after the pin rewrites; full gates recorded in the commit.
-- Deliberate follow-ups NOT in this slice: ⌘K palette jump targets for projects/views
-  (recommended companion), pinned favorites, and areas/folders (option C) — all layer on
-  top of this shell without rework.
+- Follow-up shipped separately: ⌘K palette jump targets for projects/views (Projects +
+  Views result groups, ranked above content search). Still open: pinned favorites and
+  areas/folders (option C) — both layer on top of this shell without rework.
 
 ## Risks / notes
 

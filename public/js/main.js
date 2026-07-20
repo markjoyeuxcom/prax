@@ -3940,6 +3940,23 @@ async function runPaletteItem(item) {
     await openDocumentInEditor(item.id);
     return;
   }
+  if (item.action === 'go-project') {
+    setState({ paletteOpen: false });
+    await goProject(item.id, 'list');
+    return;
+  }
+  if (item.action === 'go-smart-view') {
+    setState({ paletteOpen: false });
+    const view = findSmartView(state.taskSmartViews, item.id);
+    if (view) await goFilter({ expr: view.expr, smartViewId: view.id });
+    return;
+  }
+  if (item.action === 'go-library-view') {
+    setState({ paletteOpen: false });
+    const view = state.librarySavedViews[Number(item.index)];
+    if (view) await goLibrary({ activeLibraryTags: [...view.tags] });
+    return;
+  }
   const command = paletteCommands[item.action];
   if (command) await command();
 }
