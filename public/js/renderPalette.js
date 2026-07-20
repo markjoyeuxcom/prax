@@ -1,9 +1,13 @@
 import { escapeHtml } from './renderHelpers.js';
 import { icon, logo } from './icons.js';
+import { BUILT_IN_SMART_VIEWS } from './taskSmartViews.js';
 
 // Command palette (⌘K, design-handoff §10) — Commands always (filtered by the
-// query), Tasks/Documents groups only while a query is typed. Items carry a
-// string action id; main.js maps ids to behavior and runs flat[data-palette-index].
+// query); Projects/Views/Tasks/Documents groups only while a query is typed.
+// Items carry a string action id; main.js maps ids to behavior and runs
+// flat[data-palette-index]. Projects and views rank ABOVE content search:
+// with the rail+panel shell they are the lists that outgrow scrolling, and a
+// short query usually means "take me there".
 
 const COMMANDS = [
   { title: 'New task', sub: 'N', icon: 'plus', action: 'new-task' },
@@ -31,6 +35,35 @@ export function buildPaletteGroups(state, { tasks = [], documents = [], projects
 
   if (query) {
     const projectNames = new Map(projects.map((project) => [project.id, project.name]));
+
+    const projectItems = projects
+      .filter((project) => (project?.status === 'active' || project?.status === 'on-hold' || project?.slug === 'inbox')
+        && matches(project.name))
+      .slice(0, MAX_SEARCH_ITEMS)
+      .map((project) => ({
+        title: project.name,
+        sub: project.status === 'on-hold' ? 'Project · on hold' : 'Project',
+        icon: project.slug === 'inbox' ? 'inbox' : 'grid',
+        action: 'go-project',
+        id: project.id,
+      }));
+    if (projectItems.length) groups.push({ label: 'Projects', items: projectItems });
+
+    const smartViewItems = [...(state?.taskSmartViews || []), ...BUILT_IN_SMART_VIEWS]
+      .filter((view) => matches(view.label))
+      .map((view) => ({
+        title: view.label, sub: 'Smart view', icon: 'filter', action: 'go-smart-view', id: view.id,
+      }));
+    // delete/select for library views is index-addressed; carry the index.
+    const libraryViewItems = (state?.librarySavedViews || [])
+      .map((view, index) => ({ view, index }))
+      .filter(({ view }) => matches(view?.label))
+      .map(({ view, index }) => ({
+        title: view.label, sub: 'Library view', icon: 'tag', action: 'go-library-view', index,
+      }));
+    const viewItems = [...smartViewItems, ...libraryViewItems].slice(0, MAX_SEARCH_ITEMS);
+    if (viewItems.length) groups.push({ label: 'Views', items: viewItems });
+
     const taskItems = tasks
       .filter((task) => !task.archivedAt && matches(task.title))
       .slice(0, MAX_SEARCH_ITEMS)

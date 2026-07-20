@@ -36,16 +36,55 @@ test('commands filter by case-insensitive substring on title', () => {
   assert.deepEqual(commands.items.map(i => i.title), ['Toggle dark mode']);
 });
 
-test('a query adds Tasks and Documents groups, in Commands → Tasks → Documents flat order', () => {
-  const { groups, flat } = build('upgrade');
-  assert.deepEqual(groups.map(g => g.label), ['Tasks', 'Documents']); // no command matches "upgrade"
-  const both = build('e'); // matches commands, tasks and docs
-  assert.deepEqual(both.groups.map(g => g.label), ['Commands', 'Tasks', 'Documents']);
+test('a query adds search groups in Commands → Projects → Views → Tasks → Documents order', () => {
+  const { groups } = build('upgrade');
+  assert.deepEqual(groups.map(g => g.label), ['Tasks', 'Documents']); // no command/project/view matches "upgrade"
+  // "e" matches commands, the built-in Stale view, tasks, and docs.
+  const both = build('e');
+  assert.deepEqual(both.groups.map(g => g.label), ['Commands', 'Views', 'Tasks', 'Documents']);
   const labels = [];
   both.groups.forEach(g => g.items.forEach(() => labels.push(g.label)));
   assert.deepEqual(both.flat.length, labels.length);
-  assert.ok(labels.indexOf('Tasks') > labels.lastIndexOf('Commands'));
+  assert.ok(labels.indexOf('Views') > labels.lastIndexOf('Commands'));
+  assert.ok(labels.indexOf('Tasks') > labels.lastIndexOf('Views'));
   assert.ok(labels.indexOf('Documents') > labels.lastIndexOf('Tasks'));
+});
+
+test('projects jump: active/on-hold/inbox match by name; other statuses never appear', () => {
+  const projects = [
+    { id: 'p1', name: 'Homelab', status: 'active' },
+    { id: 'p2', name: 'Home Move', status: 'on-hold' },
+    { id: 'p3', name: 'Home Archive', status: 'completed' },
+    { id: 'ibx', name: 'Inbox', slug: 'inbox' },
+  ];
+  const { groups } = buildPaletteGroups({ paletteQuery: 'home' }, { ...DATA, projects });
+  const group = groups.find(g => g.label === 'Projects');
+  assert.deepEqual(group.items.map(i => i.id), ['p1', 'p2']);
+  assert.deepEqual(group.items.map(i => i.action), ['go-project', 'go-project']);
+  assert.equal(group.items[1].sub, 'Project · on hold');
+  const inbox = buildPaletteGroups({ paletteQuery: 'inbox' }, { ...DATA, projects });
+  assert.equal(inbox.groups.find(g => g.label === 'Projects').items[0].id, 'ibx');
+});
+
+test('views jump: smart views (incl. built-in Stale) and index-addressed library views', () => {
+  const state = {
+    paletteQuery: 'notes',
+    taskSmartViews: [{ id: 'sv1', label: 'Notes triage', expr: 'status:notes' }],
+    librarySavedViews: [
+      { label: 'Deploy docs', tags: ['deploy'] },
+      { label: 'Retro notes', tags: ['retro'] },
+    ],
+  };
+  const { groups } = buildPaletteGroups(state, DATA);
+  const views = groups.find(g => g.label === 'Views');
+  assert.deepEqual(views.items.map(i => i.title), ['Notes triage', 'Retro notes']);
+  assert.deepEqual(views.items[0], { title: 'Notes triage', sub: 'Smart view', icon: 'filter', action: 'go-smart-view', id: 'sv1' });
+  // "Retro notes" is index 1 in the stored list — the jump must carry the
+  // UNFILTERED index or it would open the wrong view.
+  assert.deepEqual(views.items[1], { title: 'Retro notes', sub: 'Library view', icon: 'tag', action: 'go-library-view', index: 1 });
+
+  const stale = buildPaletteGroups({ paletteQuery: 'stale' }, DATA);
+  assert.equal(stale.groups.find(g => g.label === 'Views').items[0].id, 'builtin-stale');
 });
 
 test('archived tasks never appear; task items carry project-name sub, open-task action and id', () => {

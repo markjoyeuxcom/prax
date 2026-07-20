@@ -43,6 +43,28 @@ test('rail navigates, panel lists projects, filter narrows and reports no matche
   await expect(page.locator('.titlebar__crumb')).toContainText(`Panel Alpha ${stamp}`);
 });
 
+test('⌘K jumps to a project and to the built-in Stale view by name', async ({ page, request }) => {
+  const stamp = Date.now();
+  const project = await createProject(request, `Palette Target ${stamp}`);
+  expect(project.id).toBeTruthy();
+
+  await page.goto('/');
+  // Jump to the project: type part of its name, run the Projects result.
+  await page.locator('[data-action="open-palette"]').click();
+  await page.locator('[data-palette-input]').fill(`target ${stamp}`);
+  await page.locator('.palette__item', { hasText: `Palette Target ${stamp}` }).click();
+  await expect(page.locator('.titlebar__crumb')).toContainText(`Palette Target ${stamp}`);
+
+  // Jump to the built-in Stale smart view the same way.
+  await page.locator('[data-action="open-palette"]').click();
+  await page.locator('[data-palette-input]').fill('stale');
+  await page.locator('.palette__item', { hasText: 'Stale' }).first().click();
+  await expect(page.locator('[data-action="select-smart-view"][data-view-id="builtin-stale"]')).toHaveCount(0);
+  // The filter view is open with the Stale expression active (panel still on
+  // the Projects tab — the palette jump does not depend on the panel at all).
+  await expect(page.locator('input[data-filter-input], [data-filter-expr]').first()).toBeVisible();
+});
+
 test('the Views tab lists smart views, switching tabs clears the filter, selection opens the view', async ({ page }) => {
   await page.goto('/');
   const panel = page.locator('.panel');
