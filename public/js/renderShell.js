@@ -113,156 +113,155 @@ export function renderTitlebarHtml(state) {
 }
 
 // ---------------------------------------------------------------------------
-// Sidebar
+// Icon rail — the primary navigation at every width. Wide windows pair it
+// with the browser panel below; narrow windows (<940px) show it alone with
+// per-project dots, exactly as before the panel existed.
 // ---------------------------------------------------------------------------
 
-function sideNavItem({ label, iconName, action, active, badge = 0 }) {
-  const classes = `side-item${active ? ' is-active is-active--nav' : ''}`;
-  return `<button type="button" class="${classes}" data-action="${action}"${active ? ' aria-current="true"' : ''}>`
-    + icon(iconName)
-    + `<span class="side-item__label">${escapeHtml(label)}</span>`
-    + (badge > 0 ? `<span class="badge">${badge}</span>` : '')
-    + '</button>';
+function railBadge(count) {
+  return count > 0 ? `<span class="rail__badge">${count > 99 ? '99+' : count}</span>` : '';
 }
 
-// Inbox as a pinned top-level item (its own icon + open count), navigating like
-// any project. Renders nothing until the Inbox project exists (fresh seed).
-function sidebarInboxItem(state, counts) {
+export function renderRailHtml(state, counts = {}, { showProjects = true } = {}) {
   const inbox = inboxProject(state);
-  if (!inbox) return '';
-  const active = isCurrentProject(state, inbox.id);
-  const openCount = counts?.projectOpen?.[inbox.id] || 0;
-  return `<button type="button" class="side-item${active ? ' is-active is-active--nav' : ''}" data-action="nav-project" data-project-id="${escapeHtml(inbox.id)}"${active ? ' aria-current="true"' : ''}>`
-    + icon('inbox')
-    + '<span class="side-item__label">Inbox</span>'
-    + (openCount > 0 ? `<span class="badge">${openCount}</span>` : '')
-    + '</button>';
+  const navs = [
+    { title: 'Today', iconName: 'check', action: 'nav-today', active: state.navType === 'today', badge: counts.todayBadge },
+    { title: 'Upcoming', iconName: 'calendar', action: 'nav-upcoming', active: state.navType === 'upcoming' },
+    { title: 'Calendar', iconName: 'month', action: 'nav-calendar', active: state.navType === 'calendar' },
+    ...(inbox ? [{
+      title: 'Inbox', iconName: 'inbox', action: 'nav-project',
+      active: isCurrentProject(state, inbox.id), projectId: inbox.id,
+      badge: counts?.projectOpen?.[inbox.id] || 0,
+    }] : []),
+    { title: 'All projects', iconName: 'grid', action: 'nav-all', active: state.navType === 'all' },
+    { title: 'Library', iconName: 'book', action: 'nav-library', active: isLibraryNav(state) },
+    { title: 'Filter', iconName: 'filter', action: 'nav-filter', active: state.navType === 'filter' },
+  ].map(({ title, iconName, action, active, projectId, badge }) => (
+    `<button type="button" class="rail__btn${active ? ' is-active' : ''}" title="${title}" data-action="${action}"${projectId ? ` data-project-id="${escapeHtml(projectId)}"` : ''}${active ? ' aria-current="true"' : ''}>${icon(iconName, 16)}${railBadge(badge)}</button>`
+  )).join('');
+
+  const projects = showProjects
+    ? '<div class="rail__divider"></div>' + sidebarProjects(state).map((project) => {
+      const active = isCurrentProject(state, project.id);
+      return `<button type="button" class="rail__proj${active ? ' is-active' : ''}" title="${escapeHtml(project.name)}" data-action="nav-project" data-project-id="${escapeHtml(project.id)}"${active ? ' aria-current="true"' : ''}>`
+        + `<span style="--dot: ${projectColor(project)}"></span>`
+        + '</button>';
+    }).join('')
+    : '';
+
+  const settingsActive = state.navType === 'settings';
+  const settings = '<div class="rail__spacer"></div>'
+    + `<button type="button" class="rail__btn${settingsActive ? ' is-active' : ''}" title="Settings" data-action="nav-settings"${settingsActive ? ' aria-current="true"' : ''}>${icon('sliders', 16)}</button>`;
+
+  return '<aside class="rail" aria-label="Navigation">'
+    + (state.desktopShell ? '' : logo(25))
+    + navs
+    + projects
+    + settings
+    + '</aside>';
 }
 
-function sidebarProjectItem(state, project, counts) {
-  const active = isCurrentProject(state, project.id);
-  const openCount = counts?.projectOpen?.[project.id] || 0;
-  const dotClass = `proj-dot${project.status === 'on-hold' ? ' is-onhold' : ''}`;
-  return `<button type="button" class="side-item${active ? ' is-active' : ''}" data-action="nav-project" data-project-id="${escapeHtml(project.id)}"${active ? ' aria-current="true"' : ''}>`
-    + `<span class="${dotClass}" style="--dot: ${projectColor(project)}"></span>`
-    + `<span class="side-item__label">${escapeHtml(project.name)}</span>`
-    + `<span class="side-item__count">${openCount || ''}</span>`
-    + '</button>';
+// ---------------------------------------------------------------------------
+// Browser panel (wide windows) — Projects / Views tabs + type-to-filter.
+// Rows keep the classic side-item markup and data-action vocabulary, so every
+// existing affordance (dots, counts, hover-× deletes, active states) carries
+// over unchanged; only the container changed shape.
+// ---------------------------------------------------------------------------
+
+function panelMatches(filter, label) {
+  return !filter || String(label || '').toLowerCase().includes(filter);
 }
 
-function sidebarSavedViews(state) {
-  const views = state.librarySavedViews || [];
-  if (!views.length) return '';
-  const items = views.map((view, index) => {
-    const active = state.navType === 'library'
-      && (state.activeLibraryTags || []).join() === (view?.tags || []).join();
-    // A wrapper holds two sibling buttons (a button can't nest a button): the
-    // row selects the view, the × (revealed on hover) deletes it.
-    return '<div class="side-item-row">'
-      + `<button type="button" class="side-item side-item--saved${active ? ' is-active' : ''}" data-action="select-saved-view" data-view-index="${index}"${active ? ' aria-current="true"' : ''}>`
-      + icon('tag')
-      + `<span class="side-item__label">${escapeHtml(view?.label)}</span>`
-      + '</button>'
-      + `<button type="button" class="side-item__del" data-action="delete-library-view" data-view-index="${index}" title="Delete saved view" aria-label="Delete saved view ${escapeHtml(view?.label || '')}">×</button>`
-      + '</div>';
-  }).join('');
-  return `<div class="side-section"><span>Saved views</span></div>${items}`;
+function panelProjectRows(state, counts, filter) {
+  const rows = sidebarProjects(state)
+    .filter((project) => panelMatches(filter, project.name))
+    .map((project) => {
+      const active = isCurrentProject(state, project.id);
+      const openCount = counts?.projectOpen?.[project.id] || 0;
+      const dotClass = `proj-dot${project.status === 'on-hold' ? ' is-onhold' : ''}`;
+      return `<button type="button" class="side-item${active ? ' is-active' : ''}" data-action="nav-project" data-project-id="${escapeHtml(project.id)}"${active ? ' aria-current="true"' : ''}>`
+        + `<span class="${dotClass}" style="--dot: ${projectColor(project)}"></span>`
+        + `<span class="side-item__label">${escapeHtml(project.name)}</span>`
+        + `<span class="side-item__count">${openCount || ''}</span>`
+        + '</button>';
+    });
+  return rows.length ? rows.join('') : '<div class="panel__empty">No matches.</div>';
 }
 
-// Saved task smart views — a filter expression per row, opened via
-// select-smart-view; a hover-× deletes. Mirrors sidebarSavedViews. Built-in
-// views (Stale) render in the same section but carry no delete affordance.
-function sidebarSmartViews(state) {
-  const views = [...(state.taskSmartViews || []), ...BUILT_IN_SMART_VIEWS];
-  if (!views.length) return '';
-  const items = views.map((view) => {
-    const active = state.navType === 'filter' && state.activeSmartViewId === view.id;
-    const remove = view.builtIn
-      ? ''
-      : `<button type="button" class="side-item__del" data-action="delete-smart-view" data-view-id="${escapeHtml(view.id)}" title="Delete smart view" aria-label="Delete smart view ${escapeHtml(view.label || '')}">×</button>`;
-    return '<div class="side-item-row">'
-      + `<button type="button" class="side-item side-item--saved${active ? ' is-active' : ''}" data-action="select-smart-view" data-view-id="${escapeHtml(view.id)}"${active ? ' aria-current="true"' : ''}>`
-      + icon('filter')
-      + `<span class="side-item__label">${escapeHtml(view.label)}</span>`
-      + '</button>'
-      + remove
-      + '</div>';
-  }).join('');
-  return `<div class="side-section"><span>Smart views</span></div>${items}`;
+function panelViewRows(state, filter) {
+  const smart = [...(state.taskSmartViews || []), ...BUILT_IN_SMART_VIEWS]
+    .filter((view) => panelMatches(filter, view.label))
+    .map((view) => {
+      const active = state.navType === 'filter' && state.activeSmartViewId === view.id;
+      const remove = view.builtIn
+        ? ''
+        : `<button type="button" class="side-item__del" data-action="delete-smart-view" data-view-id="${escapeHtml(view.id)}" title="Delete smart view" aria-label="Delete smart view ${escapeHtml(view.label || '')}">×</button>`;
+      return '<div class="side-item-row">'
+        + `<button type="button" class="side-item side-item--saved${active ? ' is-active' : ''}" data-action="select-smart-view" data-view-id="${escapeHtml(view.id)}"${active ? ' aria-current="true"' : ''}>`
+        + icon('filter')
+        + `<span class="side-item__label">${escapeHtml(view.label)}</span>`
+        + '</button>'
+        + remove
+        + '</div>';
+    });
+
+  const library = (state.librarySavedViews || [])
+    .filter((view) => panelMatches(filter, view?.label))
+    .map((view) => {
+      // delete-library-view is index-addressed against the UNFILTERED list.
+      const realIndex = (state.librarySavedViews || []).indexOf(view);
+      const active = state.navType === 'library'
+        && (state.activeLibraryTags || []).join() === (view?.tags || []).join();
+      return '<div class="side-item-row">'
+        + `<button type="button" class="side-item side-item--saved${active ? ' is-active' : ''}" data-action="select-saved-view" data-view-index="${realIndex}"${active ? ' aria-current="true"' : ''}>`
+        + icon('tag')
+        + `<span class="side-item__label">${escapeHtml(view?.label)}</span>`
+        + '</button>'
+        + `<button type="button" class="side-item__del" data-action="delete-library-view" data-view-index="${realIndex}" title="Delete saved view" aria-label="Delete saved view ${escapeHtml(view?.label || '')}">×</button>`
+        + '</div>';
+    });
+
+  const librarySection = library.length
+    ? `<div class="side-section"><span>Library views</span></div>${library.join('')}`
+    : '';
+  if (!smart.length && !library.length) return '<div class="panel__empty">No matches.</div>';
+  return smart.join('') + librarySection;
 }
 
-export function renderSidebarHtml(state, counts = {}) {
-  // In the desktop shell the macOS traffic lights overlay the top-left corner
-  // — a full-size icon beneath them read as a fourth button, so the mark
-  // renders smaller, inline with the wordmark.
+export function renderPanelHtml(state, counts = {}) {
+  const tab = state.panelTab === 'views' ? 'views' : 'projects';
+  const filter = String(state.panelFilter || '').trim().toLowerCase();
+  const projectCount = sidebarProjects(state).length;
+  const viewCount = (state.taskSmartViews || []).length + BUILT_IN_SMART_VIEWS.length
+    + (state.librarySavedViews || []).length;
+
   const brand = '<div class="sidebar__brand">'
     + logo(state.desktopShell ? 20 : 25)
     + '<span class="sidebar__wordmark">prax</span>'
     + '<span class="sidebar__byline">by moomora</span>'
     + '</div>';
 
-  const nav = [
-    sideNavItem({ label: 'Today', iconName: 'check', action: 'nav-today', active: state.navType === 'today', badge: counts.todayBadge }),
-    sideNavItem({ label: 'Upcoming', iconName: 'calendar', action: 'nav-upcoming', active: state.navType === 'upcoming', badge: counts.upcomingBadge }),
-    sideNavItem({ label: 'Calendar', iconName: 'month', action: 'nav-calendar', active: state.navType === 'calendar' }),
-    sidebarInboxItem(state, counts),
-    sideNavItem({ label: 'All projects', iconName: 'grid', action: 'nav-all', active: state.navType === 'all' }),
-    sideNavItem({ label: 'Library', iconName: 'book', action: 'nav-library', active: isLibraryNav(state) }),
-    sideNavItem({ label: 'Filter', iconName: 'filter', action: 'nav-filter', active: state.navType === 'filter' && !state.activeSmartViewId }),
-  ].join('');
-
-  const projectsSection = '<div class="side-section">'
-    + '<span>Projects</span>'
-    + '<button type="button" data-action="manage-projects" title="Manage projects" aria-label="Manage projects">＋</button>'
+  // The ＋ lives BESIDE the tablist, not inside it — role="tablist" allows
+  // only tab children (axe: aria-required-children).
+  const tabs = '<div class="panel__tabs">'
+    + '<div class="panel__tablist" role="tablist">'
+    + `<button type="button" role="tab" class="panel__tab${tab === 'projects' ? ' is-active' : ''}" data-action="set-panel-tab" data-tab="projects" aria-selected="${tab === 'projects'}">Projects <span class="panel__tabcount">${projectCount}</span></button>`
+    + `<button type="button" role="tab" class="panel__tab${tab === 'views' ? ' is-active' : ''}" data-action="set-panel-tab" data-tab="views" aria-selected="${tab === 'views'}">Views <span class="panel__tabcount">${viewCount}</span></button>`
     + '</div>'
-    + sidebarProjects(state).map((project) => sidebarProjectItem(state, project, counts)).join('');
-
-  const settingsActive = state.navType === 'settings';
-  const settings = '<div class="sidebar__settings">'
-    + `<button type="button" class="side-item${settingsActive ? ' is-active' : ''}" data-action="nav-settings"${settingsActive ? ' aria-current="true"' : ''}>`
-    + icon('sliders')
-    + '<span class="side-item__label">Settings</span>'
-    + '</button>'
+    + (tab === 'projects'
+      ? '<button type="button" class="panel__add" data-action="manage-projects" title="Manage projects" aria-label="Manage projects">＋</button>'
+      : '')
     + '</div>';
 
-  return '<aside class="sidebar" aria-label="Navigation">'
+  const filterBox = `<input class="panel__filter" type="text" data-panel-filter placeholder="Filter ${tab === 'projects' ? `${projectCount} project${projectCount === 1 ? '' : 's'}` : `${viewCount} view${viewCount === 1 ? '' : 's'}`}…" value="${escapeHtml(state.panelFilter || '')}" autocomplete="off" aria-label="Filter ${tab}">`;
+
+  const rows = tab === 'projects' ? panelProjectRows(state, counts, filter) : panelViewRows(state, filter);
+
+  return '<aside class="panel" aria-label="Browser">'
     + brand
-    + `<div class="sidebar__scroll">${nav}${projectsSection}${sidebarSmartViews(state)}${sidebarSavedViews(state)}</div>`
-    + settings
-    + '</aside>';
-}
-
-// ---------------------------------------------------------------------------
-// Icon rail (narrow windows, < 940px)
-// ---------------------------------------------------------------------------
-
-export function renderRailHtml(state) {
-  const inbox = inboxProject(state);
-  const navs = [
-    { title: 'Today', iconName: 'check', action: 'nav-today', active: state.navType === 'today' },
-    { title: 'Upcoming', iconName: 'calendar', action: 'nav-upcoming', active: state.navType === 'upcoming' },
-    { title: 'Calendar', iconName: 'month', action: 'nav-calendar', active: state.navType === 'calendar' },
-    ...(inbox ? [{ title: 'Inbox', iconName: 'inbox', action: 'nav-project', active: isCurrentProject(state, inbox.id), projectId: inbox.id }] : []),
-    { title: 'All projects', iconName: 'grid', action: 'nav-all', active: state.navType === 'all' },
-    { title: 'Library', iconName: 'book', action: 'nav-library', active: isLibraryNav(state) },
-    { title: 'Filter', iconName: 'filter', action: 'nav-filter', active: state.navType === 'filter' },
-    { title: 'Settings', iconName: 'sliders', action: 'nav-settings', active: state.navType === 'settings' },
-  ].map(({ title, iconName, action, active, projectId }) => (
-    `<button type="button" class="rail__btn${active ? ' is-active' : ''}" title="${title}" data-action="${action}"${projectId ? ` data-project-id="${escapeHtml(projectId)}"` : ''}${active ? ' aria-current="true"' : ''}>${icon(iconName, 16)}</button>`
-  )).join('');
-
-  const projects = sidebarProjects(state).map((project) => {
-    const active = isCurrentProject(state, project.id);
-    return `<button type="button" class="rail__proj${active ? ' is-active' : ''}" title="${escapeHtml(project.name)}" data-action="nav-project" data-project-id="${escapeHtml(project.id)}"${active ? ' aria-current="true"' : ''}>`
-      + `<span style="--dot: ${projectColor(project)}"></span>`
-      + '</button>';
-  }).join('');
-
-  return '<aside class="rail" aria-label="Navigation">'
-    + (state.desktopShell ? '' : logo(25))
-    + navs
-    + '<div class="rail__divider"></div>'
-    + projects
+    + tabs
+    + filterBox
+    + `<div class="panel__scroll">${rows}</div>`
     + '</aside>';
 }
 

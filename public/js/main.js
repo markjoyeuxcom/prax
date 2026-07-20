@@ -82,7 +82,7 @@ import { mountCodeMirrorEditor } from '../vendor/codemirror-editor.js';
 import { mountPlainEditor } from './plainEditor.js';
 
 import {
-  renderTitlebarHtml, renderSidebarHtml, renderRailHtml, renderStatusbarHtml,
+  renderTitlebarHtml, renderPanelHtml, renderRailHtml, renderStatusbarHtml,
   projectColor,
 } from './renderShell.js';
 import {
@@ -3805,7 +3805,8 @@ function renderApp() {
   const chrome = !state.editorFocus;
   const counts = sidebarCounts();
   const nav = chrome
-    ? (narrow ? renderRailHtml(state) : renderSidebarHtml(state, counts))
+    ? renderRailHtml(state, counts, { showProjects: narrow })
+      + (narrow ? '' : renderPanelHtml(state, counts))
     : '';
   // The main-content fade-in is a *view-transition* cue. renderApp rebuilds the
   // DOM on every state change, so without this the fade replays on same-view
@@ -4031,6 +4032,14 @@ async function handleAction(action, el, event) {
     }
     case 'nav-filter': await goFilter(); break;
     case 'nav-settings': await goSettings(); break;
+    case 'set-panel-tab': {
+      const tab = el.dataset.tab === 'views' ? 'views' : 'projects';
+      // Switching tabs clears the filter — a projects query rarely means
+      // anything against views, and stale filters read as missing data.
+      setState({ panelTab: tab, panelFilter: '' });
+      renderApp();
+      break;
+    }
     case 'select-smart-view': {
       const view = findSmartView(state.taskSmartViews, el.dataset.viewId);
       if (view) await goFilter({ expr: view.expr, smartViewId: view.id });
@@ -5372,6 +5381,17 @@ function bindEvents() {
       }
       const submit = appRoot.querySelector('[data-action="run-ask-prax"]');
       if (submit) submit.disabled = !target.value.trim();
+      return;
+    }
+    if (target.matches?.('[data-panel-filter]')) {
+      const caret = target.selectionStart;
+      setState({ panelFilter: target.value });
+      renderApp();
+      const next = appRoot.querySelector('[data-panel-filter]');
+      if (next) {
+        next.focus();
+        if (caret != null) next.setSelectionRange(caret, caret);
+      }
       return;
     }
     if (target.matches?.('[data-library-search]')) {

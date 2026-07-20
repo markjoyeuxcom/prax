@@ -57,8 +57,10 @@ test('the board In-progress header shows the WIP overrun and drags still land', 
   await expect(count).toContainText('/3');
 });
 
-test('the built-in Stale smart view is in the sidebar and opens the stale filter', async ({ page }) => {
+test('the built-in Stale smart view lives on the panel Views tab and opens the stale filter', async ({ page }) => {
   await page.goto('/');
+  // The rail+panel shell keeps smart views on the panel's Views tab.
+  await page.locator('[data-action="set-panel-tab"][data-tab="views"]').click();
   const stale = page.locator('[data-action="select-smart-view"][data-view-id="builtin-stale"]');
   await expect(stale).toBeVisible();
   await stale.click();
