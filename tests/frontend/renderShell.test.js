@@ -370,3 +370,70 @@ test('Views tab: pinned smart and library views share the Pinned section; librar
   assert.ok(waiting > stale, 'unpinned smart view renders after the pinned block');
   assert.match(html, /data-action="toggle-pin" data-kind="libraryViews" data-key="Deploy docs"/);
 });
+
+// ---------------------------------------------------------------------------
+// Areas and folders
+// ---------------------------------------------------------------------------
+
+const AREA_PROJECTS = [
+  { id: 'w1', name: 'K8s upgrade', status: 'active', area: 'Work' },
+  { id: 'h1', name: 'House move', status: 'active', area: 'Home' },
+  { id: 'n1', name: 'Loose end', status: 'active' },
+];
+
+test('projects group under alphabetical area sections with counts; unassigned under Other', () => {
+  const html = renderPanelHtml(makeState({ projects: AREA_PROJECTS, collapsedSections: [] }), {});
+  const home = html.indexOf('data-section-key="area:Home"');
+  const work = html.indexOf('data-section-key="area:Work"');
+  const other = html.indexOf('data-section-key="area:__other"');
+  assert.ok(home !== -1 && work !== -1 && other !== -1);
+  assert.ok(home < work && work < other, 'areas alphabetical, Other last');
+  assert.match(html, /data-section-key="area:Work"[^>]*aria-expanded="true"/);
+  assert.match(html, /<span>Other<\/span><span class="side-section__count">1</);
+  // No areas anywhere -> the exact flat list (no section headers at all).
+  const flat = renderPanelHtml(makeState({ projects: PROJECTS, collapsedSections: [] }), {});
+  assert.doesNotMatch(flat, /data-section-key/);
+});
+
+test('a collapsed area hides its rows and flips the chevron; the filter auto-expands', () => {
+  const collapsed = renderPanelHtml(makeState({
+    projects: AREA_PROJECTS, collapsedSections: ['area:Work'],
+  }), {});
+  assert.match(collapsed, /data-section-key="area:Work"[^>]*aria-expanded="false"/);
+  assert.match(collapsed, /class="side-section__chevron">▸/);
+  assert.doesNotMatch(collapsed, /data-project-id="w1"/, 'collapsed rows do not render');
+  assert.match(collapsed, /data-project-id="h1"/, 'other sections unaffected');
+
+  const filtered = renderPanelHtml(makeState({
+    projects: AREA_PROJECTS, collapsedSections: ['area:Work'], panelFilter: 'k8s',
+  }), {});
+  assert.match(filtered, /data-project-id="w1"/, 'a typed filter must never hide matches in a collapsed section');
+});
+
+test('pinned projects stay above area grouping', () => {
+  const html = renderPanelHtml(makeState({
+    projects: AREA_PROJECTS,
+    collapsedSections: [],
+    pinned: { projects: ['h1'], smartViews: [], libraryViews: [] },
+  }), {});
+  const pinnedPos = html.indexOf('<span>Pinned</span>');
+  const firstArea = html.indexOf('data-section-key=');
+  assert.ok(pinnedPos !== -1 && pinnedPos < firstArea, 'Pinned leads, groups follow');
+});
+
+test('foldered smart views group on the Views tab; loose views (incl. Stale) stay flat first', () => {
+  const html = renderPanelHtml(makeState({
+    panelTab: 'views',
+    collapsedSections: [],
+    taskSmartViews: [
+      { id: 'daily-standup', label: 'standup', expr: 'open', folder: 'Daily' },
+      { id: 'loose', label: 'loose one', expr: 'open' },
+    ],
+  }), {});
+  assert.match(html, /data-section-key="folder:Daily"/);
+  const loosePos = html.indexOf('data-view-id="loose"');
+  const folderPos = html.indexOf('data-section-key="folder:Daily"');
+  const otherPos = html.indexOf('data-section-key="folder:__other"');
+  assert.ok(otherPos !== -1 && loosePos > otherPos, 'loose views sit under the Views header');
+  assert.ok(folderPos < otherPos, 'named folders come before the loose remainder');
+});

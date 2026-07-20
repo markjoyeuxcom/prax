@@ -7,6 +7,7 @@ import { escapeHtml } from './renderHelpers.js';
 import { icon, logo } from './icons.js';
 import { BUILT_IN_SMART_VIEWS } from './taskSmartViews.js';
 import { isPinned, splitPinned } from './pinned.js';
+import { isCollapsed } from './collapsed.js';
 
 // ---------------------------------------------------------------------------
 // Project colors
@@ -188,6 +189,49 @@ function pinnedSectionHtml(pinnedRows, restRows) {
     + restRows.join('');
 }
 
+// Collapsible group header. A typed filter auto-expands every section —
+// hiding matches inside a collapsed group would make the filter a liar.
+function sectionHeader(sectionKey, label, count, collapsed) {
+  return `<button type="button" class="side-section side-section--toggle" data-action="toggle-section" data-section-key="${escapeHtml(sectionKey)}" aria-expanded="${!collapsed}">`
+    + `<span class="side-section__chevron">${collapsed ? '▸' : '▾'}</span>`
+    + `<span>${escapeHtml(label)}</span>`
+    + `<span class="side-section__count">${count}</span>`
+    + '</button>';
+}
+
+// Group items by their group name (null = ungrouped): named groups sorted
+// alphabetically and collapsible, then the ungrouped remainder under
+// otherLabel (only labelled when named groups exist — no groups at all
+// renders the exact flat list the panel always had).
+function groupedRowsHtml(items, { prefix, otherLabel, collapsedSections, filterActive }) {
+  const named = new Map();
+  const loose = [];
+  for (const item of items) {
+    if (item.group) {
+      if (!named.has(item.group)) named.set(item.group, []);
+      named.get(item.group).push(item);
+    } else {
+      loose.push(item);
+    }
+  }
+  if (!named.size) return items.map((item) => item.row).join('');
+  const parts = [];
+  for (const group of [...named.keys()].sort((a, b) => a.localeCompare(b))) {
+    const rows = named.get(group);
+    const key = `${prefix}:${group}`;
+    const collapsed = !filterActive && isCollapsed(collapsedSections, key);
+    parts.push(sectionHeader(key, group, rows.length, collapsed));
+    if (!collapsed) parts.push(...rows.map((item) => item.row));
+  }
+  if (loose.length) {
+    const key = `${prefix}:__other`;
+    const collapsed = !filterActive && isCollapsed(collapsedSections, key);
+    parts.push(sectionHeader(key, otherLabel, loose.length, collapsed));
+    if (!collapsed) parts.push(...loose.map((item) => item.row));
+  }
+  return parts.join('');
+}
+
 function panelProjectRows(state, counts, filter) {
   const items = sidebarProjects(state)
     .filter((project) => panelMatches(filter, project.name))
@@ -203,11 +247,17 @@ function panelProjectRows(state, counts, filter) {
         + '</button>'
         + pinButton('projects', project.id, project.name, state.pinned)
         + '</div>';
-      return { key: project.id, row };
+      return { key: project.id, row, group: project.area || null };
     });
   if (!items.length) return '<div class="panel__empty">No matches.</div>';
   const { pinned, rest } = splitPinned(items, state.pinned?.projects);
-  return pinnedSectionHtml(pinned.map((item) => item.row), rest.map((item) => item.row));
+  const grouped = groupedRowsHtml(rest, {
+    prefix: 'area',
+    otherLabel: 'Other',
+    collapsedSections: state.collapsedSections,
+    filterActive: Boolean(filter),
+  });
+  return pinnedSectionHtml(pinned.map((item) => item.row), grouped ? [grouped] : []);
 }
 
 function panelViewRows(state, filter) {
@@ -226,7 +276,7 @@ function panelViewRows(state, filter) {
         + pinButton('smartViews', view.id, view.label, state.pinned, { solo: !remove })
         + remove
         + '</div>';
-      return { key: `sv:${view.id}`, row };
+      return { key: `sv:${view.id}`, row, group: view.folder || null };
     });
 
   const library = (state.librarySavedViews || [])
@@ -256,8 +306,14 @@ function panelViewRows(state, filter) {
   const smartSplit = splitPinned(smart, pinnedKeys);
   const librarySplit = splitPinned(library, pinnedKeys);
   const pinnedRows = [...smartSplit.pinned, ...librarySplit.pinned].map((item) => item.row);
+  const groupedSmart = groupedRowsHtml(smartSplit.rest, {
+    prefix: 'folder',
+    otherLabel: 'Views',
+    collapsedSections: state.collapsedSections,
+    filterActive: Boolean(filter),
+  });
   const restRows = [
-    ...smartSplit.rest.map((item) => item.row),
+    ...(groupedSmart ? [groupedSmart] : []),
     ...(librarySplit.rest.length
       ? [`<div class="side-section"><span>Library views</span></div>`, ...librarySplit.rest.map((item) => item.row)]
       : []),

@@ -377,6 +377,10 @@ a { color: var(--accent); }
 .side-item__pin:hover { background: var(--accent-soft); color: var(--accent); }
 .side-item__pin.is-pinned { color: var(--accent); }
 .panel__rest-gap { height: 8px; }
+.side-section--toggle { width: 100%; text-align: left; cursor: pointer; display: flex; align-items: center; gap: 5px; }
+.side-section--toggle:hover span { color: var(--ink); }
+.side-section__chevron { font-size: 9px; width: 10px; flex: none; }
+.side-section__count { margin-left: auto; font-size: 10.5px; color: var(--ink3); }
 
 .badge {
   font-size: 10.5px;

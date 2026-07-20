@@ -158,6 +158,21 @@ fresh empty `[Unreleased]` section is started.
 
 ### Changed
 
+- **Areas and folders — scale becomes structure (layout option C).** Projects gain an
+  **area** (migration `0022`): free text, edited inline in the All-projects ops row beside
+  on-call/handoff/repo, and the panel's Projects tab groups by it — areas as alphabetical
+  **collapsible sections** with counts, unassigned projects under "Other", and zero
+  change when no areas exist (the flat list stays the flat list). Smart views file into
+  **folders** with no schema at all: save a view as `Folder/Name` (the dialog's
+  placeholder says so) and it lands in that collapsible folder — stored labels containing
+  slashes from before the convention are never reinterpreted. Collapse state is per-device
+  (localStorage, like pins), a typed panel filter **auto-expands everything** (hiding a
+  match inside a collapsed section would make the filter a liar), pinned items stay above
+  all grouping, and ⌘K project results now read "Project · Work" so the area
+  disambiguates from anywhere. Areas ride every existing surface for free — project
+  payloads, MCP `list_projects`, the weekly review. This completes the sidebar-at-scale
+  arc: rail → panel → ⌘K → pins → areas.
+
 - **Pinned favorites — star what you use daily.** Every row in the panel grows a
   hover-revealed **☆ star**: pinned projects and views float into a leading **Pinned**
   section on their tab (kept in list order, honest about staleness — a pin for a deleted

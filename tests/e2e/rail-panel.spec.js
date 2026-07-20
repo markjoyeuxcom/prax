@@ -71,6 +71,45 @@ test('pinning a project floats it into the Pinned section, survives reload, and 
   await expect(panel.locator('.side-section', { hasText: 'Pinned' })).toHaveCount(0);
 });
 
+test('areas group the panel, collapse persists across reload, and folders file smart views', async ({ page, request }) => {
+  const stamp = Date.now();
+  const worker = await createProject(request, `Areaed ${stamp}`);
+  await createProject(request, `Loose ${stamp}`);
+  await request.patch(`/api/projects/${worker.id}`, { data: { area: `Zone ${stamp}` } });
+
+  await page.goto('/');
+  const panel = page.locator('.panel');
+  // The area renders as a collapsible section; unassigned projects sit under Other.
+  const section = panel.locator(`[data-section-key="area:Zone ${stamp}"]`);
+  await expect(section).toBeVisible();
+  await expect(panel.locator('[data-section-key="area:__other"]')).toBeVisible();
+  await expect(panel.locator('.side-item', { hasText: `Areaed ${stamp}` })).toBeVisible();
+
+  // Collapse hides the rows and survives a reload (per-device state).
+  await section.click();
+  await expect(panel.locator('.side-item', { hasText: `Areaed ${stamp}` })).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator(`[data-section-key="area:Zone ${stamp}"]`)).toHaveAttribute('aria-expanded', 'false');
+  await expect(panel.locator('.side-item', { hasText: `Areaed ${stamp}` })).toHaveCount(0);
+
+  // The filter auto-expands: a match inside a collapsed area must appear.
+  await panel.locator('[data-panel-filter]').fill('areaed');
+  await expect(panel.locator('.side-item', { hasText: `Areaed ${stamp}` })).toBeVisible();
+  await panel.locator('[data-panel-filter]').fill('');
+  // Re-expand for later tests on this shared server.
+  await panel.locator(`[data-section-key="area:Zone ${stamp}"]`).click();
+
+  // Folder/Name at save time files a smart view under its folder.
+  await page.locator('[data-action="nav-filter"]').first().click();
+  await page.locator('[data-filter-input]').fill('open');
+  await page.locator('[data-action="save-smart-view"]').click();
+  await page.locator('[data-confirm-input]').fill(`Daily/standup ${stamp}`);
+  await page.getByRole('button', { name: 'Save view' }).click();
+  await panel.locator('[data-action="set-panel-tab"][data-tab="views"]').click();
+  await expect(panel.locator('[data-section-key="folder:Daily"]')).toBeVisible();
+  await expect(panel.locator('.side-item', { hasText: `standup ${stamp}` })).toBeVisible();
+});
+
 test('⌘K jumps to a project and to the built-in Stale view by name', async ({ page, request }) => {
   const stamp = Date.now();
   const project = await createProject(request, `Palette Target ${stamp}`);

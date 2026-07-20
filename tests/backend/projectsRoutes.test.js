@@ -91,6 +91,33 @@ test('PATCH accepts repoUrl as entered (trimmed), clears on empty, rejects non-s
   assert.equal(bad.statusCode, 400);
 });
 
+test('area round-trips through the real repository and rides every project payload', async () => {
+  const { buildApp } = await import('../../server/index.js');
+  const { loadConfig } = await import('../../server/config.js');
+  const app = await buildApp({ config: loadConfig({ PRAX_DB_FILE: ':memory:', EMBEDDING_BACKEND: 'none' }) });
+  const created = (await app.inject({ method: 'POST', url: '/api/projects', payload: { name: 'Area subject' } })).json();
+  await app.inject({ method: 'PATCH', url: `/api/projects/${created.id}`, payload: { area: 'Labs' } });
+  const listed = (await app.inject({ method: 'GET', url: '/api/projects' })).json()
+    .find((project) => project.id === created.id);
+  assert.equal(listed.area, 'Labs', 'area persists and rides list payloads');
+  await app.close();
+});
+
+test('PATCH accepts area (trimmed, bounded at 60), clears on empty, rejects abuse', async () => {
+  const app = await build();
+  const ok = await app.inject({ method: 'PATCH', url: `/api/projects/${PROJECT_ID}`, payload: { area: '  Work  ' } });
+  assert.equal(ok.statusCode, 200);
+  assert.equal(ok.json().area, 'Work');
+
+  const cleared = await app.inject({ method: 'PATCH', url: `/api/projects/${PROJECT_ID}`, payload: { area: '' } });
+  assert.equal(cleared.json().area, null);
+
+  const tooLong = await app.inject({ method: 'PATCH', url: `/api/projects/${PROJECT_ID}`, payload: { area: 'x'.repeat(61) } });
+  assert.equal(tooLong.statusCode, 400, 'a section header cannot be a paragraph');
+  const nonString = await app.inject({ method: 'PATCH', url: `/api/projects/${PROJECT_ID}`, payload: { area: 7 } });
+  assert.equal(nonString.statusCode, 400);
+});
+
 test('DELETE archives the project', async () => {
   const app = await build();
   const res = await app.inject({ method: 'DELETE', url: `/api/projects/${PROJECT_ID}` });

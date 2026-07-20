@@ -25,22 +25,42 @@ function slugFromLabel(label) {
     || 'view';
 }
 
+// "Folder/Name" at creation files the view under that folder (the save
+// dialog's single text input is the only creation surface, so the slash is
+// the affordance). Only the FIRST slash splits; parsing happens at creation
+// only — stored labels are never reinterpreted.
 export function createSmartView(label, expr) {
-  const normalizedLabel = String(label || '').trim();
+  const raw = String(label || '').trim();
   const normalizedExpr = String(expr || '').trim();
-  if (!normalizedLabel || !normalizedExpr) return null;
+  if (!raw || !normalizedExpr) return null;
   if (!parseTaskFilter(normalizedExpr).ok) return null; // must be a valid (strict) expression
-  return { id: slugFromLabel(normalizedLabel), label: normalizedLabel, expr: normalizedExpr };
+  const slash = raw.indexOf('/');
+  const folder = slash > 0 ? raw.slice(0, slash).trim() : null;
+  const normalizedLabel = slash > 0 ? raw.slice(slash + 1).trim() : raw;
+  if (!normalizedLabel) return null;
+  return {
+    id: slugFromLabel(raw),
+    label: normalizedLabel,
+    expr: normalizedExpr,
+    ...(folder ? { folder } : {}),
+  };
 }
 
 export function sanitizeSmartViews(value) {
   if (!Array.isArray(value)) return [];
   const seen = new Set();
   return value.reduce((views, item) => {
-    const view = createSmartView(item?.label, item?.expr);
-    if (!view || seen.has(view.id)) return views;
-    seen.add(view.id);
-    views.push(view);
+    // Stored labels pass through verbatim (a label containing '/' from before
+    // the folder convention must not be reinterpreted on load) — only the
+    // stored folder field is honored.
+    const label = String(item?.label || '').trim();
+    const expr = String(item?.expr || '').trim();
+    if (!label || !expr || !parseTaskFilter(expr).ok) return views;
+    const folder = typeof item?.folder === 'string' && item.folder.trim() ? item.folder.trim() : null;
+    const id = typeof item?.id === 'string' && item.id ? item.id : slugFromLabel(label);
+    if (seen.has(id)) return views;
+    seen.add(id);
+    views.push({ id, label, expr, ...(folder ? { folder } : {}) });
     return views;
   }, []);
 }
