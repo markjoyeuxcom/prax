@@ -31,8 +31,14 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 const READY_PREFIX: &str = "PRAX_DESKTOP_READY ";
 // System-wide capture summon. Contended defaults are useless — this chord is
-// rarely claimed; registration failure surfaces in the tray tooltip.
-const CAPTURE_SHORTCUT: &str = "CmdOrCtrl+Shift+Space";
+// rarely claimed; registration failure surfaces in the tray tooltip. The
+// USER's chord lives in app_settings (fetched after the server is ready);
+// this is only the fallback when nothing is stored or the fetch fails.
+const CAPTURE_SHORTCUT_DEFAULT: &str = "CmdOrCtrl+Shift+Space";
+
+// The currently registered capture chord, so a settings change can
+// unregister it before registering the replacement.
+struct CaptureShortcut(Mutex<Option<String>>);
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_SERVER_LOG_BYTES: u64 = 5 * 1024 * 1024;
@@ -602,6 +608,9 @@ fn open_capture_window(handle: &AppHandle) {
             .on_navigation(move |url| navigation_allowed(url, Some(port)))
             .build();
         if let Ok(window) = window {
+            // The bar should summon on whatever Space/desktop is active —
+            // best-effort (macOS/Linux honor it; elsewhere it is a no-op).
+            let _ = window.set_visible_on_all_workspaces(true);
             // Focus leaving the bar dismisses it (hide, not destroy).
             let dismissed = window.clone();
             window.on_window_event(move |event| {
@@ -633,28 +642,109 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     if let Some(icon) = app.default_window_icon() {
         tray = tray.icon(icon.clone());
     }
+    // macOS renders template (monochrome) tray icons correctly in both the
+    // light and dark menubar — the platform convention.
+    #[cfg(target_os = "macos")]
+    {
+        tray = tray.icon_as_template(true);
+    }
     tray.build(app)?;
     Ok(())
 }
 
+// Apply a capture chord: unregister whatever was registered before, then
+// register the new one (empty = disabled; the tray Capture item remains).
 // Registration failure (another app owns the chord) is a degraded state, not
-// an error: the tray path still works, and the tooltip says what happened.
+// an error: the tray path still works, the tooltip says what happened, and
+// the caller receives the reason to surface in Settings.
 #[cfg(desktop)]
-fn register_capture_shortcut(handle: &AppHandle) {
-    let outcome = handle
-        .global_shortcut()
-        .on_shortcut(CAPTURE_SHORTCUT, |app, _shortcut, event| {
-            if event.state() == ShortcutState::Pressed {
-                open_capture_window(app);
-            }
-        });
-    if let Err(error) = outcome {
-        if let Some(tray) = handle.tray_by_id("prax-tray") {
-            let _ = tray.set_tooltip(Some(format!(
-                "Prax — capture shortcut unavailable: {error}"
-            )));
-        }
+fn apply_capture_shortcut(handle: &AppHandle, shortcut: &str) -> Result<(), String> {
+    let state = handle.state::<CaptureShortcut>();
+    let mut current = state.0.lock().unwrap();
+    if let Some(previous) = current.take() {
+        let _ = handle.global_shortcut().unregister(previous.as_str());
     }
+    let trimmed = shortcut.trim();
+    let tooltip = if trimmed.is_empty() {
+        *current = None;
+        "Prax — capture shortcut off (use the tray)".to_string()
+    } else {
+        let outcome = handle
+            .global_shortcut()
+            .on_shortcut(trimmed, |app, _shortcut, event| {
+                if event.state() == ShortcutState::Pressed {
+                    open_capture_window(app);
+                }
+            });
+        match outcome {
+            Ok(()) => {
+                *current = Some(trimmed.to_string());
+                "Prax".to_string()
+            }
+            Err(error) => {
+                *current = None;
+                let reason = format!("Prax — capture shortcut unavailable: {error}");
+                if let Some(tray) = handle.tray_by_id("prax-tray") {
+                    let _ = tray.set_tooltip(Some(reason.clone()));
+                }
+                return Err(format!("{error}"));
+            }
+        }
+    };
+    if let Some(tray) = handle.tray_by_id("prax-tray") {
+        let _ = tray.set_tooltip(Some(tooltip));
+    }
+    Ok(())
+}
+
+// Settings UI → live re-registration. Persistence already happened over HTTP
+// (app_settings); this command only makes it take effect now and reports the
+// honest verdict — the shell is the only party that knows if a chord is free.
+#[tauri::command]
+fn set_capture_shortcut(app: AppHandle, shortcut: String) -> Result<(), String> {
+    #[cfg(desktop)]
+    return apply_capture_shortcut(&app, &shortcut);
+    #[cfg(not(desktop))]
+    {
+        let _ = (app, shortcut);
+        Err("global shortcuts need the desktop shell".into())
+    }
+}
+
+// Minimal parse of GET /api/settings/capture-shortcut: the value of the
+// "shortcut" JSON string field, from a small same-machine trusted response.
+fn parse_shortcut_response(response: &str) -> Option<String> {
+    let body = response.split("\r\n\r\n").nth(1)?;
+    let key = "\"shortcut\":";
+    let start = body.find(key)? + key.len();
+    let rest = body[start..].trim_start();
+    let mut chars = rest.chars();
+    if chars.next() != Some('"') {
+        return None;
+    }
+    let mut value = String::new();
+    for ch in chars {
+        if ch == '"' {
+            return Some(value);
+        }
+        if ch == '\\' {
+            continue; // stored chords never contain escapes; tolerate anyway
+        }
+        value.push(ch);
+    }
+    None
+}
+
+fn fetch_capture_shortcut(port: u16) -> Option<String> {
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).ok()?;
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(750)));
+    let request = format!(
+        "GET /api/settings/capture-shortcut HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
+    );
+    stream.write_all(request.as_bytes()).ok()?;
+    let mut response = String::new();
+    stream.read_to_string(&mut response).ok()?;
+    parse_shortcut_response(&response)
 }
 
 fn smoke_data_dir_from_args<I>(args: I) -> Result<Option<PathBuf>, String>
@@ -709,9 +799,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             save_library_export,
             restart_prax,
-            hide_capture_window
+            hide_capture_window,
+            set_capture_shortcut
         ])
         .manage(ServerProcess::new())
+        .manage(CaptureShortcut(Mutex::new(None)))
         .setup(move |app| {
             let handle = app.handle().clone();
             let data_dir = prepare_data_dir(&handle, smoke_data_dir.clone())?;
@@ -761,9 +853,14 @@ pub fn run() {
                     open_window(&handle, WebviewUrl::External(url), Some(port), None);
 
                     // The summon chord only means something once there is a
-                    // server to capture into.
+                    // server to capture into; the stored chord wins, the
+                    // default covers absence and fetch failure.
                     #[cfg(desktop)]
-                    register_capture_shortcut(&handle);
+                    {
+                        let chord = fetch_capture_shortcut(port)
+                            .unwrap_or_else(|| CAPTURE_SHORTCUT_DEFAULT.to_string());
+                        let _ = apply_capture_shortcut(&handle, &chord);
+                    }
 
                     if smoke_data_dir.is_some() {
                         std::thread::sleep(Duration::from_secs(1));
@@ -808,9 +905,19 @@ mod tests {
     use std::io::Write;
 
     use super::{
-        navigation_allowed, normalize_export_filename, parse_ready_line, rotate_log,
-        smoke_data_dir_from_args,
+        navigation_allowed, normalize_export_filename, parse_ready_line,
+        parse_shortcut_response, rotate_log, smoke_data_dir_from_args,
     };
+
+    #[test]
+    fn shortcut_response_parsing_is_strict_about_shape_but_tolerant_of_headers() {
+        let ok = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"shortcut\":\"Alt+Space\",\"default\":\"CmdOrCtrl+Shift+Space\"}";
+        assert_eq!(parse_shortcut_response(ok), Some("Alt+Space".to_string()));
+        let disabled = "HTTP/1.0 200 OK\r\n\r\n{\"shortcut\":\"\"}";
+        assert_eq!(parse_shortcut_response(disabled), Some(String::new()));
+        assert_eq!(parse_shortcut_response("HTTP/1.0 200 OK\r\n\r\n{}"), None);
+        assert_eq!(parse_shortcut_response("garbage"), None);
+    }
 
     #[test]
     fn export_filename_is_a_safe_zip_basename() {

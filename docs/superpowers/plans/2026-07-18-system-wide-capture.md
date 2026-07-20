@@ -5,7 +5,7 @@ tiny capture bar that writes to the Inbox through the existing exact-once pipeli
 switching to (or even opening) the main Prax window.
 
 **Roadmap:** [Workflow & Self-Organisation Roadmap](2026-07-18-workflow-selforganisation-roadmap.md) · item 1
-**Status:** Increments 1–2 shipped; increment 3 (shortcut preference, per-OS packaging pass) open
+**Status:** Shipped — all three increments
 
 ## Current state
 
@@ -71,14 +71,22 @@ switching to (or even opening) the main Prax window.
       surfaces can never clobber each other because they never share a slot. *(Deliberate
       simplification of the planned owner-token adoption; strictly safer.)*
 
-### Increment 3 — polish + packaging
+### Increment 3 — polish + packaging (shipped)
 
-- [ ] Preference (Settings ▸ Appearance or a new Desktop section): customize/disable the
-      shortcut; persists via the shell (shortcut is a shell concern, not `app_settings`).
-- [ ] Per-OS packaging pass: icon set for the tray (light/dark), macOS accessory-window
-      behavior, Windows/Linux tray quirks; document in the packaging notes.
-- [ ] CHANGELOG entry; update [docs/](../../) desktop docs with the shortcut and tray
-      behavior.
+- [x] Shortcut preference: Settings ▸ Appearance (desktop-only row). *(Design revised
+      from the sketch: the chord persists in `app_settings` — one source of truth that
+      travels with backups — NOT shell-side; the shell fetches it over plain HTTP once
+      the server is ready, and a new `set_capture_shortcut` IPC command re-registers
+      live. The shell's verdict is the truth: a chord another app owns saves but reports
+      "Saved, but not active: …" in Settings and degrades the tray tooltip. Empty
+      disables; the tray Capture item always works.)*
+- [x] Per-OS pass within reach of this environment: macOS **template tray icon**
+      (correct in light and dark menubars) and the capture window summons on the
+      **active Space** (`visible_on_all_workspaces`, best-effort). macOS
+      accessory-mode (hiding the Dock icon) deliberately NOT adopted — Prax is a
+      windowed app, not a menubar utility.
+- [x] CHANGELOG entry; [docs/desktop/checklist.md](../../desktop/checklist.md) gains the
+      tray/capture/shortcut manual-check section per OS.
 
 ## Verification
 
@@ -88,11 +96,11 @@ switching to (or even opening) the main Prax window.
 - E2e: `tests/e2e/capture-bar.spec.js` — 4 journeys: shorthand create, failed-submit
   retention + exact-once retry (no duplicate), draft-survives-reload, unknown-token →
   Inbox. All pass against the production server.
-- Rust: `cargo check` clean (no warnings) and the 5 existing shell unit tests pass on the
-  linux toolchain (sidecar binary stubbed for the check — gitignored). **The
-  tray/shortcut/window behavior itself needs the documented manual check on macOS at next
-  packaged build** (Playwright cannot reach the shell), per the packaged-desktop
-  precedent.
+- Rust: `cargo check` clean and 6 shell unit tests pass on the linux toolchain (incl.
+  the shortcut-response parser; sidecar binary stubbed for the check — gitignored).
+  **The tray/shortcut/window behavior itself needs the documented manual check on macOS
+  at the next packaged build** — the checklist now spells out exactly what to verify,
+  including the contended-chord failure path and the no-restart re-registration.
 - Gates: `npm test`, `npx playwright test` — green; no schema change, so no migration pins
   or portable/restore drills touched.
 

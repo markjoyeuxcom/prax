@@ -16,6 +16,8 @@ export const state = {
   panelTab: 'projects',         // rail+panel shell: which browser tab ('projects' | 'views')
   panelFilter: '',              // type-to-filter text for the active panel tab
   pinned: { projects: [], smartViews: [], libraryViews: [] }, // starred favorites (localStorage)
+  captureShortcut: null,        // { shortcut, default } from the server (desktop shell)
+  captureShortcutNotice: null,  // last apply outcome shown in Settings
   taskRelatedDocs: null,        // { taskId, loading, suggestions, degraded, reason } — drawer Related knowledge
   navType: 'project',           // 'today' | 'project' | 'all' | 'library' | 'editor' | 'run' | 'filter' | 'upcoming' | 'calendar' | 'settings'
   navId: null,                  // project id when navType === 'project'

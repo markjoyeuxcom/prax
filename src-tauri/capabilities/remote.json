@@ -2,13 +2,18 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "desktop-remote",
   "description": "The app is served by the localhost sidecar and the Rust window navigation policy pins the exact runtime port. Window IPC supports the merged titlebar; the Library export command is bounded by its mandatory native Save dialog and accepts no destination path from the webview. Restart remains bundled-origin only.",
-  "windows": ["main"],
+  "windows": [
+    "main"
+  ],
   "remote": {
-    "urls": ["http://127.0.0.1:*"]
+    "urls": [
+      "http://127.0.0.1:*"
+    ]
   },
   "permissions": [
     "allow-save-library-export",
     "core:window:allow-start-dragging",
-    "core:window:allow-internal-toggle-maximize"
+    "core:window:allow-internal-toggle-maximize",
+    "allow-set-capture-shortcut"
   ]
 }

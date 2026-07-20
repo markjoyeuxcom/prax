@@ -104,3 +104,22 @@ backend, and degrades cleanly without one.
 - Server binds to localhost only; no auth.
 - Keep the plain web-server dev workflow working (the desktop wrapper is additive).
 - `tests/contract/` is the regression net for the rewrite — keep it green.
+
+
+## Tray, capture bar, and shortcut — manual checks per OS
+
+Playwright cannot reach the shell; verify at each packaged build:
+
+- **Tray**: icon renders (macOS: template/monochrome, correct in light AND dark
+  menubar); menu offers Capture task / Open Prax / Quit; closing the main
+  window hides to the tray; Open Prax resurfaces it; second launch and macOS
+  dock-reopen focus the existing instance.
+- **Capture bar**: the shortcut (Settings ▸ Appearance ▸ Capture shortcut,
+  default `CmdOrCtrl+Shift+Space`) summons the always-on-top bar on the
+  ACTIVE Space/desktop, even with the main window closed; Enter creates in
+  the Inbox; Esc and focus-loss hide it; text survives dismissal.
+- **Shortcut customization**: change the chord in Settings and confirm it
+  applies WITHOUT a restart; enter a chord owned by another app and confirm
+  Settings shows the shell's failure verdict ("Saved, but not active: …") and
+  the tray tooltip degrades; empty disables the chord while the tray Capture
+  item keeps working; restart and confirm the stored chord re-registers.

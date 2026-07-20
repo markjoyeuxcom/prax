@@ -185,6 +185,27 @@ export async function putChatSettings(patch) {
 }
 
 // Google Calendar integration — status / settings / connect / sync / disconnect.
+// Desktop capture shortcut: stored server-side (app_settings) so it travels
+// with backups; the shell re-registers live via IPC after a save.
+export async function fetchCaptureShortcut() {
+  const response = await fetch('/api/settings/capture-shortcut');
+  if (!response.ok) throw new Error('could not load the capture shortcut');
+  return response.json();
+}
+
+export async function saveCaptureShortcut(shortcut) {
+  const response = await fetch('/api/settings/capture-shortcut', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ shortcut }),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.message || 'could not save the capture shortcut');
+  }
+  return response.json();
+}
+
 // Weekly review: compiles the week into an idempotent Library doc. Returns
 // { documentId, created|updated, weekId, stats } or { degraded, reason }.
 export async function generateWeeklyReview(options = {}) {
