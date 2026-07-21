@@ -132,7 +132,9 @@ export function renderAssistantHtml(state, { renderMarkdown = (s) => escapeHtml(
   const busy = state.assistantLoading || Boolean(state.assistantPending && state.assistantPending.length);
   const composerDisabled = noModel || busy;
   const modelNote = status && status.available
-    ? `${escapeHtml(status.model || 'model')} · ${status.toolCount} tools${status.supportsTools ? '' : ' · no tool-calling'}`
+    ? (status.supportsTools
+      ? `${escapeHtml(status.model || 'model')} · ${status.toolCount} tools`
+      : `${escapeHtml(status.model || 'model')} · read-only · answers from a live snapshot`)
     : '';
 
   return `

@@ -14,6 +14,22 @@ fresh empty `[Unreleased]` section is started.
 
 ### Fixed
 
+- **The assistant on no-tool-calling backends is grounded in a live snapshot instead of
+  fabricating.** The old degrade path (any backend without tool calling: Claude CLI, Ollama,
+  llama.cpp) handed the model the assistant persona and **no data** — asked "what's overdue",
+  it confidently invented an empty workspace ("you don't have any tasks") beside a list of two
+  overdue tasks, and doubled down when challenged. The no-tools turn now injects a **bounded,
+  honest workspace snapshot** (`server/assistant/snapshot.js`) — true totals, per-project open
+  counts, Overdue / Due today / Planned today / In progress / Inbox sections with real counts
+  in every header and elisions spelled out ("…and 8 more") — fetched through the same
+  in-process client the agent tools use. Read-only rules ride along: answer data questions
+  only from the snapshot, say "I can't check that in this mode" for anything beyond it, and
+  never claim to have made changes (actions still need an API backend). If the snapshot
+  itself fails to load, the rules flip to an explicit no-visibility stance — "never guess,
+  never say the workspace is empty" — rather than letting the vacuum refill. The panel header
+  now says what the mode is (**read-only · answers from a live snapshot**) instead of the
+  confusing "35 tools · no tool-calling".
+
 - **Quality-baseline remediation, closing wave — the fix pass reviewed against itself.** The
   plan's final ground rule: an adversarial re-review of the whole Waves 1–4 diff (24 candidates,
   1 refuted, 11 distinct confirmed defects — several inside the fixes themselves), all corrected:
