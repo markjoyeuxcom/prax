@@ -702,14 +702,20 @@ export function renderSettingsHtml(state, model = {}) {
       : tab === 'data'
         ? renderDataCard(state, model)
         : renderAppearanceCard(preferences, state);
+  // On wide windows the context panel owns section navigation; the strip
+  // only renders in rail-only mode (<940px), where there is no panel.
+  const narrow = Number.isFinite(state.winW) && state.winW < 940;
+  const strip = narrow
+    ? `<nav class="tabs" aria-label="Settings sections">
+      ${SETTINGS_TABS.map(([key, label]) => `<button class="tabs__tab${tab === key ? ' is-active' : ''}" type="button" data-action="set-settings-tab" data-tab="${key}"${tab === key ? ' aria-current="true"' : ''}>${escapeHtml(label)}</button>`).join('')}
+    </nav>`
+    : '';
   return `
   <div class="page page--settings">
     <div class="page-head">
       <h1 class="page-head__title">Settings</h1>
     </div>
-    <nav class="tabs" aria-label="Settings sections">
-      ${SETTINGS_TABS.map(([key, label]) => `<button class="tabs__tab${tab === key ? ' is-active' : ''}" type="button" data-action="set-settings-tab" data-tab="${key}"${tab === key ? ' aria-current="true"' : ''}>${escapeHtml(label)}</button>`).join('')}
-    </nav>
+    ${strip}
     <div class="settings">
       ${card}
     </div>

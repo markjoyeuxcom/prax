@@ -59,7 +59,9 @@ test('the board In-progress header shows the WIP overrun and drags still land', 
 
 test('the built-in Stale smart view lives on the panel Views tab and opens the stale filter', async ({ page }) => {
   await page.goto('/');
-  // The rail+panel shell keeps smart views on the panel's Views tab.
+  // Today's panel is the plan cockpit; the views browser lives in project
+  // contexts — go to All projects first, then the Views tab.
+  await page.locator('[data-action="nav-all"]').first().click();
   await page.locator('[data-action="set-panel-tab"][data-tab="views"]').click();
   const stale = page.locator('[data-action="select-smart-view"][data-view-id="builtin-stale"]');
   await expect(stale).toBeVisible();

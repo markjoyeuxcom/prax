@@ -4,6 +4,9 @@ import { renderSettingsHtml } from '../../public/js/renderSettings.js';
 
 function baseState(overrides = {}) {
   return {
+    // Narrow width keeps the in-page tab strip (wide windows moved section
+    // navigation into the context panel).
+    winW: 800,
     preferences: { theme: 'light', accent: 'fern', chromeOS: 'mac', readingScale: 1 },
     semanticStatus: { available: false },
     adminImportMode: 'skip',
@@ -663,4 +666,12 @@ test('capture-shortcut row is desktop-only, shows the stored chord, and renders 
   // Before the load resolves the input is empty with the default placeholder.
   const unloaded = renderSettingsHtml(baseState({ settingsTab: 'appearance', desktopShell: true }), baseModel());
   assert.match(unloaded, /data-capture-shortcut value=""[^>]*placeholder="CmdOrCtrl\+Shift\+Space"/);
+});
+
+test('the wide-window settings page drops the tab strip (the context panel owns sections)', () => {
+  const wide = renderSettingsHtml(baseState({ winW: 1280 }), baseModel());
+  assert.doesNotMatch(wide, /class="tabs__tab/);
+  assert.match(wide, /settings-card__title">Appearance</, 'the card itself still renders');
+  const narrow = renderSettingsHtml(baseState({ winW: 800 }), baseModel());
+  assert.match(narrow, /class="tabs__tab is-active"[^>]*data-tab="appearance"/);
 });

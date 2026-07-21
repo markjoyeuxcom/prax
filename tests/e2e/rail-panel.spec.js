@@ -20,6 +20,8 @@ test('rail navigates, panel lists projects, filter narrows and reports no matche
   // Rail: top-level nav with tooltips; Settings pinned at the bottom.
   await expect(page.locator('.rail [data-action="nav-today"]')).toBeVisible();
   await expect(page.locator('.rail [data-action="nav-settings"]')).toBeVisible();
+  // The app boots into Today (plan cockpit); the browser lives in project contexts.
+  await page.locator('[data-action="nav-all"]').first().click();
 
   // Panel: both created projects listed on the Projects tab.
   const panel = page.locator('.panel');
@@ -49,6 +51,7 @@ test('pinning a project floats it into the Pinned section, survives reload, and 
   const target = await createProject(request, `ZZ Pinme ${stamp}`);
 
   await page.goto('/');
+  await page.locator('[data-action="nav-all"]').first().click();
   const panel = page.locator('.panel');
   const row = panel.locator('.side-item-row', { hasText: `ZZ Pinme ${stamp}` });
   await row.hover();
@@ -78,6 +81,7 @@ test('areas group the panel, collapse persists across reload, and folders file s
   await request.patch(`/api/projects/${worker.id}`, { data: { area: `Zone ${stamp}` } });
 
   await page.goto('/');
+  await page.locator('[data-action="nav-all"]').first().click();
   const panel = page.locator('.panel');
   // The area renders as a collapsible section; unassigned projects sit under Other.
   const section = panel.locator(`[data-section-key="area:Zone ${stamp}"]`);
@@ -126,14 +130,15 @@ test('⌘K jumps to a project and to the built-in Stale view by name', async ({ 
   await page.locator('[data-action="open-palette"]').click();
   await page.locator('[data-palette-input]').fill('stale');
   await page.locator('.palette__item', { hasText: 'Stale' }).first().click();
-  await expect(page.locator('[data-action="select-smart-view"][data-view-id="builtin-stale"]')).toHaveCount(0);
-  // The filter view is open with the Stale expression active (panel still on
-  // the Projects tab — the palette jump does not depend on the panel at all).
+  // Landing on the filter context auto-selects the panel's Views tab, where
+  // the jumped-to view shows as active.
+  await expect(page.locator('[data-action="select-smart-view"][data-view-id="builtin-stale"]')).toHaveClass(/is-active/);
   await expect(page.locator('input[data-filter-input], [data-filter-expr]').first()).toBeVisible();
 });
 
 test('the Views tab lists smart views, switching tabs clears the filter, selection opens the view', async ({ page }) => {
   await page.goto('/');
+  await page.locator('[data-action="nav-all"]').first().click();
   const panel = page.locator('.panel');
   await panel.locator('[data-panel-filter]').fill('leftover');
   await panel.locator('[data-action="set-panel-tab"][data-tab="views"]').click();
@@ -144,4 +149,44 @@ test('the Views tab lists smart views, switching tabs clears the filter, selecti
   await expect(stale.locator('.side-item__label')).toHaveText('Stale');
   await stale.click();
   await expect(stale).toHaveClass(/is-active/);
+});
+
+test('context panels: cockpit on Today, section nav in Settings, types in Library, mini month in Calendar', async ({ page, request }) => {
+  const stamp = Date.now();
+  const seed = await request.post('/api/tasks', {
+    data: { title: `cockpit-${stamp}`, project: 'inbox', priority: 'medium', status: 'planned', plannedFor: new Date().toISOString().slice(0, 10) },
+  });
+  expect(seed.status()).toBe(201);
+
+  await page.goto('/');
+  // Boot lands in a project context; the cockpit lives on Today.
+  await page.locator('[data-action="nav-today"]').first().click();
+  const panel = page.locator('.panel');
+  await expect(panel.locator('[data-panel-plan-score]')).toContainText('planned 1 — 0 done');
+  await expect(panel.locator('.side-item', { hasText: `cockpit-${stamp}` })).toBeVisible();
+  await panel.locator('[data-action="open-plan-mode"]').click();
+  await expect(page.locator('[data-overlay="planmode"]')).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  // Settings: panel rows switch cards; no in-page tab strip on a wide window.
+  await page.locator('.rail [data-action="nav-settings"]').click();
+  await expect(page.locator('body')).not.toContainText('tabs__tab');
+  await panel.locator('[data-action="set-settings-tab"][data-tab="integrations"]').click();
+  await expect(page.locator('.settings-card__title')).toHaveText('Integrations');
+
+  // Library: type rows filter the collection with live counts.
+  await page.locator('.rail [data-action="nav-library"]').click();
+  await expect(panel.locator('[data-action="toggle-lib-type"][data-facet="note"]')).toBeVisible();
+
+  // Calendar: the mini month renders with month nav and selectable days.
+  await page.locator('.rail [data-action="nav-calendar"]').click();
+  await expect(panel.locator('[data-panel-mini-month]')).toBeVisible();
+  await panel.locator('[data-action="calendar-next"]').click();
+  const dayCount = await panel.locator('[data-action="calendar-select-day"]').count();
+  expect(dayCount).toBeGreaterThanOrEqual(28);
+
+  // Leave the shared server as found: un-plan the seed so later specs'
+  // plan-score assertions see only their own working set.
+  const cleanup = await (await request.patch(`/api/tasks/${(await seed.json()).id}`, { data: { plannedFor: '' } })).json();
+  expect(cleanup.plannedFor).toBe(null);
 });

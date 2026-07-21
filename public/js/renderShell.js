@@ -8,6 +8,9 @@ import { icon, logo } from './icons.js';
 import { BUILT_IN_SMART_VIEWS } from './taskSmartViews.js';
 import { isPinned, splitPinned } from './pinned.js';
 import { isCollapsed } from './collapsed.js';
+import { buildTodayGroups } from './renderToday.js';
+import { buildCalendarModel, monthKeyOf } from './renderCalendar.js';
+import { DOCUMENT_TYPES } from './documentTypes.js';
 
 // ---------------------------------------------------------------------------
 // Project colors
@@ -321,18 +324,36 @@ function panelViewRows(state, filter) {
   return pinnedSectionHtml(pinnedRows, restRows);
 }
 
+function panelBrand(state) {
+  return '<div class="sidebar__brand">'
+    + logo(state.desktopShell ? 20 : 25)
+    + '<span class="sidebar__wordmark">prax</span>'
+    + '<span class="sidebar__byline">by moomora</span>'
+    + '</div>';
+}
+
+// The panel is the secondary navigation for the rail's CURRENT context
+// (2026-07-21 plan): a plan cockpit on Today, a mini-month on Calendar, a
+// document browser in the Library, section nav in Settings — and the classic
+// Projects/Views browser everywhere project-shaped. Context panels only
+// re-arrange already-loaded state over existing data-actions; they never
+// fetch and never invent affordances the main views lack.
 export function renderPanelHtml(state, counts = {}) {
+  if (state.navType === 'today') return renderTodayPanel(state, counts);
+  if (state.navType === 'calendar') return renderCalendarPanel(state);
+  if (isLibraryNav(state)) return renderLibraryPanel(state);
+  if (state.navType === 'settings') return renderSettingsPanel(state);
+  return renderBrowserPanel(state, counts);
+}
+
+function renderBrowserPanel(state, counts = {}) {
   const tab = state.panelTab === 'views' ? 'views' : 'projects';
   const filter = String(state.panelFilter || '').trim().toLowerCase();
   const projectCount = sidebarProjects(state).length;
   const viewCount = (state.taskSmartViews || []).length + BUILT_IN_SMART_VIEWS.length
     + (state.librarySavedViews || []).length;
 
-  const brand = '<div class="sidebar__brand">'
-    + logo(state.desktopShell ? 20 : 25)
-    + '<span class="sidebar__wordmark">prax</span>'
-    + '<span class="sidebar__byline">by moomora</span>'
-    + '</div>';
+  const brand = panelBrand(state);
 
   // The ＋ lives BESIDE the tablist, not inside it — role="tablist" allows
   // only tab children (axe: aria-required-children).
@@ -372,4 +393,201 @@ export function renderStatusbarHtml(state) { // eslint-disable-line no-unused-va
     + '<span><span class="kbd">⌘J</span> theme</span>'
     + '</span>'
     + '</footer>';
+}
+
+
+// ---------------------------------------------------------------------------
+// Context panels (2026-07-21 plan)
+// ---------------------------------------------------------------------------
+
+function panelTaskRow(task) {
+  const time = task.dueTime ? `<span class="side-item__count">${escapeHtml(task.dueTime)}</span>` : '';
+  return `<button type="button" class="side-item" data-action="open-task" data-task-id="${escapeHtml(task.id)}">`
+    + `<span class="proj-dot" style="--dot: ${task.projColor || 'var(--ink3)'}"></span>`
+    + `<span class="side-item__label">${escapeHtml(task.title || 'Untitled task')}</span>`
+    + time
+    + '</button>';
+}
+
+// Today — the plan cockpit: score, ritual actions, honest counts, and the
+// working set itself. Counts mirror the Today view exactly (planned rows are
+// not double-counted into the due buckets).
+function renderTodayPanel(state, counts = {}) {
+  void counts;
+  const now = new Date();
+  const built = buildTodayGroups(state.tasks || [], state.projects || [], { now });
+  const overdue = built.groups.find((group) => group.key === 'overdue')?.tasks.length || 0;
+  const dueToday = built.groups.find((group) => group.key === 'today')?.tasks.length || 0;
+  const planned = built.groups.find((group) => group.key === 'planned')?.tasks || [];
+  const dateLabel = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+
+  const score = (built.plannedCount + built.plannedDone) > 0
+    ? `<div class="panel__score" data-panel-plan-score>planned ${built.plannedCount + built.plannedDone} — ${built.plannedDone} done</div>`
+    : '';
+  const actions = '<div class="panel__actions">'
+    + '<button type="button" class="panel__action" data-action="open-plan-mode">Plan today</button>'
+    + (built.plannedCount > 0 ? '<button type="button" class="panel__action" data-action="open-shutdown">Shut down</button>' : '')
+    + '</div>';
+  const countRow = (label, count) => (count > 0
+    ? `<div class="side-item panel__count-row"><span class="side-item__label">${label}</span><span class="side-item__count">${count}</span></div>`
+    : '');
+  const stale = built.stalePlannedCount > 0
+    ? `<button type="button" class="side-item panel__stale" data-action="open-plan-mode"><span class="side-item__label">Planned earlier — review</span><span class="side-item__count">${built.stalePlannedCount}</span></button>`
+    : '';
+  const plannedRows = planned.slice(0, 8).map(panelTaskRow).join('')
+    + (planned.length > 8 ? `<div class="panel__empty">＋${planned.length - 8} more on Today</div>` : '');
+
+  return `<aside class="panel" aria-label="Today">`
+    + panelBrand(state)
+    + `<div class="side-section"><span>Today · ${escapeHtml(dateLabel)}</span></div>`
+    + score
+    + actions
+    + countRow('Overdue', overdue)
+    + countRow('Due today', dueToday)
+    + countRow('Snoozed', built.snoozedCount)
+    + stale
+    + (planned.length ? '<div class="side-section"><span>Planned</span></div>' : '')
+    + `<div class="panel__scroll">${plannedRows}</div>`
+    + '</aside>';
+}
+
+// Calendar — a Monday-start mini month with load dots; the selected (or
+// current) day's tasks preview underneath. Day clicks and month arrows are
+// the SAME actions the big calendar uses.
+function renderCalendarPanel(state) {
+  const now = new Date();
+  const model = buildCalendarModel(state.tasks || [], state.projects || [], {
+    month: state.calendarMonth || monthKeyOf(now),
+    now,
+  });
+  const heads = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
+    .map((day) => `<span class="panel__mini-hd">${day}</span>`).join('');
+  const cells = model.weeks.flat().map((day) => {
+    const classes = ['panel__mini-day'];
+    if (!day.inMonth) classes.push('is-out');
+    if (day.isToday) classes.push('is-today');
+    if (state.calendarSelectedDay === day.iso) classes.push('is-selected');
+    if (day.tasks.length) classes.push('has-tasks');
+    return `<button type="button" class="${classes.join(' ')}" data-action="calendar-select-day" data-day="${day.iso}" aria-label="${day.iso}">${day.dayNum}</button>`;
+  }).join('');
+
+  const peekIso = state.calendarSelectedDay || model.todayIso;
+  const peekTasks = model.byDate.get(peekIso) || [];
+  const peekLabel = new Date(`${peekIso}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  const peek = `<div class="side-section"><span>${escapeHtml(peekLabel)}</span></div>`
+    + (peekTasks.length
+      ? peekTasks.slice(0, 8).map(panelTaskRow).join('')
+      : '<div class="panel__empty">Nothing due.</div>');
+
+  return `<aside class="panel" aria-label="Calendar">`
+    + panelBrand(state)
+    + '<div class="panel__month-head">'
+    + `<span>${escapeHtml(model.label)}</span>`
+    + '<span class="panel__month-nav">'
+    + '<button type="button" data-action="calendar-prev" aria-label="Previous month">‹</button>'
+    + '<button type="button" data-action="calendar-next" aria-label="Next month">›</button>'
+    + '</span></div>'
+    + `<div class="panel__mini" data-panel-mini-month>${heads}${cells}</div>`
+    + `<div class="panel__scroll">${peek}</div>`
+    + '</aside>';
+}
+
+// Library — the document browser: types as one-click filters (the SAME
+// toggle-lib-type facets the main view uses), Library saved views, and the
+// most recently touched documents. No duplicate search box — the main view
+// owns search, and twin inputs would fight the focus-restore machinery.
+function renderLibraryPanel(state) {
+  const documents = state.documents || [];
+  const activeTypes = new Set(state.libraryTypes || []);
+  const typeRows = DOCUMENT_TYPES.map((type) => {
+    const count = documents.filter((doc) => !doc.archivedAt && (doc.documentType || 'note') === type.value).length;
+    const active = activeTypes.has(type.value);
+    return `<button type="button" class="side-item${active ? ' is-active' : ''}" data-action="toggle-lib-type" data-facet="${escapeHtml(type.value)}" aria-pressed="${active}">`
+      + icon('doc')
+      + `<span class="side-item__label">${escapeHtml(type.label)}</span>`
+      + `<span class="side-item__count">${count || ''}</span>`
+      + '</button>';
+  }).join('');
+
+  const savedViews = (state.librarySavedViews || []).map((view, index) => {
+    const active = state.navType === 'library'
+      && (state.activeLibraryTags || []).join() === (view?.tags || []).join();
+    return '<div class="side-item-row">'
+      + `<button type="button" class="side-item side-item--saved${active ? ' is-active' : ''}" data-action="select-saved-view" data-view-index="${index}"${active ? ' aria-current="true"' : ''}>`
+      + icon('tag')
+      + `<span class="side-item__label">${escapeHtml(view?.label)}</span>`
+      + '</button>'
+      + `<button type="button" class="side-item__del" data-action="delete-library-view" data-view-index="${index}" title="Delete saved view" aria-label="Delete saved view ${escapeHtml(view?.label || '')}">×</button>`
+      + '</div>';
+  }).join('');
+
+  const recent = [...documents]
+    .filter((doc) => !doc.archivedAt)
+    .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))
+    .slice(0, 5)
+    .map((doc) => `<button type="button" class="side-item" data-action="open-linked-doc" data-document-id="${escapeHtml(doc.id)}">`
+      + icon('doc')
+      + `<span class="side-item__label">${escapeHtml(doc.title || 'Untitled document')}</span>`
+      + '</button>').join('');
+
+  return `<aside class="panel" aria-label="Library">`
+    + panelBrand(state)
+    + '<div class="side-section"><span>Types</span></div>'
+    + typeRows
+    + (savedViews ? `<div class="side-section"><span>Saved views</span></div>${savedViews}` : '')
+    + `<div class="panel__scroll">${recent ? `<div class="side-section"><span>Recent</span></div>${recent}` : ''}</div>`
+    + '</aside>';
+}
+
+// Settings — the four cards as panel rows (the wide-window home of the old
+// tab strip) plus a small status block rendered ONLY from loaded state.
+function relativeTime(iso, now = new Date()) {
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return '';
+  const minutes = Math.max(0, Math.round((now.getTime() - then) / 60_000));
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+function renderSettingsPanel(state) {
+  const tabs = [
+    ['appearance', 'Appearance', 'sliders'],
+    ['intelligence', 'Intelligence', 'spark'],
+    ['integrations', 'Integrations', 'grid'],
+    ['data', 'Data & admin', 'book'],
+  ];
+  const current = tabs.some(([key]) => key === state.settingsTab) ? state.settingsTab : 'appearance';
+  const rows = tabs.map(([key, label, iconName]) => {
+    const active = current === key;
+    return `<button type="button" class="side-item${active ? ' is-active' : ''}" data-action="set-settings-tab" data-tab="${key}"${active ? ' aria-current="true"' : ''}>`
+      + icon(iconName)
+      + `<span class="side-item__label">${label}</span>`
+      + '</button>';
+  }).join('');
+
+  const status = [];
+  const gcal = state.googleCalendarStatus;
+  if (gcal && typeof gcal === 'object' && !gcal.loading) {
+    if (gcal.connected) {
+      const when = gcal.lastPushAt || gcal.lastSyncAt;
+      status.push(`<div class="side-item panel__count-row"><span class="side-item__label">Calendar synced</span><span class="side-item__count">${when ? escapeHtml(relativeTime(when)) : ''}</span></div>`);
+    } else if (gcal.configured) {
+      status.push('<div class="side-item panel__count-row"><span class="side-item__label">Calendar not connected</span></div>');
+    }
+  }
+  if (state.desktopShell && state.captureShortcut) {
+    const chord = state.captureShortcut.shortcut;
+    status.push(`<div class="side-item panel__count-row"><span class="side-item__label">Capture</span><span class="side-item__count">${chord ? escapeHtml(chord) : 'off'}</span></div>`);
+  }
+
+  return `<aside class="panel" aria-label="Settings">`
+    + panelBrand(state)
+    + '<div class="side-section"><span>Settings</span></div>'
+    + rows
+    + (status.length ? `<div class="side-section"><span>Status</span></div>${status.join('')}` : '')
+    + '<div class="panel__scroll"></div>'
+    + '</aside>';
 }

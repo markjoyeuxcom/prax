@@ -382,6 +382,36 @@ a { color: var(--accent); }
 .side-section__chevron { font-size: 9px; width: 10px; flex: none; }
 .side-section__count { margin-left: auto; font-size: 10.5px; color: var(--ink3); }
 
+/* Context panels (Today cockpit, mini month, settings status) */
+.panel__score { padding: 2px 8px 6px; font-size: 12.5px; font-weight: 550; color: var(--accent); }
+.panel__actions { display: flex; gap: 6px; padding: 0 8px 8px; }
+.panel__action {
+  border: 1px solid var(--line2); border-radius: 7px; padding: 4px 10px;
+  font-size: 12px; color: var(--ink); background: var(--surface);
+  transition: background .12s ease;
+}
+.panel__action:hover { background: var(--accent-soft); }
+.panel__count-row { cursor: default; }
+.panel__count-row:hover { background: transparent; }
+.panel__stale .side-item__label { color: var(--med); }
+.panel__month-head { display: flex; align-items: center; justify-content: space-between; padding: 2px 8px 4px; font-size: 13px; font-weight: 600; }
+.panel__month-nav button { width: 22px; height: 22px; border-radius: 6px; color: var(--ink2); font-size: 14px; }
+.panel__month-nav button:hover { background: var(--accent-soft); }
+.panel__mini { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; padding: 0 4px 6px; }
+.panel__mini-hd { font-size: 9.5px; text-align: center; color: var(--ink3); padding: 2px 0; }
+.panel__mini-day {
+  position: relative; font-size: 10.5px; text-align: center; padding: 4px 0;
+  border-radius: 6px; color: var(--ink2); transition: background .12s ease;
+}
+.panel__mini-day:hover { background: var(--accent-soft); }
+.panel__mini-day.is-out { color: var(--ink3); opacity: .45; }
+.panel__mini-day.is-today { font-weight: 700; color: var(--accent); }
+.panel__mini-day.is-selected { background: var(--accent-soft2); color: var(--ink); }
+.panel__mini-day.has-tasks::after {
+  content: ""; position: absolute; bottom: 1px; left: 50%; transform: translateX(-50%);
+  width: 3px; height: 3px; border-radius: 50%; background: var(--accent);
+}
+
 .badge {
   font-size: 10.5px;
   font-weight: 600;

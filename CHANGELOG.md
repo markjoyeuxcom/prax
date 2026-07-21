@@ -158,6 +158,22 @@ fresh empty `[Unreleased]` section is started.
 
 ### Changed
 
+- **Context-aware panel — the second column follows the rail.** The panel stops being a
+  fixed projects browser and becomes the secondary navigation for wherever you are:
+  **Today** shows a plan cockpit (the honest score, Plan today / Shut down right there,
+  overdue / due / snoozed counts, a planned-earlier review shortcut, and the working set
+  as clickable rows); **Calendar** gets a Monday-start mini month with load dots, a today
+  mark, month arrows, and the selected day's tasks underneath; **Library** (and the
+  editor) get a document browser — types with live counts as one-click filters, Library
+  saved views in their natural home, and the five most recently touched docs;
+  **Settings** turns its tab strip into panel rows plus a small live-status block
+  (calendar sync age, capture chord). Project contexts keep the exact Projects/Views
+  browser (pins, areas, filter — untouched), **Filter now auto-selects the Views tab**,
+  and narrow windows keep the in-page Settings strip since they have no panel. Every
+  context panel re-arranges already-loaded state over existing actions — the cockpit's
+  rows are the same `open-task`, the mini-month days the same `calendar-select-day`, the
+  type filters the same facets — so panel and main view can never disagree.
+
 - **Customizable capture shortcut + desktop tray polish.** Settings ▸ Appearance (desktop
   app only) gains a **Capture shortcut** row: type a chord (`CmdOrCtrl`, `Alt`, `Shift`,
   `Super` + a key), Apply, and it re-registers **live — no restart**. The chord persists
