@@ -3,6 +3,7 @@ import { createOllamaChat } from './ollama.js';
 import { createOpenAiChat } from './openai.js';
 import { createAnthropicChat } from './anthropic.js';
 import { createGeminiChat } from './gemini.js';
+import { createClaudeCliChat } from './claudeCli.js';
 
 // Resolve a chat backend string to its adapter. The generic per-backend fields
 // (baseUrl/apiKey) come from the runtime provider; legacy env-named fields
@@ -29,6 +30,9 @@ function resolveBackend(config) {
       return createAnthropicChat({ baseUrl: baseUrl || config.anthropicBaseUrl, apiKey: apiKey ?? config.anthropicApiKey, model, fetch });
     case 'gemini':
       return createGeminiChat({ baseUrl, apiKey, model, fetch });
+    case 'claude-cli':
+      // The user's local `claude` login is the credential — no key, no URL.
+      return createClaudeCliChat({ binaryPath: config.binaryPath, model, spawn: config.spawn, exists: config.exists });
     default:
       throw new Error(`unknown chat backend: ${backend}`);
   }

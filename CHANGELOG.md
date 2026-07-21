@@ -236,6 +236,24 @@ fresh empty `[Unreleased]` section is started.
 
 ### Added
 
+- **Claude CLI chat backend — your subscription powers Prax, no API key stored.** Settings
+  ▸ Intelligence ▸ Answer model gains a **Claude CLI** provider that drives the Claude Code
+  CLI headlessly (`claude -p`, JSON envelope) through the existing `claude` login — Pro/Max
+  subscription auth, with **zero credentials in Prax** (`keyRequired: false`; there is no
+  key field because there is no key). Every spawn is safety-fenced so an advisory call can
+  never become an agent run: `--max-turns 1`, an empty scratch working directory, and an
+  explicitly empty MCP config (`server/chat/claudeCli.js`). Spawns are serialized (one CLI
+  process at a time, 120s timeout), the prompt travels over stdin, and the system prompt
+  rides `--append-system-prompt` beneath the CLI's own guardrails. CLI outcomes surface
+  **verbatim** through the never-500 advisory regime — a login prompt or rate-limit message
+  arrives as the CLI said it, never dressed up as success. The desktop PATH gotcha
+  (GUI-launched sidecars can't see `claude`) is handled by resolution order — explicit
+  **Binary path** setting (a wrong explicit path errors, it is never silently replaced) →
+  PATH → the usual install homes — and the card states the honest limitation up front: the
+  in-app assistant's tool calling still needs an API backend (`supportsTools: false`
+  degrades through the existing gate). Powers Ask Prax, NL capture/filter, writing
+  actions, and review narration. Codex CLI can ride the same chassis later.
+
 - **Task context surface — the Library feeds the task you're doing.** The task drawer
   gains a **Related knowledge** row: semantic suggestions from your notes and runbooks,
   shaped from the task's title + description in one pinned query-builder

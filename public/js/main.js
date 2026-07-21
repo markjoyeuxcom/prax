@@ -5126,6 +5126,8 @@ _Task:_ ${task.title || 'Untitled task'}`
       if (baseUrl && baseUrl.value.trim()) patch.baseUrl = baseUrl.value.trim();
       const key = appRoot.querySelector('[data-ai-chat-key]');
       if (key && key.value.trim()) patch.apiKey = key.value.trim();
+      const binary = appRoot.querySelector('[data-ai-chat-binary]');
+      if (binary) patch.binaryPath = binary.value.trim();
       const draft = {
         backend: state.chatStatus?.backend || 'none',
         model: model?.value || '',

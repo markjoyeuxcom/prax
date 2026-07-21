@@ -7,7 +7,7 @@ import { createChat } from './chat/index.js';
 // defaults, so env-only deployments behave predictably.
 export const CHAT_PROVIDER_KEY = 'chat_provider';
 
-const BACKENDS = new Set(['none', 'fake', 'ollama', 'openai', 'llamacpp', 'anthropic', 'gemini']);
+const BACKENDS = new Set(['none', 'fake', 'ollama', 'openai', 'llamacpp', 'anthropic', 'gemini', 'claude-cli']);
 // Hosted APIs refuse anonymous calls; local/offline backends work keyless.
 const KEY_REQUIRED = new Set(['openai', 'anthropic', 'gemini']);
 
@@ -42,6 +42,7 @@ function sanitizeConfig(cfg) {
   if (typeof cfg.baseUrl === 'string' && isHttpUrl(cfg.baseUrl)) out.baseUrl = cfg.baseUrl;
   if (typeof cfg.model === 'string') out.model = cfg.model;
   if (typeof cfg.apiKey === 'string') out.apiKey = cfg.apiKey;
+  if (typeof cfg.binaryPath === 'string') out.binaryPath = cfg.binaryPath;
   return out;
 }
 
@@ -80,6 +81,11 @@ function validatePatch(patch) {
     if (typeof patch.apiKey !== 'string') throw settingsError('apiKey is invalid');
     out.apiKey = patch.apiKey;
   }
+  if (patch.binaryPath !== undefined) {
+    // A filesystem path, not a URL; '' means auto-detect.
+    if (typeof patch.binaryPath !== 'string' || patch.binaryPath.length > 500) throw settingsError('binaryPath is invalid');
+    out.binaryPath = patch.binaryPath.trim();
+  }
   return out;
 }
 
@@ -107,6 +113,9 @@ export function createChatProvider({ appSettingsRepository = null, config = {} }
       apiKey: typeof config.anthropicApiKey === 'string' ? config.anthropicApiKey : '',
     },
     gemini: { baseUrl: 'https://generativelanguage.googleapis.com/v1beta', model: 'gemini-2.5-flash' },
+    // The local `claude` login is the credential: keyless by design. 'haiku'
+    // is a CLI model alias — fast enough for the interactive NL surfaces.
+    'claude-cli': { model: 'haiku', binaryPath: '' },
   };
   // CHAT_MODEL follows the env-selected backend so an env-only deployment keeps
   // its exact model.
@@ -139,6 +148,7 @@ export function createChatProvider({ appSettingsRepository = null, config = {} }
       model: active.model || '',
       hasApiKey: Boolean(active.apiKey),
       keyRequired: KEY_REQUIRED.has(state.backend),
+      binaryPath: active.binaryPath || '',
     };
   }
 
@@ -152,6 +162,7 @@ export function createChatProvider({ appSettingsRepository = null, config = {} }
         chatModel: active.model || '',
         baseUrl: active.baseUrl,
         apiKey: active.apiKey,
+        binaryPath: active.binaryPath,
       });
       cached = { chat };
       return chat;
@@ -172,6 +183,7 @@ export function createChatProvider({ appSettingsRepository = null, config = {} }
       if (validated.baseUrl !== undefined) apply('baseUrl', validated.baseUrl);
       if (validated.model !== undefined) apply('model', validated.model);
       if (validated.apiKey !== undefined) apply('apiKey', validated.apiKey);
+      if (validated.binaryPath !== undefined) apply('binaryPath', validated.binaryPath);
       const next = { backend, configs };
       if (Object.keys(validated).length > 0) {
         if (!appSettingsRepository) throw new Error('settings repository is unavailable');
