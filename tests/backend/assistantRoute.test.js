@@ -133,6 +133,43 @@ test('declining a write does not mutate and the model sees the refusal', async (
   await app.close();
 });
 
+test('a no-tools backend answers from a live workspace snapshot, never a data vacuum', async () => {
+  // The field failure this pins: on claude-cli (supportsTools false) the
+  // assistant was handed no data and fabricated "you have no tasks" while two
+  // overdue tasks sat in the Inbox. The degrade must ground the model.
+  let seenSystem = null;
+  const chat = {
+    backend: 'claude-cli', model: 'haiku', supportsTools: false,
+    async complete(messages) {
+      seenSystem = messages.find((m) => m.role === 'system')?.content || '';
+      return { text: 'grounded answer', model: 'haiku' };
+    },
+  };
+  const app = await makeApp({ chat });
+  const yesterday = (() => {
+    const d = new Date(Date.now() - 86_400_000);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  })();
+  for (const [title, dueDate] of [['go for a walk', yesterday], ['run destroy plan', yesterday], ['take tablet', null]]) {
+    await app.inject({ method: 'POST', url: '/api/tasks', payload: { title, project: 'inbox', priority: 'medium', status: 'planned', ...(dueDate ? { dueDate } : {}) } });
+  }
+
+  const { body } = await post(app, { messages: [{ role: 'user', content: 'whats overdue?' }] });
+  assert.equal(body.status, 'done');
+  assert.equal(body.degraded, true);
+  assert.equal(body.reason, 'no-tools');
+  assert.equal(body.answer, 'grounded answer');
+  // The system prompt carried the truth: real counts, real titles, and the
+  // read-only rules — so "no tasks" can no longer be an available answer.
+  assert.match(seenSystem, /READ-ONLY/);
+  assert.match(seenSystem, /Overdue \(2\):/);
+  assert.match(seenSystem, /go for a walk/);
+  assert.match(seenSystem, /run destroy plan/);
+  assert.match(seenSystem, /Inbox \(3\):/);
+  assert.match(seenSystem, /never invent items or counts/);
+  await app.close();
+});
+
 test('degrades to no_model when no chat model is configured', async () => {
   // no injected chat and the default provider backend is 'none'
   const app = await makeApp({ chat: null });

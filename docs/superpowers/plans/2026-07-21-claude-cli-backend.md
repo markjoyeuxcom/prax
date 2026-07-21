@@ -87,3 +87,13 @@ codex cli" (2026-07-21); assessment recommended Claude CLI first, user: "yes bui
      text. The fence is now the deny-list + no-tools prompt (decision 2), with
      `--max-turns 4` as headroom; a text-less `error_max_turns` envelope gets a real
      sentence instead of a bare subtype.
+  3. The assistant's no-tools degrade (predates this backend — same path as
+     Ollama/llama.cpp, exposed the moment claude-cli made no-tools common) handed the
+     model **no data**, and it fabricated "you have no tasks" beside two overdue tasks.
+     Fixed at the degrade's root: the turn now injects a bounded live workspace
+     snapshot (`server/assistant/snapshot.js` — true counts in every section header,
+     elisions spelled out) plus read-only rules, fetched via the same inject client the
+     agent tools use; a failed snapshot flips to an explicit no-visibility stance
+     instead of a guessable vacuum. Panel header now reads
+     "read-only · answers from a live snapshot". Logged under Fixed in the CHANGELOG
+     (the defect shipped in released Ollama/llama.cpp degrades).
