@@ -249,6 +249,26 @@ test('pending provider mutation locks both sections and retains in-memory correc
   assert.match(html, /data-action="set-ai-chat-provider" data-backend="none" disabled/);
   assert.match(html, /data-action="toggle-semantic-search"[^>]*disabled aria-busy="true"/);
 });
+test('claude-cli chat backend: keyless card with binary path + model, no key or base URL fields', () => {
+  const html = renderSettingsHtml(baseState({
+    settingsTab: 'intelligence',
+    chatStatus: {
+      available: true, backend: 'claude-cli', model: 'haiku',
+      binaryPath: '/opt/homebrew/bin/claude', connected: true, keyRequired: false,
+    },
+  }), baseModel());
+  assert.match(html, /provider-card is-active" data-action="set-ai-chat-provider" data-backend="claude-cli"/);
+  assert.match(html, /Claude CLI configuration/);
+  assert.match(html, /data-ai-chat-binary value="\/opt\/homebrew\/bin\/claude"/);
+  assert.match(html, /data-ai-chat-model value="haiku"/);
+  // Keyless by design: no secret field, no endpoint field, and the honest
+  // limitation (assistant tools need an API backend) is stated up front.
+  assert.doesNotMatch(html, /data-ai-chat-key/);
+  assert.doesNotMatch(html, /data-ai-chat-base-url/);
+  assert.match(html, /no API key is stored/);
+  assert.match(html, /assistant.+tools still need an API backend/);
+});
+
 // ---- Integrations ----------------------------------------------------------
 
 function gcalStatus(overrides = {}) {

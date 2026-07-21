@@ -7,7 +7,7 @@ const SETTING_KEY = 'semantic_search_enabled';
 // provider maps aliases onto the right backend's config.
 const PROVIDER_FIELDS = ['backend', 'model', 'baseUrl', 'apiKey', 'ollamaUrl', 'openaiBaseUrl', 'openaiApiKey'];
 // Chat provider fields (no legacy aliases — the chat provider is greenfield).
-const CHAT_FIELDS = ['backend', 'model', 'baseUrl', 'apiKey'];
+const CHAT_FIELDS = ['backend', 'model', 'baseUrl', 'apiKey', 'binaryPath'];
 
 export async function registerSettingsRoutes(app, options = {}) {
   const config = options.config || {};
@@ -97,6 +97,7 @@ export async function registerSettingsRoutes(app, options = {}) {
       baseUrl: settings ? settings.baseUrl : '',
       keyRequired: settings ? settings.keyRequired : false,
       hasApiKey: settings ? settings.hasApiKey : false,
+      binaryPath: settings ? (settings.binaryPath || '') : '',
     };
   }
 
