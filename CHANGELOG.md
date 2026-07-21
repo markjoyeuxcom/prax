@@ -29,7 +29,11 @@ fresh empty `[Unreleased]` section is started.
   fields union to the exact draft, nothing commits while saves fail. (3) Once the shared
   suite server accumulates 100+ tasks, the list's "Showing 100 of N" banner is a second
   `role="status"` element — capture-notice assertions are now scoped to the Quick-capture
-  dialog. Verified by repeat-each churn plus repeated full-suite runs.
+  dialog. (4) Mutation reconciles re-render too: after a project reassignment whose
+  response is lost, the readback → apply → render rebuild races a fill into the label
+  input the same way — the journey now waits for the reconcile render's observable
+  effect (the row leaving the old project's list) before typing. Verified by repeat-each
+  churn plus repeated full-suite runs.
 
 - **The assistant on no-tool-calling backends is grounded in a live snapshot instead of
   fabricating.** The old degrade path (any backend without tool calling: Claude CLI, Ollama,
