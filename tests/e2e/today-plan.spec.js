@@ -29,7 +29,7 @@ test('plan -> complete one -> shutdown walks the survivor -> carry rolls it to t
   await page.goto('/');
   await page.locator('[data-action="nav-today"]').first().click();
   // Morning pass: both due-today tasks offered; pull both into the plan.
-  await page.locator('[data-action="open-plan-mode"]').click();
+  await page.locator('[data-action="open-plan-mode"]').first().click();
   const dialog = page.locator('[data-overlay="planmode"]');
   await expect(dialog).toBeVisible();
   // The queue may contain seeds from other tests — walk it: Add our two, skip
@@ -64,7 +64,7 @@ test('plan -> complete one -> shutdown walks the survivor -> carry rolls it to t
   await expect(page.locator('[data-plan-score]')).toContainText('planned 2 — 1 done');
 
   // Shutdown: only the survivor is walked; carry it.
-  await page.locator('[data-action="open-shutdown"]').click();
+  await page.locator('[data-action="open-shutdown"]').first().click();
   await expect(dialog.locator('.planmode__title')).toHaveText(`${prefix} carry me`);
   await dialog.locator('[data-action="shutdown-carry"]').click();
   await expect(dialog).toContainText('Day closed.');

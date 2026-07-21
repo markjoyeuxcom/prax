@@ -3120,7 +3120,8 @@ function persistSmartViews() {
 // ad-hoc). Clears task selection like the other top-level views.
 async function goFilter({ expr = '', smartViewId = null } = {}) {
   if (!(await prepareEditorNavigation())) return false;
-  setState({ navType: 'filter', editorFocus: false, activeFilterExpr: expr, activeSmartViewId: smartViewId, selectedTaskId: null, multiSelectIds: [], ...nlFilterResetPatch() });
+  // The filter world's panel sidebar is its views — auto-select the tab.
+  setState({ navType: 'filter', editorFocus: false, activeFilterExpr: expr, activeSmartViewId: smartViewId, selectedTaskId: null, multiSelectIds: [], panelTab: 'views', ...nlFilterResetPatch() });
   renderApp();
   return true;
 }

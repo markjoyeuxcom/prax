@@ -10,7 +10,10 @@ import {
 
 function makeState(overrides = {}) {
   return {
-    navType: 'today',
+    // 'all' keeps the default panel in BROWSER context: the panel is now
+    // context-aware (Today renders the plan cockpit), and these tests are
+    // about the browser. Context panels get their own suite below.
+    navType: 'all',
     navId: null,
     projects: [],
     managedProjects: [],
@@ -436,4 +439,99 @@ test('foldered smart views group on the Views tab; loose views (incl. Stale) sta
   const otherPos = html.indexOf('data-section-key="folder:__other"');
   assert.ok(otherPos !== -1 && loosePos > otherPos, 'loose views sit under the Views header');
   assert.ok(folderPos < otherPos, 'named folders come before the loose remainder');
+});
+
+// ---------------------------------------------------------------------------
+// Context panels
+// ---------------------------------------------------------------------------
+
+test('the panel dispatches on navType: cockpit, calendar, library, settings, browser', () => {
+  const base = { projects: PROJECTS, tasks: [], documents: [] };
+  assert.match(renderPanelHtml(makeState({ ...base, navType: 'today' }), {}), /aria-label="Today"/);
+  assert.match(renderPanelHtml(makeState({ ...base, navType: 'calendar' }), {}), /aria-label="Calendar"/);
+  assert.match(renderPanelHtml(makeState({ ...base, navType: 'library' }), {}), /aria-label="Library"/);
+  assert.match(renderPanelHtml(makeState({ ...base, navType: 'editor' }), {}), /aria-label="Library"/);
+  assert.match(renderPanelHtml(makeState({ ...base, navType: 'settings', settingsTab: 'appearance' }), {}), /aria-label="Settings"/);
+  for (const nav of ['all', 'project', 'filter', 'upcoming']) {
+    assert.match(renderPanelHtml(makeState({ ...base, navType: nav }), {}), /aria-label="Browser"/, nav);
+  }
+});
+
+test('Today cockpit: score, ritual buttons, honest counts, planned rows via open-task', () => {
+  const today = new Date();
+  const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const tasks = [
+    { id: 'a', title: 'Planned one', status: 'planned', projectId: 'p1', plannedFor: iso, sortOrder: 0, labels: [] },
+    { id: 'b', title: 'Done one', status: 'completed', projectId: 'p1', plannedFor: iso, labels: [] },
+    { id: 'c', title: 'Overdue one', status: 'planned', projectId: 'p1', dueDate: '2020-01-01', labels: [] },
+    { id: 'd', title: 'Snoozed one', status: 'planned', projectId: 'p1', deferredUntil: '2099-01-01T00:00:00Z', labels: [] },
+  ];
+  const html = renderPanelHtml(makeState({ navType: 'today', tasks, projects: PROJECTS }), {});
+  assert.match(html, /data-panel-plan-score[^>]*>planned 2 — 1 done/);
+  assert.match(html, /data-action="open-plan-mode"[^>]*>Plan today/);
+  assert.match(html, /data-action="open-shutdown"/);
+  assert.match(html, /Overdue<\/span><span class="side-item__count">1/);
+  assert.match(html, /Snoozed<\/span><span class="side-item__count">1/);
+  assert.match(html, /data-action="open-task" data-task-id="a"/);
+  // Without a plan: no score, no shutdown, planning still offered.
+  const bare = renderPanelHtml(makeState({ navType: 'today', tasks: [], projects: [] }), {});
+  assert.doesNotMatch(bare, /data-panel-plan-score/);
+  assert.doesNotMatch(bare, /data-action="open-shutdown"/);
+  assert.match(bare, /data-action="open-plan-mode"/);
+});
+
+test('Calendar panel: mini grid with load dot, today mark, selection, month nav, day peek', () => {
+  const tasks = [{ id: 't1', title: 'On the fifteenth', status: 'planned', projectId: 'p1', dueDate: '2026-03-15', labels: [] }];
+  const html = renderPanelHtml(makeState({
+    navType: 'calendar', tasks, projects: PROJECTS,
+    calendarMonth: '2026-03', calendarSelectedDay: '2026-03-15',
+  }), {});
+  assert.match(html, /March 2026/);
+  assert.match(html, /data-action="calendar-prev"/);
+  assert.match(html, /data-action="calendar-next"/);
+  assert.match(html, /data-action="calendar-select-day" data-day="2026-03-15"[^>]*>15/);
+  assert.match(html, /panel__mini-day is-selected has-tasks|has-tasks[^"]*is-selected/);
+  // The selected day's tasks preview underneath.
+  assert.match(html, /data-action="open-task" data-task-id="t1"/);
+  // A day without tasks peeks honestly.
+  const empty = renderPanelHtml(makeState({
+    navType: 'calendar', tasks: [], projects: [], calendarMonth: '2026-03', calendarSelectedDay: '2026-03-02',
+  }), {});
+  assert.match(empty, /Nothing due\./);
+});
+
+test('Library panel: type counts as toggle-lib-type facets, saved views, recent by updatedAt', () => {
+  const documents = [
+    { id: 'd1', title: 'Older note', documentType: 'note', updatedAt: '2026-07-01T00:00:00Z' },
+    { id: 'd2', title: 'Newer runbook', documentType: 'runbook', updatedAt: '2026-07-19T00:00:00Z' },
+    { id: 'd3', title: 'Archived', documentType: 'note', updatedAt: '2026-07-20T00:00:00Z', archivedAt: '2026-07-20T01:00:00Z' },
+  ];
+  const html = renderPanelHtml(makeState({
+    navType: 'library', documents, libraryTypes: ['runbook'],
+    librarySavedViews: [{ label: 'Deploy notes', tags: ['deploy'] }],
+  }), {});
+  assert.match(html, /data-action="toggle-lib-type" data-facet="note"[^>]*>[\s\S]*?side-item__count">1/);
+  assert.match(html, /class="side-item is-active" data-action="toggle-lib-type" data-facet="runbook"/);
+  assert.match(html, /data-action="select-saved-view" data-view-index="0"/);
+  assert.match(html, /data-action="delete-library-view" data-view-index="0"/);
+  const newer = html.indexOf('data-document-id="d2"');
+  const older = html.indexOf('data-document-id="d1"');
+  assert.ok(newer !== -1 && newer < older, 'recent list is updatedAt-descending');
+  assert.doesNotMatch(html, /data-document-id="d3"/, 'archived docs are not recent');
+});
+
+test('Settings panel: section rows with active state; status renders only from loaded state', () => {
+  const html = renderPanelHtml(makeState({ navType: 'settings', settingsTab: 'integrations' }), {});
+  assert.match(html, /class="side-item is-active" data-action="set-settings-tab" data-tab="integrations" aria-current="true"/);
+  assert.match(html, /data-tab="appearance"/);
+  assert.match(html, /data-tab="data"/);
+  assert.doesNotMatch(html, /Status/, 'nothing loaded, no status block');
+
+  const withStatus = renderPanelHtml(makeState({
+    navType: 'settings', settingsTab: 'appearance', desktopShell: true,
+    googleCalendarStatus: { connected: true, configured: true, lastPushAt: new Date(Date.now() - 5 * 60_000).toISOString() },
+    captureShortcut: { shortcut: 'Alt+Space', default: 'CmdOrCtrl+Shift+Space' },
+  }), {});
+  assert.match(withStatus, /Calendar synced<\/span><span class="side-item__count">5m ago/);
+  assert.match(withStatus, /Capture<\/span><span class="side-item__count">Alt\+Space/);
 });
