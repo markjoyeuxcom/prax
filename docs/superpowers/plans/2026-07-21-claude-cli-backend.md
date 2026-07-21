@@ -69,6 +69,11 @@ codex cli" (2026-07-21); assessment recommended Claude CLI first, user: "yes bui
 
 ## Verification
 
-- Unit: 11 new adapter/provider/route tests; 1 new renderSettings test (all green).
+- Unit: 12 adapter/provider/route tests; 1 renderSettings test (all green).
 - Full suites green (see CHANGELOG entry for counts).
-- Deviations: none.
+- Deviations: one field-found fix. First real use surfaced that the CLI writes its
+  failure envelope (e.g. "Not logged in · Please run /login", `is_error: true` under
+  `subtype: "success"`) to stdout **with a non-zero exit code**; the first cut rejected
+  on non-zero exit before parsing, leaking 300 chars of raw JSON as the error. `run()`
+  now resolves on any exit and `parseCliResult` takes the exit code, so the CLI's own
+  words always surface; regression test pins the observed envelope verbatim.

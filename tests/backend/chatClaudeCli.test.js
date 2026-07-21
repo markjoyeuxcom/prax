@@ -62,6 +62,9 @@ test('parseCliResult: success text, CLI errors verbatim, garbage flagged with a 
   );
   assert.throws(() => parseCliResult('not json at all', 'boom from stderr'), /unparseable output: boom from stderr/);
   assert.throws(() => parseCliResult(JSON.stringify({ type: 'result', subtype: 'success' })), /returned no text/);
+  // Non-zero exit + no envelope → the stderr/stdout hint or the bare code.
+  assert.throws(() => parseCliResult('', 'stderr words', 1), /^Error: stderr words$/);
+  assert.throws(() => parseCliResult('', '', 1), /exited with code 1/);
 });
 
 test('resolveClaudeBinary: explicit path wins or fails loudly; PATH and known homes searched', () => {
@@ -105,6 +108,24 @@ test('complete: nonzero exit surfaces the CLI stderr verbatim; missing binary na
 
   const missing = createClaudeCliChat({ binaryPath: '/gone/claude', exists: () => false, spawn });
   await assert.rejects(missing.complete('hello'), /not found \(looked at \/gone\/claude\)/);
+});
+
+test('a non-zero exit with a result envelope surfaces the CLI words, never raw JSON (login regression)', async () => {
+  // The real CLI reports "not logged in" as an envelope on stdout WITH exit
+  // code 1 — the field-observed shape: subtype "success" yet is_error true.
+  const envelope = JSON.stringify({
+    type: 'result', subtype: 'success', is_error: true, api_error_status: null,
+    num_turns: 1, result: 'Not logged in · Please run /login', total_cost_usd: 0,
+  });
+  const spawn = fakeSpawn((child) => {
+    child.stdout.emit('data', envelope);
+    child.emit('close', 1);
+  });
+  const chat = createClaudeCliChat({ binaryPath: '/bin/claude', exists: () => true, spawn });
+  await assert.rejects(chat.complete('hello'), (err) => {
+    assert.equal(err.message, 'Not logged in · Please run /login');
+    return true;
+  });
 });
 
 test('complete: a hung CLI is killed at the timeout; tool requests are refused up front', async () => {
