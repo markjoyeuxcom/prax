@@ -24,6 +24,11 @@ async function openDrawer(page, task) {
   await page.locator(`[data-action="nav-project"][data-project-id="${inbox.id}"]`).first().click();
   await page.locator('.task-row', { hasText: task.title }).click();
   await expect(page.locator('.drawer[data-task-id]')).toBeVisible();
+  // Wait out the drawer's trailing renders (context + related knowledge):
+  // a fill() racing them can write into a just-detached input and vanish.
+  const related = page.locator('[data-related-knowledge]');
+  await expect(related).toBeVisible();
+  await expect(related).not.toContainText('Looking for related notes');
 }
 
 // Open the library and click the card whose title contains `titleText` —

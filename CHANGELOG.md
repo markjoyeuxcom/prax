@@ -14,6 +14,23 @@ fresh empty `[Unreleased]` section is started.
 
 ### Fixed
 
+- **The e2e gate is binary again — the two known full-suite flakes are diagnosed and
+  closed.** Both were test-choreography races that only fired under full-suite conditions,
+  never in isolation, which had quietly turned "green" into a judgment call. (1) The task
+  drawer re-renders up to three times right after opening (context load, related-knowledge
+  loading, then its result); a one-shot `fill()` racing those renders can write into a
+  just-detached input and vanish — real typing is safe (every keystroke lands in state and
+  the focused-field capture restores values), but the drawer-typing journeys now wait for
+  the drawer to settle before typing. (2) The drawer-draft journeys assumed the close-save
+  is always the first PATCH, but the 1s autosave debounce can fire first under load and
+  can split a draft into per-field patches — interceptions now match any draft-field PATCH,
+  failure injections are flag-gated ("every save fails until Save failed is observed")
+  instead of ordinal-gated, and the pins assert the real invariants: no payload replay,
+  fields union to the exact draft, nothing commits while saves fail. (3) Once the shared
+  suite server accumulates 100+ tasks, the list's "Showing 100 of N" banner is a second
+  `role="status"` element — capture-notice assertions are now scoped to the Quick-capture
+  dialog. Verified by repeat-each churn plus repeated full-suite runs.
+
 - **The assistant on no-tool-calling backends is grounded in a live snapshot instead of
   fabricating.** The old degrade path (any backend without tool calling: Claude CLI, Ollama,
   llama.cpp) handed the model the assistant persona and **no data** — asked "what's overdue",
