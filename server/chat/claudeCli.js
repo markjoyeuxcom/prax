@@ -78,12 +78,16 @@ export function buildCliArgs({ model, system }) {
 
 // The -p --output-format json result envelope → completion text, or a THROWN
 // error carrying the CLI's own words (login prompts, rate limits) verbatim.
-export function parseCliResult(stdout, stderr = '') {
+// The CLI exits non-zero on failures while still writing the envelope to
+// stdout — so the envelope is parsed regardless of exit code, and the exit
+// code only matters when stdout isn't an envelope at all.
+export function parseCliResult(stdout, stderr = '', exitCode = 0) {
   let data;
   try {
     data = JSON.parse(stdout);
   } catch {
     const hint = (stderr || stdout || '').trim().split('\n').slice(-3).join(' ').slice(0, 300);
+    if (exitCode !== 0) throw new Error(hint || `claude CLI exited with code ${exitCode}`);
     throw new Error(`claude CLI returned unparseable output${hint ? `: ${hint}` : ''}`);
   }
   if (data?.is_error || (typeof data?.subtype === 'string' && data.subtype !== 'success')) {
@@ -141,11 +145,11 @@ export function createClaudeCliChat({
       child.stdout?.on('data', (chunk) => { stdout += chunk; });
       child.stderr?.on('data', (chunk) => { stderr += chunk; });
       child.on('error', (err) => finish(reject, new Error(`claude CLI could not start: ${err.message}`)));
-      child.on('close', (code) => {
-        if (code === 0) return finish(resolve, { stdout, stderr });
-        const hint = (stderr || stdout || '').trim().split('\n').slice(-3).join(' ').slice(0, 300);
-        finish(reject, new Error(hint || `claude CLI exited with code ${code}`));
-      });
+      // Resolve on ANY exit: failures (not logged in, rate limited) arrive
+      // as a result envelope on stdout WITH a non-zero exit code, so the
+      // caller must parse the envelope — rejecting here would leak raw JSON
+      // as the error message instead of the CLI's own words.
+      child.on('close', (code) => finish(resolve, { stdout, stderr, code: code ?? -1 }));
       if (input != null) {
         child.stdin?.write(input);
       }
@@ -173,8 +177,8 @@ export function createClaudeCliChat({
       const { system, turns } = splitSystem(messages);
       const prompt = serializeTurns(turns);
       if (!prompt) throw new Error('claude CLI received an empty prompt');
-      const { stdout, stderr } = await enqueue(() => run(buildCliArgs({ model: chatModel, system }), prompt, timeoutMs));
-      const parsed = parseCliResult(stdout, stderr);
+      const { stdout, stderr, code } = await enqueue(() => run(buildCliArgs({ model: chatModel, system }), prompt, timeoutMs));
+      const parsed = parseCliResult(stdout, stderr, code);
       return { text: parsed.text, model: parsed.model || chatModel };
     },
 
@@ -183,8 +187,8 @@ export function createClaudeCliChat({
     // travels through the degraded path verbatim).
     async isAvailable() {
       try {
-        const { stdout } = await enqueue(() => run(['--version'], null, 3_000));
-        return Boolean(stdout.trim());
+        const { stdout, code } = await enqueue(() => run(['--version'], null, 3_000));
+        return code === 0 && Boolean(stdout.trim());
       } catch {
         return false;
       }
