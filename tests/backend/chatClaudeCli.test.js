@@ -47,11 +47,20 @@ test('serializeTurns: single user turn passes through; conversations become a la
   );
 });
 
-test('buildCliArgs pins the safety fence: json output, max-turns 1, empty MCP, optional system', () => {
+test('buildCliArgs pins the safety fence: json output, denied built-ins, turn ceiling, no-tools prompt', () => {
   const bare = buildCliArgs({ model: 'haiku' });
-  assert.deepEqual(bare, ['-p', '--output-format', 'json', '--model', 'haiku', '--max-turns', '1', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}']);
+  assert.deepEqual(bare.slice(0, 10), ['-p', '--output-format', 'json', '--model', 'haiku', '--max-turns', '4', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}']);
+  // The primary fence is the deny-list — with tools available, the model's
+  // first message can be a tool call, which burns the turn budget and ends
+  // the run as error_max_turns with no text (field-observed under a cap of 1).
+  const denied = bare[bare.indexOf('--disallowedTools') + 1];
+  for (const tool of ['Task', 'Bash', 'Read', 'Write', 'WebSearch', 'TodoWrite', 'Skill']) {
+    assert.ok(denied.split(',').includes(tool), `${tool} must be denied`);
+  }
+  assert.deepEqual(bare.slice(-2), ['--append-system-prompt', 'Answer directly as plain text. Do not use any tools.']);
+  // A caller system prompt keeps the no-tools instruction appended after it.
   const withSystem = buildCliArgs({ model: 'sonnet', system: 'Be terse.' });
-  assert.deepEqual(withSystem.slice(-2), ['--append-system-prompt', 'Be terse.']);
+  assert.equal(withSystem[withSystem.length - 1], 'Be terse.\n\nAnswer directly as plain text. Do not use any tools.');
 });
 
 test('parseCliResult: success text, CLI errors verbatim, garbage flagged with a hint', () => {
@@ -65,6 +74,11 @@ test('parseCliResult: success text, CLI errors verbatim, garbage flagged with a 
   // Non-zero exit + no envelope → the stderr/stdout hint or the bare code.
   assert.throws(() => parseCliResult('', 'stderr words', 1), /^Error: stderr words$/);
   assert.throws(() => parseCliResult('', '', 1), /exited with code 1/);
+  // A text-less error_max_turns gets a sentence, not a bare subtype.
+  assert.throws(
+    () => parseCliResult(JSON.stringify({ type: 'result', subtype: 'error_max_turns', is_error: false })),
+    /turn limit before returning text/,
+  );
 });
 
 test('resolveClaudeBinary: explicit path wins or fails loudly; PATH and known homes searched', () => {
@@ -93,7 +107,8 @@ test('complete: spawns with the fence, feeds the prompt over stdin, returns the 
   const call = spawn.calls[0];
   assert.equal(call.binary, '/bin/claude');
   assert.ok(call.args.includes('--max-turns'), 'agentic turns are fenced off');
-  assert.deepEqual(call.args.slice(-2), ['--append-system-prompt', 'Be terse.']);
+  assert.ok(call.args.includes('--disallowedTools'), 'built-in tools are denied');
+  assert.deepEqual(call.args.slice(-2), ['--append-system-prompt', 'Be terse.\n\nAnswer directly as plain text. Do not use any tools.']);
   assert.equal(call.child.stdin.written, 'Summarize the week');
   assert.equal(call.options.cwd, '/tmp', 'runs in the empty scratch dir, never the user data dir');
 });

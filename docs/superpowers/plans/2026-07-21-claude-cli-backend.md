@@ -15,12 +15,16 @@ codex cli" (2026-07-21); assessment recommended Claude CLI first, user: "yes bui
    in Prax — no key field renders, `keyRequired: false`, and the settings API keeps its
    invariant that secrets are never echoed (here there is simply no secret at all).
 2. **Safety fencing, non-negotiable.** A summarization call must never become an agent
-   run. Every spawn gets `--max-turns 1` (no tool round-trip can complete), an **empty
-   scratch cwd** under `tmpdir()/prax-claude-cli` (nothing sensitive to read), and
-   `--strict-mcp-config --mcp-config '{"mcpServers":{}}'` (no MCP servers load — not
-   even Prax's own, which would be a feedback loop). `supportsTools: false`, so the
-   in-app assistant degrades honestly through the existing `assistantRoutes` gate
-   instead of pretending.
+   run. Every spawn denies the CLI's **built-in tools by name** (`--disallowedTools` —
+   the primary fence), appends a no-tools instruction to the system prompt, runs in an
+   **empty scratch cwd** under `tmpdir()/prax-claude-cli` (nothing sensitive to read),
+   and loads `--strict-mcp-config --mcp-config '{"mcpServers":{}}'` (no MCP servers —
+   not even Prax's own, which would be a feedback loop). `--max-turns 4` is a
+   **ceiling, not the fence**: a "turn" is one assistant message, so under the original
+   `--max-turns 1` a first-message tool call burned the whole budget and the run died
+   as `error_max_turns` with no text (field-observed; cf. claude-code-action#1177).
+   `supportsTools: false`, so the in-app assistant degrades honestly through the
+   existing `assistantRoutes` gate instead of pretending.
 3. **The PATH gotcha is a setting.** A GUI-launched desktop sidecar inherits a minimal
    PATH (`/usr/bin:/bin`) that cannot see `claude`. Resolution order: explicit
    configured `binaryPath` (must exist — a wrong explicit path is an error to surface,
@@ -71,9 +75,15 @@ codex cli" (2026-07-21); assessment recommended Claude CLI first, user: "yes bui
 
 - Unit: 12 adapter/provider/route tests; 1 renderSettings test (all green).
 - Full suites green (see CHANGELOG entry for counts).
-- Deviations: one field-found fix. First real use surfaced that the CLI writes its
-  failure envelope (e.g. "Not logged in · Please run /login", `is_error: true` under
-  `subtype: "success"`) to stdout **with a non-zero exit code**; the first cut rejected
-  on non-zero exit before parsing, leaking 300 chars of raw JSON as the error. `run()`
-  now resolves on any exit and `parseCliResult` takes the exit code, so the CLI's own
-  words always surface; regression test pins the observed envelope verbatim.
+- Deviations: two field-found fixes from first real use.
+  1. The CLI writes its failure envelope (e.g. "Not logged in · Please run /login",
+     `is_error: true` under `subtype: "success"`) to stdout **with a non-zero exit
+     code**; the first cut rejected on non-zero exit before parsing, leaking 300 chars
+     of raw JSON as the error. `run()` now resolves on any exit and `parseCliResult`
+     takes the exit code, so the CLI's own words always surface; regression test pins
+     the observed envelope verbatim.
+  2. `--max-turns 1` alone was the wrong fence: built-in tools were still offered, the
+     model's first message was a tool call, and the run ended `error_max_turns` with no
+     text. The fence is now the deny-list + no-tools prompt (decision 2), with
+     `--max-turns 4` as headroom; a text-less `error_max_turns` envelope gets a real
+     sentence instead of a bare subtype.

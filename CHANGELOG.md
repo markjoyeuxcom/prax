@@ -241,8 +241,10 @@ fresh empty `[Unreleased]` section is started.
   CLI headlessly (`claude -p`, JSON envelope) through the existing `claude` login — Pro/Max
   subscription auth, with **zero credentials in Prax** (`keyRequired: false`; there is no
   key field because there is no key). Every spawn is safety-fenced so an advisory call can
-  never become an agent run: `--max-turns 1`, an empty scratch working directory, and an
-  explicitly empty MCP config (`server/chat/claudeCli.js`). Spawns are serialized (one CLI
+  never become an agent run: the CLI's built-in tools are denied wholesale, a no-tools
+  instruction rides the system prompt, the working directory is an empty scratch dir, the
+  MCP config is explicitly empty, and `--max-turns` caps the loop as a ceiling
+  (`server/chat/claudeCli.js`). Spawns are serialized (one CLI
   process at a time, 120s timeout), the prompt travels over stdin, and the system prompt
   rides `--append-system-prompt` beneath the CLI's own guardrails. CLI outcomes surface
   **verbatim** through the never-500 advisory regime — a login prompt or rate-limit message

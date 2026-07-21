@@ -9,10 +9,11 @@ import { splitSystem } from './messages.js';
 // subscription powers Prax with NO API key stored anywhere.
 //
 // Safety fencing, non-negotiable: a summarization call must never become an
-// agent run. Every spawn gets --max-turns 1 (no tool round-trip can ever
-// complete), an EMPTY scratch working directory (nothing sensitive to read),
-// and an explicitly empty MCP config (no servers load). supportsTools is
-// false — the in-app assistant degrades honestly instead of pretending.
+// agent run. Every spawn denies the CLI's built-in tools wholesale, appends a
+// no-tools instruction, runs in an EMPTY scratch working directory (nothing
+// sensitive to read), loads an explicitly empty MCP config (no servers), and
+// caps --max-turns as a ceiling. supportsTools is false — the in-app
+// assistant degrades honestly instead of pretending.
 //
 // Spawns are serialized through a single queue: CLI processes are heavy, and
 // concurrent advisory calls (NL parse + narration) must not stampede.
@@ -64,15 +65,39 @@ export function serializeTurns(turns) {
     .join('\n\n');
 }
 
+// The CLI's built-in tools, denied by NAME so a completion stays a
+// completion. This is the primary fence: a "turn" is one assistant message,
+// so with tools available the model's first message can be a tool call —
+// which consumes the whole budget under a tight --max-turns and ends the run
+// as error_max_turns with no text at all (field-observed). Names span CLI
+// versions deliberately; unknown ones are harmless.
+const DENIED_TOOLS = [
+  'Task', 'Bash', 'BashOutput', 'KillBash', 'KillShell',
+  'Read', 'Glob', 'Grep', 'LS',
+  'Edit', 'MultiEdit', 'Write', 'NotebookRead', 'NotebookEdit',
+  'WebFetch', 'WebSearch',
+  'TodoRead', 'TodoWrite',
+  'EnterPlanMode', 'ExitPlanMode', 'SlashCommand', 'Skill', 'AskUserQuestion',
+  'ListMcpResources', 'ReadMcpResource',
+].join(',');
+
+// Belt to the deny-list's braces: the model is told not to attempt tools, so
+// no turn is wasted on a call that would only come back denied.
+const NO_TOOLS_PROMPT = 'Answer directly as plain text. Do not use any tools.';
+
 export function buildCliArgs({ model, system }) {
   return [
     '-p',
     '--output-format', 'json',
     '--model', model,
-    '--max-turns', '1',
+    // A ceiling, not the fence: with every tool denied a text answer lands in
+    // one turn, and the headroom absorbs a stray attempted-then-denied call
+    // instead of dying text-less the way --max-turns 1 did.
+    '--max-turns', '4',
     '--strict-mcp-config',
     '--mcp-config', '{"mcpServers":{}}',
-    ...(system ? ['--append-system-prompt', system] : []),
+    '--disallowedTools', DENIED_TOOLS,
+    '--append-system-prompt', system ? `${system}\n\n${NO_TOOLS_PROMPT}` : NO_TOOLS_PROMPT,
   ];
 }
 
@@ -93,7 +118,9 @@ export function parseCliResult(stdout, stderr = '', exitCode = 0) {
   if (data?.is_error || (typeof data?.subtype === 'string' && data.subtype !== 'success')) {
     const detail = typeof data.result === 'string' && data.result.trim()
       ? data.result.trim()
-      : `claude CLI reported ${data.subtype || 'an error'}`;
+      : data.subtype === 'error_max_turns'
+        ? 'claude CLI hit its turn limit before returning text — try again; if it persists the model kept attempting tool calls'
+        : `claude CLI reported ${data.subtype || 'an error'}`;
     throw new Error(detail);
   }
   if (typeof data?.result !== 'string' || !data.result) {
