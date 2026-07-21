@@ -77,6 +77,11 @@ test('capture organizes shorthand fields and the drawer can reassign project and
   // async (change handler → per-task queue → fetch) — poll instead of a
   // one-shot read that races it under full-suite load.
   await expect.poll(() => projectPatchCount).toBe(1);
+  // The lost-response reconcile (readback → local apply → render) rebuilds
+  // the drawer; a fill racing that rebuild writes into the detached label
+  // input and vanishes. The task leaving the Work list IS that render —
+  // wait for it before typing.
+  await expect(page.locator('.task-row', { hasText: title })).toHaveCount(0);
   await drawer.getByLabel('Add label').fill('@PagerDuty');
   await drawer.getByLabel('Add label').press('Enter');
 
