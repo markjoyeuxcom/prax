@@ -27,6 +27,11 @@ async function openDrawer(page, task) {
   await openInboxList(page);
   await page.locator('.task-row', { hasText: task.title }).click();
   await expect(page.locator('.drawer[data-task-id]')).toBeVisible();
+  // Wait out the drawer's trailing renders (context + related knowledge):
+  // a fill() racing them can write into a just-detached input and vanish.
+  const related = page.locator('[data-related-knowledge]');
+  await expect(related).toBeVisible();
+  await expect(related).not.toContainText('Looking for related notes');
 }
 
 async function openCapture(page) {
@@ -64,7 +69,10 @@ test('capture keeps its exact-once identity across type-and-revert', async ({ pa
 
   await page.getByLabel('Task title').fill(title);
   await page.getByRole('button', { name: 'Add task', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('retry unchanged is safe');
+  // Scoped to the dialog: bare role lookups collide with the task list's
+  // "Showing 100 of N" status banner once the suite server accumulates rows.
+  await expect(page.getByRole('dialog', { name: 'Quick capture' }).getByRole('alert'))
+    .toContainText('retry unchanged is safe');
 
   // Type one character and delete it again. The input handler used to clear
   // captureRequestPayload/Intent on ANY keystroke, so this no-op edit minted a
@@ -114,8 +122,9 @@ test('a deterministic server rejection is not presented as retry-safe', async ({
 
   // A 4xx is the server saying no to THIS payload: repeating it unchanged can
   // only fail again, so the copy must not promise a safe retry.
-  await expect(page.getByRole('alert')).toContainText(/rejected this capture/);
-  await expect(page.getByRole('alert')).not.toContainText('retry unchanged is safe');
+  const captureAlert = page.getByRole('dialog', { name: 'Quick capture' }).getByRole('alert');
+  await expect(captureAlert).toContainText(/rejected this capture/);
+  await expect(captureAlert).not.toContainText('retry unchanged is safe');
   expect(await tasksWithTitle(request, title)).toHaveLength(0);
 
   // The rejection also cleared the retry identity, so the next submit mints a

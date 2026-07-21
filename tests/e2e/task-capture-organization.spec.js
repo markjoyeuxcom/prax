@@ -51,6 +51,11 @@ test('capture organizes shorthand fields and the drawer can reassign project and
   await page.locator('.task-row', { hasText: title }).click();
   const drawer = page.locator(`.drawer[data-task-id="${task.id}"]`);
   await expect(drawer).toBeVisible();
+  // Wait out the drawer's trailing renders (context + related knowledge)
+  // before interacting — an action racing them can land on a detached node.
+  const related = page.locator('[data-related-knowledge]');
+  await expect(related).toBeVisible();
+  await expect(related).not.toContainText('Looking for related notes');
   let projectPatchCount = 0;
   await page.route(`**/api/tasks/${task.id}`, async (route) => {
     if (route.request().method() === 'PATCH'
@@ -68,15 +73,20 @@ test('capture organizes shorthand fields and the drawer can reassign project and
   });
   await drawer.getByLabel('Project').selectOption(projects.personal.id);
   await expect(drawer.getByLabel('Project')).toHaveValue(projects.personal.id);
-  expect(projectPatchCount).toBe(1);
+  // The select's DOM value flips synchronously but the PATCH dispatch is
+  // async (change handler → per-task queue → fetch) — poll instead of a
+  // one-shot read that races it under full-suite load.
+  await expect.poll(() => projectPatchCount).toBe(1);
   await drawer.getByLabel('Add label').fill('@PagerDuty');
   await drawer.getByLabel('Add label').press('Enter');
 
+  // Two mutations reconcile here (the 503-after-commit project move via
+  // readback, then the label merge) — generous headroom for a busy suite.
   await expect.poll(async () => {
     const response = await request.get(`/api/tasks/${task.id}`);
     const stored = await response.json();
     return { projectId: stored.projectId, labels: stored.labels };
-  }).toEqual({ projectId: projects.personal.id, labels: ['waiting', 'pagerduty'] });
+  }, { timeout: 15_000 }).toEqual({ projectId: projects.personal.id, labels: ['waiting', 'pagerduty'] });
 });
 
 test('a lost create response is acknowledged by id without replaying the POST', async ({ page, request }) => {
@@ -211,13 +221,18 @@ test('failed capture survives reload and retries with the same creation identity
 
   await page.getByLabel('Task title').fill(`${title} @waiting !high`);
   await page.getByRole('button', { name: 'Add task', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('Could not confirm creation');
+  // Scope to the capture dialog: once the shared suite server accumulates
+  // 100+ tasks, the list's "Showing 100 of N" banner is a second
+  // role="status"/notice element and bare role lookups go strict-ambiguous.
+  const capture = page.getByRole('dialog', { name: 'Quick capture' });
+  await expect(capture.getByRole('alert')).toContainText('Could not confirm creation');
   await expect(page.getByLabel('Task title')).toHaveValue(`${title} @waiting !high`);
   await expect.poll(() => page.evaluate(() => Boolean(localStorage.getItem('prax.taskCaptureRecovery.v1')))).toBe(true);
 
   await page.reload();
   await expect(page.getByRole('dialog', { name: 'Quick capture' })).toBeVisible();
-  await expect(page.getByRole('status')).toContainText('Recovered unfinished task');
+  await expect(page.getByRole('dialog', { name: 'Quick capture' }).getByRole('status'))
+    .toContainText('Recovered unfinished task');
   await expect(page.getByLabel('Task title')).toHaveValue(`${title} @waiting !high`);
   await expect(page.getByRole('button', { name: /Choose destination project, current Work/ })).toBeVisible();
   await page.getByRole('button', { name: 'Add task', exact: true }).click();
