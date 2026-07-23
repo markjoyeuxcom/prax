@@ -43,7 +43,10 @@ fresh empty `[Unreleased]` section is started.
   honest workspace snapshot** (`server/assistant/snapshot.js`) — true totals, per-project open
   counts, Overdue / Due today / Planned today / In progress / Inbox sections with real counts
   in every header and elisions spelled out ("…and 8 more") — fetched through the same
-  in-process client the agent tools use. Read-only rules ride along: answer data questions
+  in-process client the agent tools use. The snapshot also carries a **Library index**
+  (trust counts plus the unverified docs pending human review, each with type, project,
+  and provenance — titles and metadata only, never document bodies), so "which docs need
+  review" answers from truth too instead of "I can't see the Library". Read-only rules ride along: answer data questions
   only from the snapshot, say "I can't check that in this mode" for anything beyond it, and
   never claim to have made changes (actions still need an API backend). If the snapshot
   itself fails to load, the rules flip to an explicit no-visibility stance — "never guess,

@@ -56,8 +56,15 @@ export function registerAssistantRoutes(app, options = {}) {
     if (!chat.supportsTools) {
       let snapshot = null;
       try {
-        const [tasks, projects] = await Promise.all([client.listTasks({}), client.listProjects()]);
-        snapshot = buildWorkspaceSnapshot({ tasks, projects, today: localToday() });
+        const [tasks, projects, documents] = await Promise.all([
+          client.listTasks({}),
+          client.listProjects(),
+          // The Library index (titles + trust metadata, never bodies) rides
+          // along so "which docs need review" answers from truth too. Its
+          // failure must not blind the task snapshot — degrade to tasks-only.
+          client.listDocuments({}).catch(() => []),
+        ]);
+        snapshot = buildWorkspaceSnapshot({ tasks, projects, documents, today: localToday() });
       } catch (err) {
         request.log.error({ err }, 'assistant snapshot failed');
       }
