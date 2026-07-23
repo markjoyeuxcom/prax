@@ -36,7 +36,37 @@ function section(title, items, projectNames) {
   return lines.join('\n');
 }
 
-export function buildWorkspaceSnapshot({ tasks = [], projects = [], today = localToday() } = {}) {
+// The Library index for the snapshot: counts by trust state plus the docs
+// pending human review (unverified — the trust model's own "needs review"
+// signal), each with type, project, and provenance. Titles and metadata only;
+// document BODIES are never in the snapshot (the rules say so).
+function libraryBlock(documents, projectNames) {
+  const active = (Array.isArray(documents) ? documents : [])
+    .filter((d) => (d.status || 'active') === 'active' && !d.archivedAt);
+  if (!active.length) return null;
+  const verified = active.filter((d) => d.verified);
+  const unverified = active.filter((d) => !d.verified);
+  const stale = active.filter((d) => d.stale).length;
+  const lines = [
+    `Library (${active.length} doc${active.length === 1 ? '' : 's'}): ${verified.length} verified · ${unverified.length} unverified${stale ? ` · ${stale} stale` : ''}`,
+  ];
+  if (unverified.length) {
+    const shown = unverified.slice(0, LIST_CAP);
+    lines.push('Pending human review — unverified:');
+    for (const doc of shown) {
+      const bits = [
+        doc.documentType || 'note',
+        projectNames.get(doc.projectId) || null,
+        doc.updatedBy === 'agent' ? 'agent-written' : null,
+      ].filter(Boolean);
+      lines.push(`- ${doc.title} (${bits.join(' · ')})`);
+    }
+    if (unverified.length > shown.length) lines.push(`- …and ${unverified.length - shown.length} more`);
+  }
+  return lines.join('\n');
+}
+
+export function buildWorkspaceSnapshot({ tasks = [], projects = [], documents = [], today = localToday() } = {}) {
   const projectNames = new Map(projects.map((p) => [p.id, p.name]));
   const live = tasks.filter((t) => !t.archivedAt);
   const open = live.filter((t) => t.status !== 'completed');
@@ -57,8 +87,10 @@ export function buildWorkspaceSnapshot({ tasks = [], projects = [], today = loca
     `Totals: ${projects.length} project${projects.length === 1 ? '' : 's'} · ${open.length} open task${open.length === 1 ? '' : 's'} · ${completed} completed${snoozed ? ` · ${snoozed} snoozed` : ''}`,
   ];
 
-  if (!projects.length && !live.length) {
-    return [...head, 'The workspace is empty: no projects and no tasks exist yet.'].join('\n');
+  const library = libraryBlock(documents, projectNames);
+
+  if (!projects.length && !live.length && !library) {
+    return [...head, 'The workspace is empty: no projects, tasks, or documents exist yet.'].join('\n');
   }
 
   const perProject = projects
@@ -76,6 +108,7 @@ export function buildWorkspaceSnapshot({ tasks = [], projects = [], today = loca
     section("Planned for today (the user's plan)", plannedToday, projectNames),
     section('In progress', inProgress, projectNames),
     section('Inbox', inboxOpen, projectNames),
+    library,
   ].filter(Boolean).join('\n\n');
 }
 
@@ -86,7 +119,7 @@ export function buildReadOnlyRules(snapshotAvailable) {
   const rules = [
     'This backend cannot call tools, so this is a READ-ONLY conversation.',
     snapshotAvailable
-      ? 'Answer questions about the user\'s tasks and projects ONLY from the snapshot below — it is current and authoritative. Never contradict it and never invent items or counts.'
+      ? 'Answer questions about the user\'s tasks, projects, and Library ONLY from the snapshot below — it is current and authoritative. Never contradict it and never invent items or counts. The Library portion is an index (titles, types, verification, provenance); "unverified" docs are the ones pending human review.'
       : 'The workspace snapshot could not be loaded this turn, so you have NO visibility into the user\'s tasks, projects, or documents. When asked about their data, say exactly that — never guess, never claim counts, never say the workspace is empty.',
     'If the user asks about something beyond what you can see (document contents, task notes, history), say you cannot check that in this mode.',
     'You cannot create, edit, complete, or delete anything. When asked to act, say changes need a tool-capable API backend (Settings ▸ Intelligence) and spell out what the user can do by hand instead.',

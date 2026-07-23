@@ -47,8 +47,29 @@ test('long sections cap the list but never the count — the elision is spelled 
 });
 
 test('an empty workspace is stated as empty — the one case where "no tasks" is the truth', () => {
-  const snapshot = buildWorkspaceSnapshot({ projects: [], tasks: [], today: TODAY });
-  assert.match(snapshot, /The workspace is empty: no projects and no tasks exist yet\./);
+  const snapshot = buildWorkspaceSnapshot({ projects: [], tasks: [], documents: [], today: TODAY });
+  assert.match(snapshot, /The workspace is empty: no projects, tasks, or documents exist yet\./);
+});
+
+test('the Library index reports trust counts and names the docs pending review — bodies never travel', () => {
+  const snapshot = buildWorkspaceSnapshot({
+    projects: makeProjects(),
+    today: TODAY,
+    tasks: [],
+    documents: [
+      { title: 'Architecture', body: 'SECRET BODY TEXT', documentType: 'note', projectId: 'p-home', verified: true, updatedBy: 'human', status: 'active' },
+      { title: 'Pod Restart Loop', body: 'more body', documentType: 'runbook', projectId: 'p-home', verified: false, updatedBy: 'agent', status: 'active' },
+      { title: 'Weekly review — 2026-W29', documentType: 'note', projectId: 'p-inbox', verified: false, updatedBy: 'agent', status: 'active', stale: false },
+      { title: 'Old doc', documentType: 'note', projectId: 'p-home', verified: false, updatedBy: 'human', status: 'archived' },
+      { title: 'Rotting doc', documentType: 'note', projectId: 'p-home', verified: true, updatedBy: 'human', status: 'active', stale: true },
+    ],
+  });
+  assert.match(snapshot, /Library \(4 docs\): 2 verified · 2 unverified · 1 stale/);
+  assert.match(snapshot, /Pending human review — unverified:\n- Pod Restart Loop \(runbook · Homelab · agent-written\)\n- Weekly review — 2026-W29 \(note · Inbox · agent-written\)/);
+  // Verified and archived docs are counted or excluded, never listed as pending.
+  assert.doesNotMatch(snapshot, /- Architecture|Old doc/);
+  // The index carries titles and metadata only — never document text.
+  assert.doesNotMatch(snapshot, /SECRET BODY TEXT/);
 });
 
 test('the read-only rules flip to an explicit no-visibility stance when the snapshot is missing', () => {

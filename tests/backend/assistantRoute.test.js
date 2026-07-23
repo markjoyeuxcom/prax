@@ -154,6 +154,14 @@ test('a no-tools backend answers from a live workspace snapshot, never a data va
     await app.inject({ method: 'POST', url: '/api/tasks', payload: { title, project: 'inbox', priority: 'medium', status: 'planned', ...(dueDate ? { dueDate } : {}) } });
   }
 
+  // The Library index rides along: an agent-written doc is pending review.
+  await app.inject({
+    method: 'POST',
+    url: '/api/library/documents',
+    headers: { 'x-prax-origin': 'agent' },
+    payload: { title: 'Synth runbook', body: 'body text', project: 'inbox', documentType: 'runbook' },
+  });
+
   const { body } = await post(app, { messages: [{ role: 'user', content: 'whats overdue?' }] });
   assert.equal(body.status, 'done');
   assert.equal(body.degraded, true);
@@ -167,6 +175,11 @@ test('a no-tools backend answers from a live workspace snapshot, never a data va
   assert.match(seenSystem, /run destroy plan/);
   assert.match(seenSystem, /Inbox \(3\):/);
   assert.match(seenSystem, /never invent items or counts/);
+  // "Which docs need review" answers from the Library index — titles and
+  // trust metadata, never bodies.
+  assert.match(seenSystem, /Library \(1 doc\): 0 verified · 1 unverified/);
+  assert.match(seenSystem, /- Synth runbook \(runbook · Inbox · agent-written\)/);
+  assert.doesNotMatch(seenSystem, /body text/);
   await app.close();
 });
 
