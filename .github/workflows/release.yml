@@ -62,7 +62,7 @@ jobs:
           ref: ${{ needs.resolve.outputs.version }}
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -178,7 +178,7 @@ jobs:
           ref: ${{ needs.resolve.outputs.version }}
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
