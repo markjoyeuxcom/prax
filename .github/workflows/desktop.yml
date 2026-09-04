@@ -91,7 +91,10 @@ jobs:
           cargo test --manifest-path src-tauri/Cargo.toml
 
       - name: Build desktop bundles
-        run: npx tauri build ${{ matrix.args }}
+        env:
+          # Cargo strips Prax; linuxdeploy must preserve modern system-library ELF sections.
+          NO_STRIP: "true"
+        run: npx tauri build ${{ matrix.args }} --verbose
 
       - name: Smoke packaged runtime
         run: npm run desktop:smoke
