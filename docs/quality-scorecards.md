@@ -4,6 +4,8 @@
 **Standard:** [`superpowers/specs/2026-07-13-exceptional-prax-quality-standard.md`](superpowers/specs/2026-07-13-exceptional-prax-quality-standard.md)
 **Evidence pass:** 2026-07-13; task and Library/editor human-surface breadth updated 2026-07-14
 
+The [4 September independent-review repair verification](reviews/2026-09-04-repair-verification.md) records the later combined regression, recovery, portability, audit and native-runtime results. These repairs do not change the activation scores below.
+
 These scorecards apply the adopted 0–4 scale without averaging away a defining-category gap.
 They describe the evidence present in this repository, not confidence or intention. Gate A remains
 active globally. A score of 2 for accessibility or performance means the product now has useful,

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { toIso } from './columnTypes.js';
 
 const ALLOWED_CREATE_FIELDS = ['title', 'description', 'priority', 'status', 'projectId', 'dueDate', 'dueTime', 'sortOrder', 'notes', 'recurrence', 'labels', 'plannedFor'];
@@ -514,10 +515,11 @@ export function createTasksRepository(db) {
         clauses.push('archived_at is null');
       }
       if (filters.q) {
-        values.push(`%${filters.q}%`);
+        const escaped = String(filters.q).replace(/[\\%_]/g, '\\$&');
+        values.push(`%${escaped}%`);
         // SQLite LIKE is only case-insensitive for ASCII; lower() both sides
-        // to keep the pg ILIKE behaviour.
-        clauses.push(`(lower(title) like lower($${values.length}) or lower(description) like lower($${values.length}))`);
+        // to keep the pg ILIKE behaviour. Escape wildcards so % and _ match literally.
+        clauses.push(`(lower(title) like lower($${values.length}) escape '\\' or lower(description) like lower($${values.length}) escape '\\')`);
       }
 
       const where = clauses.length ? `where ${clauses.join(' and ')}` : '';
@@ -598,6 +600,18 @@ export function createTasksRepository(db) {
       try {
         await client.query('begin immediate');
         try {
+          const existingSession = await client.query(
+            'select id, status from task_import_sessions where id = $1 limit 1',
+            [requestId],
+          );
+          if (existingSession.rows[0]) {
+            await client.query('commit');
+            return {
+              conflict: true,
+              message: `requestId is already reserved by a staged import session (${existingSession.rows[0].status})`,
+            };
+          }
+
           const existing = await client.query(
             'select payload_hash, result_json from task_import_operations where id = $1 limit 1',
             [requestId],
@@ -855,6 +869,353 @@ export function createTasksRepository(db) {
       const q = buildListTaskBoardExtras(taskIds);
       const result = await db.query(q.text, q.values);
       return result.rows.map(normalizeTaskBoardExtraRow);
+    },
+
+    async createImportSession({ requestId, projectId, mode }) {
+      if (!requestId || !projectId || !mode) {
+        throw new Error('createImportSession requires requestId, projectId, and mode');
+      }
+      const client = await db.connect();
+      try {
+        await client.query('begin immediate');
+        try {
+          const existing = await client.query(
+            'select * from task_import_sessions where id = $1 limit 1',
+            [requestId],
+          );
+          if (existing.rows[0]) {
+            const row = existing.rows[0];
+            if (row.project_id !== projectId || row.mode !== mode) {
+              await client.query('commit');
+              return { conflict: true, message: 'session already exists with different project or mode' };
+            }
+            if (row.status === 'committed') {
+              const op = await client.query(
+                'select payload_hash, result_json from task_import_operations where id = $1 limit 1',
+                [requestId],
+              );
+              await client.query('commit');
+              return {
+                sessionId: requestId,
+                projectId: row.project_id,
+                mode: row.mode,
+                status: 'committed',
+                replayed: true,
+                result: op.rows[0] ? JSON.parse(op.rows[0].result_json) : null,
+              };
+            }
+            if (row.status === 'cancelled') {
+              await client.query('commit');
+              return { conflict: true, message: 'import session was cancelled' };
+            }
+            await client.query('commit');
+            return {
+              sessionId: requestId,
+              projectId: row.project_id,
+              mode: row.mode,
+              status: row.status,
+              exists: true,
+            };
+          }
+
+          const op = await client.query(
+            'select payload_hash, result_json from task_import_operations where id = $1 limit 1',
+            [requestId],
+          );
+          if (op.rows[0]) {
+            await client.query('commit');
+            return {
+              conflict: true,
+              message: 'requestId was already used for a direct task import',
+            };
+          }
+
+          await client.query(
+            'insert into task_import_sessions (id, project_id, mode, status) values ($1, $2, $3, $4)',
+            [requestId, projectId, mode, 'open'],
+          );
+          await client.query('commit');
+          return {
+            sessionId: requestId,
+            projectId,
+            mode,
+            status: 'open',
+            created: true,
+          };
+        } catch (err) {
+          await client.query('rollback').catch(() => {});
+          throw err;
+        }
+      } finally {
+        client.release();
+      }
+    },
+
+    async getImportSession(requestId) {
+      const sessionResult = await db.query(
+        'select * from task_import_sessions where id = $1 limit 1',
+        [requestId],
+      );
+      if (!sessionResult.rows[0]) return null;
+      const session = sessionResult.rows[0];
+      const chunksResult = await db.query(
+        'select chunk_index, chunk_hash, task_count, created_at from task_import_session_chunks where session_id = $1 order by chunk_index asc',
+        [requestId],
+      );
+      return {
+        sessionId: session.id,
+        projectId: session.project_id,
+        mode: session.mode,
+        status: session.status,
+        createdAt: session.created_at,
+        updatedAt: session.updated_at,
+        chunks: chunksResult.rows.map((row) => ({
+          chunkIndex: row.chunk_index,
+          chunkHash: row.chunk_hash,
+          taskCount: row.task_count,
+          createdAt: row.created_at,
+        })),
+      };
+    },
+
+    async putImportSessionChunk(requestId, chunkIndex, { tasks, chunkHash }) {
+      const client = await db.connect();
+      try {
+        await client.query('begin immediate');
+        try {
+          const sessionResult = await client.query(
+            'select * from task_import_sessions where id = $1 limit 1',
+            [requestId],
+          );
+          if (!sessionResult.rows[0]) {
+            await client.query('commit');
+            return { notFound: true };
+          }
+          const session = sessionResult.rows[0];
+          if (session.status === 'cancelled') {
+            await client.query('commit');
+            return { conflict: true, message: 'cannot add chunk to cancelled session' };
+          }
+          if (session.status === 'committed') {
+            const existingChunk = await client.query(
+              'select chunk_hash, task_count from task_import_session_chunks where session_id = $1 and chunk_index = $2 limit 1',
+              [requestId, chunkIndex],
+            );
+            await client.query('commit');
+            if (!existingChunk.rows[0]) {
+              return { conflict: true, message: 'cannot add new chunk to committed session' };
+            }
+            if (existingChunk.rows[0].chunk_hash !== chunkHash) {
+              return { conflict: true, message: 'chunk payload changed on committed session replay' };
+            }
+            return {
+              sessionId: requestId,
+              chunkIndex,
+              taskCount: existingChunk.rows[0].task_count,
+              replayed: true,
+            };
+          }
+
+          const existingChunk = await client.query(
+            'select chunk_hash, task_count from task_import_session_chunks where session_id = $1 and chunk_index = $2 limit 1',
+            [requestId, chunkIndex],
+          );
+          if (existingChunk.rows[0]) {
+            await client.query('commit');
+            if (existingChunk.rows[0].chunk_hash !== chunkHash) {
+              return { conflict: true, message: 'chunk payload changed on retry' };
+            }
+            return {
+              sessionId: requestId,
+              chunkIndex,
+              taskCount: existingChunk.rows[0].task_count,
+              replayed: true,
+            };
+          }
+
+          await client.query(
+            `insert into task_import_session_chunks (session_id, chunk_index, chunk_hash, tasks_json, task_count)
+             values ($1, $2, $3, $4, $5)`,
+            [requestId, chunkIndex, chunkHash, JSON.stringify(tasks), tasks.length],
+          );
+          await client.query(
+            `update task_import_sessions set updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') where id = $1`,
+            [requestId],
+          );
+          await client.query('commit');
+          return {
+            sessionId: requestId,
+            chunkIndex,
+            taskCount: tasks.length,
+            created: true,
+          };
+        } catch (err) {
+          await client.query('rollback').catch(() => {});
+          throw err;
+        }
+      } finally {
+        client.release();
+      }
+    },
+
+    async commitImportSession(requestId, { expectedChunkCount }) {
+      const client = await db.connect();
+      try {
+        await client.query('begin immediate');
+        try {
+          const sessionResult = await client.query(
+            'select * from task_import_sessions where id = $1 limit 1',
+            [requestId],
+          );
+          if (!sessionResult.rows[0]) {
+            await client.query('commit');
+            return { notFound: true };
+          }
+          const session = sessionResult.rows[0];
+          if (session.status === 'cancelled') {
+            await client.query('commit');
+            return { conflict: true, message: 'import session was cancelled' };
+          }
+          if (session.status === 'committed') {
+            await client.query('commit');
+            if (session.chunk_count !== null && session.chunk_count !== expectedChunkCount) {
+              return { conflict: true, message: `expected ${expectedChunkCount} chunks but committed session has ${session.chunk_count}` };
+            }
+            const op = await client.query(
+              'select payload_hash, result_json from task_import_operations where id = $1 limit 1',
+              [requestId],
+            );
+            if (op.rows[0]) {
+              return { ...JSON.parse(op.rows[0].result_json), replayed: true };
+            }
+            return { conflict: true, message: 'import session was already committed' };
+          }
+
+          const chunksResult = await client.query(
+            'select chunk_index, chunk_hash, tasks_json, task_count from task_import_session_chunks where session_id = $1 order by chunk_index asc',
+            [requestId],
+          );
+          const chunks = chunksResult.rows;
+          if (chunks.length !== expectedChunkCount) {
+            await client.query('commit');
+            return {
+              badRequest: true,
+              message: `expected ${expectedChunkCount} chunks but received ${chunks.length}`,
+            };
+          }
+
+          for (let i = 0; i < expectedChunkCount; i += 1) {
+            if (chunks[i].chunk_index !== i) {
+              await client.query('commit');
+              return {
+                badRequest: true,
+                message: `missing chunk index ${i} (gaps not permitted)`,
+              };
+            }
+          }
+
+          const allTasks = [];
+          for (const chunk of chunks) {
+            allTasks.push(...JSON.parse(chunk.tasks_json));
+          }
+
+          let candidates = allTasks;
+          let skipped = 0;
+          if (session.mode === 'skip') {
+            const existingRows = await client.query(
+              'select * from tasks where project_id = $1',
+              [session.project_id],
+            );
+            const filtered = filterTaskImportDuplicates(
+              allTasks,
+              existingRows.rows.map(normalizeTaskRow),
+            );
+            candidates = filtered.tasks;
+            skipped = filtered.skipped;
+          }
+
+          const imported = await importTaskRecords(client, candidates, {
+            replaceProjectId: session.mode === 'replace' ? session.project_id : null,
+          });
+
+          const result = {
+            mode: session.mode,
+            imported: imported.length,
+            skipped,
+            tasks: imported,
+          };
+
+          const compositeHash = createHash('sha256')
+            .update(JSON.stringify({
+              projectId: session.project_id,
+              mode: session.mode,
+              chunkCount: expectedChunkCount,
+              chunkHashes: chunks.map(c => c.chunk_hash),
+            }))
+            .digest('hex');
+
+          await client.query(
+            `insert into task_import_operations (id, project_id, mode, payload_hash, result_json)
+             values ($1, $2, $3, $4, $5)`,
+            [requestId, session.project_id, session.mode, compositeHash, JSON.stringify(result)],
+          );
+
+          await client.query(
+            `update task_import_sessions set status = 'committed', chunk_count = $2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') where id = $1`,
+            [requestId, expectedChunkCount],
+          );
+          // Drop large raw payloads from staging, but keep compact chunk hashes for replay validation
+          await client.query(
+            'update task_import_session_chunks set tasks_json = null where session_id = $1',
+            [requestId],
+          );
+
+          await client.query('commit');
+          return { ...result, replayed: false };
+        } catch (err) {
+          await client.query('rollback').catch(() => {});
+          throw err;
+        }
+      } finally {
+        client.release();
+      }
+    },
+
+    async cancelImportSession(requestId) {
+      const client = await db.connect();
+      try {
+        await client.query('begin immediate');
+        try {
+          const sessionResult = await client.query(
+            'select * from task_import_sessions where id = $1 limit 1',
+            [requestId],
+          );
+          if (!sessionResult.rows[0]) {
+            await client.query('commit');
+            return { notFound: true };
+          }
+          const session = sessionResult.rows[0];
+          if (session.status === 'committed') {
+            await client.query('commit');
+            return { conflict: true, message: 'cannot cancel a committed import session' };
+          }
+          await client.query(
+            'delete from task_import_session_chunks where session_id = $1',
+            [requestId],
+          );
+          await client.query(
+            `update task_import_sessions set status = 'cancelled', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') where id = $1`,
+            [requestId],
+          );
+          await client.query('commit');
+          return { cancelled: true };
+        } catch (err) {
+          await client.query('rollback').catch(() => {});
+          throw err;
+        }
+      } finally {
+        client.release();
+      }
     },
   };
 }

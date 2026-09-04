@@ -1,3 +1,4 @@
+import { incompleteIndexNotice } from './retrievalStatus.js';
 import { escapeHtml } from './renderHelpers.js';
 import { icon } from './icons.js';
 
@@ -23,11 +24,13 @@ function renderSources(sources) {
 }
 
 function retrievalNotice(result) {
-  if (!result?.retrieval?.fallback) return '';
+  const indexNotice = incompleteIndexNotice(result?.retrieval?.index);
+  const coverage = indexNotice ? `<div class="askprax__notice askprax__notice--retrieval">${escapeHtml(indexNotice)}</div>` : '';
+  if (!result?.retrieval?.fallback) return coverage;
   const text = result.retrieval.reason === 'semantic-unavailable'
     ? 'Semantic retrieval was unavailable, so these results were retrieved with keyword search.'
     : 'Semantic retrieval found no relevant matches, so Prax also checked keyword search.';
-  return `<div class="askprax__notice askprax__notice--retrieval">${text}</div>`;
+  return coverage + `<div class="askprax__notice askprax__notice--retrieval">${text}</div>`;
 }
 
 export function renderAskPraxHtml(state, { bodyHtml = '' } = {}) {

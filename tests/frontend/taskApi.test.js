@@ -451,3 +451,25 @@ test('fetchTaskBoardExtras throws when the API rejects the request', async () =>
 
   await assert.rejects(() => fetchTaskBoardExtras(['task-1']), /Failed to load board task summaries/);
 });
+
+test('large imports replay deterministic bounded chunks before an atomic commit', async () => {
+  const calls=[];
+  globalThis.fetch=async(url,options)=>{calls.push({url,method:options.method,body:JSON.parse(options.body)});return jsonResponse(url.endsWith('/commit')?{imported:501,skipped:0,tasks:[]}: {status:'committed'});};
+  const requestId='11111111-1111-4111-8111-111111111111';
+  const tasks=Array.from({length:501},(_,i)=>({title:`task ${i}`}));
+  const result=await importTasks({project:'inbox',mode:'replace',tasks,requestId});
+  assert.equal(result.imported,501);
+  assert.equal(calls[0].url,'/api/tasks/import-sessions');
+  const chunks=calls.filter(call=>call.method==='PUT');
+  assert.deepEqual(chunks.map(call=>call.body.tasks.length),[200,200,101]);
+  assert.deepEqual(chunks.flatMap(call=>call.body.tasks),tasks);
+  assert.equal(calls.at(-1).url,`/api/tasks/import-sessions/${requestId}/commit`);
+  assert.equal(calls.at(-1).body.chunkCount,3);
+});
+
+test('a rejected large-import chunk never triggers commit', async () => {
+  const calls=[];
+  globalThis.fetch=async(url)=>{calls.push(url);return url.includes('/chunks/')?jsonResponse({message:'chunk differs'},false,409):jsonResponse({status:'open'});};
+  await assert.rejects(()=>importTasks({project:'inbox',tasks:Array.from({length:501},()=>({title:'x'})),requestId:'11111111-1111-4111-8111-111111111111'}),error=>error.status===409);
+  assert(!calls.some(url=>url.endsWith('/commit')));
+});

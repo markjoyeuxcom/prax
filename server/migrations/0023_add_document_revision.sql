@@ -1,0 +1,11 @@
+-- Document revision token (2026-09-04 review, C03/C08/C09/C10): the exact
+-- content a person reviews and an embedding is computed from is the TITLE and
+-- the BODY together, so both conditional editor writes and human verification
+-- need one token that covers both. The repository writes
+-- sha256(JSON.stringify([title, body])) on every create/update.
+--
+-- SQLite cannot hash, so rows created before this migration are backfilled by
+-- the repository on first use. Their embedded_hash keeps the old body-only value
+-- on purpose: it cannot prove which title was embedded, so those vectors stay
+-- pending (excluded from ranking, disclosed as index-incomplete) until a reindex.
+alter table markdown_documents add column revision text;

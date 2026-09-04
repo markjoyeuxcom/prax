@@ -8,6 +8,33 @@ function hashBody(body) {
   return createHash('sha256').update(String(body ?? '')).digest('hex');
 }
 
+// The revision token: sha256 over the stored title AND body, framed as a JSON
+// array so no byte sequence in one field can masquerade as the other. It is
+// the exact content a person reviews when verifying (QINV-04), the baseline a
+// conditional editor write is guarded by (QINV-09), and the input an embedding
+// is computed from — one token for all three. `contentHash` keeps its body-only
+// meaning for export front matter and derived-from staleness snapshots.
+export function documentRevision(doc) {
+  return createHash('sha256')
+    .update(JSON.stringify([String(doc?.title ?? ''), String(doc?.body ?? '')]))
+    .digest('hex');
+}
+
+export const REVISION_TOKEN_RE = /^[0-9a-f]{64}$/i;
+
+// Thrown by updateDocument when the caller's `ifRevision` baseline no longer
+// matches. Carries the current record so the caller can reconcile (keep a
+// remote title, re-send its own body) instead of overwriting blindly.
+export class DocumentRevisionConflictError extends Error {
+  constructor(current) {
+    super('document changed since this draft was loaded; reload before saving');
+    this.name = 'DocumentRevisionConflictError';
+    this.code = 'DOCUMENT_REVISION_CONFLICT';
+    this.reason = 'revision-mismatch';
+    this.current = current;
+  }
+}
+
 const CREATE_FIELDS = ['title', 'body', 'documentType', 'projectId', 'tags', 'sourceFilename'];
 const UPDATE_COLUMN_MAP = {
   title: 'title',
@@ -57,6 +84,9 @@ export function normalizeDocumentRow(row) {
     verifiedBy: row.verified_by ?? null,
     status: row.status ?? 'active',
     stale: Boolean(row.stale ?? false),
+    // Rows written before migration 0023 carry no stored token until the
+    // repository backfills them; deriving it here keeps every read truthful.
+    revision: typeof row.revision === 'string' && row.revision ? row.revision : documentRevision(row),
     ...(row.project_slug !== undefined ? { projectSlug: row.project_slug } : {}),
   };
 }
@@ -71,12 +101,13 @@ export function buildCreateDocument(document, { ignoreIdConflict = false } = {})
     ...(document.id ? [document.id] : []),
     ...CREATE_FIELDS.map((field) => (field === 'tags' ? serializeTags(document.tags) : (document[field] ?? null))),
     hashBody(document.body), document.updatedBy || 'user', document.kind || 'source', verified,
+    documentRevision(document),
     ...(internalColumns ? [document.creationOperation || null, document.creationIntentHash || null] : []),
   ];
   const placeholders = values.map((_, index) => `$${index + 1}`);
   return {
     text: `
-      insert into markdown_documents (${idColumn}title, body, document_type, project_id, tags, source_filename, content_hash, updated_by, kind, verified${internalColumns})
+      insert into markdown_documents (${idColumn}title, body, document_type, project_id, tags, source_filename, content_hash, updated_by, kind, verified, revision${internalColumns})
       values (${placeholders.join(', ')})
       ${ignoreIdConflict ? 'on conflict(id) do nothing' : ''}
       returning *
@@ -101,7 +132,12 @@ export function documentMatchesCreateFields(document, fields) {
     && document.updatedBy === (fields.updatedBy || 'user');
 }
 
-export function buildUpdateDocument(id, fields) {
+// `revision` is the token for the MERGED title/body the repository computed
+// after reading the row; `expectRevision` (undefined = unconditional) pins the
+// write to the stored token the repository read inside the same transaction,
+// so a baseline check can never race a concurrent writer. A NULL stored token
+// (pre-0023 row) is matched with IS so the write also heals it.
+export function buildUpdateDocument(id, fields, { revision, expectRevision } = {}) {
   const entries = Object.entries(fields).filter(([key]) => UPDATE_COLUMN_MAP[key]);
   if (entries.length === 0) {
     throw new Error('No document fields provided');
@@ -111,6 +147,16 @@ export function buildUpdateDocument(id, fields) {
 
   values.push(fields.updatedBy || 'user');
   assignments.push(`updated_by = $${values.length}`);
+
+  if (revision !== undefined) {
+    values.push(revision);
+    assignments.push(`revision = $${values.length}`);
+  }
+  let guard = '';
+  if (expectRevision !== undefined) {
+    values.push(expectRevision);
+    guard = ` and revision is $${values.length}`;
+  }
 
   const bodyProvided = Object.prototype.hasOwnProperty.call(fields, 'body');
   let hashIndex = null;
@@ -146,7 +192,7 @@ export function buildUpdateDocument(id, fields) {
     text: `
       update markdown_documents
       set ${assignments.join(', ')}, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-      where id = $1 and archived_at is null
+      where id = $1 and archived_at is null${guard}
       returning *
     `,
     values,
@@ -202,18 +248,30 @@ export function buildGetDocumentCreationReceipt(id) {
   };
 }
 
-export function buildVerifyDocument(id, { verified, verifiedBy = null, contentHash = null } = {}) {
+// `revision` binds the blessing to the exact title+body the person reviewed
+// (the route requires it for verified:true); `contentHash` remains an optional
+// extra body guard for callers that still send it.
+export function buildVerifyDocument(id, { verified, verifiedBy = null, revision = null, contentHash = null } = {}) {
   if (verified) {
-    const hashGuard = contentHash ? ' and content_hash = $3' : '';
+    const values = [id, verifiedBy];
+    let guard = '';
+    if (revision) {
+      values.push(revision);
+      guard += ` and revision = $${values.length}`;
+    }
+    if (contentHash) {
+      values.push(contentHash);
+      guard += ` and content_hash = $${values.length}`;
+    }
     return {
       text: `
         update markdown_documents
         set verified = 1, verified_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), verified_by = $2
-        where id = $1 and archived_at is null${hashGuard}
+        where id = $1 and archived_at is null${guard}
           and not (verified = 1 and verified_by is $2)
         returning *
       `,
-      values: [id, verifiedBy, ...(contentHash ? [contentHash] : [])],
+      values,
     };
   }
   return {
@@ -280,11 +338,18 @@ export function buildListActiveDocumentsForExport({ projectId } = {}) {
   };
 }
 
-export function buildSetDocumentEmbedding(id, { vector, backend, model, dim, contentHash }) {
+// The write is conditional on the document's revision — the token over the
+// full embedded input (title + body). A job that embedded an older title or
+// body therefore cannot overwrite a newer vector (QINV-09), and embedded_hash
+// records exactly which revision the stored vector describes.
+export function buildSetDocumentEmbedding(id, { vector, backend, model, dim, revision }) {
   // Embeddings are stored as JSON text (a JSON.stringify'd float array) in the
   // TEXT column; the JS cosine search path parses them back at query time.
   if (!Array.isArray(vector) || vector.some((n) => typeof n !== 'number' || !Number.isFinite(n))) {
     throw new Error('vector must be an array of finite numbers');
+  }
+  if (typeof revision !== 'string' || !REVISION_TOKEN_RE.test(revision)) {
+    throw new Error('revision must be the document revision the vector was computed from');
   }
   return {
     text: `
@@ -295,19 +360,41 @@ export function buildSetDocumentEmbedding(id, { vector, backend, model, dim, con
           embedding_dim = $5,
           embedded_hash = $6,
           embedded_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-      where id = $1 and content_hash = $6
+      where id = $1 and revision = $6
       returning id
     `,
-    values: [id, JSON.stringify(vector), backend, model, dim, contentHash],
+    values: [id, JSON.stringify(vector), backend, model, dim, revision],
+  };
+}
+
+// A vector is current only when it was computed from the row's present
+// revision (title + body) and by the active backend AND model: vectors from a
+// different model share no space, and a same-dimension switch would otherwise
+// rank nonsense (C10). `model` undefined = backend-only (legacy callers).
+function currentVectorClause(alias, backendParam, modelParam) {
+  const prefix = alias ? `${alias}.` : '';
+  return `${prefix}embedding is not null`
+    + ` and ${prefix}embedding_backend = ${backendParam}`
+    + ` and ${prefix}embedded_hash is not distinct from ${prefix}revision`
+    + (modelParam ? ` and ${prefix}embedding_model is not distinct from ${modelParam}` : '');
+}
+
+export function buildHasCurrentEmbedding(id, backend, model) {
+  const hasModel = typeof model === 'string';
+  return {
+    text: `select 1 from markdown_documents d where d.id = $1 and ${currentVectorClause('d', '$2', hasModel ? '$3' : null)}`,
+    values: hasModel ? [id, backend, model] : [id, backend],
   };
 }
 
 // Candidate query for semantic search: same filters and columns the old pg
 // query used, minus the pgvector distance — ranking happens in JS (SQLite has
 // no vector operator), so the embedding column rides along to be scored.
-export function buildSearchDocumentsSemantic(backend, { projectId, includeRetired = false } = {}) {
+export function buildSearchDocumentsSemantic(backend, { projectId, includeRetired = false, model } = {}) {
   const values = [backend];
-  let where = 'where d.archived_at is null and d.embedding is not null and d.embedding_backend = $1';
+  const hasModel = typeof model === 'string';
+  if (hasModel) values.push(model);
+  let where = `where d.archived_at is null and ${currentVectorClause('d', '$1', hasModel ? '$2' : null)}`;
   if (!includeRetired) {
     where += ` and d.status = 'active'`;
   }
@@ -319,7 +406,7 @@ export function buildSearchDocumentsSemantic(backend, { projectId, includeRetire
     text: `
       select d.id, d.title, d.document_type, d.project_id, d.tags, d.body,
              d.kind, d.updated_by, d.verified, d.verified_at, d.verified_by,
-             d.status, d.embedding,
+             d.status, d.revision, d.embedding,
              exists (
                select 1
                from document_links dl
@@ -383,12 +470,12 @@ export function buildListDocumentsNeedingEmbedding(backend, model) {
   const modelClause = hasModel ? '\n          or embedding_model is distinct from $2' : '';
   return {
     text: `
-      select id, content_hash
+      select id, title, body, revision, content_hash
       from markdown_documents
       where archived_at is null
         and (
           embedding is null
-          or embedded_hash is distinct from content_hash
+          or embedded_hash is distinct from revision
           or embedding_backend is distinct from $1${modelClause}
         )
       order by updated_at desc
@@ -404,12 +491,11 @@ export function buildCountEmbeddings(backend, model) {
   // model term is added only when a model is given, so the no-model call site
   // doesn't compare against a null.
   const hasModel = typeof model === 'string';
-  const modelClause = hasModel ? ' and embedding_model is not distinct from $2' : '';
   return {
     text: `
       select
         count(*) filter (where archived_at is null) as total,
-        count(*) filter (where archived_at is null and embedding is not null and embedding_backend = $1 and embedded_hash is not distinct from content_hash${modelClause}) as embedded
+        count(*) filter (where archived_at is null and ${currentVectorClause('', '$1', hasModel ? '$2' : null)}) as embedded
       from markdown_documents
     `,
     values: hasModel ? [backend, model] : [backend],
@@ -426,9 +512,79 @@ export function applyRelevanceCutoff(rows, { minSimilarity = DEFAULT_MIN_SIMILAR
   return rows.filter((r) => Number(r.similarity) >= threshold);
 }
 
+// Rows written before migration 0023 have no stored revision. SQLite cannot
+// hash, so the repository computes and stores the token on first use (one
+// session transaction, idempotent, no updated_at bump, no FTS trigger — title
+// and body are untouched). embedded_hash is deliberately NOT re-keyed: a
+// body-only hash cannot prove which title was embedded (the C09 defect class),
+// so legacy vectors stay pending until a reindex and are disclosed as such.
+async function backfillDocumentRevisions(db) {
+  const client = await db.connect();
+  try {
+    await client.query('begin immediate');
+    try {
+      const pending = await client.query(
+        'select id, title, body from markdown_documents where revision is null',
+      );
+      for (const row of pending.rows) {
+        await client.query(
+          'update markdown_documents set revision = $2 where id = $1 and revision is null',
+          [row.id, documentRevision(row)],
+        );
+      }
+      await client.query('commit');
+      return pending.rows.length;
+    } catch (err) {
+      await client.query('rollback').catch(() => {});
+      throw err;
+    }
+  } finally {
+    client.release();
+  }
+}
+
+// Every query builder still gets exact placeholder tests against a fake `db`;
+// the backfill only runs on a real handle (one that can open a session).
+export function ensureDocumentRevisions(db) {
+  if (typeof db?.connect !== 'function') return Promise.resolve(0);
+  return backfillDocumentRevisions(db);
+}
+
 export function createLibraryRepository(db) {
+  let readyPromise = null;
+  function ready() {
+    if (!readyPromise) {
+      readyPromise = ensureDocumentRevisions(db).catch((err) => {
+        readyPromise = null; // let the next call retry instead of poisoning the repository
+        throw err;
+      });
+    }
+    return readyPromise;
+  }
+
+  // Merged title/body → next revision, guarded by the token read in the same
+  // session. `ifRevision` is the caller's baseline (undefined = unconditional).
+  async function updateDocumentOn(queryable, id, fields, { ifRevision } = {}) {
+    const currentRes = await queryable.query('select * from markdown_documents where id = $1 limit 1', [id]);
+    const currentRow = currentRes.rows[0];
+    if (!currentRow || currentRow.archived_at) return null;
+    const current = normalizeDocumentRow(currentRow);
+    if (ifRevision !== undefined && String(ifRevision).toLowerCase() !== current.revision) {
+      throw new DocumentRevisionConflictError(current);
+    }
+    const revision = documentRevision({
+      title: Object.prototype.hasOwnProperty.call(fields, 'title') ? fields.title : currentRow.title,
+      body: Object.prototype.hasOwnProperty.call(fields, 'body') ? fields.body : currentRow.body,
+    });
+    const query = buildUpdateDocument(id, fields, { revision, expectRevision: currentRow.revision ?? null });
+    const result = await queryable.query(query.text, query.values);
+    if (!result.rows[0]) throw new DocumentRevisionConflictError(current);
+    return normalizeDocumentRow(result.rows[0]);
+  }
+
   return {
     async listDocuments(filters = {}) {
+      await ready();
       const clauses = [];
       const values = [];
 
@@ -449,19 +605,25 @@ export function createLibraryRepository(db) {
         clauses.push(`d.status = $${values.length}`);
       }
       // Full-text search via the external-content FTS5 table (replaces pg's
-      // to_tsvector/to_tsquery). The sanitizer keeps only lowercase [a-z0-9]+
-      // runs, so every token is a safe FTS5 bareword; `term*` keeps the old
-      // prefix-match behavior and whitespace joins as implicit AND. A query
-      // with no alphanumeric terms adds no clause at all (same as before).
+      // to_tsvector/to_tsquery). Terms are Unicode letter/digit runs — CJK,
+      // accented and other non-ASCII words included (C15) — each quoted as an
+      // FTS5 phrase with a trailing `*` for the old prefix-match behaviour;
+      // whitespace joins as implicit AND, and the tokenizer's own case/diacritic
+      // folding applies to query and index alike. Quoting makes every term
+      // syntax-safe (the regex admits no quote character). A non-blank query
+      // with no usable term matches NOTHING: silently dropping the predicate
+      // turned an unsupported search into an unfiltered listing.
       // No alias on the FTS join: MATCH resolves its LHS as the hidden column
       // named after the table, so it must read `markdown_documents_fts match`.
       let ftsJoin = '';
-      if (filters.q) {
-        const terms = String(filters.q).toLowerCase().match(/[a-z0-9]+/g) || [];
+      if (filters.q !== undefined && filters.q !== null && String(filters.q).trim() !== '') {
+        const terms = String(filters.q).match(/[\p{L}\p{N}]+/gu) || [];
         if (terms.length) {
-          values.push(terms.map(term => `${term}*`).join(' '));
+          values.push(terms.map(term => `"${term}"*`).join(' '));
           ftsJoin = 'join markdown_documents_fts on markdown_documents_fts.rowid = d.rowid';
           clauses.push(`markdown_documents_fts match $${values.length}`);
+        } else {
+          clauses.push('0 = 1');
         }
       }
       if (filters.archived === true || filters.archived === 'true') {
@@ -493,6 +655,7 @@ export function createLibraryRepository(db) {
     },
 
     async createDocument(document) {
+      await ready();
       const query = buildCreateDocument(document);
       const result = await db.query(query.text, query.values);
       return normalizeDocumentRow(result.rows[0]);
@@ -500,6 +663,7 @@ export function createLibraryRepository(db) {
 
     async createDocumentIdempotent(document) {
       if (!document?.id) throw new Error('Idempotent document creation requires an id');
+      await ready();
       const createQuery = buildCreateDocument(document, { ignoreIdConflict: true });
       const created = await db.query(createQuery.text, createQuery.values);
       if (created.rows[0]) return { document: normalizeDocumentRow(created.rows[0]), created: true };
@@ -511,19 +675,41 @@ export function createLibraryRepository(db) {
       };
     },
 
-    async updateDocument(id, fields) {
-      const query = buildUpdateDocument(id, fields);
-      const result = await db.query(query.text, query.values);
-      return result.rows[0] ? normalizeDocumentRow(result.rows[0]) : null;
+    // Read-merge-write in one session so the baseline check (`ifRevision`)
+    // and the new revision are computed against the row that is actually
+    // overwritten (C03). Throws DocumentRevisionConflictError with the current
+    // record when the baseline is stale; returns null for a missing or
+    // archived document.
+    async updateDocument(id, fields, options = {}) {
+      await ready();
+      if (typeof db.connect !== 'function') {
+        return updateDocumentOn(db, id, fields, options);
+      }
+      const client = await db.connect();
+      try {
+        await client.query('begin immediate');
+        try {
+          const document = await updateDocumentOn(client, id, fields, options);
+          await client.query('commit');
+          return document;
+        } catch (err) {
+          await client.query('rollback').catch(() => {});
+          throw err;
+        }
+      } finally {
+        client.release();
+      }
     },
 
     async archiveDocument(id) {
+      await ready();
       const query = buildArchiveDocument(id);
       const result = await db.query(query.text, query.values);
       return result.rows[0] ? normalizeDocumentRow(result.rows[0]) : null;
     },
 
     async restoreDocument(id) {
+      await ready();
       const query = buildRestoreDocument(id);
       const result = await db.query(query.text, query.values);
       if (!result.rows[0]) return null;
@@ -536,24 +722,28 @@ export function createLibraryRepository(db) {
     },
 
     async deleteDocument(id) {
+      await ready();
       const query = buildDeleteDocument(id);
       const result = await db.query(query.text, query.values);
       return result.rows[0] ? normalizeDocumentRow(result.rows[0]) : null;
     },
 
     async listActiveDocumentsForExport(filters = {}) {
+      await ready();
       const query = buildListActiveDocumentsForExport(filters);
       const result = await db.query(query.text, query.values);
       return result.rows.map(normalizeDocumentRow);
     },
 
     async getDocument(id) {
+      await ready();
       const query = buildGetDocument(id);
       const result = await db.query(query.text, query.values);
       return result.rows[0] ? normalizeDocumentRow(result.rows[0]) : null;
     },
 
     async getDocumentCreationReceipt(id) {
+      await ready();
       const query = buildGetDocumentCreationReceipt(id);
       const result = await db.query(query.text, query.values);
       const row = result.rows[0];
@@ -564,27 +754,40 @@ export function createLibraryRepository(db) {
     },
 
     async verifyDocument(id, payload) {
+      await ready();
       const q = buildVerifyDocument(id, payload);
       const result = await db.query(q.text, q.values);
       return result.rows[0] ? normalizeDocumentRow(result.rows[0]) : null;
     },
 
     async markDocumentSuperseded(id) {
+      await ready();
       const q = buildMarkSuperseded(id);
       const result = await db.query(q.text, q.values);
       return result.rows[0] ? normalizeDocumentRow(result.rows[0]) : null;
     },
 
     async revertSupersededIfOrphan(id) {
+      await ready();
       const q = buildRevertSupersededIfOrphan(id);
       const result = await db.query(q.text, q.values);
       return result.rows[0] ? normalizeDocumentRow(result.rows[0]) : null;
     },
 
+    // Returns the id when the vector was stored, null when the document's
+    // revision moved on since the vector was computed (the write is dropped).
     async setDocumentEmbedding(id, payload) {
+      await ready();
       const q = buildSetDocumentEmbedding(id, payload);
       const result = await db.query(q.text, q.values);
       return result.rows[0] ? result.rows[0].id : null;
+    },
+
+    async hasCurrentEmbedding(id, backend, model) {
+      await ready();
+      const q = buildHasCurrentEmbedding(id, backend, model);
+      const result = await db.query(q.text, q.values);
+      return result.rows.length > 0;
     },
 
     // JS-side vector search: fetch candidates, cosine-rank against the query
@@ -592,8 +795,12 @@ export function createLibraryRepository(db) {
     // requested slice; opts.page returns that slice plus the exact number of
     // relevant candidates so MCP can enumerate every page. Rows come back
     // normalized (tags parsed, embedding never leaks) plus a `similarity` float.
+    // Only vectors current for the document's revision and the active
+    // backend/model (opts.model) are candidates; stale ones are pending, not
+    // ranked (C10).
     async searchDocumentsSemantic(queryVector, backend, opts = {}) {
-      const q = buildSearchDocumentsSemantic(backend, { projectId: opts.projectId, includeRetired: opts.includeRetired });
+      await ready();
+      const q = buildSearchDocumentsSemantic(backend, { projectId: opts.projectId, includeRetired: opts.includeRetired, model: opts.model });
       const result = await db.query(q.text, q.values);
       const limit = Number.isFinite(Number(opts.limit)) && Number(opts.limit) > 0 ? Number(opts.limit) : 20;
       const offset = Number.isInteger(Number(opts.offset)) && Number(opts.offset) >= 0 ? Number(opts.offset) : 0;
@@ -612,9 +819,11 @@ export function createLibraryRepository(db) {
 
     // "More like this": rank documents by similarity to one document's OWN
     // stored embedding — no new embedding call, just reuse the vector we saved.
-    // Returns [] when the document has no embedding for `backend`.
+    // Returns [] when the document has no CURRENT embedding for `backend`
+    // (and opts.model): a stale self-vector would compare apples to oranges.
     async findSimilarDocuments(id, backend, opts = {}) {
-      const q = buildSearchDocumentsSemantic(backend, { projectId: opts.projectId, includeRetired: opts.includeRetired });
+      await ready();
+      const q = buildSearchDocumentsSemantic(backend, { projectId: opts.projectId, includeRetired: opts.includeRetired, model: opts.model });
       const result = await db.query(q.text, q.values);
       const rows = result.rows;
       const self = rows.find((row) => row.id === id);
@@ -633,13 +842,22 @@ export function createLibraryRepository(db) {
       return kept.map((row) => ({ ...normalizeDocumentRow(row), similarity: row.similarity }));
     },
 
+    // Rows whose stored vector is missing, from an older revision, or from a
+    // different backend/model. `revision` is informational: the embedding
+    // service re-reads each document and guards the write on what it read.
     async listDocumentsNeedingEmbedding(backend, model) {
+      await ready();
       const q = buildListDocumentsNeedingEmbedding(backend, model);
       const result = await db.query(q.text, q.values);
-      return result.rows.map((r) => ({ id: r.id, contentHash: r.content_hash }));
+      return result.rows.map((r) => ({
+        id: r.id,
+        revision: typeof r.revision === 'string' && r.revision ? r.revision : documentRevision(r),
+        contentHash: r.content_hash,
+      }));
     },
 
     async countEmbeddings(backend, model) {
+      await ready();
       const q = buildCountEmbeddings(backend, model);
       const result = await db.query(q.text, q.values);
       const row = result.rows[0] || {};

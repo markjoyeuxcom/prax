@@ -1,7 +1,9 @@
+import { createAssistantWriteReceipts } from './assistant/writeReceipts.js';
 import { createInjectClient } from './assistant/injectClient.js';
 import { buildAgentTools } from './assistant/tools.js';
 import { runAssistant, sanitizeMessages, buildAssistantSystemPrompt } from './assistant/agent.js';
 import { buildWorkspaceSnapshot, buildReadOnlyRules, localToday } from './assistant/snapshot.js';
+import { isToolCallTurn } from './chat/messages.js';
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -19,6 +21,7 @@ export function registerAssistantRoutes(app, options = {}) {
   // through the identical routes (and honesty rules) the agent tools use.
   const client = createInjectClient(app);
   const tools = buildAgentTools(client);
+  const writeReceipts = options.assistantWriteReceipts ?? createAssistantWriteReceipts(app.db);
 
   async function resolveChat() {
     if (injectedChat) return injectedChat;
@@ -47,6 +50,25 @@ export function registerAssistantRoutes(app, options = {}) {
 
     const chat = await resolveChat();
     if (!chat) return { status: 'no_model', degraded: true, reason: 'no-chat-model', messages };
+
+    // A suspended tool turn (a pending approval) can only be resolved by a
+    // tool-capable model. If the operator switched to one without tool
+    // support meanwhile, the read-only path below would drop the proposal from
+    // the prompt and report an ordinary `done`, silently losing an unresolved
+    // consequential action. Refuse explicitly, execute nothing, and hand the
+    // canonical history back so the client keeps its pending/attempted state.
+    if (!chat.supportsTools && isToolCallTurn(messages[messages.length - 1])) {
+      return {
+        status: 'error',
+        degraded: true,
+        reason: 'approval-unavailable',
+        executed: false,
+        didWrite: false,
+        error: 'The configured model cannot run tools, so the pending approval was not executed. Switch to a tool-capable backend (Settings ▸ Intelligence) to approve it, or decline it.',
+        messages,
+        model: chat.model ?? null,
+      };
+    }
 
     // Providers without tool-calling (claude-cli/Ollama/llama.cpp) degrade to
     // a read-only completion GROUNDED in a live workspace snapshot. Without
@@ -84,7 +106,7 @@ export function registerAssistantRoutes(app, options = {}) {
     }
 
     try {
-      return await runAssistant({ chat, tools, messages, decisions });
+      return await runAssistant({ chat, tools, messages, decisions, writeReceipts });
     } catch (err) {
       request.log.error({ err }, 'assistant turn failed');
       return { status: 'error', degraded: true, reason: 'agent-failed', error: err?.message || 'failed', messages };

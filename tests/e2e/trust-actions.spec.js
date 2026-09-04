@@ -14,7 +14,7 @@ async function openLibraryDoc(page, titleText) {
 async function replaceEditorBody(page, body) {
   const editor = page.locator('.cm-content[contenteditable="true"]');
   await editor.click();
-  await page.keyboard.press('Control+A');
+  await page.keyboard.press('ControlOrMeta+A');
   await page.keyboard.insertText(body);
   await expect(page.locator('[data-document-editor]')).toHaveValue(body);
 }

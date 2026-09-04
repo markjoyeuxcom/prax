@@ -53,3 +53,8 @@ test('retrieval fallback and citation-validation degradation are explicit', () =
   assert.match(fallback, /withheld it/);
   assert.doesNotMatch(fallback, /private provider detail/);
 });
+
+test('semantic Ask answers disclose incomplete index coverage', () => {
+  const html=renderAskPraxHtml({askPraxOpen:true,askPraxQuery:'q',askPraxResult:{answer:'Answer',degraded:false,sources:[],retrieval:{mode:'semantic',fallback:false,index:{total:10,embedded:2,pending:8}}}});
+  assert.match(html,/2 of 10 documents are current; 8 pending/);
+});

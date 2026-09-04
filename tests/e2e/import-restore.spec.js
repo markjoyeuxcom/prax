@@ -225,3 +225,31 @@ test('Markdown intake selects ownership inside Library, retries exactly once, fi
   const reassigned = await (await page.request.get(`/api/library/documents/${documents.find(document => document.title === goodTitle).id}`)).json();
   expect(reassigned.projectId).toBe(personalId);
 });
+
+test('a staged large import recovers a lost commit after reload with identical chunks and operation',async({page})=>{
+  const title=`staged-restore-${Date.now()}`;
+  const projectId=await openDataSettingsFromProject(page,'homelab');
+  const payload={format:'moomora.tasks',version:1,project:'source',tasks:Array.from({length:501},(_,index)=>({title:`${title}-${index}`,description:'Large staged restore',priority:'medium',status:'planned',checklist:[]}))};
+  const choose=async()=>{
+    await page.locator('[data-import-file]').setInputFiles({name:`${title}.json`,mimeType:'application/json',buffer:Buffer.from(JSON.stringify(payload))});
+    await page.locator('[name="import-mode"][value="append"]').check();
+  };
+  await choose();
+  const requestIds=[], chunks=[];let first=true;
+  await page.route('**/api/tasks/import-sessions',async route=>{requestIds.push(route.request().postDataJSON().requestId);await route.continue();});
+  await page.route('**/api/tasks/import-sessions/*/chunks/*',async route=>{chunks.push(route.request().url());await route.continue();});
+  await page.route('**/api/tasks/import-sessions/*/commit',async route=>{
+    if(first){first=false;const committed=await route.fetch();expect(committed.ok()).toBe(true);await committed.body();await route.abort('connectionfailed');return;}
+    await route.continue();
+  });
+  await page.locator('[data-action="import-tasks"]').click();
+  await expect(page.locator('[data-import-status]')).toContainText('Retry is safe');
+  await page.reload();await page.locator('[data-action="nav-settings"]').first().click();await page.locator('[data-action="set-settings-tab"][data-tab="data"]').click();
+  await page.locator('[data-import-project]').selectOption(projectId);await choose();
+  await page.locator('[data-action="import-tasks"]').click();
+  await expect(page.locator('[data-import-status]')).toContainText('recovered from an earlier commit');
+  expect(requestIds).toHaveLength(2);expect(requestIds[1]).toBe(requestIds[0]);
+  expect(chunks).toHaveLength(6);expect(chunks.slice(3)).toEqual(chunks.slice(0,3));
+  const tasks=await (await page.request.get(`/api/tasks?project=${projectId}`)).json();
+  expect(tasks.filter(task=>task.title.startsWith(title))).toHaveLength(501);
+});

@@ -1,0 +1,27 @@
+[WebServer] (node:60188) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 18 tests using 1 worker
+
+(node:60191) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   1 [chromium] › ../../../../../private/tmp/prax-codex-platform-e2e/e2e/editor-autosave.spec.js:12:1 › switching documents flushes the old draft without corrupting the new document (546ms)
+  ✓   2 [chromium] › ../../../../../private/tmp/prax-codex-platform-e2e/e2e/editor-autosave.spec.js:49:1 › top-level project navigation waits for the exact editor draft to commit (246ms)
+  ✓   3 [chromium] › ../../../../../private/tmp/prax-codex-platform-e2e/e2e/editor-autosave.spec.js:87:1 › failed save blocks top-level navigation and keeps recovery in the editor (257ms)
+  ✓   4 [chromium] › ../../../../../private/tmp/prax-codex-platform-e2e/e2e/editor-autosave.spec.js:126:1 › failed title/body save survives reload and one coalesced retry commits the exact draft (4.5s)
+  ✓   5 [chromium] › ../../../../../private/tmp/prax-codex-platform-e2e/e2e/editor-autosave.spec.js:197:1 › a lost success response is reconciled without reporting failure or retrying the write (2.9s)
+  ✓   6 [chromium] › ../../../../../private/tmp/prax-codex-platform-e2e/e2e/library-editor-reflow.spec.js:47:1 › active Library and archive reflow long ownership, trust, tags, and actions (221ms)
+  ✓   7 [chromium] › ../../../../../private/tmp/prax-codex-platform-e2e/e2e/library-editor-reflow.spec.js:82:1 › semantic result metadata reflows without page-level horizontal travel (227ms)
+  ✓   8 [chromium] › ../../../../../private/tmp/prax-codex-platform-e2e/e2e/library-editor-reflow.spec.js:116:1 › narrow editor stacks split panes, exposes controls and outline, and saves an exact draft (1.8s)
+  ✓   9 [chromium] › ../../../../../private/tmp/prax-codex-platform-e2e/e2e/trust-actions.spec.js:22:1 › reviewed human revision retains verification while an agent revision revokes it (1.9s)
+  ✓  10 [chromium] › ../../../../../private/tmp/prax-codex-platform-e2e/e2e/trust-actions.spec.js:80:1 › supersession is retrievable, undoable, and coherent through archive, restore, and delete (2.3s)
+  ✓  11 [chromium] › ../../../../../private/tmp/prax-codex-platform-e2e/e2e/trust-actions.spec.js:154:1 › a lost supersession response is reconciled once from the exact link and target (292ms)
+  ✓  12 [chromium] › ../../../../../private/tmp/prax-codex-platform-e2e/e2e/trust-actions.spec.js:189:1 › an unreadable supersession outcome blocks retry until reload (990ms)
+  ✓  13 [chromium] › ../../../../../private/tmp/prax-codex-platform-e2e/e2e/trust-actions.spec.js:237:1 › a committed verification remains visible when the collection refresh fails (253ms)
+  ✓  14 [chromium] › ../../../../../private/tmp/prax-codex-platform-e2e/e2e/wave1-draft-integrity.spec.js:52:1 › an out-of-band description edit survives a notes-only autosave (3.2s)
+  ✓  15 [chromium] › ../../../../../private/tmp/prax-codex-platform-e2e/e2e/wave1-draft-integrity.spec.js:91:1 › an untouched drawer never resends values a task refresh folded into it (2.5s)
+  ✓  16 [chromium] › ../../../../../private/tmp/prax-codex-platform-e2e/e2e/wave1-draft-integrity.spec.js:125:1 › a committed notes-only save with a lost response reconciles as saved despite an agent description edit (2.7s)
+  ✓  17 [chromium] › ../../../../../private/tmp/prax-codex-platform-e2e/e2e/wave1-draft-integrity.spec.js:167:1 › a Document-info rename survives the next body-keystroke autosave (1.8s)
+  ✓  18 [chromium] › ../../../../../private/tmp/prax-codex-platform-e2e/e2e/wave1-draft-integrity.spec.js:209:1 › project navigation cannot silently discard a dirty drawer draft (465ms)
+
+  18 passed (27.9s)

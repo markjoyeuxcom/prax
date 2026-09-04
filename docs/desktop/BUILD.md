@@ -2,8 +2,13 @@
 
 The desktop app is a Tauri 2 shell (`src-tauri/`) around the Node/Fastify
 server, which runs as a **sidecar**: the bundled Node runtime executes
-`resources/app/server/index.js`, asks the OS for a free loopback port, and
-announces the bound port to its Rust parent. The webview loads that exact
+`resources/app/server/index.js` and announces its bound loopback port to its Rust parent.
+The first launch asks the OS for a free port and persists it in `webview-port` under the app-data
+directory; later launches bind that same port so webview drafts, preferences and saved views survive.
+On upgrade, the latest child readiness record in `logs/server.log` or its rotated predecessor
+recovers the prior origin when no port file exists. A port collision refuses startup and is
+reported in the diagnostic log; close the occupying process before retrying. Preserve the port
+file with the webview profile rather than deleting it to work around a collision. The webview loads that exact
 origin only after `/readyz` answers. The database is an embedded
 SQLite file — a packaged install has **zero external dependencies**.
 

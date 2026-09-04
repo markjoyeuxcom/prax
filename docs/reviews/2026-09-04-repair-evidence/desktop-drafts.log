@@ -1,0 +1,14 @@
+
+> prax@0.20.0 test:e2e
+> playwright test tests/e2e/desktop-draft-persistence.spec.js --workers=1
+
+[WebServer] (node:47399) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 1 test using 1 worker
+
+(node:47400) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [chromium] › tests/e2e/desktop-draft-persistence.spec.js:26:1 › desktop child restart retains capture input and unsaved document recovery at the same origin (2.1s)
+
+  1 passed (2.8s)

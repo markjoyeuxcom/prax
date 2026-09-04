@@ -1,0 +1,86 @@
+
+> prax@0.20.0 verify:restore
+> node scripts/verify-backup-restore.js
+
+{
+  "format": "prax.backup-restore-drill",
+  "version": 1,
+  "current": {
+    "profile": "large",
+    "schemaVersion": "0022_add_project_area.sql",
+    "taskCount": 5000,
+    "documentCount": 750,
+    "relationCount": 1000,
+    "runCount": 250,
+    "sourceWalBytes": 4152,
+    "backup": {
+      "pagesCopied": 1831,
+      "totalPages": 1831,
+      "remainingPages": 0,
+      "bytes": 7499776,
+      "sha256": "ac2e0bf4f47ee43947f9f516d2a8fd1a11a174dd4a7e3c60dc906bb4a8807d95"
+    },
+    "preDestructionValidation": {
+      "integrityCheck": "ok",
+      "foreignKeyViolations": 0,
+      "liveMarkerPreserved": true,
+      "pageCount": 1831,
+      "pageSize": 4096,
+      "bytes": 7499776,
+      "sha256": "ac2e0bf4f47ee43947f9f516d2a8fd1a11a174dd4a7e3c60dc906bb4a8807d95"
+    },
+    "sourceDestroyedBeforeRestore": true,
+    "migrationsAppliedAfterRestore": [],
+    "semanticVerified": true,
+    "restoredIntegrityCheck": "ok",
+    "liveMarkerPreserved": true,
+    "productionBootVerified": true,
+    "elapsedMs": 498
+  },
+  "historical": {
+    "profile": "ci",
+    "seededThrough": "0009_add_project_repo_url.sql",
+    "migratedTo": "0022_add_project_area.sql",
+    "taskCount": 200,
+    "documentCount": 50,
+    "relationCount": 80,
+    "sourceWalBytes": 4152,
+    "backup": {
+      "pagesCopied": 124,
+      "totalPages": 124,
+      "remainingPages": 0,
+      "bytes": 507904,
+      "sha256": "fd2eacad23d4e18b6f0128f7286d534df37d367e58e688b9121d501bc3516804"
+    },
+    "preDestructionValidation": {
+      "integrityCheck": "ok",
+      "foreignKeyViolations": 0,
+      "liveMarkerPreserved": true,
+      "pageCount": 124,
+      "pageSize": 4096,
+      "bytes": 507904,
+      "sha256": "fd2eacad23d4e18b6f0128f7286d534df37d367e58e688b9121d501bc3516804"
+    },
+    "sourceDestroyedBeforeRestore": true,
+    "migrationsAppliedAfterRestore": [
+      "0010_document_type_taxonomy.sql",
+      "0011_add_document_external_refs.sql",
+      "0012_enforce_supersession_lifecycle.sql",
+      "0013_add_durable_run_chronicle.sql",
+      "0014_add_task_import_operations.sql",
+      "0015_add_document_creation_receipts.sql",
+      "0016_add_task_activity_actor.sql",
+      "0017_clamp_task_recurrence_intervals.sql",
+      "0018_reconcile_restored_supersession.sql",
+      "0019_resequence_chronicle_by_time.sql",
+      "0020_add_task_deferral_count.sql",
+      "0021_add_task_planning.sql",
+      "0022_add_project_area.sql"
+    ],
+    "semanticVerified": true,
+    "restoredIntegrityCheck": "ok",
+    "liveMarkerPreserved": true,
+    "productionBootVerified": true,
+    "elapsedMs": 85
+  }
+}

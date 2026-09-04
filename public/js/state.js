@@ -115,6 +115,7 @@ export const state = {
   chatSettingsDraft: null,
   semanticResults: null,        // null = no search ran; [] = ran, empty
   semanticPage: null,           // exact paged response metadata for the active query
+  semanticIndex: null,          // current revision/model coverage from the active search
   semanticError: false,         // last semantic search failed (backend unreachable), not just empty
   semanticLoading: false,       // submitted semantic query is in flight
   semanticLoadingMore: false,   // an additional result page is in flight

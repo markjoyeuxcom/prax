@@ -1,0 +1,26 @@
+
+> prax@0.20.0 verify:portable
+> node scripts/verify-portable-round-trip.js
+
+{
+  "format": "prax.portable-round-trip",
+  "version": 1,
+  "fixture": {
+    "format": "prax.quality-fixture",
+    "version": 1,
+    "profile": "ci",
+    "clock": "2026-07-13T12:00:00.000Z",
+    "seed": 20260713
+  },
+  "taskCount": 200,
+  "checklistItemCount": 150,
+  "checklistStates": {
+    "completed": 50,
+    "open": 100
+  },
+  "archivedTaskCount": 12,
+  "targetProjectRemapped": true,
+  "taskIdsRegenerated": true,
+  "checklistIdsRegenerated": true,
+  "portableDigest": "976ca0346602fecbb1f6f23c00266dd9e5ad2a40a85051800ae605dfa8e92f5d"
+}

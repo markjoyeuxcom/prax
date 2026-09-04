@@ -80,7 +80,7 @@ function renderItem(item, renderMarkdown) {
   return renderTools(item.calls);
 }
 
-function renderConfirm(pending) {
+function renderConfirm(pending, attempted = false, loading = false) {
   const n = pending.length;
   const rows = pending.map((p) => `<li><span class="asst__confirm-sum">${escapeHtml(p.summary || p.name)}</span> <code>${escapeHtml(p.name)}</code></li>`).join('');
   return `<div class="asst__turn asst__turn--ai">
@@ -88,8 +88,8 @@ function renderConfirm(pending) {
       <div class="asst__confirm-head">${icon('spark')} Prax wants to make ${n} change${n === 1 ? '' : 's'} — approve to run:</div>
       <ul class="asst__confirm-list">${rows}</ul>
       <div class="asst__confirm-actions">
-        <button type="button" class="btn-primary btn-primary--sm" data-action="assistant-approve">Approve &amp; run</button>
-        <button type="button" class="btn-ghost btn-ghost--sm" data-action="assistant-decline">Decline</button>
+        <button type="button" class="btn-primary btn-primary--sm" data-action="assistant-approve" ${loading ? 'disabled' : ''}>${attempted ? 'Retry safely' : 'Approve &amp; run'}</button>
+        ${!attempted ? `<button type="button" class="btn-ghost btn-ghost--sm" data-action="assistant-decline" ${loading ? 'disabled' : ''}>Decline</button>` : ''}
       </div>
     </div>
   </div>`;
@@ -111,13 +111,13 @@ export function renderAssistantHtml(state, { renderMarkdown = (s) => escapeHtml(
   const noModel = status && !status.available;
 
   let body;
-  if (noModel) {
+  if (noModel && !state.assistantPending?.length) {
     body = '<div class="asst__notice">No AI model is configured. Set one in <strong>Settings ▸ Intelligence ▸ AI answers</strong> to use the assistant.</div>';
   } else if (!items.length && !state.assistantLoading) {
     body = renderEmpty();
   } else {
     body = items.map((it) => renderItem(it, renderMarkdown)).join('');
-    if (state.assistantPending && state.assistantPending.length) body += renderConfirm(state.assistantPending);
+    if (state.assistantPending && state.assistantPending.length) body += renderConfirm(state.assistantPending, state.assistantApprovalAttempted, state.assistantLoading);
     if (state.assistantLoading) {
       body += '<div class="asst__turn asst__turn--ai"><div class="asst__thinking"><span></span><span></span><span></span></div></div>';
     }

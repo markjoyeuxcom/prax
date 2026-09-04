@@ -201,6 +201,11 @@ async function main(argv) {
     const actor = flags.as === undefined || flags.as === true ? '' : String(flags.as).trim();
     if (!actor) throw new Error('verify requires --as <human-name> for attribution.');
     const current = await client.getDocument(id);
+    // The reviewed revision covers the title AND body the person is shown; an
+    // older server ignores it and still checks the body hash sent alongside.
+    if (!/^[0-9a-f]{64}$/i.test(current?.revision || '')) {
+      throw new Error('the document has no valid revision token and cannot be verified safely.');
+    }
     if (!/^[0-9a-f]{64}$/i.test(current?.contentHash || '')) {
       throw new Error('the document has no valid content hash and cannot be verified safely.');
     }
@@ -209,7 +214,7 @@ async function main(argv) {
       document: current, actor, input: process.stdin, output: process.stdout,
     });
     const doc = await client.verify(id, {
-      verified: true, as: actor, contentHash: current.contentHash,
+      verified: true, as: actor, revision: current.revision, contentHash: current.contentHash,
     });
     out(`Verified ${doc.id} as ${actor}.`);
     return;

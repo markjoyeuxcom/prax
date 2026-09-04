@@ -657,3 +657,9 @@ test('facet row is hidden in archive and semantic modes', () => {
   assert.doesNotMatch(render({ libraryView: 'archive' }), /facet-row/);
   assert.doesNotMatch(render({ librarySemantic: true, semanticStatus: { available: true, enabled: true } }), /facet-row/);
 });
+
+test('semantic results disclose incomplete indexing even when matches exist', () => {
+  const html = render({librarySemantic:true,libraryQuery:'recovery',semanticStatus:{available:true,enabled:true},semanticResults:[{id:'one',title:'One',snippet:'Current match'}],semanticIndex:{total:10,embedded:2,pending:8}});
+  assert.match(html,/2 of 10 documents are current; 8 pending/);
+  assert.match(html,/Re-index/);
+});

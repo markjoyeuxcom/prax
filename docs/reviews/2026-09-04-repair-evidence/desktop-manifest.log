@@ -1,0 +1,5 @@
+
+> prax@0.20.0 desktop:verify
+> node scripts/verify-desktop-release.mjs --require-prepared
+
+[desktop-release] verified Prax v0.20.0 for aarch64-apple-darwin with staged payload

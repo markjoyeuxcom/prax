@@ -31,6 +31,8 @@ test('semantic retrieval reports exact totals, preserves trust, and loads every 
       contentType: 'application/json',
       body: JSON.stringify({
         items,
+        index: {total:30,embedded:21,pending:9},
+        degraded: true, reason: 'index-incomplete',
         page: {
           offset,
           limit,
@@ -52,6 +54,7 @@ test('semantic retrieval reports exact totals, preserves trust, and loads every 
 
   await expect(page.getByText('20 of 21 documents matched by meaning.')).toBeVisible();
   await expect(page.locator('.sem-card')).toHaveCount(20);
+  await expect(page.locator('[data-semantic-coverage]')).toContainText('21 of 30 documents are current; 9 pending');
   const first = page.locator('.sem-card').first();
   await expect(first.locator('.chip--synth')).toHaveText('SYNTH');
   await expect(first.locator('.chip--stale')).toHaveText('STALE');
@@ -79,7 +82,7 @@ test('a stale Ask Prax answer cannot overwrite the newer answer and its source o
     project: projectId,
   });
   const verified = await page.request.post(`/api/library/documents/${source.id}/verify`, {
-    data: { verified: true, as: 'retrieval-e2e' },
+    data: { verified: true, as: 'retrieval-e2e', revision: source.revision },
   });
   expect(verified.ok()).toBe(true);
 

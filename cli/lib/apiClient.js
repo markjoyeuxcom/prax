@@ -79,9 +79,9 @@ export function createClient({ baseUrl, token } = {}) {
         body: patch, agent: true, retryUnavailable: true,
       });
     },
-    verify(id, { verified, as, contentHash } = {}) {
+    verify(id, { verified, as, revision, contentHash } = {}) {
       return request('POST', `/api/library/documents/${encodeURIComponent(id)}/verify`, {
-        body: { verified, as, ...(contentHash ? { contentHash } : {}) }, retryUnavailable: true,
+        body: { verified, as, ...(revision ? { revision } : {}), ...(contentHash ? { contentHash } : {}) }, retryUnavailable: true,
       });
     },
     supersede(oldId, newId) {
