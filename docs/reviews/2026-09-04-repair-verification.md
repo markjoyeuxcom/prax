@@ -66,3 +66,15 @@ Raw selected failure-before-fix and passing execution logs are in [repair eviden
 - Manual screen-reader/physical-device evidence and reference-hardware performance activation remain the separate existing quality-policy work. These repairs do not activate Gate B or certify a release.
 - Local shared-memory recall and the final remember attempt were unavailable because the Prax API at `127.0.0.1:3000` was not running. Durable repair decisions are captured in this report and the updated contract/runbooks.
 - The original unverified Google 410 hypothesis and policy questions about remote Markdown images, metadata-only trust retention, active-only 404 semantics and `.prax/project.json` identity were not promoted into defects or changed.
+
+## Publication follow-up (5 September)
+
+The user authorized commit, push, PR and merge. The repair branch incorporated `origin/main` at `26b3d65` before opening [PR #115](https://github.com/markjoyeuxcom/prax/pull/115), retaining both main's dependency updates and the registry-verified security fixes.
+
+The newer accessibility checker reproduced insufficient contrast in the unavailable Semantic search description in both themes. Removing opacity from the explanatory row fixed the existing accessibility regression without changing the disabled control. A local run after midnight also caught the cockpit fixture using a UTC date while Today uses local dates; using a local fixture date fixed that journey and its downstream stale-plan contamination.
+
+Desktop CI exposed existing Rust formatting drift and a retired Intel runner. Rust formatting is corrected, both desktop workflows stage the declared sidecar resources before `cargo test`, and Intel uses the current `macos-26-intel` label verified against [GitHub's runner inventory](https://github.com/actions/runner-images/blob/main/README.md). The initial failed native run was cancelled before the corrected run.
+
+After integration and these corrections, local verification again passed: **1,847 unit/contract tests, 112 Chromium browser tests, all four accessibility journeys, syntax checks, six Rust tests, Rust formatting and staged desktop manifest validation**. The dependency audit reported **zero vulnerabilities**. Publication evidence is in `2026-09-04-repair-evidence/publication-*.log`.
+
+GitHub's Pull request dependency review check reports that the service is unsupported for this private repository without the relevant Dependency graph/GitHub Advanced Security configuration. The failing check was retained and its limitation disclosed; the independent npm security audit remains active. This is an external repository configuration limitation, not a successful dependency-review result.
