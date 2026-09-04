@@ -17,17 +17,17 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use tauri::path::BaseDirectory;
-use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
-use tauri_plugin_dialog::DialogExt;
-use tauri_plugin_shell::process::{CommandChild, CommandEvent};
-use tauri_plugin_shell::ShellExt;
 #[cfg(desktop)]
 use tauri::menu::{Menu, MenuItem};
+use tauri::path::BaseDirectory;
 #[cfg(desktop)]
 use tauri::tray::TrayIconBuilder;
+use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_dialog::DialogExt;
 #[cfg(desktop)]
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+use tauri_plugin_shell::process::{CommandChild, CommandEvent};
+use tauri_plugin_shell::ShellExt;
 
 const READY_PREFIX: &str = "PRAX_DESKTOP_READY ";
 // System-wide capture summon. Contended defaults are useless — this chord is
@@ -910,8 +910,8 @@ mod tests {
     use std::io::Write;
 
     use super::{
-        navigation_allowed, normalize_export_filename, parse_ready_line,
-        parse_shortcut_response, rotate_log, smoke_data_dir_from_args,
+        navigation_allowed, normalize_export_filename, parse_ready_line, parse_shortcut_response,
+        rotate_log, smoke_data_dir_from_args,
     };
 
     #[test]

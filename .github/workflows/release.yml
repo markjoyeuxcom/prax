@@ -145,7 +145,7 @@ jobs:
               src-tauri/target/release/bundle/dmg/*.dmg
               src-tauri/target/release/bundle/macos/*.app.tar.gz
           - name: macOS Intel
-            platform: macos-13
+            platform: macos-26-intel
             artifact: prax-macos-x64
             args: --bundles app,dmg
             archive_app: true
@@ -198,16 +198,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify Rust source and tests
-        run: |
-          cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-          cargo test --manifest-path src-tauri/Cargo.toml
-
       - name: Stage and verify production sidecar
         shell: bash
         run: |
           npm run prepare:sidecar
           npm run desktop:verify -- --tag ${{ needs.resolve.outputs.version }}
+
+      - name: Verify Rust source and tests
+        run: |
+          cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+          cargo test --manifest-path src-tauri/Cargo.toml
 
       - name: Build signed and notarized macOS bundles
         if: startsWith(matrix.platform, 'macos') && env.APPLE_SIGNING_AVAILABLE == 'true'

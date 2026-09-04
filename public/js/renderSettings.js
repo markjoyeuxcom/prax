@@ -422,7 +422,7 @@ function renderIntelligenceCard(state) {
     <h2 class="settings-card__title">Intelligence</h2>
     <p class="settings-card__sub">Search the library by meaning as well as keywords. Adds the Semantic toggle to the library search.</p>
 
-    <div class="settings-row"${available ? '' : ' style="opacity:.7;"'}>
+    <div class="settings-row">
       <div class="settings-row__text">
         <div class="settings-row__label">Semantic search</div>
         <div class="settings-row__desc">${statusLine}</div>
