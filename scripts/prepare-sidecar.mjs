@@ -7,13 +7,14 @@
 // Runs as Tauri's beforeDevCommand/beforeBuildCommand, and standalone via
 // `npm run prepare:sidecar`. The Rust shell spawns
 //   prax-server <resources>/app/server/index.js
-// so the whole backend ships as plain files — no bundler, no native modules
-// (the database is Node's built-in node:sqlite).
+// so the backend ships as plain files, with Node's built-in node:sqlite.
+// Dependencies may include native prebuilds; only this host target is staged.
 
 import { cpSync, chmodSync, copyFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pruneSidecarDependencies } from './sidecar-dependencies.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const staging = join(root, 'src-tauri', 'resources', 'app');
@@ -51,6 +52,8 @@ execSync('npm ci --omit=dev --ignore-scripts --no-audit --no-fund', {
   stdio: 'inherit',
 });
 rmSync(join(staging, 'package-lock.json'));
+const removed = pruneSidecarDependencies(join(staging, 'node_modules'));
+console.log(`[prepare-sidecar] removed ${removed} non-runtime dependency directories`);
 
 console.log('[prepare-sidecar] staging the Node runtime as the sidecar binary…');
 rmSync(binaries, { recursive: true, force: true });
