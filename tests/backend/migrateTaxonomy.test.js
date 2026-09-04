@@ -58,6 +58,9 @@ test('0010 rebuild preserves data, links, and FTS; retypes tagged post-mortems; 
     '0020_add_task_deferral_count.sql',
     '0021_add_task_planning.sql',
     '0022_add_project_area.sql',
+    '0023_add_document_revision.sql',
+    '0024_add_task_import_sessions.sql',
+    '0025_assistant_write_receipts.sql',
   ]);
 
   // Every row survived, fields intact.

@@ -14,3 +14,8 @@ playwright-report/
 
 # Default local runtime database.
 /prax.db
+
+# Runtime SQLite journals and local repair snapshots must never enter source control.
+/prax.db-wal
+/prax.db-shm
+/.local-review-backups/

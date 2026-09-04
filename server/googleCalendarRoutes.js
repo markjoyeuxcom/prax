@@ -85,9 +85,15 @@ export async function registerGoogleCalendarRoutes(app, options = {}) {
     const pending = state ? pendingStates.get(state) : null;
     if (pending) pendingStates.delete(state);
     reply.header('Content-Type', 'text/html; charset=utf-8');
-    const page = (title, detail) => `<!doctype html><meta charset="utf-8"><title>${title}</title>`
+    const escapeHtml = (text) => String(text ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+    const page = (title, detail) => `<!doctype html><meta charset="utf-8"><title>${escapeHtml(title)}</title>`
       + `<body style="font-family: system-ui; max-width: 32rem; margin: 4rem auto;">`
-      + `<h1 style="font-size:1.2rem;">${title}</h1><p>${detail}</p></body>`;
+      + `<h1 style="font-size:1.2rem;">${escapeHtml(title)}</h1><p>${escapeHtml(detail)}</p></body>`;
     if (error) return page('Google Calendar not connected', `Google reported: ${String(error)}. You can close this tab and try again from Prax.`);
     if (!code || !pending) {
       reply.code(400);

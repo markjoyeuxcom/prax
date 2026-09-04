@@ -67,22 +67,47 @@ export function destinationHint(resolved) {
 // Draft persistence uses its OWN storage key, deliberately separate from the
 // in-app capture's owner-guarded recovery store: the bar and an app tab can
 // never clobber each other's crash drafts because they never share a slot.
-export function loadBarDraft(storage) {
-  try {
-    const value = storage?.getItem(CAPTURE_BAR_DRAFT_KEY);
-    return typeof value === 'string' ? value : '';
-  } catch {
-    return '';
+const CAPTURE_STATE_KEY = 'prax.captureBar.state.v1';
+
+function captureState(storage) {
+  const stored = storage?.getItem(CAPTURE_STATE_KEY);
+  if (stored != null) {
+    const parsed = JSON.parse(stored);
+    if (typeof parsed?.raw !== 'string') throw new Error('Invalid capture recovery record');
+    return { raw: parsed.raw, pending: parsed.pending || null };
   }
+  return { raw: storage?.getItem(CAPTURE_BAR_DRAFT_KEY) || '', pending: null };
 }
-
-export function saveBarDraft(storage, text) {
+function writeCaptureState(storage, state) {
+  if (!storage?.setItem) return false;
+  // Draft and submitted identity commit in one storage operation. The legacy
+  // text key is only a compatibility mirror; reads prefer this full record.
+  storage.setItem(CAPTURE_STATE_KEY, JSON.stringify(state));
   try {
-    if (text) storage?.setItem(CAPTURE_BAR_DRAFT_KEY, text);
-    else storage?.removeItem(CAPTURE_BAR_DRAFT_KEY);
-  } catch { /* storage unavailable: the draft simply does not persist */ }
+    if (state.raw) storage.setItem(CAPTURE_BAR_DRAFT_KEY, state.raw);
+    else storage.removeItem(CAPTURE_BAR_DRAFT_KEY);
+  } catch { /* the canonical record above already persisted */ }
+  return true;
 }
-
-export function clearBarDraft(storage) {
-  saveBarDraft(storage, '');
+export function loadBarDraft(storage) {
+  try { return captureState(storage).raw; } catch { return ''; }
 }
+export function loadBarPending(storage) {
+  try { return captureState(storage).pending; } catch { return null; }
+}
+export function saveBarDraft(storage, text) {
+  try { return writeCaptureState(storage, { ...captureState(storage), raw: text }); }
+  catch { return false; }
+}
+export function saveBarPending(storage, pending) {
+  try { return writeCaptureState(storage, { ...captureState(storage), pending }); }
+  catch { return false; }
+}
+export function finishBarCapture(storage, id, clearDraft) {
+  try {
+    const state = captureState(storage);
+    if (state.pending?.payload?.id !== id) return false;
+    return writeCaptureState(storage, { raw: clearDraft ? '' : state.raw, pending: null });
+  } catch { return false; }
+}
+export function clearBarDraft(storage) { return saveBarDraft(storage, ''); }

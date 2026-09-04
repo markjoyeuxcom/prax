@@ -1,3 +1,5 @@
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { assertSafeNetworkBinding, isLoopbackHost, loadConfig } from './config.js';
@@ -17,6 +19,8 @@ import { registerGoogleCalendarRoutes } from './googleCalendarRoutes.js';
 import { registerAssistantRoutes } from './assistantRoutes.js';
 import {
   announceDesktopReady,
+  savedDesktopPort,
+  persistDesktopPort,
   createGracefulShutdown,
   installDesktopStdinControl,
 } from './desktopLifecycle.js';
@@ -106,8 +110,11 @@ export async function buildApp(options = {}) {
   return app;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const config = loadConfig();
+  const desktopPortFile = process.env.PRAX_DESKTOP_CONTROL === 'stdio'
+    ? process.env.PRAX_DESKTOP_PORT_FILE : null;
+  if (desktopPortFile) config.port = savedDesktopPort(desktopPortFile);
   const app = await buildApp({ config, logger: true });
   // The refusal lives on the listen path, not in loadConfig: non-listening
   // CLIs (backup, migrate) read the same env and must keep working under a
@@ -135,6 +142,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
   if (process.env.PRAX_DESKTOP_CONTROL === 'stdio') {
     installDesktopStdinControl({ input: process.stdin, shutdown });
+    persistDesktopPort(desktopPortFile, address);
     announceDesktopReady(process.stdout, address);
   }
 

@@ -1,3 +1,5 @@
+import { createMemoryAssistantWriteReceipts } from '../server/assistant/writeReceipts.js';
+import { documentRevision, DocumentRevisionConflictError } from '../server/libraryRepository.js';
 import { randomUUID, createHash } from 'node:crypto';
 import { assertSafeNetworkBinding, loadConfig } from '../server/config.js';
 
@@ -155,6 +157,7 @@ function createDocument(seed) {
     updatedAt: seed.updatedAt || now,
     archivedAt: seed.archivedAt || null,
     contentHash: hashBody(body),
+    revision: documentRevision({ title: seed.title, body }),
     updatedBy: seed.updatedBy || 'user',
     kind: seed.kind || 'source',
     verified: seed.verified ?? ((seed.updatedBy || 'user') === 'agent' ? false : true),
@@ -444,10 +447,12 @@ function createMemoryLibraryRepository(documents, linksRef = null) {
       documents.push(created);
       return created;
     },
-    async updateDocument(id, fields) {
+    async updateDocument(id, fields, { ifRevision } = {}) {
       const document = documents.find(item => item.id === id && !item.archivedAt);
       if (!document) return null;
+      if (ifRevision && ifRevision !== document.revision) throw new DocumentRevisionConflictError({ ...document });
       Object.assign(document, fields, { updatedAt: new Date().toISOString() });
+      document.revision = documentRevision(document);
       document.updatedBy = fields.updatedBy || 'user';
       if (fields.updatedBy === 'agent') {
         document.verified = false;
@@ -483,9 +488,11 @@ function createMemoryLibraryRepository(documents, linksRef = null) {
       const doc = documents.find((d) => d.id === id);
       return doc ? { ...doc } : null;
     },
-    async verifyDocument(id, { verified, verifiedBy = null } = {}) {
+    async verifyDocument(id, { verified, verifiedBy = null, revision = null, contentHash = null } = {}) {
       const document = documents.find((d) => d.id === id && !d.archivedAt);
       if (!document) return null;
+      if (verified && ((revision && document.revision !== revision) || (contentHash && document.contentHash !== contentHash))) return null;
+      if (document.verified === Boolean(verified)) return null;
       document.verified = Boolean(verified);
       document.verifiedAt = verified ? new Date().toISOString() : null;
       document.verifiedBy = verified ? verifiedBy : null;
@@ -706,6 +713,7 @@ const app = await buildApp({
   config,
   logger: true,
   skipDb: true,
+  assistantWriteReceipts: createMemoryAssistantWriteReceipts(),
   tasksRepository: createMemoryTasksRepository(sharedDocuments, checklistRepository),
   libraryRepository: createMemoryLibraryRepository(sharedDocuments, documentLinksRepository.getLinks()),
   projectsRepository: createMemoryProjectsRepository(sharedProjects),

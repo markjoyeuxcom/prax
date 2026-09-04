@@ -44,7 +44,7 @@ async function openLibraryDoc(page, titleText) {
 async function replaceEditorBody(page, body) {
   const editor = page.locator('.cm-content[contenteditable="true"]');
   await editor.click();
-  await page.keyboard.press('Control+A');
+  await page.keyboard.press('ControlOrMeta+A');
   await page.keyboard.insertText(body);
   await expect(page.locator('[data-document-editor]')).toHaveValue(body);
 }
@@ -197,10 +197,10 @@ test('a Document-info rename survives the next body-keystroke autosave', async (
   await replaceEditorBody(page, renamedBody);
   await expect(page.locator('[data-document-save-status]')).toHaveText('Saved');
 
-  // The body autosave sends title+body; before the fix save-document-info left
-  // state.documentDraftTitle stale, so this PATCH renamed the document back.
+  // Body autosave must not resend an unchanged title after a metadata rename.
   await expect.poll(() => bodyPatches.length).toBe(1);
-  expect(bodyPatches[0].title).toBe(renamedTitle);
+  expect(bodyPatches[0]).not.toHaveProperty('title');
+  expect(bodyPatches[0].ifRevision).toMatch(/^[a-f0-9]{64}$/);
   const stored = await (await page.request.get(`/api/library/documents/${doc.id}`)).json();
   expect(stored.title).toBe(renamedTitle);
   expect(stored.body).toBe(renamedBody);

@@ -73,6 +73,12 @@ async function run() {
     throw new Error(`Desktop sidecar did not report a graceful zero-code shutdown: ${logFile}`);
   }
 
+  const portFile = join(dataDir, 'webview-port');
+  const firstPort = Number(readFileSync(portFile, 'utf8'));
+  if (!Number.isInteger(firstPort) || firstPort < 1024 || firstPort > 65535) {
+    throw new Error('Desktop did not persist its browser storage origin');
+  }
+
   const db = new DatabaseSync(databaseFile);
   const migrations = db.prepare('select count(*) as count from schema_migrations').get().count;
   const projects = db.prepare('select count(*) as count from projects').get().count;
@@ -95,13 +101,17 @@ async function run() {
   }
 
   const finalLog = readFileSync(logFile, 'utf8');
+  const ports = [...finalLog.matchAll(/PRAX_DESKTOP_READY \{"port":(\d+)\}/g)].map(match => Number(match[1]));
+  if (Number(readFileSync(portFile, 'utf8')) !== firstPort || ports.some(port => port !== firstPort)) {
+    throw new Error('Desktop restart changed its browser storage origin');
+  }
   const readinessCount = finalLog.split('PRAX_DESKTOP_READY').length - 1;
   const cleanExitCount = finalLog.split('[prax] server-exit code=0 signal=none').length - 1;
   if (readinessCount < 2 || cleanExitCount < 2) {
     throw new Error(`Desktop restart evidence is incomplete in ${logFile}`);
   }
 
-  console.log(`[desktop-smoke] packaged runtime launched twice, preserved data across ${migrations} migrations, and exited cleanly`);
+  console.log(`[desktop-smoke] packaged runtime launched twice, preserved data across ${migrations} migrations and the same browser storage origin, and exited cleanly`);
   rmSync(dataDir, { recursive: true, force: true });
 }
 

@@ -42,11 +42,24 @@ function normalizeLabels(value) {
   return out;
 }
 
-// Snooze target: '' (or null) clears it; otherwise any string a Date can parse
-// (the client sends an ISO timestamp).
+// ISO-8601 timestamp regex (YYYY-MM-DDTHH:MM:SS[.sss]Z or with timezone offset).
+const ISO_TIMESTAMP_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:?\d{2})$/i;
+
+function isValidIsoTimestampString(value) {
+  if (value === null || value === undefined || value === '') return true;
+  if (typeof value !== 'string') return false;
+  if (!ISO_TIMESTAMP_REGEX.test(value)) return false;
+  return !Number.isNaN(Date.parse(value));
+}
+
+function normalizeIsoTimestamp(value) {
+  if (value === null || value === undefined || value === '') return null;
+  return new Date(value).toISOString();
+}
+
+// Snooze target: '' (or null) clears it; otherwise a strict ISO timestamp.
 function isValidDeferredUntil(value) {
-  if (value === '' || value === null || value === undefined) return true;
-  return typeof value === 'string' && !Number.isNaN(Date.parse(value));
+  return isValidIsoTimestampString(value);
 }
 const IMPORT_MODES = new Set(['append', 'skip', 'replace']);
 const TASK_EXPORT_FORMAT = 'moomora.tasks';
@@ -97,9 +110,7 @@ function isValidSortOrder(value) {
 }
 
 function isValidTimestampString(value) {
-  if (value === null || value === undefined || value === '') return true;
-  if (typeof value !== 'string') return false;
-  return !Number.isNaN(new Date(value).getTime());
+  return isValidIsoTimestampString(value);
 }
 
 function validateTaskPayload(payload) {
@@ -127,6 +138,39 @@ function importTasksFromPayload(payload) {
   return null;
 }
 
+function validateTaskImportItem(task) {
+  if (!task || typeof task !== 'object' || Array.isArray(task)) return 'tasks must include valid task records';
+  if (typeof task.title !== 'string' || task.title.trim() === '') return 'title is required';
+  if (task.priority !== undefined && !PRIORITIES.has(task.priority)) return 'priority is invalid';
+  if (task.status !== undefined && !STATUSES.has(task.status)) return 'status is invalid';
+  if (task.dueDate !== undefined && !isValidDateString(task.dueDate)) return 'dueDate is invalid';
+  if (task.dueTime !== undefined && !isValidTimeString(task.dueTime)) return 'dueTime is invalid';
+  if (task.deferredUntil !== undefined && !isValidDeferredUntil(task.deferredUntil)) return 'deferredUntil is invalid';
+  if (task.deferralCount !== undefined && task.deferralCount !== null
+    && (!Number.isInteger(task.deferralCount) || task.deferralCount < 0)) return 'deferralCount is invalid';
+  if (task.plannedFor !== undefined && !isValidDateString(task.plannedFor)) return 'plannedFor is invalid';
+  if (task.carryCount !== undefined && task.carryCount !== null
+    && (!Number.isInteger(task.carryCount) || task.carryCount < 0)) return 'carryCount is invalid';
+  if (task.recurrence !== undefined && !isValidRecurrence(task.recurrence)) return 'recurrence is invalid';
+  if (!isValidLabels(task.labels)) return 'labels is invalid';
+  if (task.description !== undefined && typeof task.description !== 'string') return 'description is invalid';
+  if (task.notes !== undefined && typeof task.notes !== 'string') return 'notes is invalid';
+  if (task.checklist !== undefined) {
+    if (!Array.isArray(task.checklist)) return 'checklist is invalid';
+    // Per-task DoS bound only — NOT the creation cap: a pre-cap database
+    // can legally hold more than the creation route now allows, and its
+    // export must remain restorable.
+    if (task.checklist.length > MAX_IMPORT_CHECKLIST_ITEMS_PER_TASK) {
+      return `checklist cannot exceed ${MAX_IMPORT_CHECKLIST_ITEMS_PER_TASK} items per task`;
+    }
+    if (task.checklist.some((item) => !item || typeof item.label !== 'string' || !item.label.trim()
+      || (item.completed !== undefined && typeof item.completed !== 'boolean'))) return 'checklist is invalid';
+  }
+  if (!isValidSortOrder(task.sortOrder)) return 'sortOrder is invalid';
+  if (!isValidTimestampString(task.archivedAt)) return 'archivedAt is invalid';
+  return null;
+}
+
 function validateTaskImportPayload(payload) {
   if (!payload || typeof payload !== 'object') return 'tasks must include at least one task';
   if (typeof payload.project !== 'string' || payload.project.trim() === '') return 'project is required';
@@ -140,35 +184,8 @@ function validateTaskImportPayload(payload) {
   if (tasks.length > MAX_IMPORT_TASKS) return `tasks cannot exceed ${MAX_IMPORT_TASKS} records`;
 
   for (const task of tasks) {
-    if (!task || typeof task !== 'object' || Array.isArray(task)) return 'tasks must include valid task records';
-    if (typeof task.title !== 'string' || task.title.trim() === '') return 'title is required';
-    if (task.priority !== undefined && !PRIORITIES.has(task.priority)) return 'priority is invalid';
-    if (task.status !== undefined && !STATUSES.has(task.status)) return 'status is invalid';
-    if (task.dueDate !== undefined && !isValidDateString(task.dueDate)) return 'dueDate is invalid';
-    if (task.dueTime !== undefined && !isValidTimeString(task.dueTime)) return 'dueTime is invalid';
-    if (task.deferredUntil !== undefined && !isValidDeferredUntil(task.deferredUntil)) return 'deferredUntil is invalid';
-    if (task.deferralCount !== undefined && task.deferralCount !== null
-      && (!Number.isInteger(task.deferralCount) || task.deferralCount < 0)) return 'deferralCount is invalid';
-    if (task.plannedFor !== undefined && !isValidDateString(task.plannedFor)) return 'plannedFor is invalid';
-    if (task.carryCount !== undefined && task.carryCount !== null
-      && (!Number.isInteger(task.carryCount) || task.carryCount < 0)) return 'carryCount is invalid';
-    if (task.recurrence !== undefined && !isValidRecurrence(task.recurrence)) return 'recurrence is invalid';
-    if (!isValidLabels(task.labels)) return 'labels is invalid';
-    if (task.description !== undefined && typeof task.description !== 'string') return 'description is invalid';
-    if (task.notes !== undefined && typeof task.notes !== 'string') return 'notes is invalid';
-    if (task.checklist !== undefined) {
-      if (!Array.isArray(task.checklist)) return 'checklist is invalid';
-      // Per-task DoS bound only — NOT the creation cap: a pre-cap database
-      // can legally hold more than the creation route now allows, and its
-      // export must remain restorable.
-      if (task.checklist.length > MAX_IMPORT_CHECKLIST_ITEMS_PER_TASK) {
-        return `checklist cannot exceed ${MAX_IMPORT_CHECKLIST_ITEMS_PER_TASK} items per task`;
-      }
-      if (task.checklist.some((item) => !item || typeof item.label !== 'string' || !item.label.trim()
-        || (item.completed !== undefined && typeof item.completed !== 'boolean'))) return 'checklist is invalid';
-    }
-    if (!isValidSortOrder(task.sortOrder)) return 'sortOrder is invalid';
-    if (!isValidTimestampString(task.archivedAt)) return 'archivedAt is invalid';
+    const error = validateTaskImportItem(task);
+    if (error) return error;
   }
 
   return null;
@@ -194,11 +211,11 @@ function cleanTaskImportPayload(payload) {
     projectId: payload.projectId,
     dueDate: task.dueDate || null,
     dueTime: task.dueTime || null,
-    deferredUntil: task.deferredUntil || null,
+    deferredUntil: normalizeIsoTimestamp(task.deferredUntil),
     recurrence: task.recurrence || null,
     labels: normalizeLabels(task.labels),
     sortOrder: Number.isInteger(task.sortOrder) ? task.sortOrder : index,
-    archivedAt: task.archivedAt || null,
+    archivedAt: normalizeIsoTimestamp(task.archivedAt),
     deferralCount: Number.isInteger(task.deferralCount) && task.deferralCount > 0 ? task.deferralCount : 0,
     plannedFor: task.plannedFor || null,
     carryCount: Number.isInteger(task.carryCount) && task.carryCount > 0 ? task.carryCount : 0,
@@ -350,8 +367,12 @@ function cleanTaskPatchPayload(payload) {
       fields[field] = payload[field].trim();
       return fields;
     }
-    if ((field === 'dueDate' || field === 'dueTime' || field === 'deferredUntil' || field === 'recurrence' || field === 'plannedFor') && payload[field] === '') {
+    if ((field === 'dueDate' || field === 'dueTime' || field === 'recurrence' || field === 'plannedFor') && payload[field] === '') {
       fields[field] = null;
+      return fields;
+    }
+    if (field === 'deferredUntil') {
+      fields.deferredUntil = normalizeIsoTimestamp(payload[field]);
       return fields;
     }
     if (field === 'labels') {
@@ -523,7 +544,7 @@ export async function registerTasksRoutes(app, options = {}) {
     return repository.listTaskBoardExtras ? repository.listTaskBoardExtras(taskIds) : [];
   });
 
-  app.post('/api/tasks/import', async (request, reply) => {
+  app.post('/api/tasks/import', { bodyLimit: 50 * 1024 * 1024 }, async (request, reply) => {
     const validationError = validateTaskImportPayload(request.body);
     if (validationError) {
       reply.code(400);
@@ -559,7 +580,10 @@ export async function registerTasksRoutes(app, options = {}) {
       });
       if (result.conflict) {
         reply.code(409);
-        return { message: 'requestId was already used for a different task import' };
+        return { message: result.message || 'requestId was already used for a different task import' };
+      }
+      if (!result.replayed && (result.imported || mode === 'replace')) {
+        notifyCalendarBulk();
       }
       reply.code(result.replayed ? 200 : (result.imported ? 201 : 200));
       return result;
@@ -599,6 +623,190 @@ export async function registerTasksRoutes(app, options = {}) {
     };
   });
 
+  // ---- Staged chunked import sessions ----------------------------------------
+
+  app.post('/api/tasks/import-sessions', async (request, reply) => {
+    const { requestId, project, mode = 'append', format, version } = request.body || {};
+    if (format !== undefined && format !== TASK_EXPORT_FORMAT) {
+      reply.code(400);
+      return { message: 'format is invalid' };
+    }
+    if (version !== undefined && version !== TASK_EXPORT_VERSION) {
+      reply.code(400);
+      return { message: 'version is invalid' };
+    }
+    if (!isValidUuid(requestId)) {
+      reply.code(400);
+      return { message: 'requestId is invalid' };
+    }
+    if (!IMPORT_MODES.has(mode)) {
+      reply.code(400);
+      return { message: 'mode is invalid' };
+    }
+    const resolvedProjectId = await resolveProjectId(project);
+    if (resolvedProjectId === null) {
+      reply.code(400);
+      return { message: 'project is invalid' };
+    }
+    const session = await repository.createImportSession({
+      requestId,
+      projectId: resolvedProjectId,
+      mode,
+    });
+    if (session.conflict) {
+      reply.code(409);
+      return { message: session.message || 'conflict with existing session' };
+    }
+    reply.code(session.created ? 201 : 200);
+    return {
+      sessionId: session.sessionId,
+      project: session.projectId,
+      mode: session.mode,
+      status: session.status,
+      ...(session.replayed ? { replayed: true, result: session.result } : {}),
+    };
+  });
+
+  app.get('/api/tasks/import-sessions/:requestId', async (request, reply) => {
+    const { requestId } = request.params;
+    if (!isValidUuid(requestId)) {
+      reply.code(400);
+      return { message: 'requestId is invalid' };
+    }
+    const session = await repository.getImportSession(requestId);
+    if (!session) {
+      reply.code(404);
+      return { message: 'import session not found' };
+    }
+    return session;
+  });
+
+  app.put('/api/tasks/import-sessions/:requestId/chunks/:index', { bodyLimit: 50 * 1024 * 1024 }, async (request, reply) => {
+    const { requestId, index: indexStr } = request.params;
+    if (!isValidUuid(requestId)) {
+      reply.code(400);
+      return { message: 'requestId is invalid' };
+    }
+    const chunkIndex = Number(indexStr);
+    if (!Number.isInteger(chunkIndex) || chunkIndex < 0) {
+      reply.code(400);
+      return { message: 'chunk index is invalid' };
+    }
+    if (request.body?.format !== undefined && request.body.format !== TASK_EXPORT_FORMAT) {
+      reply.code(400);
+      return { message: 'format is invalid' };
+    }
+    if (request.body?.version !== undefined && request.body.version !== TASK_EXPORT_VERSION) {
+      reply.code(400);
+      return { message: 'version is invalid' };
+    }
+    const session = await repository.getImportSession(requestId);
+    if (!session) {
+      reply.code(404);
+      return { message: 'import session not found' };
+    }
+    if (session.status === 'cancelled') {
+      reply.code(409);
+      return { message: 'import session is cancelled' };
+    }
+    const rawTasks = importTasksFromPayload(request.body);
+    if (!Array.isArray(rawTasks)) {
+      reply.code(400);
+      return { message: 'tasks array is required' };
+    }
+    for (const task of rawTasks) {
+      const error = validateTaskImportItem(task);
+      if (error) {
+        reply.code(400);
+        return { message: error };
+      }
+    }
+    const enrichedBody = { tasks: rawTasks, projectId: session.projectId };
+    const normalizedTasks = cleanTaskImportPayload(enrichedBody);
+    const chunkHash = createHash('sha256')
+      .update(JSON.stringify(normalizedTasks))
+      .digest('hex');
+
+    const result = await repository.putImportSessionChunk(requestId, chunkIndex, {
+      tasks: normalizedTasks,
+      chunkHash,
+    });
+    if (result.notFound) {
+      reply.code(404);
+      return { message: 'import session not found' };
+    }
+    if (result.conflict) {
+      reply.code(409);
+      return { message: result.message };
+    }
+    reply.code(result.replayed ? 200 : 201);
+    return {
+      sessionId: requestId,
+      chunkIndex,
+      taskCount: normalizedTasks.length,
+      ...(result.replayed ? { replayed: true } : {}),
+    };
+  });
+
+  app.post('/api/tasks/import-sessions/:requestId/commit', async (request, reply) => {
+    const { requestId } = request.params;
+    if (!isValidUuid(requestId)) {
+      reply.code(400);
+      return { message: 'requestId is invalid' };
+    }
+    if (request.body?.format !== undefined && request.body.format !== TASK_EXPORT_FORMAT) {
+      reply.code(400);
+      return { message: 'format is invalid' };
+    }
+    if (request.body?.version !== undefined && request.body.version !== TASK_EXPORT_VERSION) {
+      reply.code(400);
+      return { message: 'version is invalid' };
+    }
+    const chunkCount = Number(request.body?.chunkCount);
+    if (!Number.isInteger(chunkCount) || chunkCount < 0) {
+      reply.code(400);
+      return { message: 'chunkCount must be a non-negative integer' };
+    }
+    const result = await repository.commitImportSession(requestId, {
+      expectedChunkCount: chunkCount,
+    });
+    if (result.notFound) {
+      reply.code(404);
+      return { message: 'import session not found' };
+    }
+    if (result.conflict) {
+      reply.code(409);
+      return { message: result.message };
+    }
+    if (result.badRequest) {
+      reply.code(400);
+      return { message: result.message };
+    }
+    if (!result.replayed && (result.imported || result.mode === 'replace')) {
+      notifyCalendarBulk();
+    }
+    reply.code(result.replayed ? 200 : (result.imported ? 201 : 200));
+    return result;
+  });
+
+  app.delete('/api/tasks/import-sessions/:requestId', async (request, reply) => {
+    const { requestId } = request.params;
+    if (!isValidUuid(requestId)) {
+      reply.code(400);
+      return { message: 'requestId is invalid' };
+    }
+    const result = await repository.cancelImportSession(requestId);
+    if (result.notFound) {
+      reply.code(404);
+      return { message: 'import session not found' };
+    }
+    if (result.conflict) {
+      reply.code(409);
+      return { message: result.message };
+    }
+    return { cancelled: true };
+  });
+
   app.post('/api/tasks', async (request, reply) => {
     const validationError = validateTaskPayload(request.body);
     if (validationError) {
@@ -626,6 +834,9 @@ export async function registerTasksRoutes(app, options = {}) {
       reply.code(result.created ? 201 : 200);
       if (result.created) {
         await logActivity(result.task.id, 'created', 'Task created', originFrom(request));
+        if (result.task.status === 'completed') {
+          await logActivity(result.task.id, 'status', 'Status → completed', originFrom(request));
+        }
         notifyCalendar([result.task.id]);
       }
       return result.task;
@@ -633,6 +844,9 @@ export async function registerTasksRoutes(app, options = {}) {
     const created = await repository.createTask(candidate);
     reply.code(201);
     await logActivity(created.id, 'created', 'Task created', originFrom(request));
+    if (created.status === 'completed') {
+      await logActivity(created.id, 'status', 'Status → completed', originFrom(request));
+    }
     notifyCalendar([created.id]);
     return created;
   });

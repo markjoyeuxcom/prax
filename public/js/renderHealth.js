@@ -120,7 +120,7 @@ export function renderHealthHtml(state) {
   if (!h) {
     return `<div class="page health">${head}<p class="view-hint">${state.healthLoading ? 'Checking the library…' : 'Could not load library health.'}</p></div>`;
   }
-  const verifyBtn = (d) => `<button class="btn-outline btn-outline--sm" type="button" data-action="verify-health-doc" data-doc-id="${escapeHtml(d.id || '')}">Verify</button>`;
+  const verifyBtn = (d) => `<button class="btn-outline btn-outline--sm" type="button" data-action="verify-health-doc" data-doc-id="${escapeHtml(d.id || '')}">Review</button>`;
   return `<div class="page health">
       ${head}
       <p class="page-head__sub">Documents that may need attention — verify AI drafts, fill or delete stubs, refresh stale derivations, link orphans.</p>

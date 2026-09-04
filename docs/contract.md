@@ -88,7 +88,7 @@ may add fields over time.
   intent commits its task/checklist mutation and durable result together. Replaying the same UUID
   and intent performs no mutation and returns the original result with `"replayed": true`; reusing
   it for different normalized intent returns `409`. The Settings UI always supplies and retains one
-  until the commit is confirmed.
+  until the commit is confirmed, including after reload when the same file/destination/mode is selected.
 - `projectId` is assigned server-side and is **never** read from the payload.
 - Per-task accepted fields: `title` (required), `description`, `notes`, `priority` (default
   `"medium"`), `status` (default `"planned"`), `dueDate`, `dueTime`, `deferredUntil`,
@@ -100,8 +100,9 @@ may add fields over time.
 - Task IDs, `projectId`, `createdAt`, and `updatedAt` are runtime identity: they are regenerated or
   remapped to the selected target project. Every field in the accepted-fields list is preserved
   semantically; `description` and `notes` preserve exact whitespace.
-- **Max 500 tasks** per import.
-- **Max 500 checklist items total** per import.
+- The direct endpoint accepts up to **5,000 tasks** and a **50 MiB** request body. Larger exports
+  use the staged import protocol below; its total task count has no fixed record cap.
+- Up to **10,000 checklist items per task** are accepted by the task candidate validator.
 - **Modes:** `"skip"` (default — skip duplicates), `"append"` (insert all as new),
   `"replace"` (clear the target project, then insert).
 - **Duplicate key** (skip mode): `[ title (lowercased), projectId, status, dueDate ]`.
@@ -392,6 +393,16 @@ mutable via `update_document`, and independent of `derived-from` edges and the
 `x-prax-origin` edit-origin header. Read paths (`get_document`, search rows, stale/orphan
 rows) include `kind`; the create/update tools accept it as an optional input.
 
+### Exact document revisions and conditional updates
+
+Full document records expose `revision`: SHA-256 over UTF-8 `JSON.stringify([storedTitle, storedBody])`.
+`contentHash` remains SHA-256 of body only, preserving the export and derived-from contract.
+`PATCH /api/library/documents/:id` accepts optional `ifRevision`; with it, the update commits
+atomically only if the baseline matches. A mismatch returns 409
+`{message,reason:"revision-mismatch",document:<current full record>}`. Send only edited fields.
+The browser merges independent title/body edits and retains conflicting drafts for explicit review.
+MCP/legacy HTTP partial patches without `ifRevision` remain unconditional.
+
 ### Trust fields
 
 Documents carry four runtime trust/workflow fields. These are **not** part of the portable
@@ -401,7 +412,7 @@ trust state is managed via the `verify`/`supersede` endpoints below.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `verified` | boolean | `true` when a human has blessed the document. Agent writes (MCP `create_document` / `update_document`, CLI `remember`) land `false` by default; the `0007` migration backfills existing rows: `updated_by = 'user'` → `true`, `updated_by = 'agent'` → `false`. |
+| `verified` | boolean | `true` when a human has blessed the document. Agent writes (MCP `create_document` / `update_document`, CLI `remember`) land `false` by default; the consolidated SQLite schema seeds trust by origin: `updated_by = 'user'` → `true`, `updated_by = 'agent'` → `false`. |
 | `verifiedAt` | ISO-8601 timestamp \| `null` | When the document was last verified (or unverified). `null` when `verified` is `false` and has never been set. |
 | `verifiedBy` | string \| `null` | Who verified the document (a name, `"cli"`, `"user"`, etc.). `null` when unverified. |
 | `status` | `"active"` \| `"superseded"` \| `"deprecated"` | Lifecycle state. New documents are `"active"`. A live inbound `supersedes` link makes an active document `"superseded"`. `"deprecated"` is reserved for manual use (stale, no replacement). |
@@ -430,13 +441,13 @@ in addition to the HTTP route below.
 
 `POST /api/library/documents/:id/verify`
 
-Body: `{ "verified": <boolean>, "as": "<name>", "contentHash"?: "<sha256>" }` (`as` is
-optional; defaults to `"user"` when `verified: true`). The attended CLI and Library UI send the
-hash of the exact content the human reviewed. Verification applies atomically only while that hash
-still matches; a concurrent edit returns 409 and remains unverified. Legacy HTTP callers may omit
-the hash. Same-state replay returns the first verification without rewriting its reviewer or
-timestamp. The endpoint sets `verified`, `verifiedAt`, and `verifiedBy` and returns the full updated
-document record (404 if not found, 400 on invalid input).
+Body: `{ "verified": <boolean>, "as": "<name>", "revision"?: "<sha256>", "contentHash"?: "<sha256>" }`.
+`as` defaults to `"user"` for verification. Setting `verified:true` requires the exact
+`revision` displayed to the human; omission is 400. A mismatch is 409 with
+`reason:"revision-mismatch"`, and verification does not change. An optional `contentHash`
+must match as well. Unverification does not require a revision. Same-state replay preserves the
+first reviewer/timestamp. The full document record is returned. The Health action opens the document
+for review; the editor refuses to verify an unsaved draft.
 
 `POST /api/library/documents/:id/supersede`
 
@@ -538,3 +549,53 @@ The shapes above are locked by characterization tests under `tests/contract/`, r
 `npm test`. They guard against *accidental* changes: a change to any shape turns a test red, so
 you either revert it or update the test (and this document) **on purpose**. They are a safety
 net for evolving the formats carefully — not a 1.0 stability guarantee.
+
+## Staged task imports
+
+The UI uses this protocol for 500 or more tasks, or a payload of at least 512 KiB. Each upload
+normally contains at most 200 records and about 512 KiB (a larger individual record gets its own
+chunk). The server per-chunk body limit is 50 MiB; resource failures are explicit. No workspace
+mutation occurs before commit.
+
+1. `POST /api/tasks/import-sessions`: `{requestId,project,mode?,format?,version?}` →
+   `{sessionId,project,mode,status:"open"|"committed",replayed?}`.
+2. `PUT /api/tasks/import-sessions/:requestId/chunks/:index`: `{tasks:[...]}` →
+   `{sessionId,chunkIndex,taskCount,replayed?}`. Indices are zero-based. Identical chunk retries
+   succeed; changed content under the same identity is 409. Replay all chunks even if the session
+   is committed so its retained manifest validates the requested content.
+3. `POST /api/tasks/import-sessions/:requestId/commit`: `{chunkCount}` → the ordinary import
+   result. Missing chunks/gaps are rejected. Tasks, checklists, replace deletion and the durable
+   result receipt commit together. Retry returns the original result without repeating mutation.
+   Request IDs cannot cross between direct imports and staged sessions.
+4. `DELETE /api/tasks/import-sessions/:requestId` cancels an open upload. It cannot undo a
+   committed import or erase its replay protection.
+
+## Retrieval freshness and empty-result semantics
+
+Library keyword terms preserve Unicode letters/numbers; a nonblank query without usable terms
+returns an empty match set. Task text search treats `%` and `_` literally.
+
+Semantic retrieval uses only vectors matching the current document revision and active embedding
+model. Legacy body-only hashes cannot prove title freshness and require reindexing. Paged semantic
+search reports `index:{total,embedded,pending}`; pending vectors produce
+`degraded:true,reason:"index-incomplete"`. Semantic context-pack/Ask retrieval metadata carries
+index coverage too. No stale vector is presented as a current semantic match.
+
+`GET /api/library/documents/:id/similar` now returns
+`{items:[...],degraded:false}`, or `{items:[],degraded:true,reason}` where the reason includes
+`semantic-off`, `not-indexed`, or `unavailable` for a repository without that capability. Missing owners return 404 for this route and the document's
+`/tasks` child collection.
+
+## Assistant approval recovery
+
+Proposed write calls carry a server-generated `approvalId` in canonical history. The browser
+persists pending history and identity before executing approval. Each write claims a durable
+receipt before invoking its tool; matching concurrent/repeated approvals reuse the result, while
+changed intent under the same identity is rejected. If a process stops between execution and
+receipt completion, the result is explicitly unknown and the old approval is never blindly
+re-executed. The person must inspect canonical workspace state before proposing a replacement.
+The browser retains uncertain approvals across reload and offers a safe retry of the same action.
+
+Weekly review counts Shipped from completion events in the selected UTC week (or an explicit completion timestamp). Reopening a task later does not erase its historical completion. Missing legacy completion dates are disclosed rather than inferred from creation or modification times. Creating a task already completed records a completion event.
+
+Assistant recovery keeps pending approvals when the selected model is absent or cannot resume tools. `approval-unavailable` explicitly means that request executed no action; it does not erase any earlier uncertain outcome. The standalone demo opts into in-memory receipts alongside its in-memory workspace; production never falls back to volatile receipts when durable storage is unavailable.

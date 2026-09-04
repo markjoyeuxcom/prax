@@ -26,7 +26,21 @@ export function createSemanticSearchTools(client) {
           }
           const refs = result?.items ?? [];
           const total = Number.isInteger(result?.page?.total) ? result.page.total : refs.length;
-          return okResult(pageEnvelope(refs, total, { limit, offset }));
+          const envelope = pageEnvelope(refs, total, { limit, offset });
+          // Documents whose vector is stale or from another model are never
+          // ranked; the server says how many. Pass that through verbatim so a
+          // page that omits them is not mistaken for complete coverage.
+          const index = result?.index && typeof result.index === 'object' ? result.index : null;
+          if (index) {
+            envelope.index = {
+              total: Number(index.total) || 0,
+              embedded: Number(index.embedded) || 0,
+              pending: Number(index.pending) || 0,
+            };
+            envelope.degraded = Boolean(result.degraded);
+            if (result.reason) envelope.reason = String(result.reason);
+          }
+          return okResult(envelope);
         } catch (err) {
           if (err && err.status === 409) {
             return okResult({ message: 'Semantic search is not enabled on this server. Use search_documents (keyword) instead.' });

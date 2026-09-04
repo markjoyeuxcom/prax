@@ -528,7 +528,7 @@ test('library: verify and supersede round-trip', async () => {
   const verify = await app.inject({
     method: 'POST',
     url: `/api/library/documents/${docDerived.id}/verify`,
-    payload: { verified: true, as: 'user' },
+    payload: { verified: true, as: 'user', revision: docDerived.revision },
   });
   assert.equal(verify.statusCode, 200);
   assert.equal(verify.json().verified, true);

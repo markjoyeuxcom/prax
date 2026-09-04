@@ -202,7 +202,7 @@ test('new library API helpers throw when requests fail', async () => {
   await assert.rejects(fetchOrphanDocuments(''), /Failed to load orphan documents/);
 });
 
-test('verifyDocument posts verified:true with actor and reviewed content hash', async () => {
+test('verifyDocument posts verified:true with actor and reviewed revision', async () => {
   const calls = [];
   globalThis.fetch = async (...args) => { calls.push(args); return jsonResponse({ id: 'doc-1', verified: true }); };
 
@@ -211,7 +211,7 @@ test('verifyDocument posts verified:true with actor and reviewed content hash', 
   assert.deepEqual(result, { id: 'doc-1', verified: true });
   assert.equal(calls[0][0], '/api/library/documents/doc-1/verify');
   assert.equal(calls[0][1].method, 'POST');
-  assert.deepEqual(JSON.parse(calls[0][1].body), { verified: true, as: 'user', contentHash: 'a'.repeat(64) });
+  assert.deepEqual(JSON.parse(calls[0][1].body), { verified: true, as: 'user', revision: 'a'.repeat(64) });
 });
 
 test('verifyDocument posts verified:false on the unverify path', async () => {

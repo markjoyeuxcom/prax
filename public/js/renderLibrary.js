@@ -1,3 +1,4 @@
+import { incompleteIndexNotice } from './retrievalStatus.js';
 import { escapeHtml, chip } from './renderHelpers.js';
 import { icon } from './icons.js';
 import { DOCUMENT_TEMPLATES } from './documentTemplates.js';
@@ -147,12 +148,13 @@ export function buildLibraryModel(state, { limit = LIBRARY_RENDER_BATCH_SIZE } =
       && state.semanticResults !== undefined,
     semanticResults: state.semanticResults ?? null,
     semanticPage: state.semanticPage ?? null,
+    semanticIndex: state.semanticIndex ?? null,
     semanticError: Boolean(state.semanticError),
     semanticLoading: Boolean(state.semanticLoading),
     semanticLoadingMore: Boolean(state.semanticLoadingMore),
     semanticMoreError: Boolean(state.semanticMoreError),
-    embeddedCount: Number(state.semanticStatus?.embeddedCount) || 0,
-    totalCount: Number(state.semanticStatus?.totalCount) || 0,
+    embeddedCount: Number(state.semanticIndex?.embedded ?? state.semanticStatus?.embeddedCount) || 0,
+    totalCount: Number(state.semanticIndex?.total ?? state.semanticStatus?.totalCount) || 0,
     archive: state.libraryView === 'archive',
     visibleCount: filtered.length,
     renderedCount: collection.shown,
@@ -398,7 +400,9 @@ function renderSemanticEmpty(model) {
 
 function renderSemanticResults(results, model = {}, state = {}) {
   const list = Array.isArray(results) ? results : [];
-  if (!list.length) return renderSemanticEmpty(model);
+  const indexNotice = incompleteIndexNotice(model.semanticIndex);
+  const coverage = indexNotice ? `<p class="sem-note" role="status" data-semantic-coverage>${escapeHtml(indexNotice)}</p>` : '';
+  if (!list.length) return coverage + renderSemanticEmpty(model);
   const maxSim = list.reduce((m, r) => (Number.isFinite(r.similarity) && r.similarity > m ? r.similarity : m), 0);
   const reportedTotal = Number(model.semanticPage?.total);
   const total = Number.isInteger(reportedTotal) && reportedTotal >= list.length ? reportedTotal : list.length;
@@ -413,6 +417,7 @@ function renderSemanticResults(results, model = {}, state = {}) {
     more = `<div class="sem-more"><button class="btn-ghost" type="button" data-action="load-more-semantic">Load more <span class="sem-more__count">(${list.length} of ${total})</span></button></div>`;
   }
   return `
+    ${coverage}
     <p class="sem-note">${count} ${total === 1 ? 'document' : 'documents'} matched by meaning.</p>
     <div class="sem-list">${list.map((result, index) => renderSemCard(result, index, maxSim, state)).join('')}</div>
     ${more}`;
