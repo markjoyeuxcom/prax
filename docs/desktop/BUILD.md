@@ -35,6 +35,11 @@ npm run desktop:dev
    `src-tauri/binaries/prax-server-<target-triple>` (Tauri's sidecar naming).
 
 Staging removes any sidecar binary left by another host platform before copying the current target.
+It also removes foreign platform/architecture directories from dependencies’ `prebuilds` trees.
+This keeps native packagers from trying to resolve Android or other foreign libraries in the desktop payload;
+host prebuilds, package JavaScript and metadata are retained. The packaged development tests
+from `@fastify/send` are omitted as well; their Unicode fixture filename is incompatible with
+the default MSI code page and the runtime does not use them.
 `npm run desktop:verify` then proves version/resource agreement and that the payload contains every
 production dependency without development-only packages.
 
