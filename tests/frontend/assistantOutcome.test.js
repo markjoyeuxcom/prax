@@ -43,3 +43,10 @@ test('a normal assistant completion is quiet unless its write refresh failed', (
   assert.match(notice.text, /change completed/i);
   assert.match(notice.text, /reload/i);
 });
+
+test('an unknown approval outcome discloses an unsuccessful workspace refresh', () => {
+  const notice=assistantOutcomeNotice({outcomeUnknown:true},{refreshed:false});
+  assert.match(notice.text,/could not refresh/i);
+  assert.match(notice.text,/reload before/i);
+  assert.doesNotMatch(notice.text,/change completed/i);
+});

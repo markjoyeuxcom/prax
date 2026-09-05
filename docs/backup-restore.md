@@ -13,7 +13,11 @@ conflict and asks before replacement.
 
 This recovery cache is a last-mile data-loss guard, not a backup. Drafts disappear from it after an
 acknowledged save and are not present in database backups or portable exports until the editor says
-**Saved**. Clearing site/application data can remove outstanding recovered drafts.
+**Saved**. Clearing site/application data can remove outstanding recovered drafts. Desktop relaunches reuse
+the port saved in the app-data `webview-port` file, preserving this storage origin. Keep that file
+with the desktop webview profile. An upgrade can recover the most recently logged origin; drafts
+stranded on older, unrecorded origins are not automatically merged. Quick-capture retry payloads,
+project-field drafts and pending assistant approvals also use local recovery storage.
 
 ## 1. App-level export (portable, not a full backup)
 
@@ -90,7 +94,9 @@ For app-level exports: create/choose a project, then Settings ▸ Data & admin �
 **Import tasks from JSON** (choose append/skip/replace). To intake loose `.md` files, open Library ▸
 **Import Markdown…**, choose the destination in the dialog, then choose one or more files. Browser
 task import and caller-identified Markdown creates are exact-once, so an unchanged retry after a lost
-response is safe. Plain Markdown intake preserves file content/filename but does not parse Prax front
+response is safe. Large task files upload as bounded chunks and commit in one transaction only
+after every chunk is present. Reselecting an unchanged task file after a reload retains its pending
+import identity until success is confirmed. Plain Markdown intake preserves file content/filename but does not parse Prax front
 matter or restore type, provenance, trust, or graph relationships; it is a convenience intake path,
 not an authoritative or round-trip recovery format.
 
@@ -113,3 +119,5 @@ same path, verifies the full manifest, and boots Prax. It also restores a `0009`
 proves migrations `0010`/`0011` preserve the taxonomy/FTS rebuild and related rows. The command
 only destroys artifacts inside its own temporary directory; use `--keep` to retain them for
 inspection.
+
+After the exact-revision upgrade, old semantic vectors remain pending until re-indexed: their old body-only token cannot prove that the embedded title was current. Settings ▸ Intelligence can rebuild the index; Library, Ask Prax, and MCP disclose incomplete coverage while only current-revision/current-model vectors are ranked. Original Markdown content and verification stamps are retained.

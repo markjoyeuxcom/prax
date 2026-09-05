@@ -19,12 +19,12 @@ test('normalizeDocumentRow exposes kind', () => {
 test('buildCreateDocument defaults kind to source', () => {
   const q = buildCreateDocument({ title: 't', body: 'b', documentType: 'note', projectId: 'p', tags: [] });
   assert.ok(q.text.includes('kind'), 'sql mentions kind column');
-  assert.equal(q.values[q.values.length - 2], 'source');
+  assert.equal(q.values[q.values.length - 3], 'source');
 });
 
 test('buildCreateDocument accepts explicit synthesized', () => {
   const q = buildCreateDocument({ title: 't', body: 'b', documentType: 'note', projectId: 'p', tags: [], kind: 'synthesized' });
-  assert.equal(q.values[q.values.length - 2], 'synthesized');
+  assert.equal(q.values[q.values.length - 3], 'synthesized');
 });
 
 test('buildUpdateDocument appends kind assignment when present', () => {

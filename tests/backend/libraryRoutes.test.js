@@ -80,6 +80,9 @@ function createFakeLibraryRepository() {
       if (index < 0) return null;
       return documents.splice(index, 1)[0];
     },
+    async getDocument(id) {
+      return documents.find(item => item.id === id) || null;
+    },
   };
 }
 
@@ -557,13 +560,14 @@ test('GET /api/library/documents/:id/similar returns embedding-ranked docs when 
   assert.equal(res.statusCode, 200);
   assert.deepEqual(seen, [{ id: DOCUMENT_ID, backend: 'fake' }]);
   const body = res.json();
-  assert.equal(body[0].id, 'sim-1');
-  assert.equal(body[0].similarity, 0.77);
+  assert.equal(body.degraded, false);
+  assert.equal(body.items[0].id, 'sim-1');
+  assert.equal(body.items[0].similarity, 0.77);
 
   await app.close();
 });
 
-test('GET /api/library/documents/:id/similar returns [] when semantic search is off (no embedder)', async () => {
+test('GET /api/library/documents/:id/similar declares semantic-off and 404s a missing owner', async () => {
   const app = await buildApp({
     skipDb: true,
     tasksRepository: { listTasks: async () => [] },
@@ -573,10 +577,15 @@ test('GET /api/library/documents/:id/similar returns [] when semantic search is 
 
   const res = await app.inject({ method: 'GET', url: `/api/library/documents/${DOCUMENT_ID}/similar` });
   assert.equal(res.statusCode, 200);
-  assert.deepEqual(res.json(), []);
+  assert.deepEqual(res.json(), { items: [], degraded: true, reason: 'semantic-off' });
 
   const bad = await app.inject({ method: 'GET', url: '/api/library/documents/not-a-uuid/similar' });
   assert.equal(bad.statusCode, 400);
+
+  const missing = await app.inject({ method: 'GET', url: `/api/library/documents/${MISSING_DOCUMENT_ID}/similar` });
+  assert.equal(missing.statusCode, 404);
+  const missingTasks = await app.inject({ method: 'GET', url: `/api/library/documents/${MISSING_DOCUMENT_ID}/tasks` });
+  assert.equal(missingTasks.statusCode, 404);
 
   await app.close();
 });
@@ -675,5 +684,22 @@ test('GET /api/library/maintenance/detached-runs returns [] when runs are unavai
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.json(), []);
 
+  await app.close();
+});
+
+test('GET /api/library/documents/:id/similar declares unavailable when the repository has no vector search', async () => {
+  // The demo server's in-memory repository has no findSimilarDocuments; with a
+  // configured embedder the route must degrade explicitly, never 500.
+  const app = await buildApp({
+    skipDb: true,
+    tasksRepository: { listTasks: async () => [] },
+    libraryRepository: createFakeLibraryRepository(),
+    projectsRepository: createFakeProjectsRepository(),
+    embedder: { backend: 'fake', model: 'fake-64', embed: async () => ({ vector: [] }) },
+    appSettingsRepository: { getSetting: async () => true },
+  });
+  const res = await app.inject({ method: 'GET', url: `/api/library/documents/${DOCUMENT_ID}/similar` });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json(), { items: [], degraded: true, reason: 'unavailable' });
   await app.close();
 });

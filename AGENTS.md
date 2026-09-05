@@ -9,7 +9,7 @@ tool-agnostic equivalent and is authoritative for non-Claude agents.
 This project doubles as **shared, local-first long-term memory** for AI tools, backed by
 Prax's library + semantic search. Use it so durable knowledge carries across sessions
 *and across tools*: what one agent learns, another can recall. The memory lives in Prax
-(Postgres + embeddings), not in your context window.
+(SQLite + embeddings), not in your context window.
 
 Two moves — **recall first, remember durable findings.** Both are plain Node scripts that run
 in any agent that can execute a shell command (the `.claude/` path is incidental — they are
@@ -66,8 +66,10 @@ the CLI for "what does *this project* know."
 - Both the scripts and the CLI reach Prax at **`PRAX_API_URL`** (default
   `http://127.0.0.1:3000`). Export it to point at your running instance. Semantic recall needs
   the app running with `EMBEDDING_BACKEND` set (e.g. `ollama`).
-- **No authentication by design** (trusted-network model). All backend config (DB URL, embedding
-  backend/URL/keys) is env-only and never settable via the web UI. See `SECURITY.md`.
+- **No authentication by design** (trusted-network model). The database path and network binding are env-only.
+  Provider backends, URLs, keys and the local CLI path can also be configured through Settings and
+  are stored in the single-user SQLite database. Treat database backups as secrets. Settings
+  access is operator access, including execution of the selected local CLI. See `SECURITY.md`.
 
 ## Engineering conventions
 

@@ -45,8 +45,14 @@ Understand the trust boundary before exposing Prax to a network:
 - **Desktop Library export is user-bounded.** The localhost webview can request a Library ZIP save,
   but cannot supply a destination path. The Rust shell always opens the operating system Save dialog
   and writes only the path the user confirms; no general filesystem-write permission is exposed.
-- **Desktop localhost is process-bound, not broadly trusted.** The Node child binds its own ephemeral
-  loopback port and announces it over its parent-owned stdout. Rust permits navigation only to that
+- **Settings access includes host process execution.** The Claude CLI backend runs the selected
+  executable as the Prax process user. Provider URLs and credentials are also operator-controlled.
+  Protect the entire HTTP surface, including Settings, with the same trusted-operator boundary;
+  workspace access must not be granted to less-trusted automation or network clients.
+- **Desktop localhost is process-bound, not broadly trusted.** The Node child binds its own
+  loopback port and announces it over its parent-owned stdout. Its first OS-selected port is saved
+  under the app-data directory and reused on relaunch so browser drafts/preferences keep their
+  origin. An occupied saved port refuses startup; the shell never opens the occupying server. Rust permits navigation only to that
   exact origin (plus the bundled recovery page); a different localhost port cannot inherit the
   window's native capability. Served scripts are self-only under CSP, framing is denied, and the
   recovery-only restart command is unavailable to the localhost application origin.

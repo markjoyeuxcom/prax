@@ -47,10 +47,11 @@ export function loadDocumentDraftRecovery(storage, documentId) {
   return null;
 }
 
-export function storeDocumentDraftRecovery(storage, { document, title, body }) {
+export function storeDocumentDraftRecovery(storage, { document, title, body, conflict = false }) {
   if (!storage || !document?.id) return false;
   const record = {
     schemaVersion: DOCUMENT_DRAFT_RECOVERY_SCHEMA_VERSION,
+    ...(conflict ? { conflict: true } : {}),
     documentId: document.id,
     baseTitle: String(document.title ?? ''),
     baseBody: bodyOf(document.body),
@@ -104,7 +105,7 @@ export function resolveDocumentDraftRecovery(document, recovery) {
   if (snapshotsMatch(saved, draft) || snapshotsMatch(base, draft)) {
     return { kind: 'obsolete', clear: true, ...saved, isDirty: false, status: 'Saved' };
   }
-  if (snapshotsMatch(saved, base)) {
+  if (snapshotsMatch(saved, base) && !recovery.conflict) {
     return {
       kind: 'recovered', clear: false,
       title: recovery.draftTitle, body: recovery.draftBody,

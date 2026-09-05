@@ -17,17 +17,17 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use tauri::path::BaseDirectory;
-use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
-use tauri_plugin_dialog::DialogExt;
-use tauri_plugin_shell::process::{CommandChild, CommandEvent};
-use tauri_plugin_shell::ShellExt;
 #[cfg(desktop)]
 use tauri::menu::{Menu, MenuItem};
+use tauri::path::BaseDirectory;
 #[cfg(desktop)]
 use tauri::tray::TrayIconBuilder;
+use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_dialog::DialogExt;
 #[cfg(desktop)]
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+use tauri_plugin_shell::process::{CommandChild, CommandEvent};
+use tauri_plugin_shell::ShellExt;
 
 const READY_PREFIX: &str = "PRAX_DESKTOP_READY ";
 // System-wide capture summon. Contended defaults are useless — this chord is
@@ -354,9 +354,14 @@ fn spawn_server(app: &AppHandle, data_dir: &Path) -> Result<(), Box<dyn std::err
 
     let mut envs: HashMap<String, String> = HashMap::new();
     envs.insert("HOST".into(), "127.0.0.1".into());
-    // Node owns the ephemeral bind and announces the selected port over this
-    // exact child's stdout. Rust never guesses and drops a port first.
+    // Node owns the bind and announces its port over this exact child's stdout.
+    // It persists the first OS-selected port so webview storage survives
+    // relaunch. A later bind collision fails closed; no foreign server opens.
     envs.insert("PORT".into(), "0".into());
+    envs.insert(
+        "PRAX_DESKTOP_PORT_FILE".into(),
+        data_dir.join("webview-port").to_string_lossy().into_owned(),
+    );
     envs.insert(
         "PRAX_DB_FILE".into(),
         db_file.to_string_lossy().into_owned(),
@@ -905,8 +910,8 @@ mod tests {
     use std::io::Write;
 
     use super::{
-        navigation_allowed, normalize_export_filename, parse_ready_line,
-        parse_shortcut_response, rotate_log, smoke_data_dir_from_args,
+        navigation_allowed, normalize_export_filename, parse_ready_line, parse_shortcut_response,
+        rotate_log, smoke_data_dir_from_args,
     };
 
     #[test]

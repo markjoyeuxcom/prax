@@ -39,7 +39,14 @@ export async function updateDocument(id, patch) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(patch),
   });
-  if (!response.ok) throw new Error('Failed to update document');
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    const error = new Error(payload?.message || 'Failed to update document');
+    error.status = response.status;
+    error.reason = payload?.reason;
+    error.document = payload?.document;
+    throw error;
+  }
   return response.json();
 }
 
@@ -480,11 +487,11 @@ export async function assistantChat(messages, decisions = null) {
   return res.json();
 }
 
-export async function verifyDocument(id, verified, as = 'user', contentHash = null) {
+export async function verifyDocument(id, verified, as = 'user', revision = null) {
   const response = await fetch(`/api/library/documents/${id}/verify`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ verified, as, ...(verified && contentHash ? { contentHash } : {}) }),
+    body: JSON.stringify({ verified, as, ...(verified && revision ? { revision } : {}) }),
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => null);

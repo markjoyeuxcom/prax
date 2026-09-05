@@ -83,3 +83,18 @@ test('draft persistence round-trips through its dedicated key and tolerates brok
   assert.equal(loadBarDraft(broken), '');
   assert.doesNotThrow(() => saveBarDraft(broken, 'x'));
 });
+
+test('capture draft and retry identity survive reload as one record', async () => {
+  const { loadBarPending, saveBarPending, finishBarCapture } = await import('../../public/js/captureBarCore.js');
+  const values = new Map();
+  const storage = { getItem: k => values.get(k) ?? null, setItem: (k,v) => values.set(k,v), removeItem: k => values.delete(k) };
+  saveBarDraft(storage, 'first');
+  const pending = { raw: 'first', payload: { id: 'stable-id', title: 'first', project: 'inbox' } };
+  assert.equal(saveBarPending(storage, pending), true);
+  saveBarDraft(storage, 'newer text');
+  assert.deepEqual(loadBarPending(storage), pending);
+  assert.equal(loadBarDraft(storage), 'newer text');
+  finishBarCapture(storage, 'stable-id', false);
+  assert.equal(loadBarPending(storage), null);
+  assert.equal(loadBarDraft(storage), 'newer text');
+});

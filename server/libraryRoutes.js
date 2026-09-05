@@ -1,6 +1,12 @@
 import { createHash } from 'node:crypto';
 import { ZipArchive } from 'archiver';
-import { createLibraryRepository, documentMatchesCreateFields } from './libraryRepository.js';
+import {
+  createLibraryRepository,
+  documentMatchesCreateFields,
+  documentRevision,
+  DocumentRevisionConflictError,
+  REVISION_TOKEN_RE,
+} from './libraryRepository.js';
 import { createProjectsRepository } from './projectsRepository.js';
 import { createTasksRepository } from './tasksRepository.js';
 import { createDocumentLinksRepository, DOCUMENT_LINK_RELATIONS } from './documentLinksRepository.js';
@@ -181,6 +187,21 @@ export async function registerLibraryRoutes(app, options = {}) {
     return Boolean(await appSettings.getSetting('semantic_search_enabled', true).catch(() => false));
   }
 
+  // How much of the active library has a vector current for the ACTIVE
+  // backend + model. `pending` documents are excluded from every semantic
+  // ranking, so a retrieval result must disclose them (QINV-08).
+  async function indexCoverage(embedder) {
+    if (!embedder || typeof repository.countEmbeddings !== 'function') return null;
+    try {
+      const counts = await repository.countEmbeddings(embedder.backend, embedder.model);
+      const total = Number(counts?.total || 0);
+      const embedded = Number(counts?.embedded || 0);
+      return { total, embedded, pending: Math.max(0, total - embedded) };
+    } catch {
+      return null;
+    }
+  }
+
   // Fires the fire-and-forget embed for a written document when semantic
   // search is configured + enabled. Deliberately not awaited by callers.
   async function embedOnWrite(documentId) {
@@ -277,6 +298,15 @@ export async function registerLibraryRoutes(app, options = {}) {
     const docIds = entries.map((e) => e.doc.id);
     const outboundByDocId = await documentLinksRepository.listOutboundLinksForDocuments(docIds);
     const refScope = isAll ? 'all' : 'single-project';
+    // A link `ref` must name the entry the target ACTUALLY got, including a
+    // collision suffix (C16): recomputing it from the target's title would
+    // point `Same?` at `same.md`, which is `Same!`'s body. Targets outside the
+    // export keep the computed (documented, dangling-by-design) ref.
+    const entryPathById = new Map(entries.map((e) => [e.doc.id, `${e.path}${e.filename}`]));
+    const resolveRefs = (links) => Object.fromEntries(Object.entries(links).map(([relation, list]) => [
+      relation,
+      list.map((link) => (entryPathById.has(link.id) ? { ...link, ref: entryPathById.get(link.id) } : link)),
+    ]));
 
     const filename = libraryArchiveFilename(scope);
     reply.header('Content-Type', 'application/zip');
@@ -289,7 +319,7 @@ export async function registerLibraryRoutes(app, options = {}) {
 
     for (const entry of entries) {
       const groups = outboundByDocId.get(entry.doc.id) || { 'derived-from': [], supersedes: [] };
-      const links = buildLinksFromGroups(groups, { scope: refScope, currentDocProjectSlug: entry.doc.projectSlug });
+      const links = resolveRefs(buildLinksFromGroups(groups, { scope: refScope, currentDocProjectSlug: entry.doc.projectSlug }));
       const content = renderDocumentMarkdown(entry.doc, entry.doc.projectSlug, links);
       archive.append(content, { name: `${entry.path}${entry.filename}` });
     }
@@ -359,6 +389,7 @@ export async function registerLibraryRoutes(app, options = {}) {
         limit,
         offset,
         page: paged,
+        model: embedder.model,
         minSimilarity: search.minSimilarity,
         topDrop: search.topDrop,
         includeRetired,
@@ -381,6 +412,9 @@ export async function registerLibraryRoutes(app, options = {}) {
     const total = Number.isInteger(docs?.total) && docs.total >= 0 ? docs.total : items.length;
     const returned = items.length;
     const hasMore = offset + returned < total;
+    // Stale or model-mismatched vectors are never ranked (C10); say so. A
+    // page that silently omits unindexed documents is misleading success.
+    const index = await indexCoverage(embedder);
     return {
       items: items.map(toRef),
       page: {
@@ -391,6 +425,7 @@ export async function registerLibraryRoutes(app, options = {}) {
         hasMore,
         nextOffset: hasMore ? offset + returned : null,
       },
+      ...(index ? { index, degraded: index.pending > 0, ...(index.pending > 0 ? { reason: 'index-incomplete' } : {}) } : {}),
     };
   });
 
@@ -420,7 +455,7 @@ export async function registerLibraryRoutes(app, options = {}) {
       if (!query) return { suggestions: [] };
       const linked = new Set((await tasksRepository.listTaskDocuments(task.id)).map((doc) => doc.id));
       const { vector } = await embedder.embed(query, { query: true });
-      const docs = await repository.searchDocumentsSemantic(vector, embedder.backend, { limit: 12 });
+      const docs = await repository.searchDocumentsSemantic(vector, embedder.backend, { limit: 12, model: embedder.model });
       const suggestions = docs
         .filter((doc) => !linked.has(doc.id))
         .slice(0, 5)
@@ -595,6 +630,16 @@ export async function registerLibraryRoutes(app, options = {}) {
       return { message: validationError };
     }
 
+    // `ifRevision` is the caller's baseline: the revision (title + body token)
+    // its draft was loaded from. The write applies only if that is still the
+    // stored revision, so a body-only autosave can never restore a title
+    // another client changed meanwhile (C03). Absent = unconditional.
+    const ifRevision = request.body.ifRevision;
+    if (ifRevision !== undefined && (typeof ifRevision !== 'string' || !REVISION_TOKEN_RE.test(ifRevision))) {
+      reply.code(400);
+      return { message: 'ifRevision is invalid' };
+    }
+
     const fields = cleanDocumentPatchPayload(request.body);
     if (Object.prototype.hasOwnProperty.call(request.body, 'project')) {
       const resolvedId = await resolveProjectId(request.body.project);
@@ -603,7 +648,15 @@ export async function registerLibraryRoutes(app, options = {}) {
     }
 
     fields.updatedBy = originFrom(request);
-    const document = await repository.updateDocument(request.params.id, fields);
+    let document;
+    try {
+      document = await repository.updateDocument(request.params.id, fields,
+        ifRevision === undefined ? {} : { ifRevision: ifRevision.toLowerCase() });
+    } catch (error) {
+      if (!(error instanceof DocumentRevisionConflictError)) throw error;
+      reply.code(409);
+      return { message: error.message, reason: error.reason, document: error.current };
+    }
     if (!document) {
       reply.code(404);
       return { message: 'document not found' };
@@ -644,8 +697,11 @@ export async function registerLibraryRoutes(app, options = {}) {
   });
 
   // Non-archived tasks that reference this document — the editor's backlinks.
+  // Owner-aware like the other child collections: a missing document is a
+  // 404, never an empty list that looks like "no backlinks" (QINV-10).
   app.get('/api/library/documents/:id/tasks', async (request, reply) => {
     if (!isValidUuid(request.params.id)) { reply.code(400); return { message: 'document id is invalid' }; }
+    if (!(await repository.getDocument(request.params.id))) { reply.code(404); return { message: 'document not found' }; }
     if (typeof tasksRepository?.listTasksForDocument !== 'function') return [];
     return tasksRepository.listTasksForDocument(request.params.id);
   });
@@ -874,19 +930,29 @@ export async function registerLibraryRoutes(app, options = {}) {
   });
 
   // "More like this" — documents most similar to this one by embedding. Reuses
-  // the document's own stored vector (no new embedding call). Empty when
-  // semantic search is off or the document has no embedding.
+  // the document's own stored vector (no new embedding call). The envelope
+  // says WHY a list is empty (QINV-08): semantic search off, or this document
+  // not (currently) indexed — and a missing document is a 404 (QINV-10).
   app.get('/api/library/documents/:id/similar', async (request, reply) => {
     if (!isValidUuid(request.params.id)) { reply.code(400); return { message: 'document id is invalid' }; }
+    if (!(await repository.getDocument(request.params.id))) { reply.code(404); return { message: 'document not found' }; }
     const embedder = await resolveEmbedder();
-    if (!embedder || !(await semanticEnabled())) return [];
+    if (!embedder || !(await semanticEnabled())) return { items: [], degraded: true, reason: 'semantic-off' };
+    // A repository without vector search (the demo's in-memory one) is a
+    // declared degradation, never a crash.
+    if (typeof repository.findSimilarDocuments !== 'function') return { items: [], degraded: true, reason: 'unavailable' };
+    if (typeof repository.hasCurrentEmbedding === 'function'
+      && !(await repository.hasCurrentEmbedding(request.params.id, embedder.backend, embedder.model))) {
+      return { items: [], degraded: true, reason: 'not-indexed' };
+    }
     const search = app.embeddingSearch || {};
     const docs = await repository.findSimilarDocuments(request.params.id, embedder.backend, {
       limit: 5,
+      model: embedder.model,
       minSimilarity: search.minSimilarity,
       topDrop: search.topDrop,
     });
-    return docs.map(toRef);
+    return { items: docs.map(toRef), degraded: false };
   });
 
   app.get('/api/library/documents/:id/export', async (request, reply) => {
@@ -911,29 +977,46 @@ export async function registerLibraryRoutes(app, options = {}) {
     return content;
   });
 
+  // Verification blesses the exact title + body a person reviewed, so it is
+  // bound to the document's `revision` token (C08 / QINV-04): a body-only hash
+  // let an agent's later retitle inherit the review. `revision` is required
+  // for verified:true; `contentHash` is an optional extra body guard.
   app.post('/api/library/documents/:id/verify', async (request, reply) => {
     if (!isValidUuid(request.params.id)) { reply.code(400); return { message: 'document id is invalid' }; }
     const body = isPlainObject(request.body) ? request.body : {};
     if (typeof body.verified !== 'boolean') { reply.code(400); return { message: 'verified must be a boolean' }; }
-    if (body.contentHash !== undefined && !/^[0-9a-f]{64}$/i.test(body.contentHash)) {
+    if (body.revision !== undefined && (typeof body.revision !== 'string' || !REVISION_TOKEN_RE.test(body.revision))) {
+      reply.code(400); return { message: 'revision is invalid' };
+    }
+    if (body.contentHash !== undefined && (typeof body.contentHash !== 'string' || !REVISION_TOKEN_RE.test(body.contentHash))) {
       reply.code(400); return { message: 'contentHash is invalid' };
     }
+    if (body.verified && !body.revision) { reply.code(400); return { message: 'revision is required' }; }
     const verifiedBy = body.verified ? (typeof body.as === 'string' && body.as.trim() ? body.as.trim() : 'user') : null;
-    // Stored hashes are lowercase hex; the format validation above accepts
-    // either case, so normalize — an uppercase spelling of the CORRECT hash
+    // Stored tokens are lowercase hex; the format validation above accepts
+    // either case, so normalize — an uppercase spelling of the CORRECT token
     // must not read as "content changed since review".
-    const expectedHash = body.verified ? (body.contentHash ? body.contentHash.toLowerCase() : null) : null;
+    const expectedRevision = body.verified ? body.revision.toLowerCase() : null;
+    const expectedHash = body.verified && body.contentHash ? body.contentHash.toLowerCase() : null;
     const document = await repository.verifyDocument(request.params.id, {
-      verified: body.verified, verifiedBy, contentHash: expectedHash,
+      verified: body.verified, verifiedBy, revision: expectedRevision, contentHash: expectedHash,
     });
     if (!document) {
       const current = await repository.getDocument(request.params.id);
-      if (expectedHash && current && current.contentHash !== expectedHash) {
-        reply.code(409); return { message: 'document changed since it was reviewed; review the current content before verifying' };
+      if (!current) { reply.code(404); return { message: 'document not found' }; }
+      const currentRevision = typeof current.revision === 'string' && current.revision ? current.revision : documentRevision(current);
+      if ((expectedRevision && currentRevision !== expectedRevision)
+        || (expectedHash && current.contentHash && current.contentHash !== expectedHash)) {
+        reply.code(409);
+        return {
+          message: 'document changed since it was reviewed; review the current content before verifying',
+          reason: 'revision-mismatch',
+          revision: currentRevision,
+        };
       }
       // Same-state verification replay is success without rewriting the first
       // reviewer/timestamp. This makes a lost response safe to retry.
-      if (body.verified && current?.verified) return current;
+      if (body.verified && current.verified) return current;
       reply.code(404); return { message: 'document not found' };
     }
     return document;
@@ -975,10 +1058,13 @@ export async function registerLibraryRoutes(app, options = {}) {
         docs = await repository.searchDocumentsSemantic(vector, embedder.backend, {
           projectId: project.id,
           limit: 50,
+          model: embedder.model,
           minSimilarity: search.minSimilarity,
           topDrop: search.topDrop,
         });
         if (docs.length > 0) retrieval = { mode: 'semantic', fallback: false, reason: null };
+        const index = await indexCoverage(embedder);
+        if (index) retrieval.index = index;
       } catch (err) {
         // Degrade to recency rather than fail — keyword/recency always works.
         request.log.error({ err }, 'context-pack semantic embed failed');
@@ -1026,10 +1112,12 @@ export async function registerLibraryRoutes(app, options = {}) {
         const { vector } = await embedder.embed(query, { query: true });
         const search = app.embeddingSearch || {};
         docs = await repository.searchDocumentsSemantic(vector, embedder.backend, {
-          projectId, limit: 50, minSimilarity: search.minSimilarity, topDrop: search.topDrop,
+          projectId, limit: 50, model: embedder.model, minSimilarity: search.minSimilarity, topDrop: search.topDrop,
         });
         if (docs.length > 0) retrieval = { mode: 'semantic', fallback: false, reason: null };
         else retrieval = { mode: 'keyword', fallback: true, reason: 'semantic-no-match' };
+        const index = await indexCoverage(embedder);
+        if (index) retrieval.index = index;
       } catch (err) {
         // Degrade to keyword rather than fail — FTS always works.
         request.log.error({ err }, 'library context-pack semantic embed failed');
@@ -1076,10 +1164,12 @@ export async function registerLibraryRoutes(app, options = {}) {
         const { vector } = await embedder.embed(query, { query: true });
         const search = app.embeddingSearch || {};
         docs = await repository.searchDocumentsSemantic(vector, embedder.backend, {
-          projectId, limit: 50, minSimilarity: search.minSimilarity, topDrop: search.topDrop,
+          projectId, limit: 50, model: embedder.model, minSimilarity: search.minSimilarity, topDrop: search.topDrop,
         });
         if (docs.length > 0) retrieval = { mode: 'semantic', fallback: false, reason: null };
         else retrieval = { mode: 'keyword', fallback: true, reason: 'semantic-no-match' };
+        const index = await indexCoverage(embedder);
+        if (index) retrieval.index = index;
       } catch (err) {
         request.log.error({ err }, 'library ask semantic embed failed');
         docs = [];
@@ -1357,7 +1447,7 @@ export async function registerLibraryRoutes(app, options = {}) {
           const rawPairs = [];
           for (const seed of docs.slice(0, MAX_SEED_DOCS)) {
             const neighbors = await repository.findSimilarDocuments(seed.id, embedder.backend, {
-              limit: NEIGHBORS_PER_SEED, projectId, minSimilarity: search.minSimilarity, topDrop: search.topDrop,
+              limit: NEIGHBORS_PER_SEED, projectId, model: embedder.model, minSimilarity: search.minSimilarity, topDrop: search.topDrop,
             });
             for (const n of neighbors || []) rawPairs.push({ aId: seed.id, bId: n.id, similarity: n.similarity });
           }

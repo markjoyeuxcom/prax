@@ -2,6 +2,12 @@
 // feedback. A committed write is never described as failed or retryable: doing
 // so could make the person repeat an action that already changed their data.
 export function assistantOutcomeNotice(result, { refreshed = true } = {}) {
+  if (result?.outcomeUnknown) {
+    const recovery = refreshed
+      ? 'Check the refreshed workspace before starting a new action.'
+      : 'The workspace could not refresh; reload before checking it or starting a new action.';
+    return { kind: 'partial', text: `An interrupted approved action may already have completed. ${recovery} This approval is guarded against being run twice.` };
+  }
   const detail = result?.error ? ` (${String(result.error)})` : '';
 
   if (result?.status === 'error' && result?.didWrite) {

@@ -48,7 +48,7 @@ test('buildGoogleAuthUrl carries the PKCE challenge, scope, and offline consent'
 test('taskToGoogleEvent mirrors the ICS semantics: all-day vs timed wall-clock', () => {
   const allDay = taskToGoogleEvent(TASK, { timeZone: 'Europe/London' });
   assert.deepEqual(allDay.start, { date: '2026-07-24' });
-  assert.deepEqual(allDay.end, { date: '2026-07-24' });
+  assert.deepEqual(allDay.end, { date: '2026-07-25' });
   assert.equal(allDay.id, googleEventId(TASK.id));
   assert.equal(allDay.summary, 'Rotate the TLS certs');
 

@@ -20,6 +20,8 @@ ENV PRAX_ALLOW_UNAUTHENTICATED_NETWORK=true
 COPY --from=deps /app/node_modules ./node_modules
 COPY --chown=node:node package.json ./
 COPY --chown=node:node server ./server
+COPY --chown=node:node mcp ./mcp
+COPY --chown=node:node scripts/migrate.js ./scripts/migrate.js
 COPY --chown=node:node scripts/backup-database.js ./scripts/backup-database.js
 COPY --chown=node:node public ./public
 

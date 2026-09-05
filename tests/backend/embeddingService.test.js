@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createEmbeddingService, embeddableText } from '../../server/embeddingService.js';
 import { createFakeEmbedder } from '../../server/embedder/fake.js';
+import { documentRevision } from '../../server/libraryRepository.js';
 
 function fakeRepo(docs) {
   const stored = [];
@@ -26,7 +27,8 @@ test('embedDocument stores the raw vector with tracking fields', async () => {
   assert.ok(s.vector.every((n) => Number.isFinite(n)));
   assert.equal(s.backend, 'fake');
   assert.equal(s.dim, 8);
-  assert.equal(s.contentHash, 'h1');
+  assert.equal(s.revision, documentRevision(docs[0]), 'the write is guarded by the revision of the document as read');
+  assert.ok(!('contentHash' in s));
 });
 
 test('embedDocument is a no-op when no embedder', async () => {

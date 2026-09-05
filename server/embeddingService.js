@@ -1,3 +1,5 @@
+import { documentRevision } from './libraryRepository.js';
+
 // The text we embed for a document: title + body together, so a query matching
 // the title (high-signal, especially for short notes) retrieves it. Trims and
 // drops empty parts.
@@ -9,17 +11,24 @@ export function embeddableText(doc) {
 }
 
 export function createEmbeddingService({ repository, embedder, concurrency = 4, logger = console }) {
-  async function embedOne(id, knownContentHash) {
+  // The write is guarded by the document REVISION (title + body) as read at
+  // embed time, never by a hash handed in from an earlier listing: the
+  // repository drops the vector if either field changed in flight (C09). The
+  // vector is tagged with the backend and model that produced it, and reads
+  // only rank vectors matching the active pair (C10), so a job from a
+  // previous provider generation cannot pose as current either.
+  async function embedOne(id) {
     if (!embedder) return false;
     const doc = await repository.getDocument(id);
     if (!doc) return false;
+    const revision = typeof doc.revision === 'string' && doc.revision ? doc.revision : documentRevision(doc);
     const { vector, model, dim } = await embedder.embed(embeddableText(doc));
     const savedId = await repository.setDocumentEmbedding(id, {
       vector,
       backend: embedder.backend,
       model,
       dim,
-      contentHash: knownContentHash ?? doc.contentHash,
+      revision,
     });
     return Boolean(savedId);
   }
@@ -47,7 +56,7 @@ export function createEmbeddingService({ repository, embedder, concurrency = 4, 
       for (let i = 0; i < pending.length; i += concurrency) {
         const batch = pending.slice(i, i + concurrency);
         const results = await Promise.allSettled(
-          batch.map((d) => embedOne(d.id, d.contentHash)),
+          batch.map((d) => embedOne(d.id)),
         );
         for (const r of results) {
           if (r.status === 'fulfilled' && r.value) {

@@ -139,7 +139,27 @@ export function createCalendarPusher({
 
   function drain() {
     if (draining) return draining;
-    draining = drainNow().finally(() => { draining = null; });
+    draining = (async () => {
+      let cumulative = { pushed: 0, removed: 0, failed: 0, failures: [] };
+      let executed = false;
+      while (pending.size > 0 || bulkRequested) {
+        executed = true;
+        const res = await drainNow();
+        if (res) {
+          cumulative.pushed += res.pushed || 0;
+          cumulative.removed += res.removed || 0;
+          cumulative.failed += res.failed || 0;
+          if (Array.isArray(res.failures)) cumulative.failures.push(...res.failures);
+          if (res.skipped) cumulative.skipped = true;
+        }
+      }
+      if (!executed) {
+        return drainNow();
+      }
+      return cumulative;
+    })().finally(() => {
+      draining = null;
+    });
     return draining;
   }
 
@@ -165,8 +185,12 @@ export function createCalendarPusher({
     // Deterministic drain for tests and for the sync route's "flush first".
     async flush() {
       clearTimeout(timer);
-      if (draining) await draining;
-      return drain();
+      let lastResult = null;
+      if (draining) lastResult = await draining;
+      while (pending.size > 0 || bulkRequested) {
+        lastResult = await drain();
+      }
+      return lastResult || drain();
     },
     startSweep() {
       if (stopped || sweepTimer) return;

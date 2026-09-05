@@ -31,16 +31,25 @@ export function createInsightTools(client) {
         const degradedNote = res?.degraded
           ? `Prax degraded (${res.reason || 'unspecified'}).${packNamesRetrieval ? '' : ` ${retrievalNote}`}`
           : retrieval?.fallback && !packNamesRetrieval ? retrievalNote : '';
+        // Semantic ranking silently omits documents whose vector is stale or
+        // from another model; when the server reports any, say so every time
+        // (answer or pack) so "nothing relevant" is not mistaken for coverage.
+        const index = retrieval?.index;
+        const pending = index ? Number(index.pending) || 0 : 0;
+        const indexNote = pending > 0
+          ? `Index incomplete: ${pending} of ${Number(index.total) || 0} document${(Number(index.total) || 0) === 1 ? '' : 's'} await reindex and were not ranked.`
+          : '';
+        const statusNote = [degradedNote, indexNote].filter(Boolean).join(' ');
         // Prefer the synthesized answer; fall back to the retrieved pack.
         const answer = res && typeof res.answer === 'string' && res.answer.trim() ? res.answer : null;
         if (answer) {
           const sources = Array.isArray(res.sources) && res.sources.length
             ? `\n\n---\nSources: ${res.sources.map((s) => `[${s.title}]${s.verified ? '' : ' (unverified)'}`).join(', ')}`
             : '';
-          const status = degradedNote ? `\n\n---\n${degradedNote}` : '';
+          const status = statusNote ? `\n\n---\n${statusNote}` : '';
           return textResult(`${answer}${sources}${status}`);
         }
-        const status = degradedNote ? `${degradedNote}\n\n` : '';
+        const status = statusNote ? `${statusNote}\n\n` : '';
         return textResult(`${status}${pack || 'No matching documents in the library.'}`);
       }),
     },

@@ -28,13 +28,26 @@ async function build(overrides = {}) {
   return app;
 }
 
-test('POST verify sets verified true with actor', async () => {
+test('POST verify sets verified true with actor, bound to the reviewed revision', async () => {
   const app = await build();
-  const hash = 'a'.repeat(64);
-  const res = await app.inject({ method: 'POST', url: `/api/library/documents/${ID}/verify`, payload: { verified: true, as: 'mark', contentHash: hash } });
+  const revision = 'a'.repeat(64);
+  const hash = 'b'.repeat(64);
+  const res = await app.inject({ method: 'POST', url: `/api/library/documents/${ID}/verify`, payload: { verified: true, as: 'mark', revision: revision.toUpperCase(), contentHash: hash } });
   assert.equal(res.statusCode, 200);
   assert.equal(res.json().verified, true);
-  assert.deepEqual(app._calls.verify[0], { id: ID, payload: { verified: true, verifiedBy: 'mark', contentHash: hash } });
+  assert.deepEqual(app._calls.verify[0], { id: ID, payload: { verified: true, verifiedBy: 'mark', revision, contentHash: hash } });
+  await app.close();
+});
+
+test('POST verify requires the reviewed revision and rejects a malformed one', async () => {
+  const app = await build();
+  const missing = await app.inject({ method: 'POST', url: `/api/library/documents/${ID}/verify`, payload: { verified: true, as: 'mark', contentHash: 'a'.repeat(64) } });
+  assert.equal(missing.statusCode, 400);
+  assert.equal(missing.json().message, 'revision is required');
+  const bad = await app.inject({ method: 'POST', url: `/api/library/documents/${ID}/verify`, payload: { verified: true, revision: 'not-a-token' } });
+  assert.equal(bad.statusCode, 400);
+  assert.equal(bad.json().message, 'revision is invalid');
+  assert.deepEqual(app._calls.verify, [], 'nothing reaches the repository without a token');
   await app.close();
 });
 
@@ -42,7 +55,7 @@ test('POST verify defaults actor to "user" and supports unverify', async () => {
   const app = await build();
   const res = await app.inject({ method: 'POST', url: `/api/library/documents/${ID}/verify`, payload: { verified: false } });
   assert.equal(res.statusCode, 200);
-  assert.deepEqual(app._calls.verify[0], { id: ID, payload: { verified: false, verifiedBy: null, contentHash: null } });
+  assert.deepEqual(app._calls.verify[0], { id: ID, payload: { verified: false, verifiedBy: null, revision: null, contentHash: null } });
   await app.close();
 });
 
@@ -96,35 +109,44 @@ test('POST verify rejects a malformed reviewed content hash', async () => {
 });
 
 test('POST verify 404s when the document is missing', async () => {
-  const app = await build({ library: { async verifyDocument() { return null; } } });
-  const res = await app.inject({ method: 'POST', url: `/api/library/documents/${ID}/verify`, payload: { verified: true } });
+  const app = await build({ library: { async verifyDocument() { return null; }, async getDocument() { return null; } } });
+  const res = await app.inject({ method: 'POST', url: `/api/library/documents/${ID}/verify`, payload: { verified: true, revision: 'a'.repeat(64) } });
   assert.equal(res.statusCode, 404);
   await app.close();
 });
 
-test('POST verify rejects a stale reviewed content hash', async () => {
+test('POST verify rejects a stale reviewed revision and names the current one', async () => {
   const app = await build({ library: {
     async verifyDocument() { return null; },
-    async getDocument(id) { return { id, contentHash: 'b'.repeat(64) }; },
+    async getDocument(id) { return { id, revision: 'b'.repeat(64), contentHash: 'c'.repeat(64) }; },
   } });
   const res = await app.inject({
     method: 'POST', url: `/api/library/documents/${ID}/verify`,
-    payload: { verified: true, as: 'mark', contentHash: 'a'.repeat(64) },
+    payload: { verified: true, as: 'mark', revision: 'a'.repeat(64) },
   });
   assert.equal(res.statusCode, 409);
   assert.match(res.json().message, /changed since it was reviewed/);
+  assert.equal(res.json().reason, 'revision-mismatch');
+  assert.equal(res.json().revision, 'b'.repeat(64));
+
+  // A matching revision with a stale optional body hash is still a mismatch.
+  const staleHash = await app.inject({
+    method: 'POST', url: `/api/library/documents/${ID}/verify`,
+    payload: { verified: true, as: 'mark', revision: 'b'.repeat(64), contentHash: 'a'.repeat(64) },
+  });
+  assert.equal(staleHash.statusCode, 409);
   await app.close();
 });
 
 test('POST verify same-state replay returns the first verification without overwriting it', async () => {
-  const first = { id: ID, verified: true, verifiedBy: 'mark', verifiedAt: '2026-07-13T10:00:00.000Z', contentHash: 'a'.repeat(64) };
+  const first = { id: ID, verified: true, verifiedBy: 'mark', verifiedAt: '2026-07-13T10:00:00.000Z', revision: 'a'.repeat(64), contentHash: 'b'.repeat(64) };
   const app = await build({ library: {
     async verifyDocument() { return null; },
     async getDocument() { return first; },
   } });
   const res = await app.inject({
     method: 'POST', url: `/api/library/documents/${ID}/verify`,
-    payload: { verified: true, as: 'mark', contentHash: first.contentHash },
+    payload: { verified: true, as: 'mark', revision: first.revision, contentHash: first.contentHash },
   });
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.json(), first);

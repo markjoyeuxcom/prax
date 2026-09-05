@@ -84,9 +84,14 @@ export function taskToGoogleEvent(task, { timeZone } = {}) {
     event.end = { dateTime: start, timeZone: zone };
   } else {
     event.start = { date: task.dueDate };
-    event.end = { date: task.dueDate };
+    event.end = { date: nextDay(task.dueDate) };
   }
   return event;
+}
+
+function nextDay(dateOnly) {
+  const ms = Date.parse(`${dateOnly}T00:00:00Z`) + 86400000;
+  return Number.isNaN(ms) ? dateOnly : new Date(ms).toISOString().slice(0, 10);
 }
 
 // Pure diff for a full sync: eligible tasks are upserted; events with no

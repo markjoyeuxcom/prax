@@ -1,6 +1,7 @@
 import { DOCUMENT_TYPES, isDocumentType } from './documentTypes.js';
 import { externalRefKind, EXTERNAL_REF_KIND_LABELS, isSafeHttpUrl, refsToLines } from './externalRefKind.js';
 import { escapeHtml, chip, prioDotClass } from './renderHelpers.js';
+import { DOCUMENT_INFO_FIELD_LABELS } from './documentInfoDraft.js';
 
 // Prax document editor — pure render module (docs/desktop/phase1-actions.md).
 // `renderEditorHtml(state, doc, model)` returns an HTML string; no DOM access.
@@ -146,38 +147,68 @@ function renderHead(state, doc, { mode, readOnly, project }) {
     </header>`;
 }
 
+// The form renders from the explicit draft (state.documentInfoDraft) whenever
+// one is open for this document, so a rerender or a failed save never
+// re-seeds the inputs from the record and discards what the person typed.
+// The record-derived fallback only serves a form opened without a draft.
 function renderInfoForm(state, doc, projects = []) {
-  const tags = Array.isArray(doc.tags) ? doc.tags.join(', ') : '';
-  const type = isDocumentType(doc.documentType) ? doc.documentType : 'note';
-  const title = state.documentDraftId === doc.id ? state.documentDraftTitle : doc.title;
+  const draft = state.documentInfoDraft && state.documentInfoDraft.documentId === doc.id ? state.documentInfoDraft : null;
+  const fields = draft ? draft.fields : {
+    title: state.documentDraftId === doc.id ? state.documentDraftTitle : doc.title,
+    documentType: doc.documentType,
+    projectId: doc.projectId,
+    tags: Array.isArray(doc.tags) ? doc.tags.join(', ') : '',
+    sourceFilename: doc.sourceFilename || '',
+    refsText: refsToLines(state.docInfoRefsSeed),
+  };
+  const type = isDocumentType(fields.documentType) ? fields.documentType : 'note';
+  const pending = Boolean(draft?.pending);
+  const conflict = draft?.conflict || null;
+  const projectName = (id) => projects.find((project) => project.id === id)?.name || id || '—';
+  const display = (field, value) => {
+    if (field === 'projectId') return projectName(value);
+    if (Array.isArray(value)) return value.length ? value.join(', ') : '(none)';
+    const text = String(value ?? '').trim();
+    return text || '(none)';
+  };
+  const conflictHtml = conflict ? `
+      <div class="editor-info__error editor-info__conflict" data-doc-info-conflict role="alert">
+        <p>This document changed while you were editing. Review the contested values, choose which to keep, then save again. Your entries are kept until you decide.</p>
+        <ul>${conflict.conflicts.map((field) => `<li><strong>${escapeHtml(DOCUMENT_INFO_FIELD_LABELS[field] || field)}</strong> — theirs: ${escapeHtml(display(field, conflict.remote?.[field]))} · yours: ${escapeHtml(display(field, fields[field]))}</li>`).join('')}</ul>
+        <div class="editor-info__actions">
+          <button class="btn-ghost" type="button" data-action="doc-info-keep-theirs">Use current values</button>
+          <button class="btn-ghost" type="button" data-action="doc-info-keep-mine">Keep my changes</button>
+        </div>
+      </div>` : '';
   return `
     <div class="editor-info">
       ${state.documentInfoError ? `<div class="editor-info__error" role="alert">${escapeHtml(state.documentInfoError)}</div>` : ''}
+      ${conflictHtml}
       <label class="editor-info__field"><span>Title</span>
-        <input class="text-input" type="text" data-doc-info-title value="${escapeHtml(title || '')}" autocomplete="off">
+        <input class="text-input" type="text" data-doc-info-title value="${escapeHtml(fields.title || '')}" autocomplete="off"${pending ? ' disabled' : ''}>
       </label>
       <label class="editor-info__field"><span>Type</span>
-        <select class="text-input" data-doc-info-type>
+        <select class="text-input" data-doc-info-type${pending ? ' disabled' : ''}>
           ${DOCUMENT_TYPES.map((option) => `<option value="${option.value}"${option.value === type ? ' selected' : ''}>${option.label}</option>`).join('')}
         </select>
       </label>
       <label class="editor-info__field"><span>Project</span>
-        <select class="text-input" data-doc-info-project>
-          ${projects.map(project => `<option value="${escapeHtml(project.id)}"${project.id === doc.projectId ? ' selected' : ''}>${escapeHtml(project.name)}</option>`).join('')}
+        <select class="text-input" data-doc-info-project${pending ? ' disabled' : ''}>
+          ${projects.map(project => `<option value="${escapeHtml(project.id)}"${project.id === fields.projectId ? ' selected' : ''}>${escapeHtml(project.name)}</option>`).join('')}
         </select>
       </label>
       <label class="editor-info__field"><span>Tags</span>
-        <input class="text-input" type="text" data-doc-info-tags value="${escapeHtml(tags)}" placeholder="postgres, backup" autocomplete="off">
+        <input class="text-input" type="text" data-doc-info-tags value="${escapeHtml(fields.tags || '')}" placeholder="postgres, backup" autocomplete="off"${pending ? ' disabled' : ''}>
       </label>
       <label class="editor-info__field"><span>Source file</span>
-        <input class="text-input" type="text" data-doc-info-source value="${escapeHtml(doc.sourceFilename || '')}" autocomplete="off">
+        <input class="text-input" type="text" data-doc-info-source value="${escapeHtml(fields.sourceFilename || '')}" autocomplete="off"${pending ? ' disabled' : ''}>
       </label>
       <label class="editor-info__field"><span>External references</span>
-        <textarea class="text-input editor-info__refs" data-doc-info-refs rows="3" placeholder="https://github.com/org/repo/pull/42 | The PR&#10;one URL per line, optional  | label" autocomplete="off" spellcheck="false">${escapeHtml(refsToLines(state.docInfoRefsSeed))}</textarea>
+        <textarea class="text-input editor-info__refs" data-doc-info-refs rows="3" placeholder="https://github.com/org/repo/pull/42 | The PR&#10;one URL per line, optional  | label" autocomplete="off" spellcheck="false"${pending ? ' disabled' : ''}>${escapeHtml(fields.refsText || '')}</textarea>
       </label>
       <div class="editor-info__actions">
-        <button class="btn-ghost" type="button" data-action="save-document-info">Save</button>
-        <button class="btn-ghost" type="button" data-action="cancel-document-info">Cancel</button>
+        <button class="btn-ghost" type="button" data-action="save-document-info"${pending ? ' disabled' : ''}>${pending ? 'Saving…' : 'Save'}</button>
+        <button class="btn-ghost" type="button" data-action="cancel-document-info"${pending ? ' disabled' : ''}>Cancel</button>
       </div>
     </div>`;
 }
@@ -308,11 +339,19 @@ function renderExternalRefsSection(refs) {
 // "More like this" — documents most similar by embedding. null/undefined = not
 // fetched yet; [] or none = render nothing (semantic search may be off).
 function renderRelatedSection(related) {
-  const list = Array.isArray(related) ? related : [];
+  if (related?.degraded) {
+    const message = related.reason === 'semantic-off' ? 'Related documents are unavailable while semantic search is off.'
+      : related.reason === 'not-indexed' ? 'Related documents will be available after this document is indexed.'
+      : related.reason === 'index-incomplete' ? 'Some documents are still being indexed; related results may be incomplete.'
+      : 'Related documents could not be loaded. Try again when the connection is available.';
+    if (!related.items?.length) return '<section class="doc-related" aria-label="Related documents"><p role="status">' + escapeHtml(message) + '</p></section>';
+  }
+  const list = Array.isArray(related) ? related : (related?.items || []);
   if (!list.length) return '';
   return `
         <section class="doc-related" aria-label="Related documents">
           <div class="doc-related__label">Related documents</div>
+          ${related?.degraded ? '<p role="status">Some documents are still being indexed; results may be incomplete.</p>' : ''}
           ${list.map((doc) => `
           <button class="doc-row doc-related__row" type="button" data-action="open-doc" data-document-id="${escapeHtml(doc.id)}">
             <span class="doc-row__title">${escapeHtml(doc.title || 'Untitled')}</span>

@@ -4,7 +4,8 @@
 export function documentMatchesLifecycle(document, intent = {}) {
   switch (intent.type) {
     case 'verify':
-      return Boolean(document) && Boolean(document.verified) === Boolean(intent.verified);
+      return Boolean(document) && Boolean(document.verified) === Boolean(intent.verified)
+        && (!intent.verified || !intent.revision || document.revision === intent.revision);
     case 'supersede':
       return Boolean(document) && document.status === 'superseded';
     case 'activate':
