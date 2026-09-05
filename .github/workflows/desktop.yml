@@ -43,6 +43,13 @@ jobs:
             assets: |
               src-tauri/target/release/bundle/deb/*.deb
               src-tauri/target/release/bundle/appimage/*.AppImage
+          - name: Linux ARM64
+            platform: ubuntu-24.04-arm
+            artifact: prax-linux-arm64
+            args: --bundles deb,appimage
+            assets: |
+              src-tauri/target/release/bundle/deb/*.deb
+              src-tauri/target/release/bundle/appimage/*.AppImage
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.platform }}
     steps:

@@ -12,7 +12,7 @@ file with the webview profile rather than deleting it to work around a collision
 origin only after `/readyz` answers. The database is an embedded
 SQLite file — a packaged install has **zero external dependencies**.
 
-Supported desktop builds and releases target **macOS Apple Silicon** and **Linux x64**.
+Supported desktop builds and releases target **macOS Apple Silicon**, **Linux x64** and **Linux ARM64**.
 Windows and Intel Mac installers are no longer built or released.
 
 ## Prerequisites
@@ -57,10 +57,14 @@ npm run desktop:build
 Outputs land under `src-tauri/target/release/bundle/`:
 
 - macOS Apple Silicon: `.app` and `.dmg`
-- Linux x64: `.deb` and `.AppImage`
+- Linux x64 and ARM64: `.deb` and `.AppImage` for each architecture
 
 Cross-compilation is not supported — build each platform on that platform
-(CI matrix or per-machine builds).
+(CI matrix or per-machine builds). Linux ARM64 uses GitHub’s native `ubuntu-24.04-arm` runner
+to stage the ARM64 Node runtime and dependencies, build both installers, and run the same two-launch
+runtime smoke as Linux x64. CI uploads `prax-linux-arm64`; tagged releases attach the architecture-specific
+installers and checksums. See [GitHub’s runner support](https://github.blog/changelog/2026-01-29-arm64-standard-runners-are-now-available-in-private-repositories/)
+and [Tauri’s ARM AppImage guidance](https://v2.tauri.app/distribute/appimage/#appimages-for-arm-based-devices).
 
 ## Where user data lives
 

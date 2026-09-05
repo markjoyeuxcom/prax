@@ -49,6 +49,7 @@ export const REQUIRED_MANUAL_MATRIX = Object.freeze([
   { lane: 'physical-touch', platformFamily: 'android' },
   { lane: 'native-platform', platformTarget: 'macos-arm64' },
   { lane: 'native-platform', platformTarget: 'ubuntu-x64' },
+  { lane: 'native-platform', platformTarget: 'ubuntu-arm64' },
 ]);
 
 function requiredString(value, label) {
