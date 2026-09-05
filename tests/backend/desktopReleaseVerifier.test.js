@@ -29,6 +29,8 @@ test('desktop release argument and target contracts reject ambiguity', () => {
   assert.throws(() => parseReleaseArgs(['--tag']), /requires/);
   assert.throws(() => parseReleaseArgs(['--mystery']), /Unknown/);
   assert.equal(targetTriple('linux', 'x64'), 'x86_64-unknown-linux-gnu');
+  assert.equal(targetTriple('linux', 'arm64'), 'aarch64-unknown-linux-gnu');
+  assert.equal(expectedSidecarName('linux', 'arm64'), 'prax-server-aarch64-unknown-linux-gnu');
   assert.equal(expectedSidecarName('win32', 'x64'), 'prax-server-x86_64-pc-windows-msvc.exe');
   assert.throws(() => targetTriple('freebsd', 'x64'), /No supported desktop target/);
 });

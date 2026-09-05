@@ -35,7 +35,7 @@ The four evidence lanes are independent:
 | Screen reader | macOS VoiceOver, Windows NVDA, Ubuntu Orca | Real speech/braille navigation and control operation; accessibility-tree inspection alone does not count. |
 | Cognitive walkthrough | At least one reviewer who did not implement the candidate | Goal-based prompts without UI-specific instructions; record assistance, wrong turns, misleading feedback, and recovery comprehension. |
 | Physical touch | iOS/iPadOS Safari and Android Chrome on real hardware | Touch-only portrait and landscape operation; browser device emulation does not count. |
-| Native platform | macOS arm64 and Ubuntu x64 release artifacts (scope reduced by the user on 5 September 2026) | Install/launch, persistence across two launches, restart/recovery, native import/export dialogs, and uninstall/update expectations. |
+| Native platform | macOS arm64, Ubuntu x64 and Ubuntu arm64 release artifacts (scope updated by the user on 5 September 2026) | Install/launch, persistence across two launches, restart/recovery, native import/export dialogs, and uninstall/update expectations. |
 
 An evidence record may say `fail` or `blocked`; the validator preserves that truth. Only a complete
 record whose required checks all pass is activation evidence. A failure must name an issue or give

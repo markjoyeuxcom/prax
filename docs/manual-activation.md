@@ -174,7 +174,7 @@ Browser emulation may reproduce a defect but cannot close this lane.
 
 ### Native platform
 
-Use artifacts from the same candidate revision for `macos-arm64` and `ubuntu-x64`.
+Use artifacts from the same candidate revision for `macos-arm64`, `ubuntu-x64` and `ubuntu-arm64`.
 Windows and Intel Mac installers are outside the supported native release matrix.
 CI proving an artifact exists is prerequisite evidence, not this manual result.
 
@@ -196,12 +196,12 @@ Require that record to pass:
 npm run verify:manual-activation -- --input /path/to/record.json --require-pass
 ```
 
-After all eight matrix records exist, pass each with a separate `--input`, followed by:
+After all nine matrix records exist, pass each with a separate `--input`, followed by:
 
 ```bash
 --matrix --require-pass
 ```
 
 The full matrix is three screen readers, one independent cognitive walkthrough, two real touch
-platforms, and two native release targets. Windows NVDA still covers the browser application.
+platforms, and three native release targets. Windows NVDA still covers the browser application.
 Commit only reviewed, privacy-safe evidence intended to support activation.
