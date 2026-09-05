@@ -75,3 +75,24 @@ test('generate_runbook returns the created doc; surfaces the "no model" error', 
   assert.equal(err.isError, true);
   assert.match(err.content[0].text, /no AI model is configured/);
 });
+
+// C10 adapter coverage: an incomplete semantic index is disclosed in prose on
+// both the answer and the pack paths, and never invented when nothing is pending.
+test('ask_prax discloses pending (unranked) documents next to a synthesized answer', async () => {
+  const client = { ask: async () => ({ answer: 'Promote the standby.', degraded: false, sources: [{ title: 'Postgres failover', verified: true }], markdown: '# pack', retrieval: { mode: 'semantic', fallback: false, reason: null, index: { total: 7, embedded: 5, pending: 2 } } }) };
+  const res = await tool(client).handler({ query: 'how do we fail over?' });
+  assert.match(res.content[0].text, /^Promote the standby\./);
+  assert.match(res.content[0].text, /Index incomplete: 2 of 7 documents await reindex and were not ranked\./);
+  assert.ok(!res.isError);
+});
+
+test('ask_prax discloses pending documents on the degraded pack path and stays quiet when the index is complete', async () => {
+  const pending = { ask: async () => ({ answer: null, degraded: true, reason: 'no-chat-model', retrieval: { mode: 'semantic', fallback: false, reason: null, index: { total: 1, embedded: 0, pending: 1 } }, markdown: '# Context pack', sources: [] }) };
+  const res = await tool(pending).handler({ query: 'x' });
+  assert.match(res.content[0].text, /Prax degraded \(no-chat-model\)\. Retrieval: semantic\. Index incomplete: 1 of 1 document await reindex/);
+  assert.match(res.content[0].text, /# Context pack/);
+
+  const complete = { ask: async () => ({ answer: 'Fine.', degraded: false, sources: [], markdown: '# pack', retrieval: { mode: 'semantic', fallback: false, reason: null, index: { total: 3, embedded: 3, pending: 0 } } }) };
+  const quiet = await tool(complete).handler({ query: 'x' });
+  assert.doesNotMatch(quiet.content[0].text, /Index incomplete/);
+});

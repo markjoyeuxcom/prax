@@ -1,0 +1,23 @@
+applied 25 migration(s)
+applied 25 migration(s)
+✔ assistant receipts survive a new executor and reject changed intent (8.727ms)
+✔ interrupted assistant receipt never blindly repeats an uncertain write (6.089333ms)
+✔ explicit demo receipt store deduplicates concurrent approvals and guards changed intents (0.225958ms)
+✔ assistantDisplayItems pairs each tool-call turn with its result turn (0.990583ms)
+✔ assistantDisplayItems drops standalone tool-result turns and empty content (0.084709ms)
+✔ assistantDisplayItems tolerates a tool call with no result yet (in flight) (0.073583ms)
+✔ assistant partial success is an announced status, while hard failure is an alert (0.194458ms)
+✔ a failure before any write remains a retryable hard error (0.706125ms)
+✔ a committed write plus provider failure is a non-repeatable partial success (0.121333ms)
+✔ a committed write never claims refresh succeeded when refresh failed (0.084292ms)
+✔ a normal assistant completion is quiet unless its write refresh failed (0.06475ms)
+✔ an unknown approval outcome discloses an unsuccessful workspace refresh (0.399333ms)
+✔ an attempted approval retains canonical identities across reload (0.593166ms)
+ℹ tests 13
+ℹ suites 0
+ℹ pass 13
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 53.144875

@@ -1,0 +1,252 @@
+
+> prax@0.20.0 test:e2e
+> playwright test --workers=1
+
+[WebServer] (node:80505) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 112 tests using 1 worker
+
+(node:80506) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓    1 [chromium] › tests/e2e/accessibility.spec.js:47:1 › task collection, detail, and quick capture have no automatic WCAG A/AA violations (2.1s)
+  ✓    2 [chromium] › tests/e2e/accessibility.spec.js:67:1 › Library collection, editor, and runbook operation have no automatic WCAG A/AA violations (1.7s)
+  ✘    3 [chromium] › tests/e2e/accessibility.spec.js:93:1 › Settings and data-transfer dialogs have no automatic WCAG A/AA violations (2.6s)
+(node:80609) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓    4 [chromium] › tests/e2e/accessibility.spec.js:115:1 › every selectable accent remains WCAG-safe in both themes (4.8s)
+  ✓    5 [chromium] › tests/e2e/assistant-partial-success.spec.js:3:1 › approved assistant write remains visibly committed when its follow-up fails (829ms)
+  ✓    6 [chromium] › tests/e2e/capture-bar-recovery.spec.js:15:1 › lost response -> modified created task -> reload -> retry -> retry again creates no duplicate (116ms)
+  ✓    7 [chromium] › tests/e2e/capture-bar-recovery.spec.js:72:1 › lost response -> archived created task -> reload -> retry -> retry again creates no duplicate (129ms)
+  ✓    8 [chromium] › tests/e2e/capture-bar-recovery.spec.js:123:1 › lost response -> modified task -> user types newer text -> 409 reconciles previous, preserves newer text, and subsequent Enter adds it (103ms)
+  ✓    9 [chromium] › tests/e2e/capture-bar-recovery.spec.js:176:1 › 409 read failure keeps pending identity and unknown outcome (never mints new identity implicitly) (122ms)
+  ✓   10 [chromium] › tests/e2e/capture-bar.spec.js:14:1 › capture bar resolves shorthand, shows the destination, and creates the task (63ms)
+  ✓   11 [chromium] › tests/e2e/capture-bar.spec.js:34:1 › a failed submit keeps the text and the retry replays the SAME create (no duplicate) (86ms)
+  ✓   12 [chromium] › tests/e2e/capture-bar.spec.js:59:1 › typed text survives a reload via the draft store (64ms)
+  ✓   13 [chromium] › tests/e2e/capture-bar.spec.js:67:1 › an unknown #project token routes to Inbox with the token kept in the title (82ms)
+  ✓   14 [chromium] › tests/e2e/deployment-settings.spec.js:9:1 › Settings reports the production server as local-only and explicitly unauthenticated (157ms)
+  ✓   15 [chromium] › tests/e2e/deployment-settings.spec.js:17:1 › a provider-status load failure cannot masquerade as an Off configuration (188ms)
+  ✓   16 [chromium] › tests/e2e/deployment-settings.spec.js:33:1 › a lost provider-switch response is reconciled without replay and controls are single-flight (221ms)
+  ✓   17 [chromium] › tests/e2e/deployment-settings.spec.js:69:1 › a rejected provider save preserves the entered draft for correction (243ms)
+  ✓   18 [chromium] › tests/e2e/desktop-draft-persistence.spec.js:26:1 › desktop child restart retains capture input and unsaved document recovery at the same origin (2.1s)
+  ✓   19 [chromium] › tests/e2e/document-info.spec.js:25:1 › typed Document-info fields survive a failed save and are saved unchanged on retry (311ms)
+  ✓   20 [chromium] › tests/e2e/document-info.spec.js:65:1 › a stale Document-info baseline keeps typed values and needs an explicit choice; the remote body is never discarded (539ms)
+  ✓   21 [chromium] › tests/e2e/document-info.spec.js:104:1 › keeping the remote values resolves a conflict without resending the contested field (486ms)
+  ✓   22 [chromium] › tests/e2e/document-info.spec.js:125:1 › a library refresh failure after a committed Document-info save is not a failed save (468ms)
+  ✓   23 [chromium] › tests/e2e/document-info.spec.js:167:1 › a failed reference write after a committed metadata save keeps the reference list and retries only the references (335ms)
+  ✓   24 [chromium] › tests/e2e/editor-autosave.spec.js:12:1 › switching documents flushes the old draft without corrupting the new document (536ms)
+  ✓   25 [chromium] › tests/e2e/editor-autosave.spec.js:49:1 › top-level project navigation waits for the exact editor draft to commit (280ms)
+  ✓   26 [chromium] › tests/e2e/editor-autosave.spec.js:87:1 › failed save blocks top-level navigation and keeps recovery in the editor (281ms)
+  ✓   27 [chromium] › tests/e2e/editor-autosave.spec.js:126:1 › failed title/body save survives reload and one coalesced retry commits the exact draft (4.5s)
+  ✓   28 [chromium] › tests/e2e/editor-autosave.spec.js:197:1 › a lost success response is reconciled without reporting failure or retrying the write (2.9s)
+  ✓   29 [chromium] › tests/e2e/human-surface-breadth.spec.js:50:1 › core task views reflow at 400%-equivalent width and board columns stack in order (252ms)
+  ✓   30 [chromium] › tests/e2e/human-surface-breadth.spec.js:84:1 › touch users can select tasks explicitly and complete them in bulk (542ms)
+  ✓   31 [chromium] › tests/e2e/human-surface-breadth.spec.js:108:1 › operating-system reduced motion removes production animation and transition durations (140ms)
+  ✓   32 [chromium] › tests/e2e/import-restore.spec.js:38:1 › task restore keeps the visible destination and selected file across mode changes (465ms)
+  ✓   33 [chromium] › tests/e2e/import-restore.spec.js:65:1 › a response lost after task-import commit retries with the same operation and creates once (319ms)
+  ✓   34 [chromium] › tests/e2e/import-restore.spec.js:98:1 › a committed task import is not reported as failed when collection refresh fails (286ms)
+  ✓   35 [chromium] › tests/e2e/import-restore.spec.js:127:1 › Markdown intake selects ownership inside Library, retries exactly once, filters, and reassigns (956ms)
+  ✓   36 [chromium] › tests/e2e/import-restore.spec.js:229:1 › a staged large import recovers a lost commit after reload with identical chunks and operation (620ms)
+  ✓   37 [chromium] › tests/e2e/knowledge-retrieval.spec.js:4:1 › semantic retrieval reports exact totals, preserves trust, and loads every page (266ms)
+  ✓   38 [chromium] › tests/e2e/knowledge-retrieval.spec.js:76:1 › a stale Ask Prax answer cannot overwrite the newer answer and its source opens directly (268ms)
+  ✓   39 [chromium] › tests/e2e/library-editor-reflow.spec.js:47:1 › active Library and archive reflow long ownership, trust, tags, and actions (238ms)
+  ✓   40 [chromium] › tests/e2e/library-editor-reflow.spec.js:82:1 › semantic result metadata reflows without page-level horizontal travel (235ms)
+  ✓   41 [chromium] › tests/e2e/library-editor-reflow.spec.js:116:1 › narrow editor stacks split panes, exposes controls and outline, and saves an exact draft (1.8s)
+  ✓   42 [chromium] › tests/e2e/library-export.spec.js:4:1 › Library export chooses scope and writes the ZIP through the browser Save dialog (552ms)
+  ✓   43 [chromium] › tests/e2e/library-export.spec.js:68:1 › cancelling the browser Save dialog leaves Library export open without an error (483ms)
+  ✓   44 [chromium] › tests/e2e/library-export.spec.js:85:1 › Settings project and entire-Library actions use the same export dialog (838ms)
+  ✓   45 [chromium] › tests/e2e/library-navigation.spec.js:4:1 › a delayed Active response cannot overwrite the newer Archive view (217ms)
+  ✓   46 [chromium] › tests/e2e/library-navigation.spec.js:67:1 › a slow semantic query cannot overwrite newer visible results (236ms)
+  ✓   47 [chromium] › tests/e2e/links-section.spec.js:14:1 › Links section is visible on first load of a linked doc (198ms)
+  ✓   48 [chromium] › tests/e2e/links-section.spec.js:28:1 › Links section stays visible across every editor mode (521ms)
+  ✓   49 [chromium] › tests/e2e/links-section.spec.js:62:1 › Backlinks show the deriving doc on the source (215ms)
+  ✓   50 [chromium] › tests/e2e/links-section.spec.js:73:1 › Links section renders an empty state for an orphan doc (194ms)
+  ✓   51 [chromium] › tests/e2e/list-chip-clipping.spec.js:8:1 › SYNTH chip stays visible on a card with a very long title (199ms)
+  ✓   52 [chromium] › tests/e2e/list-chips.spec.js:9:1 › synthesized + stale card shows SYNTH and STALE chips (166ms)
+  ✓   53 [chromium] › tests/e2e/list-chips.spec.js:20:1 › plain source card shows neither chip (157ms)
+  ✓   54 [chromium] › tests/e2e/maintenance.spec.js:12:1 › Maintenance shows stale and orphan docs (165ms)
+  ✓   55 [chromium] › tests/e2e/maintenance.spec.js:24:1 › Maintenance Open navigates to the correct doc (249ms)
+  ✓   56 [chromium] › tests/e2e/maintenance.spec.js:41:1 › Maintenance project filter scopes the lists (236ms)
+  ✓   57 [chromium] › tests/e2e/rail-panel.spec.js:14:1 › rail navigates, panel lists projects, filter narrows and reports no matches (321ms)
+  ✓   58 [chromium] › tests/e2e/rail-panel.spec.js:48:1 › pinning a project floats it into the Pinned section, survives reload, and unpins cleanly (269ms)
+  ✓   59 [chromium] › tests/e2e/rail-panel.spec.js:77:1 › areas group the panel, collapse persists across reload, and folders file smart views (525ms)
+  ✓   60 [chromium] › tests/e2e/rail-panel.spec.js:117:1 › ⌘K jumps to a project and to the built-in Stale view by name (865ms)
+  ✓   61 [chromium] › tests/e2e/rail-panel.spec.js:139:1 › the Views tab lists smart views, switching tabs clears the filter, selection opens the view (205ms)
+  ✘   62 [chromium] › tests/e2e/rail-panel.spec.js:154:1 › context panels: cockpit on Today, section nav in Settings, types in Library, mini month in Calendar (5.1s)
+(node:80965) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   63 [chromium] › tests/e2e/remaining-human-surfaces-reflow.spec.js:36:1 › running and terminal runbooks reflow while a narrow step mutation remains canonical (417ms)
+  ✓   64 [chromium] › tests/e2e/remaining-human-surfaces-reflow.spec.js:68:1 › every Settings section keeps its controls inside the 400%-equivalent viewport (335ms)
+  ✓   65 [chromium] › tests/e2e/remaining-human-surfaces-reflow.spec.js:91:1 › Markdown import and Library export dialogs contain long controls and parsed state (450ms)
+  ✓   66 [chromium] › tests/e2e/review-regressions.spec.js:13:1 › capture completion preserves text typed while the submitted request was pending (86ms)
+  ✓   67 [chromium] › tests/e2e/review-regressions.spec.js:33:1 › capture retry after a committed response was lost and the page reloaded creates once (88ms)
+  ✓   68 [chromium] › tests/e2e/review-regressions.spec.js:49:1 › project fields edited together both survive saving and reload (1.1s)
+  ✓   69 [chromium] › tests/e2e/review-regressions.spec.js:61:1 › body-only autosave preserves a newer remote title (2.1s)
+  ✓   70 [chromium] › tests/e2e/review-regressions.spec.js:73:1 › Health opens the actual document for review before verification (252ms)
+  ✓   71 [chromium] › tests/e2e/review-regressions.spec.js:83:1 › archive reconciles a lost response and offers undo for the committed task (517ms)
+  ✓   72 [chromium] › tests/e2e/review-regressions.spec.js:94:1 › assistant approval recovers after committed response loss and page reload without duplicates (1.6s)
+  ✓   73 [chromium] › tests/e2e/review-regressions.spec.js:121:1 › a title-only edit merges a remote body into the visible editor (2.1s)
+  ✓   74 [chromium] › tests/e2e/review-regressions.spec.js:132:1 › a same-field document conflict survives reload without replacing the saved copy (3.3s)
+  ✓   75 [chromium] › tests/e2e/runbook-operation.spec.js:30:1 › runbook operation survives interruption and reopens with a complete actor-attributed chronicle (945ms)
+  ✓   76 [chromium] › tests/e2e/runbook-operation.spec.js:73:1 › a doubled start with a lost response creates one run and one start event (318ms)
+  ✓   77 [chromium] › tests/e2e/runbook-operation.spec.js:115:1 › a delayed step locks Finish and a lost completion response reconciles to terminal state (366ms)
+  ✓   78 [chromium] › tests/e2e/slippage-honesty.spec.js:20:1 › two due-date pushes surface a "deferred 2×" chip in Upcoming and the exact count in the drawer (174ms)
+  ✓   79 [chromium] › tests/e2e/slippage-honesty.spec.js:43:1 › the board In-progress header shows the WIP overrun and drags still land (161ms)
+  ✓   80 [chromium] › tests/e2e/slippage-honesty.spec.js:60:1 › the built-in Stale smart view lives on the panel Views tab and opens the stale filter (185ms)
+  ✓   81 [chromium] › tests/e2e/smoke.spec.js:3:1 › app shell loads without console errors (113ms)
+  ✓   82 [chromium] › tests/e2e/task-capture-organization.spec.js:27:1 › capture organizes shorthand fields and the drawer can reassign project and labels (1.2s)
+  ✓   83 [chromium] › tests/e2e/task-capture-organization.spec.js:97:1 › a lost create response is acknowledged by id without replaying the POST (200ms)
+  ✓   84 [chromium] › tests/e2e/task-capture-organization.spec.js:131:1 › pending capture cannot be edited, dismissed, or submitted twice (398ms)
+  ✓   85 [chromium] › tests/e2e/task-capture-organization.spec.js:168:1 › acknowledged capture stays successful when the collection refresh fails (1.1s)
+  ✓   86 [chromium] › tests/e2e/task-capture-organization.spec.js:203:1 › failed capture survives reload and retries with the same creation identity (1.5s)
+  ✓   87 [chromium] › tests/e2e/task-context-surface.spec.js:16:1 › drawer shows the honest embeddings-off line and spawns a pre-linked working note (550ms)
+  ✓   88 [chromium] › tests/e2e/task-drawer-draft.spec.js:59:1 › task title, description, and notes survive an unrelated render and commit exactly once each (1.3s)
+  ✓   89 [chromium] › tests/e2e/task-drawer-draft.spec.js:92:1 › closing the task drawer waits for its exact draft PATCH (520ms)
+  ✓   90 [chromium] › tests/e2e/task-drawer-draft.spec.js:124:1 › failed close survives reload and a rapid retry commits one exact task draft (970ms)
+  ✓   91 [chromium] › tests/e2e/task-drawer-draft.spec.js:191:1 › a failed save that observes a newer saved copy requires explicit replacement (1.1s)
+  ✓   92 [chromium] › tests/e2e/task-drawer-draft.spec.js:260:1 › a lost task PATCH response is reconciled without a duplicate write (513ms)
+  ✓   93 [chromium] › tests/e2e/task-lifecycle.spec.js:28:1 › schedule, recurrence, and snooze controls serialize and work from the keyboard (436ms)
+  ✓   94 [chromium] › tests/e2e/task-lifecycle.spec.js:89:1 › lost recurring-completion response schedules once and undo cannot duplicate the series (1.2s)
+  ✓   95 [chromium] › tests/e2e/task-lifecycle.spec.js:143:1 › recurring completion stays truthful when successor list refresh fails (507ms)
+  ✓   96 [chromium] › tests/e2e/today-plan.spec.js:24:1 › plan -> complete one -> shutdown walks the survivor -> carry rolls it to tomorrow (3.3s)
+  ✘   97 [chromium] › tests/e2e/today-plan.spec.js:86:1 › a never-shut-down plan surfaces as the stale banner and Review offers a verdict (5.2s)
+(node:81377) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   98 [chromium] › tests/e2e/trust-actions.spec.js:22:1 › reviewed human revision retains verification while an agent revision revokes it (2.0s)
+  ✓   99 [chromium] › tests/e2e/trust-actions.spec.js:80:1 › supersession is retrievable, undoable, and coherent through archive, restore, and delete (2.5s)
+  ✓  100 [chromium] › tests/e2e/trust-actions.spec.js:154:1 › a lost supersession response is reconciled once from the exact link and target (522ms)
+  ✓  101 [chromium] › tests/e2e/trust-actions.spec.js:189:1 › an unreadable supersession outcome blocks retry until reload (1.0s)
+  ✓  102 [chromium] › tests/e2e/trust-actions.spec.js:237:1 › a committed verification remains visible when the collection refresh fails (468ms)
+  ✓  103 [chromium] › tests/e2e/wave1-draft-integrity.spec.js:52:1 › an out-of-band description edit survives a notes-only autosave (3.2s)
+  ✓  104 [chromium] › tests/e2e/wave1-draft-integrity.spec.js:91:1 › an untouched drawer never resends values a task refresh folded into it (2.6s)
+  ✓  105 [chromium] › tests/e2e/wave1-draft-integrity.spec.js:125:1 › a committed notes-only save with a lost response reconciles as saved despite an agent description edit (2.7s)
+  ✓  106 [chromium] › tests/e2e/wave1-draft-integrity.spec.js:167:1 › a Document-info rename survives the next body-keystroke autosave (1.8s)
+  ✓  107 [chromium] › tests/e2e/wave1-draft-integrity.spec.js:209:1 › project navigation cannot silently discard a dirty drawer draft (506ms)
+  ✓  108 [chromium] › tests/e2e/wave2-truthful-outcomes.spec.js:49:1 › capture keeps its exact-once identity across type-and-revert (698ms)
+  ✓  109 [chromium] › tests/e2e/wave2-truthful-outcomes.spec.js:97:1 › a deterministic server rejection is not presented as retry-safe (687ms)
+  ✓  110 [chromium] › tests/e2e/wave2-truthful-outcomes.spec.js:142:1 › an externally archived task's drawer offers Discard instead of an invisible veto (2.2s)
+  ✓  111 [chromium] › tests/e2e/wave2-truthful-outcomes.spec.js:188:1 › the completion toast tells the truth about the next occurrence (196ms)
+  ✓  112 [chromium] › tests/e2e/weekly-review.spec.js:6:1 › Library ▸ Weekly review compiles, opens, and regenerates idempotently (336ms)
+
+
+  1) [chromium] › tests/e2e/accessibility.spec.js:93:1 › Settings and data-transfer dialogs have no automatic WCAG A/AA violations
+
+    Error: settings-intelligence (light) WCAG violations:
+    [
+      {
+        "rule": "color-contrast",
+        "impact": "serious",
+        "count": 1,
+        "targets": [
+          ".settings-row:nth-child(3) > .settings-row__text > .settings-row__desc"
+        ],
+        "examples": [
+          "Element has insufficient color contrast of 2.94 (foreground color: #919895, background color: #ffffff, font size: 8.6pt (11.5px), font weight: normal). Expected contrast ratio of 4.5:1"
+        ]
+      }
+    ]
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 0
+    Received: 1
+
+      24 |       results.violations.length,
+      25 |       `${stateName} (${theme}) WCAG violations:\n${JSON.stringify(summary, null, 2)}`,
+    > 26 |     ).toBe(0);
+         |       ^
+      27 |   }
+      28 |   await page.locator('body').evaluate((body) => body.setAttribute('data-theme', 'light'));
+      29 | }
+        at audit (/Users/markjoyeux/Developer/Personal/prax/tests/e2e/accessibility.spec.js:26:7)
+        at /Users/markjoyeux/Developer/Personal/prax/tests/e2e/accessibility.spec.js:101:5
+
+    Error: settings-intelligence (dark) WCAG violations:
+    [
+      {
+        "rule": "color-contrast",
+        "impact": "serious",
+        "count": 1,
+        "targets": [
+          ".settings-row:nth-child(3) > .settings-row__text > .settings-row__desc"
+        ],
+        "examples": [
+          "Element has insufficient color contrast of 3.3 (foreground color: #717b77, background color: #242b29, font size: 8.6pt (11.5px), font weight: normal). Expected contrast ratio of 4.5:1"
+        ]
+      }
+    ]
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 0
+    Received: 1
+
+      24 |       results.violations.length,
+      25 |       `${stateName} (${theme}) WCAG violations:\n${JSON.stringify(summary, null, 2)}`,
+    > 26 |     ).toBe(0);
+         |       ^
+      27 |   }
+      28 |   await page.locator('body').evaluate((body) => body.setAttribute('data-theme', 'light'));
+      29 | }
+        at audit (/Users/markjoyeux/Developer/Personal/prax/tests/e2e/accessibility.spec.js:26:7)
+        at /Users/markjoyeux/Developer/Personal/prax/tests/e2e/accessibility.spec.js:101:5
+
+    Error Context: test-results/accessibility-Settings-and-5d9d5-omatic-WCAG-A-AA-violations-chromium/error-context.md
+
+  2) [chromium] › tests/e2e/rail-panel.spec.js:154:1 › context panels: cockpit on Today, section nav in Settings, types in Library, mini month in Calendar
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: locator('.panel').locator('[data-panel-plan-score]')
+    Expected substring: "planned 1 — 0 done"
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toContainText" with timeout 5000ms
+      - waiting for locator('.panel').locator('[data-panel-plan-score]')
+
+
+      163 |   await page.locator('[data-action="nav-today"]').first().click();
+      164 |   const panel = page.locator('.panel');
+    > 165 |   await expect(panel.locator('[data-panel-plan-score]')).toContainText('planned 1 — 0 done');
+          |                                                          ^
+      166 |   await expect(panel.locator('.side-item', { hasText: `cockpit-${stamp}` })).toBeVisible();
+      167 |   await panel.locator('[data-action="open-plan-mode"]').click();
+      168 |   await expect(page.locator('[data-overlay="planmode"]')).toBeVisible();
+        at /Users/markjoyeux/Developer/Personal/prax/tests/e2e/rail-panel.spec.js:165:58
+
+    Error Context: test-results/rail-panel-context-panels--534e3-rary-mini-month-in-Calendar-chromium/error-context.md
+
+  3) [chromium] › tests/e2e/today-plan.spec.js:86:1 › a never-shut-down plan surfaces as the stale banner and Review offers a verdict
+
+    Error: expect(locator).toHaveText(expected) failed
+
+    Locator:  locator('[data-overlay="planmode"]').locator('.planmode__title')
+    Expected: "stale-plan-1788563071060"
+    Received: "cockpit-1788563036399"
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toHaveText" with timeout 5000ms
+      - waiting for locator('[data-overlay="planmode"]').locator('.planmode__title')
+        14 × locator resolved to <div class="planmode__title">cockpit-1788563036399</div>
+           - unexpected value "cockpit-1788563036399"
+
+
+       98 |   // Stale items are walked FIRST with the move/drop verdict.
+       99 |   await expect(dialog.locator('.planmode__bucket')).toContainText('never shut down');
+    > 100 |   await expect(dialog.locator('.planmode__title')).toHaveText(title);
+          |                                                    ^
+      101 |   await dialog.locator('[data-action="plan-mode-today"]').click();
+      102 |
+      103 |   // Moving a stale plan forward is a carry — the day still moved.
+        at /Users/markjoyeux/Developer/Personal/prax/tests/e2e/today-plan.spec.js:100:52
+
+    Error Context: test-results/today-plan-a-never-shut-do-29ee4-and-Review-offers-a-verdict-chromium/error-context.md
+
+  3 failed
+    [chromium] › tests/e2e/accessibility.spec.js:93:1 › Settings and data-transfer dialogs have no automatic WCAG A/AA violations
+    [chromium] › tests/e2e/rail-panel.spec.js:154:1 › context panels: cockpit on Today, section nav in Settings, types in Library, mini month in Calendar
+    [chromium] › tests/e2e/today-plan.spec.js:86:1 › a never-shut-down plan surfaces as the stale banner and Review offers a verdict
+  109 passed (1.7m)

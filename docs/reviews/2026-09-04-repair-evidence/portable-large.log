@@ -1,0 +1,22 @@
+{
+  "format": "prax.portable-round-trip",
+  "version": 1,
+  "fixture": {
+    "format": "prax.quality-fixture",
+    "version": 1,
+    "profile": "large",
+    "clock": "2026-07-13T12:00:00.000Z",
+    "seed": 20260713
+  },
+  "taskCount": 5000,
+  "checklistItemCount": 3750,
+  "checklistStates": {
+    "completed": 1250,
+    "open": 2500
+  },
+  "archivedTaskCount": 295,
+  "targetProjectRemapped": true,
+  "taskIdsRegenerated": true,
+  "checklistIdsRegenerated": true,
+  "portableDigest": "59705b033778c1181b4aa7cc2402bf3a367979705ae8eca552a273a6e238bf54"
+}

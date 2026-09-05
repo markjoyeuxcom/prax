@@ -2,18 +2,26 @@
 
 The desktop app is a Tauri 2 shell (`src-tauri/`) around the Node/Fastify
 server, which runs as a **sidecar**: the bundled Node runtime executes
-`resources/app/server/index.js`, asks the OS for a free loopback port, and
-announces the bound port to its Rust parent. The webview loads that exact
+`resources/app/server/index.js` and announces its bound loopback port to its Rust parent.
+The first launch asks the OS for a free port and persists it in `webview-port` under the app-data
+directory; later launches bind that same port so webview drafts, preferences and saved views survive.
+On upgrade, the latest child readiness record in `logs/server.log` or its rotated predecessor
+recovers the prior origin when no port file exists. A port collision refuses startup and is
+reported in the diagnostic log; close the occupying process before retrying. Preserve the port
+file with the webview profile rather than deleting it to work around a collision. The webview loads that exact
 origin only after `/readyz` answers. The database is an embedded
 SQLite file — a packaged install has **zero external dependencies**.
+
+Supported desktop builds and releases target **macOS Apple Silicon** and **Linux x64**.
+Windows and Intel Mac installers are no longer built or released.
 
 ## Prerequisites
 
 - Node.js ≥ 24 (the sidecar is a copy of *your* `node` binary; use the
   version you intend to ship)
 - Rust (stable) — `rustup.rs`
-- Platform toolchains: Xcode Command Line Tools (macOS) or the MSVC Build
-  Tools + WebView2 runtime (Windows)
+- Platform toolchains: Xcode Command Line Tools (macOS Apple Silicon), or GTK/WebKitGTK
+  development libraries (Linux; see the package list in `.github/workflows/desktop.yml`)
 
 ## Develop
 
@@ -30,6 +38,10 @@ npm run desktop:dev
    `src-tauri/binaries/prax-server-<target-triple>` (Tauri's sidecar naming).
 
 Staging removes any sidecar binary left by another host platform before copying the current target.
+It also removes foreign platform/architecture directories from dependencies’ `prebuilds` trees.
+This keeps native packagers from trying to resolve Android or other foreign libraries in the desktop payload;
+host prebuilds, package JavaScript and metadata are retained. The unused development tests
+from `@fastify/send` are omitted as well.
 `npm run desktop:verify` then proves version/resource agreement and that the payload contains every
 production dependency without development-only packages.
 
@@ -44,9 +56,8 @@ npm run desktop:build
 
 Outputs land under `src-tauri/target/release/bundle/`:
 
-- macOS: `.app` and `.dmg`
-- Windows: `.msi` (WiX) and `.exe` (NSIS)
-- Linux: `.deb` and `.AppImage`
+- macOS Apple Silicon: `.app` and `.dmg`
+- Linux x64: `.deb` and `.AppImage`
 
 Cross-compilation is not supported — build each platform on that platform
 (CI matrix or per-machine builds).
@@ -56,7 +67,6 @@ Cross-compilation is not supported — build each platform on that platform
 | Platform | Location |
 |---|---|
 | macOS | `~/Library/Application Support/com.moomora.prax/` |
-| Windows | `%APPDATA%\com.moomora.prax\` |
 | Linux | `~/.local/share/com.moomora.prax/` |
 
 Contents: `prax.db` (plus `-wal`/`-shm` WAL siblings) and `logs/server.log`
@@ -169,14 +179,12 @@ For distribution:
   `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` in
   the environment — Tauri signs and notarizes the bundle during
   `tauri build`. (Developer ID Application certificate required.)
-- **Windows**: configure `bundle.windows.certificateThumbprint` (or use
-  `signtool` post-build) with a code-signing certificate.
 - GitHub release notes must state whether the attached installers are signed/notarized. Checksums
   prove download integrity against the release, but do not replace platform signing.
 
 ## Size notes
 
 The installer bundles the Node runtime (~50–110 MB uncompressed depending on
-platform) plus ~50 MB of app payload; DMG/MSI compression roughly halves the
+platform) plus ~50 MB of app payload; installer compression reduces the
 download. Trimming to a custom Node build or a compiled single-executable
 server is a possible follow-up if size matters.

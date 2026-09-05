@@ -115,7 +115,8 @@ test('generate -> idempotent regenerate -> verified refusal, through the real ap
   assert.equal(reviews.length, 1);
 
   // A verified review is refused, not silently overwritten.
-  const verify = await app.inject({ method: 'POST', url: `/api/library/documents/${first.documentId}/verify`, payload: { verified: true } });
+  const reviewed = (await app.inject({ method: 'GET', url: `/api/library/documents/${first.documentId}` })).json();
+  const verify = await app.inject({ method: 'POST', url: `/api/library/documents/${first.documentId}/verify`, payload: { verified: true, revision: reviewed.revision } });
   assert.equal(verify.statusCode, 200, `verify endpoint responded ${verify.statusCode}`);
   const refused = (await app.inject({ method: 'POST', url: '/api/library/weekly-review', payload: anchor })).json();
   assert.equal(refused.degraded, true);

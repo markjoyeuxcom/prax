@@ -17,11 +17,10 @@ unconfigured in-app updater as a finished safety feature.
 
 ## Supported packages
 
-The release matrix is the source of truth:
+The release matrix is the source of truth. On 5 September 2026, the user removed Windows and
+Intel Mac from supported desktop builds and releases:
 
 - macOS Apple Silicon: `.app` and `.dmg`;
-- macOS Intel: `.app` and `.dmg`;
-- Windows x64: `.msi` and NSIS `.exe`;
 - Linux x64: `.deb` and `.AppImage`.
 
 Cross-compilation is not supported. Code-signing and notarization remain release-credential

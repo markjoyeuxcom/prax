@@ -13,6 +13,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createDb } from '../server/db.js';
+import { documentRevision } from '../server/libraryRepository.js';
 import {
   DEFAULT_MIGRATIONS_DIR,
   migrationBoundary,
@@ -111,6 +112,10 @@ function schemaFeatures(ordinal) {
     documentTaxonomy: ordinal >= 10,
     externalRefs: ordinal >= 11,
     durableRunChronicle: ordinal >= 13,
+    // 0023: markdown_documents.revision (sha256 over title + body). A seeded
+    // vector is CURRENT only when embedded_hash carries that token; older
+    // schemas keep the body hash and their vectors stay pending after upgrade.
+    documentRevision: ordinal >= 23,
   };
 }
 
@@ -349,6 +354,7 @@ function buildDocuments(profile, projectRows, features, clock, random, embedding
       created_at: isoAt(clock, -(index + 1) * 30),
       updated_at: isoAt(clock, -index * 10),
     };
+    if (features.documentRevision) row.revision = documentRevision({ title, body });
     if (embeddings) {
       const vector = index === 0
         ? [1, 0, 0, 0]
@@ -357,7 +363,9 @@ function buildDocuments(profile, projectRows, features, clock, random, embedding
       row.embedding_backend = 'quality-fixture';
       row.embedding_model = 'deterministic-v1';
       row.embedding_dim = vector.length;
-      row.embedded_hash = contentHash;
+      // The vector describes the full embedded input, so on a revision-aware
+      // schema it is keyed by the revision (current), not the body hash.
+      row.embedded_hash = features.documentRevision ? row.revision : contentHash;
       row.embedded_at = clock;
     }
     rows.push(row);
@@ -629,6 +637,12 @@ function buildManifest({
         + seeded.runs.filter((run) => run.status !== 'running').length
       : 0,
     embeddings: embeddings ? profile.documents : 0,
+    // Vectors current for the document revision (0023+). A fixture seeded on an
+    // older schema and upgraded keeps body-hash vectors, which are pending until
+    // a reindex — so its current count is honestly 0.
+    ...(finalFeatures.documentRevision
+      ? { currentEmbeddings: embeddings && sourceFeatures.documentRevision ? profile.documents : 0 }
+      : {}),
   };
   const expectedStates = {
     taskStatuses: countBy(seeded.tasks, 'status'),
@@ -817,6 +831,7 @@ async function verifyQualityFixtureDb(db, manifest) {
   const applied = await db.query('select version from schema_migrations order by version');
   expectEqual(applied.rows.map((row) => row.version), manifest.schema.appliedMigrations, 'applied migrations');
 
+  const finalFeatures = manifest.features.final;
   const counts = {
     schemaMigrations: await countTable(db, 'schema_migrations'),
     projects: await countTable(db, 'projects'),
@@ -831,10 +846,12 @@ async function verifyQualityFixtureDb(db, manifest) {
     runbookRunSteps: await countTable(db, 'runbook_run_steps'),
     runbookRunEvents: await countTable(db, 'runbook_run_events'),
     embeddings: await countWhere(db, 'markdown_documents', 'embedding is not null'),
+    ...(finalFeatures.documentRevision
+      ? { currentEmbeddings: await countWhere(db, 'markdown_documents', 'embedding is not null and embedded_hash is not distinct from revision') }
+      : {}),
   };
   expectEqual(counts, manifest.expected.counts, 'row counts');
 
-  const finalFeatures = manifest.features.final;
   const states = {
     taskStatuses: await groupedCounts(db, 'tasks', 'status'),
     taskPriorities: await groupedCounts(db, 'tasks', 'priority'),

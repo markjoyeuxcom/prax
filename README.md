@@ -7,9 +7,9 @@ Run it with plain Node (zero external dependencies — the database is an embedd
 ## Install
 
 **Desktop (recommended):** download the installer for your platform from the
-GitHub Releases page — `.dmg` (macOS), `.msi`/`.exe` (Windows), `.deb`/
-`.AppImage` (Linux). Zero external dependencies: the database is an embedded
-file, created on first launch. Tagged releases include SHA-256 checksums and are published only after
+GitHub Releases page — `.dmg` (macOS Apple Silicon), `.deb`/`.AppImage` (Linux x64).
+Windows and Intel Mac installers are no longer built or released. Zero external dependencies: the
+database is an embedded file, created on first launch. Tagged releases include SHA-256 checksums and are published only after
 every supported package runs its isolated launch/migration/shutdown smoke journey. Update by quitting
 Prax and installing the newer package; the OS app-data directory remains in place. Building,
 backup-before-update, rollback, and signing details:

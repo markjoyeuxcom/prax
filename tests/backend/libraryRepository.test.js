@@ -14,6 +14,7 @@ import {
   createLibraryRepository,
   documentMatchesCreateFields,
   normalizeDocumentRow,
+  documentRevision,
 } from '../../server/libraryRepository.js';
 
 const DOCUMENT_ID = '11111111-1111-4111-8111-111111111111';
@@ -55,6 +56,8 @@ test('normalizeDocumentRow maps database fields to API document fields', () => {
     verifiedBy: null,
     status: 'active',
     stale: false,
+    // Derived when the row predates migration 0023 (no stored token yet).
+    revision: documentRevision({ title: 'Restore CloudNativePG', body: '# Restore CloudNativePG' }),
   });
 });
 
@@ -112,6 +115,7 @@ test('buildCreateDocument returns a parameterized insert query', () => {
     'user',
     'source',
     true,
+    documentRevision({ title: 'Ingress Notes', body: '# Ingress Notes' }),
   ]);
 });
 
@@ -127,7 +131,7 @@ test('buildCreateDocument can use a caller id with an exact-once conflict guard'
   }, { ignoreIdConflict: true });
 
   assert.match(query.text, /insert into markdown_documents \(id, title/);
-  assert.match(query.text, /values \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, \$11\)/);
+  assert.match(query.text, /values \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, \$11, \$12\)/);
   assert.match(query.text, /on conflict\(id\) do nothing/);
   assert.deepEqual(query.values.slice(0, 7), [
     DOCUMENT_ID,
@@ -215,31 +219,43 @@ test('archive and restore are archived-state scoped; permanent delete removes an
   assert.deepEqual(remove.values, [DOCUMENT_ID]);
 });
 
-test('listDocuments uses FTS5 full-text search with prefix terms when q is present', async () => {
+test('listDocuments uses FTS5 full-text search with quoted prefix phrases when q is present', async () => {
   let captured;
   const db = { query: async (text, values) => { captured = { text, values }; return { rows: [] }; } };
   const repo = createLibraryRepository(db);
   await repo.listDocuments({ q: 'cloud tunnel' });
   assert.match(captured.text, /join markdown_documents_fts on markdown_documents_fts\.rowid = d\.rowid/);
   assert.match(captured.text, /markdown_documents_fts match \$1/);
-  assert.deepEqual(captured.values, ['cloud* tunnel*']);
+  assert.deepEqual(captured.values, ['"cloud"* "tunnel"*']);
+});
+
+test('listDocuments keeps Unicode terms (CJK, diacritics) as FTS phrases', async () => {
+  let captured;
+  const db = { query: async (text, values) => { captured = { text, values }; return { rows: [] }; } };
+  const repo = createLibraryRepository(db);
+  await repo.listDocuments({ q: '日本語 Überwachung café-au-lait' });
+  assert.deepEqual(captured.values, ['"日本語"* "Überwachung"* "café"* "au"* "lait"*']);
 });
 
 test('listDocuments sanitizes q to alphanumeric prefix terms (injection-safe)', async () => {
   let captured;
   const db = { query: async (text, values) => { captured = { text, values }; return { rows: [] }; } };
   const repo = createLibraryRepository(db);
-  await repo.listDocuments({ q: 'post; drop table--' });
-  assert.deepEqual(captured.values, ['post* drop* table*']);
+  await repo.listDocuments({ q: 'post; drop table-- "quoted" (paren) NEAR OR' });
+  assert.deepEqual(captured.values, ['"post"* "drop"* "table"* "quoted"* "paren"* "NEAR"* "OR"*']);
 });
 
-test('listDocuments adds no FTS clause when q has no alphanumeric terms', async () => {
+test('listDocuments matches nothing (never everything) when a non-blank q has no usable term', async () => {
   let captured;
   const db = { query: async (text, values) => { captured = { text, values }; return { rows: [] }; } };
   const repo = createLibraryRepository(db);
   await repo.listDocuments({ q: '!!!' });
   assert.doesNotMatch(captured.text, /markdown_documents_fts/);
   assert.doesNotMatch(captured.text, /match \$/);
+  assert.match(captured.text, /where 0 = 1/);
+  // A blank/absent q is still "no filter".
+  await repo.listDocuments({ q: '   ' });
+  assert.doesNotMatch(captured.text, /0 = 1/);
 });
 
 test('listDocuments combines projectId and full-text search', async () => {
@@ -249,7 +265,7 @@ test('listDocuments combines projectId and full-text search', async () => {
   await repo.listDocuments({ projectId: PROJECT_UUID, q: 'restore' });
   assert.match(captured.text, /project_id = \$1/);
   assert.match(captured.text, /markdown_documents_fts match \$2/);
-  assert.deepEqual(captured.values, [PROJECT_UUID, 'restore*']);
+  assert.deepEqual(captured.values, [PROJECT_UUID, '"restore"*']);
 });
 
 test('buildListActiveDocumentsForExport joins projects and filters archived', () => {
@@ -285,14 +301,16 @@ test('buildCreateDocument stamps content_hash(body) and updated_by', () => {
   const q = buildCreateDocument({ title: 't', body: 'hello', documentType: 'note', projectId: 'p', tags: [], sourceFilename: null, updatedBy: 'agent' });
   assert.match(q.text, /content_hash/);
   assert.match(q.text, /updated_by/);
-  assert.equal(q.values[q.values.length - 4], sha('hello'));
-  assert.equal(q.values[q.values.length - 3], 'agent');
-  assert.equal(q.values[q.values.length - 1], false);
+  assert.match(q.text, /revision\)/);
+  assert.equal(q.values[q.values.length - 5], sha('hello'));
+  assert.equal(q.values[q.values.length - 4], 'agent');
+  assert.equal(q.values[q.values.length - 2], false);
+  assert.equal(q.values[q.values.length - 1], documentRevision({ title: 't', body: 'hello' }));
 });
 
 test('buildCreateDocument defaults updated_by to user', () => {
   const q = buildCreateDocument({ title: 't', body: 'x', documentType: 'note', projectId: 'p', tags: [], sourceFilename: null });
-  assert.equal(q.values[q.values.length - 3], 'user');
+  assert.equal(q.values[q.values.length - 4], 'user');
 });
 
 test('buildCreateDocument sets verified by origin (agent=false, human=true, default=true)', () => {
@@ -300,10 +318,10 @@ test('buildCreateDocument sets verified by origin (agent=false, human=true, defa
   const human = buildCreateDocument({ ...base, updatedBy: 'user' });
   const agent = buildCreateDocument({ ...base, updatedBy: 'agent' });
   const dflt = buildCreateDocument({ ...base });
-  assert.match(human.text, /, verified\)/);
-  assert.equal(human.values[human.values.length - 1], true);
-  assert.equal(agent.values[agent.values.length - 1], false);
-  assert.equal(dflt.values[dflt.values.length - 1], true);
+  assert.match(human.text, /, verified, revision\)/);
+  assert.equal(human.values[human.values.length - 2], true);
+  assert.equal(agent.values[agent.values.length - 2], false);
+  assert.equal(dflt.values[dflt.values.length - 2], true);
 });
 
 test('buildUpdateDocument always stamps updated_by and recomputes hash only when body changes', () => {
@@ -330,12 +348,28 @@ test('buildUpdateDocument always stamps updated_by and recomputes hash only when
   assert.doesNotMatch(agentRetag.text, /verified/);
 });
 
-test('buildSetDocumentEmbedding rejects a stale result when content changed in flight', () => {
+test('buildSetDocumentEmbedding rejects a stale result when title or body changed in flight', () => {
+  const rev = 'd'.repeat(64);
   const q = buildSetDocumentEmbedding(DOCUMENT_ID, {
-    vector: [0.1], backend: 'fake', model: 'm', dim: 1, contentHash: 'old-hash',
+    vector: [0.1], backend: 'fake', model: 'm', dim: 1, revision: rev,
   });
-  assert.match(q.text, /where id = \$1 and content_hash = \$6/);
-  assert.equal(q.values[5], 'old-hash');
+  // The guard is the full-content revision, not the body-only content_hash.
+  assert.match(q.text, /where id = \$1 and revision = \$6/);
+  assert.doesNotMatch(q.text, /content_hash/);
+  assert.equal(q.values[5], rev);
+});
+
+test('buildUpdateDocument stores the merged revision and pins the write to the revision it read', () => {
+  const q = buildUpdateDocument(DOCUMENT_ID, { body: 'b2' }, { revision: 'e'.repeat(64), expectRevision: 'f'.repeat(64) });
+  assert.match(q.text, /revision = \$\d+/);
+  assert.match(q.text, /where id = \$1 and archived_at is null and revision is \$\d+/);
+  assert.ok(q.values.includes('e'.repeat(64)));
+  assert.ok(q.values.includes('f'.repeat(64)));
+  // A pre-0023 row (NULL token) is still writable: IS matches the null it read.
+  const legacy = buildUpdateDocument(DOCUMENT_ID, { body: 'b2' }, { revision: 'e'.repeat(64), expectRevision: null });
+  const guard = legacy.text.match(/revision is \$(\d+)/);
+  assert.ok(guard, 'the guard placeholder is present');
+  assert.equal(legacy.values[Number(guard[1]) - 1], null);
 });
 
 test('normalizeDocumentRow exposes contentHash and updatedBy', () => {

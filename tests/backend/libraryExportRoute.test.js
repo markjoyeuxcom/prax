@@ -255,3 +255,34 @@ test('GET /api/library/export emits v2 front-matter with links for linked docs',
   // Doc B is derived-from A — single-project export → bare filename ref
   assert.match(docB.body, new RegExp(`- id: ${DOC_A_ID}\\n      ref: cloudflare-plan\\.md`));
 });
+
+test('C16: link refs resolve to the final (collision-suffixed) zip entry names', async () => {
+  const A = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  const B = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+  const C = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+  const mk = (id, title) => ({
+    id, title, body: `# ${title}\n`, documentType: 'note', projectId: PROJECT_HOMELAB, projectSlug: 'homelab',
+    tags: [], sourceFilename: null, archivedAt: null, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-02T00:00:00.000Z',
+    kind: 'source', contentHash: 'a'.repeat(64), updatedBy: 'user',
+  });
+  const docs = [mk(A, 'Same!'), mk(B, 'Same?'), mk(C, 'Third')];
+  const outboundMap = new Map([
+    [C, { 'derived-from': [{ targetId: B, targetProjectSlug: 'homelab', targetSourceFilename: null, targetTitle: 'Same?' }], supersedes: [] }],
+    [A, { 'derived-from': [], supersedes: [{ targetId: B, targetProjectSlug: 'homelab', targetSourceFilename: null, targetTitle: 'Same?' }] }],
+  ]);
+  const app = await buildTestApp(docs, outboundMap);
+  const single = await app.inject({ method: 'GET', url: '/api/library/export?project=homelab' });
+  const all = await app.inject({ method: 'GET', url: '/api/library/export?project=all' });
+  await app.close();
+
+  const entries = readZipEntries(single.rawPayload);
+  assert.deepEqual(entries.map((e) => e.name).sort(), ['same-2.md', 'same.md', 'third.md']);
+  const third = entries.find((e) => e.name === 'third.md');
+  assert.match(third.body, new RegExp(`- id: ${B}\\n      ref: same-2\\.md`), 'the derived-from ref names the suffixed entry');
+  const first = entries.find((e) => e.name === 'same.md');
+  assert.match(first.body, new RegExp(`- id: ${B}\\n      ref: same-2\\.md`), 'the supersedes ref names the suffixed entry');
+
+  const allEntries = readZipEntries(all.rawPayload);
+  const thirdAll = allEntries.find((e) => e.name === 'homelab/third.md');
+  assert.match(thirdAll.body, new RegExp(`- id: ${B}\\n      ref: homelab/same-2\\.md`));
+});

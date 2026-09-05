@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { assistantIntentHash } from './writeReceipts.js';
 import { isToolCallTurn } from '../chat/messages.js';
 import { summarizeWrite } from './tools.js';
 
@@ -61,7 +63,7 @@ export function sanitizeMessages(input) {
       if (isToolCallTurn(m)) {
         const toolCalls = m.toolCalls
           .filter((c) => c && typeof c.name === 'string' && typeof c.id === 'string')
-          .map((c) => ({ id: c.id, name: c.name, input: c.input && typeof c.input === 'object' ? c.input : {} }));
+          .map((c) => ({ id: c.id, name: c.name, input: c.input && typeof c.input === 'object' ? c.input : {}, ...(typeof c.approvalId === 'string' && c.approvalId.length <= 100 ? { approvalId: c.approvalId } : {}) }));
         if (toolCalls.length) {
           out.push({ role: 'assistant', content: typeof m.content === 'string' ? m.content.slice(0, MAX_CONTENT) : '', toolCalls });
           continue;
@@ -83,7 +85,7 @@ export function sanitizeMessages(input) {
 // Execute one assistant turn's tool calls into tool-result records. Read tools
 // always run; write tools run only when `decisions[id] === 'approve'`, otherwise
 // they record a "declined" result so the model can respond to the refusal.
-async function executeToolCalls(toolCalls, byName, decisions) {
+async function executeToolCalls(toolCalls, byName, decisions, writeReceipts = null, legacyContext = null) {
   const results = [];
   for (const call of toolCalls) {
     const tool = byName.get(call.name);
@@ -96,11 +98,17 @@ async function executeToolCalls(toolCalls, byName, decisions) {
       continue;
     }
     try {
-      const out = await tool.handler(call.input || {});
-      const text = Array.isArray(out?.content) ? out.content.map((c) => c?.text ?? '').join('\n') : String(out ?? '');
-      results.push({ id: call.id, name: call.name, content: text, isError: Boolean(out?.isError) });
+      const execute = async () => {
+        const out = await tool.handler(call.input || {});
+        const text = Array.isArray(out?.content) ? out.content.map((c) => c?.text ?? '').join('\n') : String(out ?? '');
+        return { id: call.id, name: call.name, content: text, isError: Boolean(out?.isError) };
+      };
+      const approvalId = call.approvalId || ('legacy-' + assistantIntentHash({ history: legacyContext, call }));
+      results.push(!tool.readOnly && writeReceipts
+        ? await writeReceipts.execute(approvalId, { name: call.name, input: call.input || {} }, execute)
+        : await execute());
     } catch (err) {
-      results.push({ id: call.id, name: call.name, content: `Tool error: ${err?.message ?? String(err)}`, isError: true });
+      results.push({ id: call.id, name: call.name, content: `Tool error: ${err?.message ?? String(err)}`, isError: true, ...(err?.code === 'WRITE_OUTCOME_UNKNOWN' ? { outcomeUnknown: true } : {}) });
     }
   }
   return results;
@@ -117,7 +125,7 @@ function pendingFrom(toolCalls, byName) {
 // Returns one of:
 //   { status:'done', messages, answer, model }
 //   { status:'awaiting_confirmation', messages, pending, model }
-export async function runAssistant({ chat, tools, system, messages, decisions = null, maxSteps = MAX_STEPS, now = new Date() }) {
+export async function runAssistant({ chat, tools, system, messages, decisions = null, maxSteps = MAX_STEPS, now = new Date(), writeReceipts = null }) {
   // The system prompt carries today's date so the model can resolve relative
   // due dates; recomputed per request so it never goes stale.
   const sys = system || buildAssistantSystemPrompt(now);
@@ -134,7 +142,7 @@ export async function runAssistant({ chat, tools, system, messages, decisions = 
   // then fall through to continue the conversation.
   const tail = history[history.length - 1];
   if (decisions && isToolCallTurn(tail)) {
-    const results = await executeToolCalls(tail.toolCalls, byName, decisions);
+    const results = await executeToolCalls(tail.toolCalls, byName, decisions, writeReceipts, history);
     // didWrite reflects the OUTCOME, not the approval: an approved write
     // whose handler threw (or returned isError) mutated nothing, and telling
     // the client "the approved change completed — do not repeat the action"
@@ -145,6 +153,9 @@ export async function runAssistant({ chat, tools, system, messages, decisions = 
       && decisions[c.id] === 'approve'
       && resultById.get(c.id)?.isError !== true)) didWrite = true;
     history.push({ role: 'tool', results });
+    if (results.some(result => result.outcomeUnknown)) {
+      return { status: 'error', reason: 'write-outcome-unknown', outcomeUnknown: true, error: 'An interrupted approved action has an unknown outcome. Check the workspace before starting a new action.', messages: history, model: chat.model, didWrite };
+    }
   }
 
   let model = chat.model;
@@ -165,6 +176,7 @@ export async function runAssistant({ chat, tools, system, messages, decisions = 
     model = res.model || model;
 
     if (res.toolCalls && res.toolCalls.length) {
+      res.toolCalls = res.toolCalls.map(call => byName.get(call.name)?.readOnly ? call : { ...call, approvalId: randomUUID() });
       history.push({ role: 'assistant', content: res.text || '', toolCalls: res.toolCalls });
       // Any write in the turn suspends the WHOLE turn for confirmation (a
       // provider requires every tool_use in a turn to be answered together).

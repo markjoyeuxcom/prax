@@ -81,18 +81,38 @@ export async function importTasks({ project, mode = 'skip', tasks, format, versi
     ...(format !== undefined ? { format } : {}),
     ...(version !== undefined ? { version } : {}),
   };
-  const response = await fetch('/api/tasks/import', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const body = await response.json().catch(() => null);
-    const error = new Error(body?.message || 'Failed to import tasks');
-    error.status = response.status;
-    throw error;
+  async function send(url, method, data) {
+    const response = await fetch(url, {method, headers:{'content-type':'application/json'},body:JSON.stringify(data)});
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      const error = new Error(body?.message || 'Failed to import tasks');
+      error.status = response.status;
+      throw error;
+    }
+    return response.json();
   }
-  return response.json();
+  const encoder = new TextEncoder();
+  const threshold = 512 * 1024;
+  if (!Array.isArray(tasks) || (tasks.length < 500 && encoder.encode(JSON.stringify(payload)).byteLength < threshold)) {
+    return send('/api/tasks/import','POST',payload);
+  }
+  const id = requestId || globalThis.crypto.randomUUID();
+  const root = '/api/tasks/import-sessions/' + encodeURIComponent(id);
+  const chunks = [];
+  let chunk = [], bytes = 12;
+  for (const task of tasks) {
+    const size = encoder.encode(JSON.stringify(task)).byteLength + 1;
+    if (chunk.length && (chunk.length >= 200 || bytes + size > threshold)) {
+      chunks.push(chunk); chunk = []; bytes = 12;
+    }
+    chunk.push(task); bytes += size;
+  }
+  if (chunk.length) chunks.push(chunk);
+  await send('/api/tasks/import-sessions','POST',{requestId:id,project,mode,...(format !== undefined ? {format} : {}),...(version !== undefined ? {version} : {})});
+  // Replay every chunk even after a committed-session response. The server's
+  // retained manifest must reject reuse of this identity with different data.
+  for (let index=0; index<chunks.length; index++) await send(root + '/chunks/' + index,'PUT',{tasks:chunks[index]});
+  return send(root + '/commit','POST',{chunkCount:chunks.length});
 }
 
 export async function updateTask(id, patch) {

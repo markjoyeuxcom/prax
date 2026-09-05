@@ -1,3 +1,9 @@
+import { importRequestFor, completeImportRequest } from './importRecovery.js';
+import { reconcileTaskArchive } from './taskArchiveOutcome.js';
+import { documentDraftPatch, mergeDocumentDraft } from './documentDraftMerge.js';
+import { openDocumentInfoDraft, normalizeInfoFields, documentInfoPatch, mergeDocumentInfo, documentInfoCommitted, rebaseDocumentInfoDraft } from './documentInfoDraft.js';
+import { loadAssistantRecovery, saveAssistantRecovery } from './assistantRecovery.js';
+import { createProjectDrafts } from './projectDrafts.js';
 // Prax — application orchestrator.
 // Render modules are pure state → HTML string functions; this file owns data
 // loading, event delegation (single delegated click/input/change listeners
@@ -143,7 +149,14 @@ let taskDraftSavePromise = null;  // coalesces close/switch with a drawer autosa
 let toastTimer = null;
 let isReindexing = false;         // guards the reindex/rebuild handler from double-runs
 let prevViewKey = null;           // suppress the main-content fade on same-view re-renders
-let projectOpsSaveTimer = null;   // debounce on-call / handoff-note edits
+const projectOpsTimers = new Map();
+let projectRecoveryAnnounced = false;
+const projectDrafts = createProjectDrafts({
+  storage: taskDraftStorage(), save: updateProject,
+  read: async id => (await fetchProjects()).find(project => project.id === id),
+  onSaved: (id, patch) => applyProjectPatchLocal(id, patch),
+  onError: message => showToast(message, () => projectDrafts.flushAll(), 10000, 'Retry'),
+});
 let boardExtrasRenderTimer = null; // enrichment must not preempt primary task interaction
 let dragIndicator = null;
 let documentsLoadToken = 0;       // only the newest Active/Archive collection may install
@@ -207,7 +220,11 @@ function newProjectDialog() {
 // ---------------------------------------------------------------------------
 
 async function loadProjects() {
-  const all = await fetchProjects('all');
+  const all = projectDrafts.overlay(await fetchProjects('all'));
+  if (projectDrafts.hasPending() && !projectRecoveryAnnounced) {
+    projectRecoveryAnnounced = true;
+    showToast('Recovered unsaved project changes. Review the fields and retry saving when ready.', () => projectDrafts.flushAll(), 10000, 'Retry');
+  }
   const sidebar = all.filter(p => p.status === 'active' || p.status === 'on-hold');
   setState({ projects: sidebar, managedProjects: all });
 }
@@ -698,7 +715,13 @@ async function refreshAfterAssistantWrite() {
 }
 
 async function applyAssistantResult(res) {
-  if (res.status === 'awaiting_confirmation') {
+  const preserveApproval = Boolean(state.assistantPending?.length)
+    && (res.status === 'no_model' || res.reason === 'approval-unavailable');
+  if (preserveApproval) {
+    setState({ assistantLoading: false, assistantError: res.status === 'no_model'
+      ? 'No AI model configured — restore a tool-capable model in Settings, then retry this saved approval.'
+      : 'This model cannot resume the saved approval. Restore a tool-capable model in Settings, then retry.', assistantErrorKind: 'error' });
+  } else if (res.status === 'awaiting_confirmation') {
     setState({ assistantMessages: res.messages, assistantPending: res.pending || [], assistantLoading: false, assistantError: null, assistantErrorKind: null });
   } else if (res.status === 'no_model') {
     setState({ assistantLoading: false, assistantPending: null, assistantError: 'No AI model configured — set one in Settings ▸ Intelligence ▸ AI answers.', assistantErrorKind: 'error', assistantStatus: { available: false, toolCount: state.assistantStatus?.toolCount || 0 } });
@@ -711,8 +734,10 @@ async function applyAssistantResult(res) {
 
   // A write mutated cached data. Wait for the reload so the notice can say
   // whether the committed change is already visible or requires a page reload.
-  const refreshed = res.didWrite ? await refreshAfterAssistantWrite() : true;
-  const notice = res.status === 'no_model' ? null : assistantOutcomeNotice(res, { refreshed });
+  const refreshed = res.didWrite || res.outcomeUnknown ? await refreshAfterAssistantWrite() : true;
+  if (!preserveApproval) setState({ assistantApprovalAttempted: false });
+  saveAssistantRecovery(taskDraftStorage(), state.assistantPending?.length ? { messages: state.assistantMessages, pending: state.assistantPending, attempted: state.assistantApprovalAttempted } : null);
+  const notice = preserveApproval || res.status === 'no_model' ? null : assistantOutcomeNotice(res, { refreshed });
   if (notice) setState({ assistantError: notice.text, assistantErrorKind: notice.kind });
 }
 
@@ -736,33 +761,40 @@ async function resolveAssistantWrites(decision) {
   if (!pending || !pending.length || state.assistantLoading) return;
   const decisions = {};
   for (const p of pending) decisions[p.id] = decision; // batch approve/decline
-  setState({ assistantPending: null, assistantLoading: true, assistantError: null, assistantErrorKind: null });
+  if (state.assistantApprovalAttempted && decision !== 'approve') return;
+  if (!saveAssistantRecovery(taskDraftStorage(), { messages: state.assistantMessages, pending, attempted: decision === 'approve' })) {
+    showToast('The approval could not be saved for recovery. Keep this window open and try again.');
+    return;
+  }
+  setState({ assistantApprovalAttempted: decision === 'approve', assistantLoading: true, assistantError: null, assistantErrorKind: null });
   renderApp();
   try {
     const res = await assistantChat(state.assistantMessages, decisions);
     await applyAssistantResult(res);
   } catch (err) {
-    setState({ assistantLoading: false, assistantError: err?.message || 'The assistant request failed.', assistantErrorKind: 'error' });
+    setState({ assistantLoading: false, assistantError: 'The connection ended before the approval outcome was known. Retry safely to recover the same action; do not start a replacement action.', assistantErrorKind: 'error' });
   }
   renderApp();
 }
 
 function clearAssistant() {
+  if (state.assistantLoading || state.assistantApprovalAttempted) { showToast('Recover the pending approval outcome before starting a new chat.'); return; }
+  saveAssistantRecovery(taskDraftStorage(), null);
   setState({ assistantMessages: [], assistantPending: null, assistantError: null, assistantErrorKind: null, assistantInput: '', assistantLoading: false });
   renderApp();
 }
 
 async function verifyHealthDoc(id) {
-  if (!id) return;
+  if (!id || !(await prepareEditorNavigation(id))) return;
   try {
-    const reviewed = await fetchDocument(id);
-    await verifyDocument(id, true, 'user', reviewed.contentHash);
-    showToast('Verified');
-    await loadHealth();
-  } catch {
-    showToast('Could not verify');
-  }
-  renderApp();
+    const current = await fetchDocument(id);
+    cacheLifecycleDocument(current);
+    await openDocumentInEditor(id);
+    destroyEditorController();
+    setState({ editorMode: 'preview' });
+    renderApp();
+    showToast('Review this document, then use Verify to approve the content shown.', null, 7000);
+  } catch { showToast('Could not load this document for review.'); }
 }
 
 // Accept a suggested wiki-link: link the first plain mention, then reload so the
@@ -841,7 +873,7 @@ async function loadSimilarDocuments(documentId) {
       if (!state.isDocumentInfoEditorOpen) renderApp();
     }
   } catch {
-    /* related-docs section stays hidden */
+    if (state.editorDocId === documentId) { setState({ documentSimilar: { items: [], degraded: true, reason: 'unavailable' } }); renderApp(); }
   }
 }
 
@@ -881,10 +913,10 @@ async function loadExternalRefs(documentId) {
 // not "removed": upserts still apply but nothing is deleted. Best-effort per
 // row so one bad line doesn't abort the rest; returns the failure count so
 // the caller can tell the user about a partial save.
-async function reconcileExternalRefs(documentId, refsText) {
+async function reconcileExternalRefs(documentId, refsText, seed = state.docInfoRefsSeed) {
   const desired = parseExternalRefLines(refsText);
   const desiredUrls = new Set(desired.map((r) => r.url));
-  const seeded = Array.isArray(state.docInfoRefsSeed) ? state.docInfoRefsSeed : [];
+  const seeded = Array.isArray(seed) ? seed : [];
   let failed = 0;
   for (const ref of seeded) {
     if (!desiredUrls.has(ref.url)) {
@@ -895,6 +927,64 @@ async function reconcileExternalRefs(documentId, refsText) {
     try { await addExternalRef(documentId, ref); } catch { failed += 1; }
   }
   return failed;
+}
+
+// ---------------------------------------------------------------------------
+// Document-info form (root-review finding 5). The form is an explicit draft in
+// state.documentInfoDraft: what it was opened from (baseline + revision), what
+// the person typed, and any unresolved conflict. Inputs mirror into the draft
+// without re-rendering, so a rerender or a failed save never reseeds the
+// inputs from the record and throws typed metadata away.
+const DOCUMENT_INFO_INPUT_FIELDS = [
+  ['data-doc-info-title', 'title'], ['data-doc-info-type', 'documentType'], ['data-doc-info-project', 'projectId'],
+  ['data-doc-info-tags', 'tags'], ['data-doc-info-source', 'sourceFilename'], ['data-doc-info-refs', 'refsText'],
+];
+
+function mirrorDocumentInfoInput(target) {
+  const entry = DOCUMENT_INFO_INPUT_FIELDS.find(([attr]) => target.hasAttribute?.(attr));
+  if (!entry) return false;
+  const draft = state.documentInfoDraft;
+  if (draft && !draft.pending) setState({ documentInfoDraft: { ...draft, fields: { ...draft.fields, [entry[1]]: target.value } } });
+  return true;
+}
+
+// One metadata PATCH, classified: saved / conflict (the record the server
+// holds now) / error. A lost response is judged only on the fields SENT, so
+// an unrelated concurrent edit cannot mask a save that landed.
+async function sendDocumentInfoPatch(docId, patch) {
+  try {
+    return { saved: await updateDocument(docId, patch) };
+  } catch (error) {
+    if (error?.status === 409 && error?.document?.revision) return { conflict: error.document };
+    let observed = null;
+    try { observed = await fetchDocument(docId); } catch { observed = null; }
+    if (observed && documentInfoCommitted(observed, patch)) return { saved: observed };
+    return { error: true };
+  }
+}
+
+// Rebase the editor on an acknowledged record so the next body edit stays
+// conditional on the saved title and body. A clean editor adopts the record
+// outright — a remote body surfaced by a 409 must never be typed over by the
+// next autosave. A dirty editor keeps its base when the body moved under it,
+// so its own autosave reconciles through the body-conflict review instead of
+// silently overwriting the remote body.
+function rebaseEditorOnDocument(docId, doc) {
+  const base = state.documentDraftBase || currentDocument();
+  cacheLifecycleDocument(doc);
+  if (state.editorDocId !== docId || state.documentDraftId !== docId) return;
+  const body = doc.body || '';
+  if (!state.isDocumentDirty) {
+    const bodyMoved = state.documentDraftBody !== body;
+    setState({ documentDraftBase: doc, documentDraftTitle: doc.title || '', documentDraftBody: body });
+    if (bodyMoved) destroyEditorController();
+    return;
+  }
+  if (body !== (base?.body || '')) return;
+  setState({
+    documentDraftBase: doc,
+    documentDraftTitle: state.documentDraftTitle === (base?.title || '') ? (doc.title || '') : state.documentDraftTitle,
+  });
 }
 
 // Past runs of a runbook, shown in the editor sidebar. Notes have no runs.
@@ -933,6 +1023,7 @@ async function loadDocumentContext(doc) {
   const patch = {};
   results.forEach((result, index) => {
     if (result.status === 'fulfilled') patch[keys[index]] = result.value;
+    else if (keys[index] === 'documentSimilar') patch.documentSimilar = { items: [], degraded: true, reason: 'unavailable' };
   });
   setState(patch);
   if (!state.isDocumentInfoEditorOpen) renderApp();
@@ -1203,50 +1294,44 @@ async function bulkSetStatus(designKey, label) {
   renderApp();
 }
 
-async function bulkArchive() {
-  const ids = [...state.multiSelectIds];
+async function archiveSelectedTasks(ids) {
   if (!ids.length) return;
-  setState({ multiSelectIds: [] });
-  try {
-    await Promise.all(ids.map(id => archiveTask(id)));
-    await loadTasks();
-    showToast(`${ids.length} task${ids.length > 1 ? 's' : ''} archived`, async () => {
-      dismissToast();
-      await Promise.all(ids.map(id => restoreTask(id)));
-      await loadTasks();
-      renderApp();
-    });
-  } catch {
-    alertError('archive the selection');
-    await loadTasks();
+  if (ids.includes(state.drawerTaskId) && !(await flushTaskDrawerDraft())) {
+    showToast('Save this task draft before archiving it.'); return;
   }
+  const results = await Promise.all(ids.map(id => enqueueTaskMutation(id, () =>
+    reconcileTaskArchive({ id, mutate: archiveTask, read: fetchTask }))));
+  const committed = ids.filter((id,index) => results[index].committed);
+  const unresolved = ids.filter(id => !committed.includes(id));
+  setState({
+    multiSelectIds: unresolved,
+    ...(committed.includes(state.drawerTaskId) ? {drawerTaskId:null,taskNotesDraftId:null,taskLabelDraftId:null,taskLabelDraft:''} : {}),
+    tasks: state.tasks.filter(task => !committed.includes(task.id)),
+  });
+  let refreshed = true;
+  try { await loadTasks(); if (state.tab === 'archive') await loadArchivedTasks(); }
+  catch { refreshed = false; }
+  const undo = committed.length ? async () => {
+    dismissToast();
+    const restored = await Promise.all(committed.map(id => enqueueTaskMutation(id, () =>
+      reconcileTaskArchive({ id, archived:false, mutate:restoreTask, read:fetchTask }))));
+    const count = restored.filter(result => result.committed).length;
+    let loaded = true;
+    try { await loadTasks(); if (state.tab === 'archive') await loadArchivedTasks(); } catch { loaded = false; }
+    showToast(count === committed.length
+      ? (loaded ? 'Task archive undone' : 'Tasks restored, but the list could not refresh. Reload to see them.')
+      : count + ' restored; ' + (committed.length-count) + ' restore outcomes could not be confirmed.', null, 7000);
+    renderApp();
+  } : null;
+  const success = ids.length === 1 ? 'Task archived' : committed.length + ' tasks archived';
+  let message = committed.length ? success : 'Prax could not confirm the archive outcome.';
+  if (unresolved.length && committed.length) message += '; ' + unresolved.length + ' could not be confirmed and remain selected.';
+  if (!refreshed) message += ' The list could not refresh; reload to reconcile it.';
+  showToast(message, undo, 7000);
   renderApp();
 }
-
-async function archiveTaskWithUndo(id) {
-  const task = taskById(id);
-  if (!task) return;
-  if (state.drawerTaskId === id && !(await flushTaskDrawerDraft())) {
-    showToast('Save this task draft before archiving it.');
-    return;
-  }
-  setState({ drawerTaskId: null, taskNotesDraftId: null, taskLabelDraftId: null, taskLabelDraft: '' });
-  try {
-    await archiveTask(id);
-    await loadTasks();
-    if (state.tab === 'archive') await loadArchivedTasks();
-    showToast('Task archived', async () => {
-      dismissToast();
-      await restoreTask(id);
-      await loadTasks();
-      if (state.tab === 'archive') await loadArchivedTasks();
-      renderApp();
-    });
-  } catch {
-    alertError('archive the selected task');
-  }
-  renderApp();
-}
+async function bulkArchive() { await archiveSelectedTasks([...state.multiSelectIds]); }
+async function archiveTaskWithUndo(id) { if (taskById(id)) await archiveSelectedTasks([id]); }
 
 function taskDraftStorage() {
   try { return window.localStorage; } catch { return null; }
@@ -1715,19 +1800,29 @@ function reportUncommittedLifecycle(action, outcome, documentId) {
 }
 
 async function changeDocumentVerification(id, verified, { offerUndo = true } = {}) {
-  let reviewedHash = null;
+  let reviewedRevision = null;
   if (verified) {
-    const reviewed = (state.documents || []).find(document => document.id === id)
-      || await fetchDocument(id);
-    reviewedHash = reviewed.contentHash || null;
+    if (state.navType !== 'editor' || state.documentDraftId !== id) { await verifyHealthDoc(id); return false; }
+    const reviewed = state.documentDraftBase;
+    if (state.isDocumentDirty || documentSavePromise || !reviewed?.revision
+      || documentDraftIsDirty(reviewed, { title: state.documentDraftTitle, body: state.documentDraftBody })) {
+      showToast('Save the draft and review the saved content before verifying.');
+      return false;
+    }
+    reviewedRevision = reviewed.revision;
   }
   const result = await reconcileDocumentLifecycle({
     id,
-    intent: { type: 'verify', verified },
-    mutate: () => verifyDocument(id, verified, 'user', reviewedHash),
+    intent: { type: 'verify', verified, revision: reviewedRevision },
+    mutate: () => verifyDocument(id, verified, 'user', reviewedRevision),
   });
   if (!result.committed) {
-    reportUncommittedLifecycle(verified ? 'Verify this document' : 'Unverify this document', result.outcome, id);
+    if (verified && result.document && result.document.revision !== reviewedRevision) {
+      cacheLifecycleDocument(result.document);
+      seedEditorDraft(result.document);
+      destroyEditorController(); renderApp();
+      showToast('The document changed. Review the current title and body before verifying again.', null, 7000);
+    } else reportUncommittedLifecycle(verified ? 'Verify this document' : 'Unverify this document', result.outcome, id);
     return false;
   }
   cacheLifecycleDocument(result.document);
@@ -1911,6 +2006,7 @@ function seedEditorDraft(doc) {
   setState({
     editorDocId: doc.id,
     documentDraftId: doc.id,
+    documentDraftBase: doc,
     documentDraftTitle: resolved.title,
     documentDraftBody: resolved.body,
     isDocumentDirty: resolved.isDirty,
@@ -2040,12 +2136,12 @@ function setSaveStatusInPlace(status) {
 }
 
 function handleDocumentDraftChange({ title = state.documentDraftTitle, body = state.documentDraftBody } = {}) {
-  const doc = currentDocument();
+  const doc = state.documentDraftBase || currentDocument();
   const draft = { title: String(title ?? ''), body: String(body ?? '') };
   const dirty = documentDraftIsDirty(doc, draft);
   const storage = documentDraftStorage();
   const stored = dirty
-    ? storeDocumentDraftRecovery(storage, { document: doc, ...draft })
+    ? storeDocumentDraftRecovery(storage, { document: doc, ...draft, conflict: state.documentDraftRecoveryReason === 'conflict' })
     : clearDocumentDraftRecovery(storage, doc?.id);
   const protectedRecovery = dirty && ['recovered', 'conflict'].includes(state.documentDraftRecoveryReason);
   setState({
@@ -2094,13 +2190,11 @@ function applyDocumentDraftSave(saved, { draftId, sentDraft }) {
     activeDocumentId: stillActive ? draftId : null,
   });
   const liveDraft = {
-    title: state.documentDraftTitle,
-    body: state.documentDraftBody,
+    title: state.documentDraftTitle === sentDraft.title ? saved.title : state.documentDraftTitle,
+    body: state.documentDraftBody === sentDraft.body ? saved.body : state.documentDraftBody,
   };
-  if (stillActive && documentDraftIsDirty(
-    { title: normalizeDocumentDraftTitle(sentDraft.title), body: sentDraft.body },
-    liveDraft,
-  )) {
+  if (stillActive) patch.documentDraftBase = saved;
+  if (stillActive && documentDraftIsDirty(saved, liveDraft)) {
     // The user kept typing while the PATCH was in flight. Rebase the newer
     // recovery record onto the acknowledged version and save it next.
     patch.documentDraftTitle = liveDraft.title;
@@ -2121,6 +2215,17 @@ function applyDocumentDraftSave(saved, { draftId, sentDraft }) {
     setSaveStatusInPlace(patch.documentSaveStatus);
     const title = appRoot?.querySelector('[data-doc-title]');
     if (title && title.value !== patch.documentDraftTitle) title.value = patch.documentDraftTitle;
+    // A safe merge can bring in a remote body while only the title was edited.
+    // Refresh that editor alone, leaving a live title input and its caret intact.
+    if (documentEditorController && documentEditorController.getValue() !== patch.documentDraftBody) {
+      const focused = appRoot?.querySelector('[data-code-editor]')?.contains(document.activeElement);
+      destroyEditorController();
+      const fallback = appRoot?.querySelector('[data-document-editor]');
+      if (fallback) fallback.value = patch.documentDraftBody;
+      mountEditorIfNeeded();
+      if (focused) documentEditorController?.focus();
+    }
+    updateDocumentLivePreview(appRoot, patch.documentDraftBody, { resolveWikiLink });
   }
   // The fallback textarea preserves the caret exactly like CodeMirror does —
   // either way, re-rendering mid-typing would destroy the edit surface and
@@ -2147,35 +2252,51 @@ async function saveDocumentDraft({ status = 'Saving...' } = {}) {
     body: state.documentDraftBody,
   };
   if (status) setSaveStatusInPlace(status);
+  const initialBase = state.documentDraftBase || currentDocument();
   documentSavePromise = (async () => {
+    let base = initialBase, targetDraft = sentDraft;
     try {
-      const saved = await updateDocument(draftId, {
-        title: normalizeDocumentDraftTitle(sentDraft.title),
-        body: sentDraft.body,
-      });
-      return applyDocumentDraftSave(saved, { draftId, sentDraft });
-    } catch {
-      // A response can be lost after the database committed. Re-read once and
-      // acknowledge the exact sent revision instead of inviting a duplicate.
-      try {
-        const observed = await fetchDocument(draftId);
-        if (!documentDraftIsDirty(observed, sentDraft)) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const payload = documentDraftPatch(base, targetDraft);
+        if (Object.keys(payload).length === 1) return applyDocumentDraftSave(base, { draftId, sentDraft });
+        try {
+          const saved = await updateDocument(draftId, payload);
+          return applyDocumentDraftSave(saved, { draftId, sentDraft });
+        } catch (error) {
+          if (error.status !== 409 || !error.document) throw error;
+          const merged = mergeDocumentDraft(base, targetDraft, error.document);
+          if (merged.conflicts.length || attempt === 2) throw error;
+          base = error.document;
+          targetDraft = merged.draft;
+        }
+      }
+    } catch (error) {
+      let observed = error.document;
+      if (!observed) { try { observed = await fetchDocument(draftId); } catch {} }
+      if (observed) {
+        const merged = mergeDocumentDraft(initialBase, sentDraft, observed);
+        if (!merged.conflicts.length && !documentDraftIsDirty(observed, merged.draft)) {
           return applyDocumentDraftSave(observed, { draftId, sentDraft });
         }
-      } catch { /* the canonical outcome is still unknown/uncommitted */ }
-      // Never window.alert from the autosave path — it would block the page on
-      // every debounce tick. The footer status plus a toast is enough.
+      }
       if (state.editorDocId === draftId) {
-        setState({ documentDraftRecoveryReason: 'failed' });
-        setSaveStatusInPlace('Save failed');
-        showToast(state.isDocumentDraftStored
-          ? 'Save failed. Your draft is kept on this device — retry when ready.'
-          : 'Save failed. Keep this tab open and retry.');
+        const conflict = error.status === 409 && observed;
+        if (conflict) {
+          const live = mergeDocumentDraft(initialBase, { title: state.documentDraftTitle, body: state.documentDraftBody }, observed).draft;
+          cacheLifecycleDocument(observed);
+          setState({ documentDraftBase: observed, documentDraftTitle: live.title, documentDraftBody: live.body, isDocumentDirty: true, documentDraftRecoveryReason: 'conflict', isDocumentDraftStored: storeDocumentDraftRecovery(documentDraftStorage(), { document: observed, ...live, conflict: true }) });
+          destroyEditorController();
+          renderApp();
+          setSaveStatusInPlace('Conflict — review your draft');
+          showToast('The saved document changed. Your draft is kept; review it before replacing the saved copy.', null, 7000);
+        } else {
+          setState({ documentDraftRecoveryReason: 'failed' });
+          setSaveStatusInPlace('Save failed');
+          showToast(state.isDocumentDraftStored ? 'Save could not be confirmed. Your draft is kept — retry when ready.' : 'Save could not be confirmed. Keep this tab open and retry.');
+        }
       }
       return false;
-    } finally {
-      documentSavePromise = null;
-    }
+    } finally { documentSavePromise = null; }
   })();
   return documentSavePromise;
 }
@@ -3131,6 +3252,7 @@ function resetSemanticSearchPatch() {
   return {
     semanticResults: null,
     semanticPage: null,
+    semanticIndex: null,
     semanticError: false,
     semanticLoading: false,
     semanticLoadingMore: false,
@@ -3152,6 +3274,7 @@ function normalizeSemanticSearchPage(payload, { offset, limit }) {
   const hasMore = Boolean(page.hasMore) && offset + returned < total;
   return {
     items,
+    index: payload?.index ?? null,
     page: {
       offset,
       limit,
@@ -3177,7 +3300,7 @@ async function runSemanticSearch({ append = false } = {}) {
     && state.libraryQuery.trim() === query;
   setState(append
     ? { semanticLoadingMore: true, semanticMoreError: false }
-    : { semanticResults: null, semanticPage: null, semanticError: false, semanticLoading: true, semanticLoadingMore: false, semanticMoreError: false });
+    : { semanticResults: null, semanticPage: null, semanticIndex: null, semanticError: false, semanticLoading: true, semanticLoadingMore: false, semanticMoreError: false });
   renderApp();
   const input = appRoot.querySelector('[data-library-search]');
   input?.focus();
@@ -3196,6 +3319,7 @@ async function runSemanticSearch({ append = false } = {}) {
     setState({
       semanticResults: items,
       semanticPage: result.page,
+      semanticIndex: result.index ?? null,
       semanticError: false,
       semanticLoading: false,
       semanticLoadingMore: false,
@@ -3212,7 +3336,7 @@ async function runSemanticSearch({ append = false } = {}) {
     // A thrown error means the request itself failed (e.g. the embedding
     // backend is unreachable — a 503) — distinct from a successful search with
     // no matches. Surface it so it doesn't look like an empty result set.
-    setState({ semanticResults: [], semanticPage: null, semanticError: true, semanticLoading: false, semanticLoadingMore: false, semanticMoreError: false });
+    setState({ semanticResults: [], semanticPage: null, semanticIndex: null, semanticError: true, semanticLoading: false, semanticLoadingMore: false, semanticMoreError: false });
     showToast('Semantic search failed — the embedding backend is unreachable. Check the provider in Settings ▸ Intelligence.');
   }
 }
@@ -3264,9 +3388,13 @@ async function importTasksFromSettings() {
   if (!project) { showToast('Create a project first.'); return; }
   const tasks = tasksFromImportPayload(payload);
   const intent = JSON.stringify({ project, mode, payload });
-  const request = state.adminImportRequest?.intent === intent
-    ? state.adminImportRequest
-    : { id: globalThis.crypto.randomUUID(), intent };
+  setState({adminImportPending:true});
+  let request;
+  try { request = await importRequestFor(taskDraftStorage(), intent); }
+  catch {
+    setState({adminImportPending:false, adminImportError:'The import identity could not be saved for safe retry. Keep this window open and retry when storage is available.'});
+    renderApp(); return;
+  }
   setState({
     adminImportPending: true,
     adminImportError: '',
@@ -3289,6 +3417,7 @@ async function importTasksFromSettings() {
       adminImportFileName: '',
       adminImportPayload: null,
     });
+    completeImportRequest(taskDraftStorage(), request);
     const destination = state.projects.find(item => item.id === project)?.name || 'the selected project';
     const committed = `Imported ${result.imported} task${result.imported === 1 ? '' : 's'} into ${destination}; skipped ${result.skipped ?? 0}.`;
     try {
@@ -4673,6 +4802,7 @@ _Task:_ ${task.title || 'Untitled task'}`
       const doc = (state.documents || []).find((d) => d.id === docId) || null;
       if (doc) {
         setState({
+          documentDraftBase: doc,
           documentDraftTitle: doc.title || '',
           documentDraftBody: doc.body || '',
           isDocumentDirty: false,
@@ -4770,41 +4900,96 @@ _Task:_ ${task.title || 'Untitled task'}`
           setState({ documentExternalRefs: seed });
         } catch { seed = null; }
       }
-      setState({ isDocumentInfoEditorOpen: true, documentInfoError: '', docMenuOpen: false, docInfoRefsSeed: seed });
+      // The form edits the record the editor is based on (the freshest
+      // revision the client holds); an older cached row is refreshed first so
+      // the conditional save is guarded by a real revision.
+      let base = state.documentDraftBase?.id === state.editorDocId ? state.documentDraftBase : currentDocument();
+      if (!base?.revision) { try { base = await fetchDocument(state.editorDocId); } catch { base = null; } }
+      let documentInfoDraft;
+      try {
+        documentInfoDraft = openDocumentInfoDraft(base, { refs: seed });
+      } catch (error) {
+        showToast(error.message);
+        break;
+      }
+      setState({ isDocumentInfoEditorOpen: true, documentInfoError: '', docMenuOpen: false, docInfoRefsSeed: seed, documentInfoDraft });
       renderApp();
       break;
     }
-    case 'cancel-document-info': setState({ isDocumentInfoEditorOpen: false, documentInfoError: '' }); renderApp(); break;
+    case 'cancel-document-info': setState({ isDocumentInfoEditorOpen: false, documentInfoError: '', documentInfoDraft: null }); renderApp(); break;
+    case 'doc-info-keep-theirs':
+    case 'doc-info-keep-mine': {
+      const draft = state.documentInfoDraft;
+      if (!draft?.conflict) break;
+      const keep = action === 'doc-info-keep-theirs' ? 'theirs' : 'mine';
+      setState({
+        documentInfoDraft: rebaseDocumentInfoDraft(draft, draft.conflict.remote, { keep, conflicts: draft.conflict.conflicts }),
+        documentInfoError: '',
+      });
+      renderApp();
+      break;
+    }
     case 'save-document-info': {
-      const title = appRoot.querySelector('[data-doc-info-title]')?.value?.trim();
-      const documentType = appRoot.querySelector('[data-doc-info-type]')?.value;
-      const project = appRoot.querySelector('[data-doc-info-project]')?.value;
-      const tags = (appRoot.querySelector('[data-doc-info-tags]')?.value || '')
-        .split(',').map(t => t.trim()).filter(Boolean);
-      const sourceFilename = appRoot.querySelector('[data-doc-info-source]')?.value?.trim() || null;
-      const refsText = appRoot.querySelector('[data-doc-info-refs]')?.value || '';
-      if (!title) { setState({ documentInfoError: 'Title is required.' }); renderApp(); break; }
+      const opened = state.documentInfoDraft;
       const docId = state.editorDocId;
-      try {
-        await updateDocument(docId, { title, documentType, project, tags, sourceFilename });
-        // The editor's draft model sends title+body on every autosave, so the
-        // draft title must follow the rename — otherwise the next body
-        // keystroke autosaves the OLD title back over it. The info form only
-        // opens on a clean draft (edit-document-info flushes first), so
-        // overwriting the draft title here cannot discard typed input.
-        if (state.editorDocId === docId && state.documentDraftId === docId) {
-          setState({ documentDraftTitle: title });
-        }
-        const refsFailed = await reconcileExternalRefs(docId, refsText);
-        await loadDocuments();
-        setState({ isDocumentInfoEditorOpen: false });
-        await loadExternalRefs(docId);
-        if (refsFailed) {
-          showToast(`${refsFailed} external reference change${refsFailed === 1 ? '' : 's'} could not be saved.`);
-        }
-      } catch {
-        setState({ documentInfoError: 'Prax could not save document info.' });
+      if (!opened || opened.documentId !== docId) { setState({ documentInfoError: 'Reopen Document info before saving.' }); renderApp(); break; }
+      if (opened.pending) break;
+      const fields = normalizeInfoFields(opened.fields);
+      if (!fields.title) { setState({ documentInfoError: 'Title is required.' }); renderApp(); break; }
+      const refsSeed = state.docInfoRefsSeed;
+      const inFlight = { ...opened, pending: true, conflict: null };
+      setState({ documentInfoDraft: inFlight, documentInfoError: '' });
+      renderApp();
+      // Send only the fields that changed since the form's baseline, guarded
+      // by the revision it was opened from.
+      let working = inFlight;
+      let patch = documentInfoPatch(working.baseline, fields);
+      let outcome = Object.keys(patch).length > 1 ? await sendDocumentInfoPatch(docId, patch) : { saved: null };
+      // A revision mismatch that does not contest my fields (a body edit, or a
+      // tag change while I renamed) rebases onto the remote record and retries
+      // once against ITS revision. A contested field stops for review instead.
+      if (outcome.conflict && !mergeDocumentInfo(working.baseline, fields, outcome.conflict).conflicts.length) {
+        rebaseEditorOnDocument(docId, outcome.conflict);
+        working = rebaseDocumentInfoDraft(working, outcome.conflict, { keep: 'mine' });
+        patch = documentInfoPatch(working.baseline, normalizeInfoFields(working.fields));
+        outcome = Object.keys(patch).length > 1 ? await sendDocumentInfoPatch(docId, patch) : { saved: outcome.conflict };
       }
+      const stillOpen = state.isDocumentInfoEditorOpen && state.documentInfoDraft === inFlight && state.editorDocId === docId;
+      if (outcome.conflict) {
+        const { conflicts } = mergeDocumentInfo(working.baseline, normalizeInfoFields(working.fields), outcome.conflict);
+        rebaseEditorOnDocument(docId, outcome.conflict);
+        if (stillOpen) setState({ documentInfoDraft: { ...working, pending: false, conflict: { remote: outcome.conflict, conflicts } }, documentInfoError: '' });
+        else showToast('Document info was not saved: the document changed meanwhile. Reopen Document info to review.');
+        renderApp();
+        break;
+      }
+      if (outcome.error) {
+        if (stillOpen) setState({ documentInfoDraft: { ...working, pending: false }, documentInfoError: 'Prax could not save document info. Your entries are kept — retry when ready.' });
+        else showToast('Prax could not save document info.');
+        renderApp();
+        break;
+      }
+      if (outcome.saved) rebaseEditorOnDocument(docId, outcome.saved);
+      // Metadata is acknowledged independently of reference writes and cache
+      // refreshes. A later failure must not strand a committed form as pending.
+      const acknowledged = outcome.saved
+        ? rebaseDocumentInfoDraft(working, outcome.saved, { keep: 'mine' })
+        : { ...working, pending: false };
+      const refsFailed = await reconcileExternalRefs(docId, working.fields.refsText, refsSeed).catch(() => 1);
+      let currentRefs = null;
+      try { currentRefs = await fetchExternalRefs(docId); } catch { /* retain the known seed for retry */ }
+      let refreshed = true;
+      try { await loadDocuments(); } catch { refreshed = false; }
+      if (state.documentInfoDraft === inFlight) {
+        if (refsFailed) {
+          setState({ documentInfoDraft: acknowledged, documentInfoError: `Document info saved. ${refsFailed} reference change${refsFailed === 1 ? '' : 's'} could not be confirmed; your entries are kept for retry.`, docInfoRefsSeed: currentRefs ?? refsSeed });
+        } else {
+          setState({ isDocumentInfoEditorOpen: false, documentInfoError: '', documentInfoDraft: null });
+        }
+      }
+      if (state.editorDocId === docId && currentRefs) setState({ documentExternalRefs: currentRefs });
+      if (!refreshed) showToast('Document info saved, but the library list could not be refreshed. Reload to reconcile it.', null, 7000);
+      else if (refsFailed) showToast('Document info saved; some references still need retry.', null, 6000);
       renderApp();
       break;
     }
@@ -5499,13 +5684,13 @@ function bindEvents() {
         : target.matches('[data-project-area]') ? 'area'
         : 'repoUrl';
       const value = target.value;
-      clearTimeout(projectOpsSaveTimer);
-      projectOpsSaveTimer = setTimeout(async () => {
-        try {
-          const updated = await updateProject(id, { [field]: value });
-          applyProjectPatchLocal(id, { [field]: updated ? updated[field] : (value.trim() || null) });
-        } catch { /* next load reconciles */ }
-      }, 600);
+      projectDrafts.set(id, field, value);
+      applyProjectPatchLocal(id, { [field]: value });
+      clearTimeout(projectOpsTimers.get(id));
+      projectOpsTimers.set(id, setTimeout(() => {
+        projectOpsTimers.delete(id);
+        void projectDrafts.flush(id);
+      }, 600));
       return;
     }
     if (target.matches?.('[data-task-notes]')) {
@@ -5532,6 +5717,7 @@ function bindEvents() {
       handleDocumentDraftTitleChange(target.value);
       return;
     }
+    if (mirrorDocumentInfoInput(target)) return;
     if (target.matches?.('[data-gcal-client-id]')) {
       // Mirror to state (no re-render) so the OAuth draft survives re-renders
       // without stealing focus — the render reads googleCalendarDraft back.
@@ -5550,6 +5736,7 @@ function bindEvents() {
 
   appRoot.addEventListener('change', (event) => {
     const target = event.target;
+    if (mirrorDocumentInfoInput(target)) return;
     if (target.matches?.('[data-task-due]')) {
       // Clearing the date clears the time too (a time with no date is meaningless).
       const dueDate = target.value || null;
@@ -6228,6 +6415,11 @@ async function init() {
     const documentsPromise = loadDocuments().catch(() => false);
     await loadTasks({ announceReminders: false });
     restoreCaptureRecovery();
+    const assistantRecovery = loadAssistantRecovery(taskDraftStorage());
+    if (assistantRecovery) {
+      setState({ assistantMessages: assistantRecovery.messages, assistantPending: assistantRecovery.pending, assistantApprovalAttempted: assistantRecovery.attempted, assistantError: assistantRecovery.attempted ? 'Recovered an approval whose outcome was not confirmed. Retry safely to check the same action.' : null, assistantErrorKind: assistantRecovery.attempted ? 'partial' : null });
+      showToast('Recovered a pending assistant approval. Open Assistant to review it.', null, 8000);
+    }
     // A browser fallback reminder renders the workspace together with its
     // toast. Otherwise render once here. This avoids two consecutive full DOM
     // builds on every startup with due tasks.

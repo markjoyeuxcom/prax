@@ -66,3 +66,39 @@ test('bare-array fallback applies limit/offset instead of returning everything',
   assert.equal(res.page.total, 60);
   assert.equal(res.page.nextOffset, 40);
 });
+
+// C10 adapter coverage: the server excludes stale/model-mismatched vectors and
+// reports how many documents are pending. The tool must carry that through —
+// a page that silently omits them is misleading success (QINV-08/QINV-10).
+test('handler passes index coverage and degradation through the envelope', async () => {
+  const client = {
+    searchDocumentsSemantic: async () => ({
+      items: [{ id: 'a', title: 'Current' }],
+      page: { total: 1 },
+      index: { total: 5, embedded: 3, pending: 2 },
+      degraded: true,
+      reason: 'index-incomplete',
+    }),
+  };
+  const tool = createSemanticSearchTools(client).find((t) => t.name === 'search_documents_semantic');
+  const data = JSON.parse((await tool.handler({ query: 'restore' })).content[0].text);
+  assert.deepEqual(data.index, { total: 5, embedded: 3, pending: 2 });
+  assert.equal(data.degraded, true);
+  assert.equal(data.reason, 'index-incomplete');
+  assert.equal(data.page.total, 1);
+});
+
+test('handler reports a complete index as not degraded and omits the keys when the server sends none', async () => {
+  const complete = createSemanticSearchTools({
+    searchDocumentsSemantic: async () => ({ items: [], page: { total: 0 }, index: { total: 4, embedded: 4, pending: 0 }, degraded: false }),
+  }).find((t) => t.name === 'search_documents_semantic');
+  const data = JSON.parse((await complete.handler({ query: 'x' })).content[0].text);
+  assert.equal(data.degraded, false);
+  assert.equal(data.index.pending, 0);
+  assert.ok(!('reason' in data));
+
+  const legacy = createSemanticSearchTools({ searchDocumentsSemantic: async () => ({ items: [], page: { total: 0 } }) })
+    .find((t) => t.name === 'search_documents_semantic');
+  const old = JSON.parse((await legacy.handler({ query: 'x' })).content[0].text);
+  assert.ok(!('index' in old) && !('degraded' in old));
+});

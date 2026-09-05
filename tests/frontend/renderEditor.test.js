@@ -402,3 +402,43 @@ test('related documents section is hidden when empty, not fetched, or in edit-on
   // edit-only mode shows no preview-side sections
   assert.doesNotMatch(render({ editorMode: 'edit' }, {}, { related: [{ id: 'x', title: 'X', similarity: 0.9 }] }), /doc-related/);
 });
+
+// ---- info form draft (root-review finding 5) -----------------------------------
+
+const infoDraft = {
+  documentId: baseDoc.id,
+  baseline: { revision: 'a'.repeat(64), title: baseDoc.title, documentType: 'runbook', projectId: 'p1', tags: baseDoc.tags, sourceFilename: null },
+  fields: { title: 'Typed title', documentType: 'note', projectId: 'p2', tags: 'typed, tags', sourceFilename: 'typed.md', refsText: 'https://x/pr/9 | PR' },
+  pending: false,
+  conflict: null,
+};
+
+test('info form renders the explicit draft (typed values) instead of the document after a rerender', () => {
+  const html = render({ isDocumentInfoEditorOpen: true, documentInfoDraft: infoDraft, documentInfoError: 'Prax could not save document info.' });
+  assert.match(html, /data-doc-info-title value="Typed title"/);
+  assert.match(html, /value="note" selected/);
+  assert.match(html, /value="p2" selected>Work/);
+  assert.match(html, /data-doc-info-tags value="typed, tags"/);
+  assert.match(html, /data-doc-info-source value="typed.md"/);
+  assert.match(html, /data-doc-info-refs[^>]*>https:\/\/x\/pr\/9 \| PR</);
+  assert.match(html, /role="alert">Prax could not save document info\./);
+  assert.doesNotMatch(html, /data-doc-info-title value="Postgres restore"/);
+});
+
+test('info form disables Save while a save is pending', () => {
+  const html = render({ isDocumentInfoEditorOpen: true, documentInfoDraft: { ...infoDraft, pending: true } });
+  assert.match(html, /data-action="save-document-info"[^>]*disabled/);
+  assert.match(html, /Saving…/);
+});
+
+test('info form shows a conflict review with both values and explicit keep-theirs / keep-mine actions', () => {
+  const conflict = { remote: { ...baseDoc, title: 'Remote title', revision: 'b'.repeat(64) }, conflicts: ['title'] };
+  const html = render({ isDocumentInfoEditorOpen: true, documentInfoDraft: { ...infoDraft, conflict } });
+  assert.match(html, /data-doc-info-conflict/);
+  assert.match(html, /Title[^<]*<[^>]*>[^<]*Remote title/);
+  assert.match(html, /Typed title/);
+  assert.match(html, /data-action="doc-info-keep-theirs"/);
+  assert.match(html, /data-action="doc-info-keep-mine"/);
+  // Typed values remain in the inputs — nothing was discarded.
+  assert.match(html, /data-doc-info-title value="Typed title"/);
+});

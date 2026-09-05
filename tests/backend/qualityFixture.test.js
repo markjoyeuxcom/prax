@@ -72,7 +72,7 @@ test('current CI fixture is deterministic, rich, self-verifying, and detects sem
     'published manifests are byte-identical',
   );
   assert.deepEqual(first.manifest.expected.counts, {
-    schemaMigrations: 22,
+    schemaMigrations: 25,
     projects: 5,
     tasks: 200,
     checklistItems: 150,
@@ -85,6 +85,7 @@ test('current CI fixture is deterministic, rich, self-verifying, and detects sem
     runbookRunSteps: 80,
     runbookRunEvents: 73,
     embeddings: 50,
+    currentEmbeddings: 50,
   });
   assert.deepEqual(Object.keys(first.manifest.expected.states.taskStatuses).sort(), [
     'completed', 'high-priority', 'in-progress', 'notes', 'planned',
@@ -152,7 +153,7 @@ test('historical CI fixture upgrades from 0009 through the taxonomy rebuild with
   });
 
   assert.equal(result.manifest.schema.seededThrough, '0009_add_project_repo_url.sql');
-  assert.equal(result.manifest.schema.finalVersion, '0022_add_project_area.sql');
+  assert.equal(result.manifest.schema.finalVersion, '0025_assistant_write_receipts.sql');
   assert.equal(result.manifest.schema.upgraded, true);
   assert.equal(result.manifest.expected.counts.documents, 50);
   assert.equal(result.manifest.expected.counts.documentLinks, 80);
@@ -168,4 +169,38 @@ test('historical CI fixture upgrades from 0009 through the taxonomy rebuild with
 
   const verification = await verifyQualityFixture({ databaseFile, manifest: result.manifest });
   assert.equal(verification.ok, true);
+});
+
+// C10 fixture integration: a current-schema fixture must seed vectors that the
+// app treats as CURRENT (embedded_hash = revision), while a fixture seeded on a
+// pre-0023 schema and upgraded keeps its body-hash vectors pending until a
+// reindex — and its manifest says so.
+test('seeded embeddings are current on the current schema and honestly pending after a 0009 upgrade', async () => {
+  const { createLibraryRepository } = await import('../../server/libraryRepository.js');
+  const currentPath = fixturePath('current-embeddings');
+  const current = await createQualityFixture({ databaseFile: currentPath, profile: 'ci', embeddings: true });
+  assert.equal(current.manifest.expected.counts.currentEmbeddings, 50);
+  assert.equal(current.manifest.features.seeded.documentRevision, true);
+  let db = createDb(currentPath);
+  try {
+    const stale = await db.query('select count(*) as n from markdown_documents where embedding is not null and embedded_hash is distinct from revision');
+    assert.equal(stale.rows[0].n, 0, 'every seeded vector is keyed by the document revision');
+    const counts = await createLibraryRepository(db).countEmbeddings('quality-fixture', 'deterministic-v1');
+    assert.deepEqual(counts, { total: 48, embedded: 48 }, 'the repository sees every non-archived vector as current');
+  } finally { await db.close(); }
+
+  const upgradedPath = fixturePath('upgraded-embeddings');
+  const upgraded = await createQualityFixture({ databaseFile: upgradedPath, profile: 'ci', through: '0009', upgrade: true, embeddings: true });
+  assert.equal(upgraded.manifest.features.seeded.documentRevision, false);
+  assert.equal(upgraded.manifest.features.final.documentRevision, true);
+  assert.equal(upgraded.manifest.expected.counts.embeddings, 50);
+  assert.equal(upgraded.manifest.expected.counts.currentEmbeddings, 0, 'body-hash vectors cannot claim to cover the reviewed title');
+  assert.equal((await verifyQualityFixture({ databaseFile: upgradedPath, manifest: upgraded.manifest })).ok, true);
+  db = createDb(upgradedPath);
+  try {
+    const repo = createLibraryRepository(db);
+    const counts = await repo.countEmbeddings('quality-fixture', 'deterministic-v1');
+    assert.equal(counts.embedded, 0);
+    assert.ok((await repo.listDocumentsNeedingEmbedding('quality-fixture', 'deterministic-v1')).length >= 48, 'all legacy vectors are listed for reindex');
+  } finally { await db.close(); }
 });

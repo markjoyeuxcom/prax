@@ -16,15 +16,28 @@ import {
 test('buildSearchDocumentsSemantic selects candidates with the pg-era filters + embedding', () => {
   const q = buildSearchDocumentsSemantic('fake', {});
   assert.match(q.text, /d\.kind, d\.updated_by, d\.verified, d\.verified_at, d\.verified_by/);
-  assert.match(q.text, /d\.status, d\.embedding/);
+  assert.match(q.text, /d\.status, d\.revision, d\.embedding/);
   assert.match(q.text, /as stale/);
   assert.match(q.text, /dl\.relation = 'derived-from'/);
   assert.match(q.text, /archived_at is null/);
   assert.match(q.text, /embedding is not null/);
   assert.match(q.text, /embedding_backend = \$1/);
+  // Only vectors computed from the row's CURRENT revision are candidates (C10).
+  assert.match(q.text, /embedded_hash is not distinct from d\.revision/);
+  assert.doesNotMatch(q.text, /embedding_model/, 'no model given: backend-only (legacy callers)');
   assert.match(q.text, /status = 'active'/);
   assert.doesNotMatch(q.text, /<=>/, 'no pgvector operator on SQLite');
   assert.deepEqual(q.values, ['fake']);
+});
+
+test('buildSearchDocumentsSemantic pins the active model and shifts later placeholders', () => {
+  const q = buildSearchDocumentsSemantic('openai', { model: 'text-embedding-3-large', projectId: 'p1' });
+  assert.match(q.text, /embedding_model is not distinct from \$2/);
+  assert.match(q.text, /project_id = \$3/);
+  assert.deepEqual(q.values, ['openai', 'text-embedding-3-large', 'p1']);
+  // An empty model (llama.cpp server default) is a real value, not "no model".
+  const empty = buildSearchDocumentsSemantic('llamacpp', { model: '' });
+  assert.deepEqual(empty.values, ['llamacpp', '']);
 });
 
 test('buildSearchDocumentsSemantic threads includeRetired and projectId', () => {
@@ -107,7 +120,7 @@ test('searchDocumentsSemantic paged mode reports the exact relevant total', asyn
 test('buildListDocumentsNeedingEmbedding selects null/stale/mismatched rows', () => {
   const q = buildListDocumentsNeedingEmbedding('ollama');
   assert.match(q.text, /embedding is null/);
-  assert.match(q.text, /embedded_hash is distinct from content_hash/);
+  assert.match(q.text, /embedded_hash is distinct from revision/);
   assert.match(q.text, /embedding_backend is distinct from \$1/);
   assert.match(q.text, /archived_at is null/);
   // No model given: the model clause is omitted so it can't compare against a
@@ -145,17 +158,22 @@ test('buildCountEmbeddings only counts rows current for the active model', () =>
 });
 
 test('buildSetDocumentEmbedding stores the vector as JSON text (no pg cast)', () => {
-  const q = buildSetDocumentEmbedding('d1', { vector: [0.1, 0.2], backend: 'fake', model: 'm', dim: 2, contentHash: 'h' });
+  const rev = 'c'.repeat(64);
+  const q = buildSetDocumentEmbedding('d1', { vector: [0.1, 0.2], backend: 'fake', model: 'm', dim: 2, revision: rev });
   assert.doesNotMatch(q.text, /::vector/);
   assert.match(q.text, /set embedding = \$2,/);
   assert.match(q.text, /embedded_at = strftime\('%Y-%m-%dT%H:%M:%fZ','now'\)/);
-  assert.deepEqual(q.values, ['d1', JSON.stringify([0.1, 0.2]), 'fake', 'm', 2, 'h']);
+  assert.deepEqual(q.values, ['d1', JSON.stringify([0.1, 0.2]), 'fake', 'm', 2, rev]);
   assert.deepEqual(JSON.parse(q.values[1]), [0.1, 0.2], 'stored text round-trips through JSON.parse');
 });
 
 test('buildSetDocumentEmbedding rejects non-finite or non-array vectors', () => {
-  assert.throws(() => buildSetDocumentEmbedding('d1', { vector: '[0.1]', backend: 'fake', model: 'm', dim: 1, contentHash: 'h' }), /finite numbers/);
-  assert.throws(() => buildSetDocumentEmbedding('d1', { vector: [0.1, NaN], backend: 'fake', model: 'm', dim: 2, contentHash: 'h' }), /finite numbers/);
+  const rev = 'c'.repeat(64);
+  assert.throws(() => buildSetDocumentEmbedding('d1', { vector: '[0.1]', backend: 'fake', model: 'm', dim: 1, revision: rev }), /finite numbers/);
+  assert.throws(() => buildSetDocumentEmbedding('d1', { vector: [0.1, NaN], backend: 'fake', model: 'm', dim: 2, revision: rev }), /finite numbers/);
+  // The guard token is mandatory: an unguarded write could race a newer revision.
+  assert.throws(() => buildSetDocumentEmbedding('d1', { vector: [0.1], backend: 'fake', model: 'm', dim: 1 }), /revision/);
+  assert.throws(() => buildSetDocumentEmbedding('d1', { vector: [0.1], backend: 'fake', model: 'm', dim: 1, revision: 'old-hash' }), /revision/);
 });
 
 test('applyRelevanceCutoff keeps only the strong hit (calibration: graphics query)', () => {

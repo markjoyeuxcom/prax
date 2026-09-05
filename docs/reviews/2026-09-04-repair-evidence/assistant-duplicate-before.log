@@ -1,0 +1,39 @@
+✔ GET /api/assistant/status reports the model + the full tool count (37.518ms)
+✔ a read tool runs immediately and the loop returns a grounded answer (21.9155ms)
+✔ a write tool suspends for confirmation and does NOT mutate until approved (15.648041ms)
+✔ an approved write remains visible when the follow-up model call fails (14.0765ms)
+✔ didWrite is false for read-only turns and declined writes (14.228959ms)
+✔ declining a write does not mutate and the model sees the refusal (11.571917ms)
+✔ a no-tools backend answers from a live workspace snapshot, never a data vacuum (16.578167ms)
+✔ degrades to no_model when no chat model is configured (11.131667ms)
+✔ rejects an empty conversation (10.619917ms)
+✔ sanitize drops a client-supplied system turn (server owns the prompt) (13.931083ms)
+✖ replayed and concurrent approvals execute a create exactly once (14.785541ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 10
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 333.767542
+
+✖ failing tests:
+
+test at tests/backend/assistantRoute.test.js:217:1
+✖ replayed and concurrent approvals execute a create exactly once (14.785541ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  3 !== 1
+
+      at TestContext.<anonymous> (file:///Users/markjoyeux/Developer/Personal/prax/tests/backend/assistantRoute.test.js:225:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 3,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

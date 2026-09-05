@@ -4,7 +4,7 @@ import { seedDerivedFromPair } from './helpers/seed.js';
 async function replaceEditorBody(page, body) {
   const editor = page.locator('.cm-content[contenteditable="true"]');
   await editor.click();
-  await page.keyboard.press('Control+A');
+  await page.keyboard.press('ControlOrMeta+A');
   await page.keyboard.insertText(body);
   await expect(page.locator('[data-document-editor]')).toHaveValue(body);
 }
@@ -186,7 +186,7 @@ test('failed title/body save survives reload and one coalesced retry commits the
   await page.waitForTimeout(1400);
 
   expect(patchAttempts).toBe(2);
-  expect(committedPatches).toEqual([{ title: revisedTitle, body: revisedBody }]);
+  expect(committedPatches).toEqual([{ title: revisedTitle, body: revisedBody, ifRevision: synthesized.revision }]);
   const saved = await (await page.request.get(`/api/library/documents/${synthesized.id}`)).json();
   expect(saved.title).toBe(revisedTitle);
   expect(saved.body).toBe(revisedBody);

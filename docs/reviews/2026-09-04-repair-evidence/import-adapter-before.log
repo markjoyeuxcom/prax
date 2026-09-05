@@ -1,0 +1,76 @@
+✔ createTask preserves the client UUID used for safe retries (0.662917ms)
+✔ fetchTask reads one encoded task id (0.358542ms)
+✔ updateTask sends a PATCH request with JSON payload (0.096917ms)
+✔ archiveTask sends a DELETE request (0.0785ms)
+✔ restoreTask sends a PATCH request to the restore endpoint (0.091833ms)
+✔ deleteArchivedTask sends a DELETE request to the permanent endpoint (0.067542ms)
+✔ exportTasks fetches a project export envelope (0.123625ms)
+✔ exportTasks fetches an all-projects backup envelope (0.098708ms)
+✔ importTasks posts tasks for the selected project (0.141125ms)
+✔ importTasks posts explicit import modes (0.114667ms)
+✔ importTasks exposes the server rejection message and status (0.859542ms)
+✔ reorderTasks sends a PATCH request with ordered task updates (0.124291ms)
+✔ updateTask throws when the API rejects the request (0.060542ms)
+✔ restoreTask throws when the API rejects the request (0.041042ms)
+✔ importTasks throws when the API rejects the request (0.041792ms)
+✔ fetchTaskDocuments GETs the linked documents for a task (0.059834ms)
+✔ fetchTaskDocuments throws when the API rejects the request (0.03475ms)
+✔ linkTaskDocument POSTs a documentId to link it to a task (0.061167ms)
+✔ linkTaskDocument throws when the API rejects the request (0.0345ms)
+✔ unlinkTaskDocument DELETEs the link between a task and a document (0.041375ms)
+✔ unlinkTaskDocument throws when the API rejects the request (0.033ms)
+✔ fetchTaskChecklist GETs the checklist for a task (0.046833ms)
+✔ fetchTaskChecklist throws when the API rejects the request (0.034333ms)
+✔ addChecklistItem POSTs a label to create an item (0.054417ms)
+✔ addChecklistItem throws when the API rejects the request (0.037417ms)
+✔ setChecklistItem PATCHes the completed flag for an item (0.065875ms)
+✔ setChecklistItem throws when the API rejects the request (0.056375ms)
+✔ deleteChecklistItem DELETEs an item (0.04125ms)
+✔ deleteChecklistItem throws when the API rejects the request (0.033708ms)
+✔ fetchTaskActivity GETs the activity feed for a task (0.0425ms)
+✔ fetchTaskActivity throws when the API rejects the request (0.03175ms)
+✔ fetchTaskBoardExtras GETs board summaries for multiple tasks (0.07825ms)
+✔ fetchTaskBoardExtras returns an empty list without requesting for no task ids (0.025917ms)
+✔ fetchTaskBoardExtras throws when the API rejects the request (0.050958ms)
+✖ large imports replay deterministic bounded chunks before an atomic commit (0.5995ms)
+✖ a rejected large-import chunk never triggers commit (0.172833ms)
+ℹ tests 36
+ℹ suites 0
+ℹ pass 34
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 46.652375
+
+✖ failing tests:
+
+test at tests/frontend/taskApi.test.js:455:1
+✖ large imports replay deterministic bounded chunks before an atomic commit (0.5995ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  undefined !== 501
+
+      at TestContext.<anonymous> (file:///Users/markjoyeux/Developer/Personal/prax/tests/frontend/taskApi.test.js:461:10)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: 501,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/frontend/taskApi.test.js:470:1
+✖ a rejected large-import chunk never triggers commit (0.172833ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async TestContext.<anonymous> (file:///Users/markjoyeux/Developer/Personal/prax/tests/frontend/taskApi.test.js:473:3)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }

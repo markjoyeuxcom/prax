@@ -213,3 +213,58 @@ test('sanitize drops a client-supplied system turn (server owns the prompt)', as
   assert.ok(!body.messages.some((m) => m.role === 'system'));
   await app.close();
 });
+
+test('replayed and concurrent approvals execute a create exactly once', async () => {
+  const app = await makeApp();
+  try {
+    const first = await post(app, {messages:[{role:'user',content:'call create_task {"title":"Replay guard","project":"inbox"}'}]});
+    const approval = {messages:first.body.messages,decisions:{[first.body.pending[0].id]:'approve'}};
+    const [a,b] = await Promise.all([post(app,approval),post(app,approval)]);
+    assert.equal(a.code,200); assert.equal(b.code,200);
+    await post(app,approval);
+    assert.equal((await listTaskTitles(app)).filter(title=>title==='Replay guard').length,1);
+  } finally {await app.close();}
+});
+
+// C07 edge: the operator switches to a model without tool support while an
+// approval is pending. The read-only completion path must not swallow the
+// unresolved approval as an ordinary `done` — it returns an explicit,
+// non-executing refusal with the canonical history intact, and the same
+// approval still executes (once) after switching back.
+test('a pending approval is refused, not dropped, when the active model cannot run tools', async () => {
+  const chat = createFakeChat();
+  const app = await makeApp({ chat });
+  try {
+    const before = await listTaskTitles(app);
+    const first = await post(app, { messages: [{ role: 'user', content: 'call create_task {"title":"Model switch","project":"inbox"}' }] });
+    assert.equal(first.body.status, 'awaiting_confirmation');
+    const approval = { messages: first.body.messages, decisions: { [first.body.pending[0].id]: 'approve' } };
+
+    // The provider changes underneath the pending card (e.g. to claude-cli).
+    chat.supportsTools = false;
+    const refused = await post(app, approval);
+    assert.equal(refused.code, 200);
+    assert.equal(refused.body.status, 'error');
+    assert.equal(refused.body.reason, 'approval-unavailable');
+    assert.equal(refused.body.degraded, true);
+    assert.equal(refused.body.executed, false);
+    assert.equal(refused.body.didWrite, false);
+    assert.match(refused.body.error, /cannot run tools/);
+    assert.deepEqual(refused.body.messages, first.body.messages, 'the canonical history (pending tool turn included) is returned unchanged');
+    assert.ok(!refused.body.messages.some((m) => m.role === 'tool'), 'no tool result was fabricated');
+    assert.deepEqual(await listTaskTitles(app), before, 'nothing executed');
+
+    // Ordinary read-only chat still works on that model.
+    const chatty = await post(app, { messages: [{ role: 'user', content: 'what is overdue?' }] });
+    assert.equal(chatty.body.status, 'done');
+    assert.equal(chatty.body.reason, 'no-tools');
+
+    // Back on a tool-capable model the same approval executes exactly once.
+    chat.supportsTools = true;
+    const resumed = await post(app, approval);
+    assert.equal(resumed.body.status, 'done');
+    assert.equal(resumed.body.didWrite, true);
+    await post(app, approval);
+    assert.equal((await listTaskTitles(app)).filter((t) => t === 'Model switch').length, 1);
+  } finally { await app.close(); }
+});

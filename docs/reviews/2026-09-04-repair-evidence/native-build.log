@@ -1,0 +1,41 @@
+
+> prax@0.20.0 tauri
+> tauri build --debug --no-bundle
+
+        Info Looking up installed tauri packages to check mismatched versions...
+     Running beforeBuildCommand `node scripts/prepare-sidecar.mjs`
+[prepare-sidecar] staging server payload…
+[prepare-sidecar] installing production dependencies…
+
+added 198 packages in 627ms
+[prepare-sidecar] staging the Node runtime as the sidecar binary…
+[prepare-sidecar] done — payload at /Users/markjoyeux/Developer/Personal/prax/src-tauri/resources/app
+[prepare-sidecar]        sidecar at /Users/markjoyeux/Developer/Personal/prax/src-tauri/binaries/prax-server-aarch64-apple-darwin
+   Compiling objc2-exception-helper v0.1.1
+   Compiling tauri v2.11.5
+   Compiling tauri-macros v2.6.3
+   Compiling objc2 v0.6.4
+   Compiling objc2-core-foundation v0.3.2
+   Compiling block2 v0.6.2
+   Compiling tauri-plugin-fs v2.5.1
+   Compiling tauri-plugin-shell v2.3.5
+   Compiling tauri-plugin-global-shortcut v2.3.2
+   Compiling dispatch2 v0.3.1
+   Compiling objc2-foundation v0.3.2
+   Compiling objc2-core-graphics v0.3.2
+   Compiling tauri-plugin-dialog v2.7.1
+   Compiling prax v0.20.0 (/Users/markjoyeux/Developer/Personal/prax/src-tauri)
+   Compiling objc2-app-kit v0.3.2
+   Compiling objc2-web-kit v0.3.2
+   Compiling tao v0.35.3
+   Compiling muda v0.19.3
+   Compiling window-vibrancy v0.6.0
+   Compiling global-hotkey v0.8.0
+   Compiling rfd v0.16.0
+   Compiling tauri-runtime v2.11.3
+   Compiling wry v0.55.1
+   Compiling tray-icon v0.24.1
+   Compiling tauri-runtime-wry v2.11.4
+   Compiling tauri-plugin-single-instance v2.4.2
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 19.31s
+       Built application at: /Users/markjoyeux/Developer/Personal/prax/src-tauri/target/debug/prax

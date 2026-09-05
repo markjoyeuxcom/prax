@@ -153,8 +153,10 @@ test('the Views tab lists smart views, switching tabs clears the filter, selecti
 
 test('context panels: cockpit on Today, section nav in Settings, types in Library, mini month in Calendar', async ({ page, request }) => {
   const stamp = Date.now();
+  const today = new Date();
+  const plannedFor = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const seed = await request.post('/api/tasks', {
-    data: { title: `cockpit-${stamp}`, project: 'inbox', priority: 'medium', status: 'planned', plannedFor: new Date().toISOString().slice(0, 10) },
+    data: { title: `cockpit-${stamp}`, project: 'inbox', priority: 'medium', status: 'planned', plannedFor },
   });
   expect(seed.status()).toBe(201);
 
