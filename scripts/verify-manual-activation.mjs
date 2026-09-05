@@ -48,8 +48,6 @@ export const REQUIRED_MANUAL_MATRIX = Object.freeze([
   { lane: 'physical-touch', platformFamily: 'ios' },
   { lane: 'physical-touch', platformFamily: 'android' },
   { lane: 'native-platform', platformTarget: 'macos-arm64' },
-  { lane: 'native-platform', platformTarget: 'macos-x64' },
-  { lane: 'native-platform', platformTarget: 'windows-x64' },
   { lane: 'native-platform', platformTarget: 'ubuntu-x64' },
 ]);
 
