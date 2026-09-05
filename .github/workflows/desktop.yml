@@ -36,20 +36,6 @@ jobs:
             assets: |
               src-tauri/target/release/bundle/dmg/*.dmg
               src-tauri/target/release/bundle/macos/*.app
-          - name: macOS Intel
-            platform: macos-26-intel
-            artifact: prax-macos-x64
-            args: --bundles app,dmg
-            assets: |
-              src-tauri/target/release/bundle/dmg/*.dmg
-              src-tauri/target/release/bundle/macos/*.app
-          - name: Windows x64
-            platform: windows-latest
-            artifact: prax-windows-x64
-            args: --bundles msi,nsis
-            assets: |
-              src-tauri/target/release/bundle/msi/*.msi
-              src-tauri/target/release/bundle/nsis/*.exe
           - name: Linux x64
             platform: ubuntu-latest
             artifact: prax-linux-x64

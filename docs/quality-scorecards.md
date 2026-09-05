@@ -50,8 +50,8 @@ agent/contract usability, **A11y** accessibility, **Perf** performance, **SP** s
   emulation are not assistive-technology certification.
 - [`manual-activation.md`](manual-activation.md), `scripts/verify-manual-activation.mjs`, and the
   non-self-validating templates now define the exact three-screen-reader, independent cognitive,
-  two-device touch, and four-target native matrix. This is **prepared**, not recorded or activated;
-  validators cannot perform a human drill or create an attestation.
+  two-device touch, and two-target native matrix (macOS Apple Silicon and Linux x64). This is
+  **prepared**, not recorded or activated; validators cannot perform a human drill or create an attestation.
 - `npm run measure:performance` now owns a verified `large` fixture, production server, installed
   Chromium, warm HTTP reads, browser feedback/completion journeys, machine metadata, RSS, database
   size, and a versioned JSON report. Raw reports retain `candidate-baseline-only`; the separate
