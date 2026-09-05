@@ -27,3 +27,20 @@ test('desktop verification workflow executes the same runtime smoke outside rele
   assert.match(desktop, /npm run desktop:smoke/);
   assert.match(desktop, /if-no-files-found: error/);
 });
+
+test('Linux ARM64 builds native installers in both workflows with a distinct artifact', () => {
+  for (const file of ['desktop.yml', 'release.yml']) {
+    const workflow = readFileSync(new URL('../../.github/workflows/' + file, import.meta.url), 'utf8');
+    const entries = workflow.match(/^          - name:.*(?:\n(?!          - name:|    runs-on:|    name:)[^\n]*)*/gm) || [];
+    const arm = entries.find(entry => entry.startsWith('          - name: Linux ARM64\n'));
+    assert.ok(arm, file + ' must build Linux ARM64');
+    assert.match(arm, /platform: ubuntu-24\.04-arm/);
+    assert.match(arm, /artifact: prax-linux-arm64/);
+    assert.match(arm, /args: --bundles deb,appimage/);
+    assert.match(arm, /bundle\/deb\/\*\.deb/);
+    assert.match(arm, /bundle\/appimage\/\*\.AppImage/);
+    const artifacts = entries.map(entry => entry.match(/artifact: (\S+)/)?.[1]);
+    assert.equal(new Set(artifacts).size, entries.length, file + ' must not overwrite another platform artifact');
+    assert.equal(entries.length, 3, file + ' builds Apple Silicon, Linux x64 and Linux ARM64');
+  }
+});
