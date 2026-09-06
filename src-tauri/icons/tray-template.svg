@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 22 22">
+  <!-- Prax's diamond-and-p mark, drawn as paths for a font-independent alpha mask. -->
+  <g fill="none" stroke="#000" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="4.55" y="4.55" width="12.9" height="12.9" rx="2.3" transform="rotate(45 11 11)"/>
+    <path d="M9 15.4V7.4 M9 8.7C9.6 7.1 13.5 7 13.5 10.1C13.5 13.2 9.6 13.1 9 11.5"/>
+  </g>
+</svg>

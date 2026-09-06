@@ -12,6 +12,12 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Removed
+
+- The experimental Plain editor and editor-engine selector. CodeMirror is now the
+  sole editor engine; saved Plain preferences automatically use CodeMirror while
+  retaining font, line-number, and reading-scale choices.
+
 ### Added
 
 - **Portable memory skill pack.** `prax-recall` and `prax-remember` now live in `skills/` as
@@ -31,6 +37,9 @@ fresh empty `[Unreleased]` section is started.
   saved `webview-port` file before falling back to port 3000.
 
 ### Fixed
+
+- The macOS menu-bar icon now uses a transparent Prax mark instead of tinting the
+  filled application icon into a solid square.
 
 - Remembering a title that had been superseded silently overwrote the retired document, which
   active recall never surfaces; the memory was effectively lost. Only active documents match now.

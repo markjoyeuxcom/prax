@@ -628,6 +628,10 @@ fn open_capture_window(handle: &AppHandle) {
     });
 }
 
+#[cfg(target_os = "macos")]
+const TRAY_TEMPLATE_ICON: tauri::image::Image<'static> =
+    tauri::include_image!("icons/tray-template.png");
+
 #[cfg(desktop)]
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let capture = MenuItem::with_id(app, "capture", "Capture task", true, None::<&str>)?;
@@ -644,14 +648,15 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
             "quit" => begin_server_shutdown(app.clone(), AfterShutdown::Exit(0)),
             _ => {}
         });
+    #[cfg(not(target_os = "macos"))]
     if let Some(icon) = app.default_window_icon() {
         tray = tray.icon(icon.clone());
     }
-    // macOS renders template (monochrome) tray icons correctly in both the
-    // light and dark menubar — the platform convention.
+    // A template uses alpha as its mask. The filled Dock icon would become a
+    // solid tile, so macOS gets the transparent diamond-and-p mark instead.
     #[cfg(target_os = "macos")]
     {
-        tray = tray.icon_as_template(true);
+        tray = tray.icon(TRAY_TEMPLATE_ICON.clone()).icon_as_template(true);
     }
     tray.build(app)?;
     Ok(())
@@ -913,6 +918,26 @@ mod tests {
         navigation_allowed, normalize_export_filename, parse_ready_line, parse_shortcut_response,
         rotate_log, smoke_data_dir_from_args,
     };
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn tray_template_has_transparent_negative_space_and_monochrome_ink() {
+        let icon = &super::TRAY_TEMPLATE_ICON;
+        let pixels: Vec<_> = icon.rgba().chunks_exact(4).collect();
+        let ink: Vec<_> = pixels.iter().filter(|pixel| pixel[3] > 0).collect();
+        // A filled app-icon tile becomes a solid square when macOS tints its
+        // alpha mask. Require a sparse mark, not an opaque background or blank.
+        assert!(
+            ink.len() * 100 / pixels.len() < 55,
+            "menu-bar template must leave most of its pixels transparent"
+        );
+        assert!(
+            ink.len() * 100 / pixels.len() > 15,
+            "menu-bar template must contain a visible mark"
+        );
+        assert!(ink.iter().all(|pixel| pixel[..3] == [0, 0, 0]));
+        assert_eq!((icon.width(), icon.height()), (44, 44));
+    }
 
     #[test]
     fn shortcut_response_parsing_is_strict_about_shape_but_tolerant_of_headers() {
