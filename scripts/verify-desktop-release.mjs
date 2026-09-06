@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { assertReleaseSitesAgree } from './release-sites.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -42,7 +43,9 @@ export function assertVersionAgreement({ packageVersion, cargoText, tauriConfig,
   if (cargoVersion !== packageVersion) {
     throw new Error(`Desktop version drift: package.json=${packageVersion}, Cargo.toml=${cargoVersion}`);
   }
-  if (tag && tag !== `v${packageVersion}`) {
+  // A release candidate is the same version with a prerelease suffix
+  // (v0.21.0-rc.1); the workflow marks it as a prerelease and skips `latest`.
+  if (tag && tag !== `v${packageVersion}` && !tag.startsWith(`v${packageVersion}-`)) {
     throw new Error(`Release tag ${tag} does not match package version v${packageVersion}`);
   }
   return packageVersion;
@@ -62,6 +65,10 @@ export function verifyDesktopRelease({ tag = null, requirePrepared = false } = {
     tauriConfig,
     tag,
   });
+  // Every other place the version is written (plugin manifest, published image
+  // references, deploy overlays, docs) must agree too, or the release ships
+  // pointing at the previous version somewhere.
+  assertReleaseSitesAgree(version, { root });
 
   const minimumNodeMajor = Number(String(packageJson.engines?.node || '').match(/\d+/)?.[0]);
   if (!minimumNodeMajor || Number(process.versions.node.split('.')[0]) < minimumNodeMajor) {

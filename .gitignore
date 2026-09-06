@@ -19,3 +19,6 @@ playwright-report/
 /prax.db-wal
 /prax.db-shm
 /.local-review-backups/
+
+# Local multi-agent debate transcript; never source.
+/ROOM-prax.md

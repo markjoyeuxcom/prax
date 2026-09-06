@@ -33,12 +33,25 @@ In order: `PRAX_API_URL` if set → the desktop app's saved loopback port
 
 ## Reading the output
 
-- A distilled block: the top hit's title, type and id, its body trimmed to about
-  800 characters, then a short `Related:` list (`title — id`). Fetch a full document
-  only when you need it: `GET $PRAX_API_URL/api/library/documents/<id>`.
-- `No relevant memory found for: "…"` is an honest miss (the server applies a
-  relevance cutoff). Treat it as "no prior memory" and start fresh.
+- A distilled block: the top hit's title, type, id and trust label (`verified` or
+  `unverified`, plus a lifecycle status when it is not `active`), its body trimmed to
+  about 800 characters, then a short `Related:` list (`title — id (trust)`). Fetch a full
+  document only when you need it: `GET $PRAX_API_URL/api/library/documents/<id>`.
+- `No relevant memory found for: "…"` with no qualifier is an honest miss (the server
+  applies a relevance cutoff). Treat it as "no prior memory" and start fresh.
+- `(index incomplete: N of M documents have no current embedding — …)` means some
+  documents could not be ranked (new, re-typed, or written before a model change).
+  A miss or a thin result under this note is NOT proof there is no memory: say so,
+  and fall back to `--recent` or a keyword `prax search` before starting fresh. The
+  operator can reindex from Settings ▸ Intelligence.
+- `(index coverage unknown: this server predates coverage reporting — …)` means an
+  older Prax that cannot say whether every document is indexed; treat a miss under it
+  like an incomplete index, not as proof.
+- `(N of M matches shown — raise --limit for the rest)` means more matches exist beyond
+  the requested bound; the block is complete up to `--limit`, not beyond it.
 - `(semantic search disabled — keyword results)` means the app has no embedding
   backend; the hits are keyword matches, so paraphrases may miss.
+- `--recent` lists **active** documents only; superseded and deprecated memory never
+  appears there, so it cannot be replayed as current.
 - `Prax not reachable …` means the app is not running. Say so; never invent memory.
 - Unverified memory is a lead to check, not gospel. Verified memory was blessed by a person.

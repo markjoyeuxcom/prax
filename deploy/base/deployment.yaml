@@ -31,7 +31,7 @@ spec:
             claimName: prax-data
       containers:
         - name: prax
-          image: ghcr.io/awaybreaktoday/prax:v0.15.0
+          image: ghcr.io/markjoyeuxcom/prax:v0.21.0
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false

@@ -626,6 +626,18 @@ export async function registerLibraryRoutes(app, options = {}) {
     };
     const result = await repository.upsertDocumentByTitle(candidate);
     if (result.conflict) { reply.code(409); return { message: 'document id was already used for different content' }; }
+    if (result.gone) {
+      // The operation completed once and its document was permanently deleted
+      // since; a retry must not quietly recreate what a person removed.
+      reply.code(410);
+      return { message: 'this remember already completed and its document was permanently deleted; use a new id to write it again' };
+    }
+    if (result.replayed) {
+      // Exact replay of a completed operation: report what it produced, do not
+      // re-run the write or the embed.
+      reply.code(200);
+      return { document: result.document, created: false, replayed: true };
+    }
     reply.code(result.created ? 201 : 200);
     await embedOnWrite(result.document.id); // gate awaited; the embed itself is not
     return { document: result.document, created: result.created };

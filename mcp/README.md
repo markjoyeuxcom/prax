@@ -14,7 +14,7 @@ under `tests/contract/` locks the current shapes so changes are made deliberatel
 
 ## Prerequisites
 
-- Node.js 20+
+- Node.js 24 or newer (the repository's `engines` field; `npm ci` refuses older runtimes)
 - A running Prax server (the in-memory demo is enough): `npm run demo`
   (serves the API on `http://127.0.0.1:3100`) or `npm start` (defaults to
   `http://127.0.0.1:3000`).

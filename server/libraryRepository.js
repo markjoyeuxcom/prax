@@ -127,6 +127,21 @@ export function buildCreateDocument(document, { ignoreIdConflict = false } = {})
   };
 }
 
+// What an upsert-by-title operation asked for, hashed so a replay can be told
+// apart from a reused id carrying different content. Authorship headers are
+// not intent: the same agent retrying the same remember is still a replay.
+export function upsertIntentHash(document) {
+  const tags = Array.isArray(document.tags) ? document.tags : [];
+  return createHash('sha256').update(JSON.stringify([
+    document.projectId,
+    document.title,
+    String(document.body ?? ''),
+    tags,
+    document.documentType ?? null,
+    document.kind ?? null,
+  ])).digest('hex');
+}
+
 export function documentMatchesCreateFields(document, fields) {
   if (!document || !fields) return false;
   const tags = Array.isArray(fields.tags) ? fields.tags : [];
@@ -706,7 +721,33 @@ export function createLibraryRepository(db) {
     // document it already created (`replayed`) instead of a duplicate.
     async upsertDocumentByTitle(document) {
       await ready();
+      // The caller id is an OPERATION id, not only a create id: it also names
+      // an update-in-place, so a lost-response retry of either is exact-once.
+      const operationId = document.id || null;
+      const intentHash = operationId ? upsertIntentHash(document) : null;
+      const recordReceipt = (queryable, documentId) => queryable.query(
+        'insert into document_upsert_receipts (operation_id, document_id, intent_hash) values ($1, $2, $3)',
+        [operationId, documentId, intentHash],
+      );
       const run = async (queryable) => {
+        // A receipt for this operation wins over the title lookup: replaying a
+        // completed remember returns what it produced and never re-applies its
+        // old body over a newer accepted write (QINV-03); the same id with
+        // different content is a conflict, never a second update.
+        if (operationId) {
+          const receipt = await queryable.query(
+            'select document_id, intent_hash from document_upsert_receipts where operation_id = $1 limit 1',
+            [operationId],
+          );
+          const claimed = receipt.rows[0];
+          if (claimed) {
+            if (claimed.intent_hash !== intentHash) return { document: null, created: false, conflict: true };
+            const getQuery = buildGetDocument(claimed.document_id);
+            const current = await queryable.query(getQuery.text, getQuery.values);
+            if (!current.rows[0]) return { document: null, created: false, replayed: true, gone: true };
+            return { document: normalizeDocumentRow(current.rows[0]), created: false, replayed: true };
+          }
+        }
         const found = await queryable.query(
           `select * from markdown_documents
            where project_id = $1 and title = $2 and archived_at is null and status = 'active'
@@ -724,17 +765,24 @@ export function createLibraryRepository(db) {
             ...(document.kind ? { kind: document.kind } : {}),
           };
           const updated = await updateDocumentOn(queryable, row.id, fields);
+          if (operationId) await recordReceipt(queryable, updated.id);
           return { document: updated, created: false };
         }
         const candidate = { ...document, documentType: document.documentType || 'note' };
         if (candidate.id) {
           const createQuery = buildCreateDocument(candidate, { ignoreIdConflict: true });
           const created = await queryable.query(createQuery.text, createQuery.values);
-          if (created.rows[0]) return { document: normalizeDocumentRow(created.rows[0]), created: true };
+          if (created.rows[0]) {
+            await recordReceipt(queryable, candidate.id);
+            return { document: normalizeDocumentRow(created.rows[0]), created: true };
+          }
+          // A document already carries this id without a receipt (created
+          // before receipts existed): the stored fields are the only intent.
           const getQuery = buildGetDocument(candidate.id);
           const prior = await queryable.query(getQuery.text, getQuery.values);
           const existing = prior.rows[0] ? normalizeDocumentRow(prior.rows[0]) : null;
           if (!existing || !documentMatchesCreateFields(existing, candidate)) return { document: existing, created: false, conflict: true };
+          await recordReceipt(queryable, existing.id);
           return { document: existing, created: false, replayed: true };
         }
         const createQuery = buildCreateDocument(candidate);

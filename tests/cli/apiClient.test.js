@@ -119,7 +119,7 @@ test('resolveBaseUrls: an explicit URL is the only candidate; otherwise desktop 
   assert.deepEqual(resolveBaseUrls({ env: {}, portFile: '/p', read: () => { throw new Error('ENOENT'); } }), ['http://127.0.0.1:3000']);
 });
 
-test('request tries the next base on a connection failure and pins the one that answers', async () => {
+test('a read discovers with one /readyz probe per candidate and pins the first that answers', async () => {
   const urls = [];
   globalThis.fetch = async (url) => {
     urls.push(url);
@@ -130,7 +130,7 @@ test('request tries the next base on a connection failure and pins the one that 
   assert.deepEqual(await client.getDocument('d1'), { id: 'd1' });
   assert.equal(client.base, 'http://dev');
   await client.getDocument('d1');
-  assert.deepEqual(urls, ['http://desktop/api/library/documents/d1', 'http://dev/api/library/documents/d1', 'http://dev/api/library/documents/d1']);
+  assert.deepEqual(urls, ['http://desktop/readyz', 'http://dev/readyz', 'http://dev/api/library/documents/d1', 'http://dev/api/library/documents/d1']);
 });
 
 test('request reports every candidate when none answers', async () => {
@@ -165,4 +165,137 @@ test('listDocuments forwards a status filter', async () => {
   const client = createClient({ baseUrl: 'http://x', env: {} });
   await client.listDocuments('memory', { status: 'active' });
   assert.match(captured, /\/api\/library\/documents\?project=memory&status=active$/);
+});
+
+// --- instance binding: a write never fails over to another Prax --------------------
+
+test('a write before pinning probes /readyz, pins the first instance that answers, and never fails over', async () => {
+  const seen = [];
+  let desktopPosts = 0;
+  globalThis.fetch = async (url, opts) => {
+    seen.push(`${opts?.method || 'GET'} ${url}`);
+    if (url === 'http://desktop/readyz') return jsonRes(200, { status: 'ready' });
+    if (url.startsWith('http://desktop/')) {
+      desktopPosts += 1;
+      // The first POST commits on the server but its response is lost.
+      if (desktopPosts === 1) throw new Error('socket hang up');
+      return jsonRes(200, { document: { id: 'm' }, created: false, replayed: true });
+    }
+    // The fallback instance would happily accept the same write — it must never be asked.
+    return jsonRes(201, { document: { id: 'wrong-workspace' }, created: true });
+  };
+  const client = createClient({ bases: ['http://desktop', 'http://dev'], env: {} });
+  const result = await client.upsertMemory({ id: '11111111-1111-4111-8111-111111111111', title: 'T', body: 'B', project: 'memory' });
+  assert.equal(result.document.id, 'm');
+  assert.equal(client.base, 'http://desktop');
+  assert.deepEqual(seen, [
+    'GET http://desktop/readyz',
+    'POST http://desktop/api/library/documents/upsert-by-title',
+    'POST http://desktop/api/library/documents/upsert-by-title',
+  ]);
+});
+
+test('once pinned by a read, a later connection failure reports that instance instead of trying another', async () => {
+  const seen = [];
+  let calls = 0;
+  globalThis.fetch = async (url) => {
+    seen.push(url);
+    calls += 1;
+    // The probe and the first read succeed; then the instance goes away.
+    if (calls <= 2) return jsonRes(200, { id: 'd1' });
+    throw new Error('ECONNREFUSED');
+  };
+  const client = createClient({ bases: ['http://desktop', 'http://dev'], env: {} });
+  await client.getDocument('d1');
+  await assert.rejects(client.getDocument('d2'), /Prax not reachable at http:\/\/desktop — is the app running\?/);
+  assert.deepEqual(seen, ['http://desktop/readyz', 'http://desktop/api/library/documents/d1', 'http://desktop/api/library/documents/d2']);
+});
+
+test('a write with no reachable instance names every candidate and sends nothing', async () => {
+  const seen = [];
+  globalThis.fetch = async (url) => { seen.push(url); throw new Error('ECONNREFUSED'); };
+  const client = createClient({ bases: ['http://desktop', 'http://dev'], env: {} });
+  await assert.rejects(client.upsertMemory({ title: 'T' }), /Prax not reachable at http:\/\/desktop or http:\/\/dev/);
+  assert.deepEqual(seen, ['http://desktop/readyz', 'http://dev/readyz']);
+});
+
+test('semanticSearch asks for the paged route with a bounded limit and normalises both response shapes', async () => {
+  let captured;
+  globalThis.fetch = async (url) => {
+    captured = url;
+    return jsonRes(200, { items: [{ id: 'a' }], page: { returned: 1, total: 1, hasMore: false }, index: { total: 2, embedded: 1, pending: 1 }, degraded: true, reason: 'index-incomplete' });
+  };
+  const client = createClient({ baseUrl: 'http://x', env: {} });
+  const paged = await client.semanticSearch('memory', 'q', { limit: 500 });
+  assert.match(captured, /semantic-search\?q=q&page=true&project=memory&limit=50$/);
+  assert.equal(paged.degraded, true);
+  assert.equal(paged.reason, 'index-incomplete');
+  assert.deepEqual(paged.index, { total: 2, embedded: 1, pending: 1 });
+  assert.deepEqual(paged.items, [{ id: 'a' }]);
+
+  globalThis.fetch = async () => jsonRes(200, [{ id: 'legacy' }]);
+  const legacy = await client.semanticSearch(undefined, 'q', { limit: 3 });
+  assert.deepEqual(legacy, { items: [{ id: 'legacy' }], page: null, index: null, degraded: false, reason: 'coverage-unknown', legacy: true });
+});
+
+// --- discovery is shared and the pin is immutable (Codex F1) --------------------------
+
+test('concurrent first writes share one discovery and land on the same instance, even when a probe completes late', async () => {
+  const seen = [];
+  let readyProbes = 0;
+  globalThis.fetch = async (url, opts) => {
+    seen.push(`${opts?.method || 'GET'} ${url}`);
+    if (url === 'http://desktop/readyz') {
+      readyProbes += 1;
+      // The first probe is slow; a naive client would start a second discovery meanwhile.
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return jsonRes(200, { status: 'ready' });
+    }
+    if (url.startsWith('http://desktop/')) return jsonRes(200, { document: { id: 'desktop-doc' }, created: true });
+    return jsonRes(200, { document: { id: 'WRONG' }, created: true });
+  };
+  const client = createClient({ bases: ['http://desktop', 'http://dev'], env: {} });
+  const doc = { id: '22222222-2222-4222-8222-222222222222', title: 'T', body: 'B', project: 'memory' };
+  const [a, b, read] = await Promise.all([client.upsertMemory(doc), client.upsertMemory(doc), client.getDocument('x')]);
+  assert.equal(a.document.id, 'desktop-doc');
+  assert.equal(b.document.id, 'desktop-doc');
+  assert.equal(read.document.id, 'desktop-doc');
+  assert.equal(readyProbes, 1, 'exactly one discovery probe for the whole process');
+  assert.equal(seen.filter((s) => s.includes('http://dev')).length, 0, 'the fallback instance is never contacted');
+  assert.equal(client.base, 'http://desktop');
+});
+
+test('a late-finishing read cannot re-pin the client after a write has bound it', async () => {
+  const seen = [];
+  globalThis.fetch = async (url, opts) => {
+    seen.push(`${opts?.method || 'GET'} ${url}`);
+    if (url === 'http://desktop/readyz') return jsonRes(200, { status: 'ready' });
+    if (url === 'http://desktop/api/library/documents/slow') {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return jsonRes(200, { id: 'slow' });
+    }
+    if (url.startsWith('http://desktop/')) return jsonRes(200, { document: { id: 'm' }, created: true });
+    throw new Error('dev must never be contacted');
+  };
+  const client = createClient({ bases: ['http://desktop', 'http://dev'], env: {} });
+  const slowRead = client.getDocument('slow');
+  await client.upsertMemory({ id: '33333333-3333-4333-8333-333333333333', title: 'T', body: 'B', project: 'memory' });
+  assert.equal(client.base, 'http://desktop');
+  await slowRead;
+  assert.equal(client.base, 'http://desktop');
+  assert.equal(seen.filter((s) => s.includes('/readyz')).length, 1);
+  assert.equal(seen.some((s) => s.includes('http://dev')), false);
+});
+
+test('a failed discovery is retried by the next request rather than cached forever', async () => {
+  let up = false;
+  globalThis.fetch = async () => {
+    if (!up) throw new Error('ECONNREFUSED');
+    return jsonRes(200, { id: 'd' });
+  };
+  const client = createClient({ bases: ['http://desktop', 'http://dev'], env: {} });
+  await assert.rejects(client.getDocument('d'), /not reachable at http:\/\/desktop or http:\/\/dev/);
+  up = true;
+  assert.deepEqual(await client.getDocument('d'), { id: 'd' });
+  assert.equal(client.base, 'http://desktop');
 });
