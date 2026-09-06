@@ -403,9 +403,13 @@ fresh empty `[Unreleased]` section is started.
   The window now refetches tasks (and the Library, unless a document is open in the editor) when it
   regains focus, becomes visible, or navigates, and the capture bar announces each save over a
   same-origin channel for an immediate refresh. A refresh re-renders only when something changed
-  and folds server state into an open task drawer's untouched fields as before. Browser regression
-  in `tests/e2e/external-refresh.spec.js`; scheduler unit tests in
-  `tests/frontend/externalRefresh.test.js`.
+  and folds server state into an open task drawer's untouched fields as before. A snapshot that
+  was in flight while this window saved something is discarded and refetched, so an older read can
+  never overwrite a newer accepted save (QINV-09); the newest task request always wins, so a
+  capture made during the initial load is not lost; nothing re-renders while a document is open in
+  the editor; and a re-render restores keyboard focus and the caret to the field being edited,
+  including the quick-capture overlay. Browser regressions in `tests/e2e/external-refresh.spec.js`;
+  scheduler, write-epoch and focus unit tests in `tests/frontend/externalRefresh.test.js`.
 - **The capture bar no longer floats in a white slab.** Its page paints only the rounded bar and
   leaves the rest transparent, but the window itself was opaque, so the unused part of the
   640×128 surface showed as a white block around the bar. The capture window is now transparent

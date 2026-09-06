@@ -115,6 +115,71 @@ export function installExternalRefreshTriggers({
   return () => { for (const fn of cleanups.splice(0)) { try { fn(); } catch { /* ignore */ } } };
 }
 
+// ---- write epoch ----------------------------------------------------------
+// A refresh snapshot taken before a local write completed must not overwrite
+// that write's result (an older GET landing after a newer PATCH would revert
+// the drawer to the pre-save title). Every non-GET request this window makes
+// bumps the epoch when it starts and when it settles; a refresh compares the
+// epoch around its fetch and discards a snapshot that spans a write.
+let epoch = 0;
+export function writeEpoch() { return epoch; }
+export function noteWrite() { epoch += 1; return epoch; }
+
+export function installWriteEpoch(target = globalThis) {
+  const original = target?.fetch;
+  if (typeof original !== 'function' || original.praxWriteEpoch) return () => {};
+  const wrapped = function praxFetch(input, init) {
+    const method = String(init?.method || (input && typeof input === 'object' && input.method) || 'GET').toUpperCase();
+    const result = original.call(this, input, init);
+    if (method !== 'GET' && method !== 'HEAD') {
+      noteWrite();
+      Promise.resolve(result).then(noteWrite, noteWrite);
+    }
+    return result;
+  };
+  wrapped.praxWriteEpoch = true;
+  target.fetch = wrapped;
+  return () => { if (target.fetch === wrapped) target.fetch = original; };
+}
+
+// ---- focus preservation ---------------------------------------------------
+// A refresh re-render rebuilds the DOM; the drawer's draft text survives via
+// state, but keyboard focus and the caret did not, so the next keystroke went
+// to a global shortcut. Capture what is focused, re-render, put it back.
+// Restored AFTER the render's own focus policy runs, so the quick-capture and
+// palette inputs (which a render focuses with the caret at the end) get their
+// mid-text caret back too.
+const FOCUS_ATTRS = [
+  'data-task-title', 'data-task-description', 'data-task-notes',
+  'data-capture-input', 'data-palette-input', 'data-project-rename',
+  'data-library-search', 'data-task-search', 'data-filter-input',
+];
+export function captureFocus(doc = globalThis.document) {
+  const active = doc?.activeElement;
+  if (!active || active === doc.body) return null;
+  let selector = null;
+  if (active.id) selector = `#${CSS.escape(active.id)}`;
+  else {
+    const attr = FOCUS_ATTRS.find((name) => active.hasAttribute?.(name));
+    if (attr) selector = `[${attr}]`;
+    else if (active.getAttribute?.('name')) selector = `${active.tagName.toLowerCase()}[name="${CSS.escape(active.getAttribute('name'))}"]`;
+  }
+  if (!selector) return null;
+  const range = typeof active.selectionStart === 'number' ? { start: active.selectionStart, end: active.selectionEnd, direction: active.selectionDirection } : null;
+  return { selector, range };
+}
+
+export function restoreFocus(snapshot, doc = globalThis.document) {
+  if (!snapshot) return false;
+  const el = doc?.querySelector(snapshot.selector);
+  if (!el || typeof el.focus !== 'function') return false;
+  el.focus({ preventScroll: true });
+  if (snapshot.range && typeof el.setSelectionRange === 'function') {
+    try { el.setSelectionRange(snapshot.range.start, snapshot.range.end, snapshot.range.direction || 'none'); } catch { /* not a text control */ }
+  }
+  return doc.activeElement === el;
+}
+
 function safeStorage() {
   try { return globalThis.localStorage || null; } catch { return null; }
 }

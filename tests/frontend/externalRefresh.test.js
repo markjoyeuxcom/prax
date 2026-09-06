@@ -128,3 +128,55 @@ test('announceChange posts on the channel and writes the storage key, and surviv
   assert.equal(announceChange({ type: 'x' }, { BroadcastChannelCtor: null, storage: null }), false);
   assert.equal(announceChange({ type: 'x' }, { BroadcastChannelCtor: null, storage: { setItem: () => { throw new Error('quota'); } } }), false);
 });
+
+// ---- write epoch and focus preservation -----------------------------------------
+import { installWriteEpoch, writeEpoch, noteWrite, captureFocus, restoreFocus } from '../../public/js/externalRefresh.js';
+
+test('installWriteEpoch bumps the epoch when a non-GET request starts and settles, never for reads', async () => {
+  const calls = [];
+  const target = { fetch: async (input, init) => { calls.push(init?.method || 'GET'); return { ok: true }; } };
+  const uninstall = installWriteEpoch(target);
+  const start = writeEpoch();
+  await target.fetch('/api/tasks');
+  await target.fetch('/api/tasks', { method: 'get' });
+  assert.equal(writeEpoch(), start, 'reads do not count');
+  const write = target.fetch('/api/tasks', { method: 'POST', body: '{}' });
+  assert.equal(writeEpoch(), start + 1, 'a write counts as soon as it starts');
+  await write;
+  await Promise.resolve();
+  assert.equal(writeEpoch(), start + 2, 'and again when it settles');
+  const failing = { fetch: async () => { throw new Error('offline'); } };
+  const uninstallFailing = installWriteEpoch(failing);
+  await failing.fetch('/x', { method: 'DELETE' }).catch(() => {});
+  await Promise.resolve();
+  assert.equal(writeEpoch(), start + 4, 'a failed write still settles the epoch');
+  assert.equal(installWriteEpoch(target)(), undefined, 'installing twice is a no-op');
+  uninstall(); uninstallFailing();
+  assert.equal(typeof target.fetch, 'function');
+  assert.equal(target.fetch.praxWriteEpoch, undefined, 'uninstall restores the original fetch');
+  assert.deepEqual(calls, ['GET', 'get', 'POST']);
+  assert.equal(noteWrite() > writeEpoch() - 1, true);
+});
+
+test('captureFocus and restoreFocus round-trip a drawer field with its selection, and ignore the body', () => {
+  globalThis.CSS = globalThis.CSS || { escape: (s) => String(s).replace(/[^\w-]/g, (c) => `\\${c}`) };
+  const input = {
+    tagName: 'INPUT', id: '', selectionStart: 2, selectionEnd: 5, selectionDirection: 'forward', focused: false,
+    hasAttribute: (name) => name === 'data-task-title',
+    getAttribute: () => null,
+    focus() { this.focused = true; doc.activeElement = this; },
+    setSelectionRange(s, e, d) { this.selectionStart = s; this.selectionEnd = e; this.selectionDirection = d; },
+  };
+  const body = { tagName: 'BODY' };
+  const doc = { body, activeElement: input, querySelector: (sel) => (sel === '[data-task-title]' ? input : null) };
+  const snapshot = captureFocus(doc);
+  assert.deepEqual(snapshot, { selector: '[data-task-title]', range: { start: 2, end: 5, direction: 'forward' } });
+  doc.activeElement = body;
+  assert.equal(restoreFocus(snapshot, doc), true);
+  assert.equal(doc.activeElement, input);
+  assert.equal(captureFocus({ body, activeElement: body }), null);
+  assert.equal(restoreFocus(null, doc), false);
+  assert.equal(restoreFocus({ selector: '#missing' }, doc), false);
+  const byId = { tagName: 'INPUT', id: 'capture-input', hasAttribute: () => false, getAttribute: () => null };
+  assert.equal(captureFocus({ body, activeElement: byId }).selector, '#capture-input');
+});
