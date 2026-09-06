@@ -61,6 +61,10 @@ the real client); the F1 concurrency tests had not actually been committed (now 
 exact-commit CI was red only because GitHub's dependency-review action is unsupported on this
 private repository (the job now runs only on a public repository, `npm audit` stays the gate).
 
+Codex's final verification of `0ade363`
+(`docs/reviews/2026-09-06-codex-pr118-final-verification.md`) approved merging PR #118 and then
+pushing `v0.21.0-rc.1`, conditional on the exact-commit CI and desktop jobs finishing green.
+
 ## Not done here
 
 - Image on merge to `main` (roadmap; a separate workflow decision).
