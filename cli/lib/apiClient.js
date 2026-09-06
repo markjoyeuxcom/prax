@@ -183,7 +183,10 @@ export function createClient({ baseUrl, token, agent, env = process.env, bases }
       params.set('limit', String(Math.min(Math.max(Number(limit) || SEMANTIC_PAGE_MAX, 1), SEMANTIC_PAGE_MAX)));
       if (Number(offset) > 0) params.set('offset', String(Math.trunc(Number(offset))));
       const res = await request('GET', `/api/library/documents/semantic-search?${params.toString()}`);
-      if (Array.isArray(res)) return { items: res, page: null, index: null, degraded: false, reason: null };
+      // A bare array is an older server that reports no coverage at all: that is
+      // "unknown", and the label must survive normalisation so recall and search
+      // never present such a miss as a complete one.
+      if (Array.isArray(res)) return { items: res, page: null, index: null, degraded: false, reason: 'coverage-unknown', legacy: true };
       return {
         items: Array.isArray(res?.items) ? res.items : [],
         page: res?.page || null,

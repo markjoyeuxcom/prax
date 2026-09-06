@@ -101,13 +101,15 @@ export async function recall(client, { query, project, limit = 5, recent = false
     throw err;
   }
 
-  // Both shapes: the paged object (with coverage) and the legacy bare array.
-  const legacy = Array.isArray(res);
-  const list = legacy ? res : (Array.isArray(res?.items) ? res.items : []);
+  // Three shapes reach here: the paged object (with coverage), the client's
+  // normalisation of an old server's bare array (`legacy: true`, reason
+  // `coverage-unknown`), and — from an injected client — the bare array itself.
+  const legacy = Array.isArray(res) || Boolean(res?.legacy) || res?.reason === 'coverage-unknown';
+  const list = Array.isArray(res) ? res : (Array.isArray(res?.items) ? res.items : []);
   const coverage = {
     degraded: !legacy && Boolean(res?.degraded),
-    // An old server answers with a bare array and no coverage at all: that is
-    // "unknown", not "complete", and the output must not imply otherwise.
+    // An old server reports no coverage at all: that is "unknown", not
+    // "complete", and the output must not imply otherwise.
     reason: legacy ? 'coverage-unknown' : (res?.reason || null),
     index: legacy ? null : (res?.index || null),
     // What remains beyond the requested bound after paging up to it.

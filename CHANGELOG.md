@@ -432,7 +432,11 @@ fresh empty `[Unreleased]` section is started.
   namespace; it now targets `ghcr.io/markjoyeuxcom/prax`, runs the browser suite and dependency
   audit as part of the release quality gate, assembles the release body from this changelog, and
   states that the installers are unsigned and not notarized. The desktop release verifier accepts
-  `vX.Y.Z-rc.N` prerelease tags and refuses a tag when any version site has drifted.
+  `vX.Y.Z-rc.N` prerelease tags and refuses a tag when any version site has drifted. CI's
+  dependency-review job, which GitHub does not support on a private repository without Advanced
+  Security, now runs only where it can (a public repository); `npm audit` remains the active
+  dependency gate. Both desktop workflows build before `cargo test --lib` so the two compilations
+  of the tray icon no longer race on tauri's compile-time image cache.
 
 - The macOS menu-bar icon now uses a transparent Prax mark instead of tinting the
   filled application icon into a solid square.

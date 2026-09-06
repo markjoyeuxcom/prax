@@ -55,3 +55,13 @@ test('search preserves index coverage and page bounds from the paged semantic re
   assert.equal(describeRetrieval({ mode: 'semantic', degraded: false, reason: null, index: null, page: null }), '');
   assert.equal(describeRetrieval({ mode: 'keyword', degraded: true, reason: 'semantic-not-configured' }), 'Note: semantic search is not configured; showing keyword results.');
 });
+
+test('search labels an old server without coverage reporting as unknown, through the real client', async () => {
+  const { createClient } = await import('../../cli/lib/apiClient.js');
+  globalThis.fetch = async () => ({ ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => [{ id: 'legacy' }], text: async () => '[]' });
+  const result = await searchLibrary(createClient({ baseUrl: 'http://x', env: {} }), { project: 'p', query: 'q' });
+  assert.deepEqual(result.items, [{ id: 'legacy' }]);
+  assert.equal(result.retrieval.reason, 'coverage-unknown');
+  assert.equal(result.retrieval.degraded, false);
+  assert.equal(describeRetrieval(result.retrieval), 'Note: this server does not report semantic index coverage; a complete result cannot be assumed.');
+});

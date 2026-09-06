@@ -199,3 +199,33 @@ test('an old server that answers with a bare array is reported as unknown covera
   const hit = await recall(fakeClient({ semanticSearch: async () => [{ id: 't', title: 'T' }], getDocument: async () => ({ id: 't', body: 'B' }) }), { query: 'x' });
   assert.match(formatRecall(hit), /^\(index coverage unknown: this server predates coverage reporting — results may be missing\)/);
 });
+
+// Through the REAL client (which normalises a bare array into an object), the
+// unknown-coverage label must survive for both a miss and a hit (Codex V1).
+import { createClient } from '../../cli/lib/apiClient.js';
+
+function jsonRes(status, body) {
+  return { ok: status >= 200 && status < 300, status, headers: { get: () => 'application/json' }, json: async () => body, text: async () => JSON.stringify(body) };
+}
+
+test('legacy coverage-unknown survives the real client normalisation for a miss and a hit', async () => {
+  globalThis.fetch = async (url) => {
+    if (url.includes('/semantic-search')) return jsonRes(200, []);
+    return jsonRes(200, {});
+  };
+  const missClient = createClient({ baseUrl: 'http://x', env: {} });
+  const miss = await recall(missClient, { query: 'missing' });
+  assert.equal(miss.kind, 'empty');
+  assert.equal(miss.reason, 'coverage-unknown');
+  assert.equal(formatRecall(miss), 'No relevant memory found for: "missing" (index coverage unknown: this server predates coverage reporting — this may not be a true miss)');
+
+  globalThis.fetch = async (url) => {
+    if (url.includes('/semantic-search')) return jsonRes(200, [{ id: 't', title: 'Old hit', documentType: 'note' }]);
+    return jsonRes(200, { id: 't', body: 'body', verified: false, status: 'active' });
+  };
+  const hitClient = createClient({ baseUrl: 'http://x', env: {} });
+  const hit = await recall(hitClient, { query: 'old' });
+  assert.equal(hit.kind, 'hit');
+  assert.equal(hit.reason, 'coverage-unknown');
+  assert.match(formatRecall(hit), /^\(index coverage unknown: this server predates coverage reporting — results may be missing\)\n## Old hit/);
+});

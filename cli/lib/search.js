@@ -33,6 +33,9 @@ export function describeRetrieval(retrieval) {
   if (!retrieval) return '';
   const lines = [];
   if (retrieval.mode === 'keyword') lines.push('Note: semantic search is not configured; showing keyword results.');
+  if (retrieval.reason === 'coverage-unknown') {
+    lines.push('Note: this server does not report semantic index coverage; a complete result cannot be assumed.');
+  }
   if (retrieval.reason === 'index-incomplete') {
     const index = retrieval.index || {};
     const scope = index.total ? `${index.pending} of ${index.total} documents` : `${index.pending ?? 'some'} documents`;

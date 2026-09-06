@@ -54,6 +54,13 @@ confirmed the blocker repairs and found five follow-ups, all fixed in the second
   (observed as an empty tray icon and a divide-by-zero). Both workflows now `cargo build` first
   and run `cargo test --lib`.
 
+Codex's re-verification of that commit (`docs/reviews/2026-09-06-codex-pr118-reverification.md`)
+found three more, fixed in the third commit: the `coverage-unknown` label was lost inside the
+client's own normalisation of an old server's array (now preserved end to end, with tests through
+the real client); the F1 concurrency tests had not actually been committed (now present); and the
+exact-commit CI was red only because GitHub's dependency-review action is unsupported on this
+private repository (the job now runs only on a public repository, `npm audit` stays the gate).
+
 ## Not done here
 
 - Image on merge to `main` (roadmap; a separate workflow decision).

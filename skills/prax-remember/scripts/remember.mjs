@@ -154,7 +154,7 @@ function createClient({ baseUrl, token, agent, env = process.env, bases } = {}) 
       params.set("limit", String(Math.min(Math.max(Number(limit) || SEMANTIC_PAGE_MAX, 1), SEMANTIC_PAGE_MAX)));
       if (Number(offset) > 0) params.set("offset", String(Math.trunc(Number(offset))));
       const res = await request("GET", `/api/library/documents/semantic-search?${params.toString()}`);
-      if (Array.isArray(res)) return { items: res, page: null, index: null, degraded: false, reason: null };
+      if (Array.isArray(res)) return { items: res, page: null, index: null, degraded: false, reason: "coverage-unknown", legacy: true };
       return {
         items: Array.isArray(res?.items) ? res.items : [],
         page: res?.page || null,

@@ -44,6 +44,11 @@ In order: `PRAX_API_URL` if set → the desktop app's saved loopback port
   A miss or a thin result under this note is NOT proof there is no memory: say so,
   and fall back to `--recent` or a keyword `prax search` before starting fresh. The
   operator can reindex from Settings ▸ Intelligence.
+- `(index coverage unknown: this server predates coverage reporting — …)` means an
+  older Prax that cannot say whether every document is indexed; treat a miss under it
+  like an incomplete index, not as proof.
+- `(N of M matches shown — raise --limit for the rest)` means more matches exist beyond
+  the requested bound; the block is complete up to `--limit`, not beyond it.
 - `(semantic search disabled — keyword results)` means the app has no embedding
   backend; the hits are keyword matches, so paraphrases may miss.
 - `--recent` lists **active** documents only; superseded and deprecated memory never
