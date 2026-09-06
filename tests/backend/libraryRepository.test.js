@@ -50,6 +50,7 @@ test('normalizeDocumentRow maps database fields to API document fields', () => {
     updatedAt: '2026-05-18T10:00:00.000Z',
     contentHash: null,
     updatedBy: undefined,
+    updatedByAgent: null,
     kind: undefined,
     verified: false,
     verifiedAt: null,

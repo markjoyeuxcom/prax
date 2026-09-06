@@ -13,7 +13,7 @@ import { buildExportedMarkdown } from '../../public/js/libraryExport.js';
 const FROZEN_DOC_KEYS = [
   'archivedAt', 'body', 'contentHash', 'createdAt', 'documentType', 'id',
   'kind', 'projectId', 'revision', 'sourceFilename', 'stale', 'status', 'tags', 'title',
-  'updatedAt', 'updatedBy', 'verified', 'verifiedAt', 'verifiedBy',
+  'updatedAt', 'updatedBy', 'updatedByAgent', 'verified', 'verifiedAt', 'verifiedBy',
 ].sort();
 
 const GOLDEN_DOC = {

@@ -1,9 +1,10 @@
 # Prax as agent memory
 
-Prax can serve as a persistent, semantically-recalled **long-term memory** for an AI
-agent (e.g. Claude Code). The library stores durable knowledge; semantic search retrieves it by
-meaning; provenance and links keep it groomed. This document describes the convention; the
-`prax-recall` and `prax-remember` skills implement it.
+Prax can serve as a persistent, semantically-recalled **long-term memory** for AI agents —
+Claude Code, Codex CLI, or any tool that can run a shell command. The library stores durable
+knowledge; semantic search retrieves it by meaning; provenance and links keep it groomed. This
+document describes the convention; the `prax-recall` and `prax-remember` skills in
+[`skills/`](../skills/README.md) implement it.
 
 ## What belongs in memory
 
@@ -19,7 +20,7 @@ by shape later: `note` (default), `runbook` (procedures), `decision` (a choice m
 an existing title may retype it (a note can graduate to a decision).
 
 It is **not** for transient, session-only state (a half-finished edit, the current TODO) — that
-belongs in the working context, not the library.
+belongs in the working context, not the library — and never for secrets.
 
 ## The loop
 
@@ -27,37 +28,55 @@ belongs in the working context, not the library.
 retrieve  →  work  →  persist  →  supersede
 ```
 
-1. **Retrieve-on-start** — before working a task, run `prax-recall "<what I'm about to do>"` to
-   surface prior context. Retrieval is by meaning, so a paraphrase finds the right note even with
-   different words; an honest "no relevant memory" means start fresh. For a "what did I note
-   recently" intent (a list, not a similarity search) use `prax-recall --recent`.
+1. **Retrieve-on-start** — before working a task, run the recall skill with "what I'm about to
+   do". Retrieval is by meaning, so a paraphrase finds the right note even with different words;
+   an honest "no relevant memory" means start fresh. For a "what did I note recently" intent (a
+   list, not a similarity search) use `--recent`.
 2. **Work** — using the recalled context as grounding (your documented procedures, not guesses).
-3. **Persist-on-learn** — when something durable is learned or decided, run
-   `prax-remember "<title>" "<body>"`. It writes to the `memory` project, stamped
-   `updatedBy: agent` + `kind: synthesized`. When the memory is *about* something that lives
+3. **Persist-on-learn** — when something durable is learned or decided, run the remember skill
+   with a title and body. It writes to the `memory` project, stamped `updatedBy: agent`,
+   `kind: synthesized`, and the agent id. When the memory is *about* something that lives
    elsewhere — a PR, a dashboard, an upstream issue — add `--ref <url>` to attach an external
    reference instead of copying the content in.
-4. **Supersede** — re-`remember`-ing an existing title updates it in place (no duplicate). When one
+4. **Supersede** — re-remembering an existing title updates it in place (no duplicate). When one
    memory replaces another distinct one, run `prax supersede <oldId> --with <newId>` — it records
-   the `supersedes` link and retires the old document from default retrieval.
+   the `supersedes` link and retires the old document from default retrieval. A retired title is
+   never revived by a later remember: that becomes a new active document.
+
+## How a remember is written
+
+`prax-remember` and `prax remember` call `POST /api/library/documents/upsert-by-title`, which
+finds the **active** document with that exact title in the project and updates it, or creates one,
+inside a single database transaction. That closes two holes the older read-then-write client
+path had: two agents remembering the same title at the same moment could both create it, and a
+superseded memory could be silently overwritten by a fresh one that active recall then never
+surfaced. Older servers without the endpoint get the read-then-write path with the same
+active-only rule. A caller-stable id makes one lost transport response safe to retry.
 
 ## Namespace & provenance
 
 - **`memory` project** — the namespace the agent writes to (created automatically on first
-  `remember`). Recall searches **all** projects by default, so it surfaces both agent memories and
+  remember). Recall searches **all** projects by default, so it surfaces both agent memories and
   your hand-authored runbooks/notes; scope with `--project memory` when you only want the former.
 - **`updatedBy: agent`** — every skill write is stamped via the `x-prax-origin` header, so
   machine-written memory is always distinguishable from human-authored docs.
+- **`updatedByAgent`** — *which* agent wrote the current revision (`claude`, `codex`, …), from
+  the `x-prax-agent` header. The skills detect Claude Code and Codex from their shell
+  environments; `PRAX_AGENT` or `--agent <id>` sets it explicitly. A human edit clears it.
 - **`kind: synthesized`** — marks memory as machine-generated, which the maintenance tooling treats
   as safe to refresh aggressively (vs. `source` docs left for human review).
 
 ## Why skills + CLI (and where the MCP server fits)
 
-The skills + `prax` CLI are the **canonical agent path** — they cover the whole memory loop
+The skills and the `prax` CLI are the **canonical agent path** — they cover the whole memory loop
 (recall, remember, get, search, context-pack, supersede) over one shared code path (`cli/lib/`),
 and they exist for **token efficiency**: they load lazily (only a one-line description until
 invoked, vs. always-on MCP tool schemas), and they do the search/fetch/filter in a script,
 returning one distilled block instead of raw ref lists + full documents in context.
+
+The skill scripts are **bundles** of `cli/lib` (built by `npm run skills:build`, committed under
+`skills/*/scripts/`), so a skill is one file with no dependencies beyond Node 20+. That is what
+lets the pack install on a machine without a checkout of this repository.
 
 The MCP server (`mcp/server.js`) remains a supported product surface over the same API — it adds
 the tasks/checklist suite and `derived-from` document linking, which the CLI does not cover. It is
@@ -66,9 +85,6 @@ the tasks/checklist suite and `derived-from` document linking, which the CLI doe
 
 ### Human CLI equivalents
 
-The skills now share one code path with the `prax` CLI (`cli/lib/recall.js`,
-`cli/lib/remember.js`). The human-facing commands:
-
 - `prax recall "<query>"` — cross-project, active-only, distilled recall (`--recent [n]` for a
   chronological list; `--project <slug>` to scope).
 - `prax remember "<title>" --body "<text>"` — writes to the **current** project; add `--memory`
@@ -76,10 +92,25 @@ The skills now share one code path with the `prax` CLI (`cli/lib/recall.js`,
 
 ## Setup
 
-The skills and CLI call the HTTP API at `PRAX_API_URL` (default `http://127.0.0.1:3000`) — the
-same variable the optional MCP server uses. The app must be running with semantic search enabled
-(`EMBEDDING_BACKEND` set to a working backend) for meaning-based recall; otherwise recall falls back
-to keyword search.
+### Installing the skills
+
+- **In a checkout of this repo:** nothing to do. `.claude/skills/` and `.agents/skills/` link to
+  `skills/`, so Claude Code and Codex both see `prax-recall` and `prax-remember`.
+- **On any other machine:** `curl -fsSL https://raw.githubusercontent.com/markjoyeuxcom/prax/main/skills/install.sh | sh`
+  installs the pack for both tools without keeping a checkout (git access to the repository is
+  required). Claude Code can alternatively install it as a plugin:
+  `claude plugin marketplace add markjoyeuxcom/prax` then `claude plugin install prax@prax`.
+  See [`skills/README.md`](../skills/README.md).
+
+### Finding the app
+
+The skills and CLI find the HTTP API in this order: `PRAX_API_URL` → the desktop app's saved
+loopback port (the `webview-port` file under its app-data folder: `~/Library/Application
+Support/com.moomora.prax` on macOS, `~/.local/share/com.moomora.prax` on Linux) →
+`http://127.0.0.1:3000`. An explicit `PRAX_API_URL` disables the fallbacks so a wrong address
+fails loudly. The app must be running with an embedding backend configured (Settings ▸
+Intelligence, or `EMBEDDING_BACKEND`) for meaning-based recall; otherwise recall labels itself
+and falls back to keyword search.
 
 ### Project detection
 

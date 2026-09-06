@@ -47,6 +47,13 @@ prax init --project homelab
 | `PRAX_API_URL` | `http://127.0.0.1:3000` | Base URL of the Prax server |
 | `PRAX_PROJECT` | — | Default project slug (overrides folder-name detection) |
 | `PRAX_TOKEN` | — | Optional bearer token, forwarded as `Authorization: Bearer <token>`; the server does not require it under the no-auth model |
+| `PRAX_AGENT` | auto | Which agent CLI is writing (`claude`, `codex`, …), sent as `x-prax-agent` on agent writes. Detected from the Claude Code and Codex shell environments when unset; `--agent <id>` overrides |
+
+### Finding the app
+
+Without `--url` or `PRAX_API_URL` the CLI tries the desktop app's saved loopback port first (the
+`webview-port` file under its app-data folder) and then `http://127.0.0.1:3000`, pinning the
+first that answers. An explicit URL disables the fallbacks so a wrong address fails loudly.
 
 ## Commands
 
@@ -117,9 +124,12 @@ prax get c58d3108-4f93-4a50-ac42-0c1d61e61b08 --json
 
 ### `remember <title> [--body <text>] [--type note|runbook|decision|known-issue|reference|post-mortem] [--tag <t>] [--ref <url>]`
 
-Write a document to project memory. If a document with the same title already exists in the
-project it is updated in place; otherwise a new document is created. Agent-written documents
-(created via this command or the MCP tools) land **UNVERIFIED** by default.
+Write a document to project memory. If an **active** document with the same title already exists
+in the project it is updated in place; otherwise a new document is created. The write is one
+server-side transaction (`POST /api/library/documents/upsert-by-title`), so concurrent callers
+cannot create a title twice, and a superseded or deprecated document is never revived — the new
+memory becomes a fresh active document. Agent-written documents (created via this command or
+the MCP tools) land **UNVERIFIED** by default and record which agent wrote them (`updatedByAgent`).
 
 ```bash
 prax remember "Postgres restore runbook" \
