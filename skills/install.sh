@@ -35,8 +35,13 @@ trap 'rm -rf "$TMP"' EXIT INT TERM
 
 # A blobless sparse clone fetches the skills/ folder only. --no-local keeps the
 # same code path for a local repository path (used by the self-test).
-git clone --quiet --no-local --depth 1 --branch "$REF" --filter=blob:none --sparse "$REPO" "$TMP/prax" \
-  || { echo "install.sh: could not clone $REPO@$REF (check repository access)" >&2; exit 1; }
+# git prints a harmless "filtering not recognized" warning for local transports;
+# show the clone's stderr only when the clone actually fails.
+if ! git clone --quiet --no-local --depth 1 --branch "$REF" --filter=blob:none --sparse "$REPO" "$TMP/prax" 2>"$TMP/clone.err"; then
+  cat "$TMP/clone.err" >&2
+  echo "install.sh: could not clone $REPO@$REF (check repository access)" >&2
+  exit 1
+fi
 git -C "$TMP/prax" sparse-checkout set --no-cone skills >/dev/null
 
 mkdir -p "$DEST" "$CLAUDE_DIR"
