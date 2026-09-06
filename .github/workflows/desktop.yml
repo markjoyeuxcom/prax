@@ -80,9 +80,15 @@ jobs:
           npm run desktop:verify
 
       - name: Verify Rust source and tests
+        # `include_image!` writes its decoded tray icon to a cache file and reads it
+        # back with `include_bytes!`. A plain `cargo test` compiles the lib and its
+        # test harness concurrently, and the two expansions race on that file
+        # (observed as an empty icon and a divide-by-zero in the tray test). Build
+        # first, then compile the lib test harness alone.
         run: |
           cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-          cargo test --manifest-path src-tauri/Cargo.toml
+          cargo build --manifest-path src-tauri/Cargo.toml
+          cargo test --manifest-path src-tauri/Cargo.toml --lib
 
       - name: Build desktop bundles
         env:

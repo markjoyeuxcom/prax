@@ -47,7 +47,16 @@ script is one self-contained file: Node 20+, no packages, no repository checkout
   plus which agent CLI wrote it: `claude` or `codex` are detected automatically;
   `--agent <id>` or `PRAX_AGENT` sets it explicitly. Agent memory lands
   **unverified** until a person verifies it.
-- Output: `Remembered "<title>" → <id> (created|updated, as <agent>)`.
+- **Exact-once retries.** Every write carries an operation id and the server keeps a
+  receipt for it. A retried remember returns what the first attempt produced; it can
+  never revert a newer memory written in between. Reusing an id with different content
+  is refused (409), and a retry whose memory was permanently deleted in the meantime is
+  refused (410) rather than silently recreated.
+- **One instance per run.** The script pins the first Prax that answers a read-only
+  probe and sends the write only there — it never fails over to another candidate
+  (for example a dev server on port 3000 while the desktop app is closed).
+- Output: `Remembered "<title>" → <id> (created|updated, as <agent>) at <base URL>`.
+  Check the URL when more than one Prax could be running.
 
 ## Finding the app
 

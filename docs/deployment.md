@@ -33,17 +33,25 @@ sync time.
 
 ## Bind safety
 
-The application defaults to `HOST=127.0.0.1`. Any non-loopback bind fails before the database is
-opened unless the environment also contains:
+The application defaults to `HOST=127.0.0.1`. Any non-loopback bind is refused before the listener
+opens unless the environment also contains:
 
 ```text
 PRAX_ALLOW_UNAUTHENTICATED_NETWORK=true
 ```
 
-The image does not bake in either a network bind or this acknowledgement. Compose and the
-Kubernetes ConfigMap set both explicitly because the process must listen on the container/pod
-network. The flag adds no authentication and is not evidence that a reverse proxy is safe; it only
-makes network reachability an operator decision instead of an accidental `HOST` change.
+The check runs after the SQLite database has been opened and migrated (startup builds the app,
+applies pending migrations, then validates the bind); a refused bind therefore leaves a migrated
+database behind but never an open network socket.
+
+The container image **does** bake in both `HOST=0.0.0.0` and this acknowledgement
+(`deploy/Dockerfile`): a container bound to loopback is unreachable by definition, so the process
+listens on the container network and reachability becomes the operator's exposure decision at the
+publication boundary — which host port or pod network the container is attached to (`-p`,
+`--network`, a Service). Compose keeps that boundary on host loopback only (`127.0.0.1:3100`), and
+the Kubernetes base exposes only a ClusterIP Service. The flag adds no authentication and is not
+evidence that a reverse proxy is safe; it only makes network reachability a deliberate decision
+instead of an accidental `HOST` change.
 
 Settings → Data & admin reports whether the running process is local-only or network-reachable and
 always reports the application's authentication mode as `none`.
@@ -68,7 +76,7 @@ Each overlay pins the image tag. Exposure is intentionally not part of the rende
 | staging | `prax-staging` |
 | prod | `prax-prod` |
 
-Overlays are currently pinned to `v0.20.0`. CI-driven `newTag` bumping on release is planned as
+Overlays are currently pinned to `v0.21.0`. CI-driven `newTag` bumping on release is planned as
 future work.
 
 ## Data Volume
@@ -117,8 +125,8 @@ PRAX_DB_FILE=./prax.db npm run migrate
 ## Build and Publish Image
 
 ```bash
-docker build -f deploy/Dockerfile -t ghcr.io/awaybreaktoday/prax:<tag> .
-docker push ghcr.io/awaybreaktoday/prax:<tag>
+docker build -f deploy/Dockerfile -t ghcr.io/markjoyeuxcom/prax:<tag> .
+docker push ghcr.io/markjoyeuxcom/prax:<tag>
 ```
 
 Update the `newTag` in each overlay's `kustomization.yaml` to deploy a new version.

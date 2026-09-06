@@ -9,7 +9,7 @@ import { formatSearchResults, formatDocument } from './lib/format.js';
 import { recall, formatRecall } from './lib/recall.js';
 import { remember } from './lib/remember.js';
 import { confirmDocumentVerification } from './lib/verify.js';
-import { searchLibrary } from './lib/search.js';
+import { searchLibrary, describeRetrieval } from './lib/search.js';
 
 function parseArgs(argv) {
   const positionals = [];
@@ -87,7 +87,9 @@ async function main(argv) {
 
   if (command === 'init') {
     const repoUrl = detectRepoUrl({});
-    let project = flags.project;
+    // --project > PRAX_PROJECT > git-remote match > an existing .prax/project.json
+    // (detectProject below re-adopts it) > folder name — the documented order.
+    let project = flags.project || process.env.PRAX_PROJECT || undefined;
     // A repo already registered to a project ADOPTS that project — a second
     // checkout must not auto-create a folder-named duplicate and split memory
     // between two projects.
@@ -146,7 +148,7 @@ async function main(argv) {
     });
     out(flags.json
       ? envelope
-      : `${envelope.retrieval.degraded ? 'Note: semantic search is not configured; showing keyword results.\n\n' : ''}${formatSearchResults(envelope.items)}`);
+      : `${describeRetrieval(envelope.retrieval) ? `${describeRetrieval(envelope.retrieval)}\n\n` : ''}${formatSearchResults(envelope.items)}`);
     return;
   }
 
@@ -193,7 +195,7 @@ async function main(argv) {
       try { await client.addExternalRef(doc.id, { url: String(flags.ref) }); }
       catch (err) { process.stderr.write(`prax: could not attach --ref: ${err.message}\n`); }
     }
-    out(flags.json ? doc : `${action === 'updated' ? 'Updated' : 'Remembered'} "${doc.title}" (${doc.id}) — unverified.`);
+    out(flags.json ? doc : `${action === 'updated' ? 'Updated' : 'Remembered'} "${doc.title}" (${doc.id}) — unverified, at ${client.base}.`);
     return;
   }
 

@@ -1,8 +1,10 @@
 {
   "name": "prax",
   "description": "Prax agent memory: recall and remember durable knowledge across sessions and agent CLIs",
-  "version": "0.20.0",
-  "author": { "name": "Mark Joyeux" },
+  "version": "0.21.0",
+  "author": {
+    "name": "Mark Joyeux"
+  },
   "repository": "https://github.com/markjoyeuxcom/prax",
   "license": "MIT"
 }

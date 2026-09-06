@@ -3,5 +3,5 @@ kind: Kustomization
 resources:
   - ../../base
 images:
-  - name: ghcr.io/awaybreaktoday/prax
-    newTag: v0.20.0
+  - name: ghcr.io/markjoyeuxcom/prax
+    newTag: v0.21.0

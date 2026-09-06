@@ -7,7 +7,7 @@ import { normalizeRepoUrl, matchProjectByRepoUrl } from '../../server/repoUrl.js
 test('normalizeRepoUrl canonicalizes the common remote forms to host/path', () => {
   const expected = 'github.com/awaybreaktoday/prax';
   for (const url of [
-    'git@github.com:awaybreaktoday/prax.git',   // scp-like SSH (this repo's actual remote)
+    'git@github.com:awaybreaktoday/prax.git',   // scp-like SSH (a former remote of this repository)
     'git@github.com:Awaybreaktoday/Prax.git',   // case
     'https://github.com/awaybreaktoday/prax.git',
     'https://github.com/awaybreaktoday/prax',

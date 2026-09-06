@@ -72,7 +72,7 @@ test('current CI fixture is deterministic, rich, self-verifying, and detects sem
     'published manifests are byte-identical',
   );
   assert.deepEqual(first.manifest.expected.counts, {
-    schemaMigrations: 26,
+    schemaMigrations: 27,
     projects: 5,
     tasks: 200,
     checklistItems: 150,
@@ -153,7 +153,7 @@ test('historical CI fixture upgrades from 0009 through the taxonomy rebuild with
   });
 
   assert.equal(result.manifest.schema.seededThrough, '0009_add_project_repo_url.sql');
-  assert.equal(result.manifest.schema.finalVersion, '0026_add_document_updated_by_agent.sql');
+  assert.equal(result.manifest.schema.finalVersion, '0027_document_upsert_receipts.sql');
   assert.equal(result.manifest.schema.upgraded, true);
   assert.equal(result.manifest.expected.counts.documents, 50);
   assert.equal(result.manifest.expected.counts.documentLinks, 80);

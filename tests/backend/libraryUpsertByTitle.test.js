@@ -100,4 +100,74 @@ test('a human upsert (no origin header) stays user-authored with no agent id', a
   assert.equal(body.document.verified, true);
 });
 
+// --- operation receipts (QINV-03): a retry is exact-once for updates too -----------
+
+test('a replayed remember never re-applies its old body over a newer accepted write', async () => {
+  const a = await upsert({ id: uuid(30), title: 'Retry review', body: 'A: original', project: 'homelab' });
+  assert.equal(a.code, 201);
+  const b = await upsert({ id: uuid(31), title: 'Retry review', body: 'B: newer accepted memory', project: 'homelab' });
+  assert.equal(b.code, 200);
+  assert.equal(b.body.document.id, a.body.document.id);
+
+  const replayA = await upsert({ id: uuid(30), title: 'Retry review', body: 'A: original', project: 'homelab' });
+  assert.equal(replayA.code, 200);
+  assert.equal(replayA.body.replayed, true);
+  assert.equal(replayA.body.document.body, 'B: newer accepted memory', 'the replay reports the current document, it does not revert it');
+
+  const replayB = await upsert({ id: uuid(31), title: 'Retry review', body: 'B: newer accepted memory', project: 'homelab' });
+  assert.equal(replayB.code, 200);
+  assert.equal(replayB.body.replayed, true);
+  const stored = (await app.inject({ method: 'GET', url: `/api/library/documents/${a.body.document.id}` })).json();
+  assert.equal(stored.body, 'B: newer accepted memory');
+  assert.equal((await memoryDocs()).filter((d) => d.title === 'Retry review').length, 1);
+});
+
+test('reusing an operation id with different content is a conflict, for creates and for updates', async () => {
+  const created = await upsert({ id: uuid(40), title: 'Intent A', body: 'first', project: 'homelab' });
+  assert.equal(created.code, 201);
+  const changedCreate = await upsert({ id: uuid(40), title: 'Intent A', body: 'changed intent under the same id', project: 'homelab' });
+  assert.equal(changedCreate.code, 409);
+
+  const updated = await upsert({ id: uuid(41), title: 'Intent A', body: 'second', project: 'homelab' });
+  assert.equal(updated.code, 200);
+  assert.equal(updated.body.created, false);
+  const changedUpdate = await upsert({ id: uuid(41), title: 'Intent A', body: 'third, but claiming to be second', project: 'homelab' });
+  assert.equal(changedUpdate.code, 409);
+  const retitled = await upsert({ id: uuid(41), title: 'Intent A renamed', body: 'second', project: 'homelab' });
+  assert.equal(retitled.code, 409, 'a different title under an update id is a different intent');
+
+  const stored = (await app.inject({ method: 'GET', url: `/api/library/documents/${created.body.document.id}` })).json();
+  assert.equal(stored.body, 'second');
+  assert.equal((await memoryDocs()).filter((d) => d.title.startsWith('Intent A')).length, 1);
+});
+
+test('a replay whose document was permanently deleted is 410, never a silent recreate', async () => {
+  const created = await upsert({ id: uuid(50), title: 'Deleted later', body: 'gone soon', project: 'homelab' });
+  assert.equal(created.code, 201);
+  const del = await app.inject({ method: 'DELETE', url: `/api/library/documents/${created.body.document.id}/permanent` });
+  assert.equal(del.statusCode, 200);
+
+  const replay = await upsert({ id: uuid(50), title: 'Deleted later', body: 'gone soon', project: 'homelab' });
+  assert.equal(replay.code, 410);
+  assert.equal((await memoryDocs()).filter((d) => d.title === 'Deleted later').length, 0);
+
+  const fresh = await upsert({ id: uuid(51), title: 'Deleted later', body: 'gone soon', project: 'homelab' });
+  assert.equal(fresh.code, 201, 'a new operation id writes the memory again deliberately');
+});
+
+test('a replayed update keeps the retype and tags the original operation asked for, and does not bump the revision', async () => {
+  const first = await upsert({ id: uuid(60), title: 'Retype me', body: 'v1', project: 'homelab' });
+  const retype = await upsert({ id: uuid(61), title: 'Retype me', body: 'v2', project: 'homelab', tags: ['pg'], documentType: 'decision' });
+  assert.equal(retype.code, 200);
+  const before = (await app.inject({ method: 'GET', url: `/api/library/documents/${first.body.document.id}` })).json();
+  const replay = await upsert({ id: uuid(61), title: 'Retype me', body: 'v2', project: 'homelab', tags: ['pg'], documentType: 'decision' });
+  assert.equal(replay.code, 200);
+  assert.equal(replay.body.replayed, true);
+  const after = (await app.inject({ method: 'GET', url: `/api/library/documents/${first.body.document.id}` })).json();
+  assert.equal(after.revision, before.revision);
+  assert.equal(after.updatedAt, before.updatedAt);
+  assert.equal(after.documentType, 'decision');
+  assert.deepEqual(after.tags, ['pg']);
+});
+
 test.after(async () => { await app.close(); });

@@ -31,6 +31,7 @@ backup-before-update, rollback, and signing details:
 - Ships light ("Porcelain") and dark ("Deep Fern") themes with four accent colours and a reading-size control; fully keyboard-driven — **⌘K command palette**, **quick capture (N)**, list navigation, and undo toasts.
 - Moves content through Settings: JSON task import/export (append / skip duplicates / replace-project modes) and scoped Markdown library export. Desktop and supporting browsers let you choose the ZIP destination; full-fidelity recovery uses the SQLite backup runbook.
 - Exposes the API to Claude Code through an optional local MCP server for interactive, subscription-backed task and document workflows.
+- Acts as **shared long-term memory for AI agents**: the portable `prax-recall` / `prax-remember` skills (Claude Code and Codex) and the `prax` CLI recall prior findings by meaning and persist new ones with agent provenance — see [skills/README.md](skills/README.md) and [docs/agent-memory.md](docs/agent-memory.md).
 - Runs locally with plain Node or Docker Compose, or deploys to Kubernetes — the embedded SQLite database needs no separate server.
 
 ## Screenshots
@@ -62,7 +63,7 @@ backup-before-update, rollback, and signing details:
 Clone the repo:
 
 ```bash
-git clone git@github.com:awaybreaktoday/prax.git
+git clone git@github.com:markjoyeuxcom/prax.git
 cd prax
 ```
 
@@ -117,7 +118,7 @@ docker compose -f compose.yaml -f compose.image.yaml up
 The image override uses:
 
 ```text
-ghcr.io/awaybreaktoday/prax:v0.20.0
+ghcr.io/markjoyeuxcom/prax:v0.21.0
 ```
 
 Use source-build Compose for development, and use the published image path when you want to test the same artifact Kubernetes will run.
@@ -220,13 +221,24 @@ it. `npm link` in the repo gives a global `prax` command. See [docs/cli.md](docs
 for the full guide.
 
 ```bash
-prax context "how do we restore postgres"
+prax context "how do we restore postgres"          # this project's briefing
+prax recall "how do we restore postgres"           # cross-project distilled recall
+prax remember "Postgres restore drill" --body "…" --memory   # write to the shared memory namespace
 ```
 
 Documents written by agents (via the CLI or MCP) are **unverified** by default. A human runs
 `prax verify <id> --as <name>` in an attended terminal (or uses the Library UI) to bless them.
 Retrieval is active-only and keeps unverified memory in a
 clearly-labelled section so AI tools can see it while treating it with appropriate caution.
+
+### Agent memory skills
+
+For agent CLIs the same memory loop ships as two portable skills, `prax-recall` and
+`prax-remember`, which Claude Code and Codex load on demand. Each is one dependency-free Node
+script that talks to the running app; a checkout of this repo already has them linked in, and
+any other machine installs them with one command and no checkout. See
+[skills/README.md](skills/README.md) for installation and [docs/agent-memory.md](docs/agent-memory.md)
+for the memory convention (what to remember, provenance, supersede).
 
 ## Backup & Restore
 
@@ -236,7 +248,9 @@ The reproducible workspace and semantic verifier used by restore drills are docu
 
 ## Import And Export
 
-Task backups use the current Prax format:
+Portable task exports use the current Prax format (they carry tasks and checklists, not history,
+links, or project metadata — an authoritative backup is a SQLite snapshot, see
+[docs/backup-restore.md](docs/backup-restore.md)):
 
 ```json
 {
@@ -312,12 +326,13 @@ Product work is governed by the
 which defines the immediate regression/invariant ratchet, per-surface excellence gates, ranked
 critical journeys, and evidence requirements for both people and machine consumers.
 
-The detailed, living backlog lives in [docs/ROADMAP.md](docs/ROADMAP.md). At a glance:
+The detailed, living backlog lives in [docs/ROADMAP.md](docs/ROADMAP.md). The shared-memory
+direction (trust loop in the UI and MCP, the retrieval eval harness, external references,
+repo-URL project detection, and the portable memory skills) has shipped. What remains, at a glance:
 
-- finish the shared-memory trust loop across all surfaces (verify/supersede in the UI + MCP)
-- a retrieval eval harness to guard recall quality
-- external references, repo-URL project detection, and an optional "Ask Project" RAG layer
-- tighten the Markdown workspace into a stronger knowledge base
+- an optional "Ask Project" RAG layer, kept separate from the retrieval-only default
+- a `main`/SHA-tagged container image on merge so a dev environment can track a live build
+- app-level authentication, only if a multi-tenant or token model is ever wanted (none by design today)
 
 ## Security
 
@@ -337,5 +352,5 @@ MIT. See [LICENSE](LICENSE).
 GitHub:
 
 ```text
-https://github.com/awaybreaktoday/prax
+https://github.com/markjoyeuxcom/prax
 ```

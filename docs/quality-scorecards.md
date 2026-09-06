@@ -166,7 +166,8 @@ drift without versioning, or machine verification without attended exact-content
 
 Evidence: Rust tests, desktop lifecycle/web-security/permission contracts,
 `npm run desktop:verify`, `npm run desktop:smoke`, and release-workflow contracts. The desktop owns
-an ephemeral loopback endpoint, restricts navigation/scripts to the exact origin, shuts down over a
+a child-selected loopback endpoint that it persists and reuses across launches (an occupied saved
+port refuses startup), restricts navigation/scripts to the exact origin, shuts down over a
 bounded owner-only channel, preserves SQLite across two launches, exposes actionable restart UI,
 and publishes complete checksummed packages.
 
@@ -190,9 +191,12 @@ Next constraint: manual screen-reader, cognitive, and physical-device Settings r
 activation of settings/status feedback budgets. Correctness/recovery stay 3 until a real reverse-
 proxy/network deployment drill is recorded in addition to rendered-contract evidence.
 
-Release blockers: implicit non-loopback exposure, UI-settable backend secrets/config, proxy-auth
-claims Prax cannot verify, provider failure masquerading as Off, or documentation contradicting
-the shipped manifests.
+Release blockers: implicit non-loopback exposure, provider secrets or the selected local CLI
+becoming settable from outside the operator trust boundary (Settings is operator access by
+design — `SECURITY.md` — so the blocker is exposing that surface to less-trusted clients, not
+the settings themselves), the network bind or its acknowledgement becoming settable from the UI,
+provider keys returned by the API, proxy-auth claims Prax cannot verify, provider failure
+masquerading as Off, or documentation contradicting the shipped manifests.
 
 ## Journey 13 — adverse dependency inventory
 

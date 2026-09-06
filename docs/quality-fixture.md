@@ -51,7 +51,9 @@ npm run fixture:quality -- \
 ```
 
 These vectors use the reserved fixture backend/model names `quality-fixture` and
-`deterministic-v1`; their `embedded_hash` matches the generated document body.
+`deterministic-v1`. On the current schema their `embedded_hash` is the document **revision**
+(the token over title + body), because a vector describes the whole embedded input; the
+body-only content hash is used only when generating a historical (pre-revision) fixture.
 
 ## Manifest and verification
 

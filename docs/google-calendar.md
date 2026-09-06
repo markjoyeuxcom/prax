@@ -22,8 +22,15 @@ you create your own (free, ~5 minutes), exactly like other self-hosted tools:
    (or pick) a project.
 2. **APIs & Services ▸ Library** — enable the **Google Calendar API**.
 3. **APIs & Services ▸ OAuth consent screen** — External, fill the app name
-   and your email, add your own Google account as a **test user**. (Testing
-   mode is fine forever for personal use; no verification needed.)
+   and your email, add your own Google account as a **test user**. No app
+   verification is needed for personal use, but note Google's rule for
+   External apps left in **Testing**: refresh tokens expire after seven days
+   (the exemption for basic identity-only scopes does not apply, because Prax
+   requests the Calendar scope). Expect to reconnect Prax to Google roughly
+   weekly in Testing mode, or publish the consent screen to **Production**
+   (Google may then require verification for the Calendar scope) to get
+   long-lived tokens. See Google's
+   [OAuth 2.0 token-expiration rules](https://developers.google.com/identity/protocols/oauth2).
 4. **APIs & Services ▸ Credentials ▸ Create credentials ▸ OAuth client ID**
    — application type **Desktop app**. Desktop clients accept loopback
    redirects on any port, which is what Prax uses.
@@ -66,6 +73,6 @@ there if you want it gone); reconnecting reuses it.
 - The refresh token, client secret, and sync state live in the `app_settings`
   table of your Prax database — include it in backups like everything else,
   and treat backup files as secret-bearing.
-- The OAuth callback is served on whatever host/port Prax runs on; the
-  desktop app's per-launch port is fine because the redirect is negotiated
-  per connect.
+- The OAuth callback is served on whatever host/port Prax runs on. The
+  desktop app persists its loopback port across launches, and the redirect
+  is negotiated per connect anyway, so no fixed port has to be registered.

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { searchLibrary } from '../../cli/lib/search.js';
+import { searchLibrary, describeRetrieval } from '../../cli/lib/search.js';
 
 test('search returns a versioned semantic envelope on success', async () => {
   const result = await searchLibrary({
@@ -8,7 +8,7 @@ test('search returns a versioned semantic envelope on success', async () => {
   }, { project: 'p', query: 'restore' });
   assert.deepEqual(result, {
     schemaVersion: 1,
-    retrieval: { mode: 'semantic', degraded: false, reason: null },
+    retrieval: { mode: 'semantic', degraded: false, reason: null, index: null, page: null },
     items: [{ id: 'd1' }],
   });
 });
@@ -22,7 +22,7 @@ test('search explicitly falls back only for semantic-not-configured (409)', asyn
   }, { project: 'p', query: 'restore', all: true });
   assert.equal(keywordCalls, 1);
   assert.deepEqual(result.retrieval, {
-    mode: 'keyword', degraded: true, reason: 'semantic-not-configured',
+    mode: 'keyword', degraded: true, reason: 'semantic-not-configured', index: null, page: null,
   });
 
   const outage = Object.assign(new Error('backend down'), { status: 503 });
@@ -30,4 +30,38 @@ test('search explicitly falls back only for semantic-not-configured (409)', asyn
     semanticSearch: async () => { throw outage; },
     keywordSearch: async () => { throw new Error('must not run'); },
   }, { query: 'x' }), /backend down/);
+});
+
+test('search preserves index coverage and page bounds from the paged semantic response', async () => {
+  const result = await searchLibrary({
+    semanticSearch: async () => ({
+      items: [{ id: 'd1' }],
+      page: { offset: 0, limit: 50, returned: 1, total: 60, hasMore: true, nextOffset: 1 },
+      index: { total: 10, embedded: 8, pending: 2 },
+      degraded: true,
+      reason: 'index-incomplete',
+    }),
+  }, { project: 'p', query: 'restore' });
+  assert.equal(result.retrieval.mode, 'semantic');
+  assert.equal(result.retrieval.degraded, true);
+  assert.equal(result.retrieval.reason, 'index-incomplete');
+  assert.deepEqual(result.retrieval.index, { total: 10, embedded: 8, pending: 2 });
+  assert.equal(result.retrieval.page.hasMore, true);
+  assert.equal(
+    describeRetrieval(result.retrieval),
+    'Note: the semantic index is incomplete (2 of 10 documents have no current embedding); results may be missing.\n'
+    + 'Note: showing the first 1 of 60 matches.',
+  );
+  assert.equal(describeRetrieval({ mode: 'semantic', degraded: false, reason: null, index: null, page: null }), '');
+  assert.equal(describeRetrieval({ mode: 'keyword', degraded: true, reason: 'semantic-not-configured' }), 'Note: semantic search is not configured; showing keyword results.');
+});
+
+test('search labels an old server without coverage reporting as unknown, through the real client', async () => {
+  const { createClient } = await import('../../cli/lib/apiClient.js');
+  globalThis.fetch = async () => ({ ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => [{ id: 'legacy' }], text: async () => '[]' });
+  const result = await searchLibrary(createClient({ baseUrl: 'http://x', env: {} }), { project: 'p', query: 'q' });
+  assert.deepEqual(result.items, [{ id: 'legacy' }]);
+  assert.equal(result.retrieval.reason, 'coverage-unknown');
+  assert.equal(result.retrieval.degraded, false);
+  assert.equal(describeRetrieval(result.retrieval), 'Note: this server does not report semantic index coverage; a complete result cannot be assumed.');
 });

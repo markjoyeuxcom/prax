@@ -13,7 +13,7 @@ fixes; please upgrade to the newest version before reporting an issue.
 ## Reporting a Vulnerability
 
 Please report security vulnerabilities **privately** through GitHub's
-[private vulnerability reporting](https://github.com/awaybreaktoday/prax/security/advisories/new)
+[private vulnerability reporting](https://github.com/markjoyeuxcom/prax/security/advisories/new)
 ("Report a vulnerability" under the repository's **Security** tab). Do **not** open a public
 issue for a security problem.
 
@@ -41,7 +41,9 @@ Understand the trust boundary before exposing Prax to a network:
   configured in the local UI are stored in the single-user SQLite database, so protect backups
   and the database file as secrets.
 - **Dependency scanning runs in CI.** Every push and pull request runs `npm audit
-  --audit-level=high`, and pull requests additionally run GitHub's dependency-review action.
+  --audit-level=high`. Pull requests additionally run GitHub's dependency-review action when the
+  repository is public; on this private repository that action needs Advanced Security and is
+  skipped, so `npm audit` is the active dependency gate.
 - **Desktop Library export is user-bounded.** The localhost webview can request a Library ZIP save,
   but cannot supply a destination path. The Rust shell always opens the operating system Save dialog
   and writes only the path the user confirms; no general filesystem-write permission is exposed.

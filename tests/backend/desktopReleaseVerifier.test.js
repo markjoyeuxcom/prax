@@ -16,7 +16,9 @@ test('desktop release versions are one source of truth and tags are exact', () =
     tag: 'v0.20.0',
   };
   assert.equal(assertVersionAgreement(input), '0.20.0');
+  assert.equal(assertVersionAgreement({ ...input, tag: 'v0.20.0-rc.1' }), '0.20.0', 'a release candidate tag carries the same version');
   assert.throws(() => assertVersionAgreement({ ...input, tag: 'v0.20.1' }), /does not match/);
+  assert.throws(() => assertVersionAgreement({ ...input, tag: 'v0.20.01' }), /does not match/);
   assert.throws(() => assertVersionAgreement({ ...input, cargoText: 'version = "0.19.0"' }), /version drift/);
   assert.throws(() => assertVersionAgreement({ ...input, tauriConfig: { version: '0.20.0' } }), /resolve its version/);
 });

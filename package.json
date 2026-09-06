@@ -1,6 +1,6 @@
 {
   "name": "prax",
-  "version": "0.20.0",
+  "version": "0.21.0",
   "type": "module",
   "private": true,
   "engines": {
@@ -27,7 +27,7 @@
     "eval:nl": "node scripts/nl-eval.js",
     "test": "node scripts/run-tests.js",
     "test:e2e": "playwright test",
-    "check": "node --check server/index.js && node --check server/desktopLifecycle.js && node --check scripts/demo-server.js && node --check scripts/create-quality-fixture.js && node --check scripts/measure-quality-performance.js && node --check scripts/run-performance-gate.mjs && node --check scripts/verify-manual-activation.mjs && node --check scripts/verify-performance-budget.mjs && node --check scripts/verify-portable-round-trip.js && node --check scripts/verify-backup-restore.js && node --check scripts/verify-desktop-release.mjs && node --check scripts/verify-desktop-runtime.mjs && node --check scripts/backup-database.js && node --check server/sqliteBackup.js && node --check server/runbookRunsRepository.js && node --check public/js/main.js && node --check public/js/libraryExport.js && node --check public/js/renderLibraryExport.js && node --check public/js/renderRun.js && node --check public/js/runOutcome.js && node --check public/js/settingsOutcome.js && node --check public/js/assistantOutcome.js && node --check public/js/documentLifecycleOutcome.js && node --check public/js/documentDraftRecovery.js && node --check public/js/taskDraftRecovery.js && node --check public/js/taskCaptureRecovery.js && node --check public/js/taskMutationQueue.js && node --check public/js/taskPatchOutcome.js && node --check public/js/taskCreateOutcome.js && node --check public/js/taskFilter.js && node --check src-tauri/splash/splash.js && node --check mcp/server.js && node --check server/migrate.js && node --check scripts/migrate.js && node --check server/documentLinksRepository.js && node --check server/settingsRoutes.js && node --check cli/prax.js && node --check cli/lib/detectProject.js && node --check cli/lib/apiClient.js && node --check cli/lib/format.js && node --check cli/lib/recall.js && node --check cli/lib/remember.js && node --check cli/lib/skillArgs.js && node --check scripts/build-skills.mjs && node scripts/build-skills.mjs --check",
+    "check": "node --check server/index.js && node --check server/desktopLifecycle.js && node --check scripts/demo-server.js && node --check scripts/create-quality-fixture.js && node --check scripts/measure-quality-performance.js && node --check scripts/run-performance-gate.mjs && node --check scripts/verify-manual-activation.mjs && node --check scripts/verify-performance-budget.mjs && node --check scripts/verify-portable-round-trip.js && node --check scripts/verify-backup-restore.js && node --check scripts/verify-desktop-release.mjs && node --check scripts/verify-desktop-runtime.mjs && node --check scripts/backup-database.js && node --check server/sqliteBackup.js && node --check server/runbookRunsRepository.js && node --check public/js/main.js && node --check public/js/libraryExport.js && node --check public/js/renderLibraryExport.js && node --check public/js/renderRun.js && node --check public/js/runOutcome.js && node --check public/js/settingsOutcome.js && node --check public/js/assistantOutcome.js && node --check public/js/documentLifecycleOutcome.js && node --check public/js/documentDraftRecovery.js && node --check public/js/taskDraftRecovery.js && node --check public/js/taskCaptureRecovery.js && node --check public/js/taskMutationQueue.js && node --check public/js/taskPatchOutcome.js && node --check public/js/taskCreateOutcome.js && node --check public/js/taskFilter.js && node --check src-tauri/splash/splash.js && node --check mcp/server.js && node --check server/migrate.js && node --check scripts/migrate.js && node --check server/documentLinksRepository.js && node --check server/settingsRoutes.js && node --check cli/prax.js && node --check cli/lib/detectProject.js && node --check cli/lib/apiClient.js && node --check cli/lib/format.js && node --check cli/lib/recall.js && node --check cli/lib/remember.js && node --check cli/lib/skillArgs.js && node --check scripts/build-skills.mjs && node --check scripts/release-sites.mjs && node --check scripts/prepare-release.mjs && node --check scripts/release-notes.mjs && node scripts/build-skills.mjs --check",
     "prepare:sidecar": "node scripts/prepare-sidecar.mjs",
     "desktop:verify": "node scripts/verify-desktop-release.mjs --require-prepared",
     "desktop:smoke": "node scripts/verify-desktop-runtime.mjs",
@@ -36,7 +36,9 @@
     "tauri": "tauri",
     "fix:bindings": "node scripts/fix-platform-bindings.mjs",
     "skills:build": "node scripts/build-skills.mjs",
-    "skills:check": "node scripts/build-skills.mjs --check"
+    "skills:check": "node scripts/build-skills.mjs --check",
+    "release:prepare": "node scripts/prepare-release.mjs",
+    "release:notes": "node scripts/release-notes.mjs"
   },
   "dependencies": {
     "@codemirror/search": "6.7.1",

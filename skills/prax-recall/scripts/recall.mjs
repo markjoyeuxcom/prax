@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
 var DEFAULT_BASE_URL = "http://127.0.0.1:3000";
+var SEMANTIC_PAGE_MAX = 50;
 var DESKTOP_IDENTIFIER = "com.moomora.prax";
 var AGENT_ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 function sanitizeAgentId(value) {
@@ -45,8 +46,40 @@ function resolveBaseUrls({ baseUrl, env = process.env, portFile, read } = {}) {
 function createClient({ baseUrl, token, agent, env = process.env, bases } = {}) {
   const candidates = bases || resolveBaseUrls({ baseUrl, env });
   let base = candidates[0];
+  let pinned = candidates.length === 1;
+  let discovery = null;
   const agentId = agent === void 0 ? detectAgent(env) : sanitizeAgentId(agent);
   const bearer = token ?? env.PRAX_TOKEN;
+  function unreachable(lastError) {
+    const where = pinned ? base : candidates.join(" or ");
+    return new Error(`Prax not reachable at ${where} \u2014 is the app running? (${lastError.message})`);
+  }
+  async function probe() {
+    let lastError;
+    for (const candidate of candidates) {
+      try {
+        await fetch(`${candidate}/readyz`, { method: "GET" });
+        if (!pinned) {
+          base = candidate;
+          pinned = true;
+        }
+        return;
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    throw unreachable(lastError);
+  }
+  function ensurePinned() {
+    if (pinned) return Promise.resolve();
+    if (!discovery) {
+      discovery = probe().catch((err) => {
+        discovery = null;
+        throw err;
+      });
+    }
+    return discovery;
+  }
   async function request(method, path, {
     body,
     agent: agentWrite = false,
@@ -62,23 +95,20 @@ function createClient({ baseUrl, token, agent, env = process.env, bases } = {}) 
     if (accept) headers["accept"] = accept;
     if (bearer) headers["authorization"] = `Bearer ${bearer}`;
     const payload = body === void 0 ? void 0 : JSON.stringify(body);
+    await ensurePinned();
+    const target = base;
     let res;
     let lastError;
     const attempts = retryUnavailable ? 2 : 1;
-    attempt: for (let attempt = 0; attempt < attempts; attempt += 1) {
-      for (const candidate of [base, ...candidates.filter((c) => c !== base)]) {
-        try {
-          res = await fetch(`${candidate}${path}`, { method, headers, body: payload });
-          base = candidate;
-          break attempt;
-        } catch (err) {
-          lastError = err;
-        }
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      try {
+        res = await fetch(`${target}${path}`, { method, headers, body: payload });
+        break;
+      } catch (err) {
+        lastError = err;
       }
     }
-    if (!res) {
-      throw new Error(`Prax not reachable at ${candidates.join(" or ")} \u2014 is the app running? (${lastError.message})`);
-    }
+    if (!res) throw unreachable(lastError);
     const ct = res.headers.get("content-type") || "";
     const parsed = ct.includes("application/json") ? await res.json() : await res.text();
     if (!res.ok) {
@@ -113,11 +143,25 @@ function createClient({ baseUrl, token, agent, env = process.env, bases } = {}) 
       if (!all) params.set("status", "active");
       return request("GET", `/api/library/documents?${params.toString()}`);
     },
-    semanticSearch(project, q, { all = false } = {}) {
-      const params = new URLSearchParams({ q });
+    // Paged mode so the response carries index coverage (`index`, `degraded`,
+    // `reason: 'index-incomplete'`): the legacy array cannot say that pending
+    // vectors were skipped, and a miss on an incomplete index is not an honest
+    // miss. Older servers ignore `page` and return the array; normalise both.
+    async semanticSearch(project, q, { all = false, limit = SEMANTIC_PAGE_MAX, offset = 0 } = {}) {
+      const params = new URLSearchParams({ q, page: "true" });
       if (project) params.set("project", project);
       if (all) params.set("all", "true");
-      return request("GET", `/api/library/documents/semantic-search?${params.toString()}`);
+      params.set("limit", String(Math.min(Math.max(Number(limit) || SEMANTIC_PAGE_MAX, 1), SEMANTIC_PAGE_MAX)));
+      if (Number(offset) > 0) params.set("offset", String(Math.trunc(Number(offset))));
+      const res = await request("GET", `/api/library/documents/semantic-search?${params.toString()}`);
+      if (Array.isArray(res)) return { items: res, page: null, index: null, degraded: false, reason: "coverage-unknown", legacy: true };
+      return {
+        items: Array.isArray(res?.items) ? res.items : [],
+        page: res?.page || null,
+        index: res?.index || null,
+        degraded: Boolean(res?.degraded),
+        reason: res?.reason || null
+      };
     },
     getDocument(id) {
       return request("GET", `/api/library/documents/${encodeURIComponent(id)}`);
@@ -214,63 +258,134 @@ function trimBody(body) {
   const text = String(body || "").trim();
   return text.length <= BODY_CHARS ? text : `${text.slice(0, BODY_CHARS).trimEnd()}\u2026`;
 }
+function trustLabel(doc) {
+  if (!doc) return "";
+  const parts = [doc.verified ? "verified" : "unverified"];
+  if (doc.status && doc.status !== "active") parts.push(doc.status);
+  return parts.join(", ");
+}
+function boundNote(result) {
+  const page = result?.page;
+  if (!page || !page.hasMore) return "";
+  const total = Number.isInteger(page.total) ? page.total : null;
+  return `${page.returned} of ${total ?? "more"} matches shown \u2014 raise --limit for the rest`;
+}
+async function collectSemantic(client, project, query, limit) {
+  const wanted = Math.max(1, Number(limit) || 1);
+  let res = await client.semanticSearch(project, query, { limit: wanted });
+  if (Array.isArray(res)) return res;
+  const items = [...res.items || []];
+  let page = res.page;
+  let guard = 0;
+  while (page?.hasMore && items.length < wanted && Number.isInteger(page.nextOffset) && guard < 100) {
+    guard += 1;
+    const next = await client.semanticSearch(project, query, { limit: wanted - items.length, offset: page.nextOffset });
+    if (Array.isArray(next)) break;
+    items.push(...next.items || []);
+    page = next.page;
+    res = next;
+  }
+  return { ...res, items, page: page ? { ...page, returned: items.length, hasMore: Boolean(page.hasMore) } : page };
+}
+function coverageNote(result) {
+  if (!result) return "";
+  if (result.reason === "coverage-unknown") return "index coverage unknown: this server predates coverage reporting";
+  if (!result.degraded) return "";
+  const index = result.index || {};
+  const pending = Number(index.pending ?? 0);
+  const total = Number(index.total ?? 0);
+  const scope = total ? `${pending} of ${total} documents` : `${pending} documents`;
+  return `index incomplete: ${scope} have no current embedding`;
+}
 async function recall(client, { query, project, limit = 5, recent = false } = {}) {
   if (recent) {
-    const docs = await client.listDocuments(project || void 0);
-    const items = (Array.isArray(docs) ? docs : []).slice().sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))).slice(0, limit).map((d) => ({
+    const docs = await client.listDocuments(project || void 0, { status: "active" });
+    const items = (Array.isArray(docs) ? docs : []).filter((d) => (d.status ?? "active") === "active").slice().sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))).slice(0, limit).map((d) => ({
       title: d.title || "Untitled",
       id: d.id,
+      trust: trustLabel(d),
       snippet: String(d.body || "").replace(/\s+/g, " ").trim().slice(0, 100)
     }));
     return { kind: "recent", project: project || "", items };
   }
-  let refs;
+  let res;
   try {
-    refs = await client.semanticSearch(project || void 0, query, {});
+    res = await collectSemantic(client, project || void 0, query, limit);
   } catch (err) {
     if (err && err.status === 409) {
       const docs = await client.keywordSearch(project || void 0, query, {});
       const kept2 = (Array.isArray(docs) ? docs : []).slice(0, limit);
-      if (kept2.length === 0) return { kind: "empty", query, note: "keyword" };
-      return { kind: "hit", note: "semantic search disabled \u2014 keyword results", top: kept2[0], related: kept2.slice(1) };
+      if (kept2.length === 0) return { kind: "empty", query, note: "keyword", degraded: false, reason: null, index: null };
+      return {
+        kind: "hit",
+        note: "semantic search disabled \u2014 keyword results",
+        degraded: false,
+        reason: null,
+        index: null,
+        top: kept2[0],
+        related: kept2.slice(1)
+      };
     }
     throw err;
   }
-  const list = Array.isArray(refs) ? refs : [];
-  if (list.length === 0) return { kind: "empty", query, note: null };
+  const legacy = Array.isArray(res) || Boolean(res?.legacy) || res?.reason === "coverage-unknown";
+  const list = Array.isArray(res) ? res : Array.isArray(res?.items) ? res.items : [];
+  const coverage = {
+    degraded: !legacy && Boolean(res?.degraded),
+    // An old server reports no coverage at all: that is "unknown", not
+    // "complete", and the output must not imply otherwise.
+    reason: legacy ? "coverage-unknown" : res?.reason || null,
+    index: legacy ? null : res?.index || null,
+    // What remains beyond the requested bound after paging up to it.
+    page: legacy ? null : res?.page || null
+  };
+  if (list.length === 0) return { kind: "empty", query, note: null, ...coverage };
   const kept = list.slice(0, limit);
   const topDoc = await client.getDocument(kept[0].id).catch(() => null);
   return {
     kind: "hit",
     note: null,
-    top: { ...kept[0], body: topDoc ? topDoc.body : kept[0].body },
+    ...coverage,
+    top: { ...kept[0], ...topDoc ? { body: topDoc.body, verified: topDoc.verified, status: topDoc.status } : {} },
     related: kept.slice(1)
   };
 }
 function formatRecall(result) {
   if (!result) return "";
   if (result.kind === "empty") {
-    const suffix = result.note === "keyword" ? " (keyword; semantic search is disabled)" : "";
+    const notes = [];
+    if (result.note === "keyword") notes.push("keyword; semantic search is disabled");
+    const coverage2 = coverageNote(result);
+    if (coverage2) notes.push(`${coverage2} \u2014 this may not be a true miss`);
+    const suffix = notes.length ? ` (${notes.join("; ")})` : "";
     return `No relevant memory found for: "${result.query}"${suffix}`;
   }
   if (result.kind === "recent") {
     if (!result.items.length) return "No documents yet.";
     const scope = result.project ? ` in "${result.project}"` : "";
-    const head = `Most recent ${result.items.length} document(s)${scope}:`;
-    const lines2 = result.items.map((d) => `- ${d.title} \u2014 ${d.id}${d.snippet ? ` \u2014 ${d.snippet}` : ""}`);
+    const head = `Most recent ${result.items.length} active document(s)${scope}:`;
+    const lines2 = result.items.map((d) => `- ${d.title} \u2014 ${d.id}${d.trust ? ` (${d.trust})` : ""}${d.snippet ? ` \u2014 ${d.snippet}` : ""}`);
     return [head, ...lines2].join("\n");
   }
   const lines = [];
   if (result.note) lines.push(`(${result.note})`);
+  const coverage = coverageNote(result);
+  if (coverage) lines.push(`(${coverage} \u2014 results may be missing)`);
+  const bound = boundNote(result);
+  if (bound) lines.push(`(${bound})`);
   const top = result.top;
-  lines.push(`## ${top.title || "Untitled"}  (${top.documentType || "note"} \xB7 ${top.id})`);
+  const trust = trustLabel(top);
+  lines.push(`## ${top.title || "Untitled"}  (${top.documentType || "note"} \xB7 ${top.id}${trust ? ` \xB7 ${trust}` : ""})`);
   lines.push("");
   lines.push(trimBody(top.body));
   const related = (result.related || []).slice(0, RELATED_MAX);
   if (related.length) {
     lines.push("");
     lines.push("Related:");
-    for (const r of related) lines.push(`- ${r.title || "Untitled"} \u2014 ${r.id}`);
+    for (const r of related) {
+      const label = trustLabel(r);
+      lines.push(`- ${r.title || "Untitled"} \u2014 ${r.id}${label ? ` (${label})` : ""}`);
+    }
   }
   return lines.join("\n");
 }
