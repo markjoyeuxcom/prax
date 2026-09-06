@@ -99,6 +99,22 @@ blocking worker, never the desktop UI event loop. A synchronous command combined
 `blocking_save_file` can display a macOS sheet while starving its controls and producing the spinning
 wait cursor; the desktop contract test explicitly forbids that combination.
 
+## Menu bar, quick capture, and closing the window
+
+The main window **closes to the menu bar**: the red close button hides it and the sidecar keeps
+running, so the capture shortcut and the memory skills keep working. Reopen it from the Dock or
+the menu-bar icon (**Open Prax**); quit from the menu-bar icon (**Quit Prax**) or ⌘Q, which runs
+the graceful shutdown above. The recovery window shown after a failed start keeps close-to-exit.
+
+**Capture task** in the menu bar (or ⌘⇧Space, changeable in Settings) summons a small always-on-top
+bar served by the sidecar at `/capture.html`. Enter saves the text as a task in **Inbox**
+(`#project`, `@label`, `!high` and a date word route it elsewhere); Esc or losing focus hides it
+and keeps any unsent text as a draft. The main window refetches its collections when it regains
+focus, becomes visible, or navigates, and the bar announces each save over a same-origin channel,
+so a capture appears without a reload. The capture window is transparent so only the rounded bar
+is drawn; on macOS that needs `app.macOSPrivateApi` in `tauri.conf.json` together with the
+`macos-private-api` Tauri feature, which is why both are enabled.
+
 ## macOS input behavior
 
 The app opts its own defaults domain out of the press-and-hold accent picker

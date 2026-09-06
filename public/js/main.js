@@ -96,6 +96,10 @@ import {
 import { renderTodayHtml, buildTodayGroups } from './renderToday.js';
 import { renderPlanModeHtml } from './renderPlanMode.js';
 import { renderUpcomingHtml, buildUpcomingGroups } from './renderUpcoming.js';
+import {
+  createExternalRefresh, installExternalRefreshTriggers, collectionFingerprint,
+  installWriteEpoch, writeEpoch, captureFocus, restoreFocus,
+} from './externalRefresh.js';
 import { renderCalendarHtml, buildCalendarModel, monthKeyOf, shiftMonthKey } from './renderCalendar.js';
 import { renderFilterHtml, buildFilterGroups } from './renderFilter.js';
 import { parseTaskFilter, projectResolver } from './taskFilter.js';
@@ -159,6 +163,7 @@ const projectDrafts = createProjectDrafts({
 let boardExtrasRenderTimer = null; // enrichment must not preempt primary task interaction
 let dragIndicator = null;
 let documentsLoadToken = 0;       // only the newest Active/Archive collection may install
+let tasksLoadToken = 0;           // only the newest task collection request may install
 let semanticSearchToken = 0;      // stale/superseded meaning searches never install
 let askPraxToken = 0;             // stale/closed grounded-answer requests never install
 let drawerContextToken = 0;       // a late task-context load cannot replace a newer drawer
@@ -228,11 +233,20 @@ async function loadProjects() {
   setState({ projects: sidebar, managedProjects: all });
 }
 
-async function loadTasks({ announceReminders = true } = {}) {
+// Returns true when the collection was installed, 'superseded' when a newer
+// request started meanwhile (its result wins), or 'stale' when `guardWrites`
+// is set and a local write started or settled while this snapshot was in
+// flight — an older snapshot must never overwrite a newer accepted save.
+async function loadTasks({ announceReminders = true, guardWrites = false } = {}) {
+  const token = (tasksLoadToken += 1);
+  const epoch = writeEpoch();
   const tasks = await fetchTasks({});
+  if (token !== tasksLoadToken) return 'superseded';
+  if (guardWrites && writeEpoch() !== epoch) return 'stale';
   setState({ tasks: tasks.map(normalizeTask), apiStatus: 'connected' });
   reconcileTaskDrawerAfterRefresh();
   if (announceReminders) checkDueReminders();
+  return true;
 }
 
 // After a refresh installs newer server state, fold it into the open drawer's
@@ -345,6 +359,31 @@ async function loadDocuments() {
   setState({ documents });
   return true;
 }
+
+// Refresh after writes made OUTSIDE this window — the capture bar (its own
+// webview), the memory skills, the CLI, MCP, another tab. Tasks always; the
+// Library only when no document is open in the editor, whose own draft/merge
+// logic owns that case. Re-render only when something actually changed.
+async function refreshFromOutside() {
+  const before = `${collectionFingerprint(state.tasks)}#${collectionFingerprint(state.documents)}`;
+  const applied = await loadTasks({ announceReminders: false, guardWrites: true });
+  if (!state.editorDocId) await loadDocuments().catch(() => false);
+  // A snapshot that spanned a local write was discarded; ask for a fresh one
+  // once the write has settled (the refresher runs it after its interval).
+  if (applied === 'stale') externalRefresh.trigger('stale');
+  const after = `${collectionFingerprint(state.tasks)}#${collectionFingerprint(state.documents)}`;
+  const changed = after !== before;
+  // A document open in the editor owns its surface: rebuilding the DOM would
+  // re-mount CodeMirror under the caret. The state is installed; the next
+  // navigation renders it.
+  if (changed && state.navType !== 'editor') {
+    const focus = captureFocus();
+    renderApp();
+    restoreFocus(focus);
+  }
+  return changed;
+}
+const externalRefresh = createExternalRefresh({ load: refreshFromOutside });
 
 async function loadDeploymentStatus() {
   setState({ deploymentStatus: { loading: true, error: '' } });
@@ -3475,6 +3514,7 @@ async function navigateTopLevel(patch) {
   if (!(await prepareEditorNavigation())) return false;
   setState({ editorFocus: false, ...patch });
   renderApp();
+  externalRefresh.trigger('navigate');
   return true;
 }
 
@@ -3498,6 +3538,7 @@ async function goProject(projectId, tab = 'list') {
     taskLabelDraftId: null, taskLabelDraft: '',
   });
   persistActiveProject(projectId);
+  externalRefresh.trigger('navigate');
   if (tab === 'archive') loadArchivedTasks().then(renderApp);
   renderApp();
   return true;
@@ -6396,13 +6437,21 @@ async function init() {
     setState({ apiStatus: 'loading' });
     bindEvents();
     installShortcuts();
+    // From the first request on, regaining focus, becoming visible, navigating,
+    // or a capture-bar announcement refetches what other surfaces may have
+    // written — including a capture made while the initial load is in flight
+    // (the newest task request wins; see loadTasks).
+    installWriteEpoch();
+    installExternalRefreshTriggers({ refresh: externalRefresh });
     renderApp();
 
     // Tasks gate the primary workspace; the much larger document bodies do
     // not. Load the Library in parallel and let the task collection become
     // interactive as soon as its own request completes.
     const documentsPromise = loadDocuments().catch(() => false);
-    await loadTasks({ announceReminders: false });
+    if ((await loadTasks({ announceReminders: false })) === 'superseded' && externalRefresh.inFlight) {
+      await externalRefresh.inFlight; // an early trigger's newer snapshot installs instead
+    }
     restoreCaptureRecovery();
     const assistantRecovery = loadAssistantRecovery(taskDraftStorage());
     if (assistantRecovery) {

@@ -607,6 +607,10 @@ fn open_capture_window(handle: &AppHandle) {
             .inner_size(640.0, 128.0)
             .resizable(false)
             .decorations(false)
+            // The page paints only the rounded bar and leaves html/body
+            // transparent; without a transparent window the rest of the
+            // 640x128 surface showed as an opaque white slab around it.
+            .transparent(true)
             .always_on_top(true)
             .skip_taskbar(true)
             .center()

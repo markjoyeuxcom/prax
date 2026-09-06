@@ -396,6 +396,24 @@ fresh empty `[Unreleased]` section is started.
 
 ### Fixed
 
+- **The main window now shows work written outside it.** A task captured from the menu-bar
+  capture bar (its own webview), or anything written by the memory skills, the CLI or MCP, never
+  appeared in an open main window: it loaded its collections once and only refetched after its own
+  writes, and the desktop shell has no reload gesture, so a capture was invisible until relaunch.
+  The window now refetches tasks (and the Library, unless a document is open in the editor) when it
+  regains focus, becomes visible, or navigates, and the capture bar announces each save over a
+  same-origin channel for an immediate refresh. A refresh re-renders only when something changed
+  and folds server state into an open task drawer's untouched fields as before. A snapshot that
+  was in flight while this window saved something is discarded and refetched, so an older read can
+  never overwrite a newer accepted save (QINV-09); the newest task request always wins, so a
+  capture made during the initial load is not lost; nothing re-renders while a document is open in
+  the editor; and a re-render restores keyboard focus and the caret to the field being edited,
+  including the quick-capture overlay. Browser regressions in `tests/e2e/external-refresh.spec.js`;
+  scheduler, write-epoch and focus unit tests in `tests/frontend/externalRefresh.test.js`.
+- **The capture bar no longer floats in a white slab.** Its page paints only the rounded bar and
+  leaves the rest transparent, but the window itself was opaque, so the unused part of the
+  640×128 surface showed as a white block around the bar. The capture window is now transparent
+  (`macOSPrivateApi` enabled for the webview background on macOS).
 - **A retried remember can no longer overwrite newer memory.** `upsert-by-title` matched the
   title before it looked at the caller's operation id, so a delayed retry of an old remember
   reverted a body written in between, and reusing an id with different content was accepted

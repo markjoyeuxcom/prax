@@ -2,6 +2,7 @@ import {
   buildCreatePayload, destinationHint, loadBarDraft, loadBarPending,
   resolveCapture, saveBarDraft, saveBarPending, finishBarCapture,
 } from './captureBarCore.js';
+import { announceChange } from './externalRefresh.js';
 
 const input = document.getElementById('capture-input');
 const hint = document.getElementById('capture-hint');
@@ -59,6 +60,9 @@ async function submit() {
         return;
       }
       pending = null;
+      // Let the main window (a separate webview on the desktop) refetch now
+      // rather than on its next focus; best-effort, focus remains the guarantee.
+      announceChange({ type: 'task-created', id: submitted.payload.id });
       if (clearDraft) {
         input.value = '';
         setHint(`Added to ${resolved.projectName} ✓`, 'ok');
@@ -79,6 +83,7 @@ async function submit() {
           return;
         }
         pending = null;
+        announceChange({ type: 'task-created', id: submitted.payload.id });
         const projectObj = projects.find((p) => p.id === canonical.projectId || p.slug === canonical.projectId);
         const pName = projectObj ? projectObj.name : (resolved.projectName || 'Inbox');
 
