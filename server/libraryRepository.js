@@ -77,6 +77,9 @@ export function normalizeDocumentRow(row) {
     updatedAt: toIso(row.updated_at),
     contentHash: row.content_hash ?? null,
     updatedBy: row.updated_by,
+    // The agent CLI behind an agent write ('claude', 'codex', …); null for a
+    // human edit or an agent that did not identify itself (migration 0026).
+    updatedByAgent: row.updated_by_agent ?? null,
     kind: row.kind,
     // SQLite stores booleans as 0/1; pg returned real booleans — normalize.
     verified: Boolean(row.verified ?? false),
@@ -97,17 +100,25 @@ export function buildCreateDocument(document, { ignoreIdConflict = false } = {})
   const internalColumns = document.creationOperation || document.creationIntentHash
     ? ', creation_operation, creation_intent_hash'
     : '';
+  // Only an IDENTIFIED agent write carries the column; a human create or an
+  // anonymous agent leaves it NULL (the column default), so the SQL shape of
+  // every other create is unchanged.
+  const agentColumn = document.updatedBy === 'agent'
+    && typeof document.updatedByAgent === 'string' && document.updatedByAgent
+    ? ', updated_by_agent'
+    : '';
   const values = [
     ...(document.id ? [document.id] : []),
     ...CREATE_FIELDS.map((field) => (field === 'tags' ? serializeTags(document.tags) : (document[field] ?? null))),
     hashBody(document.body), document.updatedBy || 'user', document.kind || 'source', verified,
     documentRevision(document),
     ...(internalColumns ? [document.creationOperation || null, document.creationIntentHash || null] : []),
+    ...(agentColumn ? [document.updatedByAgent] : []),
   ];
   const placeholders = values.map((_, index) => `$${index + 1}`);
   return {
     text: `
-      insert into markdown_documents (${idColumn}title, body, document_type, project_id, tags, source_filename, content_hash, updated_by, kind, verified, revision${internalColumns})
+      insert into markdown_documents (${idColumn}title, body, document_type, project_id, tags, source_filename, content_hash, updated_by, kind, verified, revision${internalColumns}${agentColumn})
       values (${placeholders.join(', ')})
       ${ignoreIdConflict ? 'on conflict(id) do nothing' : ''}
       returning *
@@ -129,7 +140,8 @@ export function documentMatchesCreateFields(document, fields) {
     && document.tags.every((tag, index) => tag === tags[index])
     && (document.sourceFilename || null) === (fields.sourceFilename || null)
     && document.kind === (fields.kind || 'source')
-    && document.updatedBy === (fields.updatedBy || 'user');
+    && document.updatedBy === (fields.updatedBy || 'user')
+    && (document.updatedByAgent ?? null) === (fields.updatedByAgent ?? null);
 }
 
 // `revision` is the token for the MERGED title/body the repository computed
@@ -147,6 +159,14 @@ export function buildUpdateDocument(id, fields, { revision, expectRevision } = {
 
   values.push(fields.updatedBy || 'user');
   assignments.push(`updated_by = $${values.length}`);
+
+  // Threaded by the routes on every write: the vendor id for an identified
+  // agent edit, NULL otherwise — so a human edit after an agent edit never
+  // leaves a stale agent id describing a revision it did not write.
+  if (fields.updatedByAgent !== undefined) {
+    values.push(fields.updatedBy === 'agent' ? (fields.updatedByAgent || null) : null);
+    assignments.push(`updated_by_agent = $${values.length}`);
+  }
 
   if (revision !== undefined) {
     values.push(revision);
@@ -405,7 +425,7 @@ export function buildSearchDocumentsSemantic(backend, { projectId, includeRetire
   return {
     text: `
       select d.id, d.title, d.document_type, d.project_id, d.tags, d.body,
-             d.kind, d.updated_by, d.verified, d.verified_at, d.verified_by,
+             d.kind, d.updated_by, d.updated_by_agent, d.verified, d.verified_at, d.verified_by,
              d.status, d.revision, d.embedding,
              exists (
                select 1
@@ -673,6 +693,69 @@ export function createLibraryRepository(db) {
         document: existing.rows[0] ? normalizeDocumentRow(existing.rows[0]) : null,
         created: false,
       };
+    },
+
+    // Atomic "remember": create-or-update by EXACT title within a project, in
+    // one `begin immediate` session. Concurrent callers serialize on the
+    // session mutex, so a title can never be created twice by two agents
+    // racing (the old client-side list-then-write could). Only an ACTIVE
+    // document counts as the match: a superseded/deprecated title is never
+    // revived — the new memory becomes a fresh active document and the retired
+    // one keeps its body. `documentType` retypes only when explicit; a create
+    // defaults to 'note'. A caller id makes a lost-response retry return the
+    // document it already created (`replayed`) instead of a duplicate.
+    async upsertDocumentByTitle(document) {
+      await ready();
+      const run = async (queryable) => {
+        const found = await queryable.query(
+          `select * from markdown_documents
+           where project_id = $1 and title = $2 and archived_at is null and status = 'active'
+           order by updated_at desc limit 1`,
+          [document.projectId, document.title],
+        );
+        const row = found.rows[0];
+        if (row) {
+          const fields = {
+            body: document.body,
+            tags: Array.isArray(document.tags) ? document.tags : [],
+            updatedBy: document.updatedBy || 'user',
+            updatedByAgent: document.updatedByAgent ?? null,
+            ...(document.documentType ? { documentType: document.documentType } : {}),
+            ...(document.kind ? { kind: document.kind } : {}),
+          };
+          const updated = await updateDocumentOn(queryable, row.id, fields);
+          return { document: updated, created: false };
+        }
+        const candidate = { ...document, documentType: document.documentType || 'note' };
+        if (candidate.id) {
+          const createQuery = buildCreateDocument(candidate, { ignoreIdConflict: true });
+          const created = await queryable.query(createQuery.text, createQuery.values);
+          if (created.rows[0]) return { document: normalizeDocumentRow(created.rows[0]), created: true };
+          const getQuery = buildGetDocument(candidate.id);
+          const prior = await queryable.query(getQuery.text, getQuery.values);
+          const existing = prior.rows[0] ? normalizeDocumentRow(prior.rows[0]) : null;
+          if (!existing || !documentMatchesCreateFields(existing, candidate)) return { document: existing, created: false, conflict: true };
+          return { document: existing, created: false, replayed: true };
+        }
+        const createQuery = buildCreateDocument(candidate);
+        const created = await queryable.query(createQuery.text, createQuery.values);
+        return { document: normalizeDocumentRow(created.rows[0]), created: true };
+      };
+      if (typeof db.connect !== 'function') return run(db);
+      const client = await db.connect();
+      try {
+        await client.query('begin immediate');
+        try {
+          const result = await run(client);
+          await client.query('commit');
+          return result;
+        } catch (err) {
+          await client.query('rollback').catch(() => {});
+          throw err;
+        }
+      } finally {
+        client.release();
+      }
     },
 
     // Read-merge-write in one session so the baseline check (`ifRevision`)

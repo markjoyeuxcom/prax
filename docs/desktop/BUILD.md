@@ -174,17 +174,20 @@ The stable application identifier keeps user data outside the replaceable app bu
 automatic updater must add signed update manifests, a durable signing-key rotation runbook, and
 platform signing credentials first; an unauthenticated updater is not a safe convenience feature.
 
-## Signing & notarization (release builds)
+## Unsigned distribution
 
-Unsigned dev builds run locally (macOS: right-click → Open past Gatekeeper).
-For distribution:
+Apple Developer ID signing and notarization are outside Prax's distribution scope.
+Builds and installers may be distributed unsigned; signing credentials are not a
+release-readiness requirement for this project.
 
-- **macOS**: set `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`,
-  `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` in
-  the environment — Tauri signs and notarizes the bundle during
-  `tauri build`. (Developer ID Application certificate required.)
-- GitHub release notes must state whether the attached installers are signed/notarized. Checksums
-  prove download integrity against the release, but do not replace platform signing.
+Release notes must clearly state that the installers are unsigned and not notarized.
+Publish SHA-256 checksums with the artifacts. These verify download integrity against
+the release; they are not a platform-signing identity. macOS may require the person to
+approve opening an unsigned application.
+
+Updates remain deliberate installer replacements with a backup and rollback path as
+described above. An automatic updater is a separate feature with its own authentication
+and signing requirements.
 
 ## Size notes
 

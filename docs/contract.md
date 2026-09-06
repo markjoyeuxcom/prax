@@ -377,9 +377,22 @@ checks that receipt before invoking the model, returns `200` with `replayed: tru
 generate again. The same ID with changed intent returns 409. The receipt is runtime-only and is not
 part of full document records or portable export.
 
-Document provenance: documents expose `contentHash` (SHA-256 of the body) and `updatedBy`
-(`"user"` | `"agent"`). Every document write stamps `updatedBy` from the `x-prax-origin`
-request header; the MCP client sends `"agent"` automatically. `derived-from` links snapshot
+Document provenance: documents expose `contentHash` (SHA-256 of the body), `updatedBy`
+(`"user"` | `"agent"`) and `updatedByAgent` (a short lowercase id such as `"claude"` or
+`"codex"`, or `null`). Every document write stamps `updatedBy` from the `x-prax-origin`
+request header; the MCP client sends `"agent"` automatically. `updatedByAgent` is taken from the
+`x-prax-agent` header only on an agent write (`[a-z0-9][a-z0-9._-]{0,63}`, anything else is
+`null`) and is cleared by a human edit, so it always describes the current revision's author. It
+is an API field (migration 0026, column `updated_by_agent`); the portable Markdown export does
+not carry it.
+
+`POST /api/library/documents/upsert-by-title` is the atomic "remember": body `{ project, title,
+body, tags?, documentType?, kind?, id? }`. Inside one transaction it updates the **active**
+document with that exact title in the project (replacing body and tags, retyping only when
+`documentType` is given) or creates one (`documentType` defaults to `note`). Superseded and
+deprecated documents never match. Returns `{ document, created }` — `201` for a new document,
+`200` for an update; with a caller `id`, replaying the same create returns the existing document
+with `200`, and reusing the id for different content is `409`. `derived-from` links snapshot
 the target document's `contentHash` at link time and refresh it on re-link. The maintenance
 tools `list_stale_documents` and `list_orphan_documents` drive a client-side groom loop:
 stale documents are derived docs whose source changed since the snapshot (each result includes

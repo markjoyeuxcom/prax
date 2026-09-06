@@ -64,14 +64,12 @@ body {
   --text-dimmer: var(--ink3);
   --accent-amber: var(--med);
   --accent-cyan: var(--lo);
-  /* The editor text font (both engines). Proportional by default; the
-     'monospace' preference swaps it so the plain editor can use real bold/
-     italic (width-neutral in a mono face) without drifting its textarea caret. */
-  --pe-font: var(--font-ui);
+  /* CodeMirror text is proportional by default; monospace is optional. */
+  --editor-font: var(--font-ui);
   /* The rendered-preview body font (serif reading default; sans/mono optional). */
   --prose-font: var(--font-prose);
 }
-body[data-editor-font="monospace"] { --pe-font: var(--font-mono); }
+body[data-editor-font="monospace"] { --editor-font: var(--font-mono); }
 body[data-preview-font="sans"] { --prose-font: var(--font-ui); }
 body[data-preview-font="mono"] { --prose-font: var(--font-mono); }
 
@@ -1730,7 +1728,7 @@ a { color: var(--accent); }
 /* CodeMirror host */
 .code-editor .cm-editor { font-size: calc(15px * var(--reading-scale)); }
 .code-editor .cm-editor.cm-focused { outline: none; }
-.code-editor .cm-scroller { font-family: var(--pe-font); line-height: 1.7; overflow-y: auto; }
+.code-editor .cm-scroller { font-family: var(--editor-font); line-height: 1.7; overflow-y: auto; }
 .code-editor .cm-gutters { background: transparent; border-right: 1px solid var(--line); color: var(--ink3); }
 
 .backlinks__title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -3173,165 +3171,6 @@ body.is-desktop-mac .titlebar { padding-left: 84px; }
   text-decoration: underline;
 }
 .filter-bar__warn { color: var(--hi); margin-left: 8px; }
-
-/* ---- Plain editor spike (highlight-behind-textarea A/B vs CodeMirror) ------ */
-.pe-host { display: flex; flex-direction: column; --pe-pad-left: 20px; --pe-gutter: 0px; }
-.pe-host.pe-has-gutter { --pe-pad-left: 52px; --pe-gutter: 44px; }
-.pe__scroll { flex: 1; min-height: 0; overflow: auto; position: relative; }
-.pe__doc { position: relative; min-height: 100%; }
-
-/* The highlight layer, the match layer, and the textarea MUST share identical
-   text metrics so they stay aligned, including soft-wrapping. */
-.pe__lines,
-.pe__marks,
-.pe__input {
-  margin: 0;
-  font-family: var(--pe-font);
-  font-size: calc(15px * var(--reading-scale, 1));
-  /* Integer-pixel line-height. 1.7 × 15px = 25.5px — a half-pixel that some
-     engines (notably WebKit webviews) round differently for a <textarea>'s
-     line box than for the highlight <div>s, drifting the caret a little more
-     each line down the document. --pe-lh is the SAME rounded integer for every
-     layer (computed in applyPreferences, so it tracks the reading scale and
-     works on every engine); the unitless 1.7 is only a pre-boot fallback. */
-  line-height: var(--pe-lh, 1.7);
-  padding: 24px 20px 60px var(--pe-pad-left);
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-  word-break: break-word;
-  tab-size: 2;
-  box-sizing: border-box;
-}
-.pe__lines { color: var(--text-body); position: relative; z-index: 1; }
-/* Painted search-match backgrounds sit under the coloured text; text here is
-   transparent so only the <mark> rectangles show. */
-.pe__marks { position: absolute; inset: 0; z-index: 0; color: transparent; pointer-events: none; }
-/* Empty lines take their height from min-height; it MUST equal the integer
-   line-height above so a blank line is exactly as tall as a text line. */
-.pe__marks .pe__line { min-height: var(--pe-lh, 1.7em); }
-.pe-m { background: color-mix(in srgb, var(--accent) 22%, transparent); border-radius: 2px; }
-.pe-m-current { background: color-mix(in srgb, var(--accent) 48%, transparent); }
-.pe__line { position: relative; min-height: var(--pe-lh, 1.7em); }
-.pe-has-gutter .pe__line::before {
-  content: attr(data-ln);
-  position: absolute;
-  left: calc(-1 * var(--pe-pad-left));
-  width: var(--pe-gutter);
-  text-align: right;
-  color: var(--ink3);
-  font-variant-numeric: tabular-nums;
-  opacity: .7;
-}
-.pe__input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  border: none;
-  outline: none;
-  resize: none;
-  background: transparent;
-  color: transparent;
-  /* Native caret hidden — we paint .pe__caret from the highlight layer's
-     geometry so it stays exact on WebKit webviews (see plainEditor.js). */
-  caret-color: transparent;
-  overflow: hidden;
-  z-index: 2;
-}
-.pe__input::selection { background: color-mix(in srgb, var(--accent) 22%, transparent); }
-
-/* Subtle current-line highlight (behind the text), like CodeMirror. */
-.pe__activeline {
-  position: absolute;
-  left: 0;
-  right: 0;
-  z-index: 0;
-  background: color-mix(in srgb, var(--accent) 7%, transparent);
-  pointer-events: none;
-}
-.pe__activeline[hidden] { display: none; }
-
-/* Our own caret, positioned over the highlight layer. */
-.pe__caret {
-  position: absolute;
-  width: 2px;
-  background: var(--caret);
-  border-radius: 1px;
-  z-index: 3;
-  pointer-events: none;
-}
-.pe__caret[hidden] { display: none; }
-.pe__caret--on { animation: pe-caret-blink 1.1s steps(1, end) infinite; }
-@keyframes pe-caret-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .pe__caret--on { animation: none; } }
-
-/* [[wiki]] + /slash completion popup (positioned at the caret) */
-.pe__pop {
-  position: fixed;
-  z-index: 60;
-  min-width: 190px;
-  max-width: 340px;
-  max-height: 244px;
-  overflow-y: auto;
-  padding: 4px;
-  background: var(--surface);
-  border: 1px solid var(--line2);
-  border-radius: 10px;
-  box-shadow: var(--pop);
-  font-family: var(--font-ui);
-}
-.pe__pop-item {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-size: 12.5px;
-  color: var(--ink);
-  cursor: pointer;
-  white-space: nowrap;
-}
-.pe__pop-item.is-sel { background: color-mix(in srgb, var(--accent) 16%, transparent); }
-.pe__pop-label { font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
-.pe__pop-detail { margin-left: auto; font-size: 11px; color: var(--ink3); flex: none; }
-
-/* Token colours mirror the CodeMirror highlight (theme-aware via the aliases).
-   The plain editor paints its caret from a transparent <textarea> that only
-   knows normal-weight, upright metrics, so in a PROPORTIONAL font any real
-   font-weight/font-style on these tokens would widen the glyphs and drift the
-   caret off the text. Default styling therefore keeps weight 400 / upright and
-   conveys emphasis by colour, with a text-shadow "faux-bold" that thickens
-   headings and strong text WITHOUT changing glyph advances (a paint effect, not
-   layout). In a MONOSPACE font bold/italic are width-neutral, so the mono
-   preference restores the real weight and slant below. */
-.pe-t-heading { color: var(--accent); font-weight: 400; text-shadow: 0.4px 0 0 currentColor, -0.4px 0 0 currentColor; }
-.pe-t-strong { color: var(--accent-amber); font-weight: 400; text-shadow: 0.4px 0 0 currentColor, -0.4px 0 0 currentColor; }
-.pe-t-em { color: var(--accent-amber); font-style: normal; }
-.pe-t-code, .pe-t-codeblock { color: var(--accent-amber); }
-.pe-t-code { background: var(--bg-deep); border-radius: 3px; }
-.pe-t-link { color: var(--accent-cyan); text-decoration: underline; }
-.pe-t-quote { color: var(--accent-cyan); }
-.pe-t-marker { color: var(--ink3); }
-
-/* Monospace face → bold/italic keep the same advance width, so restore the real
-   weight and slant (and drop the faux-bold shadow) for a richer look. */
-body[data-editor-font="monospace"] .pe-t-heading,
-body[data-editor-font="monospace"] .pe-t-strong { font-weight: 700; text-shadow: none; }
-body[data-editor-font="monospace"] .pe-t-em { font-style: italic; color: var(--text-body); }
-
-/* "experimental" pill next to a settings label */
-.settings-badge {
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: .05em;
-  text-transform: uppercase;
-  padding: 1px 5px;
-  border-radius: 5px;
-  background: var(--med-soft);
-  color: var(--med);
-  vertical-align: middle;
-  margin-left: 6px;
-}
 
 /* ---------------------------------------------------------------------------
    Calendar view — Monday-start month grid; chips open the task drawer,

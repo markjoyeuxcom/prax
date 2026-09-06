@@ -68,3 +68,57 @@ test('PATCH document threads updatedBy from the header', async () => {
   assert.equal(f._seen().updatedBy, 'agent');
   await app.close();
 });
+
+// --- which agent: x-prax-agent ----------------------------------------------------
+
+test('POST document stamps updatedByAgent from x-prax-agent when the origin is agent', async () => {
+  const f = fakes();
+  const app = await buildApp(f);
+  const res = await app.inject({
+    method: 'POST', url: '/api/library/documents',
+    headers: { 'x-prax-origin': 'agent', 'x-prax-agent': 'Codex' },
+    payload: { title: 'T', body: 'b', documentType: 'note', project: 'homelab' },
+  });
+  assert.equal(res.statusCode, 201);
+  assert.equal(f._seen().updatedBy, 'agent');
+  assert.equal(f._seen().updatedByAgent, 'codex');
+  await app.close();
+});
+
+test('POST document ignores x-prax-agent without an agent origin, and rejects an invalid id', async () => {
+  const f = fakes();
+  const app = await buildApp(f);
+  await app.inject({
+    method: 'POST', url: '/api/library/documents',
+    headers: { 'x-prax-agent': 'codex' },
+    payload: { title: 'T', body: 'b', documentType: 'note', project: 'homelab' },
+  });
+  assert.equal(f._seen().updatedBy, 'user');
+  assert.equal(f._seen().updatedByAgent, null);
+  await app.inject({
+    method: 'POST', url: '/api/library/documents',
+    headers: { 'x-prax-origin': 'agent', 'x-prax-agent': 'not a valid id!' },
+    payload: { title: 'T', body: 'b', documentType: 'note', project: 'homelab' },
+  });
+  assert.equal(f._seen().updatedBy, 'agent');
+  assert.equal(f._seen().updatedByAgent, null);
+  await app.close();
+});
+
+test('PATCH document threads updatedByAgent: the vendor for an agent edit, null for a human edit', async () => {
+  const f = fakes();
+  const app = await buildApp(f);
+  await app.inject({
+    method: 'PATCH', url: `/api/library/documents/${DOC_ID}`,
+    headers: { 'x-prax-origin': 'agent', 'x-prax-agent': 'claude' },
+    payload: { body: 'agent edit' },
+  });
+  assert.equal(f._seen().updatedByAgent, 'claude');
+  await app.inject({
+    method: 'PATCH', url: `/api/library/documents/${DOC_ID}`,
+    payload: { body: 'human edit' },
+  });
+  assert.equal(f._seen().updatedBy, 'user');
+  assert.equal(f._seen().updatedByAgent, null);
+  await app.close();
+});

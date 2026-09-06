@@ -70,14 +70,17 @@ Usage:
   prax unverify <id>
   prax supersede <oldId> --with <newId>
 
-Global flags: --project <slug>  --url <baseUrl>  --json
-Env: PRAX_API_URL  PRAX_PROJECT  PRAX_TOKEN
-Project detection: --project > PRAX_PROJECT > .prax/project.json > git remote match > folder name`;
+Global flags: --project <slug>  --url <baseUrl>  --agent <id>  --json
+Env: PRAX_API_URL  PRAX_PROJECT  PRAX_TOKEN  PRAX_AGENT
+App discovery: --url > PRAX_API_URL > the desktop app's saved port (webview-port) > http://127.0.0.1:3000
+Project detection: --project > PRAX_PROJECT > .prax/project.json > git remote match > folder name
+Provenance: writes are stamped updatedBy=agent plus the agent id (--agent, PRAX_AGENT, or auto: claude / codex)`;
 
 async function main(argv) {
   const { positionals, flags } = parseArgs(argv);
   const command = positionals[0];
-  const client = createClient({ baseUrl: flags.url, token: process.env.PRAX_TOKEN });
+  const agent = flags.agent === undefined || flags.agent === true ? undefined : String(flags.agent);
+  const client = createClient({ baseUrl: flags.url, token: process.env.PRAX_TOKEN, agent });
   const out = (text) => process.stdout.write(`${typeof text === 'string' ? text : JSON.stringify(text, null, 2)}\n`);
 
   if (!command || command === 'help' || flags.help) { out(HELP); return; }

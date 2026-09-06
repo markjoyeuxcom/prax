@@ -1,0 +1,14 @@
+{
+  "name": "prax",
+  "owner": {
+    "name": "Mark Joyeux"
+  },
+  "plugins": [
+    {
+      "name": "prax",
+      "source": "./",
+      "description": "Prax agent memory skills: prax-recall and prax-remember"
+    }
+  ],
+  "description": "Prax agent memory skills for Claude Code: recall and remember durable knowledge across sessions"
+}

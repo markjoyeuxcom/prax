@@ -62,6 +62,17 @@ function originFrom(request) {
   return origin === 'agent' ? 'agent' : 'user';
 }
 
+// WHICH agent wrote: `x-prax-agent: claude|codex|…`, honoured only alongside an
+// agent origin and only as a short lowercase id. Anything else is null — an
+// anonymous agent write, never a guessed or attacker-shaped label.
+const AGENT_ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+function agentFrom(request) {
+  if (originFrom(request) !== 'agent') return null;
+  const raw = request.headers['x-prax-agent'];
+  const value = String(Array.isArray(raw) ? raw[0] : raw ?? '').trim().toLowerCase();
+  return AGENT_ID_RE.test(value) ? value : null;
+}
+
 function generationIntentHash(operation, intent) {
   return createHash('sha256')
     .update(JSON.stringify({ operation, ...intent }))
@@ -569,7 +580,7 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (resolvedId === null) { reply.code(400); return { message: 'project is invalid' }; }
     request.body.projectId = resolvedId;
 
-    const candidate = { ...cleanDocumentPayload(request.body), updatedBy: originFrom(request) };
+    const candidate = { ...cleanDocumentPayload(request.body), updatedBy: originFrom(request), updatedByAgent: agentFrom(request) };
     if (candidate.id) {
       if (typeof repository.createDocumentIdempotent !== 'function') {
         reply.code(503);
@@ -588,6 +599,36 @@ export async function registerLibraryRoutes(app, options = {}) {
     const created = await repository.createDocument(candidate);
     await embedOnWrite(created.id); // gate awaited; the embed itself is not
     return created;
+  });
+
+  // Atomic "remember": create-or-update by exact title within a project, in
+  // one transaction (see repository.upsertDocumentByTitle). `documentType`
+  // retypes only when given; a create defaults to note. Returns
+  // { document, created } — 201 for a fresh document, 200 for an update or a
+  // retried create (same id, same content).
+  app.post('/api/library/documents/upsert-by-title', async (request, reply) => {
+    const payload = request.body;
+    if (!isPlainObject(payload)) { reply.code(400); return { message: 'document payload is invalid' }; }
+    const validationError = validateDocumentPayload({ ...payload, documentType: payload.documentType ?? 'note' });
+    if (validationError) { reply.code(400); return { message: validationError }; }
+    const resolvedId = await resolveProjectId(payload.project);
+    if (resolvedId === null) { reply.code(400); return { message: 'project is invalid' }; }
+    if (typeof repository.upsertDocumentByTitle !== 'function') {
+      reply.code(503);
+      return { message: 'upsert by title is unavailable' };
+    }
+    const cleaned = cleanDocumentPayload({ ...payload, projectId: resolvedId, documentType: payload.documentType ?? 'note' });
+    const candidate = {
+      ...cleaned,
+      documentType: payload.documentType, // undefined = keep the stored type on update
+      updatedBy: originFrom(request),
+      updatedByAgent: agentFrom(request),
+    };
+    const result = await repository.upsertDocumentByTitle(candidate);
+    if (result.conflict) { reply.code(409); return { message: 'document id was already used for different content' }; }
+    reply.code(result.created ? 201 : 200);
+    await embedOnWrite(result.document.id); // gate awaited; the embed itself is not
+    return { document: result.document, created: result.created };
   });
 
   app.patch('/api/library/documents/:id/restore', async (request, reply) => {
@@ -648,6 +689,7 @@ export async function registerLibraryRoutes(app, options = {}) {
     }
 
     fields.updatedBy = originFrom(request);
+    fields.updatedByAgent = agentFrom(request);
     let document;
     try {
       document = await repository.updateDocument(request.params.id, fields,

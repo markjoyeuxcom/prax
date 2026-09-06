@@ -148,20 +148,8 @@ function renderAppearanceCard(preferences, state = {}) {
       </div>
       <div class="settings-row">
         <div class="settings-row__text">
-          <div class="settings-row__label">Editor engine <span class="settings-badge">experimental</span></div>
-          <div class="settings-row__desc">CodeMirror is the default; “Plain” is a lightweight textarea spike (no 275&nbsp;KB dependency).</div>
-        </div>
-        <div class="seg">
-          ${['codemirror', 'plain'].map((eng) => {
-            const on = (preferences.editorEngine || 'codemirror') === eng;
-            return `<button type="button"${on ? ' class="is-active"' : ''} data-action="set-editor-engine" data-engine="${eng}" aria-pressed="${on}">${eng === 'plain' ? 'Plain' : 'CodeMirror'}</button>`;
-          }).join('')}
-        </div>
-      </div>
-      <div class="settings-row">
-        <div class="settings-row__text">
           <div class="settings-row__label">Editor font</div>
-          <div class="settings-row__desc">Proportional (Instrument&nbsp;Sans) reads like prose; monospace aligns code and keeps bold&nbsp;/&nbsp;italic. In proportional mode the plain editor shows emphasis by colour so its caret stays exact.</div>
+          <div class="settings-row__desc">Proportional (Instrument&nbsp;Sans) reads like prose; monospace aligns code.</div>
         </div>
         <div class="seg">
           ${['proportional', 'monospace'].map((font) => {
