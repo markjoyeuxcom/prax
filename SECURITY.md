@@ -13,7 +13,7 @@ fixes; please upgrade to the newest version before reporting an issue.
 ## Reporting a Vulnerability
 
 Please report security vulnerabilities **privately** through GitHub's
-[private vulnerability reporting](https://github.com/awaybreaktoday/prax/security/advisories/new)
+[private vulnerability reporting](https://github.com/markjoyeuxcom/prax/security/advisories/new)
 ("Report a vulnerability" under the repository's **Security** tab). Do **not** open a public
 issue for a security problem.
 

@@ -2,21 +2,30 @@
 # Install (or remove) the Prax memory skills for Claude Code and Codex without
 # keeping a checkout of the repository. Fetches only the skills/ folder into a
 # temporary clone, copies the skills to $PRAX_SKILLS_DIR (default
-# ~/.agents/skills, read by Codex), links them into ~/.claude/skills (read by
-# Claude Code) and deletes the clone. Re-run to update.
+# ~/.agents/skills, read by Codex), links them into $PRAX_CLAUDE_SKILLS_DIR
+# (default ~/.claude/skills, read by Claude Code) and deletes the clone.
+# Re-run to update.
 #
 #   gh api -H "Accept: application/vnd.github.raw" repos/markjoyeuxcom/prax/contents/skills/install.sh | sh
-#   sh install.sh --uninstall
+#   gh api -H "Accept: application/vnd.github.raw" repos/markjoyeuxcom/prax/contents/skills/install.sh | sh -s -- --uninstall
 #
-# Overrides: PRAX_SKILLS_REPO (git URL or local path), PRAX_SKILLS_REF (branch/tag),
-# PRAX_SKILLS_DIR (destination for the real copies).
+# Transport: an explicit PRAX_SKILLS_REPO (git URL or local path) is used as
+# given. Otherwise, when the GitHub CLI is logged in, the clone goes over HTTPS
+# with gh's credential helper for this one command (no git config is changed);
+# without gh it falls back to SSH, which needs a key registered on GitHub.
+# The repository is private: the account must have been granted access.
+#
+# Overrides: PRAX_SKILLS_REPO, PRAX_SKILLS_REF (branch/tag, default main),
+# PRAX_SKILLS_DIR (real copies), PRAX_CLAUDE_SKILLS_DIR (Claude Code links).
 set -eu
 
-REPO="${PRAX_SKILLS_REPO:-git@github.com:markjoyeuxcom/prax.git}"
 REF="${PRAX_SKILLS_REF:-main}"
 DEST="${PRAX_SKILLS_DIR:-$HOME/.agents/skills}"
-CLAUDE_DIR="$HOME/.claude/skills"
+CLAUDE_DIR="${PRAX_CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}"
 SKILLS="prax-recall prax-remember"
+HTTPS_REPO="https://github.com/markjoyeuxcom/prax.git"
+SSH_REPO="git@github.com:markjoyeuxcom/prax.git"
+MIN_NODE_MAJOR=20
 
 if [ "${1:-}" = "--uninstall" ]; then
   for s in $SKILLS; do
@@ -28,7 +37,29 @@ if [ "${1:-}" = "--uninstall" ]; then
 fi
 
 command -v git >/dev/null 2>&1 || { echo "install.sh: git is required" >&2; exit 1; }
-command -v node >/dev/null 2>&1 || { echo "install.sh: node (20+) is required to run the skills" >&2; exit 1; }
+command -v node >/dev/null 2>&1 || { echo "install.sh: node ($MIN_NODE_MAJOR+) is required to run the skills" >&2; exit 1; }
+NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
+case "$NODE_MAJOR" in
+  ''|*[!0-9]*) NODE_MAJOR=0 ;;
+esac
+if [ "$NODE_MAJOR" -lt "$MIN_NODE_MAJOR" ]; then
+  echo "install.sh: Node $MIN_NODE_MAJOR or newer is required to run the skills (found $(node --version 2>/dev/null || echo none))" >&2
+  exit 1
+fi
+
+# Pick the repository and, for the gh path, a one-command credential helper.
+CREDENTIAL_ARGS=""
+if [ -n "${PRAX_SKILLS_REPO:-}" ]; then
+  REPO="$PRAX_SKILLS_REPO"
+  TRANSPORT="explicit"
+elif command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+  REPO="$HTTPS_REPO"
+  TRANSPORT="https (gh credentials)"
+  CREDENTIAL_ARGS="yes"
+else
+  REPO="$SSH_REPO"
+  TRANSPORT="ssh"
+fi
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT INT TERM
@@ -37,9 +68,19 @@ trap 'rm -rf "$TMP"' EXIT INT TERM
 # same code path for a local repository path (used by the self-test).
 # git prints a harmless "filtering not recognized" warning for local transports;
 # show the clone's stderr only when the clone actually fails.
-if ! git clone --quiet --no-local --depth 1 --branch "$REF" --filter=blob:none --sparse "$REPO" "$TMP/prax" 2>"$TMP/clone.err"; then
+clone_ok=1
+if [ -n "$CREDENTIAL_ARGS" ]; then
+  # An empty helper value resets git's helper list; the next one is gh's.
+  git -c credential.helper= -c 'credential.helper=!gh auth git-credential' \
+    clone --quiet --no-local --depth 1 --branch "$REF" --filter=blob:none --sparse "$REPO" "$TMP/prax" 2>"$TMP/clone.err" || clone_ok=0
+else
+  git clone --quiet --no-local --depth 1 --branch "$REF" --filter=blob:none --sparse "$REPO" "$TMP/prax" 2>"$TMP/clone.err" || clone_ok=0
+fi
+if [ "$clone_ok" -ne 1 ]; then
   cat "$TMP/clone.err" >&2
-  echo "install.sh: could not clone $REPO@$REF (check repository access)" >&2
+  echo "install.sh: could not clone $REPO@$REF over $TRANSPORT." >&2
+  echo "install.sh: the repository is private. Log in with 'gh auth login' (HTTPS), register an SSH key on GitHub (SSH)," >&2
+  echo "install.sh: or point PRAX_SKILLS_REPO at a URL or local path you can reach." >&2
   exit 1
 fi
 git -C "$TMP/prax" sparse-checkout set --no-cone skills >/dev/null
@@ -59,5 +100,5 @@ for s in $SKILLS; do
   echo "installed $s -> $DEST/$s (linked from $CLAUDE_DIR/$s)"
 done
 
-echo "Prax skills installed from $REPO@$REF."
+echo "Prax skills installed from $REPO@$REF over $TRANSPORT."
 echo "Check: node \"$DEST/prax-recall/scripts/recall.mjs\" --recent 3"

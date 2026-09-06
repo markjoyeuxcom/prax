@@ -30,7 +30,12 @@ precedence order:
 2. `PRAX_PROJECT` environment variable
 3. `.prax/project.json` file, searched from the current directory upwards. The file must
    contain `{"project": "<slug>"}`. Use `prax init` to create it.
-4. The current directory's folder name (lowest priority, a convenience default)
+4. A **git remote match**: the repository's `origin` URL (read from `.git/config`, no git binary
+   needed) is matched against each project's registered **Repo** URL, so any checkout or
+   worktree of a registered repo lands in the right project without its own marker file.
+   URL spelling doesn't matter — `git@github.com:Org/Repo.git` and `https://github.com/org/repo`
+   match each other.
+5. The current directory's folder name (lowest priority, a convenience default)
 
 Run `prax init` once in a project root to write the file so subsequent commands pick up the
 project automatically:
@@ -49,11 +54,25 @@ prax init --project homelab
 | `PRAX_TOKEN` | — | Optional bearer token, forwarded as `Authorization: Bearer <token>`; the server does not require it under the no-auth model |
 | `PRAX_AGENT` | auto | Which agent CLI is writing (`claude`, `codex`, …), sent as `x-prax-agent` on agent writes. Detected from the Claude Code and Codex shell environments when unset; `--agent <id>` overrides |
 
+## Global flags
+
+Every command accepts:
+
+- `--project <slug>` — the project to operate on (see [Project detection](#project-detection))
+- `--url <baseUrl>` — the Prax base URL; same meaning as `PRAX_API_URL` and takes precedence
+- `--agent <id>` — the agent id stamped on writes (`claude`, `codex`, …); overrides `PRAX_AGENT`
+- `--json` — machine-readable output where the command supports it
+
 ### Finding the app
 
-Without `--url` or `PRAX_API_URL` the CLI tries the desktop app's saved loopback port first (the
-`webview-port` file under its app-data folder) and then `http://127.0.0.1:3000`, pinning the
-first that answers. An explicit URL disables the fallbacks so a wrong address fails loudly.
+Without `--url` or `PRAX_API_URL` the CLI discovers the app by trying the desktop app's saved
+loopback port first (the `webview-port` file under its app-data folder) and then
+`http://127.0.0.1:3000`. Discovery **binds the process to one instance**: a read may probe both
+candidates and pins the first that answers; a write first probes `/readyz` to pin an instance and
+is then sent only there — it never fails over to the other candidate, so a lost response cannot
+land the same write in a second workspace. `remember` prints the base URL it wrote to
+(`… at http://127.0.0.1:<port>`). An explicit URL disables discovery entirely so a wrong address
+fails loudly.
 
 ## Commands
 
@@ -66,8 +85,12 @@ project automatically.
 prax init --project homelab
 ```
 
-If `--project` is omitted the CLI falls back to the usual detection order. The file is safe
-to commit to the repo.
+If `--project` is omitted, `init` resolves the slug as `PRAX_PROJECT` > a **git remote match**
+against a project already registered with this repository's URL (so a second checkout adopts
+the existing project instead of creating a folder-named duplicate) > the folder name. It does
+not consult an existing `.prax/project.json`, since that is the file it writes. Inside a git
+repository it also registers the remote URL on the project. The file is safe to commit to the
+repo.
 
 ### `context [query...] [--json] [--limit <n>]`
 
@@ -106,12 +129,45 @@ prax search "postgres backup" --json
 
 Flags:
 
-- `--all` — include archived and superseded documents (default: active only)
-- `--json` — emit `{ schemaVersion, retrieval, items }`; `retrieval` names the semantic/keyword
-  mode and whether the result is degraded
+- `--all` — also include retired documents (`superseded` / `deprecated` status). Archived
+  documents are never returned by search; there is no archive mode.
+- `--json` — emit `{ schemaVersion, retrieval, items }`. `retrieval` names the mode
+  (`semantic` / `keyword`), whether the result is `degraded`, and a `reason`
+  (`semantic-not-configured` for the keyword fallback, `index-incomplete` when some documents have
+  no current embedding), plus `index` (`{ total, embedded, pending }`) and `page` for semantic
+  results. Semantic search is requested in pages of up to 50; when more results exist the
+  envelope says so (`page.hasMore`) rather than silently stopping.
 
 Each result shows the document title, a trust tag (`[verified]`, `[unverified]`, or
-`[superseded]`), the document id, and a short snippet.
+`[superseded]`), the document id, and a short snippet. A degraded result is always labelled in
+the human-readable output too.
+
+### `recall [query...] [--project <slug>] [--limit <n>] [--recent [n]] [--json]`
+
+Cross-project, active-only recall distilled to one block: the top hit's title, type, trust
+label and id, its body trimmed to about 800 characters, then a short `Related:` list. This is
+the same implementation the `prax-recall` skill bundles.
+
+```bash
+prax recall "how do we restore postgres"
+prax recall "how do we restore postgres" --project memory
+prax recall --recent 5
+```
+
+- Searches **all** projects by default (agent memories and hand-authored notes alike);
+  `--project <slug>` narrows it (`--project memory` for agent memory only).
+- Retrieval is by meaning when an embedding backend is configured; on a server that reports
+  semantic search as not configured it falls back to keyword search and says so.
+- `--recent [n]` lists the newest **active** documents chronologically instead of searching —
+  superseded and deprecated documents are excluded. There is no status or `--all` override on
+  `recall`; use `search --all` or `get <id>` to look at retired documents.
+- Hit lines carry a trust label (`verified` / `unverified`, plus the status when it is not
+  `active`), so an unverified lead is visible without a second fetch.
+- An incomplete semantic index is disclosed rather than hidden: a hit prints
+  `(index incomplete: N of M documents pending — results may be missing)`, and an empty result
+  prints `No relevant memory found for: "…" (index incomplete: N of M documents pending — this
+  may not be a true miss)`. Only a plain `No relevant memory found` is an honest miss.
+- `--json` emits the structured result instead of the rendered block.
 
 ### `get <id> [--json]`
 
@@ -122,27 +178,34 @@ prax get c58d3108-4f93-4a50-ac42-0c1d61e61b08
 prax get c58d3108-4f93-4a50-ac42-0c1d61e61b08 --json
 ```
 
-### `remember <title> [--body <text>] [--type note|runbook|decision|known-issue|reference|post-mortem] [--tag <t>] [--ref <url>]`
+### `remember <title> [--body <text>] [--memory] [--type note|runbook|decision|known-issue|reference|post-mortem] [--tag a,b] [--ref <url>]`
 
 Write a document to project memory. If an **active** document with the same title already exists
 in the project it is updated in place; otherwise a new document is created. The write is one
 server-side transaction (`POST /api/library/documents/upsert-by-title`), so concurrent callers
 cannot create a title twice, and a superseded or deprecated document is never revived — the new
-memory becomes a fresh active document. Agent-written documents (created via this command or
-the MCP tools) land **UNVERIFIED** by default and record which agent wrote them (`updatedByAgent`).
+memory becomes a fresh active document. Every write carries a caller-stable operation id, and the
+server keeps a receipt for it: a retried or replayed write returns the current document unchanged
+instead of reapplying its old body, so a delayed retry can never revert a newer memory. Agent-written
+documents (created via this command or the MCP tools) land **UNVERIFIED** by default and record
+which agent wrote them (`updatedByAgent`). The confirmation line names the instance written to
+(`… at http://127.0.0.1:<port>`).
 
 ```bash
 prax remember "Postgres restore runbook" \
   --body "Steps: 1. Stop app. 2. pg_restore …" \
   --type runbook \
-  --tag postgres
+  --tag postgres,homelab
 ```
 
 Flags:
 
 - `--body <text>` — document body (Markdown); defaults to empty string
+- `--memory` — write to the cross-tool **`memory`** namespace (what the `prax-remember` skill does)
+  instead of the current project; the document is also tagged `memory`
 - `--type` — document type: `note` (default), `runbook`, `decision`, `known-issue`, `reference`, or `post-mortem`. On a re-remember (same title), omit it to keep the stored type; pass it to retype.
-- `--tag <t>` — a single tag to attach (repeated invocations replace the tag list)
+- `--tag a,b` — a comma-separated tag list that **replaces** the document's tags. Repeating
+  `--tag` does not accumulate: the last occurrence wins.
 - `--ref <url>` — attach an external reference (a PR, dashboard, or issue URL) to the memory. Best-effort: a rejected URL warns on stderr but never fails the remember.
 
 ### `verify <id> --as <human-name>`

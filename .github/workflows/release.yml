@@ -17,7 +17,7 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: awaybreaktoday/prax
+  IMAGE_NAME: markjoyeuxcom/prax
 
 jobs:
   resolve:
@@ -78,6 +78,25 @@ jobs:
 
       - name: Test
         run: npm test
+
+      # The same gates CI applies to main: a tag must not publish a revision
+      # whose browser suite or dependency audit is red.
+      - name: Audit npm dependencies
+        run: npm audit --audit-level=high
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser tests
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-playwright-report
+          path: playwright-report/
+          retention-days: 7
 
   container:
     name: Publish container image
@@ -244,6 +263,19 @@ jobs:
     needs: [resolve, quality, container, desktop]
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout release ref
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.version }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Assemble release notes from CHANGELOG.md
+        run: node scripts/release-notes.mjs --tag ${{ needs.resolve.outputs.version }} --image ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }} > release-notes.md
+
       - name: Download all native packages
         uses: actions/download-artifact@v8
         with:
@@ -276,15 +308,6 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: release-files/*
-          body: |
-            ## Container
-
-            ```text
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.resolve.outputs.version }}
-            ```
-
-            Desktop packages for macOS Apple Silicon and Linux x64/ARM64, plus `SHA256SUMS`, are attached to this
-            release. Back up `prax.db`, quit Prax, then install the new package over the application;
-            the OS app-data directory is preserved. Platform signing/notarization status depends on
-            the release credentials configured for this repository. The workflow passes configured
-            Apple signing/notarization secrets to Tauri as described in `docs/desktop/BUILD.md`.
+          # The body comes from CHANGELOG.md via scripts/release-notes.mjs and
+          # states that the installers are unsigned (docs/desktop/BUILD.md).
+          body_path: release-notes.md

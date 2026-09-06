@@ -27,7 +27,10 @@ async function main() {
     }
   }
   const who = client.agent ? `, as ${client.agent}` : '';
-  console.log(`Remembered "${title}" → ${doc.id} (${action}${who}${refNote})`);
+  // Name the instance the write landed in: discovery may have chosen the
+  // desktop app or the dev server, and a memory in the wrong workspace must
+  // never look identical to one in the right place.
+  console.log(`Remembered "${title}" → ${doc.id} (${action}${who}${refNote}) at ${client.base}`);
 }
 
 main().catch((err) => {

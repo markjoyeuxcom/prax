@@ -4,7 +4,7 @@ A living backlog of planned and deferred work. This is **direction, not a commit
 catalogue of candidate next steps kept honest. Substantial items go through the repo's
 spec → plan → review workflow under [`docs/superpowers/`](superpowers/) before implementation.
 
-**Current release:** `v0.20.0`.
+**Current release:** `v0.21.0`.
 
 ## Recently shipped
 
@@ -47,7 +47,7 @@ Ollama / llama.cpp) + trust guardrails.
 - [x] **Runbook generation** from an alert/incident description.
 
 **Tier 2 — high value — ✅ 3/3**
-- [x] **In-app agentic assistant** over the 32-tool MCP tree (reads free, writes confirmed).
+- [x] **In-app agentic assistant** over the 35-tool MCP tree (reads free, writes confirmed).
 - [x] **Knowledge-base health.** Deterministic buckets (needs-review / stale / empty / orphan) +
   the AI half: **auto wiki-linking** (deterministic title-mention suggestions) and **AI
   contradiction/gap detection** (a bounded, advisory "Scan with AI" pass with a verbatim-quote
@@ -111,7 +111,9 @@ next steps, by value:
   **Calendar** entry; day detail strip reuses the standard task rows) plus `GET /api/calendar.ics`
   — an RFC 5545 feed (all-day + floating-time events, stable UIDs, no RRULE by design,
   `?project=` scoping) that Apple Calendar / Thunderbird can subscribe to. The desktop shell
-  hides the subscribe URL until it gains a stable port (its port is per-launch).
+  still hides the subscribe URL. The original reason (a per-launch port) no longer holds — the
+  desktop persists its loopback port across launches — so showing it is now a pending product
+  decision about whether local desktop subscriptions are supported.
 - [ ] **CI image on merge.** Publish a `main`/SHA-tagged image so a dev environment can track a
   live build (today images are built on version tags; per-env image versions are pinned in Argo).
   *(medium)*

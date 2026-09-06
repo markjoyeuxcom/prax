@@ -1,13 +1,14 @@
 # Prax — Data Formats & Shapes
 
 This document describes the **current** shapes of Prax's externally-consumed data:
-the export/import formats (`moomora.tasks` task backups, library `.md` front-matter) and the
-MCP tool surface. It's a reference for anyone writing backups, integrations, or MCP clients.
+the export/import formats (`moomora.tasks` portable task exports, library `.md` front-matter) and
+the MCP tool surface. It's a reference for anyone writing integrations, importers, or MCP clients.
+The portable formats carry content, not history, links, or project metadata; an authoritative
+backup is a SQLite snapshot (see `docs/backup-restore.md`).
 
-**These shapes are not frozen.** Prax is pre-1.0 and the data model is still evolving
-(for example, planned document links and provenance). The regression tests under
-`tests/contract/` lock the *current* shapes so that changes are caught and made deliberately
-rather than by accident — they are a safety net, **not a stability promise**.
+**These shapes are not frozen.** Prax is pre-1.0 and the data model is still evolving. The
+regression tests under `tests/contract/` lock the *current* shapes so that changes are caught and
+made deliberately rather than by accident — they are a safety net, **not a stability promise**.
 
 ## Scope
 
@@ -16,9 +17,15 @@ rather than by accident — they are a safety net, **not a stability promise**.
   outside the app. When the project reaches 1.0 these are expected to stabilise and future
   breaking changes will be versioned (an export envelope `version` bump, MCP changes called out
   in release notes). Until then, treat them as evolving.
-- **Internal** — the HTTP API (`/api/…`). Consumed only by the co-shipped frontend and the
-  local MCP server (released together as one image); it may change between any release. For
-  durable integration prefer the export formats or the MCP server.
+- **Internal** — the HTTP API (`/api/…`). Consumed by the co-shipped frontend and the local MCP
+  server (released together as one image), and by the `prax` CLI and the portable
+  `prax-recall` / `prax-remember` skill bundles, which can be installed and updated
+  independently of the server they talk to. The API may change between any release, so a skill
+  bundle newer than its server may meet a route that does not exist yet: the bundles degrade
+  explicitly where they can (the remember path falls back to read-then-write on a `404` for
+  `upsert-by-title`; an unpaged semantic response is accepted without index coverage) and
+  otherwise surface the server's error. Keep the skills and the app at the same release when
+  in doubt. For durable integration prefer the export formats or the MCP server.
 
 ### Forward-compatibility tip for consumers
 
@@ -33,7 +40,6 @@ may add fields over time.
 {
   "format": "moomora.tasks",
   "version": 1,
-  "requestId": "11111111-1111-4111-8111-111111111111",
   "exportedAt": "2026-05-29T12:00:00.000Z",
   "project": "homelab",
   "tasks": []
@@ -42,7 +48,9 @@ may add fields over time.
 
 - `format` is the exact, case-sensitive string `"moomora.tasks"`.
 - `version` is the integer `1`.
-- `project` is the project slug, or `"all"` for a cross-project backup.
+- `project` is the project slug, or `"all"` for a cross-project export.
+- Exports carry no `requestId`; request ids belong to import operations (see the import
+  protocol below).
 
 ### Task object
 
@@ -391,8 +399,12 @@ body, tags?, documentType?, kind?, id? }`. Inside one transaction it updates the
 document with that exact title in the project (replacing body and tags, retyping only when
 `documentType` is given) or creates one (`documentType` defaults to `note`). Superseded and
 deprecated documents never match. Returns `{ document, created }` — `201` for a new document,
-`200` for an update; with a caller `id`, replaying the same create returns the existing document
-with `200`, and reusing the id for different content is `409`. `derived-from` links snapshot
+`200` for an update. A caller `id` is an **operation id**, not only a create id: the server
+stores a receipt (the id, the resulting document, and a hash of the caller's intent) before the
+title is mutated, for updates as well as creates. Replaying a completed operation — even after
+a later write changed the document — returns the **current** document unchanged with `200` and
+`replayed: true`; reusing the id with different content is `409`; a replay whose document has
+since been permanently deleted is `410`. `derived-from` links snapshot
 the target document's `contentHash` at link time and refresh it on re-link. The maintenance
 tools `list_stale_documents` and `list_orphan_documents` drive a client-side groom loop:
 stale documents are derived docs whose source changed since the snapshot (each result includes
@@ -403,8 +415,11 @@ links. Both tools are served at `GET /api/library/maintenance/stale` and
 Document `kind` distinguishes hand-authored documents (`"source"`) from agent-synthesized
 derivations (`"synthesized"`). It is set explicitly by callers (defaulting to `"source"`),
 mutable via `update_document`, and independent of `derived-from` edges and the
-`x-prax-origin` edit-origin header. Read paths (`get_document`, search rows, stale/orphan
-rows) include `kind`; the create/update tools accept it as an optional input.
+`x-prax-origin` edit-origin header. Full read paths (`get_document`, `search_documents_semantic`
+refs, stale/orphan rows, context-pack items, HTTP search rows) include `kind`; the create/update
+tools accept it as an optional input. The one exception is the compact MCP `search_documents`
+summary (`{ id, title, documentType, projectId, tags, snippet }`), which deliberately omits `kind`
+and the trust/lifecycle fields — call `get_document` for them.
 
 ### Exact document revisions and conditional updates
 
@@ -430,11 +445,14 @@ trust state is managed via the `verify`/`supersede` endpoints below.
 | `verifiedBy` | string \| `null` | Who verified the document (a name, `"cli"`, `"user"`, etc.). `null` when unverified. |
 | `status` | `"active"` \| `"superseded"` \| `"deprecated"` | Lifecycle state. New documents are `"active"`. A live inbound `supersedes` link makes an active document `"superseded"`. `"deprecated"` is reserved for manual use (stale, no replacement). |
 
-All read paths that return document records (`get_document`, search rows, stale/orphan rows,
-context-pack items) include these four fields. Retrieval is **active-only** by default: only
-documents with `status = 'active'` appear in semantic search, the context-pack, the
-`search_documents` MCP tool, and CLI recall (each accepts an explicit status/`--all` override
-for curation). The raw `GET /api/library/documents` route is the exception: it returns **all
+All read paths that return full document records (`get_document`, HTTP search rows,
+`search_documents_semantic` refs, stale/orphan rows, context-pack items) include these four
+fields; the compact MCP `search_documents` summary omits them (see the `kind` note above).
+Retrieval is **active-only** by default: only documents with `status = 'active'` appear in
+semantic search, the context-pack, the `search_documents` MCP tool, and CLI/skill recall
+(including `recall --recent`). `prax search --all` and the semantic route's `?all=true` widen a
+search to retired statuses (`superseded` / `deprecated`, never archived rows); `recall` has no
+such override. The raw `GET /api/library/documents` route is the exception: it returns **all
 non-archived statuses** unless `?status=active|superseded|deprecated` is passed, because the
 web UI lists superseded documents with their trust chips. Raw HTTP callers doing retrieval
 should pass `status=active`.
@@ -492,13 +510,17 @@ falls back to recency otherwise.
 Semantic search ranks documents by embedding similarity (meaning), not keywords, so a
 paraphrased query can find topically-relevant docs that share no words with it. It is
 **retrieval-only** — no text is generated. Embeddings are stored in SQLite and cosine-ranked in
-process; no vector extension is required. It requires a configured `EMBEDDING_BACKEND`: `ollama`, `openai` (any
-OpenAI-compatible `/v1/embeddings` server — real OpenAI, llama.cpp, vLLM, LiteLLM, … via
-`OPENAI_BASE_URL` + optional `OPENAI_API_KEY`), or the deterministic `fake` test backend. The
-default `EMBEDDING_BACKEND=none` leaves the feature absent. On top of that config gate, a
-server-side runtime toggle (stored in the `app_settings` table, key `semantic_search_enabled`)
-turns it on and off live, consistently across the UI and MCP; all backend config (URLs, models,
-keys) is env-only. An optional `EMBEDDING_QUERY_PREFIX` is prepended to **search-query** embeddings
+process; no vector extension is required. It requires a configured embedding backend: `ollama`,
+`openai` (any OpenAI-compatible `/v1/embeddings` server — real OpenAI, vLLM, LiteLLM, … via
+`OPENAI_BASE_URL` + optional `OPENAI_API_KEY`), the dedicated `llamacpp`, `gemini`, and `voyage`
+providers, or the deterministic `fake` test backend. `EMBEDDING_BACKEND` and its companion
+variables are the deployment defaults; the single-user Settings ▸ Intelligence screen can also
+choose the provider, model, URL, and key at runtime, and those values are persisted in the
+local SQLite database (the operator-settings model described in `README.md` and `SECURITY.md`).
+The default `EMBEDDING_BACKEND=none` with nothing chosen in Settings leaves the feature absent.
+On top of that, a server-side runtime toggle (stored in the `app_settings` table, key
+`semantic_search_enabled`) turns it on and off live, consistently across the UI and MCP. An
+optional `EMBEDDING_QUERY_PREFIX` is prepended to **search-query** embeddings
 only (never to document embeddings) for instruct-tuned models — e.g. `qwen3-embedding`'s
 `Instruct: …\nQuery:` or `nomic`'s `search_query: ` — so changing it needs no reindex.
 `search_documents_semantic` returns trust-bearing references (`id`, `title`, `documentType`,
@@ -509,15 +531,20 @@ message (use `search_documents` instead) rather than an error. The supporting ro
 `GET /api/library/documents/semantic-search` (cosine-ranked refs; 409 when disabled, 400 on a
 blank query, 503 when a configured backend is unreachable), `POST /api/library/embeddings/reindex`
 (rebuilds/repairs the index — add `?force=true` to re-embed **every** active document, e.g. after
-changing the embedding model or upgrading), and `GET`/`PUT /api/settings/semantic-search`
-(read-only status + the boolean toggle) — are **HTTP-only** and not part of the MCP surface. Each
+changing the embedding model or upgrading), `GET`/`PUT /api/settings/semantic-search` (status +
+the boolean toggle), and the provider settings routes under `/api/settings` — are **HTTP-only**
+and not part of the MCP surface. Each
 document is embedded as its **title + body** together (so a query matching the title retrieves it).
 
 The HTTP search keeps its legacy complete array response by default. Explicit pagination uses
 `?page=true&limit=<1..50>&offset=<non-negative integer>` and returns
-`{ items, page: { offset, limit, returned, total, hasMore, nextOffset } }`; `total` is the exact
-number of relevant results after the configured cutoff. The web UI uses this envelope and offers
-Load more until all results are visible.
+`{ items, page: { offset, limit, returned, total, hasMore, nextOffset }, index, degraded,
+reason? }`; `total` is the exact number of relevant results after the configured cutoff, and
+`index` (`{ total, embedded, pending }`) reports index coverage — when `pending > 0` the
+response is `degraded: true` with `reason: "index-incomplete"`, because documents without a
+current vector cannot be ranked. Only the paged envelope carries coverage; the legacy array
+cannot. The web UI, the `prax` CLI, and the skill bundles use the paged envelope and surface
+`degraded` rather than presenting a partial index as a complete miss.
 
 Results are filtered by a gap-based relevance cutoff: only documents scoring within
 `EMBEDDING_SEARCH_TOP_DROP` (default 0.20) of the best match and at least

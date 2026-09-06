@@ -51,7 +51,16 @@ inside a single database transaction. That closes two holes the older read-then-
 path had: two agents remembering the same title at the same moment could both create it, and a
 superseded memory could be silently overwritten by a fresh one that active recall then never
 surfaced. Older servers without the endpoint get the read-then-write path with the same
-active-only rule. A caller-stable id makes one lost transport response safe to retry.
+active-only rule. Every write carries a caller-stable operation `id`, and the server records a
+receipt for it before the title is touched — for updates as well as creates. Replaying a
+completed operation returns the current document unchanged (`200`, `replayed: true`), so a
+delayed retry can never revert a newer memory; reusing the id with different content is `409`;
+a replay whose document has since been permanently deleted is `410` rather than a silent
+re-create.
+
+The client binds to one Prax instance for the whole run: a write first probes `/readyz` to pin
+the instance and is then sent only there, never failed over to the other discovery candidate,
+and the confirmation line names the base URL it wrote to.
 
 ## Namespace & provenance
 
@@ -86,7 +95,10 @@ the tasks/checklist suite and `derived-from` document linking, which the CLI doe
 ### Human CLI equivalents
 
 - `prax recall "<query>"` — cross-project, active-only, distilled recall (`--recent [n]` for a
-  chronological list; `--project <slug>` to scope).
+  chronological list of active documents only — retired memory never appears; `--project <slug>`
+  to scope). Hits carry a trust label, and an incomplete semantic index is disclosed inline
+  (`index incomplete: N of M documents pending`) so an empty result is never mistaken for an
+  honest miss while vectors are still pending.
 - `prax remember "<title>" --body "<text>"` — writes to the **current** project; add `--memory`
   to write to the global `memory` namespace (what the `prax-remember` skill does).
 
@@ -97,8 +109,10 @@ the tasks/checklist suite and `derived-from` document linking, which the CLI doe
 - **In a checkout of this repo:** nothing to do. `.claude/skills/` and `.agents/skills/` link to
   `skills/`, so Claude Code and Codex both see `prax-recall` and `prax-remember`.
 - **On any other machine:** `gh api -H "Accept: application/vnd.github.raw" repos/markjoyeuxcom/prax/contents/skills/install.sh | sh`
-  installs the pack for both tools without keeping a checkout (the repository is private, so
-  `gh` and git access to it are required). Claude Code can alternatively install it as a plugin:
+  installs the pack for both tools without keeping a checkout. The repository is private, so the
+  account must have been granted access; with `gh auth login` done the installer clones over
+  HTTPS using `gh`'s credentials, otherwise it needs an SSH key registered with GitHub. Claude
+  Code can alternatively install it as a plugin:
   `claude plugin marketplace add markjoyeuxcom/prax` then `claude plugin install prax@prax`.
   See [`skills/README.md`](../skills/README.md).
 
@@ -107,7 +121,9 @@ the tasks/checklist suite and `derived-from` document linking, which the CLI doe
 The skills and CLI find the HTTP API in this order: `PRAX_API_URL` → the desktop app's saved
 loopback port (the `webview-port` file under its app-data folder: `~/Library/Application
 Support/com.moomora.prax` on macOS, `~/.local/share/com.moomora.prax` on Linux) →
-`http://127.0.0.1:3000`. An explicit `PRAX_API_URL` disables the fallbacks so a wrong address
+`http://127.0.0.1:3000`. Discovery pins one instance for the run — a read may probe both
+candidates, a write probes `/readyz` first and then never fails over — so one process cannot
+straddle two workspaces. An explicit `PRAX_API_URL` disables the fallbacks so a wrong address
 fails loudly. The app must be running with an embedding backend configured (Settings ▸
 Intelligence, or `EMBEDDING_BACKEND`) for meaning-based recall; otherwise recall labels itself
 and falls back to keyword search.

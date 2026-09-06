@@ -12,13 +12,15 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
-### Removed
-
-- The experimental Plain editor and editor-engine selector. CodeMirror is now the
-  sole editor engine; saved Plain preferences automatically use CodeMirror while
-  retaining font, line-number, and reading-scale choices.
+## [0.21.0] - 2026-09-06
 
 ### Added
+
+- **`npm run release:prepare -- <version>`** cuts this changelog (renames `[Unreleased]`, merges
+  duplicated subsection headings, rewires the compare links) and writes the version into every
+  site that carries one — package, lockfile, Cargo, plugin manifest, published-image references,
+  deploy overlays and docs — as listed in `scripts/release-sites.mjs`. `npm run release:notes --
+  --tag vX.Y.Z` prints the GitHub release body.
 
 - **Portable memory skill pack.** `prax-recall` and `prax-remember` now live in `skills/` as
   single-file bundles of `cli/lib` (Node 20+, no packages, no checkout), following the Agent
@@ -35,284 +37,6 @@ fresh empty `[Unreleased]` section is started.
   and Codex automatically; `PRAX_AGENT` / `--agent` override.
 - **App discovery.** Without `PRAX_API_URL` the CLI and skills find the desktop app through its
   saved `webview-port` file before falling back to port 3000.
-
-### Fixed
-
-- The macOS menu-bar icon now uses a transparent Prax mark instead of tinting the
-  filled application icon into a solid square.
-
-- Remembering a title that had been superseded silently overwrote the retired document, which
-  active recall never surfaces; the memory was effectively lost. Only active documents match now.
-- Two agents remembering the same title concurrently created duplicates (client-side
-  read-then-write); the server-side upsert serialises them.
-- The `prax-remember` skill silently ignored `--ref` (and any unknown option); unknown options
-  are now errors and `--ref` attaches the reference.
-- `CLAUDE.md` told agents to run `prax-recall` as a command that did not exist; it is now a
-  symlink to `AGENTS.md`, the single agent guide.
-
-### Fixed
-
-- **The e2e gate is binary again — the two known full-suite flakes are diagnosed and
-  closed.** Both were test-choreography races that only fired under full-suite conditions,
-  never in isolation, which had quietly turned "green" into a judgment call. (1) The task
-  drawer re-renders up to three times right after opening (context load, related-knowledge
-  loading, then its result); a one-shot `fill()` racing those renders can write into a
-  just-detached input and vanish — real typing is safe (every keystroke lands in state and
-  the focused-field capture restores values), but the drawer-typing journeys now wait for
-  the drawer to settle before typing. (2) The drawer-draft journeys assumed the close-save
-  is always the first PATCH, but the 1s autosave debounce can fire first under load and
-  can split a draft into per-field patches — interceptions now match any draft-field PATCH,
-  failure injections are flag-gated ("every save fails until Save failed is observed")
-  instead of ordinal-gated, and the pins assert the real invariants: no payload replay,
-  fields union to the exact draft, nothing commits while saves fail. (3) Once the shared
-  suite server accumulates 100+ tasks, the list's "Showing 100 of N" banner is a second
-  `role="status"` element — capture-notice assertions are now scoped to the Quick-capture
-  dialog. (4) Mutation reconciles re-render too: after a project reassignment whose
-  response is lost, the readback → apply → render rebuild races a fill into the label
-  input the same way — the journey now waits for the reconcile render's observable
-  effect (the row leaving the old project's list) before typing. Verified by repeat-each
-  churn plus repeated full-suite runs.
-
-- **The assistant on no-tool-calling backends is grounded in a live snapshot instead of
-  fabricating.** The old degrade path (any backend without tool calling: Claude CLI, Ollama,
-  llama.cpp) handed the model the assistant persona and **no data** — asked "what's overdue",
-  it confidently invented an empty workspace ("you don't have any tasks") beside a list of two
-  overdue tasks, and doubled down when challenged. The no-tools turn now injects a **bounded,
-  honest workspace snapshot** (`server/assistant/snapshot.js`) — true totals, per-project open
-  counts, Overdue / Due today / Planned today / In progress / Inbox sections with real counts
-  in every header and elisions spelled out ("…and 8 more") — fetched through the same
-  in-process client the agent tools use. The snapshot also carries a **Library index**
-  (trust counts plus the unverified docs pending human review, each with type, project,
-  and provenance — titles and metadata only, never document bodies), so "which docs need
-  review" answers from truth too instead of "I can't see the Library". Read-only rules ride along: answer data questions
-  only from the snapshot, say "I can't check that in this mode" for anything beyond it, and
-  never claim to have made changes (actions still need an API backend). If the snapshot
-  itself fails to load, the rules flip to an explicit no-visibility stance — "never guess,
-  never say the workspace is empty" — rather than letting the vacuum refill. The panel header
-  now says what the mode is (**read-only · answers from a live snapshot**) instead of the
-  confusing "35 tools · no tool-calling".
-
-- **Quality-baseline remediation, closing wave — the fix pass reviewed against itself.** The
-  plan's final ground rule: an adversarial re-review of the whole Waves 1–4 diff (24 candidates,
-  1 refuted, 11 distinct confirmed defects — several inside the fixes themselves), all corrected:
-  - **Restores report the truth**: SQLite's `RETURNING` does not see AFTER-trigger writes, so a
-    restore whose status the 0018 trigger recomputed returned a stale lifecycle state to every
-    API consumer; `restoreDocument` re-reads the row.
-  - **The chronicle re-sequencing survives timestamp ties** (0019 amended): the tie-break is now
-    `rowid` — the old `sequence` tie-break mutated mid-statement and two same-second events
-    could collide on the uniqueness constraint.
-  - **The drawer's DOM capture respects state**: renderApp used to re-read all three drawer
-    fields from the live DOM, silently re-installing stale values as "typing" after every
-    state-side fold — which made the out-of-band-edit protection undo itself and made **Discard
-    draft autosave the discarded text back**. Only the focused field is captured now.
-  - **Per-field saves get per-field reconciliation**: the lost-response readback compared whole
-    snapshots, misreporting a committed notes-only save as a conflict whenever an agent had
-    edited an untouched field.
-  - **The capture owner guard is coherent**: restores adopt ownership (a reloaded tab can edit
-    and discard its own draft again), stores refuse to overwrite a foreign tab's pending crash
-    draft, and closing an EMPTY capture no longer force-destroys another tab's recovery.
-  - **The capture client honours the archived-replay rejection** — its readback matcher now
-    excludes archived rows like the server's, instead of converting the honest 409 back into
-    "Added to project".
-  - **An agent retitle revokes verification**: title is part of what the human blessed —
-    retrieval, citations, and wiki-links all key on it; identical titles and pure metadata still
-    keep the badge.
-  - **Legacy checklists restore**: the import bound is decoupled from the new creation cap (a
-    pre-cap database can legally hold more than 200 items per task; its export must restore) —
-    and the replay of the checklist item that *filled* a task returns its truthful idempotent
-    200 instead of a cap 400 claiming a committed write was refused.
-  - Verify's content-hash guard accepts either hex case; the raw-hot-copy marker-mismatch error
-    now explains the WAL-resident-marker cause instead of implying the backup is bad.
-
-- **Quality-baseline remediation, Waves 3+4 — lifecycle coherence, agent-surface honesty, and
-  operational safety.** The remaining eleven confirmed findings from the 2026-07-18 adversarial
-  review, closing out the remediation plan:
-  - **Supersession survives archive/restore cycles** (migration `0018`): restoring a document now
-    recomputes its own status from its live inbound `supersedes` edges — the archived-target gap
-    let a restored doc sit live and `active` with a live edge — and a repair pass fixes rows the
-    0012 reconcile could not see. `deprecated` remains untouchable by the lifecycle.
-  - **The incident ledger's order matches its timestamps** (migration `0019`): the 0013 backfill
-    sequenced legacy step-checked events by runbook *position*; re-sequenced by `created_at`
-    under the uniqueness constraint (two-phase), a no-op for live-written rows.
-  - **Run reads are one snapshot**: `getRun` wraps its three reads in a transaction, so a
-    concurrent step-check can no longer produce a status/steps/events mix that never existed.
-  - **"Durable" runs are findable after their runbook is deleted**: new
-    `GET /api/library/maintenance/detached-runs` lists runs whose document is gone, with their
-    snapshot titles — preserved-but-unreachable was preservation in name only.
-  - **Ask Prax citation matching is case-insensitive**, as its contract comment always claimed —
-    a grounded answer citing `[postgres failover runbook]` is no longer discarded as uncited.
-  - **Opening quick capture in one tab no longer destroys another tab's unfinished draft**: the
-    shared recovery entry carries an owner token; only the writing tab (or an explicit discard /
-    confirmed creation) clears it.
-  - **Clearing the drawer title no longer starts a once-per-second toast/focus-steal loop**: the
-    title-required signal is the in-place status, and the autosave timer stands down while the
-    title is empty (manual save/close still surfaces the requirement).
-  - **MCP pagination is honest end-to-end**: the bare-array fallback (pre-envelope servers) now
-    applies limit/offset instead of returning everything, and an empty page can never emit a
-    non-advancing cursor (`nextOffset === offset` looped agents forever).
-  - **`docker run -p` works again**: the image bakes `HOST=0.0.0.0` + the explicit
-    acknowledgement (a container binding loopback black-holes its published port with healthy
-    logs; exposure stays the operator's decision at the network boundary, and bare-metal keeps
-    the secure loopback default). The server now logs its bind loudly, warning when reachable
-    beyond the machine. Contract pin inverted deliberately.
-  - **Backup/migrate CLIs work under `HOST=0.0.0.0`**: the bind refusal moved from `loadConfig()`
-    to the listen path — tools that never open a socket no longer die on a network error during
-    the documented incident-recovery runbook.
-  - **Backups no longer block their successors**: validation opens via an `immutable=1` URI (no
-    `-wal`/`-shm` sidecars created; defensive cleanup for URI-less builds), so a validated backup
-    path stays writable for the next rotation.
-  - **A crashed desktop shell no longer orphans the server**: stdin EOF (parent died without
-    saying `shutdown`) now triggers the same graceful shutdown. And the CSP allows `https:`
-    images, matching the markdown preview's documented contract — remote screenshots render again.
-
-- **Quality-baseline remediation, Wave 2 — misleading success and duplicate mutations.** Seven
-  more confirmed findings from the 2026-07-18 adversarial review, each with its reproduction
-  landed as a regression test:
-  - **The assistant's `didWrite` now reflects the outcome, not the approval.** An approved write
-    whose handler threw still set `didWrite: true`, so a follow-up model failure told the user
-    "The approved change completed … Do not repeat the action" about a write that never happened
-    — the inverse of the misleading-success bug the flag exists to prevent. Derived from the
-    per-call `isError` outcomes now.
-  - **Legacy recurring series survive the interval cap.** The `every:N` cap (10000) was applied
-    retroactively at validation time only, silently ending pre-upgrade series on completion while
-    the UI toasted "next occurrence scheduled". Migration `0017` clamps stored over-cap intervals
-    (preserving the series), and the completion toast now derives from the PATCH response's new
-    additive `nextOccurrenceTaskId` — when no successor was actually spawned, the toast says so.
-  - **Reopening a completed occurrence no longer discards an explicit recurrence in the same
-    PATCH** — the one-off detachment applies only when the caller did not speak to recurrence.
-  - **An idempotent create replay never "succeeds" against an archived row.** Capture announced
-    "Added to project" for a task no view shows; the replay now requires a live row and an
-    archived match returns a truthful, distinct 409.
-  - **Capture distinguishes permanent rejections from transient failures.** `createTask` surfaces
-    the response status + server message; a deterministic 4xx shows "The server rejected this
-    capture … edit it and try again" (and drops the retry identity) instead of the false
-    "retry unchanged is safe".
-  - **Typing in the capture no longer destroys the exact-once retry identity** — type a character
-    and delete it again and the retry still reuses the same request id; submit mints a new
-    identity only when the intent actually diverges.
-  - **A timed-out MCP request is never automatically re-sent.** The client retried timeout aborts
-    as if the server were unreachable — but a timed-out generation may still be processing, so
-    the re-send ran it twice (duplicate post-mortems/runbooks). Only connection-level failures
-    (request provably never started) retry; timed-out callers keep their stable identity for a
-    deliberate retry.
-  - **No more no-exit draft traps.** A document or task archived/deleted externally while its
-    draft was dirty vetoed every navigation with a retry that could never succeed — and the task
-    drawer rendered *nothing* while its invisible draft blocked the app. Both surfaces gain an
-    explicit confirmed **Discard draft** affordance; a vanished task now renders a "Task
-    unavailable" panel offering **Keep draft & close** (device copy retained) or discard.
-
-- **Quality-baseline remediation, Wave 1 — data loss and trust integrity.** Seven confirmed
-  defects from the 2026-07-18 adversarial review of the quality-baseline commit, each fixed with
-  its executed reproduction landed as a permanent regression test
-  (plan: `docs/superpowers/plans/2026-07-18-quality-baseline-remediation.md`):
-  - **Restoring a raw file-copy backup no longer discards WAL-resident transactions.** The
-    restore validated the backup *through* its `-wal` sidecar but copied only the main db file —
-    committed data vanished while the restore reported checksummed success. Restore now copies
-    db + `-wal` + `-shm` into staging, checkpoints, re-validates, and leaves no sidecar orphans.
-  - **Explicitly verifying a user-created document now actually records the reviewer.** The
-    re-verification guard compared `verified_by = $2` against a NULL column — NULL under SQL
-    three-valued logic — so the UPDATE matched zero rows and the route's replay fallback masked
-    the no-op as a 200. Null-safe `IS` comparison; the review is stamped.
-  - **An agent retag or byte-identical body no longer destroys human verification.** Agent-origin
-    updates revoked verification unconditionally; revocation is now conditional on the stored
-    `content_hash` actually changing (QINV-04's own rule), so metadata-only agent edits keep the
-    badge and agent content changes still lose it. Both trust fixes carry *executed* regression
-    tests against a real migrated database — the prior tests regex-matched the SQL text, which is
-    exactly how the NULL-guard bug shipped green.
-  - **The task-drawer autosave can no longer overwrite out-of-band edits.** Saves now PATCH only
-    the fields whose draft diverges from the seeded baseline (new `taskDraftBaseline`), and a
-    task refresh folds newer server values into untouched fields — an assistant/MCP edit to the
-    description survives a user's notes-only autosave, live in the open drawer.
-  - **Renaming a document via Document info is no longer silently reverted** by the next body
-    autosave (the draft title now follows the rename).
-  - **Project navigation (palette, board chord, project cards) can no longer silently discard a
-    dirty drawer draft** — `goProject` gets the same flush-and-veto guard as every other
-    drawer-closing path.
-  - **The app can always restore its own export.** Skip-mode import no longer dedupes incoming
-    tasks against *each other* on the lossy title/status/dueDate key (distinct tasks sharing the
-    key all import), and the batch-wide cumulative 500-checklist-item cap became a per-task
-    bound (200) shared with the creation route; the task cap rose to 5000. Contract pins
-    re-pinned deliberately.
-
-### Changed
-
-- **Context-aware panel — the second column follows the rail.** The panel stops being a
-  fixed projects browser and becomes the secondary navigation for wherever you are:
-  **Today** shows a plan cockpit (the honest score, Plan today / Shut down right there,
-  overdue / due / snoozed counts, a planned-earlier review shortcut, and the working set
-  as clickable rows); **Calendar** gets a Monday-start mini month with load dots, a today
-  mark, month arrows, and the selected day's tasks underneath; **Library** (and the
-  editor) get a document browser — types with live counts as one-click filters, Library
-  saved views in their natural home, and the five most recently touched docs;
-  **Settings** turns its tab strip into panel rows plus a small live-status block
-  (calendar sync age, capture chord). Project contexts keep the exact Projects/Views
-  browser (pins, areas, filter — untouched), **Filter now auto-selects the Views tab**,
-  and narrow windows keep the in-page Settings strip since they have no panel. Every
-  context panel re-arranges already-loaded state over existing actions — the cockpit's
-  rows are the same `open-task`, the mini-month days the same `calendar-select-day`, the
-  type filters the same facets — so panel and main view can never disagree.
-
-- **Customizable capture shortcut + desktop tray polish.** Settings ▸ Appearance (desktop
-  app only) gains a **Capture shortcut** row: type a chord (`CmdOrCtrl`, `Alt`, `Shift`,
-  `Super` + a key), Apply, and it re-registers **live — no restart**. The chord persists
-  in the app database (travels with backups); the shell fetches it at startup and remains
-  the honest arbiter: a chord another app owns reports "Saved, but not active" with the
-  exact reason, and the tray tooltip says so too. Leave it **empty to disable** — the tray
-  Capture item always works. Polish: the macOS tray icon renders as a **template icon**
-  (correct in light and dark menubars) and the capture bar now summons on whatever
-  Space/desktop is active. The desktop checklist gains a per-OS manual-check section for
-  the whole tray/capture/shortcut surface. Completes the system-wide capture plan.
-
-- **Areas and folders — scale becomes structure (layout option C).** Projects gain an
-  **area** (migration `0022`): free text, edited inline in the All-projects ops row beside
-  on-call/handoff/repo, and the panel's Projects tab groups by it — areas as alphabetical
-  **collapsible sections** with counts, unassigned projects under "Other", and zero
-  change when no areas exist (the flat list stays the flat list). Smart views file into
-  **folders** with no schema at all: save a view as `Folder/Name` (the dialog's
-  placeholder says so) and it lands in that collapsible folder — stored labels containing
-  slashes from before the convention are never reinterpreted. Collapse state is per-device
-  (localStorage, like pins), a typed panel filter **auto-expands everything** (hiding a
-  match inside a collapsed section would make the filter a liar), pinned items stay above
-  all grouping, and ⌘K project results now read "Project · Work" so the area
-  disambiguates from anywhere. Areas ride every existing surface for free — project
-  payloads, MCP `list_projects`, the weekly review. This completes the sidebar-at-scale
-  arc: rail → panel → ⌘K → pins → areas.
-
-- **Pinned favorites — star what you use daily.** Every row in the panel grows a
-  hover-revealed **☆ star**: pinned projects and views float into a leading **Pinned**
-  section on their tab (kept in list order, honest about staleness — a pin for a deleted
-  project simply never renders), and pinned items also **rank first in ⌘K results**. Pins
-  are per-device view state in localStorage, exactly like smart views — never server data.
-  Projects and smart views pin by id; Library saved views pin by label (their only stable
-  identity). The last piece of the sidebar-at-scale work: rail for destinations, panel to
-  browse, ⌘K to teleport, pins for the daily five.
-
-- **⌘K jumps to projects and views.** The command palette gains **Projects** and **Views**
-  result groups while you type: any active or on-hold project (Inbox included), any smart
-  view (built-in Stale too), and any Library saved view is now two keystrokes away —
-  `⌘K`, a few letters, Enter. Navigation targets rank above content search (a short query
-  usually means "take me there"), on-hold projects say so in the result line, and library
-  views jump by their stored identity so a filtered result can never open the wrong one.
-  The companion to the rail + panel shell below: at 60 projects and 80 views, nobody
-  scrolls.
-
-- **Rail + panel shell — the sidebar becomes a browser.** The single wide sidebar is
-  replaced by a two-level shell built for scale (chosen from three mocked layouts): a slim
-  **icon rail** owns every top-level destination (Today, Upcoming, Calendar, Inbox, All
-  projects, Library, Filter, Settings pinned at the bottom — now with mini count badges on
-  Today and Inbox), and a **browser panel** beside it owns the growing lists: a
-  **Projects / Views tab pair with live counts** and a **type-to-filter box** that narrows
-  as you type and reports "No matches" honestly. The Views tab gathers task smart views
-  (built-in Stale included) and Library saved views in one place. Every classic affordance
-  survived the move unchanged — project dots and open counts, hover-× deletes, active
-  states, manage-projects ＋, and the full `data-action` vocabulary (which is why the
-  entire e2e suite still means what it meant). Narrow windows (<940px) keep the familiar
-  rail-only mode with project dots. Found by the WCAG gate during the build: the ＋ button
-  originally sat inside `role="tablist"` (axe `aria-required-children`, critical) — moved
-  beside it. Follow-ups that layer on this shell without rework: ⌘K jump targets for
-  projects/views, pinned favorites, and area grouping.
-
-### Added
 
 - **Claude CLI chat backend — your subscription powers Prax, no API key stored.** Settings
   ▸ Intelligence ▸ Answer model gains a **Claude CLI** provider that drives the Claude Code
@@ -516,7 +240,388 @@ fresh empty `[Unreleased]` section is started.
   - **Upcoming view**: the next 7 days grouped by day (with an Overdue bookend), companion to Today.
   - **Capture tokens**: quick capture now also parses `#project` and `@label` out of the typed title (e.g. `rotate certs #homelab @cert !high fri`).
 
+### Changed
+
+- **Context-aware panel — the second column follows the rail.** The panel stops being a
+  fixed projects browser and becomes the secondary navigation for wherever you are:
+  **Today** shows a plan cockpit (the honest score, Plan today / Shut down right there,
+  overdue / due / snoozed counts, a planned-earlier review shortcut, and the working set
+  as clickable rows); **Calendar** gets a Monday-start mini month with load dots, a today
+  mark, month arrows, and the selected day's tasks underneath; **Library** (and the
+  editor) get a document browser — types with live counts as one-click filters, Library
+  saved views in their natural home, and the five most recently touched docs;
+  **Settings** turns its tab strip into panel rows plus a small live-status block
+  (calendar sync age, capture chord). Project contexts keep the exact Projects/Views
+  browser (pins, areas, filter — untouched), **Filter now auto-selects the Views tab**,
+  and narrow windows keep the in-page Settings strip since they have no panel. Every
+  context panel re-arranges already-loaded state over existing actions — the cockpit's
+  rows are the same `open-task`, the mini-month days the same `calendar-select-day`, the
+  type filters the same facets — so panel and main view can never disagree.
+
+- **Customizable capture shortcut + desktop tray polish.** Settings ▸ Appearance (desktop
+  app only) gains a **Capture shortcut** row: type a chord (`CmdOrCtrl`, `Alt`, `Shift`,
+  `Super` + a key), Apply, and it re-registers **live — no restart**. The chord persists
+  in the app database (travels with backups); the shell fetches it at startup and remains
+  the honest arbiter: a chord another app owns reports "Saved, but not active" with the
+  exact reason, and the tray tooltip says so too. Leave it **empty to disable** — the tray
+  Capture item always works. Polish: the macOS tray icon renders as a **template icon**
+  (correct in light and dark menubars) and the capture bar now summons on whatever
+  Space/desktop is active. The desktop checklist gains a per-OS manual-check section for
+  the whole tray/capture/shortcut surface. Completes the system-wide capture plan.
+
+- **Areas and folders — scale becomes structure (layout option C).** Projects gain an
+  **area** (migration `0022`): free text, edited inline in the All-projects ops row beside
+  on-call/handoff/repo, and the panel's Projects tab groups by it — areas as alphabetical
+  **collapsible sections** with counts, unassigned projects under "Other", and zero
+  change when no areas exist (the flat list stays the flat list). Smart views file into
+  **folders** with no schema at all: save a view as `Folder/Name` (the dialog's
+  placeholder says so) and it lands in that collapsible folder — stored labels containing
+  slashes from before the convention are never reinterpreted. Collapse state is per-device
+  (localStorage, like pins), a typed panel filter **auto-expands everything** (hiding a
+  match inside a collapsed section would make the filter a liar), pinned items stay above
+  all grouping, and ⌘K project results now read "Project · Work" so the area
+  disambiguates from anywhere. Areas ride every existing surface for free — project
+  payloads, MCP `list_projects`, the weekly review. This completes the sidebar-at-scale
+  arc: rail → panel → ⌘K → pins → areas.
+
+- **Pinned favorites — star what you use daily.** Every row in the panel grows a
+  hover-revealed **☆ star**: pinned projects and views float into a leading **Pinned**
+  section on their tab (kept in list order, honest about staleness — a pin for a deleted
+  project simply never renders), and pinned items also **rank first in ⌘K results**. Pins
+  are per-device view state in localStorage, exactly like smart views — never server data.
+  Projects and smart views pin by id; Library saved views pin by label (their only stable
+  identity). The last piece of the sidebar-at-scale work: rail for destinations, panel to
+  browse, ⌘K to teleport, pins for the daily five.
+
+- **⌘K jumps to projects and views.** The command palette gains **Projects** and **Views**
+  result groups while you type: any active or on-hold project (Inbox included), any smart
+  view (built-in Stale too), and any Library saved view is now two keystrokes away —
+  `⌘K`, a few letters, Enter. Navigation targets rank above content search (a short query
+  usually means "take me there"), on-hold projects say so in the result line, and library
+  views jump by their stored identity so a filtered result can never open the wrong one.
+  The companion to the rail + panel shell below: at 60 projects and 80 views, nobody
+  scrolls.
+
+- **Rail + panel shell — the sidebar becomes a browser.** The single wide sidebar is
+  replaced by a two-level shell built for scale (chosen from three mocked layouts): a slim
+  **icon rail** owns every top-level destination (Today, Upcoming, Calendar, Inbox, All
+  projects, Library, Filter, Settings pinned at the bottom — now with mini count badges on
+  Today and Inbox), and a **browser panel** beside it owns the growing lists: a
+  **Projects / Views tab pair with live counts** and a **type-to-filter box** that narrows
+  as you type and reports "No matches" honestly. The Views tab gathers task smart views
+  (built-in Stale included) and Library saved views in one place. Every classic affordance
+  survived the move unchanged — project dots and open counts, hover-× deletes, active
+  states, manage-projects ＋, and the full `data-action` vocabulary (which is why the
+  entire e2e suite still means what it meant). Narrow windows (<940px) keep the familiar
+  rail-only mode with project dots. Found by the WCAG gate during the build: the ＋ button
+  originally sat inside `role="tablist"` (axe `aria-required-children`, critical) — moved
+  beside it. Follow-ups that layer on this shell without rework: ⌘K jump targets for
+  projects/views, pinned favorites, and area grouping.
+
+- The editor header now matches the design comp: tag and provenance chips sit
+  beside the title, Outline is an outlined toggle, Edit/Split/Preview is a
+  segmented control, and document actions (info, verify, supersede, archive)
+  moved into a ••• menu — the permanent trust-strip row is gone. The page
+  sheet fills the editor height, and word/character counts update live.
+- **Prax is now a double-click desktop app** (Tauri 2 shell under `src-tauri/`).
+  The bundled Node runtime runs the Fastify server as a sidecar on a free
+  localhost port; the native window opens on a Prax splash and hands over once
+  `/readyz` answers. User data lives in the OS app-data directory
+  (`com.moomora.prax/` — `prax.db` plus `logs/server.log`), a second launch
+  focuses the existing window instead of double-opening the database, and the
+  sidecar is stopped when the app exits (the server also shuts down cleanly on
+  SIGTERM/SIGINT everywhere). `npm run desktop:dev` / `desktop:build`;
+  see docs/desktop/BUILD.md. The web-server workflow is unchanged — the
+  desktop wrapper is additive.
+- **PostgreSQL is replaced by an embedded SQLite database** (Node's built-in
+  `node:sqlite` — no native modules, no database server, no Docker requirement).
+  One file (`PRAX_DB_FILE`, default `./prax.db`; `DATABASE_URL` is still read as
+  a plain file path) holds everything, in WAL mode with foreign keys on. The
+  seven Postgres migrations are consolidated into one SQLite schema; migrations
+  still run automatically at startup. Full-text library search now runs on FTS5
+  (external-content table + sync triggers). The HTTP API, export/import formats,
+  and MCP tool surface are byte-for-byte unchanged; constraint errors keep their
+  pg SQLSTATE codes (23505/23503) via the adapter, so existing error handling
+  behaves identically. A new real-engine integration suite drives the whole HTTP
+  API against actual SQLite.
+- Docker Compose no longer runs a database container — just the app plus a
+  named volume. The Kubernetes manifests swap the CloudNativePG cluster for a
+  PersistentVolumeClaim (`Recreate` strategy, single replica — SQLite is
+  single-writer). Backup/restore is now file-based; see docs/backup-restore.md.
+
+- **The Prax desktop design replaces the terminal-inspired UI.** The frontend is
+  rebuilt to the Prax design system (light "Porcelain" / dark "Deep Fern" themes,
+  Instrument Sans + Source Serif 4 bundled locally, oklch accent system with four
+  user-selectable accents): floating-window shell with titlebar/sidebar/statusbar,
+  a cross-project **Today** view, grouped task lists with multi-select and undo
+  toasts, a four-column board with drop-position indicators, Backlog and Archive
+  tabs, a floating task drawer (status/priority pills, due date, autosaving notes,
+  checklist, linked docs, activity), an **⌘K command palette**, **quick capture
+  (N)**, an **All projects** screen (replaces the project manager/archive dialogs),
+  a card-grid Library with semantic mode, and a page-sheet editor with outline
+  rail, focus mode, and clickable Markdown task items. Settings absorbs the old
+  admin panel (backup/import/export, maintenance, semantic index) and adds theme/
+  accent/window-chrome/reading-size preferences.
+- **Backlog is now a real status**: the design's Backlog maps onto the API's
+  spare `notes` status (previously a fifth "NOTES" board column). Tasks in the
+  old NOTES column appear under Backlog; the old derived backlog (planned +
+  no due date) now shows only under Planned. The HTTP API is unchanged.
+- The task detail drawer is now the task editor (title, description, notes all
+  autosave); the separate task edit form is gone. Documents open directly in the
+  editor; new documents are created untitled and named in place.
+- Browser-local keys for the retired swimlane groupings are no longer read;
+  active-project, saved-views, and preference keys keep working (legacy palettes
+  map onto the nearest theme).
+- **Moomora Console is now Prax** (by Moomora). The product, package (`prax`), CLI
+  (`prax`, with `moomora` kept as an alias), MCP server name, Docker/Kubernetes
+  manifests, skills (`prax-recall` / `prax-remember`), and docs are renamed.
+  Backwards compatibility is preserved everywhere it matters:
+  - `MOOMORA_API_URL` / `MOOMORA_API_TOKEN` / `MOOMORA_PROJECT` env vars still work
+    as fallbacks for the new `PRAX_*` names.
+  - The `x-moomora-origin` request header is still accepted alongside `x-prax-origin`
+    for agent provenance stamping.
+  - The `.moomora/project.json` CLI marker is still detected (`.prax/` wins when both
+    exist).
+  - **Wire formats are unchanged**: the `moomora.tasks` export/import envelope, library
+    `.md` front-matter, HTTP API shapes, and the MCP tool surface are untouched, so
+    existing backups, imports, and integrations keep working. Browser-local preference
+    keys are also unchanged. Entries below this one predate the rename and keep their
+    original wording.
+
+### Removed
+
+- The experimental Plain editor and editor-engine selector. CodeMirror is now the
+  sole editor engine; saved Plain preferences automatically use CodeMirror while
+  retaining font, line-number, and reading-scale choices.
+
 ### Fixed
+
+- **A retried remember can no longer overwrite newer memory.** `upsert-by-title` matched the
+  title before it looked at the caller's operation id, so a delayed retry of an old remember
+  reverted a body written in between, and reusing an id with different content was accepted
+  instead of refused. The server now keeps a receipt per operation id (migration 0027): a replay
+  returns the current document unchanged (`200`, `replayed: true`) for updates as well as creates,
+  a different intent under the same id is `409`, and a replay whose document was permanently
+  deleted since is `410` rather than a silent re-create. Regression coverage in
+  `tests/backend/libraryUpsertByTitle.test.js` (interleaved A/B/A, changed intent, delete).
+- **The CLI and skills bind to one Prax instance.** Discovery could fail a write over from the
+  desktop app's port to `127.0.0.1:3000` and print the same success line, so a remember could
+  land in a second workspace unnoticed. A read may still probe both candidates; a write first
+  probes `/readyz` to pin an instance and is then sent only there, and the confirmation names the
+  base URL it wrote to.
+- **Recall discloses an incomplete semantic index.** `prax recall`, `prax search` and the
+  `prax-recall` skill used the unpaged route, which cannot report pending vectors, so a miss on
+  an incomplete index read as an honest "no relevant memory". They now request the paged route
+  and print `index incomplete: N of M documents have no current embedding`; `prax search --json`
+  carries `retrieval.degraded`, `retrieval.reason`, `retrieval.index` and `retrieval.page`, and a
+  bounded page is disclosed.
+- **`recall --recent` is active-only.** Superseded and deprecated documents no longer appear as
+  if current; recall hits and related lines now carry a trust label (`verified` / `unverified`,
+  plus any non-active status).
+- `prax init` honours `PRAX_PROJECT` as the documented precedence promised.
+- `skills/install.sh` clones over HTTPS with the GitHub CLI's credentials when `gh` is logged in
+  (falling back to SSH), checks for Node 20+, accepts `PRAX_CLAUDE_SKILLS_DIR`, and explains a
+  failed clone in terms of repository access; a no-checkout uninstall is documented. The installer
+  now has its own regression test.
+- The release workflow published the container to the previous repository owner's registry
+  namespace; it now targets `ghcr.io/markjoyeuxcom/prax`, runs the browser suite and dependency
+  audit as part of the release quality gate, assembles the release body from this changelog, and
+  states that the installers are unsigned and not notarized. The desktop release verifier accepts
+  `vX.Y.Z-rc.N` prerelease tags and refuses a tag when any version site has drifted.
+
+- The macOS menu-bar icon now uses a transparent Prax mark instead of tinting the
+  filled application icon into a solid square.
+
+- Remembering a title that had been superseded silently overwrote the retired document, which
+  active recall never surfaces; the memory was effectively lost. Only active documents match now.
+- Two agents remembering the same title concurrently created duplicates (client-side
+  read-then-write); the server-side upsert serialises them.
+- The `prax-remember` skill silently ignored `--ref` (and any unknown option); unknown options
+  are now errors and `--ref` attaches the reference.
+- `CLAUDE.md` told agents to run `prax-recall` as a command that did not exist; it is now a
+  symlink to `AGENTS.md`, the single agent guide.
+
+- **The e2e gate is binary again — the two known full-suite flakes are diagnosed and
+  closed.** Both were test-choreography races that only fired under full-suite conditions,
+  never in isolation, which had quietly turned "green" into a judgment call. (1) The task
+  drawer re-renders up to three times right after opening (context load, related-knowledge
+  loading, then its result); a one-shot `fill()` racing those renders can write into a
+  just-detached input and vanish — real typing is safe (every keystroke lands in state and
+  the focused-field capture restores values), but the drawer-typing journeys now wait for
+  the drawer to settle before typing. (2) The drawer-draft journeys assumed the close-save
+  is always the first PATCH, but the 1s autosave debounce can fire first under load and
+  can split a draft into per-field patches — interceptions now match any draft-field PATCH,
+  failure injections are flag-gated ("every save fails until Save failed is observed")
+  instead of ordinal-gated, and the pins assert the real invariants: no payload replay,
+  fields union to the exact draft, nothing commits while saves fail. (3) Once the shared
+  suite server accumulates 100+ tasks, the list's "Showing 100 of N" banner is a second
+  `role="status"` element — capture-notice assertions are now scoped to the Quick-capture
+  dialog. (4) Mutation reconciles re-render too: after a project reassignment whose
+  response is lost, the readback → apply → render rebuild races a fill into the label
+  input the same way — the journey now waits for the reconcile render's observable
+  effect (the row leaving the old project's list) before typing. Verified by repeat-each
+  churn plus repeated full-suite runs.
+
+- **The assistant on no-tool-calling backends is grounded in a live snapshot instead of
+  fabricating.** The old degrade path (any backend without tool calling: Claude CLI, Ollama,
+  llama.cpp) handed the model the assistant persona and **no data** — asked "what's overdue",
+  it confidently invented an empty workspace ("you don't have any tasks") beside a list of two
+  overdue tasks, and doubled down when challenged. The no-tools turn now injects a **bounded,
+  honest workspace snapshot** (`server/assistant/snapshot.js`) — true totals, per-project open
+  counts, Overdue / Due today / Planned today / In progress / Inbox sections with real counts
+  in every header and elisions spelled out ("…and 8 more") — fetched through the same
+  in-process client the agent tools use. The snapshot also carries a **Library index**
+  (trust counts plus the unverified docs pending human review, each with type, project,
+  and provenance — titles and metadata only, never document bodies), so "which docs need
+  review" answers from truth too instead of "I can't see the Library". Read-only rules ride along: answer data questions
+  only from the snapshot, say "I can't check that in this mode" for anything beyond it, and
+  never claim to have made changes (actions still need an API backend). If the snapshot
+  itself fails to load, the rules flip to an explicit no-visibility stance — "never guess,
+  never say the workspace is empty" — rather than letting the vacuum refill. The panel header
+  now says what the mode is (**read-only · answers from a live snapshot**) instead of the
+  confusing "35 tools · no tool-calling".
+
+- **Quality-baseline remediation, closing wave — the fix pass reviewed against itself.** The
+  plan's final ground rule: an adversarial re-review of the whole Waves 1–4 diff (24 candidates,
+  1 refuted, 11 distinct confirmed defects — several inside the fixes themselves), all corrected:
+  - **Restores report the truth**: SQLite's `RETURNING` does not see AFTER-trigger writes, so a
+    restore whose status the 0018 trigger recomputed returned a stale lifecycle state to every
+    API consumer; `restoreDocument` re-reads the row.
+  - **The chronicle re-sequencing survives timestamp ties** (0019 amended): the tie-break is now
+    `rowid` — the old `sequence` tie-break mutated mid-statement and two same-second events
+    could collide on the uniqueness constraint.
+  - **The drawer's DOM capture respects state**: renderApp used to re-read all three drawer
+    fields from the live DOM, silently re-installing stale values as "typing" after every
+    state-side fold — which made the out-of-band-edit protection undo itself and made **Discard
+    draft autosave the discarded text back**. Only the focused field is captured now.
+  - **Per-field saves get per-field reconciliation**: the lost-response readback compared whole
+    snapshots, misreporting a committed notes-only save as a conflict whenever an agent had
+    edited an untouched field.
+  - **The capture owner guard is coherent**: restores adopt ownership (a reloaded tab can edit
+    and discard its own draft again), stores refuse to overwrite a foreign tab's pending crash
+    draft, and closing an EMPTY capture no longer force-destroys another tab's recovery.
+  - **The capture client honours the archived-replay rejection** — its readback matcher now
+    excludes archived rows like the server's, instead of converting the honest 409 back into
+    "Added to project".
+  - **An agent retitle revokes verification**: title is part of what the human blessed —
+    retrieval, citations, and wiki-links all key on it; identical titles and pure metadata still
+    keep the badge.
+  - **Legacy checklists restore**: the import bound is decoupled from the new creation cap (a
+    pre-cap database can legally hold more than 200 items per task; its export must restore) —
+    and the replay of the checklist item that *filled* a task returns its truthful idempotent
+    200 instead of a cap 400 claiming a committed write was refused.
+  - Verify's content-hash guard accepts either hex case; the raw-hot-copy marker-mismatch error
+    now explains the WAL-resident-marker cause instead of implying the backup is bad.
+
+- **Quality-baseline remediation, Waves 3+4 — lifecycle coherence, agent-surface honesty, and
+  operational safety.** The remaining eleven confirmed findings from the 2026-07-18 adversarial
+  review, closing out the remediation plan:
+  - **Supersession survives archive/restore cycles** (migration `0018`): restoring a document now
+    recomputes its own status from its live inbound `supersedes` edges — the archived-target gap
+    let a restored doc sit live and `active` with a live edge — and a repair pass fixes rows the
+    0012 reconcile could not see. `deprecated` remains untouchable by the lifecycle.
+  - **The incident ledger's order matches its timestamps** (migration `0019`): the 0013 backfill
+    sequenced legacy step-checked events by runbook *position*; re-sequenced by `created_at`
+    under the uniqueness constraint (two-phase), a no-op for live-written rows.
+  - **Run reads are one snapshot**: `getRun` wraps its three reads in a transaction, so a
+    concurrent step-check can no longer produce a status/steps/events mix that never existed.
+  - **"Durable" runs are findable after their runbook is deleted**: new
+    `GET /api/library/maintenance/detached-runs` lists runs whose document is gone, with their
+    snapshot titles — preserved-but-unreachable was preservation in name only.
+  - **Ask Prax citation matching is case-insensitive**, as its contract comment always claimed —
+    a grounded answer citing `[postgres failover runbook]` is no longer discarded as uncited.
+  - **Opening quick capture in one tab no longer destroys another tab's unfinished draft**: the
+    shared recovery entry carries an owner token; only the writing tab (or an explicit discard /
+    confirmed creation) clears it.
+  - **Clearing the drawer title no longer starts a once-per-second toast/focus-steal loop**: the
+    title-required signal is the in-place status, and the autosave timer stands down while the
+    title is empty (manual save/close still surfaces the requirement).
+  - **MCP pagination is honest end-to-end**: the bare-array fallback (pre-envelope servers) now
+    applies limit/offset instead of returning everything, and an empty page can never emit a
+    non-advancing cursor (`nextOffset === offset` looped agents forever).
+  - **`docker run -p` works again**: the image bakes `HOST=0.0.0.0` + the explicit
+    acknowledgement (a container binding loopback black-holes its published port with healthy
+    logs; exposure stays the operator's decision at the network boundary, and bare-metal keeps
+    the secure loopback default). The server now logs its bind loudly, warning when reachable
+    beyond the machine. Contract pin inverted deliberately.
+  - **Backup/migrate CLIs work under `HOST=0.0.0.0`**: the bind refusal moved from `loadConfig()`
+    to the listen path — tools that never open a socket no longer die on a network error during
+    the documented incident-recovery runbook.
+  - **Backups no longer block their successors**: validation opens via an `immutable=1` URI (no
+    `-wal`/`-shm` sidecars created; defensive cleanup for URI-less builds), so a validated backup
+    path stays writable for the next rotation.
+  - **A crashed desktop shell no longer orphans the server**: stdin EOF (parent died without
+    saying `shutdown`) now triggers the same graceful shutdown. And the CSP allows `https:`
+    images, matching the markdown preview's documented contract — remote screenshots render again.
+
+- **Quality-baseline remediation, Wave 2 — misleading success and duplicate mutations.** Seven
+  more confirmed findings from the 2026-07-18 adversarial review, each with its reproduction
+  landed as a regression test:
+  - **The assistant's `didWrite` now reflects the outcome, not the approval.** An approved write
+    whose handler threw still set `didWrite: true`, so a follow-up model failure told the user
+    "The approved change completed … Do not repeat the action" about a write that never happened
+    — the inverse of the misleading-success bug the flag exists to prevent. Derived from the
+    per-call `isError` outcomes now.
+  - **Legacy recurring series survive the interval cap.** The `every:N` cap (10000) was applied
+    retroactively at validation time only, silently ending pre-upgrade series on completion while
+    the UI toasted "next occurrence scheduled". Migration `0017` clamps stored over-cap intervals
+    (preserving the series), and the completion toast now derives from the PATCH response's new
+    additive `nextOccurrenceTaskId` — when no successor was actually spawned, the toast says so.
+  - **Reopening a completed occurrence no longer discards an explicit recurrence in the same
+    PATCH** — the one-off detachment applies only when the caller did not speak to recurrence.
+  - **An idempotent create replay never "succeeds" against an archived row.** Capture announced
+    "Added to project" for a task no view shows; the replay now requires a live row and an
+    archived match returns a truthful, distinct 409.
+  - **Capture distinguishes permanent rejections from transient failures.** `createTask` surfaces
+    the response status + server message; a deterministic 4xx shows "The server rejected this
+    capture … edit it and try again" (and drops the retry identity) instead of the false
+    "retry unchanged is safe".
+  - **Typing in the capture no longer destroys the exact-once retry identity** — type a character
+    and delete it again and the retry still reuses the same request id; submit mints a new
+    identity only when the intent actually diverges.
+  - **A timed-out MCP request is never automatically re-sent.** The client retried timeout aborts
+    as if the server were unreachable — but a timed-out generation may still be processing, so
+    the re-send ran it twice (duplicate post-mortems/runbooks). Only connection-level failures
+    (request provably never started) retry; timed-out callers keep their stable identity for a
+    deliberate retry.
+  - **No more no-exit draft traps.** A document or task archived/deleted externally while its
+    draft was dirty vetoed every navigation with a retry that could never succeed — and the task
+    drawer rendered *nothing* while its invisible draft blocked the app. Both surfaces gain an
+    explicit confirmed **Discard draft** affordance; a vanished task now renders a "Task
+    unavailable" panel offering **Keep draft & close** (device copy retained) or discard.
+
+- **Quality-baseline remediation, Wave 1 — data loss and trust integrity.** Seven confirmed
+  defects from the 2026-07-18 adversarial review of the quality-baseline commit, each fixed with
+  its executed reproduction landed as a permanent regression test
+  (plan: `docs/superpowers/plans/2026-07-18-quality-baseline-remediation.md`):
+  - **Restoring a raw file-copy backup no longer discards WAL-resident transactions.** The
+    restore validated the backup *through* its `-wal` sidecar but copied only the main db file —
+    committed data vanished while the restore reported checksummed success. Restore now copies
+    db + `-wal` + `-shm` into staging, checkpoints, re-validates, and leaves no sidecar orphans.
+  - **Explicitly verifying a user-created document now actually records the reviewer.** The
+    re-verification guard compared `verified_by = $2` against a NULL column — NULL under SQL
+    three-valued logic — so the UPDATE matched zero rows and the route's replay fallback masked
+    the no-op as a 200. Null-safe `IS` comparison; the review is stamped.
+  - **An agent retag or byte-identical body no longer destroys human verification.** Agent-origin
+    updates revoked verification unconditionally; revocation is now conditional on the stored
+    `content_hash` actually changing (QINV-04's own rule), so metadata-only agent edits keep the
+    badge and agent content changes still lose it. Both trust fixes carry *executed* regression
+    tests against a real migrated database — the prior tests regex-matched the SQL text, which is
+    exactly how the NULL-guard bug shipped green.
+  - **The task-drawer autosave can no longer overwrite out-of-band edits.** Saves now PATCH only
+    the fields whose draft diverges from the seeded baseline (new `taskDraftBaseline`), and a
+    task refresh folds newer server values into untouched fields — an assistant/MCP edit to the
+    description survives a user's notes-only autosave, live in the open drawer.
+  - **Renaming a document via Document info is no longer silently reverted** by the next body
+    autosave (the draft title now follows the rename).
+  - **Project navigation (palette, board chord, project cards) can no longer silently discard a
+    dirty drawer draft** — `goProject` gets the same flush-and-veto guard as every other
+    drawer-closing path.
+  - **The app can always restore its own export.** Skip-mode import no longer dedupes incoming
+    tasks against *each other* on the lossy title/status/dueDate key (distinct tasks sharing the
+    key all import), and the batch-wide cumulative 500-checklist-item cap became a per-task
+    bound (200) shared with the creation route; the task cap rose to 5000. Contract pins
+    re-pinned deliberately.
 
 - **Create tasks by project name, and create recurring tasks, from the assistant / API / MCP.** Two `create_task` gaps that surfaced when the assistant tried to file a task: (1) project resolution matched only an exact **slug or id**, so passing a display name like "Terrafrom Labs" (with a space and capitals) failed with "project is invalid" — it now also matches the **name**, case-insensitively and tolerant of spaces vs. hyphens (`resolveProject` slugifies the input and compares slug/name), so humans and LLMs can use whatever they see. (2) The create path silently **dropped `recurrence`** (it was PATCH-only), so a "remind me daily" request couldn't actually recur; `create_task` now accepts and validates `recurrence` (`daily`/`weekly`/`monthly`/`every:Nd`/`every:Nw`), and the tool descriptions advertise both. (Note: tasks still carry a due *date* only, no time-of-day.)
 
@@ -677,8 +782,6 @@ fresh empty `[Unreleased]` section is started.
   Settings, and the project views were inset. Today now shares the same
   padding.
 
-### Fixed
-
 - **The Library no longer blinks on every keystroke while searching.** The
   main-content fade-in is a view-transition cue, but `renderApp` rebuilds the DOM
   on every state change, so it replayed on same-view re-renders too — a strobe
@@ -769,78 +872,6 @@ fresh empty `[Unreleased]` section is started.
   renumbered (e.g. a 5-item list with sub-bullets showed as 1–9); the preview
   now nests by indentation, and a contiguous ordered-then-unordered block
   renders as two lists instead of one.
-
-### Changed
-
-- The editor header now matches the design comp: tag and provenance chips sit
-  beside the title, Outline is an outlined toggle, Edit/Split/Preview is a
-  segmented control, and document actions (info, verify, supersede, archive)
-  moved into a ••• menu — the permanent trust-strip row is gone. The page
-  sheet fills the editor height, and word/character counts update live.
-- **Prax is now a double-click desktop app** (Tauri 2 shell under `src-tauri/`).
-  The bundled Node runtime runs the Fastify server as a sidecar on a free
-  localhost port; the native window opens on a Prax splash and hands over once
-  `/readyz` answers. User data lives in the OS app-data directory
-  (`com.moomora.prax/` — `prax.db` plus `logs/server.log`), a second launch
-  focuses the existing window instead of double-opening the database, and the
-  sidecar is stopped when the app exits (the server also shuts down cleanly on
-  SIGTERM/SIGINT everywhere). `npm run desktop:dev` / `desktop:build`;
-  see docs/desktop/BUILD.md. The web-server workflow is unchanged — the
-  desktop wrapper is additive.
-- **PostgreSQL is replaced by an embedded SQLite database** (Node's built-in
-  `node:sqlite` — no native modules, no database server, no Docker requirement).
-  One file (`PRAX_DB_FILE`, default `./prax.db`; `DATABASE_URL` is still read as
-  a plain file path) holds everything, in WAL mode with foreign keys on. The
-  seven Postgres migrations are consolidated into one SQLite schema; migrations
-  still run automatically at startup. Full-text library search now runs on FTS5
-  (external-content table + sync triggers). The HTTP API, export/import formats,
-  and MCP tool surface are byte-for-byte unchanged; constraint errors keep their
-  pg SQLSTATE codes (23505/23503) via the adapter, so existing error handling
-  behaves identically. A new real-engine integration suite drives the whole HTTP
-  API against actual SQLite.
-- Docker Compose no longer runs a database container — just the app plus a
-  named volume. The Kubernetes manifests swap the CloudNativePG cluster for a
-  PersistentVolumeClaim (`Recreate` strategy, single replica — SQLite is
-  single-writer). Backup/restore is now file-based; see docs/backup-restore.md.
-
-- **The Prax desktop design replaces the terminal-inspired UI.** The frontend is
-  rebuilt to the Prax design system (light "Porcelain" / dark "Deep Fern" themes,
-  Instrument Sans + Source Serif 4 bundled locally, oklch accent system with four
-  user-selectable accents): floating-window shell with titlebar/sidebar/statusbar,
-  a cross-project **Today** view, grouped task lists with multi-select and undo
-  toasts, a four-column board with drop-position indicators, Backlog and Archive
-  tabs, a floating task drawer (status/priority pills, due date, autosaving notes,
-  checklist, linked docs, activity), an **⌘K command palette**, **quick capture
-  (N)**, an **All projects** screen (replaces the project manager/archive dialogs),
-  a card-grid Library with semantic mode, and a page-sheet editor with outline
-  rail, focus mode, and clickable Markdown task items. Settings absorbs the old
-  admin panel (backup/import/export, maintenance, semantic index) and adds theme/
-  accent/window-chrome/reading-size preferences.
-- **Backlog is now a real status**: the design's Backlog maps onto the API's
-  spare `notes` status (previously a fifth "NOTES" board column). Tasks in the
-  old NOTES column appear under Backlog; the old derived backlog (planned +
-  no due date) now shows only under Planned. The HTTP API is unchanged.
-- The task detail drawer is now the task editor (title, description, notes all
-  autosave); the separate task edit form is gone. Documents open directly in the
-  editor; new documents are created untitled and named in place.
-- Browser-local keys for the retired swimlane groupings are no longer read;
-  active-project, saved-views, and preference keys keep working (legacy palettes
-  map onto the nearest theme).
-- **Moomora Console is now Prax** (by Moomora). The product, package (`prax`), CLI
-  (`prax`, with `moomora` kept as an alias), MCP server name, Docker/Kubernetes
-  manifests, skills (`prax-recall` / `prax-remember`), and docs are renamed.
-  Backwards compatibility is preserved everywhere it matters:
-  - `MOOMORA_API_URL` / `MOOMORA_API_TOKEN` / `MOOMORA_PROJECT` env vars still work
-    as fallbacks for the new `PRAX_*` names.
-  - The `x-moomora-origin` request header is still accepted alongside `x-prax-origin`
-    for agent provenance stamping.
-  - The `.moomora/project.json` CLI marker is still detected (`.prax/` wins when both
-    exist).
-  - **Wire formats are unchanged**: the `moomora.tasks` export/import envelope, library
-    `.md` front-matter, HTTP API shapes, and the MCP tool surface are untouched, so
-    existing backups, imports, and integrations keep working. Browser-local preference
-    keys are also unchanged. Entries below this one predate the rename and keep their
-    original wording.
 
 ## [0.20.0] - 2026-06-11
 
@@ -1370,45 +1401,46 @@ fresh empty `[Unreleased]` section is started.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/awaybreaktoday/moomora-console/compare/v0.20.0...HEAD
-[0.20.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.19.2...v0.20.0
-[0.19.2]: https://github.com/awaybreaktoday/moomora-console/compare/v0.19.1...v0.19.2
-[0.19.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.19.0...v0.19.1
-[0.19.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.18.0...v0.19.0
-[0.18.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.17.1...v0.18.0
-[0.17.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.17.0...v0.17.1
-[0.17.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.16.0...v0.17.0
-[0.16.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.15.1...v0.16.0
-[0.15.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.15.0...v0.15.1
-[0.15.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.14.2...v0.15.0
-[0.14.2]: https://github.com/awaybreaktoday/moomora-console/compare/v0.14.1...v0.14.2
-[0.14.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.14.0...v0.14.1
-[0.14.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.13.1...v0.14.0
-[0.13.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.13.0...v0.13.1
-[0.13.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.12.2...v0.13.0
-[0.12.2]: https://github.com/awaybreaktoday/moomora-console/compare/v0.12.1...v0.12.2
-[0.12.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.12.0...v0.12.1
-[0.12.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.11.1...v0.12.0
-[0.11.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.11.0...v0.11.1
-[0.11.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.10.0...v0.11.0
-[0.10.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.9.0...v0.10.0
-[0.9.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.8.0...v0.9.0
-[0.8.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.7.7...v0.8.0
-[0.7.7]: https://github.com/awaybreaktoday/moomora-console/compare/v0.7.6...v0.7.7
-[0.7.6]: https://github.com/awaybreaktoday/moomora-console/compare/v0.7.5...v0.7.6
-[0.7.5]: https://github.com/awaybreaktoday/moomora-console/compare/v0.7.4...v0.7.5
-[0.7.4]: https://github.com/awaybreaktoday/moomora-console/compare/v0.7.3...v0.7.4
-[0.7.3]: https://github.com/awaybreaktoday/moomora-console/compare/v0.7.2...v0.7.3
-[0.7.2]: https://github.com/awaybreaktoday/moomora-console/compare/v0.7.1...v0.7.2
-[0.7.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.7.0...v0.7.1
-[0.7.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.6.1...v0.7.0
-[0.6.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.6.0...v0.6.1
-[0.6.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.5.1...v0.6.0
-[0.5.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.5.0...v0.5.1
-[0.5.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.4.1...v0.5.0
-[0.4.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.4.0...v0.4.1
-[0.4.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.3.0...v0.4.0
-[0.3.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.2.0...v0.3.0
-[0.2.0]: https://github.com/awaybreaktoday/moomora-console/compare/v0.1.1...v0.2.0
-[0.1.1]: https://github.com/awaybreaktoday/moomora-console/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/awaybreaktoday/moomora-console/releases/tag/v0.1.0
+[Unreleased]: https://github.com/markjoyeuxcom/prax/compare/v0.21.0...HEAD
+[0.21.0]: https://github.com/markjoyeuxcom/prax/compare/v0.20.0...v0.21.0
+[0.20.0]: https://github.com/markjoyeuxcom/prax/compare/v0.19.2...v0.20.0
+[0.19.2]: https://github.com/markjoyeuxcom/prax/compare/v0.19.1...v0.19.2
+[0.19.1]: https://github.com/markjoyeuxcom/prax/compare/v0.19.0...v0.19.1
+[0.19.0]: https://github.com/markjoyeuxcom/prax/compare/v0.18.0...v0.19.0
+[0.18.0]: https://github.com/markjoyeuxcom/prax/compare/v0.17.1...v0.18.0
+[0.17.1]: https://github.com/markjoyeuxcom/prax/compare/v0.17.0...v0.17.1
+[0.17.0]: https://github.com/markjoyeuxcom/prax/compare/v0.16.0...v0.17.0
+[0.16.0]: https://github.com/markjoyeuxcom/prax/compare/v0.15.1...v0.16.0
+[0.15.1]: https://github.com/markjoyeuxcom/prax/compare/v0.15.0...v0.15.1
+[0.15.0]: https://github.com/markjoyeuxcom/prax/compare/v0.14.2...v0.15.0
+[0.14.2]: https://github.com/markjoyeuxcom/prax/compare/v0.14.1...v0.14.2
+[0.14.1]: https://github.com/markjoyeuxcom/prax/compare/v0.14.0...v0.14.1
+[0.14.0]: https://github.com/markjoyeuxcom/prax/compare/v0.13.1...v0.14.0
+[0.13.1]: https://github.com/markjoyeuxcom/prax/compare/v0.13.0...v0.13.1
+[0.13.0]: https://github.com/markjoyeuxcom/prax/compare/v0.12.2...v0.13.0
+[0.12.2]: https://github.com/markjoyeuxcom/prax/compare/v0.12.1...v0.12.2
+[0.12.1]: https://github.com/markjoyeuxcom/prax/compare/v0.12.0...v0.12.1
+[0.12.0]: https://github.com/markjoyeuxcom/prax/compare/v0.11.1...v0.12.0
+[0.11.1]: https://github.com/markjoyeuxcom/prax/compare/v0.11.0...v0.11.1
+[0.11.0]: https://github.com/markjoyeuxcom/prax/compare/v0.10.0...v0.11.0
+[0.10.0]: https://github.com/markjoyeuxcom/prax/compare/v0.9.0...v0.10.0
+[0.9.0]: https://github.com/markjoyeuxcom/prax/compare/v0.8.0...v0.9.0
+[0.8.0]: https://github.com/markjoyeuxcom/prax/compare/v0.7.7...v0.8.0
+[0.7.7]: https://github.com/markjoyeuxcom/prax/compare/v0.7.6...v0.7.7
+[0.7.6]: https://github.com/markjoyeuxcom/prax/compare/v0.7.5...v0.7.6
+[0.7.5]: https://github.com/markjoyeuxcom/prax/compare/v0.7.4...v0.7.5
+[0.7.4]: https://github.com/markjoyeuxcom/prax/compare/v0.7.3...v0.7.4
+[0.7.3]: https://github.com/markjoyeuxcom/prax/compare/v0.7.2...v0.7.3
+[0.7.2]: https://github.com/markjoyeuxcom/prax/compare/v0.7.1...v0.7.2
+[0.7.1]: https://github.com/markjoyeuxcom/prax/compare/v0.7.0...v0.7.1
+[0.7.0]: https://github.com/markjoyeuxcom/prax/compare/v0.6.1...v0.7.0
+[0.6.1]: https://github.com/markjoyeuxcom/prax/compare/v0.6.0...v0.6.1
+[0.6.0]: https://github.com/markjoyeuxcom/prax/compare/v0.5.1...v0.6.0
+[0.5.1]: https://github.com/markjoyeuxcom/prax/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/markjoyeuxcom/prax/compare/v0.4.1...v0.5.0
+[0.4.1]: https://github.com/markjoyeuxcom/prax/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/markjoyeuxcom/prax/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/markjoyeuxcom/prax/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/markjoyeuxcom/prax/compare/v0.1.1...v0.2.0
+[0.1.1]: https://github.com/markjoyeuxcom/prax/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/markjoyeuxcom/prax/releases/tag/v0.1.0
