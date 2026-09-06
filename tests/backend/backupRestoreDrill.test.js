@@ -235,7 +235,7 @@ test('current and historical CI workspaces survive authoritative destructive res
 
   assert.equal(report.historical.profile, 'ci');
   assert.equal(report.historical.seededThrough, '0009_add_project_repo_url.sql');
-  assert.equal(report.historical.migratedTo, '0025_assistant_write_receipts.sql');
+  assert.equal(report.historical.migratedTo, '0026_add_document_updated_by_agent.sql');
   assert.deepEqual(report.historical.migrationsAppliedAfterRestore, [
     '0010_document_type_taxonomy.sql',
     '0011_add_document_external_refs.sql',
@@ -253,6 +253,7 @@ test('current and historical CI workspaces survive authoritative destructive res
     '0023_add_document_revision.sql',
     '0024_add_task_import_sessions.sql',
     '0025_assistant_write_receipts.sql',
+    '0026_add_document_updated_by_agent.sql',
   ]);
   assert.ok(report.historical.sourceWalBytes > 0);
   assert.equal(report.historical.sourceDestroyedBeforeRestore, true);

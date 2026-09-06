@@ -67,7 +67,7 @@ test('normalizePreferences returns defaults for empty or invalid input', () => {
 test('normalizePreferences preserves valid theme, accent, and chrome values', () => {
   assert.deepEqual(
     normalizePreferences({ theme: 'dark', accent: 'indigo', chromeOS: 'win', readingScale: 1.1 }),
-    { theme: 'dark', accent: 'indigo', chromeOS: 'win', readingScale: 1.1, lineNumbers: false, reminders: true, editorEngine: 'codemirror', editorFont: 'proportional', previewFont: 'serif', slippageChips: true, slippageDeferrals: 3, slippageAgeDays: 30, wipLimit: 0, shutdownNudge: false, weeklyReviewNudge: false },
+    { theme: 'dark', accent: 'indigo', chromeOS: 'win', readingScale: 1.1, lineNumbers: false, reminders: true, editorFont: 'proportional', previewFont: 'serif', slippageChips: true, slippageDeferrals: 3, slippageAgeDays: 30, wipLimit: 0, shutdownNudge: false, weeklyReviewNudge: false },
   );
 });
 
@@ -97,7 +97,7 @@ test('loadPreferences parses saved localStorage JSON', () => {
     [LOCAL_STORAGE_KEY]: JSON.stringify({ theme: 'dark', accent: 'moss' }),
   });
 
-  assert.deepEqual(loadPreferences(storage), { theme: 'dark', accent: 'moss', chromeOS: 'mac', readingScale: 1, lineNumbers: false, reminders: true, editorEngine: 'codemirror', editorFont: 'proportional', previewFont: 'serif', slippageChips: true, slippageDeferrals: 3, slippageAgeDays: 30, wipLimit: 0, shutdownNudge: false, weeklyReviewNudge: false });
+  assert.deepEqual(loadPreferences(storage), { theme: 'dark', accent: 'moss', chromeOS: 'mac', readingScale: 1, lineNumbers: false, reminders: true, editorFont: 'proportional', previewFont: 'serif', slippageChips: true, slippageDeferrals: 3, slippageAgeDays: 30, wipLimit: 0, shutdownNudge: false, weeklyReviewNudge: false });
 });
 
 test('loadPreferences returns defaults for malformed saved JSON', () => {
@@ -111,7 +111,7 @@ test('savePreferences stores normalized preferences', () => {
 
   const saved = savePreferences({ theme: 'dark', accent: 'clay', readingScale: 1.25 }, storage);
 
-  assert.deepEqual(saved, { theme: 'dark', accent: 'clay', chromeOS: 'mac', readingScale: 1.25, lineNumbers: false, reminders: true, editorEngine: 'codemirror', editorFont: 'proportional', previewFont: 'serif', slippageChips: true, slippageDeferrals: 3, slippageAgeDays: 30, wipLimit: 0, shutdownNudge: false, weeklyReviewNudge: false });
+  assert.deepEqual(saved, { theme: 'dark', accent: 'clay', chromeOS: 'mac', readingScale: 1.25, lineNumbers: false, reminders: true, editorFont: 'proportional', previewFont: 'serif', slippageChips: true, slippageDeferrals: 3, slippageAgeDays: 30, wipLimit: 0, shutdownNudge: false, weeklyReviewNudge: false });
   assert.equal(storage.getItem(LOCAL_STORAGE_KEY), JSON.stringify(saved));
 });
 
@@ -134,17 +134,6 @@ test('applyPreferences writes the theme attribute and property overrides', () =>
   assert.equal(body.getAttribute('data-theme'), 'dark');
   assert.equal(body.style.getPropertyValue('--accent-choice'), ACCENT_CSS.indigo);
   assert.equal(body.style.getPropertyValue('--reading-scale'), '1.1');
-  // integer-pixel editor line-height: round(15 * 1.1 * 1.7) = round(28.05) = 28
-  assert.equal(body.style.getPropertyValue('--pe-lh'), '28px');
-});
-
-test('applyPreferences rounds --pe-lh to an integer pixel across reading scales', () => {
-  const b1 = bodyStub();
-  applyPreferences({ theme: 'light', readingScale: 1 }, b1);
-  assert.equal(b1.style.getPropertyValue('--pe-lh'), '26px'); // round(25.5)
-  const b2 = bodyStub();
-  applyPreferences({ theme: 'light', readingScale: 1.25 }, b2);
-  assert.equal(b2.style.getPropertyValue('--pe-lh'), '32px'); // round(31.875)
 });
 
 test('editor font preference defaults to proportional and validates against the option set', () => {
@@ -154,7 +143,7 @@ test('editor font preference defaults to proportional and validates against the 
   assert.equal(normalizePreferences({ editorFont: 'comic-sans' }).editorFont, 'proportional');
 });
 
-test('applyPreferences writes the editor-font attribute (drives --pe-font)', () => {
+test('applyPreferences writes the editor-font attribute (drives --editor-font)', () => {
   const body = bodyStub();
   applyPreferences({ theme: 'light', editorFont: 'monospace' }, body);
   assert.equal(body.getAttribute('data-editor-font'), 'monospace');
@@ -194,4 +183,23 @@ test('line numbers preference is a strict boolean, default off', () => {
   assert.equal(normalizePreferences({}).reminders, true);
   assert.equal(normalizePreferences({ reminders: false }).reminders, false);
   assert.equal(normalizePreferences({ reminders: 'nope' }).reminders, true);
+});
+
+test('retired editor-engine preferences are discarded without resetting other choices', () => {
+  for (const editorEngine of ['plain', 'codemirror']) {
+    const storage = storageWith({
+      [LOCAL_STORAGE_KEY]: JSON.stringify({ editorEngine, theme: 'dark', editorFont: 'monospace', lineNumbers: true, readingScale: 1.1 }),
+    });
+    const loaded = loadPreferences(storage);
+    assert.equal(Object.hasOwn(loaded, 'editorEngine'), false);
+    assert.equal(loaded.theme, 'dark');
+    assert.equal(loaded.editorFont, 'monospace');
+    assert.equal(loaded.lineNumbers, true);
+    assert.equal(loaded.readingScale, 1.1);
+    savePreferences({ ...loaded, editorEngine, previewFont: 'sans' }, storage);
+    const saved = JSON.parse(storage.getItem(LOCAL_STORAGE_KEY));
+    assert.equal(Object.hasOwn(saved, 'editorEngine'), false);
+    assert.equal(saved.editorFont, 'monospace');
+    assert.equal(saved.previewFont, 'sans');
+  }
 });

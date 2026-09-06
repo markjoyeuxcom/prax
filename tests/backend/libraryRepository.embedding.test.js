@@ -15,7 +15,7 @@ import {
 // rows (embedding included) and the cosine ranking happens in JS.
 test('buildSearchDocumentsSemantic selects candidates with the pg-era filters + embedding', () => {
   const q = buildSearchDocumentsSemantic('fake', {});
-  assert.match(q.text, /d\.kind, d\.updated_by, d\.verified, d\.verified_at, d\.verified_by/);
+  assert.match(q.text, /d\.kind, d\.updated_by, d\.updated_by_agent, d\.verified, d\.verified_at, d\.verified_by/);
   assert.match(q.text, /d\.status, d\.revision, d\.embedding/);
   assert.match(q.text, /as stale/);
   assert.match(q.text, /dl\.relation = 'derived-from'/);

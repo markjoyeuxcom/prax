@@ -85,7 +85,6 @@ import { dueBucket } from './dueFlags.js';
 import { normalizeLabel } from './labels.js';
 import { parseExternalRefLines } from './externalRefKind.js';
 import { mountCodeMirrorEditor } from '../vendor/codemirror-editor.js';
-import { mountPlainEditor } from './plainEditor.js';
 
 import {
   renderTitlebarHtml, renderPanelHtml, renderRailHtml, renderStatusbarHtml,
@@ -2355,11 +2354,8 @@ function mountEditorIfNeeded() {
   const fallback = appRoot.querySelector('[data-document-editor]');
   if (!host) { destroyEditorController(); return; }
   if (documentEditorController) return;
-  // Editor engine is user-selectable (Settings ▸ Appearance) so the plain
-  // textarea spike can be A/B'd against CodeMirror in the real app.
-  const mount = state.preferences.editorEngine === 'plain' ? mountPlainEditor : mountCodeMirrorEditor;
   try {
-    documentEditorController = mount({
+    documentEditorController = mountCodeMirrorEditor({
       host,
       value: state.documentDraftBody,
       lineNumbers: Boolean(state.preferences.lineNumbers),
@@ -2372,8 +2368,8 @@ function mountEditorIfNeeded() {
       onSave: () => requestDocumentDraftSave(),
     });
   } catch (err) {
-    // A CodeMirror failure must never break the app — the plain textarea
-    // fallback keeps editing working.
+    // A CodeMirror failure must never break the app — the recovery textarea
+    // keeps editing working.
     console.warn('CodeMirror failed to mount; using the textarea fallback', err);
     documentEditorController = null;
   }
@@ -5168,17 +5164,10 @@ _Task:_ ${task.title || 'Untitled task'}`
       renderApp();
       break;
     }
-    case 'set-editor-engine': {
-      const preferences = savePreferences({ ...state.preferences, editorEngine: el.dataset.engine });
-      setState({ preferences });
-      destroyEditorController(); // remount the open editor with the chosen engine
-      renderApp();
-      break;
-    }
     case 'set-editor-font': {
       const preferences = savePreferences({ ...state.preferences, editorFont: el.dataset.font });
       setState({ preferences });
-      applyPreferences(preferences); // flips <body data-editor-font> → --pe-font
+      applyPreferences(preferences); // flips <body data-editor-font> → --editor-font
       destroyEditorController(); // remount so CodeMirror re-measures the new font
       renderApp();
       break;

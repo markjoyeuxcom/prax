@@ -107,3 +107,61 @@ test('remember: create WITHOUT --type defaults to note', async () => {
   await remember(client, { title: 'Plain', body: 'B', project: 'm' });
   assert.equal(created.documentType, 'note');
 });
+
+// --- atomic upsert path + legacy fallback ---------------------------------------
+
+test('remember prefers the atomic upsert-by-title endpoint and never lists the project', async () => {
+  let listed = false; let sent;
+  const client = fakeClient({
+    listDocuments: async () => { listed = true; return []; },
+    upsertMemory: async (doc) => { sent = doc; return { document: { id: doc.id, title: doc.title }, created: true }; },
+  });
+  const { doc, action } = await remember(client, { title: 'T', body: 'B', project: 'memory', type: 'decision', tags: ['memory', 'memory', 'x'], kind: 'synthesized' });
+  assert.equal(action, 'created');
+  assert.equal(listed, false);
+  assert.match(sent.id, /^[0-9a-f-]{36}$/);
+  assert.equal(doc.id, sent.id);
+  assert.deepEqual(sent.tags, ['memory', 'x']);
+  assert.equal(sent.documentType, 'decision');
+  assert.equal(sent.kind, 'synthesized');
+  assert.equal(sent.project, 'memory');
+});
+
+test('remember maps an upsert that matched an existing title to "updated" and omits documentType when not explicit', async () => {
+  let sent;
+  const client = fakeClient({ upsertMemory: async (doc) => { sent = doc; return { document: { id: 'existing' }, created: false }; } });
+  const { doc, action } = await remember(client, { title: 'T', body: 'B2', project: 'memory', tags: [] });
+  assert.equal(action, 'updated');
+  assert.equal(doc.id, 'existing');
+  assert.equal('documentType' in sent, false);
+});
+
+test('remember falls back to the legacy list+write path only when the server has no upsert endpoint (404)', async () => {
+  let created;
+  const missing = Object.assign(new Error('Route POST:/api/library/documents/upsert-by-title not found'), { status: 404 });
+  const client = fakeClient({
+    upsertMemory: async () => { throw missing; },
+    createMemory: async (doc) => { created = doc; return { id: doc.id, ...doc }; },
+  });
+  const { action } = await remember(client, { title: 'T', body: 'B', project: 'memory', tags: [] });
+  assert.equal(action, 'created');
+  assert.ok(created);
+
+  const broken = Object.assign(new Error('boom'), { status: 500 });
+  const failing = fakeClient({ upsertMemory: async () => { throw broken; } });
+  await assert.rejects(remember(failing, { title: 'T', body: 'B', project: 'memory', tags: [] }), /boom/);
+});
+
+test('legacy fallback never revives a superseded or deprecated title — it creates a new active memory', async () => {
+  let createCalled = false; let updateCalled = false; let listArgs;
+  const client = fakeClient({
+    listDocuments: async (...args) => { listArgs = args; return [{ id: 'retired', title: 'T', status: 'superseded' }, { id: 'dep', title: 'T', status: 'deprecated' }]; },
+    createMemory: async (doc) => { createCalled = true; return { id: doc.id, ...doc }; },
+    updateMemory: async () => { updateCalled = true; return {}; },
+  });
+  const { action } = await remember(client, { title: 'T', body: 'fresh', project: 'memory', tags: [] });
+  assert.equal(action, 'created');
+  assert.equal(createCalled, true);
+  assert.equal(updateCalled, false);
+  assert.deepEqual(listArgs, ['memory', { status: 'active' }]);
+});

@@ -12,6 +12,44 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Removed
+
+- The experimental Plain editor and editor-engine selector. CodeMirror is now the
+  sole editor engine; saved Plain preferences automatically use CodeMirror while
+  retaining font, line-number, and reading-scale choices.
+
+### Added
+
+- **Portable memory skill pack.** `prax-recall` and `prax-remember` now live in `skills/` as
+  single-file bundles of `cli/lib` (Node 20+, no packages, no checkout), following the Agent
+  Skills layout both Claude Code and Codex read. `.claude/skills/` and `.agents/skills/` are
+  symlinks into it; `skills/install.sh` installs the pack on any machine without keeping the
+  repository, and the repo doubles as a Claude Code plugin marketplace (`claude plugin
+  marketplace add markjoyeuxcom/prax`). `npm run skills:build` rebuilds the bundles and
+  `npm run check` fails when a committed bundle is stale.
+- **Atomic remember.** `POST /api/library/documents/upsert-by-title` creates or updates by exact
+  title within a project in one transaction; the CLI and skills use it (with a fallback for
+  older servers).
+- **Which agent wrote it.** Documents carry `updatedByAgent` (`claude`, `codex`, …) from the
+  `x-prax-agent` header on agent writes (migration 0026). The CLI and skills detect Claude Code
+  and Codex automatically; `PRAX_AGENT` / `--agent` override.
+- **App discovery.** Without `PRAX_API_URL` the CLI and skills find the desktop app through its
+  saved `webview-port` file before falling back to port 3000.
+
+### Fixed
+
+- The macOS menu-bar icon now uses a transparent Prax mark instead of tinting the
+  filled application icon into a solid square.
+
+- Remembering a title that had been superseded silently overwrote the retired document, which
+  active recall never surfaces; the memory was effectively lost. Only active documents match now.
+- Two agents remembering the same title concurrently created duplicates (client-side
+  read-then-write); the server-side upsert serialises them.
+- The `prax-remember` skill silently ignored `--ref` (and any unknown option); unknown options
+  are now errors and `--ref` attaches the reference.
+- `CLAUDE.md` told agents to run `prax-recall` as a command that did not exist; it is now a
+  symlink to `AGENTS.md`, the single agent guide.
+
 ### Fixed
 
 - **The e2e gate is binary again — the two known full-suite flakes are diagnosed and
