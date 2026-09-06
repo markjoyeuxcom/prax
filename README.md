@@ -15,6 +15,12 @@ Prax and installing the newer package; the OS app-data directory remains in plac
 backup-before-update, rollback, and signing details:
 [docs/desktop/BUILD.md](docs/desktop/BUILD.md).
 
+**Menu bar and quick capture:** the desktop app lives in the menu bar. Closing the main window
+hides it and keeps Prax running; reopen it from the Dock or the menu-bar icon, and quit from
+the menu-bar icon or ⌘Q. **Capture task** (or ⌘⇧Space) opens a small bar from any app: Enter
+saves the text to the Inbox project, with `#project`, `@label`, `!high` and a date word to route
+it. See [docs/desktop/BUILD.md](docs/desktop/BUILD.md#menu-bar-quick-capture-and-closing-the-window).
+
 **Web server:** run it with plain Node or Docker Compose — see
 [Local Install](#local-install) below.
 
