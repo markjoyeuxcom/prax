@@ -87,8 +87,8 @@ async function main(argv) {
 
   if (command === 'init') {
     const repoUrl = detectRepoUrl({});
-    // --project > PRAX_PROJECT > git-remote match > folder name (the documented
-    // order, minus .prax/project.json — that is the file init writes).
+    // --project > PRAX_PROJECT > git-remote match > an existing .prax/project.json
+    // (detectProject below re-adopts it) > folder name — the documented order.
     let project = flags.project || process.env.PRAX_PROJECT || undefined;
     // A repo already registered to a project ADOPTS that project — a second
     // checkout must not auto-create a folder-named duplicate and split memory

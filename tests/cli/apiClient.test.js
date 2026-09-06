@@ -119,7 +119,7 @@ test('resolveBaseUrls: an explicit URL is the only candidate; otherwise desktop 
   assert.deepEqual(resolveBaseUrls({ env: {}, portFile: '/p', read: () => { throw new Error('ENOENT'); } }), ['http://127.0.0.1:3000']);
 });
 
-test('request tries the next base on a connection failure and pins the one that answers', async () => {
+test('a read discovers with one /readyz probe per candidate and pins the first that answers', async () => {
   const urls = [];
   globalThis.fetch = async (url) => {
     urls.push(url);
@@ -130,7 +130,7 @@ test('request tries the next base on a connection failure and pins the one that 
   assert.deepEqual(await client.getDocument('d1'), { id: 'd1' });
   assert.equal(client.base, 'http://dev');
   await client.getDocument('d1');
-  assert.deepEqual(urls, ['http://desktop/api/library/documents/d1', 'http://dev/api/library/documents/d1', 'http://dev/api/library/documents/d1']);
+  assert.deepEqual(urls, ['http://desktop/readyz', 'http://dev/readyz', 'http://dev/api/library/documents/d1', 'http://dev/api/library/documents/d1']);
 });
 
 test('request reports every candidate when none answers', async () => {
@@ -201,13 +201,14 @@ test('once pinned by a read, a later connection failure reports that instance in
   globalThis.fetch = async (url) => {
     seen.push(url);
     calls += 1;
-    if (calls === 1) return jsonRes(200, { id: 'd1' });
+    // The probe and the first read succeed; then the instance goes away.
+    if (calls <= 2) return jsonRes(200, { id: 'd1' });
     throw new Error('ECONNREFUSED');
   };
   const client = createClient({ bases: ['http://desktop', 'http://dev'], env: {} });
   await client.getDocument('d1');
   await assert.rejects(client.getDocument('d2'), /Prax not reachable at http:\/\/desktop — is the app running\?/);
-  assert.deepEqual(seen, ['http://desktop/api/library/documents/d1', 'http://desktop/api/library/documents/d2']);
+  assert.deepEqual(seen, ['http://desktop/readyz', 'http://desktop/api/library/documents/d1', 'http://desktop/api/library/documents/d2']);
 });
 
 test('a write with no reachable instance names every candidate and sends nothing', async () => {

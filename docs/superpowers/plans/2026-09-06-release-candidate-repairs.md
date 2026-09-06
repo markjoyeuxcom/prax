@@ -34,6 +34,26 @@ out of scope.
 Documentation findings D01–D27 and the consolidated P2 list; `mise.toml` committed;
 `ROOM-prax.md` ignored.
 
+## Codex review of PR #118 (same day)
+
+Codex's independent review of the repair branch (`.local-review-backups/codex-pr118-review.md`,
+mirrored as [`docs/reviews/2026-09-06-codex-pr118-review.md`](../../reviews/2026-09-06-codex-pr118-review.md))
+confirmed the blocker repairs and found five follow-ups, all fixed in the second commit:
+
+- **F1** concurrent first requests could each run their own discovery and pin different instances
+  → one shared discovery promise per process; the pin is immutable; concurrency regressions in
+  `tests/cli/apiClient.test.js`.
+- **F2** recall silently capped at the server's 50-result page → pages up to `--limit`, keeps
+  `page` metadata, and discloses a remainder; an old server without coverage is "unknown".
+- **F3** the gh credential helper applied to the clone but not to the sparse checkout that
+  fetches the blobs → both go through one wrapper; shim-based regression test.
+- **F4/F5** docs: `init` does consult an existing marker; the receipt is checked before the title
+  lookup and written after the mutation, in one transaction.
+- A macOS CI failure unrelated to the review: `cargo test` compiles the lib and its test harness
+  concurrently and both expand `include_image!`, racing on tauri's `$OUT_DIR` cache file
+  (observed as an empty tray icon and a divide-by-zero). Both workflows now `cargo build` first
+  and run `cargo test --lib`.
+
 ## Not done here
 
 - Image on merge to `main` (roadmap; a separate workflow decision).

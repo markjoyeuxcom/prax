@@ -399,9 +399,10 @@ body, tags?, documentType?, kind?, id? }`. Inside one transaction it updates the
 document with that exact title in the project (replacing body and tags, retyping only when
 `documentType` is given) or creates one (`documentType` defaults to `note`). Superseded and
 deprecated documents never match. Returns `{ document, created }` — `201` for a new document,
-`200` for an update. A caller `id` is an **operation id**, not only a create id: the server
-stores a receipt (the id, the resulting document, and a hash of the caller's intent) before the
-title is mutated, for updates as well as creates. Replaying a completed operation — even after
+`200` for an update. A caller `id` is an **operation id**, not only a create id: inside the same
+transaction the server first looks the id up in its receipts, and only when none exists does it
+touch the title and then store a receipt (the id, the resulting document, and a hash of the
+caller's intent) — for updates as well as creates. Replaying a completed operation — even after
 a later write changed the document — returns the **current** document unchanged with `200` and
 `replayed: true`; reusing the id with different content is `409`; a replay whose document has
 since been permanently deleted is `410`. `derived-from` links snapshot

@@ -73,6 +73,11 @@ export function createClient({ baseUrl, token, agent, env = process.env, bases }
   // gone and a dev server on :3000, silently landing the same remember in a
   // second workspace is worse than an honest "not reachable" (QINV-02).
   let pinned = candidates.length === 1;
+  // One discovery for the whole process: every request that arrives before
+  // the pin awaits the same probe, so concurrent first requests cannot each
+  // discover a different instance, and nothing ever reassigns `base` once it
+  // is set (a late probe completion cannot re-pin behind an in-flight write).
+  let discovery = null;
   const agentId = agent === undefined ? detectAgent(env) : sanitizeAgentId(agent);
   const bearer = token ?? env.PRAX_TOKEN;
 
@@ -81,20 +86,33 @@ export function createClient({ baseUrl, token, agent, env = process.env, bases }
     return new Error(`Prax not reachable at ${where} — is the app running? (${lastError.message})`);
   }
 
-  // Pin an instance with a read-only probe before the first write.
-  async function pin() {
+  // Pin an instance with a read-only probe, trying candidates in order.
+  async function probe() {
     let lastError;
     for (const candidate of candidates) {
       try {
         await fetch(`${candidate}/readyz`, { method: 'GET' });
-        base = candidate;
-        pinned = true;
+        if (!pinned) {
+          base = candidate;
+          pinned = true;
+        }
         return;
       } catch (err) {
         lastError = err;
       }
     }
     throw unreachable(lastError);
+  }
+
+  function ensurePinned() {
+    if (pinned) return Promise.resolve();
+    if (!discovery) {
+      discovery = probe().catch((err) => {
+        discovery = null; // a failed discovery may be retried by a later request
+        throw err;
+      });
+    }
+    return discovery;
   }
 
   async function request(method, path, {
@@ -109,22 +127,18 @@ export function createClient({ baseUrl, token, agent, env = process.env, bases }
     if (accept) headers['accept'] = accept;
     if (bearer) headers['authorization'] = `Bearer ${bearer}`;
     const payload = body === undefined ? undefined : JSON.stringify(body);
-    if (!pinned && method !== 'GET') await pin();
-    // A read before pinning may try every candidate; afterwards only the
-    // pinned base is ever contacted (a retry is a retry of the SAME instance).
-    const targets = pinned ? [base] : [base, ...candidates.filter((c) => c !== base)];
+    await ensurePinned();
+    // Only the pinned instance is ever contacted; a retry is a retry of the
+    // SAME instance, never a search for another one.
+    const target = base;
     let res; let lastError;
     const attempts = retryUnavailable ? 2 : 1;
-    attempt: for (let attempt = 0; attempt < attempts; attempt += 1) {
-      for (const candidate of targets) {
-        try {
-          res = await fetch(`${candidate}${path}`, { method, headers, body: payload });
-          base = candidate;
-          pinned = true;
-          break attempt;
-        } catch (err) {
-          lastError = err;
-        }
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      try {
+        res = await fetch(`${target}${path}`, { method, headers, body: payload });
+        break;
+      } catch (err) {
+        lastError = err;
       }
     }
     if (!res) throw unreachable(lastError);
@@ -162,11 +176,12 @@ export function createClient({ baseUrl, token, agent, env = process.env, bases }
     // `reason: 'index-incomplete'`): the legacy array cannot say that pending
     // vectors were skipped, and a miss on an incomplete index is not an honest
     // miss. Older servers ignore `page` and return the array; normalise both.
-    async semanticSearch(project, q, { all = false, limit = SEMANTIC_PAGE_MAX } = {}) {
+    async semanticSearch(project, q, { all = false, limit = SEMANTIC_PAGE_MAX, offset = 0 } = {}) {
       const params = new URLSearchParams({ q, page: 'true' });
       if (project) params.set('project', project);
       if (all) params.set('all', 'true');
       params.set('limit', String(Math.min(Math.max(Number(limit) || SEMANTIC_PAGE_MAX, 1), SEMANTIC_PAGE_MAX)));
+      if (Number(offset) > 0) params.set('offset', String(Math.trunc(Number(offset))));
       const res = await request('GET', `/api/library/documents/semantic-search?${params.toString()}`);
       if (Array.isArray(res)) return { items: res, page: null, index: null, degraded: false, reason: null };
       return {

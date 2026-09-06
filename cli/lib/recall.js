@@ -25,9 +25,42 @@ export function trustLabel(doc) {
   return parts.join(', ');
 }
 
+// One line when the server held back matches beyond the requested limit, else ''.
+export function boundNote(result) {
+  const page = result?.page;
+  if (!page || !page.hasMore) return '';
+  const total = Number.isInteger(page.total) ? page.total : null;
+  return `${page.returned} of ${total ?? 'more'} matches shown — raise --limit for the rest`;
+}
+
+// Page the semantic route up to `limit` matches (the server caps one page at
+// 50), so a requested bound is honoured rather than silently cut. The last
+// page's metadata says whether more remained beyond the bound.
+export async function collectSemantic(client, project, query, limit) {
+  const wanted = Math.max(1, Number(limit) || 1);
+  let res = await client.semanticSearch(project, query, { limit: wanted });
+  if (Array.isArray(res)) return res;
+  const items = [...(res.items || [])];
+  let page = res.page;
+  let guard = 0;
+  while (page?.hasMore && items.length < wanted && Number.isInteger(page.nextOffset) && guard < 100) {
+    guard += 1;
+    const next = await client.semanticSearch(project, query, { limit: wanted - items.length, offset: page.nextOffset });
+    if (Array.isArray(next)) break;
+    items.push(...(next.items || []));
+    page = next.page;
+    res = next;
+  }
+  // `hasMore` is the LAST page's answer: true only when matches remain beyond
+  // everything collected up to the requested bound.
+  return { ...res, items, page: page ? { ...page, returned: items.length, hasMore: Boolean(page.hasMore) } : page };
+}
+
 // One line describing pending vectors, or '' when the index is complete/unknown.
 export function coverageNote(result) {
-  if (!result || !result.degraded) return '';
+  if (!result) return '';
+  if (result.reason === 'coverage-unknown') return 'index coverage unknown: this server predates coverage reporting';
+  if (!result.degraded) return '';
   const index = result.index || {};
   const pending = Number(index.pending ?? 0);
   const total = Number(index.total ?? 0);
@@ -54,7 +87,7 @@ export async function recall(client, { query, project, limit = 5, recent = false
 
   let res;
   try {
-    res = await client.semanticSearch(project || undefined, query, { limit });
+    res = await collectSemantic(client, project || undefined, query, limit);
   } catch (err) {
     if (err && err.status === 409) {
       const docs = await client.keywordSearch(project || undefined, query, {});
@@ -69,11 +102,16 @@ export async function recall(client, { query, project, limit = 5, recent = false
   }
 
   // Both shapes: the paged object (with coverage) and the legacy bare array.
-  const list = Array.isArray(res) ? res : (Array.isArray(res?.items) ? res.items : []);
+  const legacy = Array.isArray(res);
+  const list = legacy ? res : (Array.isArray(res?.items) ? res.items : []);
   const coverage = {
-    degraded: !Array.isArray(res) && Boolean(res?.degraded),
-    reason: !Array.isArray(res) ? (res?.reason || null) : null,
-    index: !Array.isArray(res) ? (res?.index || null) : null,
+    degraded: !legacy && Boolean(res?.degraded),
+    // An old server answers with a bare array and no coverage at all: that is
+    // "unknown", not "complete", and the output must not imply otherwise.
+    reason: legacy ? 'coverage-unknown' : (res?.reason || null),
+    index: legacy ? null : (res?.index || null),
+    // What remains beyond the requested bound after paging up to it.
+    page: legacy ? null : (res?.page || null),
   };
   if (list.length === 0) return { kind: 'empty', query, note: null, ...coverage };
   const kept = list.slice(0, limit);
@@ -109,6 +147,8 @@ export function formatRecall(result) {
   if (result.note) lines.push(`(${result.note})`);
   const coverage = coverageNote(result);
   if (coverage) lines.push(`(${coverage} — results may be missing)`);
+  const bound = boundNote(result);
+  if (bound) lines.push(`(${bound})`);
   const top = result.top;
   const trust = trustLabel(top);
   lines.push(`## ${top.title || 'Untitled'}  (${top.documentType || 'note'} · ${top.id}${trust ? ` · ${trust}` : ''})`);

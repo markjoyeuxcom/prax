@@ -29,6 +29,25 @@ enough. Then fetch the installer through the GitHub CLI (`gh auth login` once):
 gh api -H "Accept: application/vnd.github.raw" repos/markjoyeuxcom/prax/contents/skills/install.sh | sh
 ```
 
+Without the GitHub CLI, fetch the installer with whatever access you do have:
+
+- **SSH key only** — check out just the `skills/` folder and run the installer from it:
+
+  ```bash
+  git clone --depth 1 --filter=blob:none --sparse git@github.com:markjoyeuxcom/prax.git /tmp/prax-skills \
+    && git -C /tmp/prax-skills sparse-checkout set --no-cone skills \
+    && PRAX_SKILLS_REPO=/tmp/prax-skills sh /tmp/prax-skills/skills/install.sh \
+    && rm -rf /tmp/prax-skills
+  ```
+
+- **A personal access token** with read access to the repository:
+
+  ```bash
+  curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github.raw" \
+    https://api.github.com/repos/markjoyeuxcom/prax/contents/skills/install.sh \
+    | PRAX_SKILLS_REPO="https://oauth2:$GITHUB_TOKEN@github.com/markjoyeuxcom/prax.git" sh
+  ```
+
 If the repository is ever made public, the plain form works too:
 `curl -fsSL https://raw.githubusercontent.com/markjoyeuxcom/prax/main/skills/install.sh | sh`.
 

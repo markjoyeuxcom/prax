@@ -64,26 +64,34 @@ fi
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT INT TERM
 
+# Every git command that may talk to the remote goes through here, so the gh
+# credential helper applies to the clone AND to the sparse checkout that
+# fetches the skills blobs afterwards (a blobless clone defers them). An empty
+# helper value resets git's inherited helper list; the next one is gh's.
+run_git() {
+  if [ -n "$CREDENTIAL_ARGS" ]; then
+    git -c credential.helper= -c 'credential.helper=!gh auth git-credential' "$@"
+  else
+    git "$@"
+  fi
+}
+
 # A blobless sparse clone fetches the skills/ folder only. --no-local keeps the
 # same code path for a local repository path (used by the self-test).
 # git prints a harmless "filtering not recognized" warning for local transports;
-# show the clone's stderr only when the clone actually fails.
-clone_ok=1
-if [ -n "$CREDENTIAL_ARGS" ]; then
-  # An empty helper value resets git's helper list; the next one is gh's.
-  git -c credential.helper= -c 'credential.helper=!gh auth git-credential' \
-    clone --quiet --no-local --depth 1 --branch "$REF" --filter=blob:none --sparse "$REPO" "$TMP/prax" 2>"$TMP/clone.err" || clone_ok=0
-else
-  git clone --quiet --no-local --depth 1 --branch "$REF" --filter=blob:none --sparse "$REPO" "$TMP/prax" 2>"$TMP/clone.err" || clone_ok=0
-fi
-if [ "$clone_ok" -ne 1 ]; then
+# show git's stderr only when a step actually fails.
+if ! run_git clone --quiet --no-local --depth 1 --branch "$REF" --filter=blob:none --sparse "$REPO" "$TMP/prax" 2>"$TMP/clone.err"; then
   cat "$TMP/clone.err" >&2
   echo "install.sh: could not clone $REPO@$REF over $TRANSPORT." >&2
   echo "install.sh: the repository is private. Log in with 'gh auth login' (HTTPS), register an SSH key on GitHub (SSH)," >&2
   echo "install.sh: or point PRAX_SKILLS_REPO at a URL or local path you can reach." >&2
   exit 1
 fi
-git -C "$TMP/prax" sparse-checkout set --no-cone skills >/dev/null
+if ! run_git -C "$TMP/prax" sparse-checkout set --no-cone skills >/dev/null 2>"$TMP/sparse.err"; then
+  cat "$TMP/sparse.err" >&2
+  echo "install.sh: cloned $REPO@$REF but could not fetch its skills/ folder over $TRANSPORT (check repository access)." >&2
+  exit 1
+fi
 
 mkdir -p "$DEST" "$CLAUDE_DIR"
 for s in $SKILLS; do

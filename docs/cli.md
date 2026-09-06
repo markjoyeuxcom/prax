@@ -87,10 +87,10 @@ prax init --project homelab
 
 If `--project` is omitted, `init` resolves the slug as `PRAX_PROJECT` > a **git remote match**
 against a project already registered with this repository's URL (so a second checkout adopts
-the existing project instead of creating a folder-named duplicate) > the folder name. It does
-not consult an existing `.prax/project.json`, since that is the file it writes. Inside a git
-repository it also registers the remote URL on the project. The file is safe to commit to the
-repo.
+the existing project instead of creating a folder-named duplicate) > an existing
+`.prax/project.json` found from the current directory upwards (re-written with the same slug) >
+the folder name. Inside a git repository it also registers the remote URL on the project. The
+file is safe to commit to the repo.
 
 ### `context [query...] [--json] [--limit <n>]`
 
@@ -166,8 +166,14 @@ prax recall --recent 5
 - An incomplete semantic index is disclosed rather than hidden: a hit prints
   `(index incomplete: N of M documents pending — results may be missing)`, and an empty result
   prints `No relevant memory found for: "…" (index incomplete: N of M documents pending — this
-  may not be a true miss)`. Only a plain `No relevant memory found` is an honest miss.
-- `--json` emits the structured result instead of the rendered block.
+  may not be a true miss)`. Only a plain `No relevant memory found` is an honest miss. A server
+  that predates coverage reporting is labelled `index coverage unknown`, never assumed complete.
+- `--limit <n>` bounds the matches kept in the structured result (default 5). The server answers
+  in pages of at most 50 and `recall` pages up to the bound; when matches remain beyond it the
+  block starts with `(N of M matches shown — raise --limit for the rest)`. The rendered
+  `Related:` list is deliberately short (five entries); `--json` carries every kept match.
+- `--json` emits the structured result instead of the rendered block, including `index`,
+  `degraded`, `reason` and `page`.
 
 ### `get <id> [--json]`
 

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { recall, formatRecall, coverageNote, trustLabel } from '../../cli/lib/recall.js';
+import { recall, formatRecall, coverageNote, boundNote, trustLabel } from '../../cli/lib/recall.js';
 
 const fakeClient = (overrides = {}) => ({
   semanticSearch: async () => [],
@@ -25,9 +25,13 @@ test('recall returns a hit with the top body fetched and related preserved', asy
   assert.deepEqual(result.related.map((r) => r.id), ['r1', 'r2']);
 });
 
-test('recall reports an honest miss on empty semantic results', async () => {
-  const result = await recall(fakeClient(), { query: 'nope' });
-  assert.deepEqual(result, { kind: 'empty', query: 'nope', note: null, degraded: false, reason: null, index: null });
+test('recall reports an honest miss on empty semantic results from a complete index', async () => {
+  const page = { offset: 0, limit: 5, returned: 0, total: 0, hasMore: false, nextOffset: null };
+  const client = fakeClient({
+    semanticSearch: async () => ({ items: [], page, index: { total: 3, embedded: 3, pending: 0 }, degraded: false, reason: null }),
+  });
+  const result = await recall(client, { query: 'nope' });
+  assert.deepEqual(result, { kind: 'empty', query: 'nope', note: null, degraded: false, reason: null, index: { total: 3, embedded: 3, pending: 0 }, page });
   assert.equal(formatRecall(result), 'No relevant memory found for: "nope"');
 });
 
@@ -140,4 +144,58 @@ test('trustLabel names verification and any non-active lifecycle status', () => 
   assert.equal(trustLabel({ verified: false }), 'unverified');
   assert.equal(trustLabel({ verified: true, status: 'superseded' }), 'verified, superseded');
   assert.equal(trustLabel(null), '');
+});
+
+test('recall says when the server held back matches beyond the limit', async () => {
+  const client = fakeClient({
+    semanticSearch: async () => ({
+      items: [{ id: 't', title: 'Top' }, { id: 'r', title: 'R' }],
+      page: { offset: 0, limit: 2, returned: 2, total: 9, hasMore: true, nextOffset: 2 },
+      index: { total: 9, embedded: 9, pending: 0 }, degraded: false, reason: null,
+    }),
+    getDocument: async () => ({ id: 't', body: 'B', verified: true, status: 'active' }),
+  });
+  const result = await recall(client, { query: 'x', limit: 2 });
+  assert.equal(result.page.hasMore, true);
+  assert.equal(boundNote(result), '2 of 9 matches shown — raise --limit for the rest');
+  assert.match(formatRecall(result), /^\(2 of 9 matches shown — raise --limit for the rest\)\n## Top/);
+  assert.equal(boundNote({ page: { hasMore: false } }), '');
+  assert.equal(boundNote({}), '');
+});
+
+test('recall pages the semantic route up to the requested limit instead of capping at one page', async () => {
+  const calls = [];
+  const all = Array.from({ length: 60 }, (_, i) => ({ id: `d${i}`, title: `Doc ${i}` }));
+  const client = fakeClient({
+    semanticSearch: async (project, q, opts) => {
+      calls.push(opts);
+      const offset = opts.offset || 0;
+      const limit = Math.min(opts.limit, 50);
+      const items = all.slice(offset, offset + limit);
+      const next = offset + items.length;
+      return { items, page: { offset, limit, returned: items.length, total: 60, hasMore: next < 60, nextOffset: next < 60 ? next : null }, index: { total: 60, embedded: 60, pending: 0 }, degraded: false, reason: null };
+    },
+    getDocument: async () => ({ id: 'd0', body: 'B' }),
+  });
+  const full = await recall(client, { query: 'x', limit: 100 });
+  assert.deepEqual(calls, [{ limit: 100 }, { limit: 50, offset: 50 }]);
+  assert.equal(1 + full.related.length, 60, 'every match up to the bound is retained in the structured result');
+  assert.equal(full.page.hasMore, false);
+  assert.equal(boundNote(full), '');
+
+  calls.length = 0;
+  const bounded = await recall(client, { query: 'x', limit: 55 });
+  assert.deepEqual(calls, [{ limit: 55 }, { limit: 5, offset: 50 }]);
+  assert.equal(1 + bounded.related.length, 55);
+  assert.equal(bounded.page.hasMore, true);
+  assert.equal(boundNote(bounded), '55 of 60 matches shown — raise --limit for the rest');
+});
+
+test('an old server that answers with a bare array is reported as unknown coverage, not a complete index', async () => {
+  const client = fakeClient({ semanticSearch: async () => [] });
+  const miss = await recall(client, { query: 'x' });
+  assert.equal(miss.reason, 'coverage-unknown');
+  assert.equal(formatRecall(miss), 'No relevant memory found for: "x" (index coverage unknown: this server predates coverage reporting — this may not be a true miss)');
+  const hit = await recall(fakeClient({ semanticSearch: async () => [{ id: 't', title: 'T' }], getDocument: async () => ({ id: 't', body: 'B' }) }), { query: 'x' });
+  assert.match(formatRecall(hit), /^\(index coverage unknown: this server predates coverage reporting — results may be missing\)/);
 });

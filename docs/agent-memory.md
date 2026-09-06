@@ -51,8 +51,9 @@ inside a single database transaction. That closes two holes the older read-then-
 path had: two agents remembering the same title at the same moment could both create it, and a
 superseded memory could be silently overwritten by a fresh one that active recall then never
 surfaced. Older servers without the endpoint get the read-then-write path with the same
-active-only rule. Every write carries a caller-stable operation `id`, and the server records a
-receipt for it before the title is touched — for updates as well as creates. Replaying a
+active-only rule. Every write carries a caller-stable operation `id`; inside the same transaction
+the server checks its receipts for that id before it looks at the title, and records a receipt
+after the write — for updates as well as creates. Replaying a
 completed operation returns the current document unchanged (`200`, `replayed: true`), so a
 delayed retry can never revert a newer memory; reusing the id with different content is `409`;
 a replay whose document has since been permanently deleted is `410` rather than a silent

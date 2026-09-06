@@ -123,3 +123,52 @@ test('install.sh explains a failed clone in terms of repository access', () => {
     rmSync(base, { recursive: true, force: true });
   }
 });
+
+test('with a gh login, both the clone and the sparse checkout carry the gh credential helper', () => {
+  // A blobless clone defers the skills blobs to the sparse checkout, so the
+  // credential helper has to apply to that second git command as well (F3).
+  const base = mkdtempSync(join(tmpdir(), 'prax-install-gh-'));
+  try {
+    const repo = sourceRepo(base);
+    const shims = join(base, 'bin');
+    mkdirSync(shims);
+    const log = join(base, 'git-args.log');
+    const realGit = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+    // `gh auth status` succeeds; `git` records its arguments, swaps the HTTPS
+    // URL for the local fixture repository, and runs the real git.
+    writeFileSync(join(shims, 'gh'), '#!/bin/sh\n[ "$1" = "auth" ] && [ "$2" = "status" ] && exit 0\nexit 1\n', { mode: 0o755 });
+    writeFileSync(join(shims, 'git'), `#!/bin/sh
+printf '%s\\n' "$*" >> "${log}"
+args=""
+for a in "$@"; do
+  if [ "$a" = "https://github.com/markjoyeuxcom/prax.git" ]; then a="${repo}"; fi
+  args="$args \\"$(printf '%s' "$a" | sed 's/"/\\\\"/g')\\""
+done
+eval set -- $args
+exec "${realGit}" "$@"
+`, { mode: 0o755 });
+    const dest = join(base, 'agents-skills');
+    const claude = join(base, 'claude-skills');
+    const result = spawnSync('sh', [installer], {
+      env: {
+        PATH: `${shims}:${dirname(process.execPath)}:${process.env.PATH}`,
+        HOME: process.env.HOME,
+        PRAX_SKILLS_DIR: dest,
+        PRAX_CLAUDE_SKILLS_DIR: claude,
+        // No PRAX_SKILLS_REPO: the installer must choose the gh HTTPS transport itself.
+      },
+      encoding: 'utf8',
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /over https \(gh credentials\)\./);
+    const invocations = readFileSync(log, 'utf8').trim().split('\n');
+    const helper = "-c credential.helper= -c credential.helper=!gh auth git-credential";
+    const clone = invocations.find((line) => line.includes(' clone '));
+    const sparse = invocations.find((line) => line.includes('sparse-checkout set'));
+    assert.ok(clone && clone.startsWith(helper), `clone carries the helper: ${clone}`);
+    assert.ok(sparse && sparse.startsWith(helper), `sparse checkout carries the helper: ${sparse}`);
+    assert.ok(existsSync(join(dest, 'prax-recall', 'SKILL.md')));
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});

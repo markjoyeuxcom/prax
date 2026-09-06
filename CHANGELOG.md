@@ -406,23 +406,28 @@ fresh empty `[Unreleased]` section is started.
   `tests/backend/libraryUpsertByTitle.test.js` (interleaved A/B/A, changed intent, delete).
 - **The CLI and skills bind to one Prax instance.** Discovery could fail a write over from the
   desktop app's port to `127.0.0.1:3000` and print the same success line, so a remember could
-  land in a second workspace unnoticed. A read may still probe both candidates; a write first
-  probes `/readyz` to pin an instance and is then sent only there, and the confirmation names the
-  base URL it wrote to.
+  land in a second workspace unnoticed. Each process now runs exactly one discovery (a `/readyz`
+  probe of the desktop port, then `127.0.0.1:3000`), shared by every request that arrives before
+  it finishes, and nothing re-pins the instance afterwards; every read and write goes only there,
+  a retry is a retry of the same instance, and the confirmation names the base URL it wrote to.
 - **Recall discloses an incomplete semantic index.** `prax recall`, `prax search` and the
   `prax-recall` skill used the unpaged route, which cannot report pending vectors, so a miss on
   an incomplete index read as an honest "no relevant memory". They now request the paged route
   and print `index incomplete: N of M documents have no current embedding`; `prax search --json`
   carries `retrieval.degraded`, `retrieval.reason`, `retrieval.index` and `retrieval.page`, and a
-  bounded page is disclosed.
+  bounded page is disclosed. Recall pages the server's 50-result pages up to `--limit` instead of
+  silently stopping at the first, says when matches remain beyond the bound, and labels an older
+  server that reports no coverage as unknown rather than complete.
 - **`recall --recent` is active-only.** Superseded and deprecated documents no longer appear as
   if current; recall hits and related lines now carry a trust label (`verified` / `unverified`,
   plus any non-active status).
 - `prax init` honours `PRAX_PROJECT` as the documented precedence promised.
 - `skills/install.sh` clones over HTTPS with the GitHub CLI's credentials when `gh` is logged in
-  (falling back to SSH), checks for Node 20+, accepts `PRAX_CLAUDE_SKILLS_DIR`, and explains a
-  failed clone in terms of repository access; a no-checkout uninstall is documented. The installer
-  now has its own regression test.
+  (falling back to SSH), applying them to the sparse checkout that fetches the skills blobs as
+  well as to the clone; it checks for Node 20+, accepts `PRAX_CLAUDE_SKILLS_DIR`, and explains a
+  failed clone or fetch in terms of repository access. A no-checkout uninstall and SSH-only and
+  token-based fetch paths are documented. The installer now has its own regression tests,
+  including the gh transport.
 - The release workflow published the container to the previous repository owner's registry
   namespace; it now targets `ghcr.io/markjoyeuxcom/prax`, runs the browser suite and dependency
   audit as part of the release quality gate, assembles the release body from this changelog, and
