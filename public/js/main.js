@@ -96,6 +96,7 @@ import {
 import { renderTodayHtml, buildTodayGroups } from './renderToday.js';
 import { renderPlanModeHtml } from './renderPlanMode.js';
 import { renderUpcomingHtml, buildUpcomingGroups } from './renderUpcoming.js';
+import { createExternalRefresh, installExternalRefreshTriggers, collectionFingerprint } from './externalRefresh.js';
 import { renderCalendarHtml, buildCalendarModel, monthKeyOf, shiftMonthKey } from './renderCalendar.js';
 import { renderFilterHtml, buildFilterGroups } from './renderFilter.js';
 import { parseTaskFilter, projectResolver } from './taskFilter.js';
@@ -345,6 +346,20 @@ async function loadDocuments() {
   setState({ documents });
   return true;
 }
+
+// Refresh after writes made OUTSIDE this window — the capture bar (its own
+// webview), the memory skills, the CLI, MCP, another tab. Tasks always; the
+// Library only when no document is open in the editor, whose own draft/merge
+// logic owns that case. Re-render only when something actually changed.
+async function refreshFromOutside() {
+  const before = `${collectionFingerprint(state.tasks)}#${collectionFingerprint(state.documents)}`;
+  await loadTasks({ announceReminders: false });
+  if (!state.editorDocId) await loadDocuments().catch(() => false);
+  const after = `${collectionFingerprint(state.tasks)}#${collectionFingerprint(state.documents)}`;
+  if (after !== before) renderApp();
+  return after !== before;
+}
+const externalRefresh = createExternalRefresh({ load: refreshFromOutside });
 
 async function loadDeploymentStatus() {
   setState({ deploymentStatus: { loading: true, error: '' } });
@@ -3475,6 +3490,7 @@ async function navigateTopLevel(patch) {
   if (!(await prepareEditorNavigation())) return false;
   setState({ editorFocus: false, ...patch });
   renderApp();
+  externalRefresh.trigger('navigate');
   return true;
 }
 
@@ -3498,6 +3514,7 @@ async function goProject(projectId, tab = 'list') {
     taskLabelDraftId: null, taskLabelDraft: '',
   });
   persistActiveProject(projectId);
+  externalRefresh.trigger('navigate');
   if (tab === 'archive') loadArchivedTasks().then(renderApp);
   renderApp();
   return true;
@@ -6413,6 +6430,9 @@ async function init() {
     // toast. Otherwise render once here. This avoids two consecutive full DOM
     // builds on every startup with due tasks.
     if (!checkDueReminders()) renderApp();
+    // From here on, regaining focus, becoming visible, navigating, or a
+    // capture-bar announcement refetches what other surfaces may have written.
+    installExternalRefreshTriggers({ refresh: externalRefresh });
     documentsPromise.then((applied) => {
       if (applied && (state.navType === 'library' || state.navType === 'settings')) renderApp();
     });
