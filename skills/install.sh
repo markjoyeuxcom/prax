@@ -5,7 +5,7 @@
 # ~/.agents/skills, read by Codex), links them into ~/.claude/skills (read by
 # Claude Code) and deletes the clone. Re-run to update.
 #
-#   curl -fsSL https://raw.githubusercontent.com/markjoyeuxcom/prax/main/skills/install.sh | sh
+#   gh api -H "Accept: application/vnd.github.raw" repos/markjoyeuxcom/prax/contents/skills/install.sh | sh
 #   sh install.sh --uninstall
 #
 # Overrides: PRAX_SKILLS_REPO (git URL or local path), PRAX_SKILLS_REF (branch/tag),

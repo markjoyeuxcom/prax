@@ -18,11 +18,15 @@ Claude Code and Codex read.
 
 ## Install without a checkout
 
-One command, both tools. It needs `git` (with access to this repository) and `node`:
+One command, both tools. It needs `git` (with access to this repository) and `node`. The
+repository is private, so fetch the installer through the GitHub CLI (`gh auth login` once):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/markjoyeuxcom/prax/main/skills/install.sh | sh
+gh api -H "Accept: application/vnd.github.raw" repos/markjoyeuxcom/prax/contents/skills/install.sh | sh
 ```
+
+If the repository is ever made public, the plain form works too:
+`curl -fsSL https://raw.githubusercontent.com/markjoyeuxcom/prax/main/skills/install.sh | sh`.
 
 It clones only the `skills/` folder into a temporary directory, copies the two
 skills to `~/.agents/skills/` (where Codex looks), links them into `~/.claude/skills/`

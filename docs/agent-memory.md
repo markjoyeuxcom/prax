@@ -96,9 +96,9 @@ the tasks/checklist suite and `derived-from` document linking, which the CLI doe
 
 - **In a checkout of this repo:** nothing to do. `.claude/skills/` and `.agents/skills/` link to
   `skills/`, so Claude Code and Codex both see `prax-recall` and `prax-remember`.
-- **On any other machine:** `curl -fsSL https://raw.githubusercontent.com/markjoyeuxcom/prax/main/skills/install.sh | sh`
-  installs the pack for both tools without keeping a checkout (git access to the repository is
-  required). Claude Code can alternatively install it as a plugin:
+- **On any other machine:** `gh api -H "Accept: application/vnd.github.raw" repos/markjoyeuxcom/prax/contents/skills/install.sh | sh`
+  installs the pack for both tools without keeping a checkout (the repository is private, so
+  `gh` and git access to it are required). Claude Code can alternatively install it as a plugin:
   `claude plugin marketplace add markjoyeuxcom/prax` then `claude plugin install prax@prax`.
   See [`skills/README.md`](../skills/README.md).
 
