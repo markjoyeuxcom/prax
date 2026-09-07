@@ -35,3 +35,11 @@ filename collision.
 - Confirmed: on the Free plan the hosted macOS and Linux ARM64 runners are not assignable (`no_matching_runner`). Resolved on 2026-09-07 by building macOS on the self-hosted runner tagged `macos` and dropping Linux ARM64 as a target.
 - Archiving the GitHub repository and pointing its README at GitLab (owner decision).
 - A Dependabot replacement (Renovate, or GitLab's dependency scanning on a paid tier).
+- The release job creates the release with `release-cli`, which GitLab deprecated in 18.0 (removal
+  planned for 20.0) in favour of `glab release create`. Migrate before then; the generic-package
+  uploads and `SHA256SUMS` do not depend on it.
+- Lessons from the first tag pipelines (2026-09-07): under docker:dind, buildx needs
+  `docker context create` before `docker buildx create`; and the multi-arch push must run with
+  `--provenance=false --sbom=false`, otherwise GitLab's registry rejects the index with
+  `blob unknown to registry`. The manual `container-preview` MR job exists so the next registry
+  problem is found on a merge request, not a release tag.
