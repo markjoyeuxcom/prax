@@ -60,10 +60,12 @@ Outputs land under `src-tauri/target/release/bundle/`:
 - Linux x64 and ARM64: `.deb` and `.AppImage` for each architecture
 
 Cross-compilation is not supported — build each platform on that platform
-(CI jobs or per-machine builds). Linux ARM64 uses GitLab's hosted `saas-linux-medium-arm64` runner
-to stage the ARM64 Node runtime and dependencies, build both installers, and run the same two-launch
-runtime smoke as Linux x64 (`saas-linux-medium-amd64`). Tagged releases attach the
-architecture-specific installers and checksums. See
+(CI jobs or per-machine builds). Linux x64 is built by the pipeline on GitLab's hosted
+`saas-linux-medium-amd64` runner, which stages the Node runtime and dependencies, builds both
+installers, and runs the two-launch runtime smoke. The Linux ARM64 job does the same on
+`saas-linux-medium-arm64` **when the plan provides that runner** (see below for the Free-plan
+reality); otherwise the ARM64 packages are built on an ARM64 machine by hand. Tagged releases
+attach the architecture-specific installers and checksums. See
 [Tauri’s ARM AppImage guidance](https://v2.tauri.app/distribute/appimage/#appimages-for-arm-based-devices).
 
 The `desktop-linux-arm64` and `desktop-macos-arm64` jobs target GitLab's hosted
