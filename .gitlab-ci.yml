@@ -179,18 +179,23 @@ desktop-macos-arm64:
     expire_in: 14 days
   rules: *rules-desktop
 
-# ---- container (tags only) -----------------------------------------------------
+# ---- container ----------------------------------------------------------------
 
-container:
+# Multi-arch server image. `container` runs on release tags and gates the
+# release; `container-preview` is a manual job on merge requests that pushes
+# the same build as `mr-<iid>` (never `latest`), so a registry or buildx
+# problem is found and fixed on the MR instead of on a release tag.
+.container:
   stage: container
   image: docker:27
+  # docker:dind needs a privileged runner. GitLab's shared runners are; the
+  # self-hosted `homelab` runner also accepts untagged jobs and its docker
+  # executor may not be, so this job is pinned to the hosted runner.
+  tags: [saas-linux-small-amd64]
   services:
     - docker:27-dind
   variables:
     DOCKER_TLS_CERTDIR: "/certs"
-  needs: [node-checks, browser-tests, desktop-linux-x64, desktop-macos-arm64]
-  rules:
-    - *rule-release-tag
   script:
     - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
     - docker run --privileged --rm tonistiigi/binfmt --install arm64
@@ -201,18 +206,22 @@ container:
     - docker context create prax-dind
     - docker buildx create --use --name prax prax-dind
     - |
-      version="$CI_COMMIT_TAG"
+      version="${CI_COMMIT_TAG:-mr-$CI_MERGE_REQUEST_IID}"
       tags="-t $CI_REGISTRY_IMAGE:$version"
       case "$version" in
-        *-*) ;;  # a prerelease is never `latest` or a floating major/minor tag
+        *-*) ;;  # a prerelease or preview is never `latest` or a floating major/minor tag
         *)
           minor="${version%.*}"; major="${minor%.*}"
           tags="$tags -t $CI_REGISTRY_IMAGE:$minor -t $CI_REGISTRY_IMAGE:$major -t $CI_REGISTRY_IMAGE:latest"
           ;;
       esac
       # The server image stays multi-arch (amd64 + arm64 hosts) even though
-      # desktop packages are x64 and Apple Silicon only.
+      # desktop packages are x64 and Apple Silicon only. Provenance and SBOM
+      # attestations are off: with them on, buildx pushed the multi-arch index
+      # before the registry had the platform manifests and GitLab's registry
+      # rejected it with "blob unknown to registry" (v0.21.0-rc.3).
       docker buildx build --platform linux/amd64,linux/arm64 -f deploy/Dockerfile \
+        --provenance=false --sbom=false \
         --label org.opencontainers.image.title=Prax \
         --label "org.opencontainers.image.description=Local-first operations workspace for tasks, runbooks, and Markdown knowledge." \
         --label org.opencontainers.image.licenses=MIT \
@@ -221,6 +230,21 @@ container:
         --cache-from "type=registry,ref=$CI_REGISTRY_IMAGE:buildcache" \
         --cache-to "type=registry,ref=$CI_REGISTRY_IMAGE:buildcache,mode=max" \
         $tags --push .
+    - docker buildx imagetools inspect "$CI_REGISTRY_IMAGE:$version"
+
+container:
+  extends: .container
+  needs: [node-checks, browser-tests, desktop-linux-x64, desktop-macos-arm64]
+  rules:
+    - *rule-release-tag
+
+container-preview:
+  extends: .container
+  needs: [node-checks, browser-tests]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: manual
+      allow_failure: true
 
 # ---- release (tags only) -------------------------------------------------------
 
