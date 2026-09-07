@@ -12,10 +12,10 @@ fixes; please upgrade to the newest version before reporting an issue.
 
 ## Reporting a Vulnerability
 
-Please report security vulnerabilities **privately** through GitHub's
-[private vulnerability reporting](https://github.com/markjoyeuxcom/prax/security/advisories/new)
-("Report a vulnerability" under the repository's **Security** tab). Do **not** open a public
-issue for a security problem.
+Please report security vulnerabilities **privately** as a
+[confidential issue](https://gitlab.com/markjoyeuxcom/apps/prax/-/issues/new?issue%5Bconfidential%5D=true)
+on the project (tick **This issue is confidential**), or by email to the maintainer if you have
+no GitLab access. Do **not** open a public issue for a security problem.
 
 Expect a best-effort response from a single maintainer. Reporters are credited in the resulting
 advisory unless they ask to remain anonymous.
@@ -40,10 +40,9 @@ Understand the trust boundary before exposing Prax to a network:
   (`PRAX_DB_FILE`) and environment-provided provider keys are never committed. Provider keys
   configured in the local UI are stored in the single-user SQLite database, so protect backups
   and the database file as secrets.
-- **Dependency scanning runs in CI.** Every push and pull request runs `npm audit
-  --audit-level=high`. Pull requests additionally run GitHub's dependency-review action when the
-  repository is public; on this private repository that action needs Advanced Security and is
-  skipped, so `npm audit` is the active dependency gate.
+- **Dependency scanning runs in CI.** Every merge request, push to `main` and release tag runs
+  `npm audit --audit-level=high` in the GitLab pipeline; a high-severity advisory fails the
+  pipeline and blocks a release.
 - **Desktop Library export is user-bounded.** The localhost webview can request a Library ZIP save,
   but cannot supply a destination path. The Rust shell always opens the operating system Save dialog
   and writes only the path the user confirms; no general filesystem-write permission is exposed.

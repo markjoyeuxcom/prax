@@ -7,10 +7,13 @@ Run it with plain Node (zero external dependencies — the database is an embedd
 ## Install
 
 **Desktop (recommended):** download the installer for your platform from the
-GitHub Releases page — `.dmg` (macOS Apple Silicon), `.deb`/`.AppImage` (Linux x64 or ARM64).
-Windows and Intel Mac installers are no longer built or released. Zero external dependencies: the
-database is an embedded file, created on first launch. Tagged releases include SHA-256 checksums and are published only after
-every supported package runs its isolated launch/migration/shutdown smoke journey. Update by quitting
+[GitLab Releases page](https://gitlab.com/markjoyeuxcom/apps/prax/-/releases) — `.dmg` (macOS
+Apple Silicon), `.deb`/`.AppImage` (Linux x64).
+Windows, Intel Mac and Linux ARM64 installers are not built or released. Zero external
+dependencies: the database is an embedded file, created on first launch. Tagged releases include
+SHA-256 checksums. Both packages are built and smoke-tested by the pipeline on the project's own
+runners (a Mac and a Linux x64 machine), and a release is only created once every package is
+present; the release body lists exactly what was attached (see BUILD.md). Update by quitting
 Prax and installing the newer package; the OS app-data directory remains in place. Building,
 backup-before-update, rollback, and signing details:
 [docs/desktop/BUILD.md](docs/desktop/BUILD.md).
@@ -69,7 +72,7 @@ it. See [docs/desktop/BUILD.md](docs/desktop/BUILD.md#menu-bar-quick-capture-and
 Clone the repo:
 
 ```bash
-git clone git@github.com:markjoyeuxcom/prax.git
+git clone git@gitlab.com:markjoyeuxcom/apps/prax.git
 cd prax
 ```
 
@@ -115,7 +118,8 @@ docker compose down -v
 
 ## Run The Published Image
 
-For release-style local testing, use the GitHub Container Registry image instead of building from source:
+For release-style local testing, use the GitLab Container Registry image instead of building from source
+(`docker login registry.gitlab.com` first; the project is private):
 
 ```bash
 docker compose -f compose.yaml -f compose.image.yaml up
@@ -124,7 +128,7 @@ docker compose -f compose.yaml -f compose.image.yaml up
 The image override uses:
 
 ```text
-ghcr.io/markjoyeuxcom/prax:v0.21.0
+registry.gitlab.com/markjoyeuxcom/apps/prax:v0.21.0
 ```
 
 Use source-build Compose for development, and use the published image path when you want to test the same artifact Kubernetes will run.
@@ -355,8 +359,8 @@ MIT. See [LICENSE](LICENSE).
 
 ## Repository
 
-GitHub:
+GitLab (moved from GitHub on 2026-09-07; the GitHub copy is retained read-only):
 
 ```text
-https://github.com/markjoyeuxcom/prax
+https://gitlab.com/markjoyeuxcom/apps/prax
 ```

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cutChangelog, mergeSubsections, parseArgs } from '../../scripts/prepare-release.mjs';
-import { changelogSection, parseTag, releaseNotes } from '../../scripts/release-notes.mjs';
+import { changelogSection, packageCoverage, parseTag, releaseNotes } from '../../scripts/release-notes.mjs';
 import { RELEASE_SITES, assertReleaseSitesAgree, IMAGE } from '../../scripts/release-sites.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -36,11 +36,11 @@ const SAMPLE = `# Changelog
 `;
 
 test('cutChangelog renames Unreleased, merges duplicate headings in Keep a Changelog order, and rewires the links', () => {
-  const out = cutChangelog(SAMPLE, '0.21.0', '2026-09-06', { repo: 'https://github.com/markjoyeuxcom/prax' });
+  const out = cutChangelog(SAMPLE, '0.21.0', '2026-09-06', { repo: 'https://gitlab.com/markjoyeuxcom/apps/prax' });
   assert.match(out, /^## \[Unreleased\]\n\n## \[0\.21\.0\] - 2026-09-06\n\n### Added\n\n- One addition\.\n\n### Fixed\n\n- One fix\.\n\n- A second fix under a duplicate heading\.\n\n## \[0\.20\.0\] - 2026-06-11/m);
   assert.equal((out.match(/^### Fixed$/gm) || []).length, 1, 'the two Fixed headings merged into one');
-  assert.match(out, /^\[Unreleased\]: https:\/\/github\.com\/markjoyeuxcom\/prax\/compare\/v0\.21\.0\.\.\.HEAD$/m);
-  assert.match(out, /^\[0\.21\.0\]: https:\/\/github\.com\/markjoyeuxcom\/prax\/compare\/v0\.20\.0\.\.\.v0\.21\.0$/m);
+  assert.match(out, /^\[Unreleased\]: https:\/\/gitlab\.com\/markjoyeuxcom\/apps\/prax\/-\/compare\/v0\.21\.0\.\.\.HEAD$/m);
+  assert.match(out, /^\[0\.21\.0\]: https:\/\/gitlab\.com\/markjoyeuxcom\/apps\/prax\/-\/compare\/v0\.20\.0\.\.\.v0\.21\.0$/m);
   assert.match(out, /^\[0\.20\.0\]: https:\/\/github\.com\/old\/name\/compare\/v0\.19\.2\.\.\.v0\.20\.0$/m, 'older links are left alone');
 });
 
@@ -65,10 +65,10 @@ test('parseArgs accepts a plain version and refuses prerelease versions and bad 
 
 test('release notes name the container tag, state that installers are unsigned, and embed the changelog section', () => {
   const changelog = cutChangelog(SAMPLE, '0.21.0', '2026-09-06');
-  const notes = releaseNotes({ changelog, tag: 'v0.21.0-rc.1', image: 'ghcr.io/markjoyeuxcom/prax' });
+  const notes = releaseNotes({ changelog, tag: 'v0.21.0-rc.1', image: 'registry.gitlab.com/markjoyeuxcom/apps/prax' });
   assert.match(notes, /^This is a release candidate \(`rc\.1`\) for 0\.21\.0/);
-  assert.match(notes, /ghcr\.io\/markjoyeuxcom\/prax:v0\.21\.0-rc\.1/);
-  assert.match(notes, /\*\*They are unsigned and not notarized\*\*/);
+  assert.match(notes, /registry\.gitlab\.com\/markjoyeuxcom\/apps\/prax:v0\.21\.0-rc\.1/);
+  assert.match(notes, /\*\*All installers are unsigned and not notarized\*\*/);
   assert.match(notes, /## Changes in 0\.21\.0\n\n### Added\n\n- One addition\./);
   assert.doesNotMatch(notes, /Older\./, 'only the tagged version\'s section is included');
   assert.doesNotMatch(releaseNotes({ changelog, tag: 'v0.21.0' }), /release candidate/);
@@ -98,5 +98,32 @@ test('assertReleaseSitesAgree names every drifted site', () => {
     () => assertReleaseSitesAgree(current, { read: (file) => texts.get(file) }),
     (error) => error.message.includes('compose.image.yaml: published image tag is 0.0.1') && !error.message.includes('package.json'),
   );
-  assert.equal(IMAGE, 'ghcr.io/markjoyeuxcom/prax');
+  assert.equal(IMAGE, 'registry.gitlab.com/markjoyeuxcom/apps/prax');
+});
+
+test('the current changelog section, which becomes the release body, carries no GitHub-era commands', () => {
+  const changelog = readFileSync(join(root, 'CHANGELOG.md'), 'utf8');
+  const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
+  const notes = releaseNotes({ changelog, tag: `v${version}` });
+  const staleClaims = ['allowed to fail on tags', 'by hand and attached', 'Linux x64 or ARM64', 'built on an ARM64 Linux machine'];
+  for (const stale of ['gh api', 'gh auth', 'ghcr.io', 'marketplace add markjoyeuxcom/prax', 'GitHub release body', 'github.com/markjoyeuxcom', ...staleClaims]) {
+    assert.doesNotMatch(notes, new RegExp(stale.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `release body must not tell readers to use "${stale}"`);
+  }
+  assert.match(notes, /registry\.gitlab\.com\/markjoyeuxcom\/apps\/prax:v/);
+});
+
+test('release notes list exactly the packages the pipeline attached and name every platform it could not build', () => {
+  const changelog = cutChangelog(SAMPLE, '0.21.0', '2026-09-06');
+  const assets = ['Prax_0.21.0_amd64.AppImage', 'Prax_0.21.0_amd64.deb', 'SHA256SUMS'];
+  const notes = releaseNotes({ changelog, tag: 'v0.21.0-rc.3', assets });
+  assert.match(notes, /## Packages attached by the pipeline\n\n- \*\*macOS Apple Silicon\*\*: not built by this pipeline; it is built and smoke-tested on a Mac/);
+  assert.match(notes, /- \*\*Linux x64\*\*: `Prax_0\.21\.0_amd64\.AppImage`, `Prax_0\.21\.0_amd64\.deb`/);
+  assert.doesNotMatch(notes, /Linux ARM64/, 'Linux ARM64 is no longer a supported package');
+  assert.match(notes, /`SHA256SUMS` covers every file the pipeline attached/);
+  const full = releaseNotes({ changelog, tag: 'v0.21.0', assets: [...assets, 'Prax_0.21.0_aarch64.dmg', 'Prax-macos-arm64.app.tar.gz'] });
+  assert.doesNotMatch(full, /not built by this pipeline/);
+  assert.match(full, /- \*\*macOS Apple Silicon\*\*: `Prax_0\.21\.0_aarch64\.dmg`, `Prax-macos-arm64\.app\.tar\.gz`/, 'every attached macOS file is named');
+  assert.match(releaseNotes({ changelog, tag: 'v0.21.0', assets: [...assets, 'Prax_0.21.0_aarch64.dmg'] }), /\*\*macOS Apple Silicon\*\*: not built by this pipeline/, 'a dmg without its app tarball is not a complete macOS build');
+  assert.equal(packageCoverage(assets).filter((p) => p.complete).map((p) => p.name).join(), 'Linux x64');
+  assert.doesNotMatch(releaseNotes({ changelog, tag: 'v0.21.0' }), /## Packages attached/, 'no assets list without an assets directory');
 });
