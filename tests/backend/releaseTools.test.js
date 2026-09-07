@@ -117,9 +117,9 @@ test('release notes list exactly the packages the pipeline attached and name eve
   const notes = releaseNotes({ changelog, tag: 'v0.21.0-rc.3', assets });
   assert.match(notes, /## Packages attached by the pipeline\n\n- \*\*macOS Apple Silicon\*\*: not built by this pipeline; it is built and smoke-tested on a Mac/);
   assert.match(notes, /- \*\*Linux x64\*\*: `Prax_0\.21\.0_amd64\.AppImage`, `Prax_0\.21\.0_amd64\.deb`/);
-  assert.match(notes, /- \*\*Linux ARM64\*\*: not built by this pipeline; it is built on an ARM64 Linux machine/);
+  assert.doesNotMatch(notes, /Linux ARM64/, 'Linux ARM64 is no longer a supported package');
   assert.match(notes, /`SHA256SUMS` covers every file the pipeline attached/);
-  const full = releaseNotes({ changelog, tag: 'v0.21.0', assets: [...assets, 'Prax_0.21.0_arm64.deb', 'Prax_0.21.0_aarch64.AppImage', 'Prax_0.21.0_aarch64.dmg', 'Prax-macos-arm64.app.tar.gz'] });
+  const full = releaseNotes({ changelog, tag: 'v0.21.0', assets: [...assets, 'Prax_0.21.0_aarch64.dmg', 'Prax-macos-arm64.app.tar.gz'] });
   assert.doesNotMatch(full, /not built by this pipeline/);
   assert.match(full, /- \*\*macOS Apple Silicon\*\*: `Prax_0\.21\.0_aarch64\.dmg`, `Prax-macos-arm64\.app\.tar\.gz`/, 'every attached macOS file is named');
   assert.match(releaseNotes({ changelog, tag: 'v0.21.0', assets: [...assets, 'Prax_0.21.0_aarch64.dmg'] }), /\*\*macOS Apple Silicon\*\*: not built by this pipeline/, 'a dmg without its app tarball is not a complete macOS build');

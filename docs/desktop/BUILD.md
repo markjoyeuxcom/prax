@@ -12,8 +12,9 @@ file with the webview profile rather than deleting it to work around a collision
 origin only after `/readyz` answers. The database is an embedded
 SQLite file — a packaged install has **zero external dependencies**.
 
-Supported desktop builds and releases target **macOS Apple Silicon**, **Linux x64** and **Linux ARM64**.
-Windows and Intel Mac installers are no longer built or released.
+Supported desktop builds and releases target **macOS Apple Silicon** and **Linux x64**.
+Windows, Intel Mac and Linux ARM64 installers are not built or released (Linux ARM64 was dropped on
+2026-09-07 when the pipeline moved to the project's own runners).
 
 ## Prerequisites
 
@@ -57,31 +58,31 @@ npm run desktop:build
 Outputs land under `src-tauri/target/release/bundle/`:
 
 - macOS Apple Silicon: `.app` and `.dmg`
-- Linux x64 and ARM64: `.deb` and `.AppImage` for each architecture
+- Linux x64: `.deb` and `.AppImage`
 
-Cross-compilation is not supported — build each platform on that platform
-(CI jobs or per-machine builds). Linux x64 is built by the pipeline on the self-hosted `homelab`
-group runner (Linux amd64, no compute minutes), which stages the Node runtime and dependencies,
-builds both installers, and runs the two-launch runtime smoke. The Linux ARM64 job does the same on
-`saas-linux-medium-arm64` **when the plan provides that runner** (see below for the Free-plan
-reality); otherwise the ARM64 packages are built on an ARM64 machine by hand. Tagged releases
-attach the architecture-specific installers and checksums. See
-[Tauri’s ARM AppImage guidance](https://v2.tauri.app/distribute/appimage/#appimages-for-arm-based-devices).
+Cross-compilation is not supported — build each platform on that platform. The pipeline builds
+both on self-hosted group runners, so neither costs compute minutes:
 
-The `desktop-linux-arm64` and `desktop-macos-arm64` jobs target GitLab's hosted
-`saas-linux-medium-arm64` and `saas-macos-medium-m1` runners. **On the Free plan those runners are
-not assignable**: the jobs fail immediately with `no_matching_runner` (observed on 2026-09-07), so
-both are allowed to fail on release tags and are manual on merge requests, and the release body
-lists exactly which packages the pipeline attached. On a plan that provides those runners the jobs
-simply succeed and the packages arrive with the rest. To use your own machine instead, register a
-runner and change the job's tag. When a job did not produce its package, build it on that platform
-by hand and attach it to the release, for example for macOS:
+| Job | Runner tag | Host | What the job installs itself |
+|---|---|---|---|
+| `desktop-linux-x64` | `homelab` | Linux amd64, runs the job in the `node:24-bookworm` image | WebKitGTK/GTK toolchain, Rust (rustup), xvfb/dbus smoke harness |
+| `desktop-macos-arm64` | `macos` | Apple Silicon Mac | nothing: the Mac must already have Node 24, Rust stable (`~/.cargo/bin`) and the Xcode command line tools |
+
+Each job stages the Node runtime and dependencies, builds the installers, runs the two-launch
+runtime smoke, and hands its packages to the release job as artifacts. Tagged releases attach both
+platforms' installers and checksums, and the release is only created once every package is present.
+GitLab's hosted macOS and Linux ARM64 runners (`saas-macos-medium-m1`, `saas-linux-medium-arm64`)
+are not assignable on the project's Free plan, which is why the self-hosted runners exist and why
+Linux ARM64 is no longer a supported target. If a self-hosted runner is offline the tag pipeline
+waits for it rather than releasing without its package; bring the runner back (or replace it,
+keeping the tag) and the pending job starts.
+
+To build a package by hand instead, for example on a Mac:
 
 ```bash
 npm ci && npm run desktop:build              # .dmg and .app under src-tauri/target/release/bundle/
 npm run desktop:smoke                        # two-launch runtime smoke of the built app
-glab release upload v0.21.0 src-tauri/target/release/bundle/dmg/Prax_0.21.0_aarch64.dmg
-shasum -a 256 src-tauri/target/release/bundle/dmg/Prax_0.21.0_aarch64.dmg   # add to the release notes
+shasum -a 256 src-tauri/target/release/bundle/dmg/Prax_0.21.0_aarch64.dmg
 ```
 
 ## Where user data lives
@@ -194,13 +195,12 @@ directory is removed on success and retained in the error message on failure.
 ## Releases and updates
 
 CI runs on GitLab (`.gitlab-ci.yml`). Every merge request and push to `main` runs the Node checks,
-the unit and contract suite, the dependency audit and the browser suite; the Linux desktop jobs are
-**manual** there (they cost about fifteen compute minutes each) and automatic on release tags. A
-release tag `vX.Y.Z` or `vX.Y.Z-rc.N` is the distribution gate: the quality gate, both Linux
-desktop builds with their packaged-runtime smoke and the multi-arch container must succeed before
-one GitLab release is created with the Linux packages, `SHA256SUMS`, and the changelog section as
-its body. A missing Linux package is fatal. The macOS package is attached afterwards as described
-above; the release notes say so.
+the unit and contract suite, the dependency audit and the browser suite on GitLab's shared runners;
+the two desktop jobs are **manual** there (each takes ten to fifteen minutes on its self-hosted
+runner) and automatic on release tags. A release tag `vX.Y.Z` or `vX.Y.Z-rc.N` is the
+distribution gate: the quality gate, both desktop builds with their packaged-runtime smoke and the
+multi-arch container must succeed before one GitLab release is created with every package,
+`SHA256SUMS`, and the changelog section as its body. A missing package is fatal.
 
 Prax currently uses a deliberate installer update, not an in-app updater:
 

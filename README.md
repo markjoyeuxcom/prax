@@ -8,13 +8,12 @@ Run it with plain Node (zero external dependencies — the database is an embedd
 
 **Desktop (recommended):** download the installer for your platform from the
 [GitLab Releases page](https://gitlab.com/markjoyeuxcom/apps/prax/-/releases) — `.dmg` (macOS
-Apple Silicon), `.deb`/`.AppImage` (Linux x64 or ARM64).
-Windows and Intel Mac installers are no longer built or released. Zero external dependencies: the
-database is an embedded file, created on first launch. Tagged releases include SHA-256 checksums.
-Every package the pipeline attaches has run its isolated launch/migration/shutdown smoke journey
-first; the release body lists exactly which ones those are. GitLab's hosted macOS and Linux ARM64
-runners are not available on the project's current plan, so those two packages are built and
-smoke-tested on that platform by hand and attached to the same release (see BUILD.md). Update by quitting
+Apple Silicon), `.deb`/`.AppImage` (Linux x64).
+Windows, Intel Mac and Linux ARM64 installers are not built or released. Zero external
+dependencies: the database is an embedded file, created on first launch. Tagged releases include
+SHA-256 checksums. Both packages are built and smoke-tested by the pipeline on the project's own
+runners (a Mac and a Linux x64 machine), and a release is only created once every package is
+present; the release body lists exactly what was attached (see BUILD.md). Update by quitting
 Prax and installing the newer package; the OS app-data directory remains in place. Building,
 backup-before-update, rollback, and signing details:
 [docs/desktop/BUILD.md](docs/desktop/BUILD.md).

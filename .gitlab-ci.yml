@@ -2,19 +2,19 @@
 #
 # What runs when:
 # - Merge requests and the default branch: Node syntax/bundle check, the unit +
-#   contract suite, the dependency audit, and the Chromium browser suite.
-# - Linux x64 desktop package: built on the self-hosted `homelab` runner;
-#   automatic on release tags, MANUAL on merge requests and main, never
-#   blocking. It is the one package a release cannot ship without.
-# - Linux ARM64 and macOS Apple Silicon: GitLab's hosted `saas-linux-medium-arm64`
-#   and `saas-macos-medium-m1` runners. On the Free plan those runners are not
-#   assignable (the jobs fail at once with `no_matching_runner`), so both jobs are
-#   allowed to fail on release tags and manual elsewhere. Packages they did not
-#   produce are built on that platform by hand and attached to the release; the
-#   release body lists exactly what the pipeline attached (docs/desktop/BUILD.md).
-# - Tags vX.Y.Z or vX.Y.Z-pre: quality gate → desktop builds → multi-arch
-#   container to this project's registry → a release with SHA256SUMS and the
-#   CHANGELOG section plus the attached-package list as its body.
+#   contract suite, the dependency audit, and the Chromium browser suite, on
+#   GitLab's shared runners.
+# - Desktop packages, both on self-hosted group runners so they cost no compute
+#   minutes: Linux x64 on the runner tagged `homelab` (Linux amd64) and macOS
+#   Apple Silicon on the runner tagged `macos` (darwin arm64, Node 24, Rust
+#   stable and Xcode command line tools installed). Automatic on release tags,
+#   MANUAL on merge requests and main, never blocking there.
+# - Tags vX.Y.Z or vX.Y.Z-pre: quality gate → both desktop builds with their
+#   packaged-runtime smoke → multi-arch container to this project's registry →
+#   a release with every package, SHA256SUMS and the CHANGELOG section as its
+#   body. A missing package fails the release. If a self-hosted runner is
+#   offline the tag pipeline waits for it (a stuck job fails after the runner
+#   timeout) rather than releasing without its package.
 #
 # Contract: tests/contract/desktopReleaseWorkflow.test.js pins these rules.
 
@@ -37,6 +37,13 @@ default:
 
 .rules-release-tag: &rule-release-tag
   if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/
+
+# Desktop builds: automatic on release tags, manual and non-blocking elsewhere.
+.rules-desktop: &rules-desktop
+  - *rule-release-tag
+  - if: $CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    when: manual
+    allow_failure: true
 
 .node:
   image: $NODE_IMAGE
@@ -81,9 +88,12 @@ browser-tests:
 
 # ---- desktop -------------------------------------------------------------------
 
-.desktop-linux:
+# Linux x64 on the self-hosted `homelab` runner. The job runs in the Node image
+# and installs the WebKitGTK toolchain, Rust, and the xvfb/dbus smoke harness.
+desktop-linux-x64:
   stage: desktop
   image: $NODE_IMAGE
+  tags: [homelab]
   needs: [node-checks]
   variables:
     # Cargo strips Prax; linuxdeploy must preserve modern system-library ELF sections.
@@ -133,50 +143,20 @@ browser-tests:
     name: "$CI_JOB_NAME"
     paths: [release-assets/]
     expire_in: 14 days
-  rules:
-    - *rule-release-tag
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      when: manual
-      allow_failure: true
+  rules: *rules-desktop
 
-# Runs on the self-hosted `homelab` group runner (Linux amd64) rather than a
-# hosted runner, so it costs no compute minutes.
-desktop-linux-x64:
-  extends: .desktop-linux
-  tags: [homelab]
-
-# Not assignable on the Free plan (no_matching_runner); allowed to fail on tags.
-desktop-linux-arm64:
-  extends: .desktop-linux
-  tags: [saas-linux-medium-arm64]
-  rules:
-    - <<: *rule-release-tag
-      allow_failure: true
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      when: manual
-      allow_failure: true
-
-# GitLab's hosted Apple Silicon runner (`saas-macos-medium-m1`, billed at a
-# higher compute-minute factor than Linux). Automatic on release tags but
-# allowed to fail, so a plan that cannot run it never blocks a release; manual
-# elsewhere. To use a self-hosted Mac instead, register a runner and change the
-# tag. If the job did not run, build the .dmg on a Mac and attach it
-# (docs/desktop/BUILD.md).
+# macOS Apple Silicon on the self-hosted `macos` runner (a Mac with Node 24,
+# Rust stable and the Xcode command line tools already installed).
 desktop-macos-arm64:
   stage: desktop
-  tags: [saas-macos-medium-m1]
+  tags: [macos]
   needs: [node-checks]
-  variables:
-    HOMEBREW_NO_AUTO_UPDATE: "1"
   before_script:
-    # The hosted image ships Xcode tools and Homebrew; bring Node 24 and Rust.
-    - brew install node@24 rustup >/dev/null && brew link --overwrite --force node@24 >/dev/null
-    - rustup-init -y --profile minimal --component rustfmt >/dev/null 2>&1 || true
-    - export PATH="$HOME/.cargo/bin:/opt/homebrew/opt/node@24/bin:$PATH"
-    - node --version && npm --version && cargo --version
+    # The runner's shell is not a login shell: put rustup's and mise's tools on PATH.
+    - export PATH="$HOME/.cargo/bin:$HOME/.local/share/mise/shims:$PATH"
+    - node --version && npm --version && cargo --version && xcode-select -p
     - npm ci --prefer-offline --no-audit --no-fund
   script:
-    - export PATH="$HOME/.cargo/bin:/opt/homebrew/opt/node@24/bin:$PATH"
     - npm run prepare:sidecar
     - |
       if [ -n "$CI_COMMIT_TAG" ]; then
@@ -197,12 +177,7 @@ desktop-macos-arm64:
     name: "$CI_JOB_NAME"
     paths: [release-assets/]
     expire_in: 14 days
-  rules:
-    - <<: *rule-release-tag
-      allow_failure: true
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      when: manual
-      allow_failure: true
+  rules: *rules-desktop
 
 # ---- container (tags only) -----------------------------------------------------
 
@@ -213,9 +188,7 @@ container:
     - docker:27-dind
   variables:
     DOCKER_TLS_CERTDIR: "/certs"
-  # The image is multi-arch through buildx regardless of which desktop
-  # packages the plan could build; only the x64 desktop build gates it.
-  needs: [node-checks, browser-tests, desktop-linux-x64]
+  needs: [node-checks, browser-tests, desktop-linux-x64, desktop-macos-arm64]
   rules:
     - *rule-release-tag
   script:
@@ -232,6 +205,8 @@ container:
           tags="$tags -t $CI_REGISTRY_IMAGE:$minor -t $CI_REGISTRY_IMAGE:$major -t $CI_REGISTRY_IMAGE:latest"
           ;;
       esac
+      # The server image stays multi-arch (amd64 + arm64 hosts) even though
+      # desktop packages are x64 and Apple Silicon only.
       docker buildx build --platform linux/amd64,linux/arm64 -f deploy/Dockerfile \
         --label org.opencontainers.image.title=Prax \
         --label "org.opencontainers.image.description=Local-first operations workspace for tasks, runbooks, and Markdown knowledge." \
@@ -253,12 +228,8 @@ release:
     - container
     - job: desktop-linux-x64
       artifacts: true
-    - job: desktop-linux-arm64
-      artifacts: true
-      optional: true
     - job: desktop-macos-arm64
       artifacts: true
-      optional: true
   rules:
     - *rule-release-tag
   before_script:
@@ -269,9 +240,9 @@ release:
   script:
     - |
       cd release-assets
-      # The Linux x64 packages are the ones a release cannot ship without; a
-      # collision would hide one. What else is present is listed in the body.
+      # Every supported package must be present; a collision would hide one.
       test -n "$(ls *_amd64.deb 2>/dev/null)" && test -n "$(ls *_amd64.AppImage 2>/dev/null)"
+      test -n "$(ls *.dmg 2>/dev/null)" && test -n "$(ls *.app.tar.gz 2>/dev/null)"
       test -z "$(ls | sort | uniq -d)"
       sha256sum * > SHA256SUMS
       cd ..
