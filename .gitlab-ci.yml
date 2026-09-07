@@ -3,9 +3,9 @@
 # What runs when:
 # - Merge requests and the default branch: Node syntax/bundle check, the unit +
 #   contract suite, the dependency audit, and the Chromium browser suite.
-# - Linux x64 desktop package: automatic on release tags; MANUAL on merge
-#   requests and main (~15 compute minutes), never blocking. It is the one
-#   package a release cannot ship without.
+# - Linux x64 desktop package: built on the self-hosted `homelab` runner;
+#   automatic on release tags, MANUAL on merge requests and main, never
+#   blocking. It is the one package a release cannot ship without.
 # - Linux ARM64 and macOS Apple Silicon: GitLab's hosted `saas-linux-medium-arm64`
 #   and `saas-macos-medium-m1` runners. On the Free plan those runners are not
 #   assignable (the jobs fail at once with `no_matching_runner`), so both jobs are
@@ -139,9 +139,11 @@ browser-tests:
       when: manual
       allow_failure: true
 
+# Runs on the self-hosted `homelab` group runner (Linux amd64) rather than a
+# hosted runner, so it costs no compute minutes.
 desktop-linux-x64:
   extends: .desktop-linux
-  tags: [saas-linux-medium-amd64]
+  tags: [homelab]
 
 # Not assignable on the Free plan (no_matching_runner); allowed to fail on tags.
 desktop-linux-arm64:

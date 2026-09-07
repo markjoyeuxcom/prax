@@ -10,7 +10,7 @@ the Linux rate, and three release candidates plus their pull-request builds land
 | Surface | Before | After |
 |---|---|---|
 | CI | `.github/workflows/{ci,desktop,release}.yml` | `.gitlab-ci.yml`: `check` → `test` → `desktop` → `container` → `release` |
-| Merge requests / `main` | Node checks, browser suite, audit; desktop builds on any desktop-affecting PR | same checks; Linux desktop builds **manual** (about fifteen compute minutes each) |
+| Merge requests / `main` | Node checks, browser suite, audit; desktop builds on any desktop-affecting PR | same checks; Linux desktop builds **manual**; x64 on the self-hosted `homelab` runner (no compute minutes) |
 | Release tag | quality → 3 desktop builds → container → GitHub release | quality → 2 Linux desktop builds → multi-arch container → GitLab release with generic-package assets and `SHA256SUMS` |
 | macOS and Linux ARM64 packages | GitHub-hosted runners | GitLab hosted `saas-macos-medium-m1` / `saas-linux-medium-arm64` jobs, allowed to fail (not assignable on the Free plan: `no_matching_runner`); the release body lists what was attached; missing packages built by hand and attached with `glab release upload` |
 | Container registry | `ghcr.io/markjoyeuxcom/prax` | `registry.gitlab.com/markjoyeuxcom/apps/prax` (`scripts/release-sites.mjs` `IMAGE`, compose, deploy manifests, README, docs) |
