@@ -64,6 +64,7 @@ test('a tagged release waits for the quality gate, both packages and the contain
   assert.match(container, /needs: \[node-checks, browser-tests, desktop-linux-x64, desktop-macos-arm64\]/);
   assert.match(container, /rules:\n    - \*rule-release-tag/);
   const build = job('.container');
+  assert.match(build, /tags: \[saas-linux-small-amd64\]/, 'docker:dind needs a privileged runner; the untagged-job-accepting homelab runner is not known to be');
   assert.match(build, /--platform linux\/amd64,linux\/arm64/);
   assert.match(build, /docker context create prax-dind\n\s*- docker buildx create --use --name prax prax-dind/, 'buildx needs a named context under docker:dind TLS (rc.3 failed without one)');
   assert.match(build, /--provenance=false --sbom=false/, 'attestations made GitLab\'s registry reject the multi-arch index (rc.3)');

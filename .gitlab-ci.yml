@@ -188,6 +188,10 @@ desktop-macos-arm64:
 .container:
   stage: container
   image: docker:27
+  # docker:dind needs a privileged runner. GitLab's shared runners are; the
+  # self-hosted `homelab` runner also accepts untagged jobs and its docker
+  # executor may not be, so this job is pinned to the hosted runner.
+  tags: [saas-linux-small-amd64]
   services:
     - docker:27-dind
   variables:
