@@ -63,6 +63,7 @@ test('a tagged release waits for the quality gate, both packages and the contain
   assert.match(container, /needs: \[node-checks, browser-tests, desktop-linux-x64, desktop-macos-arm64\]/);
   assert.match(container, /rules:\n    - \*rule-release-tag/);
   assert.match(container, /--platform linux\/amd64,linux\/arm64/);
+  assert.match(container, /docker context create prax-dind\n\s*- docker buildx create --use --name prax prax-dind/, 'buildx needs a named context under docker:dind TLS (rc.3 failed without one)');
   assert.match(container, /\*-\*\) ;;/, 'a prerelease tag must not become latest');
   const release = job('release');
   assert.match(release, /needs:\n    - node-checks\n    - browser-tests\n    - container\n    - job: desktop-linux-x64\n      artifacts: true\n    - job: desktop-macos-arm64\n      artifacts: true\n  rules:/);
