@@ -105,7 +105,8 @@ test('the current changelog section, which becomes the release body, carries no 
   const changelog = readFileSync(join(root, 'CHANGELOG.md'), 'utf8');
   const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
   const notes = releaseNotes({ changelog, tag: `v${version}` });
-  for (const stale of ['gh api', 'gh auth', 'ghcr.io', 'marketplace add markjoyeuxcom/prax', 'GitHub release body', 'github.com/markjoyeuxcom']) {
+  const staleClaims = ['allowed to fail on tags', 'by hand and attached', 'Linux x64 or ARM64', 'built on an ARM64 Linux machine'];
+  for (const stale of ['gh api', 'gh auth', 'ghcr.io', 'marketplace add markjoyeuxcom/prax', 'GitHub release body', 'github.com/markjoyeuxcom', ...staleClaims]) {
     assert.doesNotMatch(notes, new RegExp(stale.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `release body must not tell readers to use "${stale}"`);
   }
   assert.match(notes, /registry\.gitlab\.com\/markjoyeuxcom\/apps\/prax:v/);

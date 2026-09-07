@@ -41,6 +41,13 @@ test('the Linux x64 job builds on the homelab runner: verify, build, test, packa
   assert.doesNotMatch(pipeline, /desktop-linux-arm64|saas-linux-medium-arm64/, 'Linux ARM64 packages are no longer built');
 });
 
+test('exactly two desktop jobs exist and nothing in the pipeline is optional', () => {
+  const desktopJobs = [...pipeline.matchAll(/^(desktop-[\w-]+):$/gm)].map((m) => m[1]);
+  assert.deepEqual(desktopJobs, ['desktop-linux-x64', 'desktop-macos-arm64'], 'the supported targets are Linux x64 and macOS Apple Silicon, one job each');
+  assert.doesNotMatch(pipeline, /optional: true/, 'a release never treats a package as optional');
+  assert.equal((pipeline.match(/allow_failure: true/g) || []).length, 1, 'allow_failure appears only in the shared manual-on-merge-request rule');
+});
+
 test('the macOS job builds on the macos runner and is required for a release', () => {
   const mac = job('desktop-macos-arm64');
   assert.match(mac, /tags: \[macos\]/, 'the macOS build runs on the self-hosted macos runner');
