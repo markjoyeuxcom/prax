@@ -413,7 +413,10 @@ fresh empty `[Unreleased]` section is started.
 - **The capture bar no longer floats in a white slab.** Its page paints only the rounded bar and
   leaves the rest transparent, but the window itself was opaque, so the unused part of the
   640×128 surface showed as a white block around the bar. The capture window is now transparent
-  (`macOSPrivateApi` enabled for the webview background on macOS).
+  (`macOSPrivateApi` enabled for the webview background on macOS) and draws no window shadow:
+  macOS rendered that shadow for the whole rounded frame, which on a transparent window still
+  showed as a pale rounded slab with an outline behind the bar (rc.2); the bar's own CSS shadow
+  is the only one drawn.
 - **A retried remember can no longer overwrite newer memory.** `upsert-by-title` matched the
   title before it looked at the caller's operation id, so a delayed retry of an old remember
   reverted a body written in between, and reusing an id with different content was accepted
