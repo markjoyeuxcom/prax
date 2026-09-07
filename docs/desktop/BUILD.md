@@ -12,8 +12,9 @@ file with the webview profile rather than deleting it to work around a collision
 origin only after `/readyz` answers. The database is an embedded
 SQLite file — a packaged install has **zero external dependencies**.
 
-Supported desktop builds and releases target **macOS Apple Silicon**, **Linux x64** and **Linux ARM64**.
-Windows and Intel Mac installers are no longer built or released.
+Supported desktop builds and releases target **macOS Apple Silicon** and **Linux x64**.
+Windows, Intel Mac and Linux ARM64 installers are not built or released (Linux ARM64 was dropped on
+2026-09-07 when the pipeline moved to the project's own runners).
 
 ## Prerequisites
 
@@ -21,7 +22,7 @@ Windows and Intel Mac installers are no longer built or released.
   version you intend to ship)
 - Rust (stable) — `rustup.rs`
 - Platform toolchains: Xcode Command Line Tools (macOS Apple Silicon), or GTK/WebKitGTK
-  development libraries (Linux; see the package list in `.github/workflows/desktop.yml`)
+  development libraries (Linux; see the `apt-get install` list in `.gitlab-ci.yml`)
 
 ## Develop
 
@@ -57,14 +58,32 @@ npm run desktop:build
 Outputs land under `src-tauri/target/release/bundle/`:
 
 - macOS Apple Silicon: `.app` and `.dmg`
-- Linux x64 and ARM64: `.deb` and `.AppImage` for each architecture
+- Linux x64: `.deb` and `.AppImage`
 
-Cross-compilation is not supported — build each platform on that platform
-(CI matrix or per-machine builds). Linux ARM64 uses GitHub’s native `ubuntu-24.04-arm` runner
-to stage the ARM64 Node runtime and dependencies, build both installers, and run the same two-launch
-runtime smoke as Linux x64. CI uploads `prax-linux-arm64`; tagged releases attach the architecture-specific
-installers and checksums. See [GitHub’s runner support](https://github.blog/changelog/2026-01-29-arm64-standard-runners-are-now-available-in-private-repositories/)
-and [Tauri’s ARM AppImage guidance](https://v2.tauri.app/distribute/appimage/#appimages-for-arm-based-devices).
+Cross-compilation is not supported — build each platform on that platform. The pipeline builds
+both on self-hosted group runners, so neither costs compute minutes:
+
+| Job | Runner tag | Host | What the job installs itself |
+|---|---|---|---|
+| `desktop-linux-x64` | `homelab` | Linux amd64, runs the job in the `node:24-bookworm` image | WebKitGTK/GTK toolchain, Rust (rustup), xvfb/dbus smoke harness |
+| `desktop-macos-arm64` | `macos` | Apple Silicon Mac | nothing: the Mac must already have Node 24, Rust stable (`~/.cargo/bin`) and the Xcode command line tools |
+
+Each job stages the Node runtime and dependencies, builds the installers, runs the two-launch
+runtime smoke, and hands its packages to the release job as artifacts. Tagged releases attach both
+platforms' installers and checksums, and the release is only created once every package is present.
+GitLab's hosted macOS and Linux ARM64 runners (`saas-macos-medium-m1`, `saas-linux-medium-arm64`)
+are not assignable on the project's Free plan, which is why the self-hosted runners exist and why
+Linux ARM64 is no longer a supported target. If a self-hosted runner is offline the tag pipeline
+waits for it rather than releasing without its package; bring the runner back (or replace it,
+keeping the tag) and the pending job starts.
+
+To build a package by hand instead, for example on a Mac:
+
+```bash
+npm ci && npm run desktop:build              # .dmg and .app under src-tauri/target/release/bundle/
+npm run desktop:smoke                        # two-launch runtime smoke of the built app
+shasum -a 256 src-tauri/target/release/bundle/dmg/Prax_0.21.0_aarch64.dmg
+```
 
 ## Where user data lives
 
@@ -171,14 +190,20 @@ The harness creates an isolated temporary app-data directory and launches the re
 DBus/Xvfb when necessary. It requires all migrations plus seed projects, inserts a persistence
 sentinel, launches the package a second time against the same app data, and succeeds only when the
 sentinel remains and both sidecars report application-controlled zero-code exits. The temporary
-directory is removed on success and retained in the error message on failure.
+directory is removed on success and retained in the error message on failure. A smoke launch skips
+the single-instance plugin (its socket is keyed on the app identifier, not the data directory), so
+the smoke also passes on a machine where an installed Prax is running, such as the macOS runner.
+The launched app does open a window briefly on that machine's desktop.
 
 ## Releases and updates
 
-The standalone **Desktop builds** workflow runs native packages and the packaged-runtime smoke on
-desktop-affecting pull requests or on demand. The **Release** workflow is the distribution gate: it
-requires the full Node suite, container publication, and every native matrix build before creating
-one GitHub release. Missing packages are fatal. Release assets include SHA-256 checksums.
+CI runs on GitLab (`.gitlab-ci.yml`). Every merge request and push to `main` runs the Node checks,
+the unit and contract suite, the dependency audit and the browser suite on GitLab's shared runners;
+the two desktop jobs are **manual** there (each takes ten to fifteen minutes on its self-hosted
+runner) and automatic on release tags. A release tag `vX.Y.Z` or `vX.Y.Z-rc.N` is the
+distribution gate: the quality gate, both desktop builds with their packaged-runtime smoke and the
+multi-arch container must succeed before one GitLab release is created with every package,
+`SHA256SUMS`, and the changelog section as its body. A missing package is fatal.
 
 Prax currently uses a deliberate installer update, not an in-app updater:
 

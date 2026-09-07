@@ -20,15 +20,15 @@ fresh empty `[Unreleased]` section is started.
   duplicated subsection headings, rewires the compare links) and writes the version into every
   site that carries one — package, lockfile, Cargo, plugin manifest, published-image references,
   deploy overlays and docs — as listed in `scripts/release-sites.mjs`. `npm run release:notes --
-  --tag vX.Y.Z` prints the GitHub release body.
+  --tag vX.Y.Z` prints the release body.
 
 - **Portable memory skill pack.** `prax-recall` and `prax-remember` now live in `skills/` as
   single-file bundles of `cli/lib` (Node 20+, no packages, no checkout), following the Agent
   Skills layout both Claude Code and Codex read. `.claude/skills/` and `.agents/skills/` are
   symlinks into it; `skills/install.sh` installs the pack on any machine without keeping the
   repository, and the repo doubles as a Claude Code plugin marketplace (`claude plugin
-  marketplace add markjoyeuxcom/prax`). `npm run skills:build` rebuilds the bundles and
-  `npm run check` fails when a committed bundle is stale.
+  marketplace add git@gitlab.com:markjoyeuxcom/apps/prax.git`). `npm run skills:build` rebuilds
+  the bundles and `npm run check` fails when a committed bundle is stale.
 - **Atomic remember.** `POST /api/library/documents/upsert-by-title` creates or updates by exact
   title within a project in one transaction; the CLI and skills use it (with a fallback for
   older servers).
@@ -242,6 +242,21 @@ fresh empty `[Unreleased]` section is started.
 
 ### Changed
 
+- **The repository moved to GitLab** (`https://gitlab.com/markjoyeuxcom/apps/prax`) on
+  2026-09-07 after the GitHub Actions minutes ran out. CI is now `.gitlab-ci.yml`: every merge
+  request and push to `main` runs the Node checks, the unit and contract suite, the dependency
+  audit and the browser suite; the two desktop builds run on the project's own runners (Linux x64
+  on the runner tagged `homelab`, macOS Apple Silicon on the runner tagged `macos`), manual there
+  and automatic on release tags; a release tag builds the multi-arch container into
+  `registry.gitlab.com/markjoyeuxcom/apps/prax` and creates a GitLab release with both desktop
+  packages, `SHA256SUMS` and the changelog section. A missing package fails the release.
+  GitLab's hosted macOS and Linux ARM64 runners are not assignable on the Free plan (the jobs
+  fail with `no_matching_runner`), which is why the builds live on the project's own runners and
+  Linux ARM64 is no longer a target; an offline runner holds a tag pipeline rather than letting it
+  release without a package (`docs/desktop/BUILD.md`). The skills installer and its docs use `glab` (or SSH, or a token)
+  instead of `gh`; the Claude Code plugin marketplace is added by git URL; Dependabot is gone.
+  The GitHub repository is kept read-only.
+
 - **Context-aware panel — the second column follows the rail.** The panel stops being a
   fixed projects browser and becomes the secondary navigation for wherever you are:
   **Today** shows a plan cockpit (the honest score, Plan today / Shut down right there,
@@ -390,6 +405,8 @@ fresh empty `[Unreleased]` section is started.
 
 ### Removed
 
+- Linux ARM64 installers. The pipeline builds macOS Apple Silicon and Linux x64 only; GitLab's
+  hosted ARM64 runners are not available on the project's plan and there is no self-hosted one.
 - The experimental Plain editor and editor-engine selector. CodeMirror is now the
   sole editor engine; saved Plain preferences automatically use CodeMirror while
   retaining font, line-number, and reading-scale choices.
@@ -410,6 +427,11 @@ fresh empty `[Unreleased]` section is started.
   the editor; and a re-render restores keyboard focus and the caret to the field being edited,
   including the quick-capture overlay. Browser regressions in `tests/e2e/external-refresh.spec.js`;
   scheduler, write-epoch and focus unit tests in `tests/frontend/externalRefresh.test.js`.
+- **The packaged-runtime smoke runs alongside an installed Prax.** A smoke launch
+  (`--desktop-smoke <dir>`) no longer registers the single-instance plugin, whose socket is keyed
+  on the app identifier rather than the app-data directory; on a machine where Prax was already
+  running (the self-hosted macOS runner) the smoke only surfaced that app's window and failed
+  without creating its isolated database. Normal launches keep the plugin.
 - **The capture bar no longer floats in a white slab.** Its page paints only the rounded bar and
   leaves the rest transparent, but the window itself was opaque, so the unused part of the
   640×128 surface showed as a white block around the bar. The capture window is now transparent
@@ -443,21 +465,21 @@ fresh empty `[Unreleased]` section is started.
   if current; recall hits and related lines now carry a trust label (`verified` / `unverified`,
   plus any non-active status).
 - `prax init` honours `PRAX_PROJECT` as the documented precedence promised.
-- `skills/install.sh` clones over HTTPS with the GitHub CLI's credentials when `gh` is logged in
-  (falling back to SSH), applying them to the sparse checkout that fetches the skills blobs as
+- `skills/install.sh` clones over HTTPS with the GitLab CLI's credentials when `glab` is logged
+  in (falling back to SSH), applying them to the sparse checkout that fetches the skills blobs as
   well as to the clone; it checks for Node 20+, accepts `PRAX_CLAUDE_SKILLS_DIR`, and explains a
   failed clone or fetch in terms of repository access. A no-checkout uninstall and SSH-only and
   token-based fetch paths are documented. The installer now has its own regression tests,
-  including the gh transport.
+  including the CLI-credential transport.
 - The release workflow published the container to the previous repository owner's registry
-  namespace; it now targets `ghcr.io/markjoyeuxcom/prax`, runs the browser suite and dependency
+  namespace; it now targets the repository's own registry, runs the browser suite and dependency
   audit as part of the release quality gate, assembles the release body from this changelog, and
   states that the installers are unsigned and not notarized. The desktop release verifier accepts
-  `vX.Y.Z-rc.N` prerelease tags and refuses a tag when any version site has drifted. CI's
-  dependency-review job, which GitHub does not support on a private repository without Advanced
-  Security, now runs only where it can (a public repository); `npm audit` remains the active
-  dependency gate. Both desktop workflows build before `cargo test --lib` so the two compilations
-  of the tray icon no longer race on tauri's compile-time image cache.
+  `vX.Y.Z-rc.N` prerelease tags and refuses a tag when any version site has drifted. `npm audit`
+  is the active dependency gate. Desktop jobs build before `cargo test --lib` so the two
+  compilations of the tray icon no longer race on tauri's compile-time image cache. (These
+  repairs were made to the GitHub workflows, which the GitLab pipeline under *Changed* has since
+  replaced with the same gates.)
 
 - The macOS menu-bar icon now uses a transparent Prax mark instead of tinting the
   filled application icon into a solid square.
@@ -1431,46 +1453,46 @@ fresh empty `[Unreleased]` section is started.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/markjoyeuxcom/prax/compare/v0.21.0...HEAD
-[0.21.0]: https://github.com/markjoyeuxcom/prax/compare/v0.20.0...v0.21.0
-[0.20.0]: https://github.com/markjoyeuxcom/prax/compare/v0.19.2...v0.20.0
-[0.19.2]: https://github.com/markjoyeuxcom/prax/compare/v0.19.1...v0.19.2
-[0.19.1]: https://github.com/markjoyeuxcom/prax/compare/v0.19.0...v0.19.1
-[0.19.0]: https://github.com/markjoyeuxcom/prax/compare/v0.18.0...v0.19.0
-[0.18.0]: https://github.com/markjoyeuxcom/prax/compare/v0.17.1...v0.18.0
-[0.17.1]: https://github.com/markjoyeuxcom/prax/compare/v0.17.0...v0.17.1
-[0.17.0]: https://github.com/markjoyeuxcom/prax/compare/v0.16.0...v0.17.0
-[0.16.0]: https://github.com/markjoyeuxcom/prax/compare/v0.15.1...v0.16.0
-[0.15.1]: https://github.com/markjoyeuxcom/prax/compare/v0.15.0...v0.15.1
-[0.15.0]: https://github.com/markjoyeuxcom/prax/compare/v0.14.2...v0.15.0
-[0.14.2]: https://github.com/markjoyeuxcom/prax/compare/v0.14.1...v0.14.2
-[0.14.1]: https://github.com/markjoyeuxcom/prax/compare/v0.14.0...v0.14.1
-[0.14.0]: https://github.com/markjoyeuxcom/prax/compare/v0.13.1...v0.14.0
-[0.13.1]: https://github.com/markjoyeuxcom/prax/compare/v0.13.0...v0.13.1
-[0.13.0]: https://github.com/markjoyeuxcom/prax/compare/v0.12.2...v0.13.0
-[0.12.2]: https://github.com/markjoyeuxcom/prax/compare/v0.12.1...v0.12.2
-[0.12.1]: https://github.com/markjoyeuxcom/prax/compare/v0.12.0...v0.12.1
-[0.12.0]: https://github.com/markjoyeuxcom/prax/compare/v0.11.1...v0.12.0
-[0.11.1]: https://github.com/markjoyeuxcom/prax/compare/v0.11.0...v0.11.1
-[0.11.0]: https://github.com/markjoyeuxcom/prax/compare/v0.10.0...v0.11.0
-[0.10.0]: https://github.com/markjoyeuxcom/prax/compare/v0.9.0...v0.10.0
-[0.9.0]: https://github.com/markjoyeuxcom/prax/compare/v0.8.0...v0.9.0
-[0.8.0]: https://github.com/markjoyeuxcom/prax/compare/v0.7.7...v0.8.0
-[0.7.7]: https://github.com/markjoyeuxcom/prax/compare/v0.7.6...v0.7.7
-[0.7.6]: https://github.com/markjoyeuxcom/prax/compare/v0.7.5...v0.7.6
-[0.7.5]: https://github.com/markjoyeuxcom/prax/compare/v0.7.4...v0.7.5
-[0.7.4]: https://github.com/markjoyeuxcom/prax/compare/v0.7.3...v0.7.4
-[0.7.3]: https://github.com/markjoyeuxcom/prax/compare/v0.7.2...v0.7.3
-[0.7.2]: https://github.com/markjoyeuxcom/prax/compare/v0.7.1...v0.7.2
-[0.7.1]: https://github.com/markjoyeuxcom/prax/compare/v0.7.0...v0.7.1
-[0.7.0]: https://github.com/markjoyeuxcom/prax/compare/v0.6.1...v0.7.0
-[0.6.1]: https://github.com/markjoyeuxcom/prax/compare/v0.6.0...v0.6.1
-[0.6.0]: https://github.com/markjoyeuxcom/prax/compare/v0.5.1...v0.6.0
-[0.5.1]: https://github.com/markjoyeuxcom/prax/compare/v0.5.0...v0.5.1
-[0.5.0]: https://github.com/markjoyeuxcom/prax/compare/v0.4.1...v0.5.0
-[0.4.1]: https://github.com/markjoyeuxcom/prax/compare/v0.4.0...v0.4.1
-[0.4.0]: https://github.com/markjoyeuxcom/prax/compare/v0.3.0...v0.4.0
-[0.3.0]: https://github.com/markjoyeuxcom/prax/compare/v0.2.0...v0.3.0
-[0.2.0]: https://github.com/markjoyeuxcom/prax/compare/v0.1.1...v0.2.0
-[0.1.1]: https://github.com/markjoyeuxcom/prax/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/markjoyeuxcom/prax/releases/tag/v0.1.0
+[Unreleased]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.21.0...HEAD
+[0.21.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.20.0...v0.21.0
+[0.20.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.19.2...v0.20.0
+[0.19.2]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.19.1...v0.19.2
+[0.19.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.19.0...v0.19.1
+[0.19.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.18.0...v0.19.0
+[0.18.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.17.1...v0.18.0
+[0.17.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.17.0...v0.17.1
+[0.17.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.16.0...v0.17.0
+[0.16.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.15.1...v0.16.0
+[0.15.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.15.0...v0.15.1
+[0.15.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.14.2...v0.15.0
+[0.14.2]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.14.1...v0.14.2
+[0.14.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.14.0...v0.14.1
+[0.14.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.13.1...v0.14.0
+[0.13.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.13.0...v0.13.1
+[0.13.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.12.2...v0.13.0
+[0.12.2]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.12.1...v0.12.2
+[0.12.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.12.0...v0.12.1
+[0.12.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.11.1...v0.12.0
+[0.11.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.11.0...v0.11.1
+[0.11.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.10.0...v0.11.0
+[0.10.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.9.0...v0.10.0
+[0.9.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.8.0...v0.9.0
+[0.8.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.7.7...v0.8.0
+[0.7.7]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.7.6...v0.7.7
+[0.7.6]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.7.5...v0.7.6
+[0.7.5]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.7.4...v0.7.5
+[0.7.4]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.7.3...v0.7.4
+[0.7.3]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.7.2...v0.7.3
+[0.7.2]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.7.1...v0.7.2
+[0.7.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.7.0...v0.7.1
+[0.7.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.6.1...v0.7.0
+[0.6.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.6.0...v0.6.1
+[0.6.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.5.1...v0.6.0
+[0.5.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.5.0...v0.5.1
+[0.5.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.4.1...v0.5.0
+[0.4.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.4.0...v0.4.1
+[0.4.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.3.0...v0.4.0
+[0.3.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.2.0...v0.3.0
+[0.2.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.1.1...v0.2.0
+[0.1.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.1.0...v0.1.1
+[0.1.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/tags/v0.1.0

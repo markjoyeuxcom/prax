@@ -109,12 +109,13 @@ the tasks/checklist suite and `derived-from` document linking, which the CLI doe
 
 - **In a checkout of this repo:** nothing to do. `.claude/skills/` and `.agents/skills/` link to
   `skills/`, so Claude Code and Codex both see `prax-recall` and `prax-remember`.
-- **On any other machine:** `gh api -H "Accept: application/vnd.github.raw" repos/markjoyeuxcom/prax/contents/skills/install.sh | sh`
+- **On any other machine:** `glab api "projects/markjoyeuxcom%2Fapps%2Fprax/repository/files/skills%2Finstall.sh/raw?ref=main" | sh`
   installs the pack for both tools without keeping a checkout. The repository is private, so the
-  account must have been granted access; with `gh auth login` done the installer clones over
-  HTTPS using `gh`'s credentials, otherwise it needs an SSH key registered with GitHub. Claude
+  account must have been granted access; with `glab auth login` done the installer clones over
+  HTTPS using `glab`'s credentials, otherwise it needs an SSH key registered with GitLab. Claude
   Code can alternatively install it as a plugin:
-  `claude plugin marketplace add markjoyeuxcom/prax` then `claude plugin install prax@prax`.
+  `claude plugin marketplace add git@gitlab.com:markjoyeuxcom/apps/prax.git` then
+  `claude plugin install prax@prax`.
   See [`skills/README.md`](../skills/README.md).
 
 ### Finding the app
