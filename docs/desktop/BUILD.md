@@ -113,7 +113,10 @@ and keeps any unsent text as a draft. The main window refetches its collections 
 focus, becomes visible, or navigates, and the bar announces each save over a same-origin channel,
 so a capture appears without a reload. The capture window is transparent so only the rounded bar
 is drawn; on macOS that needs `app.macOSPrivateApi` in `tauri.conf.json` together with the
-`macos-private-api` Tauri feature, which is why both are enabled.
+`macos-private-api` Tauri feature, which is why both are enabled. The window also draws no
+window shadow: macOS renders that shadow for the whole rounded 640×128 frame, which on a
+transparent window shows as a pale rounded slab with an outline behind the bar, so the bar
+paints its own CSS shadow and the window's is off.
 
 ## macOS input behavior
 

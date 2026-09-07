@@ -611,6 +611,10 @@ fn open_capture_window(handle: &AppHandle) {
             // transparent; without a transparent window the rest of the
             // 640x128 surface showed as an opaque white slab around it.
             .transparent(true)
+            // macOS draws the WINDOW shadow for the full rounded 640x128 frame,
+            // which on a transparent window shows as a pale rounded slab with an
+            // outline behind the bar. The bar paints its own CSS shadow instead.
+            .shadow(false)
             .always_on_top(true)
             .skip_taskbar(true)
             .center()
