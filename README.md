@@ -11,9 +11,10 @@ Run it with plain Node (zero external dependencies — the database is an embedd
 Apple Silicon), `.deb`/`.AppImage` (Linux x64 or ARM64).
 Windows and Intel Mac installers are no longer built or released. Zero external dependencies: the
 database is an embedded file, created on first launch. Tagged releases include SHA-256 checksums.
-The Linux packages are published only after each runs its isolated launch/migration/shutdown smoke
-journey in CI; the macOS package is built and smoke-tested on a Mac and attached to the same
-release (see BUILD.md). Update by quitting
+Every package the pipeline attaches has run its isolated launch/migration/shutdown smoke journey
+first; the release body lists exactly which ones those are. GitLab's hosted macOS and Linux ARM64
+runners are not available on the project's current plan, so those two packages are built and
+smoke-tested on that platform by hand and attached to the same release (see BUILD.md). Update by quitting
 Prax and installing the newer package; the OS app-data directory remains in place. Building,
 backup-before-update, rollback, and signing details:
 [docs/desktop/BUILD.md](docs/desktop/BUILD.md).

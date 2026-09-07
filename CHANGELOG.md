@@ -248,9 +248,11 @@ fresh empty `[Unreleased]` section is started.
   audit and the browser suite; the Linux desktop builds are manual there and automatic on release
   tags; a release tag builds the multi-arch container into `registry.gitlab.com/markjoyeuxcom/apps/prax`
   and creates a GitLab release with the Linux packages, `SHA256SUMS` and the changelog section.
-  The macOS package is built on GitLab's hosted Apple Silicon runner (`saas-macos-medium-m1`),
-  allowed to fail so that a plan or quota that cannot run it never blocks a release; when it did
-  not run, the `.dmg` is built on a Mac and attached by hand (`docs/desktop/BUILD.md`). The skills installer and its docs use `glab` (or SSH, or a token)
+  GitLab's hosted macOS and Linux ARM64 runners are not assignable on the Free plan (the jobs
+  fail with `no_matching_runner`), so those two jobs are allowed to fail on tags, the Linux x64
+  package is the one a release cannot ship without, the release body lists exactly which packages
+  the pipeline attached, and the missing ones are built on that platform by hand and attached
+  (`docs/desktop/BUILD.md`). The skills installer and its docs use `glab` (or SSH, or a token)
   instead of `gh`; the Claude Code plugin marketplace is added by git URL; Dependabot is gone.
   The GitHub repository is kept read-only.
 
