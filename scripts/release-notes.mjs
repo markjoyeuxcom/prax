@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// Assemble the GitHub release body for a tag from CHANGELOG.md: the container
+// Assemble the GitLab release body for a tag from CHANGELOG.md: the container
 // image line, the desktop package guidance (installers are unsigned), and the
 // tagged version's changelog section. A tag whose version has no changelog
 // section fails, so a release cannot ship without notes.
 //
-//   node scripts/release-notes.mjs --tag v0.21.0-rc.1 [--image ghcr.io/markjoyeuxcom/prax]
+//   node scripts/release-notes.mjs --tag v0.21.0-rc.1 [--image registry.gitlab.com/markjoyeuxcom/apps/prax]
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -46,12 +46,14 @@ ${image}:${tag}
 
 ## Desktop packages
 
-Installers for macOS Apple Silicon (\`.dmg\`) and Linux x64/ARM64 (\`.deb\`, \`.AppImage\`) are attached
-with \`SHA256SUMS\`. **They are unsigned and not notarized**: verify each download against
-\`SHA256SUMS\` before installing, and expect macOS to ask for approval under System Settings ▸
-Privacy & Security the first time the app opens. Back up \`prax.db\`, quit Prax, then install the
-new package over the application; the OS app-data directory is preserved. See
-\`docs/desktop/BUILD.md\` for the backup, update and rollback steps.
+Linux x64/ARM64 installers (\`.deb\`, \`.AppImage\`) are built, smoke-tested and attached by the
+pipeline with \`SHA256SUMS\`. The macOS Apple Silicon \`.dmg\` is built and smoke-tested on a Mac
+and attached to this release separately; if it is not listed yet, it is still on its way.
+**All installers are unsigned and not notarized**: verify each download against its checksum
+before installing, and expect macOS to ask for approval under System Settings ▸ Privacy & Security
+the first time the app opens. Back up \`prax.db\`, quit Prax, then install the new package over
+the application; the OS app-data directory is preserved. See \`docs/desktop/BUILD.md\` for the
+backup, update and rollback steps.
 
 ## Changes in ${version}
 
