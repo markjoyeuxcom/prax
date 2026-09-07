@@ -5,10 +5,10 @@
 #   contract suite, the dependency audit, and the Chromium browser suite.
 # - Linux desktop packages (x64 and ARM64): automatic on release tags; MANUAL on
 #   merge requests and main (each costs ~15 compute minutes), never blocking.
-# - macOS Apple Silicon: GitLab's hosted runners cannot build it on this plan.
-#   The job needs a self-hosted macOS runner tagged `macos-arm64`; it is manual
-#   and never blocks a release. Without a runner, build the .dmg on a Mac and
-#   attach it to the release (docs/desktop/BUILD.md).
+# - macOS Apple Silicon: GitLab's hosted `saas-macos-medium-m1` runner, automatic
+#   on release tags but allowed to fail (a plan or quota that cannot run it never
+#   blocks a release) and manual elsewhere. If it did not run, build the .dmg on
+#   a Mac and attach it to the release (docs/desktop/BUILD.md).
 # - Tags vX.Y.Z or vX.Y.Z-pre: quality gate → Linux desktop builds → multi-arch
 #   container to this project's registry → a release with SHA256SUMS and the
 #   CHANGELOG section as its body. A missing Linux package fails the release.
@@ -144,15 +144,27 @@ desktop-linux-arm64:
   extends: .desktop-linux
   tags: [saas-linux-medium-arm64]
 
-# Needs a self-hosted macOS runner registered with the tag below (Node 24, Rust
-# stable, Xcode command line tools). Manual and non-blocking by design.
+# GitLab's hosted Apple Silicon runner (`saas-macos-medium-m1`, billed at a
+# higher compute-minute factor than Linux). Automatic on release tags but
+# allowed to fail, so a plan that cannot run it never blocks a release; manual
+# elsewhere. To use a self-hosted Mac instead, register a runner and change the
+# tag. If the job did not run, build the .dmg on a Mac and attach it
+# (docs/desktop/BUILD.md).
 desktop-macos-arm64:
   stage: desktop
-  tags: [macos-arm64]
+  tags: [saas-macos-medium-m1]
   needs: [node-checks]
-  script:
-    - node --version && cargo --version
+  variables:
+    HOMEBREW_NO_AUTO_UPDATE: "1"
+  before_script:
+    # The hosted image ships Xcode tools and Homebrew; bring Node 24 and Rust.
+    - brew install node@24 rustup >/dev/null && brew link --overwrite --force node@24 >/dev/null
+    - rustup-init -y --profile minimal --component rustfmt >/dev/null 2>&1 || true
+    - export PATH="$HOME/.cargo/bin:/opt/homebrew/opt/node@24/bin:$PATH"
+    - node --version && npm --version && cargo --version
     - npm ci --prefer-offline --no-audit --no-fund
+  script:
+    - export PATH="$HOME/.cargo/bin:/opt/homebrew/opt/node@24/bin:$PATH"
     - npm run prepare:sidecar
     - |
       if [ -n "$CI_COMMIT_TAG" ]; then
@@ -175,7 +187,6 @@ desktop-macos-arm64:
     expire_in: 14 days
   rules:
     - <<: *rule-release-tag
-      when: manual
       allow_failure: true
     - if: $CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       when: manual

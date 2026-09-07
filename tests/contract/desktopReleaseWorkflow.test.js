@@ -38,12 +38,12 @@ test('Linux desktop jobs verify, build, smoke and package both architectures, au
   assert.match(job('desktop-linux-arm64'), /extends: \.desktop-linux\n  tags: \[saas-linux-medium-arm64\]/);
 });
 
-test('the macOS job is manual, needs a self-hosted runner, and never blocks a release', () => {
+test('the macOS job runs on the hosted Apple Silicon runner, may fail without blocking a release, and is manual elsewhere', () => {
   const mac = job('desktop-macos-arm64');
-  assert.match(mac, /tags: \[macos-arm64\]/);
+  assert.match(mac, /tags: \[saas-macos-medium-m1\]/);
   assert.match(mac, /npx tauri build --bundles app,dmg/);
   assert.match(mac, /npm run desktop:smoke/);
-  assert.match(mac, /when: manual\n      allow_failure: true/);
+  assert.match(mac, /rules:\n    - <<: \*rule-release-tag\n      allow_failure: true\n    - if: .*merge_request_event.*\n      when: manual\n      allow_failure: true/);
   const release = job('release');
   assert.match(release, /- job: desktop-macos-arm64\n      artifacts: true\n      optional: true/);
 });
