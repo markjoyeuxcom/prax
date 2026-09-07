@@ -66,10 +66,12 @@ runtime smoke as Linux x64 (`saas-linux-medium-amd64`). Tagged releases attach t
 architecture-specific installers and checksums. See
 [Tauri’s ARM AppImage guidance](https://v2.tauri.app/distribute/appimage/#appimages-for-arm-based-devices).
 
-GitLab's hosted runners cannot build the macOS package on this plan. The `desktop-macos-arm64` job
-in `.gitlab-ci.yml` is manual and expects a **self-hosted macOS runner** registered with the tag
-`macos-arm64` (Node 24, Rust stable, Xcode command line tools); without one, build the package on a
-Mac and attach it to the release:
+The macOS package is built by the `desktop-macos-arm64` job on GitLab's hosted Apple Silicon runner
+(`saas-macos-medium-m1`, billed at a higher compute-minute factor than Linux). It runs automatically
+on release tags but is **allowed to fail**, so a plan or quota that cannot run it never blocks a
+release; on merge requests it is manual. To use your own Mac instead, register a runner and change
+the job's tag. If the job did not produce the package, build it on a Mac and attach it to the
+release:
 
 ```bash
 npm ci && npm run desktop:build              # .dmg and .app under src-tauri/target/release/bundle/
