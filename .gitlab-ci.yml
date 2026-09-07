@@ -194,7 +194,12 @@ container:
   script:
     - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
     - docker run --privileged --rm tonistiigi/binfmt --install arm64
-    - docker buildx create --use --name prax
+    # docker:dind hands the client its endpoint through DOCKER_HOST and TLS
+    # variables; buildx refuses to create a builder from environment-loaded
+    # TLS data (observed on v0.21.0-rc.3), so wrap that endpoint in a named
+    # context and build the builder from it.
+    - docker context create prax-dind
+    - docker buildx create --use --name prax prax-dind
     - |
       version="$CI_COMMIT_TAG"
       tags="-t $CI_REGISTRY_IMAGE:$version"
