@@ -20,15 +20,15 @@ fresh empty `[Unreleased]` section is started.
   duplicated subsection headings, rewires the compare links) and writes the version into every
   site that carries one — package, lockfile, Cargo, plugin manifest, published-image references,
   deploy overlays and docs — as listed in `scripts/release-sites.mjs`. `npm run release:notes --
-  --tag vX.Y.Z` prints the GitHub release body.
+  --tag vX.Y.Z` prints the release body.
 
 - **Portable memory skill pack.** `prax-recall` and `prax-remember` now live in `skills/` as
   single-file bundles of `cli/lib` (Node 20+, no packages, no checkout), following the Agent
   Skills layout both Claude Code and Codex read. `.claude/skills/` and `.agents/skills/` are
   symlinks into it; `skills/install.sh` installs the pack on any machine without keeping the
   repository, and the repo doubles as a Claude Code plugin marketplace (`claude plugin
-  marketplace add markjoyeuxcom/prax`). `npm run skills:build` rebuilds the bundles and
-  `npm run check` fails when a committed bundle is stale.
+  marketplace add git@gitlab.com:markjoyeuxcom/apps/prax.git`). `npm run skills:build` rebuilds
+  the bundles and `npm run check` fails when a committed bundle is stale.
 - **Atomic remember.** `POST /api/library/documents/upsert-by-title` creates or updates by exact
   title within a project in one transaction; the CLI and skills use it (with a fallback for
   older servers).
@@ -455,21 +455,21 @@ fresh empty `[Unreleased]` section is started.
   if current; recall hits and related lines now carry a trust label (`verified` / `unverified`,
   plus any non-active status).
 - `prax init` honours `PRAX_PROJECT` as the documented precedence promised.
-- `skills/install.sh` clones over HTTPS with the GitHub CLI's credentials when `gh` is logged in
-  (falling back to SSH), applying them to the sparse checkout that fetches the skills blobs as
+- `skills/install.sh` clones over HTTPS with the GitLab CLI's credentials when `glab` is logged
+  in (falling back to SSH), applying them to the sparse checkout that fetches the skills blobs as
   well as to the clone; it checks for Node 20+, accepts `PRAX_CLAUDE_SKILLS_DIR`, and explains a
   failed clone or fetch in terms of repository access. A no-checkout uninstall and SSH-only and
   token-based fetch paths are documented. The installer now has its own regression tests,
-  including the gh transport.
+  including the CLI-credential transport.
 - The release workflow published the container to the previous repository owner's registry
   namespace; it now targets the repository's own registry, runs the browser suite and dependency
   audit as part of the release quality gate, assembles the release body from this changelog, and
   states that the installers are unsigned and not notarized. The desktop release verifier accepts
-  `vX.Y.Z-rc.N` prerelease tags and refuses a tag when any version site has drifted. CI's
-  dependency-review job, which GitHub does not support on a private repository without Advanced
-  Security, now runs only where it can (a public repository); `npm audit` remains the active
-  dependency gate. Both desktop workflows build before `cargo test --lib` so the two compilations
-  of the tray icon no longer race on tauri's compile-time image cache.
+  `vX.Y.Z-rc.N` prerelease tags and refuses a tag when any version site has drifted. `npm audit`
+  is the active dependency gate. Desktop jobs build before `cargo test --lib` so the two
+  compilations of the tray icon no longer race on tauri's compile-time image cache. (These
+  repairs were made to the GitHub workflows, which the GitLab pipeline under *Changed* has since
+  replaced with the same gates.)
 
 - The macOS menu-bar icon now uses a transparent Prax mark instead of tinting the
   filled application icon into a solid square.
