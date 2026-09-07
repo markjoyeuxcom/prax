@@ -17,7 +17,7 @@ const TAG = /^v(\d+\.\d+\.\d+)(?:-([0-9A-Za-z.-]+))?$/;
 
 // The supported desktop platforms and how their package files are named.
 export const PLATFORMS = [
-  { name: 'macOS Apple Silicon', files: [/\.dmg$/], hand: 'built and smoke-tested on a Mac (`npm run desktop:build`, `npm run desktop:smoke`)' },
+  { name: 'macOS Apple Silicon', files: [/\.dmg$/, /\.app\.tar\.gz$/], hand: 'built and smoke-tested on a Mac (`npm run desktop:build`, `npm run desktop:smoke`)' },
   { name: 'Linux x64', files: [/_amd64\.deb$/, /_amd64\.AppImage$/], hand: 'built on an x64 Linux machine' },
   { name: 'Linux ARM64', files: [/_arm64\.deb$/, /_aarch64\.AppImage$/], hand: 'built on an ARM64 Linux machine' },
 ];
