@@ -34,7 +34,7 @@ test('Linux desktop jobs verify, build, smoke and package both architectures, au
   assert.match(linux, /npm run desktop:smoke/);
   assert.match(linux, /cp src-tauri\/target\/release\/bundle\/deb\/\*\.deb src-tauri\/target\/release\/bundle\/appimage\/\*\.AppImage release-assets\//);
   assert.match(linux, /rules:\n    - \*rule-release-tag\n    - if: .*merge_request_event.*\n      when: manual\n      allow_failure: true/);
-  assert.match(job('desktop-linux-x64'), /extends: \.desktop-linux\n  tags: \[saas-linux-medium-amd64\]/);
+  assert.match(job('desktop-linux-x64'), /extends: \.desktop-linux\n  tags: \[homelab\]/, 'the x64 build runs on the self-hosted homelab runner');
   const arm = job('desktop-linux-arm64');
   assert.match(arm, /extends: \.desktop-linux\n  tags: \[saas-linux-medium-arm64\]/);
   assert.match(arm, /rules:\n    - <<: \*rule-release-tag\n      allow_failure: true\n    - if: .*merge_request_event.*\n      when: manual\n      allow_failure: true/, 'ARM64 is allowed to fail: the Free plan cannot assign its runner');

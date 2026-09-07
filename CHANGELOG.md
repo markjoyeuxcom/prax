@@ -245,8 +245,8 @@ fresh empty `[Unreleased]` section is started.
 - **The repository moved to GitLab** (`https://gitlab.com/markjoyeuxcom/apps/prax`) on
   2026-09-07 after the GitHub Actions minutes ran out. CI is now `.gitlab-ci.yml`: every merge
   request and push to `main` runs the Node checks, the unit and contract suite, the dependency
-  audit and the browser suite; the Linux desktop builds are manual there and automatic on release
-  tags; a release tag builds the multi-arch container into `registry.gitlab.com/markjoyeuxcom/apps/prax`
+  audit and the browser suite; the Linux x64 desktop build runs on the self-hosted `homelab`
+  runner, manual there and automatic on release tags; a release tag builds the multi-arch container into `registry.gitlab.com/markjoyeuxcom/apps/prax`
   and creates a GitLab release with the Linux packages, `SHA256SUMS` and the changelog section.
   GitLab's hosted macOS and Linux ARM64 runners are not assignable on the Free plan (the jobs
   fail with `no_matching_runner`), so those two jobs are allowed to fail on tags, the Linux x64
