@@ -45,7 +45,7 @@ test('exactly two desktop jobs exist and nothing in the pipeline is optional', (
   const desktopJobs = [...pipeline.matchAll(/^(desktop-[\w-]+):$/gm)].map((m) => m[1]);
   assert.deepEqual(desktopJobs, ['desktop-linux-x64', 'desktop-macos-arm64'], 'the supported targets are Linux x64 and macOS Apple Silicon, one job each');
   assert.doesNotMatch(pipeline, /optional: true/, 'a release never treats a package as optional');
-  assert.equal((pipeline.match(/allow_failure: true/g) || []).length, 1, 'allow_failure appears only in the shared manual-on-merge-request rule');
+  assert.equal((pipeline.match(/allow_failure: true/g) || []).length, 2, 'allow_failure appears only in the shared manual-on-merge-request rule and the container preview');
 });
 
 test('the macOS job builds on the macos runner and is required for a release', () => {
@@ -60,11 +60,21 @@ test('the macOS job builds on the macos runner and is required for a release', (
 
 test('a tagged release waits for the quality gate, both packages and the container, then publishes checksums', () => {
   const container = job('container');
+  assert.match(container, /extends: \.container/);
   assert.match(container, /needs: \[node-checks, browser-tests, desktop-linux-x64, desktop-macos-arm64\]/);
   assert.match(container, /rules:\n    - \*rule-release-tag/);
-  assert.match(container, /--platform linux\/amd64,linux\/arm64/);
-  assert.match(container, /docker context create prax-dind\n\s*- docker buildx create --use --name prax prax-dind/, 'buildx needs a named context under docker:dind TLS (rc.3 failed without one)');
-  assert.match(container, /\*-\*\) ;;/, 'a prerelease tag must not become latest');
+  const build = job('.container');
+  assert.match(build, /--platform linux\/amd64,linux\/arm64/);
+  assert.match(build, /docker context create prax-dind\n\s*- docker buildx create --use --name prax prax-dind/, 'buildx needs a named context under docker:dind TLS (rc.3 failed without one)');
+  assert.match(build, /--provenance=false --sbom=false/, 'attestations made GitLab\'s registry reject the multi-arch index (rc.3)');
+  assert.match(build, /version="\$\{CI_COMMIT_TAG:-mr-\$CI_MERGE_REQUEST_IID\}"/, 'a preview push is tagged mr-<iid>');
+  assert.match(build, /\*-\*\) ;;/, 'a prerelease or preview tag must not become latest');
+  assert.match(build, /imagetools inspect "\$CI_REGISTRY_IMAGE:\$version"/, 'the pushed index is read back');
+  const preview = job('container-preview');
+  assert.match(preview, /extends: \.container/);
+  assert.match(preview, /needs: \[node-checks, browser-tests\]/, 'a preview does not wait for the manual desktop jobs');
+  assert.match(preview, /merge_request_event.*\n\s*when: manual\n\s*allow_failure: true/, 'the preview is manual and non-blocking on merge requests');
+  assert.doesNotMatch(preview, /rule-release-tag/, 'a preview never runs on a release tag');
   const release = job('release');
   assert.match(release, /needs:\n    - node-checks\n    - browser-tests\n    - container\n    - job: desktop-linux-x64\n      artifacts: true\n    - job: desktop-macos-arm64\n      artifacts: true\n  rules:/);
   assert.doesNotMatch(release, /optional: true/, 'no package is optional');
