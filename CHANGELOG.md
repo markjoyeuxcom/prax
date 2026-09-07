@@ -251,10 +251,9 @@ fresh empty `[Unreleased]` section is started.
   `registry.gitlab.com/markjoyeuxcom/apps/prax` and creates a GitLab release with both desktop
   packages, `SHA256SUMS` and the changelog section. A missing package fails the release.
   GitLab's hosted macOS and Linux ARM64 runners are not assignable on the Free plan (the jobs
-  fail with `no_matching_runner`), so those two jobs are allowed to fail on tags, the Linux x64
-  package is the one a release cannot ship without, the release body lists exactly which packages
-  the pipeline attached, and the missing ones are built on that platform by hand and attached
-  (`docs/desktop/BUILD.md`). The skills installer and its docs use `glab` (or SSH, or a token)
+  fail with `no_matching_runner`), which is why the builds live on the project's own runners and
+  Linux ARM64 is no longer a target; an offline runner holds a tag pipeline rather than letting it
+  release without a package (`docs/desktop/BUILD.md`). The skills installer and its docs use `glab` (or SSH, or a token)
   instead of `gh`; the Claude Code plugin marketplace is added by git URL; Dependabot is gone.
   The GitHub repository is kept read-only.
 
