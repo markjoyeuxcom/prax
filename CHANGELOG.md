@@ -427,6 +427,11 @@ fresh empty `[Unreleased]` section is started.
   the editor; and a re-render restores keyboard focus and the caret to the field being edited,
   including the quick-capture overlay. Browser regressions in `tests/e2e/external-refresh.spec.js`;
   scheduler, write-epoch and focus unit tests in `tests/frontend/externalRefresh.test.js`.
+- **The packaged-runtime smoke runs alongside an installed Prax.** A smoke launch
+  (`--desktop-smoke <dir>`) no longer registers the single-instance plugin, whose socket is keyed
+  on the app identifier rather than the app-data directory; on a machine where Prax was already
+  running (the self-hosted macOS runner) the smoke only surfaced that app's window and failed
+  without creating its isolated database. Normal launches keep the plugin.
 - **The capture bar no longer floats in a white slab.** Its page paints only the rounded bar and
   leaves the rest transparent, but the window itself was opaque, so the unused part of the
   640×128 surface showed as a white block around the bar. The capture window is now transparent

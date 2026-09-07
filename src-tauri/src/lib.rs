@@ -802,14 +802,25 @@ pub fn run() {
         .expect("invalid Prax desktop smoke-test arguments");
 
     let builder = tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_shell::init());
+    // A normal launch must not open a second process over the same database,
+    // so it registers the single-instance plugin. That plugin keys its socket
+    // on the app identifier alone, not on the app-data directory. A smoke
+    // launch (`--desktop-smoke <dir>`) owns an isolated directory and never
+    // shares a database, so it skips the plugin: with it registered, the smoke
+    // on a machine where an installed Prax is running would only surface that
+    // app's window and exit without ever starting its own sidecar.
+    let builder = if smoke_data_dir.is_none() {
+        builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // Second launch: surface the existing instance (the main window
             // may be hidden in the tray) instead of opening a second app over
             // the same database.
             show_main_window(app);
         }))
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_shell::init());
+    } else {
+        builder
+    };
     #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
 

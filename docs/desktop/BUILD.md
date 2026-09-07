@@ -190,7 +190,10 @@ The harness creates an isolated temporary app-data directory and launches the re
 DBus/Xvfb when necessary. It requires all migrations plus seed projects, inserts a persistence
 sentinel, launches the package a second time against the same app data, and succeeds only when the
 sentinel remains and both sidecars report application-controlled zero-code exits. The temporary
-directory is removed on success and retained in the error message on failure.
+directory is removed on success and retained in the error message on failure. A smoke launch skips
+the single-instance plugin (its socket is keyed on the app identifier, not the data directory), so
+the smoke also passes on a machine where an installed Prax is running, such as the macOS runner.
+The launched app does open a window briefly on that machine's desktop.
 
 ## Releases and updates
 
