@@ -203,7 +203,11 @@ the two desktop jobs are **manual** there (each takes ten to fifteen minutes on 
 runner) and automatic on release tags. A release tag `vX.Y.Z` or `vX.Y.Z-rc.N` is the
 distribution gate: the quality gate, both desktop builds with their packaged-runtime smoke and the
 multi-arch container must succeed before one GitLab release is created with every package,
-`SHA256SUMS`, and the changelog section as its body. A missing package is fatal.
+`SHA256SUMS`, and the changelog section as its body. A missing package is fatal. The container
+build can be rehearsed before tagging: the manual `container-preview` job on a merge request pushes
+the same multi-arch image as `registry.gitlab.com/markjoyeuxcom/apps/prax:mr-<iid>` (never `latest`),
+so a registry or buildx problem surfaces on the MR rather than on a release tag; delete preview
+tags from the registry once the MR is merged.
 
 Prax currently uses a deliberate installer update, not an in-app updater:
 
