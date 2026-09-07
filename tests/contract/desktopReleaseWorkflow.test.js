@@ -35,7 +35,9 @@ test('Linux desktop jobs verify, build, smoke and package both architectures, au
   assert.match(linux, /cp src-tauri\/target\/release\/bundle\/deb\/\*\.deb src-tauri\/target\/release\/bundle\/appimage\/\*\.AppImage release-assets\//);
   assert.match(linux, /rules:\n    - \*rule-release-tag\n    - if: .*merge_request_event.*\n      when: manual\n      allow_failure: true/);
   assert.match(job('desktop-linux-x64'), /extends: \.desktop-linux\n  tags: \[saas-linux-medium-amd64\]/);
-  assert.match(job('desktop-linux-arm64'), /extends: \.desktop-linux\n  tags: \[saas-linux-medium-arm64\]/);
+  const arm = job('desktop-linux-arm64');
+  assert.match(arm, /extends: \.desktop-linux\n  tags: \[saas-linux-medium-arm64\]/);
+  assert.match(arm, /rules:\n    - <<: \*rule-release-tag\n      allow_failure: true\n    - if: .*merge_request_event.*\n      when: manual\n      allow_failure: true/, 'ARM64 is allowed to fail: the Free plan cannot assign its runner');
 });
 
 test('the macOS job runs on the hosted Apple Silicon runner, may fail without blocking a release, and is manual elsewhere', () => {
@@ -48,17 +50,17 @@ test('the macOS job runs on the hosted Apple Silicon runner, may fail without bl
   assert.match(release, /- job: desktop-macos-arm64\n      artifacts: true\n      optional: true/);
 });
 
-test('a tagged release waits for the quality gate, both Linux packages and the container, then publishes checksums', () => {
+test('a tagged release waits for the quality gate, the x64 package and the container, lists what it attached, and publishes checksums', () => {
   const container = job('container');
-  assert.match(container, /needs: \[node-checks, browser-tests, desktop-linux-x64, desktop-linux-arm64\]/);
+  assert.match(container, /needs: \[node-checks, browser-tests, desktop-linux-x64\]/);
   assert.match(container, /rules:\n    - \*rule-release-tag/);
   assert.match(container, /--platform linux\/amd64,linux\/arm64/);
   assert.match(container, /\*-\*\) ;;/, 'a prerelease tag must not become latest');
   const release = job('release');
-  assert.match(release, /needs:\n    - node-checks\n    - browser-tests\n    - container\n    - job: desktop-linux-x64\n      artifacts: true\n    - job: desktop-linux-arm64\n      artifacts: true/);
+  assert.match(release, /needs:\n    - node-checks\n    - browser-tests\n    - container\n    - job: desktop-linux-x64\n      artifacts: true\n    - job: desktop-linux-arm64\n      artifacts: true\n      optional: true/);
   assert.match(release, /rules:\n    - \*rule-release-tag/);
-  assert.match(release, /release-notes\.mjs --tag "\$CI_COMMIT_TAG"/);
-  assert.match(release, /\*_amd64\.deb[\s\S]*?\*_arm64\.deb[\s\S]*?\*_amd64\.AppImage[\s\S]*?\*_aarch64\.AppImage/, 'every Linux package must be present');
+  assert.match(release, /release-notes\.mjs --tag "\$CI_COMMIT_TAG" --image "\$CI_REGISTRY_IMAGE" --assets-dir release-assets/, 'the body lists exactly what was attached');
+  assert.match(release, /\*_amd64\.deb[\s\S]*?\*_amd64\.AppImage/, 'the x64 packages must be present');
   assert.match(release, /uniq -d/, 'filename collisions are rejected');
   assert.match(release, /sha256sum \* > SHA256SUMS/);
   assert.match(release, /release-cli create --name "\$CI_COMMIT_TAG" --tag-name "\$CI_COMMIT_TAG" --description release-notes\.md/);

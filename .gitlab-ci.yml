@@ -3,15 +3,18 @@
 # What runs when:
 # - Merge requests and the default branch: Node syntax/bundle check, the unit +
 #   contract suite, the dependency audit, and the Chromium browser suite.
-# - Linux desktop packages (x64 and ARM64): automatic on release tags; MANUAL on
-#   merge requests and main (each costs ~15 compute minutes), never blocking.
-# - macOS Apple Silicon: GitLab's hosted `saas-macos-medium-m1` runner, automatic
-#   on release tags but allowed to fail (a plan or quota that cannot run it never
-#   blocks a release) and manual elsewhere. If it did not run, build the .dmg on
-#   a Mac and attach it to the release (docs/desktop/BUILD.md).
-# - Tags vX.Y.Z or vX.Y.Z-pre: quality gate → Linux desktop builds → multi-arch
+# - Linux x64 desktop package: automatic on release tags; MANUAL on merge
+#   requests and main (~15 compute minutes), never blocking. It is the one
+#   package a release cannot ship without.
+# - Linux ARM64 and macOS Apple Silicon: GitLab's hosted `saas-linux-medium-arm64`
+#   and `saas-macos-medium-m1` runners. On the Free plan those runners are not
+#   assignable (the jobs fail at once with `no_matching_runner`), so both jobs are
+#   allowed to fail on release tags and manual elsewhere. Packages they did not
+#   produce are built on that platform by hand and attached to the release; the
+#   release body lists exactly what the pipeline attached (docs/desktop/BUILD.md).
+# - Tags vX.Y.Z or vX.Y.Z-pre: quality gate → desktop builds → multi-arch
 #   container to this project's registry → a release with SHA256SUMS and the
-#   CHANGELOG section as its body. A missing Linux package fails the release.
+#   CHANGELOG section plus the attached-package list as its body.
 #
 # Contract: tests/contract/desktopReleaseWorkflow.test.js pins these rules.
 
@@ -140,9 +143,16 @@ desktop-linux-x64:
   extends: .desktop-linux
   tags: [saas-linux-medium-amd64]
 
+# Not assignable on the Free plan (no_matching_runner); allowed to fail on tags.
 desktop-linux-arm64:
   extends: .desktop-linux
   tags: [saas-linux-medium-arm64]
+  rules:
+    - <<: *rule-release-tag
+      allow_failure: true
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true
 
 # GitLab's hosted Apple Silicon runner (`saas-macos-medium-m1`, billed at a
 # higher compute-minute factor than Linux). Automatic on release tags but
@@ -201,7 +211,9 @@ container:
     - docker:27-dind
   variables:
     DOCKER_TLS_CERTDIR: "/certs"
-  needs: [node-checks, browser-tests, desktop-linux-x64, desktop-linux-arm64]
+  # The image is multi-arch through buildx regardless of which desktop
+  # packages the plan could build; only the x64 desktop build gates it.
+  needs: [node-checks, browser-tests, desktop-linux-x64]
   rules:
     - *rule-release-tag
   script:
@@ -241,6 +253,7 @@ release:
       artifacts: true
     - job: desktop-linux-arm64
       artifacts: true
+      optional: true
     - job: desktop-macos-arm64
       artifacts: true
       optional: true
@@ -252,15 +265,18 @@ release:
     - chmod +x /usr/local/bin/release-cli
     - release-cli --version
   script:
-    - node scripts/release-notes.mjs --tag "$CI_COMMIT_TAG" --image "$CI_REGISTRY_IMAGE" > release-notes.md
+    - |
+      cd release-assets
+      # The Linux x64 packages are the ones a release cannot ship without; a
+      # collision would hide one. What else is present is listed in the body.
+      test -n "$(ls *_amd64.deb 2>/dev/null)" && test -n "$(ls *_amd64.AppImage 2>/dev/null)"
+      test -z "$(ls | sort | uniq -d)"
+      sha256sum * > SHA256SUMS
+      cd ..
+    - node scripts/release-notes.mjs --tag "$CI_COMMIT_TAG" --image "$CI_REGISTRY_IMAGE" --assets-dir release-assets > release-notes.md
     - test -s release-notes.md
     - |
       cd release-assets
-      # Every supported Linux package must be present; a collision would hide one.
-      test -n "$(ls *_amd64.deb 2>/dev/null)" && test -n "$(ls *_arm64.deb 2>/dev/null)"
-      test -n "$(ls *_amd64.AppImage 2>/dev/null)" && test -n "$(ls *_aarch64.AppImage 2>/dev/null)"
-      test -z "$(ls | sort | uniq -d)"
-      sha256sum * > SHA256SUMS
       cat SHA256SUMS
       links=""
       for file in *; do

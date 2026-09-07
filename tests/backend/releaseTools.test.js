@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cutChangelog, mergeSubsections, parseArgs } from '../../scripts/prepare-release.mjs';
-import { changelogSection, parseTag, releaseNotes } from '../../scripts/release-notes.mjs';
+import { changelogSection, packageCoverage, parseTag, releaseNotes } from '../../scripts/release-notes.mjs';
 import { RELEASE_SITES, assertReleaseSitesAgree, IMAGE } from '../../scripts/release-sites.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -109,4 +109,18 @@ test('the current changelog section, which becomes the release body, carries no 
     assert.doesNotMatch(notes, new RegExp(stale.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `release body must not tell readers to use "${stale}"`);
   }
   assert.match(notes, /registry\.gitlab\.com\/markjoyeuxcom\/apps\/prax:v/);
+});
+
+test('release notes list exactly the packages the pipeline attached and name every platform it could not build', () => {
+  const changelog = cutChangelog(SAMPLE, '0.21.0', '2026-09-06');
+  const assets = ['Prax_0.21.0_amd64.AppImage', 'Prax_0.21.0_amd64.deb', 'SHA256SUMS'];
+  const notes = releaseNotes({ changelog, tag: 'v0.21.0-rc.3', assets });
+  assert.match(notes, /## Packages attached by the pipeline\n\n- \*\*macOS Apple Silicon\*\*: not built by this pipeline; it is built and smoke-tested on a Mac/);
+  assert.match(notes, /- \*\*Linux x64\*\*: `Prax_0\.21\.0_amd64\.AppImage`, `Prax_0\.21\.0_amd64\.deb`/);
+  assert.match(notes, /- \*\*Linux ARM64\*\*: not built by this pipeline; it is built on an ARM64 Linux machine/);
+  assert.match(notes, /`SHA256SUMS` covers every file the pipeline attached/);
+  const full = releaseNotes({ changelog, tag: 'v0.21.0', assets: [...assets, 'Prax_0.21.0_arm64.deb', 'Prax_0.21.0_aarch64.AppImage', 'Prax_0.21.0_aarch64.dmg'] });
+  assert.doesNotMatch(full, /not built by this pipeline/);
+  assert.equal(packageCoverage(assets).filter((p) => p.complete).map((p) => p.name).join(), 'Linux x64');
+  assert.doesNotMatch(releaseNotes({ changelog, tag: 'v0.21.0' }), /## Packages attached/, 'no assets list without an assets directory');
 });

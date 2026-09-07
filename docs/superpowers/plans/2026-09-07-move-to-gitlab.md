@@ -12,7 +12,7 @@ the Linux rate, and three release candidates plus their pull-request builds land
 | CI | `.github/workflows/{ci,desktop,release}.yml` | `.gitlab-ci.yml`: `check` → `test` → `desktop` → `container` → `release` |
 | Merge requests / `main` | Node checks, browser suite, audit; desktop builds on any desktop-affecting PR | same checks; Linux desktop builds **manual** (about fifteen compute minutes each) |
 | Release tag | quality → 3 desktop builds → container → GitHub release | quality → 2 Linux desktop builds → multi-arch container → GitLab release with generic-package assets and `SHA256SUMS` |
-| macOS package | GitHub-hosted macOS runner | GitLab hosted `saas-macos-medium-m1` runner, allowed to fail (never blocks a release); manual on MRs; otherwise built on a Mac and attached with `glab release upload` |
+| macOS and Linux ARM64 packages | GitHub-hosted runners | GitLab hosted `saas-macos-medium-m1` / `saas-linux-medium-arm64` jobs, allowed to fail (not assignable on the Free plan: `no_matching_runner`); the release body lists what was attached; missing packages built by hand and attached with `glab release upload` |
 | Container registry | `ghcr.io/markjoyeuxcom/prax` | `registry.gitlab.com/markjoyeuxcom/apps/prax` (`scripts/release-sites.mjs` `IMAGE`, compose, deploy manifests, README, docs) |
 | Changelog links | `github.com/…/compare/` | `gitlab.com/…/-/compare/` (footer rewritten; `prepare-release` emits the GitLab form) |
 | Skills installer | `gh api` fetch, `gh auth git-credential` | `glab api` fetch, `glab auth git-credential`, SSH and token alternatives |
@@ -30,6 +30,6 @@ Linux packages, and the release refusing a missing package or a filename collisi
 
 - Nothing on the GitLab side has run yet at the time of writing; the first pipeline validates the
   YAML for real. `glab ci lint` needs a fresh `glab auth login`.
-- Confirming the hosted macOS runner is permitted on the Free plan; if it is not, the macOS `.dmg` is a manual attachment.
+- Confirmed: on the Free plan the hosted macOS and Linux ARM64 runners are not assignable (`no_matching_runner`), so those packages are manual attachments unless the plan changes or a self-hosted runner is registered.
 - Archiving the GitHub repository and pointing its README at GitLab (owner decision).
 - A Dependabot replacement (Renovate, or GitLab's dependency scanning on a paid tier).
