@@ -21,7 +21,7 @@ Windows and Intel Mac installers are no longer built or released.
   version you intend to ship)
 - Rust (stable) — `rustup.rs`
 - Platform toolchains: Xcode Command Line Tools (macOS Apple Silicon), or GTK/WebKitGTK
-  development libraries (Linux; see the package list in `.github/workflows/desktop.yml`)
+  development libraries (Linux; see the `apt-get install` list in `.gitlab-ci.yml`)
 
 ## Develop
 
@@ -60,11 +60,23 @@ Outputs land under `src-tauri/target/release/bundle/`:
 - Linux x64 and ARM64: `.deb` and `.AppImage` for each architecture
 
 Cross-compilation is not supported — build each platform on that platform
-(CI matrix or per-machine builds). Linux ARM64 uses GitHub’s native `ubuntu-24.04-arm` runner
+(CI jobs or per-machine builds). Linux ARM64 uses GitLab's hosted `saas-linux-medium-arm64` runner
 to stage the ARM64 Node runtime and dependencies, build both installers, and run the same two-launch
-runtime smoke as Linux x64. CI uploads `prax-linux-arm64`; tagged releases attach the architecture-specific
-installers and checksums. See [GitHub’s runner support](https://github.blog/changelog/2026-01-29-arm64-standard-runners-are-now-available-in-private-repositories/)
-and [Tauri’s ARM AppImage guidance](https://v2.tauri.app/distribute/appimage/#appimages-for-arm-based-devices).
+runtime smoke as Linux x64 (`saas-linux-medium-amd64`). Tagged releases attach the
+architecture-specific installers and checksums. See
+[Tauri’s ARM AppImage guidance](https://v2.tauri.app/distribute/appimage/#appimages-for-arm-based-devices).
+
+GitLab's hosted runners cannot build the macOS package on this plan. The `desktop-macos-arm64` job
+in `.gitlab-ci.yml` is manual and expects a **self-hosted macOS runner** registered with the tag
+`macos-arm64` (Node 24, Rust stable, Xcode command line tools); without one, build the package on a
+Mac and attach it to the release:
+
+```bash
+npm ci && npm run desktop:build              # .dmg and .app under src-tauri/target/release/bundle/
+npm run desktop:smoke                        # two-launch runtime smoke of the built app
+glab release upload v0.21.0 src-tauri/target/release/bundle/dmg/Prax_0.21.0_aarch64.dmg
+shasum -a 256 src-tauri/target/release/bundle/dmg/Prax_0.21.0_aarch64.dmg   # add to the release notes
+```
 
 ## Where user data lives
 
@@ -175,10 +187,14 @@ directory is removed on success and retained in the error message on failure.
 
 ## Releases and updates
 
-The standalone **Desktop builds** workflow runs native packages and the packaged-runtime smoke on
-desktop-affecting pull requests or on demand. The **Release** workflow is the distribution gate: it
-requires the full Node suite, container publication, and every native matrix build before creating
-one GitHub release. Missing packages are fatal. Release assets include SHA-256 checksums.
+CI runs on GitLab (`.gitlab-ci.yml`). Every merge request and push to `main` runs the Node checks,
+the unit and contract suite, the dependency audit and the browser suite; the Linux desktop jobs are
+**manual** there (they cost about fifteen compute minutes each) and automatic on release tags. A
+release tag `vX.Y.Z` or `vX.Y.Z-rc.N` is the distribution gate: the quality gate, both Linux
+desktop builds with their packaged-runtime smoke and the multi-arch container must succeed before
+one GitLab release is created with the Linux packages, `SHA256SUMS`, and the changelog section as
+its body. A missing Linux package is fatal. The macOS package is attached afterwards as described
+above; the release notes say so.
 
 Prax currently uses a deliberate installer update, not an in-app updater:
 

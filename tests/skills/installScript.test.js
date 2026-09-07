@@ -124,7 +124,7 @@ test('install.sh explains a failed clone in terms of repository access', () => {
   }
 });
 
-test('with a gh login, both the clone and the sparse checkout carry the gh credential helper', () => {
+test('with a glab login, both the clone and the sparse checkout carry the glab credential helper', () => {
   // A blobless clone defers the skills blobs to the sparse checkout, so the
   // credential helper has to apply to that second git command as well (F3).
   const base = mkdtempSync(join(tmpdir(), 'prax-install-gh-'));
@@ -134,14 +134,14 @@ test('with a gh login, both the clone and the sparse checkout carry the gh crede
     mkdirSync(shims);
     const log = join(base, 'git-args.log');
     const realGit = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
-    // `gh auth status` succeeds; `git` records its arguments, swaps the HTTPS
+    // `glab auth status` succeeds; `git` records its arguments, swaps the HTTPS
     // URL for the local fixture repository, and runs the real git.
-    writeFileSync(join(shims, 'gh'), '#!/bin/sh\n[ "$1" = "auth" ] && [ "$2" = "status" ] && exit 0\nexit 1\n', { mode: 0o755 });
+    writeFileSync(join(shims, 'glab'), '#!/bin/sh\n[ "$1" = "auth" ] && [ "$2" = "status" ] && exit 0\nexit 1\n', { mode: 0o755 });
     writeFileSync(join(shims, 'git'), `#!/bin/sh
 printf '%s\\n' "$*" >> "${log}"
 args=""
 for a in "$@"; do
-  if [ "$a" = "https://github.com/markjoyeuxcom/prax.git" ]; then a="${repo}"; fi
+  if [ "$a" = "https://gitlab.com/markjoyeuxcom/apps/prax.git" ]; then a="${repo}"; fi
   args="$args \\"$(printf '%s' "$a" | sed 's/"/\\\\"/g')\\""
 done
 eval set -- $args
@@ -160,9 +160,9 @@ exec "${realGit}" "$@"
       encoding: 'utf8',
     });
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /over https \(gh credentials\)\./);
+    assert.match(result.stdout, /over https \(glab credentials\)\./);
     const invocations = readFileSync(log, 'utf8').trim().split('\n');
-    const helper = "-c credential.helper= -c credential.helper=!gh auth git-credential";
+    const helper = "-c credential.helper= -c credential.helper=!glab auth git-credential";
     const clone = invocations.find((line) => line.includes(' clone '));
     const sparse = invocations.find((line) => line.includes('sparse-checkout set'));
     assert.ok(clone && clone.startsWith(helper), `clone carries the helper: ${clone}`);
