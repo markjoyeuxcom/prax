@@ -245,9 +245,11 @@ fresh empty `[Unreleased]` section is started.
 - **The repository moved to GitLab** (`https://gitlab.com/markjoyeuxcom/apps/prax`) on
   2026-09-07 after the GitHub Actions minutes ran out. CI is now `.gitlab-ci.yml`: every merge
   request and push to `main` runs the Node checks, the unit and contract suite, the dependency
-  audit and the browser suite; the Linux x64 desktop build runs on the self-hosted `homelab`
-  runner, manual there and automatic on release tags; a release tag builds the multi-arch container into `registry.gitlab.com/markjoyeuxcom/apps/prax`
-  and creates a GitLab release with the Linux packages, `SHA256SUMS` and the changelog section.
+  audit and the browser suite; the two desktop builds run on the project's own runners (Linux x64
+  on the runner tagged `homelab`, macOS Apple Silicon on the runner tagged `macos`), manual there
+  and automatic on release tags; a release tag builds the multi-arch container into
+  `registry.gitlab.com/markjoyeuxcom/apps/prax` and creates a GitLab release with both desktop
+  packages, `SHA256SUMS` and the changelog section. A missing package fails the release.
   GitLab's hosted macOS and Linux ARM64 runners are not assignable on the Free plan (the jobs
   fail with `no_matching_runner`), so those two jobs are allowed to fail on tags, the Linux x64
   package is the one a release cannot ship without, the release body lists exactly which packages
@@ -404,6 +406,8 @@ fresh empty `[Unreleased]` section is started.
 
 ### Removed
 
+- Linux ARM64 installers. The pipeline builds macOS Apple Silicon and Linux x64 only; GitLab's
+  hosted ARM64 runners are not available on the project's plan and there is no self-hosted one.
 - The experimental Plain editor and editor-engine selector. CodeMirror is now the
   sole editor engine; saved Plain preferences automatically use CodeMirror while
   retaining font, line-number, and reading-scale choices.

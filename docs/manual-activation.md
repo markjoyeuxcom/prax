@@ -174,8 +174,8 @@ Browser emulation may reproduce a defect but cannot close this lane.
 
 ### Native platform
 
-Use artifacts from the same candidate revision for `macos-arm64`, `ubuntu-x64` and `ubuntu-arm64`.
-Windows and Intel Mac installers are outside the supported native release matrix.
+Use artifacts from the same candidate revision for `macos-arm64` and `ubuntu-x64`.
+Windows, Intel Mac and Linux ARM64 installers are outside the supported native release matrix.
 CI proving an artifact exists is prerequisite evidence, not this manual result.
 
 ## Record and validate
@@ -196,7 +196,7 @@ Require that record to pass:
 npm run verify:manual-activation -- --input /path/to/record.json --require-pass
 ```
 
-After all nine matrix records exist, pass each with a separate `--input`, followed by:
+After all eight matrix records exist, pass each with a separate `--input`, followed by:
 
 ```bash
 --matrix --require-pass

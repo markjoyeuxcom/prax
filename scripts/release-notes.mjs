@@ -19,7 +19,6 @@ const TAG = /^v(\d+\.\d+\.\d+)(?:-([0-9A-Za-z.-]+))?$/;
 export const PLATFORMS = [
   { name: 'macOS Apple Silicon', files: [/\.dmg$/, /\.app\.tar\.gz$/], hand: 'built and smoke-tested on a Mac (`npm run desktop:build`, `npm run desktop:smoke`)' },
   { name: 'Linux x64', files: [/_amd64\.deb$/, /_amd64\.AppImage$/], hand: 'built on an x64 Linux machine' },
-  { name: 'Linux ARM64', files: [/_arm64\.deb$/, /_aarch64\.AppImage$/], hand: 'built on an ARM64 Linux machine' },
 ];
 
 export function parseTag(tag) {
@@ -78,10 +77,9 @@ ${image}:${tag}
 
 ## Desktop packages
 
-The packages listed below were built and smoke-tested by the pipeline and are attached with
-\`SHA256SUMS\`. A supported platform that the pipeline could not build (GitLab's hosted ARM64 and
-macOS runners are not available on every plan) is built on that platform by hand and attached to
-this release separately. **All installers are unsigned and not notarized**: verify each download
+The packages listed below were built and smoke-tested by the pipeline on the project's own
+runners and are attached with \`SHA256SUMS\`; the release is created only once every supported
+package is present. **All installers are unsigned and not notarized**: verify each download
 against its checksum before installing, and expect macOS to ask for approval under System
 Settings ▸ Privacy & Security the first time the app opens. Back up \`prax.db\`, quit Prax, then
 install the new package over the application; the OS app-data directory is preserved. See
