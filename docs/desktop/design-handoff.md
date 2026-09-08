@@ -126,7 +126,7 @@ Hint line ("Someday / maybe…"), stacked rows (card, radius 10): dot + title + 
 Dimmed rows (opacity .75) + "Restore". Empty: dashed card.
 
 ### 5. Today (cross-project)
-Title + date line ("Sunday, July 6 — everything due or slipping…"). Groups: Overdue / Today / Due soon. Rows = list rows + project chip. Sidebar badge = overdue+today count (hi-soft/hi pill). Empty: logo, "All clear".
+Title + date line ("Sunday, July 6 — everything due or slipping…"). Groups: Planned / Overdue / Today, then a collapsible **Next 7 days** section with one group per day (Tomorrow, then weekday + date); the collapse state persists per device with the panel sections. Rows = list rows + project chip. Sidebar badge = overdue+today count (hi-soft/hi pill). Empty: logo, "All clear".
 
 ### 6. All projects
 Title + subtitle; sections by state (Active / On hold / Completed / Archived, archived cards at 60% opacity). Card (radius 12, pad 15/16, hover shadow+border): dot + name + state chip; 4px progress bar (project color on `--line`); "n open · n done" + updated label; hairline; state-change chip buttons (Active/Hold/Done/Archive minus current). Click card → project list.
