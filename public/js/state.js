@@ -19,7 +19,7 @@ export const state = {
   captureShortcut: null,        // { shortcut, default } from the server (desktop shell)
   captureShortcutNotice: null,  // last apply outcome shown in Settings
   taskRelatedDocs: null,        // { taskId, loading, suggestions, degraded, reason } — drawer Related knowledge
-  navType: 'project',           // 'today' | 'project' | 'all' | 'library' | 'editor' | 'run' | 'filter' | 'upcoming' | 'calendar' | 'settings'
+  navType: 'project',           // 'today' | 'project' | 'all' | 'library' | 'editor' | 'run' | 'filter' | 'calendar' | 'settings'
   navId: null,                  // project id when navType === 'project'
   calendarMonth: null,          // 'YYYY-MM' shown in the Calendar view; null = current month
   calendarSelectedDay: null,    // ISO day whose tasks show in the calendar detail strip (null = none)

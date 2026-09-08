@@ -649,6 +649,16 @@ a { color: var(--accent); }
   background: var(--med-soft); color: var(--med); font-size: 13px;
 }
 .today-staleplan .settings-link { margin-left: 4px; }
+/* Today — the week ahead: a collapsible section of per-day groups */
+.today-week { margin-top: 20px; }
+.group-label--toggle {
+  width: 100%; text-align: left; cursor: pointer;
+  background: none; border: 0; padding: 0; font: inherit;
+  font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+}
+.group-label--toggle:hover { color: var(--ink); }
+.today-week__days { margin-top: 6px; }
+.today-week__days .group-label { margin-left: 16px; font-size: 10.5px; letter-spacing: .06em; }
 .planmode {
   width: min(30rem, calc(100vw - 3rem)); background: var(--bg);
   border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px 14px;

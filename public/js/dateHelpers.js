@@ -1,5 +1,5 @@
 // Shared local-calendar date helpers so keyword→ISO date logic lives in one
-// place (quick-capture shorthand, the task filter grammar, the Upcoming view).
+// place (quick-capture shorthand, the task filter grammar, Today's week ahead).
 // All operate on LOCAL dates with no timezone conversion — matching how the
 // Today view and dueFlags bucket dates.
 

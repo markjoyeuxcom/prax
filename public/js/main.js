@@ -93,9 +93,8 @@ import {
 import {
   TASK_RENDER_BATCH_SIZE, renderListHtml, renderBulkBarHtml, buildListGroups, limitTaskGroups,
 } from './renderList.js';
-import { renderTodayHtml, buildTodayGroups } from './renderToday.js';
+import { renderTodayHtml, buildTodayGroups, TODAY_WEEK_SECTION } from './renderToday.js';
 import { renderPlanModeHtml } from './renderPlanMode.js';
-import { renderUpcomingHtml, buildUpcomingGroups } from './renderUpcoming.js';
 import {
   createExternalRefresh, installExternalRefreshTriggers, collectionFingerprint,
   installWriteEpoch, writeEpoch, captureFocus, restoreFocus,
@@ -105,7 +104,7 @@ import { renderFilterHtml, buildFilterGroups } from './renderFilter.js';
 import { parseTaskFilter, projectResolver } from './taskFilter.js';
 import { createSmartView, findSmartView, smartViewsFromJson } from './taskSmartViews.js';
 import { loadPinned, savePinned, togglePinned } from './pinned.js';
-import { loadCollapsed, saveCollapsed, toggleCollapsed } from './collapsed.js';
+import { isCollapsed, loadCollapsed, saveCollapsed, toggleCollapsed } from './collapsed.js';
 import { renderBoardHtml, buildBoardColumns, limitBoardColumns } from './renderBoard.js';
 import { renderBacklogHtml, renderArchiveHtml } from './renderBacklog.js';
 import { renderTaskDrawerHtml, renderMissingTaskDrawerHtml } from './renderTaskDetail.js';
@@ -3657,8 +3656,7 @@ function sidebarCounts() {
   }
   const now = new Date();
   const { badge } = buildTodayGroups(state.tasks, state.projects, { now });
-  const { badge: upcomingBadge } = buildUpcomingGroups(state.tasks, state.projects, { now });
-  return { todayBadge: badge, upcomingBadge, projectOpen };
+  return { todayBadge: badge, projectOpen };
 }
 
 function projectTasks() {
@@ -3668,7 +3666,7 @@ function projectTasks() {
 function renderMainHtml() {
   const now = new Date();
   if (state.apiStatus === 'loading'
-    && ['today', 'all', 'filter', 'upcoming', 'calendar', 'project'].includes(state.navType)) {
+    && ['today', 'all', 'filter', 'calendar', 'project'].includes(state.navType)) {
     return '<div class="page"><div class="empty" role="status" aria-live="polite">'
       + '<p class="empty__title">Loading tasks…</p>'
       + '<p class="empty__sub">Preparing your workspace.</p>'
@@ -3677,12 +3675,17 @@ function renderMainHtml() {
   switch (state.navType) {
     case 'today': {
       const built = buildTodayGroups(state.tasks, state.projects, { now });
-      const collection = limitTaskGroups(built.groups, taskCollectionLimit('today'));
+      // A collapsed week ahead leaves the collection so arrow keys and the
+      // "load more" progress only ever address rows that are on screen.
+      const weekCollapsed = isCollapsed(state.collapsedSections, TODAY_WEEK_SECTION);
+      const groups = weekCollapsed ? built.groups.filter((group) => !group.week) : built.groups;
+      const collection = limitTaskGroups(groups, taskCollectionLimit(`today|${weekCollapsed ? 'folded' : 'week'}`));
       flatIds = collection.flatIds;
       return renderTodayHtml(state, collection.groups, {
         now, snoozedCount: built.snoozedCount, collection,
         plannedCount: built.plannedCount, plannedDone: built.plannedDone,
         stalePlannedCount: built.stalePlannedCount,
+        weekCount: built.weekCount, weekCollapsed,
       });
     }
     case 'all': {
@@ -3733,12 +3736,6 @@ function renderMainHtml() {
       const collection = limitTaskGroups(built.groups, taskCollectionLimit(`filter|${state.activeFilterExpr || ''}`));
       flatIds = collection.flatIds;
       return renderFilterHtml(state, { groups: collection.groups, count: built.count, error, collection });
-    }
-    case 'upcoming': {
-      const { groups } = buildUpcomingGroups(state.tasks, state.projects, { now });
-      const collection = limitTaskGroups(groups, taskCollectionLimit('upcoming'));
-      flatIds = collection.flatIds;
-      return renderUpcomingHtml(state, collection.groups, { now, collection });
     }
     case 'calendar': {
       const model = buildCalendarModel(state.tasks, state.projects, { month: state.calendarMonth, now });
@@ -4197,7 +4194,6 @@ async function handleAction(action, el, event) {
       if (await navigateTopLevel({ navType: 'all' })) openConfirm(newProjectDialog());
       break;
     case 'nav-library': await goLibrary(); break;
-    case 'nav-upcoming': await navigateTopLevel({ navType: 'upcoming', selectedTaskId: null, multiSelectIds: [] }); break;
     case 'nav-calendar': await navigateTopLevel({ navType: 'calendar', selectedTaskId: null, multiSelectIds: [], calendarSelectedDay: null }); break;
     case 'calendar-prev':
     case 'calendar-next': {
@@ -6357,7 +6353,7 @@ function installShortcuts() {
       },
       navigate(direction) {
         const listContext = (state.navType === 'project' && (state.tab === 'list' || state.tab === 'board'))
-          || state.navType === 'today' || state.navType === 'filter' || state.navType === 'upcoming';
+          || state.navType === 'today' || state.navType === 'filter';
         if (!listContext || state.paletteOpen || state.captureOpen || state.drawerTaskId) return;
         if (!flatIds.length) return;
         const current = flatIds.indexOf(state.selectedTaskId);

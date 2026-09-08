@@ -131,7 +131,6 @@ export function renderRailHtml(state, counts = {}, { showProjects = true } = {})
   const inbox = inboxProject(state);
   const navs = [
     { title: 'Today', iconName: 'check', action: 'nav-today', active: state.navType === 'today', badge: counts.todayBadge },
-    { title: 'Upcoming', iconName: 'calendar', action: 'nav-upcoming', active: state.navType === 'upcoming' },
     { title: 'Calendar', iconName: 'month', action: 'nav-calendar', active: state.navType === 'calendar' },
     ...(inbox ? [{
       title: 'Inbox', iconName: 'inbox', action: 'nav-project',
@@ -444,6 +443,7 @@ function renderTodayPanel(state, counts = {}) {
     + actions
     + countRow('Overdue', overdue)
     + countRow('Due today', dueToday)
+    + countRow('Next 7 days', built.weekCount)
     + countRow('Snoozed', built.snoozedCount)
     + stale
     + (planned.length ? '<div class="side-section"><span>Planned</span></div>' : '')
