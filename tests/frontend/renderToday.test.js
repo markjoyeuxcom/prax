@@ -33,30 +33,43 @@ function task(overrides = {}) {
   };
 }
 
-test('buildTodayGroups buckets open tasks across projects and computes the badge', () => {
+test('buildTodayGroups buckets open tasks across projects, adds the week ahead by day, and computes the badge', () => {
   const tasks = [
     task({ id: 'over', dueDate: '2026-07-04' }),
     task({ id: 'now', dueDate: '2026-07-06', projectId: 'p2' }),
-    task({ id: 'soon', dueDate: '2026-07-09' }),
+    task({ id: 'tomorrow', dueDate: '2026-07-07' }),
+    task({ id: 'thursday', dueDate: '2026-07-09' }),
+    task({ id: 'thursday-too', dueDate: '2026-07-09', projectId: 'p2' }),
+    task({ id: 'seventh', dueDate: '2026-07-13' }),   // +7: the last day of the week ahead
+    task({ id: 'eighth', dueDate: '2026-07-14' }),    // +8: beyond the window
     task({ id: 'later', dueDate: '2026-08-01' }),
     task({ id: 'nodate' }),
     task({ id: 'fin', status: 'completed', dueDate: '2026-07-06' }),
     task({ id: 'parked', status: 'notes', dueDate: '2026-07-04' }),
     task({ id: 'gone', archivedAt: '2026-07-01T00:00:00.000Z', dueDate: '2026-07-04' }),
   ];
-  const { groups, flatIds, badge } = buildTodayGroups(tasks, PROJECTS, { now: NOW });
+  const { groups, flatIds, badge, weekCount } = buildTodayGroups(tasks, PROJECTS, { now: NOW });
   assert.deepEqual(
-    groups.map((g) => [g.key, g.label, g.tone]),
-    [['overdue', 'Overdue', 'hi'], ['today', 'Today', 'med'], ['soon', 'Due soon', 'muted']],
+    groups.map((g) => [g.key, g.label, g.tone, Boolean(g.week)]),
+    [
+      ['overdue', 'Overdue', 'hi', false],
+      ['today', 'Today', 'med', false],
+      ['day-2026-07-07', 'Tomorrow', 'muted', true],
+      ['day-2026-07-09', 'Thu, Jul 9', 'muted', true],
+      ['day-2026-07-13', 'Mon, Jul 13', 'muted', true],
+    ],
   );
-  assert.deepEqual(flatIds, ['over', 'now', 'soon']);
-  assert.equal(badge, 2);
+  assert.deepEqual(flatIds, ['over', 'now', 'tomorrow', 'thursday', 'thursday-too', 'seventh']);
+  assert.equal(badge, 2, 'the badge stays overdue + today; the week ahead is not an alarm');
+  assert.equal(weekCount, 4);
+  assert.equal(groups[3].tasks[1].projName, 'Reading & "Notes"', 'week rows carry the project chip fields');
 });
 
 test('buildTodayGroups drops empty buckets and zeroes the badge when calm', () => {
-  const onlySoon = buildTodayGroups([task({ id: 'a', dueDate: '2026-07-08' })], PROJECTS, { now: NOW });
-  assert.deepEqual(onlySoon.groups.map((g) => g.key), ['soon']);
-  assert.equal(onlySoon.badge, 0);
+  const onlyWeek = buildTodayGroups([task({ id: 'a', dueDate: '2026-07-08' })], PROJECTS, { now: NOW });
+  assert.deepEqual(onlyWeek.groups.map((g) => g.key), ['day-2026-07-08']);
+  assert.equal(onlyWeek.badge, 0);
+  assert.equal(onlyWeek.weekCount, 1);
 
   const empty = buildTodayGroups([task({ id: 'b' })], PROJECTS, { now: NOW });
   assert.deepEqual(empty.groups, []);
@@ -68,7 +81,7 @@ test('renderTodayHtml renders the page head with the formatted date line', () =>
   const { groups } = buildTodayGroups([task({ id: 'a', dueDate: '2026-07-06' })], PROJECTS, { now: NOW });
   const html = renderTodayHtml(baseState(), groups, { now: NOW });
   assert.match(html, /class="page-head__title">Today</);
-  assert.match(html, /class="page-head__sub">Monday, July 6 — everything due or slipping across your projects\.</);
+  assert.match(html, /class="page-head__sub">Monday, July 6 — everything due or slipping across your projects, and the week ahead\.</);
 });
 
 test('renderTodayHtml wraps in .page so it aligns with every other top-level view', () => {
@@ -109,7 +122,7 @@ test('renderTodayHtml renders the all-clear empty state under the head', () => {
   assert.match(html, /class="empty"/);
   assert.match(html, /<svg[^>]*viewBox="0 0 28 28"/);
   assert.match(html, /class="empty__title">All clear</);
-  assert.match(html, /Nothing overdue, nothing due today\./);
+  assert.match(html, /Nothing overdue, nothing due today or in the next 7 days\./);
 });
 
 test('renderTodayHtml escapes task titles and project names', () => {
@@ -140,4 +153,38 @@ test('renderTodayHtml notes the snoozed count in the subheading', () => {
   assert.match(html, /3 snoozed/);
   const none = renderTodayHtml(baseState(), [], { now: NOW, snoozedCount: 0 });
   assert.doesNotMatch(none, /snoozed/);
+});
+
+test('renderTodayHtml: the week ahead is a collapsible "Next 7 days" section with a count', () => {
+  const tasks = [
+    task({ id: 'now', dueDate: '2026-07-06' }),
+    task({ id: 'tomorrow', title: 'Rotate certs', dueDate: '2026-07-07' }),
+    task({ id: 'thursday', title: 'Patch hosts', dueDate: '2026-07-09' }),
+  ];
+  const built = buildTodayGroups(tasks, PROJECTS, { now: NOW });
+  const open = renderTodayHtml(baseState(), built.groups, { now: NOW, weekCount: built.weekCount, weekCollapsed: false });
+  assert.match(open, /data-action="toggle-section" data-section-key="today:week" aria-expanded="true"/);
+  assert.match(open, /Next 7 days <span class="group-label__count">2<\/span>/);
+  assert.match(open, /data-group="day-2026-07-07"/);
+  assert.match(open, /Rotate certs/);
+  assert.match(open, /Patch hosts/);
+  assert.ok(open.indexOf('data-group="today"') < open.indexOf('data-today-week'), 'the week ahead sits below Overdue and Today');
+
+  // Collapsed: the header and count stay, the rows go (the caller also drops them from the collection).
+  const collapsed = renderTodayHtml(baseState(), built.groups.filter((g) => !g.week), { now: NOW, weekCount: built.weekCount, weekCollapsed: true });
+  assert.match(collapsed, /data-section-key="today:week" aria-expanded="false"/);
+  assert.match(collapsed, /Next 7 days <span class="group-label__count">2<\/span>/);
+  assert.doesNotMatch(collapsed, /Rotate certs/);
+
+  // Only the week ahead: no false "All clear".
+  const weekOnly = buildTodayGroups([task({ id: 'tomorrow', title: 'Rotate certs', dueDate: '2026-07-07' })], PROJECTS, { now: NOW });
+  const html = renderTodayHtml(baseState(), weekOnly.groups, { now: NOW, weekCount: weekOnly.weekCount });
+  assert.doesNotMatch(html, /All clear/);
+  assert.match(html, /Rotate certs/);
+
+  // Nothing at all: the empty state names the whole horizon.
+  const empty = renderTodayHtml(baseState(), [], { now: NOW, weekCount: 0 });
+  assert.match(empty, /All clear/);
+  assert.match(empty, /next 7 days/);
+  assert.doesNotMatch(empty, /data-today-week/);
 });

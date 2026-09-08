@@ -17,7 +17,7 @@ async function createTask(request, payload) {
   return response.json();
 }
 
-test('two due-date pushes surface a "deferred 2×" chip in Upcoming and the exact count in the drawer', async ({ page, request }) => {
+test('two due-date pushes surface a "deferred 2×" chip in Today\'s week ahead and the exact count in the drawer', async ({ page, request }) => {
   const title = `slippage-chip-${Date.now()}`;
   const task = await createTask(request, { title, dueDate: isoDatePlus(1) });
   // Push the commitment later twice — the server counts, the client cannot.
@@ -29,7 +29,9 @@ test('two due-date pushes surface a "deferred 2×" chip in Upcoming and the exac
     window.localStorage.setItem('prax.preferences', JSON.stringify({ slippageDeferrals: 2 }));
   });
   await page.goto('/');
-  await page.locator('[data-action="nav-upcoming"]').first().click();
+  // Due in three days: it lives in Today's "Next 7 days" section.
+  await page.locator('[data-action="nav-today"]').first().click();
+  await expect(page.locator('[data-today-week]')).toBeVisible();
 
   const row = page.locator('.task-row', { hasText: title });
   await expect(row).toBeVisible();

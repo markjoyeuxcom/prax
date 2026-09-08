@@ -1,5 +1,5 @@
 // Month calendar over the task set — pure state → HTML string, like every
-// view module. The grid places OPEN tasks (same inclusion rule as Upcoming:
+// view module. The grid places OPEN tasks (same inclusion rule as Today's week ahead:
 // not completed/backlog/archived, not snoozed past now, has a dueDate) on
 // their due day; clicking a day opens a detail strip below the grid that
 // reuses the standard task-row rendering, so the drawer/multi-select/done
