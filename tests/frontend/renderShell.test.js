@@ -119,7 +119,7 @@ test('rail renders every top-level nav with tooltips, Settings pinned last', () 
   const html = renderRailHtml(makeState());
   assert.match(html, /class="rail"/);
   assert.match(html, /title="Today" data-action="nav-today"/);
-  assert.match(html, /title="Upcoming" data-action="nav-upcoming"/);
+  assert.doesNotMatch(html, /nav-upcoming/, 'Upcoming folded into Today as the week ahead');
   assert.match(html, /title="Calendar" data-action="nav-calendar"/);
   assert.match(html, /title="All projects" data-action="nav-all"/);
   assert.match(html, /title="Library" data-action="nav-library"/);
@@ -452,7 +452,7 @@ test('the panel dispatches on navType: cockpit, calendar, library, settings, bro
   assert.match(renderPanelHtml(makeState({ ...base, navType: 'library' }), {}), /aria-label="Library"/);
   assert.match(renderPanelHtml(makeState({ ...base, navType: 'editor' }), {}), /aria-label="Library"/);
   assert.match(renderPanelHtml(makeState({ ...base, navType: 'settings', settingsTab: 'appearance' }), {}), /aria-label="Settings"/);
-  for (const nav of ['all', 'project', 'filter', 'upcoming']) {
+  for (const nav of ['all', 'project', 'filter']) {
     assert.match(renderPanelHtml(makeState({ ...base, navType: nav }), {}), /aria-label="Browser"/, nav);
   }
 });
@@ -460,17 +460,21 @@ test('the panel dispatches on navType: cockpit, calendar, library, settings, bro
 test('Today cockpit: score, ritual buttons, honest counts, planned rows via open-task', () => {
   const today = new Date();
   const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+  const tomorrowIso = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`;
   const tasks = [
     { id: 'a', title: 'Planned one', status: 'planned', projectId: 'p1', plannedFor: iso, sortOrder: 0, labels: [] },
     { id: 'b', title: 'Done one', status: 'completed', projectId: 'p1', plannedFor: iso, labels: [] },
     { id: 'c', title: 'Overdue one', status: 'planned', projectId: 'p1', dueDate: '2020-01-01', labels: [] },
     { id: 'd', title: 'Snoozed one', status: 'planned', projectId: 'p1', deferredUntil: '2099-01-01T00:00:00Z', labels: [] },
+    { id: 'e', title: 'Tomorrow one', status: 'planned', projectId: 'p1', dueDate: tomorrowIso, labels: [] },
   ];
   const html = renderPanelHtml(makeState({ navType: 'today', tasks, projects: PROJECTS }), {});
   assert.match(html, /data-panel-plan-score[^>]*>planned 2 — 1 done/);
   assert.match(html, /data-action="open-plan-mode"[^>]*>Plan today/);
   assert.match(html, /data-action="open-shutdown"/);
   assert.match(html, /Overdue<\/span><span class="side-item__count">1/);
+  assert.match(html, /Next 7 days<\/span><span class="side-item__count">1/);
   assert.match(html, /Snoozed<\/span><span class="side-item__count">1/);
   assert.match(html, /data-action="open-task" data-task-id="a"/);
   // Without a plan: no score, no shutdown, planning still offered.
