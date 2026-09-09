@@ -7,7 +7,7 @@ import { createChat } from './chat/index.js';
 // defaults, so env-only deployments behave predictably.
 export const CHAT_PROVIDER_KEY = 'chat_provider';
 
-const BACKENDS = new Set(['none', 'fake', 'ollama', 'openai', 'llamacpp', 'anthropic', 'gemini', 'claude-cli']);
+const BACKENDS = new Set(['none', 'fake', 'ollama', 'openai', 'llamacpp', 'anthropic', 'gemini', 'claude-cli', 'copilot-cli']);
 // Hosted APIs refuse anonymous calls; local/offline backends work keyless.
 const KEY_REQUIRED = new Set(['openai', 'anthropic', 'gemini']);
 
@@ -116,6 +116,7 @@ export function createChatProvider({ appSettingsRepository = null, config = {} }
     // The local `claude` login is the credential: keyless by design. 'haiku'
     // is a CLI model alias — fast enough for the interactive NL surfaces.
     'claude-cli': { model: 'haiku', binaryPath: '' },
+    'copilot-cli': { model: 'auto', binaryPath: '' },
   };
   // CHAT_MODEL follows the env-selected backend so an env-only deployment keeps
   // its exact model.

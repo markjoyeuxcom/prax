@@ -70,7 +70,7 @@ export function registerAssistantRoutes(app, options = {}) {
       };
     }
 
-    // Providers without tool-calling (claude-cli/Ollama/llama.cpp) degrade to
+    // Providers without tool-calling (CLI backends/Ollama/llama.cpp) degrade to
     // a read-only completion GROUNDED in a live workspace snapshot. Without
     // the snapshot the model fabricates ("you have no tasks") to fill the
     // vacuum — so if the snapshot fails to load, the rules switch to an

@@ -259,6 +259,7 @@ const CHAT_PROVIDERS = [
   { key: 'anthropic', label: 'Claude', desc: 'Anthropic — strong grounding, needs an API key' },
   { key: 'openai', label: 'OpenAI', desc: 'GPT models — needs an API key' },
   { key: 'claude-cli', label: 'Claude CLI', desc: 'Your claude login — subscription, no API key' },
+  { key: 'copilot-cli', label: 'Copilot CLI', desc: 'Your GitHub Copilot login — no API key' },
   { key: 'ollama', label: 'Ollama', desc: 'Local model — private, no key' },
   { key: 'llamacpp', label: 'llama.cpp', desc: 'Your llama-server (OpenAI-compatible)' },
 ];
@@ -314,6 +315,18 @@ function renderChatSection(state) {
         <div class="settings-row__desc">Uses your existing <code>claude</code> login (Pro/Max subscription) — no API key is stored. Sign in once with <code>claude login</code> in a terminal. Powers Ask Prax, NL capture, writing actions, and review narration; the in-app assistant's tools still need an API backend. Requests share your subscription's rate limits.</div>
         <div class="editor-info__field"><label>Binary path</label><input class="text-input" type="text" data-ai-chat-binary value="${escapeHtml(draft?.binaryPath ?? status.binaryPath ?? '')}" placeholder="auto-detect (PATH, ~/.claude/local, Homebrew)"${locked ? ' disabled' : ''}></div>
         <div class="editor-info__field"><label>Model</label><input class="text-input" type="text" data-ai-chat-model value="${escapeHtml(draft?.model ?? status.model ?? '')}" placeholder="haiku · sonnet · opus"${locked ? ' disabled' : ''}></div>
+        <div style="display:flex; justify-content:flex-end;"><button class="btn-outline" type="button" data-action="save-ai-chat"${locked ? ' disabled' : ''}${pending ? ' aria-busy="true"' : ''}>${pending ? 'Saving…' : 'Save &amp; test connection'}</button></div>
+      </div>
+    </div>`;
+
+  } else if (backend === 'copilot-cli') {
+    configRows = `
+    <div class="settings-row">
+      <div class="settings-row__text" style="display:flex; flex-direction:column; gap:8px;">
+        <div class="settings-row__label">GitHub Copilot CLI configuration</div>
+        <div class="settings-row__desc">Uses your existing <code>copilot</code> login — no API key is stored. Sign in once with <code>copilot login</code> in a terminal. Powers Ask Prax, NL capture, writing actions, and review narration; the in-app assistant's tools still need an API backend. Requests share your Copilot plan's rate limits.</div>
+        <div class="editor-info__field"><label>Binary path</label><input class="text-input" type="text" data-ai-chat-binary value="${escapeHtml(draft?.binaryPath ?? status.binaryPath ?? '')}" placeholder="auto-detect (PATH or Homebrew)"${locked ? ' disabled' : ''}></div>
+        <div class="editor-info__field"><label>Model</label><input class="text-input" type="text" data-ai-chat-model value="${escapeHtml(draft?.model ?? status.model ?? '')}" placeholder="auto or a Copilot model ID"${locked ? ' disabled' : ''}></div>
         <div style="display:flex; justify-content:flex-end;"><button class="btn-outline" type="button" data-action="save-ai-chat"${locked ? ' disabled' : ''}${pending ? ' aria-busy="true"' : ''}>${pending ? 'Saving…' : 'Save &amp; test connection'}</button></div>
       </div>
     </div>`;
