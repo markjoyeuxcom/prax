@@ -1,4 +1,4 @@
-// Grounding for chat backends that cannot call tools (claude-cli, ollama,
+// Grounding for chat backends that cannot call tools (CLI backends, ollama,
 // llama.cpp): a bounded, honest snapshot of the live workspace injected into
 // the system prompt, so the model answers data questions from truth instead
 // of fabricating ("you have no tasks") to fill the vacuum. Pure — callers

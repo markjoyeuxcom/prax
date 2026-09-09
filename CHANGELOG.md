@@ -16,6 +16,12 @@ fresh empty `[Unreleased]` section is started.
 
 ### Added
 
+- **GitHub Copilot CLI answer model.** Settings ▸ Intelligence can now use the local
+  `copilot` login for keyless answers, with `auto` model selection by default and an optional
+  binary path for desktop launches. Calls run non-interactively in an empty directory with a
+  deny-over-allow tool fence, MCP servers and custom instructions disabled, serialized
+  execution, and honest connection/error reporting.
+
 - **`npm run release:prepare -- <version>`** cuts this changelog (renames `[Unreleased]`, merges
   duplicated subsection headings, rewires the compare links) and writes the version into every
   site that carries one — package, lockfile, Cargo, plugin manifest, published-image references,
