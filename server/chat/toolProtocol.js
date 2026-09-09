@@ -103,6 +103,67 @@ export function parseOpenai(message) {
   return { text, toolCalls };
 }
 
+export function openaiResponseInput(turns) {
+  const out = [];
+  for (const m of turns) {
+    if (isToolCallTurn(m)) {
+      if (Array.isArray(m.providerOutput) && m.providerOutput.length) {
+        out.push(...m.providerOutput);
+        continue;
+      }
+      if (typeof m.content === 'string' && m.content) {
+        out.push({ role: 'assistant', content: m.content });
+      }
+      for (const tc of m.toolCalls) {
+        out.push({
+          type: 'function_call',
+          call_id: tc.id,
+          name: tc.name,
+          arguments: JSON.stringify(tc.input ?? {}),
+        });
+      }
+    } else if (isToolResultTurn(m)) {
+      for (const r of m.results) {
+        out.push({ type: 'function_call_output', call_id: r.id, output: String(r.content ?? '') });
+      }
+    } else if (m?.role === 'user' || m?.role === 'assistant') {
+      out.push({ role: m.role, content: String(m.content ?? '') });
+    }
+  }
+  return out;
+}
+
+export function openaiResponseTools(tools) {
+  return tools.map((t) => ({
+    type: 'function',
+    name: t.name,
+    description: t.description,
+    parameters: t.parameters || EMPTY_SCHEMA,
+  }));
+}
+
+export function parseOpenaiResponse(data) {
+  const output = Array.isArray(data?.output) ? data.output : [];
+  const text = output
+    .filter((item) => item?.type === 'message' && Array.isArray(item.content))
+    .flatMap((item) => item.content)
+    .filter((part) => part?.type === 'output_text' && typeof part.text === 'string')
+    .map((part) => part.text)
+    .join('');
+  const toolCalls = output
+    .filter((item) => item?.type === 'function_call' && item.name && (item.call_id || item.id))
+    .map((item) => ({
+      id: item.call_id || item.id,
+      name: item.name,
+      input: safeParseJson(item.arguments),
+    }));
+  return {
+    text,
+    toolCalls,
+    providerOutput: output,
+  };
+}
+
 // ---- Gemini (generateContent: functionCall / functionResponse parts) -------
 // Gemini has no per-call id, so parseGemini synthesizes a stable one from the
 // name + position; feeding results back matches on name (see geminiContents).

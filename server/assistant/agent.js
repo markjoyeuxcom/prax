@@ -65,7 +65,27 @@ export function sanitizeMessages(input) {
           .filter((c) => c && typeof c.name === 'string' && typeof c.id === 'string')
           .map((c) => ({ id: c.id, name: c.name, input: c.input && typeof c.input === 'object' ? c.input : {}, ...(typeof c.approvalId === 'string' && c.approvalId.length <= 100 ? { approvalId: c.approvalId } : {}) }));
         if (toolCalls.length) {
-          out.push({ role: 'assistant', content: typeof m.content === 'string' ? m.content.slice(0, MAX_CONTENT) : '', toolCalls });
+          let providerOutput = null;
+          if (Array.isArray(m.providerOutput) && m.providerOutput.length <= 64) {
+            try {
+              const encoded = JSON.stringify(m.providerOutput);
+              if (encoded.length <= 200_000) {
+                const parsed = JSON.parse(encoded);
+                if (parsed.every((item) => item && typeof item === 'object'
+                  && ['reasoning', 'message', 'function_call'].includes(item.type))) {
+                  providerOutput = parsed;
+                }
+              }
+            } catch {
+              providerOutput = null;
+            }
+          }
+          out.push({
+            role: 'assistant',
+            content: typeof m.content === 'string' ? m.content.slice(0, MAX_CONTENT) : '',
+            toolCalls,
+            ...(providerOutput ? { providerOutput } : {}),
+          });
           continue;
         }
       }
@@ -177,7 +197,12 @@ export async function runAssistant({ chat, tools, system, messages, decisions = 
 
     if (res.toolCalls && res.toolCalls.length) {
       res.toolCalls = res.toolCalls.map(call => byName.get(call.name)?.readOnly ? call : { ...call, approvalId: randomUUID() });
-      history.push({ role: 'assistant', content: res.text || '', toolCalls: res.toolCalls });
+      history.push({
+        role: 'assistant',
+        content: res.text || '',
+        toolCalls: res.toolCalls,
+        ...(Array.isArray(res.providerOutput) ? { providerOutput: res.providerOutput } : {}),
+      });
       // Any write in the turn suspends the WHOLE turn for confirmation (a
       // provider requires every tool_use in a turn to be answered together).
       if (res.toolCalls.some((c) => !byName.get(c.name)?.readOnly)) {

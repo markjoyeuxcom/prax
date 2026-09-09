@@ -66,29 +66,34 @@ test('createChat resolves backends and null for none; throws on unknown', () => 
   assert.throws(() => createChat({ chatBackend: 'bogus' }), /unknown chat backend/i);
 });
 
-test('openai chat posts messages + model and returns the message content', async () => {
+test('openai chat uses the Responses API and returns output text', async () => {
   let seen;
-  const fetch = fakeFetch((url, init) => { seen = { url, init }; return { ok: true, async json() { return { choices: [{ message: { content: 'the answer' } }] }; } }; });
+  const fetch = fakeFetch((url, init) => { seen = { url, init }; return { ok: true, async json() { return { id: 'resp_1', output: [{ type: 'message', content: [{ type: 'output_text', text: 'the answer' }] }] }; } }; });
   const c = createOpenAiChat({ baseUrl: 'http://x/v1', apiKey: 'sk-1', model: 'gpt-4o-mini', fetch });
   const out = await c.complete([{ role: 'user', content: 'hi' }], { temperature: 0.2, maxTokens: 256 });
   assert.equal(out.text, 'the answer');
   assert.equal(out.model, 'gpt-4o-mini');
-  assert.match(seen.url, /\/v1\/chat\/completions$/);
+  assert.equal(out.providerOutput[0].type, 'message');
+  assert.match(seen.url, /\/v1\/responses$/);
   assert.equal(seen.init.headers.authorization, 'Bearer sk-1');
   const body = JSON.parse(seen.init.body);
   assert.equal(body.model, 'gpt-4o-mini');
-  assert.equal(body.temperature, 0.2);
-  assert.equal(body.max_tokens, 256);
-  assert.deepEqual(body.messages, [{ role: 'user', content: 'hi' }]);
+  assert.equal('temperature' in body, false);
+  assert.equal(body.max_output_tokens, 256);
+  assert.equal(body.store, false);
+  assert.deepEqual(body.input, [{ role: 'user', content: 'hi' }]);
 });
 
-test('openai chat omits Authorization when keyless and throws on non-ok / malformed', async () => {
+test('openai chat omits Authorization when keyless and surfaces safe provider errors', async () => {
   let seen;
-  const okFetch = fakeFetch((url, init) => { seen = init; return { ok: true, async json() { return { choices: [{ message: { content: 'x' } }] }; } }; });
+  const okFetch = fakeFetch((url, init) => { seen = init; return { ok: true, async json() { return { output: [{ type: 'message', content: [{ type: 'output_text', text: 'x' }] }] }; } }; });
   await createOpenAiChat({ baseUrl: 'http://local/v1', apiKey: '', fetch: okFetch }).complete('x');
   assert.equal('authorization' in seen.headers, false);
-  await assert.rejects(createOpenAiChat({ baseUrl: 'http://x/v1', fetch: fakeFetch(() => ({ ok: false, status: 500 })) }).complete('x'), /openai chat failed: 500/);
-  await assert.rejects(createOpenAiChat({ baseUrl: 'http://x/v1', fetch: fakeFetch(() => ({ ok: true, async json() { return { choices: [] }; } })) }).complete('x'), /no message content/);
+  await assert.rejects(
+    createOpenAiChat({ baseUrl: 'http://x/v1', fetch: fakeFetch(() => ({ ok: false, status: 400, async text() { return JSON.stringify({ error: { message: 'Unsupported parameter: temperature' } }); } })) }).complete('x'),
+    /openai chat failed: 400 \(Unsupported parameter: temperature\)/,
+  );
+  await assert.rejects(createOpenAiChat({ baseUrl: 'http://x/v1', fetch: fakeFetch(() => ({ ok: true, async json() { return { output: [] }; } })) }).complete('x'), /no message content/);
 });
 
 test('llamacpp rides the openai chat client: keyless, modelless, own error name', async () => {
