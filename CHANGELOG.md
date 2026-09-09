@@ -12,6 +12,13 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Fixed
+
+- **OpenAI Answer model 400 errors.** The OpenAI backend now uses the Responses API for current
+  model and tool-calling compatibility, retains Chat Completions for llama.cpp, replays reasoning
+  output statelessly with provider storage disabled, and surfaces the provider's bounded error
+  detail instead of reporting only the HTTP status.
+
 ## [0.21.0] - 2026-09-06
 
 ### Added

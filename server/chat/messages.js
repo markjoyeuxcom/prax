@@ -29,8 +29,11 @@ export function splitSystem(messages) {
 // The plain-completion path above speaks in { role, content:string } turns. The
 // agentic path adds two richer canonical turn kinds that carry no plain string
 // content (so toMessages would drop them):
-//   { role:'assistant', content?, toolCalls:[{ id, name, input }] }  — the model asked to call tools
-//   { role:'tool', results:[{ id, name, content, isError? }] }       — tool outputs fed back
+//   { role:'assistant', content?, toolCalls:[{ id, name, input }], providerOutput? }
+//     — the model asked to call tools; providerOutput carries bounded stateless
+//       continuation data when the provider requires its complete prior output
+//   { role:'tool', results:[{ id, name, content, isError? }] }
+//     — tool outputs fed back
 // Provider adapters translate these to each wire format (see toolProtocol.js).
 
 export function isToolCallTurn(m) {
