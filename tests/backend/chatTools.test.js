@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   anthropicMessages, anthropicTools, parseAnthropic,
   openaiMessages, openaiTools, parseOpenai,
+  openaiResponseInput, openaiResponseTools, parseOpenaiResponse,
   geminiContents, geminiTools, parseGemini,
 } from '../../server/chat/toolProtocol.js';
 import { createFakeChat } from '../../server/chat/fake.js';
@@ -65,6 +66,32 @@ test('parseOpenai parses tool_calls and JSON arguments (and tolerates bad JSON)'
   assert.deepEqual(bad.toolCalls[0].input, {}); // malformed args → empty object, not a throw
 });
 
+test('OpenAI Responses serialization maps messages, function calls, and outputs', () => {
+  const input = openaiResponseInput(CONV.filter((m) => m.role !== 'system'));
+  assert.deepEqual(input[0], { role: 'user', content: 'what is overdue?' });
+  assert.deepEqual(input[1], { role: 'assistant', content: 'let me look' });
+  assert.deepEqual(input[2], { type: 'function_call', call_id: 'c1', name: 'search_tasks', arguments: JSON.stringify({ q: 'overdue' }) });
+  assert.deepEqual(input[3], { type: 'function_call_output', call_id: 'c1', output: '1 task: Rotate certs' });
+
+  const declaration = openaiResponseTools(TOOLS)[0];
+  assert.deepEqual(declaration, { type: 'function', name: 'search_tasks', description: 'Search tasks', parameters: TOOLS[0].parameters });
+});
+
+test('parseOpenaiResponse extracts text, calls, and stateless continuation output', () => {
+  const parsed = parseOpenaiResponse({
+    id: 'resp_123',
+    status: 'completed',
+    output: [
+      { type: 'reasoning', summary: [] },
+      { type: 'message', content: [{ type: 'output_text', text: 'checking' }] },
+      { type: 'function_call', call_id: 'call_1', name: 'get_task', arguments: '{"id":"7"}' },
+    ],
+  });
+  assert.equal(parsed.text, 'checking');
+  assert.equal(parsed.providerOutput.length, 3);
+  assert.deepEqual(parsed.toolCalls, [{ id: 'call_1', name: 'get_task', input: { id: '7' } }]);
+});
+
 // ---- Gemini serialization ----
 
 test('geminiContents maps functionCall / functionResponse; tools strip unsupported schema keys', () => {
@@ -114,6 +141,45 @@ test('anthropic adapter sends tools + parses a tool_use response', async () => {
 test('openai adapter reports supportsTools only for real openai (not llamacpp)', () => {
   assert.equal(createOpenAiChat({ apiKey: 'k' }).supportsTools, true);
   assert.equal(createOpenAiChat({ backend: 'llamacpp', defaultModel: '' }).supportsTools, false);
+});
+
+test('openai adapter sends Responses tools and parses a function call', async () => {
+  let sent;
+  const providerOutput = [{ type: 'function_call', call_id: 'call_1', name: 'search_tasks', arguments: '{"q":"late"}' }];
+  const fetch = async (_url, init) => {
+    sent = JSON.parse(init.body);
+    return { ok: true, json: async () => ({ id: 'resp_1', status: 'completed', output: providerOutput }) };
+  };
+  const chat = createOpenAiChat({ apiKey: 'k', model: 'gpt-x', fetch });
+  const out = await chat.complete([{ role: 'user', content: 'find late tasks' }], { tools: TOOLS });
+  assert.deepEqual(sent.tools[0], { type: 'function', name: 'search_tasks', description: 'Search tasks', parameters: TOOLS[0].parameters });
+  assert.deepEqual(out.toolCalls, [{ id: 'call_1', name: 'search_tasks', input: { q: 'late' } }]);
+  assert.deepEqual(out.providerOutput, providerOutput);
+});
+
+test('openai adapter replays encrypted reasoning for a stateless tool continuation', async () => {
+  let sent;
+  const fetch = async (_url, init) => {
+    sent = JSON.parse(init.body);
+    return { ok: true, json: async () => ({ id: 'resp_2', output: [{ type: 'message', content: [{ type: 'output_text', text: 'done' }] }] }) };
+  };
+  const providerOutput = [
+    { type: 'reasoning', id: 'rs_1', encrypted_content: 'opaque' },
+    { type: 'function_call', call_id: 'call_1', name: 'search_tasks', arguments: '{}' },
+  ];
+  const chat = createOpenAiChat({ apiKey: 'k', model: 'gpt-x', fetch });
+  const out = await chat.complete([
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'find it' },
+    { role: 'assistant', toolCalls: [{ id: 'call_1', name: 'search_tasks', input: {} }], providerOutput },
+    { role: 'tool', results: [{ id: 'call_1', name: 'search_tasks', content: 'found it' }] },
+  ], { tools: TOOLS });
+  assert.equal(sent.store, false);
+  assert.deepEqual(sent.input.slice(-3), [
+    ...providerOutput,
+    { type: 'function_call_output', call_id: 'call_1', output: 'found it' },
+  ]);
+  assert.equal(out.text, 'done');
 });
 
 test('gemini adapter sends tools + parses functionCall response', async () => {
