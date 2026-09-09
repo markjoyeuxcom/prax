@@ -39,8 +39,8 @@ export async function updateDocument(request, id, patch) {
 // Higher-level fixture builders. `prefix` makes titles unique across specs
 // sharing the one demo-server instance, so rows are located unambiguously.
 
-export async function seedDerivedFromPair(request, prefix) {
-  const projectId = await resolveProjectId(request, 'homelab');
+export async function seedDerivedFromPair(request, prefix, project = 'homelab') {
+  const projectId = await resolveProjectId(request, project);
   const source = await createDocument(request, {
     title: `${prefix} source`,
     body: '# source\n\noriginal body\n',
@@ -60,8 +60,8 @@ export async function seedDerivedFromPair(request, prefix) {
   return { projectId, source, synthesized };
 }
 
-export async function seedStalePair(request, prefix) {
-  const seeded = await seedDerivedFromPair(request, prefix);
+export async function seedStalePair(request, prefix, project = 'homelab') {
+  const seeded = await seedDerivedFromPair(request, prefix, project);
   // Editing the source body changes its content hash, so the snapshot on the
   // derived-from link no longer matches -> the synthesized doc is now stale.
   await updateDocument(request, seeded.source.id, {
@@ -70,17 +70,6 @@ export async function seedStalePair(request, prefix) {
   return seeded;
 }
 
-export async function seedOrphan(request, prefix) {
-  const projectId = await resolveProjectId(request, 'work');
-  const orphan = await createDocument(request, {
-    title: `${prefix} orphan`,
-    body: '# orphan\n',
-    documentType: 'note',
-    project: projectId,
-    tags: ['e2e'],
-  });
-  return { projectId, orphan };
-}
 
 export async function seedTrustPair(request, prefix) {
   const projectId = await resolveProjectId(request, 'homelab');

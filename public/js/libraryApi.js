@@ -131,13 +131,6 @@ export async function fetchStaleDocuments(project = '') {
   return response.json();
 }
 
-export async function fetchOrphanDocuments(project = '') {
-  const qs = project ? `?project=${encodeURIComponent(project)}` : '';
-  const response = await fetch(`/api/library/maintenance/orphans${qs}`);
-  if (!response.ok) throw new Error('Failed to load orphan documents');
-  return response.json();
-}
-
 export async function fetchDeploymentStatus() {
   const response = await fetch('/api/settings/deployment');
   if (!response.ok) throw new Error('Failed to load deployment security status');
@@ -393,7 +386,7 @@ export async function narrateBrief(text) {
   return res.json();
 }
 
-// Library health: docs needing attention (needsReview / empty / stale / orphans + counts).
+// Library health: docs needing attention (needsReview / empty / stale + counts).
 export async function fetchHealth(project = '') {
   const params = project && project !== 'all' ? `?project=${encodeURIComponent(project)}` : '';
   const res = await fetch(`/api/library/health${params}`);

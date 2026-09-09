@@ -47,8 +47,8 @@ Ollama / llama.cpp) + trust guardrails.
 - [x] **Runbook generation** from an alert/incident description.
 
 **Tier 2 — high value — ✅ 3/3**
-- [x] **In-app agentic assistant** over the 35-tool MCP tree (reads free, writes confirmed).
-- [x] **Knowledge-base health.** Deterministic buckets (needs-review / stale / empty / orphan) +
+- [x] **In-app agentic assistant** over the 34-tool MCP tree (reads free, writes confirmed).
+- [x] **Knowledge-base health.** Deterministic buckets (needs-review / stale / empty) +
   the AI half: **auto wiki-linking** (deterministic title-mention suggestions) and **AI
   contradiction/gap detection** (a bounded, advisory "Scan with AI" pass with a verbatim-quote
   grounding gate). See

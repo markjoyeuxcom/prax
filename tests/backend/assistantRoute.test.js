@@ -30,7 +30,7 @@ test('GET /api/assistant/status reports the model + the full tool count', async 
   assert.equal(s.available, true);
   assert.equal(s.supportsTools, true);
   assert.equal(s.backend, 'fake');
-  assert.equal(s.toolCount, 35); // the whole MCP tool tree is exposed in-app
+  assert.equal(s.toolCount, 34); // the whole MCP tool tree is exposed in-app
   await app.close();
 });
 

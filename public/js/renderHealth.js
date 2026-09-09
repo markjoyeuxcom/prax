@@ -1,13 +1,13 @@
 import { escapeHtml } from './renderHelpers.js';
 
 // Library health view — a curation dashboard of documents that may need
-// attention: unverified AI drafts to review, empty stubs, stale derivations,
-// and link orphans. Pure state->HTML; rows dispatch data-action clicks.
+// attention: unverified AI drafts to review, empty stubs, and stale
+// derivations. Pure state->HTML; rows dispatch data-action clicks.
 const CAP = 20;
 
 // `showTrust` is only set where the row's verified/updatedBy are accurate (the
-// listDocuments-sourced sections) — the stale/orphan rows come from a query that
-// doesn't select those fields, so their trust tags would be misleading.
+// listDocuments-sourced sections) — stale rows come from a query that doesn't
+// select those fields, so their trust tags would be misleading.
 function docRow(doc, rowAction, showTrust) {
   const agent = showTrust && doc.updatedBy === 'agent' ? '<span class="health-tag">agent-written</span>' : '';
   const unver = showTrust && !doc.verified ? '<span class="health-tag health-tag--warn">unverified</span>' : '';
@@ -123,11 +123,10 @@ export function renderHealthHtml(state) {
   const verifyBtn = (d) => `<button class="btn-outline btn-outline--sm" type="button" data-action="verify-health-doc" data-doc-id="${escapeHtml(d.id || '')}">Review</button>`;
   return `<div class="page health">
       ${head}
-      <p class="page-head__sub">Documents that may need attention — verify AI drafts, fill or delete stubs, refresh stale derivations, link orphans.</p>
+      <p class="page-head__sub">Documents that may need attention — verify AI drafts, fill or delete stubs, and refresh stale derivations.</p>
       ${section('Needs review', h.needsReview, { empty: 'No unverified documents.', rowAction: verifyBtn, showTrust: true })}
       ${section('Empty stubs', h.empty, { empty: 'No empty documents.' })}
       ${section('Stale derivations', h.stale, { empty: 'No stale documents.' })}
-      ${section('Orphans — no links', h.orphans, { empty: 'No orphaned documents.' })}
       ${suggestionsSection(state.healthLinkSuggestions)}
       ${aiReviewSection(state)}
     </div>`;

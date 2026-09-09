@@ -63,7 +63,7 @@ function makeApp({ chat } = {}) {
     libraryRepository: { listDocuments: async () => [] },
     projectsRepository: { resolveProject: async () => null },
     appSettingsRepository: { async getSetting(_k, fb) { return fb; }, async putSetting() {} },
-    documentLinksRepository: { listStaleDocuments: async () => [], listOrphanDocuments: async () => [], listOutboundLinksForDocuments: async () => new Map() },
+    documentLinksRepository: { listStaleDocuments: async () => [], listOutboundLinksForDocuments: async () => new Map() },
   });
 }
 const scripted = { model: 's', backend: 's', async complete() { return { text: '```markdown\n# Drafted\n\n- [ ] step\n```', model: 's' }; }, async isAvailable() { return true; } };

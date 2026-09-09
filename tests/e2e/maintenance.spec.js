@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { seedStalePair, seedOrphan, resolveProjectId } from './helpers/seed.js';
+import { seedStalePair, resolveProjectId } from './helpers/seed.js';
 
 async function openMaintenance(page) {
   await page.goto('/');
@@ -9,16 +9,13 @@ async function openMaintenance(page) {
   await expect(page.getByText('MAINTENANCE', { exact: true })).toBeVisible();
 }
 
-test('Maintenance shows stale and orphan docs', async ({ page }) => {
+test('Maintenance shows stale docs', async ({ page }) => {
   const stalePrefix = `maint-stale-${Date.now()}`;
-  const orphanPrefix = `maint-orphan-${Date.now()}`;
   await seedStalePair(page.request, stalePrefix);
-  await seedOrphan(page.request, orphanPrefix);
 
   await openMaintenance(page);
 
   await expect(page.getByText(`${stalePrefix} synthesized`)).toBeVisible();
-  await expect(page.getByText(`${orphanPrefix} orphan`)).toBeVisible();
 });
 
 test('Maintenance Open navigates to the correct doc', async ({ page }) => {
@@ -42,7 +39,7 @@ test('Maintenance project filter scopes the lists', async ({ page }) => {
   const homelabPrefix = `maint-filter-hl-${Date.now()}`;
   const workPrefix = `maint-filter-wk-${Date.now()}`;
   await seedStalePair(page.request, homelabPrefix); // homelab project
-  await seedOrphan(page.request, workPrefix);       // work project
+  await seedStalePair(page.request, workPrefix, 'work');
 
   await openMaintenance(page);
 
@@ -51,5 +48,5 @@ test('Maintenance project filter scopes the lists', async ({ page }) => {
   await page.locator('[data-action="refresh-maintenance"]').click();
 
   await expect(page.getByText(`${homelabPrefix} synthesized`)).toBeVisible();
-  await expect(page.getByText(`${workPrefix} orphan`)).toHaveCount(0);
+  await expect(page.getByText(`${workPrefix} synthesized`)).toHaveCount(0);
 });

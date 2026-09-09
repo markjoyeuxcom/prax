@@ -486,7 +486,7 @@ test('library: runbook execution is exact-once, resumable, terminal on completio
   assert.equal((await app.inject({ method: 'GET', url: '/api/library/runs/11111111-1111-4111-8111-111111111111' })).statusCode, 404);
 });
 
-test('library: links, stale detection, orphans, maintenance', async () => {
+test('library: links, stale detection, and maintenance', async () => {
   const link = await app.inject({
     method: 'POST',
     url: `/api/library/documents/${docDerived.id}/links`,
@@ -520,8 +520,8 @@ test('library: links, stale detection, orphans, maintenance', async () => {
   const listed = await app.inject({ method: 'GET', url: '/api/library/documents?kind=synthesized' });
   assert.equal(listed.json()[0].stale, true);
 
-  const orphans = await app.inject({ method: 'GET', url: '/api/library/maintenance/orphans' });
-  assert.ok(Array.isArray(orphans.json()));
+  const removedOrphanEndpoint = await app.inject({ method: 'GET', url: '/api/library/maintenance/orphans' });
+  assert.equal(removedOrphanEndpoint.statusCode, 404);
 });
 
 test('library: verify and supersede round-trip', async () => {

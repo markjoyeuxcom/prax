@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildListStaleDocuments,
-  buildListOrphanDocuments,
   normalizeStaleRow,
 } from '../../server/documentLinksRepository.js';
 
@@ -17,9 +16,4 @@ test('normalizeStaleRow exposes kind', () => {
     updated_by: 'user', kind: 'synthesized', stale_sources: [],
   };
   assert.equal(normalizeStaleRow(row).kind, 'synthesized');
-});
-
-test('buildListOrphanDocuments selects d.kind', () => {
-  const q = buildListOrphanDocuments();
-  assert.match(q.text, /d\.kind/);
 });

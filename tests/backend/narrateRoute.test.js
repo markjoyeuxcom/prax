@@ -11,7 +11,6 @@ function makeApp({ chat } = {}) {
     libraryRepository: { listDocuments: async () => [] },
     documentLinksRepository: {
       listStaleDocuments: async () => [],
-      listOrphanDocuments: async () => [],
       listOutboundLinksForDocuments: async () => new Map(),
     },
     projectsRepository: { resolveProject: async () => null },

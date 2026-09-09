@@ -19,19 +19,5 @@ export function createGraphMaintenanceTools(client) {
         return okResult(paginateResults(docs, { limit, offset }));
       }),
     },
-    {
-      name: 'list_orphan_documents',
-      title: 'List orphan documents',
-      description: 'List documents with no inbound or outbound links. Returns a paginated collection envelope.',
-      annotations: { readOnlyHint: true },
-      inputSchema: {
-        project: z.string().optional().describe('Limit to one project (slug or id); omit for all.'),
-        ...paginationInput(),
-      },
-      handler: withErrorHandling(async ({ project, limit, offset }) => {
-        const docs = await client.listOrphanDocuments(project);
-        return okResult(paginateResults(docs, { limit, offset }));
-      }),
-    },
   ];
 }

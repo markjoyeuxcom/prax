@@ -16,7 +16,6 @@ function makeApp() {
     documentLinksRepository: {
       // link repo rows use `documentId`, not `id`
       listStaleDocuments: async () => [{ documentId: 'd1', title: 'Good runbook', documentType: 'runbook', projectId: P, updatedBy: 'user' }],
-      listOrphanDocuments: async () => [{ documentId: 'd3', title: 'Empty stub', documentType: 'note', projectId: P }],
       listOutboundLinksForDocuments: async () => new Map(),
     },
     projectsRepository: { resolveProject: async () => ({ id: P, slug: 'homelab' }) },
@@ -34,10 +33,10 @@ test('GET /api/library/health buckets docs and maps documentId → id', async ()
   assert.equal(b.needsReview[0].updatedBy, 'agent');
   // empty = whitespace-only body
   assert.deepEqual(b.empty.map((d) => d.id), ['d3']);
-  // stale/orphans carry their id even though the repo returns `documentId`
+  // Stale rows carry `documentId`; health normalizes it to `id`.
   assert.equal(b.stale[0].id, 'd1');
-  assert.equal(b.orphans[0].id, 'd3');
-  assert.deepEqual(b.counts, { needsReview: 1, stale: 1, orphans: 1, empty: 1 });
+  assert.equal('orphans' in b, false);
+  assert.deepEqual(b.counts, { needsReview: 1, stale: 1, empty: 1 });
   await app.close();
 });
 
@@ -45,7 +44,7 @@ test('GET /api/library/health rejects an unknown project', async () => {
   const app = await buildApp({
     skipDb: true,
     libraryRepository: { listDocuments: async () => [] },
-    documentLinksRepository: { listStaleDocuments: async () => [], listOrphanDocuments: async () => [], listOutboundLinksForDocuments: async () => new Map() },
+    documentLinksRepository: { listStaleDocuments: async () => [], listOutboundLinksForDocuments: async () => new Map() },
     projectsRepository: { resolveProject: async () => null },
     appSettingsRepository: { async getSetting(_k, fb) { return fb; }, async putSetting() {} },
   });
