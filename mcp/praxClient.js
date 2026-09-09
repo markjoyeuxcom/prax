@@ -188,9 +188,6 @@ export function createPraxClient({
     listStaleDocuments: (project) =>
       request('GET', '/api/library/maintenance/stale', { query: { project } }),
 
-    listOrphanDocuments: (project) =>
-      request('GET', '/api/library/maintenance/orphans', { query: { project } }),
-
     linkDocuments: (sourceId, targetId, relation) =>
       request('POST', `/api/library/documents/${sourceId}/links`, {
         body: { targetId, relation }, headers: { 'x-prax-origin': 'agent' }, retryUnavailable: true,

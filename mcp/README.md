@@ -44,7 +44,7 @@ registration with `claude mcp list`. (Confirm the exact `claude mcp add` flag sy
 
 Reads: `search_documents`, `ask_library`, `ask_prax`, `get_document`, `search_tasks`, `get_task`,
 `list_task_documents`, `list_task_checklist`, `list_task_activity`, `list_document_links`,
-`list_stale_documents`, `list_orphan_documents`, `list_runbook_runs`, `get_runbook_run`,
+`list_stale_documents`, `list_runbook_runs`, `get_runbook_run`,
 `list_external_refs`, `search_documents_semantic`.
 Writes: `create_document`, `update_document`, `create_task`, `update_task`,
 `link_task_document`, `unlink_task_document`, `add_checklist_item`, `set_checklist_item`,
@@ -69,7 +69,6 @@ Document graph tools:
 - `unlink_documents` — remove a typed link; removing the last live supersedes edge atomically reactivates its target.
 - `list_document_links` — list a document's links and backlinks (direction: outbound / inbound / both).
 - `list_stale_documents` — list derived documents whose source changed since the last link snapshot (stale = derived doc whose source was updated after it was linked).
-- `list_orphan_documents` — list documents with no inbound or outbound links.
 
 Runbook execution tools:
 - `start_runbook_run` — snapshot a runbook into an independent timestamped run; `runId` is caller-stable (allocated automatically when omitted) and makes retries exact-once.

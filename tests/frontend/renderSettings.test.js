@@ -16,7 +16,6 @@ function baseState(overrides = {}) {
       { id: 'p2', name: 'Work' },
     ],
     staleDocs: [],
-    orphanDocs: [],
     maintenanceProjectFilter: 'all',
     ...overrides,
   };
@@ -599,10 +598,9 @@ test('maintenance filter defaults to the all option selected', () => {
   assert.match(html, /<option value="all" selected>All projects<\/option>/);
 });
 
-test('maintenance lists render empty states by default', () => {
+test('maintenance renders the stale-document empty state by default', () => {
   const html = renderSettingsHtml(baseState({ settingsTab: 'data' }), baseModel());
   assert.match(html, /No stale documents\./);
-  assert.match(html, /No orphan documents\./);
 });
 
 test('stale docs render as doc-rows with joined stale sources and an open button with both ids', () => {
@@ -621,14 +619,6 @@ test('stale docs render as doc-rows with joined stale sources and an open button
   assert.doesNotMatch(html, /No stale documents\./);
 });
 
-test('orphan docs render as doc-rows with open buttons carrying both ids', () => {
-  const html = renderSettingsHtml(baseState({ settingsTab: 'data', 
-    orphanDocs: [{ documentId: 'd2', projectId: 'p2', title: 'Sprint notes' }],
-  }), baseModel());
-  assert.match(html, /doc-row__title">Sprint notes</);
-  assert.match(html, /data-action="open-library-doc" data-library-document-id="d2" data-library-project-id="p2"/);
-  assert.doesNotMatch(html, /No orphan documents\./);
-});
 
 // ---- Footer ----------------------------------------------------------------
 
@@ -644,7 +634,7 @@ test('reset preferences row carries the reset action', () => {
 
 // ---- XSS -------------------------------------------------------------------
 
-test('escapes backend name, doc titles, sources, and project names', () => {
+test('escapes backend name, stale-document fields, and project names', () => {
   const hostile = {
     semanticStatus: { available: true, enabled: true, backend: '<script>alert(1)</script>', connected: true, embeddedCount: 1, totalCount: 1 },
     projects: [{ id: 'p1', name: '<script>proj</script>' }],
@@ -654,7 +644,6 @@ test('escapes backend name, doc titles, sources, and project names', () => {
       title: '<script>stale</script>',
       staleSources: [{ title: '<script>src</script>' }],
     }],
-    orphanDocs: [{ documentId: 'd2', title: '<script>orphan</script>' }],
     deploymentStatus: { networkScope: 'network', bindHost: '<script>bind</script>', authentication: 'none' },
   };
   const intel = renderSettingsHtml(baseState({ ...hostile, settingsTab: 'intelligence' }), baseModel({ activeProjectName: '<script>active</script>' }));
@@ -665,7 +654,6 @@ test('escapes backend name, doc titles, sources, and project names', () => {
   assert.match(data, /&lt;script&gt;proj&lt;\/script&gt;/);
   assert.match(data, /&lt;script&gt;stale&lt;\/script&gt;/);
   assert.match(data, /&lt;script&gt;src&lt;\/script&gt;/);
-  assert.match(data, /&lt;script&gt;orphan&lt;\/script&gt;/);
   assert.match(data, /&lt;script&gt;active&lt;\/script&gt;/);
   assert.match(data, /&lt;script&gt;bind&lt;\/script&gt;/);
 });

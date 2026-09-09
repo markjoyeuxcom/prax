@@ -8,7 +8,6 @@ import {
   normalizeLinkRow,
   createDocumentLinksRepository,
   buildListStaleDocuments,
-  buildListOrphanDocuments,
   normalizeStaleRow,
 } from '../../server/documentLinksRepository.js';
 
@@ -82,12 +81,6 @@ test('buildListStaleDocuments compares target.content_hash to the edge snapshot,
   assert.deepEqual(scoped.values, ['pid']);
 });
 
-test('buildListOrphanDocuments finds docs with no inbound or outbound links', () => {
-  const q = buildListOrphanDocuments();
-  assert.match(q.text, /not exists/);
-  assert.match(q.text, /source_document_id = d\.id/);
-  assert.match(q.text, /target_document_id = d\.id/);
-});
 
 test('normalizeStaleRow maps the aggregated row', () => {
   const row = { id: SRC, title: 'Derived', document_type: 'note', project_id: 'p', updated_by: 'user', kind: 'source', stale_sources: [{ documentId: TGT, title: 'Source' }] };

@@ -411,6 +411,10 @@ fresh empty `[Unreleased]` section is started.
 
 ### Removed
 
+- **Document-orphan detection.** Standalone documents are valid—especially memories retrieved
+  through search rather than explicit graph edges—so the noisy orphan heuristic has been removed
+  from Library Health, Settings maintenance, the REST API, and the MCP tool surface. Typed document
+  links, stale-derivation detection, and wiki-link suggestions remain.
 - Linux ARM64 installers. The pipeline builds macOS Apple Silicon and Linux x64 only; GitLab's
   hosted ARM64 runners are not available on the project's plan and there is no self-hosted one.
 - The experimental Plain editor and editor-engine selector. CodeMirror is now the

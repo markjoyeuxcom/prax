@@ -101,8 +101,8 @@ overdue (< today), today, soon (≤ 3 days), later; completed → muted.
   provider cards/API-key inputs from the comp are shown only as read-only backend
   status until the backend supports switching (Phase 2+).
 - **Trust & maintenance features survive the redesign**: SYNTH/STALE/VERIFIED/SUPERSEDED
-  chips on doc cards/rows, verify + supersede actions, stale/orphan maintenance (moves
-  from the old admin modal into Settings ▸ Data & admin). The six e2e journeys keep
+  chips on doc cards/rows, verify + supersede actions, and stale-document maintenance
+  (moved from the old admin modal into Settings ▸ Data & admin). The six e2e journeys keep
   their flows with updated selectors.
 - **Markdown task-items become clickable** in preview (design: toggling rewrites
   `- [ ]`/`- [x]` in the source) — an intentional, documented change to the previously

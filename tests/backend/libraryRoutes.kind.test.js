@@ -35,7 +35,6 @@ const documentLinksRepository = {
   linkDocuments: async () => ({ linked: true }),
   unlinkDocuments: async () => true,
   listStaleDocuments: async () => [],
-  listOrphanDocuments: async () => [],
 };
 
 test('POST /api/library/documents accepts valid kind', async () => {

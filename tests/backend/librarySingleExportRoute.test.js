@@ -29,7 +29,6 @@ function fakeLinks() {
     linkDocuments: async () => ({ linked: true }),
     unlinkDocuments: async () => true,
     listStaleDocuments: async () => [],
-    listOrphanDocuments: async () => [],
     listOutboundLinksForDocuments: async (ids) => {
       const m = new Map();
       if (ids.includes(DOC_B.id)) {

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { seedDerivedFromPair, seedOrphan } from './helpers/seed.js';
+import { createDocument, resolveProjectId, seedDerivedFromPair } from './helpers/seed.js';
 
 // Open the library and click the card whose title contains `titleText` —
 // documents open in the editor screen.
@@ -70,10 +70,17 @@ test('Backlinks show the deriving doc on the source', async ({ page }) => {
   await expect(links).toContainText(`${prefix} synthesized`);
 });
 
-test('Links section renders an empty state for an orphan doc', async ({ page }) => {
-  const prefix = `links-orphan-${Date.now()}`;
-  await seedOrphan(page.request, prefix);
-  await openLibraryDoc(page, `${prefix} orphan`);
+test('Links section renders an empty state for a standalone doc', async ({ page }) => {
+  const prefix = `links-standalone-${Date.now()}`;
+  const project = await resolveProjectId(page.request, 'work');
+  await createDocument(page.request, {
+    title: `${prefix} source`,
+    body: '# source\n',
+    documentType: 'note',
+    project,
+    tags: ['e2e'],
+  });
+  await openLibraryDoc(page, `${prefix} source`);
 
   const links = page.locator('[data-document-links]');
   await expect(links).toBeVisible();

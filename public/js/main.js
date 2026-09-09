@@ -30,7 +30,7 @@ import {
   restoreDocument, deleteDocumentPermanently, fetchDocumentLinks, fetchDocumentTaskBacklinks, fetchSimilarDocuments,
   unlinkDocuments,
   fetchExternalRefs, addExternalRef, removeExternalRef,
-  fetchStaleDocuments, fetchOrphanDocuments, fetchDeploymentStatus, fetchSemanticStatus,
+  fetchStaleDocuments, fetchDeploymentStatus, fetchSemanticStatus,
   setSemanticEnabled, putSemanticSettings, reindexEmbeddings, semanticSearch,
   fetchChatStatus, putChatSettings,
   fetchGoogleCalendarStatus, putGoogleCalendarSettings, connectGoogleCalendar,
@@ -543,14 +543,11 @@ async function reconcileChatSettingsMutation(patch, error) {
 
 async function loadMaintenance() {
   const project = state.maintenanceProjectFilter === 'all' ? '' : state.maintenanceProjectFilter;
-  const [stale, orphans] = await Promise.allSettled([
-    fetchStaleDocuments(project),
-    fetchOrphanDocuments(project),
-  ]);
-  setState({
-    staleDocs: stale.status === 'fulfilled' ? stale.value : [],
-    orphanDocs: orphans.status === 'fulfilled' ? orphans.value : [],
-  });
+  try {
+    setState({ staleDocs: await fetchStaleDocuments(project) });
+  } catch {
+    setState({ staleDocs: [] });
+  }
 }
 
 async function loadHealth() {

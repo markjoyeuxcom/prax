@@ -252,7 +252,6 @@ required/optional status, and enum option sets. Shared enums: `STATUS`
 | `add_external_ref` | `documentId`, `url`, `label?` | — |
 | `remove_external_ref` | `documentId`, `refId` | — |
 | `list_stale_documents` | `project?`, `limit?`, `offset?` | yes |
-| `list_orphan_documents` | `project?`, `limit?`, `offset?` | yes |
 | `search_documents_semantic` | `query`, `project?`, `limit?`, `offset?` | yes |
 | `start_runbook_run` | `documentId`, `title?`, `runId?` | — |
 | `list_runbook_runs` | `documentId`, `limit?`, `offset?` | yes |
@@ -406,18 +405,16 @@ caller's intent) — for updates as well as creates. Replaying a completed opera
 a later write changed the document — returns the **current** document unchanged with `200` and
 `replayed: true`; reusing the id with different content is `409`; a replay whose document has
 since been permanently deleted is `410`. `derived-from` links snapshot
-the target document's `contentHash` at link time and refresh it on re-link. The maintenance
-tools `list_stale_documents` and `list_orphan_documents` drive a client-side groom loop:
-stale documents are derived docs whose source changed since the snapshot (each result includes
-`updatedBy` so a loop can skip hand-edited docs); orphan documents have no inbound or outbound
-links. Both tools are served at `GET /api/library/maintenance/stale` and
-`GET /api/library/maintenance/orphans`.
+the target document's `contentHash` at link time and refresh it on re-link. The maintenance tool
+`list_stale_documents` drives a client-side groom loop: stale documents are derived docs whose
+source changed since the snapshot (each result includes `updatedBy` so a loop can skip hand-edited
+docs). It is served at `GET /api/library/maintenance/stale`.
 
 Document `kind` distinguishes hand-authored documents (`"source"`) from agent-synthesized
 derivations (`"synthesized"`). It is set explicitly by callers (defaulting to `"source"`),
 mutable via `update_document`, and independent of `derived-from` edges and the
 `x-prax-origin` edit-origin header. Full read paths (`get_document`, `search_documents_semantic`
-refs, stale/orphan rows, context-pack items, HTTP search rows) include `kind`; the create/update
+refs, stale rows, context-pack items, HTTP search rows) include `kind`; the create/update
 tools accept it as an optional input. The one exception is the compact MCP `search_documents`
 summary (`{ id, title, documentType, projectId, tags, snippet }`), which deliberately omits `kind`
 and the trust/lifecycle fields — call `get_document` for them.
@@ -447,7 +444,7 @@ trust state is managed via the `verify`/`supersede` endpoints below.
 | `status` | `"active"` \| `"superseded"` \| `"deprecated"` | Lifecycle state. New documents are `"active"`. A live inbound `supersedes` link makes an active document `"superseded"`. `"deprecated"` is reserved for manual use (stale, no replacement). |
 
 All read paths that return full document records (`get_document`, HTTP search rows,
-`search_documents_semantic` refs, stale/orphan rows, context-pack items) include these four
+`search_documents_semantic` refs, stale rows, context-pack items) include these four
 fields; the compact MCP `search_documents` summary omits them (see the `kind` note above).
 Retrieval is **active-only** by default: only documents with `status = 'active'` appear in
 semantic search, the context-pack, the `search_documents` MCP tool, and CLI/skill recall
