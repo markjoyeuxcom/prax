@@ -413,6 +413,12 @@ fresh empty `[Unreleased]` section is started.
 
 ### Fixed
 
+- **Gemini assistant tool calling works again.** Prax sent the general JSON Schema keyword
+  `exclusiveMinimum` in the `ask_library` and `ask_prax` declarations, but the Gemini
+  `FunctionDeclaration.parameters` surface rejects it with HTTP 400. The Gemini adapter now
+  keeps only supported schema fields and translates strict integer bounds to inclusive bounds
+  (`> 0` becomes `minimum: 1`). A regression serializes the complete live assistant toolset so
+  future schema changes cannot silently break every Gemini assistant turn.
 - **The main window now shows work written outside it.** A task captured from the menu-bar
   capture bar (its own webview), or anything written by the memory skills, the CLI or MCP, never
   appeared in an open main window: it loaded its collections once and only refetched after its own

@@ -9,6 +9,7 @@ import { createFakeChat } from '../../server/chat/fake.js';
 import { createAnthropicChat } from '../../server/chat/anthropic.js';
 import { createOpenAiChat } from '../../server/chat/openai.js';
 import { createGeminiChat } from '../../server/chat/gemini.js';
+import { buildAgentTools } from '../../server/assistant/tools.js';
 
 const TOOLS = [{ name: 'search_tasks', description: 'Search tasks', parameters: { type: 'object', properties: { q: { type: 'string' } }, additionalProperties: false } }];
 
@@ -76,6 +77,16 @@ test('geminiContents maps functionCall / functionResponse; tools strip unsupport
   assert.equal(decl.name, 'search_tasks');
   assert.equal('additionalProperties' in decl.parameters, false); // Gemini rejects it
   assert.deepEqual(decl.parameters.properties, { q: { type: 'string' } });
+});
+
+test('Gemini accepts the full Prax assistant tool schema surface', () => {
+  const declarations = geminiTools(buildAgentTools({}))[0].functionDeclarations;
+  const askLibrary = declarations.find((declaration) => declaration.name === 'ask_library');
+  const askPrax = declarations.find((declaration) => declaration.name === 'ask_prax');
+
+  assert.doesNotMatch(JSON.stringify(declarations), /exclusiveMinimum/);
+  assert.equal(askLibrary.parameters.properties.limit.minimum, 1);
+  assert.equal(askPrax.parameters.properties.limit.minimum, 1);
 });
 
 test('parseGemini synthesizes ids for function calls', () => {

@@ -107,17 +107,35 @@ export function parseOpenai(message) {
 // Gemini has no per-call id, so parseGemini synthesizes a stable one from the
 // name + position; feeding results back matches on name (see geminiContents).
 
-// Gemini's functionDeclarations accept only an OpenAPI subset — strip keywords it
-// rejects ($schema, additionalProperties, $ref) at every level.
+// Gemini's legacy FunctionDeclaration.parameters field accepts only this
+// documented OpenAPI subset. Keep property names while recursively dropping
+// unsupported schema keywords produced by general-purpose JSON Schema tools.
+const GEMINI_SCHEMA_KEYS = new Set([
+  'type', 'format', 'title', 'description', 'nullable', 'enum',
+  'maxItems', 'minItems', 'properties', 'required', 'minProperties',
+  'maxProperties', 'minLength', 'maxLength', 'pattern', 'example',
+  'anyOf', 'propertyOrdering', 'default', 'items', 'minimum', 'maximum',
+]);
+
 function sanitizeGeminiSchema(schema) {
   if (Array.isArray(schema)) return schema.map(sanitizeGeminiSchema);
   if (!schema || typeof schema !== 'object') return schema;
   const out = {};
   for (const [key, value] of Object.entries(schema)) {
-    if (key === '$schema' || key === 'additionalProperties' || key === '$ref') continue;
+    if (!GEMINI_SCHEMA_KEYS.has(key)) continue;
     out[key] = key === 'properties' && value && typeof value === 'object'
-      ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, sanitizeGeminiSchema(v)]))
+      ? Object.fromEntries(Object.entries(value).map(([name, child]) => [name, sanitizeGeminiSchema(child)]))
       : sanitizeGeminiSchema(value);
+  }
+  // OpenAPI has no numeric exclusive bounds. Preserve their exact meaning for
+  // integers by translating them to the nearest supported inclusive bound.
+  if (schema.type === 'integer') {
+    if (out.minimum === undefined && Number.isFinite(schema.exclusiveMinimum)) {
+      out.minimum = Math.floor(schema.exclusiveMinimum) + 1;
+    }
+    if (out.maximum === undefined && Number.isFinite(schema.exclusiveMaximum)) {
+      out.maximum = Math.ceil(schema.exclusiveMaximum) - 1;
+    }
   }
   return out;
 }
