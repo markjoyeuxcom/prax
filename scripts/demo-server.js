@@ -610,21 +610,6 @@ function createMemoryDocumentLinksRepository(documentsRef) {
       }
       return results;
     },
-    async listOrphanDocuments(projectId) {
-      const linkedIds = new Set();
-      for (const l of links) {
-        linkedIds.add(l.sourceId);
-        linkedIds.add(l.targetId);
-      }
-      return documentsRef
-        .filter((d) => {
-          if (d.archivedAt) return false;
-          if (linkedIds.has(d.id)) return false;
-          if (projectId && d.projectId !== projectId) return false;
-          return true;
-        })
-        .map((d) => ({ documentId: d.id, title: d.title, documentType: d.documentType, projectId: d.projectId, kind: d.kind }));
-    },
     async listOutboundLinksForDocuments(docIds) {
       const grouped = new Map();
       if (!Array.isArray(docIds) || docIds.length === 0) return grouped;

@@ -121,22 +121,6 @@ export function buildListOutboundLinksForDocuments(docIds) {
   };
 }
 
-export function buildListOrphanDocuments(projectId) {
-  const filter = projectId ? 'and d.project_id = $1' : '';
-  return {
-    text: `
-      select d.id, d.title, d.document_type, d.project_id, d.kind
-      from markdown_documents d
-      where d.archived_at is null
-        and not exists (select 1 from document_links dl where dl.source_document_id = d.id)
-        and not exists (select 1 from document_links dl where dl.target_document_id = d.id)
-        ${filter}
-      order by d.title
-    `,
-    values: projectId ? [projectId] : [],
-  };
-}
-
 // json_group_array returns TEXT (pg's json_agg auto-parsed on read); parse at
 // the boundary, degrading malformed text to [].
 function parseJsonArray(value) {
@@ -199,13 +183,6 @@ export function createDocumentLinksRepository(db) {
       const query = buildListStaleDocuments(projectId);
       const result = await db.query(query.text, query.values);
       return result.rows.map(normalizeStaleRow);
-    },
-    async listOrphanDocuments(projectId) {
-      const query = buildListOrphanDocuments(projectId);
-      const result = await db.query(query.text, query.values);
-      return result.rows.map((row) => ({
-        documentId: row.id, title: row.title, documentType: row.document_type, projectId: row.project_id, kind: row.kind,
-      }));
     },
     async listOutboundLinksForDocuments(docIds) {
       const grouped = new Map();

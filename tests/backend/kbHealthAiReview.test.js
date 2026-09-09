@@ -34,7 +34,7 @@ function makeApp({ chat, embedder = { backend: 'fake' }, docs = [A, B], similar,
     tasksRepository: { listTasks: listTasks || (async () => []) },
     projectsRepository: { resolveProject: async () => null },
     appSettingsRepository: { async getSetting(_k, fb) { return fb; }, async putSetting() {} }, // → semanticEnabled() true
-    documentLinksRepository: { listStaleDocuments: async () => [], listOrphanDocuments: async () => [], listOutboundLinksForDocuments: async () => new Map() },
+    documentLinksRepository: { listStaleDocuments: async () => [], listOutboundLinksForDocuments: async () => new Map() },
   });
 }
 
@@ -212,7 +212,7 @@ test('project resolution throwing degrades to a 200 (never 500)', async () => {
     tasksRepository: { listTasks: async () => [] },
     projectsRepository: { async resolveProject() { throw new Error('db down'); } },
     appSettingsRepository: { async getSetting(_k, fb) { return fb; }, async putSetting() {} },
-    documentLinksRepository: { listStaleDocuments: async () => [], listOrphanDocuments: async () => [], listOutboundLinksForDocuments: async () => new Map() },
+    documentLinksRepository: { listStaleDocuments: async () => [], listOutboundLinksForDocuments: async () => new Map() },
   });
   const res = await app.inject({ method: 'POST', url: '/api/library/health/ai-review', payload: { project: 'homelab' } });
   assert.equal(res.statusCode, 200); // NOT 500

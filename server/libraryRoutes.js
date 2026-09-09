@@ -1351,15 +1351,6 @@ export async function registerLibraryRoutes(app, options = {}) {
     return documentLinksRepository.listStaleDocuments(projectId);
   });
 
-  app.get('/api/library/maintenance/orphans', async (request, reply) => {
-    let projectId;
-    if (request.query.project) {
-      projectId = await resolveProjectId(request.query.project);
-      if (projectId === null) { reply.code(400); return { message: 'project is invalid' }; }
-    }
-    return documentLinksRepository.listOrphanDocuments(projectId);
-  });
-
   // Detached runs: operational records whose source runbook was deleted. They
   // survive with snapshot context (document_title, project, title), but the
   // per-document runs listing 404s once the doc is gone — this keeps them
@@ -1370,31 +1361,28 @@ export async function registerLibraryRoutes(app, options = {}) {
   });
 
   // Knowledge-base health: one call that surfaces the docs needing attention —
-  // unverified drafts to review (esp. agent-written), stale derivations, orphans
-  // with no links, and empty stubs. A curation dashboard over signals the
-  // Library already tracks.
+  // unverified drafts to review (esp. agent-written), stale derivations, and
+  // empty stubs. A curation dashboard over signals the Library already tracks.
   app.get('/api/library/health', async (request, reply) => {
     let projectId;
     if (request.query.project) {
       projectId = await resolveProjectId(request.query.project);
       if (projectId === null) { reply.code(400); return { message: 'project is invalid' }; }
     }
-    // listDocuments uses `id`; the link repo's stale/orphan rows use `documentId`.
+    // listDocuments uses `id`; the link repo's stale rows use `documentId`.
     const healthRef = (d) => ({
       id: d.id ?? d.documentId, title: d.title, documentType: d.documentType, projectId: d.projectId,
       verified: Boolean(d.verified), updatedBy: d.updatedBy || null,
     });
-    const [active, stale, orphans] = await Promise.all([
+    const [active, stale] = await Promise.all([
       repository.listDocuments({ projectId, status: 'active' }),
       documentLinksRepository.listStaleDocuments(projectId),
-      documentLinksRepository.listOrphanDocuments(projectId),
     ]);
     const needsReview = active.filter((d) => !d.verified).map(healthRef);
     const empty = active.filter((d) => contentLength(d.body) === 0).map(healthRef);
     const sections = {
       needsReview,
       stale: (stale || []).map(healthRef),
-      orphans: (orphans || []).map(healthRef),
       empty,
     };
     return {

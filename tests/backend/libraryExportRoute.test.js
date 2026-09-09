@@ -69,7 +69,6 @@ function createFakeDocumentLinks(outboundMap = new Map()) {
     async linkDocuments() { return { linked: true, alreadyLinked: false }; },
     async unlinkDocuments() { return true; },
     async listStaleDocuments() { return []; },
-    async listOrphanDocuments() { return []; },
     async listOutboundLinksForDocuments() { return outboundMap; },
   };
 }

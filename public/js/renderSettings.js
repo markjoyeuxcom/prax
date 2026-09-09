@@ -568,7 +568,6 @@ function renderDataCard(state, model) {
       ? `<div class="settings-row__desc" data-import-status role="status" style="margin-top:6px;">Imported ${Number(state.adminImportResult.imported) || 0}; skipped ${Number(state.adminImportResult.skipped) || 0}${state.adminImportResult.replayed ? ' · recovered from an earlier commit' : ''}.</div>`
       : '';
   const staleDocs = Array.isArray(state.staleDocs) ? state.staleDocs : [];
-  const orphanDocs = Array.isArray(state.orphanDocs) ? state.orphanDocs : [];
   const maintenanceFilter = state.maintenanceProjectFilter || 'all';
   const deployment = state.deploymentStatus && typeof state.deploymentStatus === 'object'
     ? state.deploymentStatus
@@ -603,9 +602,6 @@ function renderDataCard(state, model) {
   const staleList = staleDocs.length === 0
     ? '<p class="settings-row__desc">No stale documents.</p>'
     : staleDocs.map((doc) => maintenanceDocRow(doc, { withSources: true })).join('');
-  const orphanList = orphanDocs.length === 0
-    ? '<p class="settings-row__desc">No orphan documents.</p>'
-    : orphanDocs.map((doc) => maintenanceDocRow(doc, { withSources: false })).join('');
 
   return `
   <section class="settings-card">
@@ -673,16 +669,6 @@ function renderDataCard(state, model) {
         <div class="settings-row__desc">Derived documents whose source changed since the link was created.</div>
         <div style="margin-top:8px;">
           ${staleList}
-        </div>
-      </div>
-    </div>
-
-    <div class="settings-row">
-      <div class="settings-row__text">
-        <div class="settings-row__label">Orphan documents</div>
-        <div class="settings-row__desc">Documents with no inbound or outbound links.</div>
-        <div style="margin-top:8px;">
-          ${orphanList}
         </div>
       </div>
     </div>

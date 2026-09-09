@@ -2,8 +2,8 @@
 //
 // Finds plain-text mentions of one document's exact title inside ANOTHER
 // document's body that are not already a [[wiki-link]] (or inside code), so the
-// Library can suggest connecting them — the cure for the orphan/wiki-rot problem
-// the Health view surfaces. Pure + unit-tested; the routes are thin wrappers.
+// Library can suggest connecting related documents and reducing wiki rot.
+// Pure + unit-tested; the routes are thin wrappers.
 
 function escapeRegex(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

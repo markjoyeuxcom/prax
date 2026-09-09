@@ -12,7 +12,6 @@ function build(overrides = {}) {
     projectsRepository: { async resolveProject(v) { return (v === 'homelab' || v === PROJECT_UUID) ? { id: PROJECT_UUID, slug: 'homelab' } : null; } },
     documentLinksRepository: {
       async listStaleDocuments(projectId) { return [{ documentId: D, title: 'Derived', documentType: 'note', kind: 'source', projectId: projectId || null, updatedBy: 'user', staleSources: [] }]; },
-      async listOrphanDocuments() { return [{ documentId: D, title: 'Lonely', documentType: 'note', kind: 'source', projectId: null }]; },
       ...overrides,
     },
   });
@@ -38,10 +37,9 @@ test('GET stale resolves project slug to id, rejects unknown project', async () 
   await app.close();
 });
 
-test('GET /api/library/maintenance/orphans returns orphans', async () => {
+test('the removed orphan-maintenance endpoint is not exposed', async () => {
   const app = await build();
   const res = await app.inject({ method: 'GET', url: '/api/library/maintenance/orphans' });
-  assert.equal(res.statusCode, 200);
-  assert.equal(res.json()[0].title, 'Lonely');
+  assert.equal(res.statusCode, 404);
   await app.close();
 });
