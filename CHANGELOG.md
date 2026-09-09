@@ -12,13 +12,6 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
-### Fixed
-
-- **OpenAI Answer model 400 errors.** The OpenAI backend now uses the Responses API for current
-  model and tool-calling compatibility, retains Chat Completions for llama.cpp, replays reasoning
-  output statelessly with provider storage disabled, and surfaces the provider's bounded error
-  detail instead of reporting only the HTTP status.
-
 ## [0.21.0] - 2026-09-06
 
 ### Added
@@ -426,6 +419,10 @@ fresh empty `[Unreleased]` section is started.
 
 ### Fixed
 
+- **OpenAI Answer model 400 errors.** The OpenAI backend now uses the Responses API for current
+  model and tool-calling compatibility, retains Chat Completions for llama.cpp, replays reasoning
+  output statelessly with provider storage disabled, and surfaces the provider's bounded error
+  detail instead of reporting only the HTTP status.
 - **Gemini assistant tool calling works again.** Prax sent the general JSON Schema keyword
   `exclusiveMinimum` in the `ask_library` and `ask_prax` declarations, but the Gemini
   `FunctionDeclaration.parameters` surface rejects it with HTTP 400. The Gemini adapter now
