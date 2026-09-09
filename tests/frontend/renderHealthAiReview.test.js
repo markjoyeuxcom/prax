@@ -2,11 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { renderHealthHtml } from '../../public/js/renderHealth.js';
 
-const baseHealth = { needsReview: [], empty: [], stale: [], orphans: [], counts: {} };
+const baseHealth = { needsReview: [], empty: [], stale: [], counts: {} };
 const base = (over = {}) => ({
   healthData: baseHealth, healthLinkSuggestions: [], healthLoading: false,
   chatStatus: { available: true }, healthAiReview: null, healthAiReviewLoading: false, healthAiReviewError: null,
   ...over,
+});
+
+test('health omits the removed orphan section', () => {
+  const html = renderHealthHtml(base());
+  assert.doesNotMatch(html, /Orphans|orphaned documents|link orphans/i);
 });
 
 test('AI review: idle shows the advisory intro + an enabled Scan button', () => {

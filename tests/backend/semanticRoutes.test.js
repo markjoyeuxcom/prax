@@ -37,7 +37,7 @@ async function makeApp(opts, mutate) {
     skipDb: true,
     libraryRepository: f.library,
     projectsRepository: { resolveProject: async () => ({ id: PROJECT_ID, slug: 'homelab' }) },
-    documentLinksRepository: { listDocumentLinks: async () => [], linkDocuments: async () => ({ linked: true }), unlinkDocuments: async () => true, listStaleDocuments: async () => [], listOrphanDocuments: async () => [], listOutboundLinksForDocuments: async () => new Map() },
+    documentLinksRepository: { listDocumentLinks: async () => [], linkDocuments: async () => ({ linked: true }), unlinkDocuments: async () => true, listStaleDocuments: async () => [], listOutboundLinksForDocuments: async () => new Map() },
     appSettingsRepository: f.appSettings,
     embedder: f.embedder,
     embeddingService: f.embeddingService,

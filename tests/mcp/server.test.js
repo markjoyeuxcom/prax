@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildServer } from '../../mcp/server.js';
 
-const EXPECTED_TOOL_COUNT = 35; // 5 document (incl ask_library) + 4 task + 3 link + 4 checklist + 1 activity + 4 document-link + 3 external-ref + 2 graph-maintenance + 1 semantic-search + 5 runbook-run + 3 insight (ask_prax, generate_post_mortem, generate_runbook) tools
+const EXPECTED_TOOL_COUNT = 34; // 5 document (incl ask_library) + 4 task + 3 link + 4 checklist + 1 activity + 4 document-link + 3 external-ref + 1 graph-maintenance + 1 semantic-search + 5 runbook-run + 3 insight (ask_prax, generate_post_mortem, generate_runbook) tools
 
 test('registers all tools with unique names', () => {
   const registered = [];
@@ -23,7 +23,7 @@ test('registers all tools with unique names', () => {
     'list_task_checklist', 'add_checklist_item', 'set_checklist_item', 'delete_checklist_item',
     'list_task_activity',
     'list_document_links', 'link_documents', 'unlink_documents', 'supersede_document',
-    'list_stale_documents', 'list_orphan_documents',
+    'list_stale_documents',
     'search_documents_semantic',
     'start_runbook_run', 'list_runbook_runs', 'get_runbook_run', 'set_run_step', 'set_run_status',
     'ask_prax', 'generate_post_mortem', 'generate_runbook',

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { seedStalePair, seedOrphan } from './helpers/seed.js';
+import { createDocument, resolveProjectId, seedStalePair } from './helpers/seed.js';
 
 async function gotoLibrary(page) {
   await page.goto('/');
@@ -19,10 +19,17 @@ test('synthesized + stale card shows SYNTH and STALE chips', async ({ page }) =>
 
 test('plain source card shows neither chip', async ({ page }) => {
   const prefix = `chips-plain-${Date.now()}`;
-  await seedOrphan(page.request, prefix);
+  const project = await resolveProjectId(page.request, 'work');
+  await createDocument(page.request, {
+    title: `${prefix} source`,
+    body: '# source\n',
+    documentType: 'note',
+    project,
+    tags: ['e2e'],
+  });
   await gotoLibrary(page);
 
-  const card = page.locator('.doc-card', { hasText: `${prefix} orphan` });
+  const card = page.locator('.doc-card', { hasText: `${prefix} source` });
   await expect(card).toBeVisible();
   await expect(card.locator('.chip--synth')).toHaveCount(0);
   await expect(card.locator('.chip--stale')).toHaveCount(0);

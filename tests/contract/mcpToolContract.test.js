@@ -40,7 +40,6 @@ const FROZEN_TOOLS = {
   add_external_ref: { required: ['documentId', 'url'], optional: ['label'] },
   remove_external_ref: { required: ['documentId', 'refId'], optional: [] },
   list_stale_documents: { required: [], optional: ['project', 'limit', 'offset'] },
-  list_orphan_documents: { required: [], optional: ['project', 'limit', 'offset'] },
   search_documents_semantic: { required: ['query'], optional: ['project', 'limit', 'offset'] },
   start_runbook_run: { required: ['documentId'], optional: ['title', 'runId'] },
   list_runbook_runs: { required: ['documentId'], optional: ['limit', 'offset'] },

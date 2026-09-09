@@ -8,7 +8,6 @@ import {
   fetchDocumentLinks,
   fetchDeploymentStatus,
   fetchDocuments,
-  fetchOrphanDocuments,
   fetchStaleDocuments,
   fetchRun,
   restoreDocument,
@@ -179,13 +178,6 @@ test('fetchStaleDocuments calls the maintenance endpoint with project', async ()
   assert.equal(capturedOpts, undefined);
 });
 
-test('fetchOrphanDocuments omits empty project', async () => {
-  let capturedUrl, capturedOpts;
-  globalThis.fetch = async (url, opts) => { capturedUrl = url; capturedOpts = opts; return { ok: true, json: async () => [] }; };
-  await fetchOrphanDocuments('');
-  assert.equal(capturedUrl, '/api/library/maintenance/orphans');
-  assert.equal(capturedOpts, undefined);
-});
 
 test('fetchDocumentLinks defaults to direction=both when no direction given', async () => {
   let capturedUrl, capturedOpts;
@@ -199,7 +191,6 @@ test('new library API helpers throw when requests fail', async () => {
   globalThis.fetch = async () => ({ ok: false });
   await assert.rejects(fetchDocumentLinks('x', 'both'), /Failed to load document links/);
   await assert.rejects(fetchStaleDocuments('homelab'), /Failed to load stale documents/);
-  await assert.rejects(fetchOrphanDocuments(''), /Failed to load orphan documents/);
 });
 
 test('verifyDocument posts verified:true with actor and reviewed revision', async () => {

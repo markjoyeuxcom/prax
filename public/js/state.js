@@ -124,7 +124,6 @@ export const state = {
   documentExternalRefs: null,   // external URLs the doc points at; null = not yet fetched
   docInfoRefsSeed: null,        // refs snapshot the open Document-info form was seeded from
   staleDocs: [],
-  orphanDocs: [],
   maintenanceProjectFilter: 'all',
 
   // ---- "Ask Prax" (grounded, cited answer over the library) ----
@@ -142,7 +141,7 @@ export const state = {
   genRbError: false,            // false | error message string
 
   // ---- Library health view ----
-  healthData: null,             // null = not loaded; { needsReview, empty, stale, orphans, counts }
+  healthData: null,             // null = not loaded; { needsReview, empty, stale, counts }
   healthLinkSuggestions: null,  // null = not loaded; [{ sourceId, sourceTitle, targetId, targetTitle, snippet }]
   healthLoading: false,
   healthAiReview: null,         // null = not run; the AI-review envelope { contradictions, gaps, ... }
