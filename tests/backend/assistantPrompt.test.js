@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { currentDateContext, buildAssistantSystemPrompt, runAssistant, ASSISTANT_SYSTEM_PROMPT } from '../../server/assistant/agent.js';
+import { currentDateContext, buildAssistantSystemPrompt, runAssistant, sanitizeMessages, ASSISTANT_SYSTEM_PROMPT } from '../../server/assistant/agent.js';
 
 test('currentDateContext states the LOCAL date + weekday (not UTC)', () => {
   // A moment where the LOCAL date differs from the UTC date would be brittle to
@@ -45,6 +45,39 @@ test('runAssistant sends the current date in the system turn to the model', asyn
 // approval. An approved write whose handler throws mutated nothing — when the
 // follow-up model call then also fails, the client must not tell the user
 // "the approved change completed... do not repeat the action".
+test('runAssistant preserves OpenAI stateless output across an approval round trip', async () => {
+  const chat = {
+    model: 'stub',
+    supportsTools: true,
+    async complete() {
+      return {
+        text: '',
+        model: 'stub',
+        providerOutput: [
+          { type: 'reasoning', id: 'rs_1', encrypted_content: 'opaque' },
+          { type: 'function_call', call_id: 'call_1', name: 'create_task', arguments: '{"title":"x"}' },
+        ],
+        toolCalls: [{ id: 'call_1', name: 'create_task', input: { title: 'x' } }],
+      };
+    },
+  };
+  const res = await runAssistant({
+    chat,
+    tools: [{ name: 'create_task', description: 'create', parameters: {}, readOnly: false }],
+    messages: [{ role: 'user', content: 'add a task' }],
+  });
+  assert.equal(res.status, 'awaiting_confirmation');
+  const tail = res.messages.at(-1);
+  assert.equal(tail.providerOutput[0].type, 'reasoning');
+  assert.equal(sanitizeMessages(res.messages).at(-1).providerOutput[0].encrypted_content, 'opaque');
+  const rejected = sanitizeMessages([{
+    role: 'assistant',
+    toolCalls: [{ id: 'call_1', name: 'create_task', input: {} }],
+    providerOutput: [{ type: 'computer_call', id: 'unsafe' }],
+  }]).at(-1);
+  assert.equal('providerOutput' in rejected, false);
+});
+
 test('didWrite stays false when an approved write handler throws', async () => {
   const failingChat = {
     model: 'stub',
