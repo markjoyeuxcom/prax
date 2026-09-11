@@ -13,6 +13,7 @@ import { createDocumentLinksRepository, DOCUMENT_LINK_RELATIONS } from './docume
 import { addDaysUtc, compileWeeklyReview, isoWeekId, weekStartOf, weeklyReviewTitle } from './weeklyReview.js';
 import { buildRelatedQuery } from './relatedDocuments.js';
 import { createDocumentExternalRefsRepository, sanitizeUrl, sanitizeLabel } from './documentExternalRefsRepository.js';
+import { createDocumentCodeRefsRepository } from './documentCodeRefsRepository.js';
 import {
   createRunbookRunsRepository,
   RunbookRunConflictError,
@@ -148,6 +149,8 @@ export async function registerLibraryRoutes(app, options = {}) {
     || (app.db ? createDocumentLinksRepository(app.db) : null);
   const documentExternalRefsRepository = options.documentExternalRefsRepository || app.documentExternalRefsRepository
     || (app.db ? createDocumentExternalRefsRepository(app.db) : null);
+  const documentCodeRefsRepository = options.documentCodeRefsRepository || app.documentCodeRefsRepository
+    || (app.db ? createDocumentCodeRefsRepository(app.db) : null);
 
   // Behavioral tests may inject an embedder/embeddingService directly — those
   // win. Otherwise the runtime provider resolves the current settings (cached
@@ -1370,6 +1373,66 @@ export async function registerLibraryRoutes(app, options = {}) {
       reply.code(404); return { message: 'document not found' };
     }
     return documentExternalRefsRepository.listExternalRefs(documentId);
+  });
+
+  // Code citations — a document pins the code it makes a claim about, so the
+  // repository can answer whether the claim still holds. Unlike an external
+  // ref, the content IS pinned (by hash), which is what makes staleness
+  // detectable; unlike a document link, the target is a file in a checkout, so
+  // the check runs wherever the working tree is, not here.
+  function validateCitation(body) {
+    if (!isPlainObject(body)) return { message: 'a citation body is required' };
+    const path = typeof body.path === 'string' ? body.path.trim() : '';
+    if (!path) return { message: 'path is required' };
+    // Citations are re-resolved in a checkout, so an absolute or escaping path
+    // is meaningless there — and is a traversal waiting to happen.
+    if (path.startsWith('/') || path.split('/').includes('..')) {
+      return { message: 'path must be relative to the repository root' };
+    }
+    const contentHash = typeof body.contentHash === 'string' ? body.contentHash.trim() : '';
+    // Without a hash the citation could never go stale, which is the only
+    // reason it exists.
+    if (!contentHash) return { message: 'contentHash is required to pin the citation' };
+
+    const hasStart = body.startLine !== undefined && body.startLine !== null;
+    const hasEnd = body.endLine !== undefined && body.endLine !== null;
+    const startLine = hasStart ? Number(body.startLine) : null;
+    const endLine = hasEnd ? Number(body.endLine) : startLine;
+    if (hasStart && (!Number.isInteger(startLine) || startLine < 1)) {
+      return { message: 'startLine must be a positive integer' };
+    }
+    if (endLine !== null && (!Number.isInteger(endLine) || endLine < startLine)) {
+      return { message: 'endLine must be an integer not before startLine' };
+    }
+    const commitSha = typeof body.commitSha === 'string' && body.commitSha.trim() ? body.commitSha.trim() : null;
+    return { citation: { path, startLine, endLine, commitSha, contentHash } };
+  }
+
+  app.get('/api/library/documents/:id/code-refs', async (request, reply) => {
+    if (!isValidUuid(request.params.id)) { reply.code(400); return { message: 'document id is invalid' }; }
+    if (!(await repository.getDocument(request.params.id))) { reply.code(404); return { message: 'document not found' }; }
+    return documentCodeRefsRepository.listCodeRefs(request.params.id);
+  });
+
+  app.post('/api/library/documents/:id/code-refs', async (request, reply) => {
+    const documentId = request.params.id;
+    if (!isValidUuid(documentId)) { reply.code(400); return { message: 'document id is invalid' }; }
+    const { message, citation } = validateCitation(request.body);
+    if (message) { reply.code(400); return { message }; }
+    const ref = await documentCodeRefsRepository.addCodeRef(documentId, citation);
+    if (!ref) { reply.code(404); return { message: 'document not found' }; } // absent or archived
+    reply.code(201);
+    return documentCodeRefsRepository.listCodeRefs(documentId);
+  });
+
+  app.delete('/api/library/documents/:id/code-refs/:refId', async (request, reply) => {
+    const documentId = request.params.id;
+    if (!isValidUuid(documentId)) { reply.code(400); return { message: 'document id is invalid' }; }
+    const removed = await documentCodeRefsRepository.removeCodeRef(documentId, request.params.refId);
+    if (!removed && !(await repository.getDocument(documentId))) {
+      reply.code(404); return { message: 'document not found' };
+    }
+    return documentCodeRefsRepository.listCodeRefs(documentId);
   });
 
   app.get('/api/library/maintenance/stale', async (request, reply) => {

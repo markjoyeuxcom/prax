@@ -363,6 +363,31 @@ between documents, created/removed/listed via the tools above and the
 `GET /api/tasks/:id` fetch a single record by id (returning archived records too). Outbound
 links are serialized into the `links:` block of every exported `.md` file (see Format 2).
 
+Code citations: `document_code_refs` pin a document to the code it makes a claim about, so
+the repository itself can report when the claim has gone stale. Where an external ref copies
+nothing and therefore has no staleness, a citation stores a `content_hash` (sha256 of the cited
+lines, line endings normalised) and is checked by re-hashing the file. The source is never
+stored — only its hash. Each citation is
+`{ id, documentId, path, startLine, endLine, commitSha, contentHash, createdAt }`, unique per
+`(document, path, startLine, endLine)`, deleted with the document. `startLine`/`endLine` are
+inclusive and 1-based; both null means the whole file. `commitSha` records where the pin was
+taken and is **informational** — the check is content-based, so a citation survives rebases and
+branch switches that a commit comparison would false-alarm on.
+
+Served at `GET`/`POST`/`DELETE /api/library/documents/:id/code-refs`. POST is an idempotent
+upsert on the range (`201`; re-citing refreshes the hash and commit, which is what re-verifying
+a memory does), `404` for a missing or archived document, `400` for a missing `path` or
+`contentHash`, an absolute or `..`-escaping path, or an inverted range. `prax remember --cite
+<path[:start[-end]]>` and the `prax-remember` skill attach one, resolving it against the current
+checkout.
+
+**Checking happens client-side**, because only a working tree can answer it: `prax recall` and
+the `prax-recall` skill re-read the cited file and report `current`, `moved` (the content was
+re-found elsewhere in the file — line numbers drift, and a staleness signal that cries wolf on
+every insertion above gets ignored), `changed`, or `missing`. Recall run from outside a checkout
+reports **nothing either way**: silence must not read as "still true", and an unreadable file
+must not read as "deleted".
+
 External references: `document_external_refs` attach outside URLs (a PR, a dashboard, an
 upstream issue) to a document without copying the content. Each ref is
 `{ id, documentId, url, label, createdAt }`, unique per `(document, url)`, deleted with the

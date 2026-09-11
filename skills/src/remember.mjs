@@ -8,9 +8,11 @@
 import { createClient } from '../../cli/lib/apiClient.js';
 import { remember } from '../../cli/lib/remember.js';
 import { parseRememberArgs, UsageError } from '../../cli/lib/skillArgs.js';
+import { createRepoReader, headSha } from '../../cli/lib/repoFiles.js';
+import { resolveCitation } from '../../cli/lib/codeRefs.js';
 
 async function main() {
-  const { title, body, tags, type, project, ref, agent } = parseRememberArgs(process.argv.slice(2));
+  const { title, body, tags, type, project, ref, cite, agent } = parseRememberArgs(process.argv.slice(2));
   const client = createClient({ agent });
   const { doc, action } = await remember(client, {
     title, body, project, type, tags: ['memory', ...tags], kind: 'synthesized',
@@ -26,11 +28,26 @@ async function main() {
       refNote = ', ref NOT attached';
     }
   }
+  // --cite pins the code this memory describes, so a later recall can report
+  // that the claim's ground has moved. Best-effort, like --ref: the memory is
+  // already saved and a bad citation must not undo it.
+  let citeNote = '';
+  if (cite) {
+    try {
+      const read = createRepoReader();
+      if (!read) throw new Error('not inside a git repository');
+      await client.addCodeRef(doc.id, resolveCitation(cite, { readFile: read, headSha: headSha() }));
+      citeNote = ', code pinned';
+    } catch (err) {
+      console.error(`warning: could not attach --cite ${cite}: ${err.message}`);
+      citeNote = ', code NOT pinned';
+    }
+  }
   const who = client.agent ? `, as ${client.agent}` : '';
   // Name the instance the write landed in: discovery may have chosen the
   // desktop app or the dev server, and a memory in the wrong workspace must
   // never look identical to one in the right place.
-  console.log(`Remembered "${title}" → ${doc.id} (${action}${who}${refNote}) at ${client.base}`);
+  console.log(`Remembered "${title}" → ${doc.id} (${action}${who}${refNote}${citeNote}) at ${client.base}`);
 }
 
 main().catch((err) => {
