@@ -414,13 +414,19 @@ export async function registerLibraryRoutes(app, options = {}) {
     try {
       const { vector } = await embedder.embed(String(q), { query: true });
       const search = app.embeddingSearch || {};
+      // An operator's explicit floor wins; otherwise the active backend's own
+      // floor wins over the global default, because the right cutoff is a
+      // property of the model that produced the vectors.
+      const minSimilarity = search.minSimilarityExplicit
+        ? search.minSimilarity
+        : (Number.isFinite(embedder.minSimilarity) ? embedder.minSimilarity : search.minSimilarity);
       const searchOpts = {
         projectId,
         limit,
         offset,
         page: paged,
         model: embedder.model,
-        minSimilarity: search.minSimilarity,
+        minSimilarity,
         topDrop: search.topDrop,
         includeRetired,
       };

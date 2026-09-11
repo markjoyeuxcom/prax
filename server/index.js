@@ -88,6 +88,7 @@ export async function buildApp(options = {}) {
   app.decorate('embeddingService', embeddingService);
   app.decorate('embeddingSearch', {
     minSimilarity: config.embeddingSearchMinSimilarity,
+    minSimilarityExplicit: Boolean(config.embeddingSearchMinSimilarityExplicit),
     topDrop: config.embeddingSearchTopDrop,
   });
   await registerTasksRoutes(app, options);

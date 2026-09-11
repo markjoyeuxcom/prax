@@ -508,10 +508,29 @@ falls back to recency otherwise.
 Semantic search ranks documents by embedding similarity (meaning), not keywords, so a
 paraphrased query can find topically-relevant docs that share no words with it. It is
 **retrieval-only** — no text is generated. Embeddings are stored in SQLite and cosine-ranked in
-process; no vector extension is required. It requires a configured embedding backend: `ollama`,
-`openai` (any OpenAI-compatible `/v1/embeddings` server — real OpenAI, vLLM, LiteLLM, … via
-`OPENAI_BASE_URL` + optional `OPENAI_API_KEY`), the dedicated `llamacpp`, `gemini`, and `voyage`
-providers, or the deterministic `fake` test backend. `EMBEDDING_BACKEND` and its companion
+process; no vector extension is required. It requires a configured embedding backend: `local`
+(in-process, see below), `ollama`, `openai` (any OpenAI-compatible `/v1/embeddings` server — real
+OpenAI, vLLM, LiteLLM, … via `OPENAI_BASE_URL` + optional `OPENAI_API_KEY`), the dedicated
+`llamacpp`, `gemini`, and `voyage` providers, or the deterministic `fake` test backend.
+
+**`local` — embeddings on this device.** Runs the model inside the Prax process: no daemon, no API
+key, no per-query cost, and no network after the first model fetch. Its runtime is an **optional**
+install, deliberately not a dependency of Prax (ONNX ships ~210MB of per-platform binaries, which
+does not belong in the default install or the desktop bundle):
+
+```bash
+npm install @huggingface/transformers
+```
+
+Without it the backend is selectable but reports itself unavailable with that install command,
+rather than failing at embed time. The default model is `Xenova/all-MiniLM-L6-v2` (384 dimensions,
+~23MB, a few milliseconds per document); set `EMBEDDING_MODEL` for another. Vectors are mean-pooled
+and L2-normalised.
+
+Relevance floors are per-backend. `EMBEDDING_SEARCH_MIN_SIMILARITY` remains the operator override
+and always wins; when it is unset, the active backend's own floor applies, falling back to the
+global 0.45. Cosine distributions belong to the model, not to search: on `all-MiniLM-L6-v2` the
+0.45 default discards most true positives, so that backend declares 0.35. `EMBEDDING_BACKEND` and its companion
 variables are the deployment defaults; the single-user Settings ▸ Intelligence screen can also
 choose the provider, model, URL, and key at runtime, and those values are persisted in the
 local SQLite database (the operator-settings model described in `README.md` and `SECURITY.md`).

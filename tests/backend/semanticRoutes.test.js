@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildApp } from '../../server/index.js';
+import { loadConfig } from '../../server/config.js';
 
 const PROJECT_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -420,4 +421,35 @@ test('mode=hybrid degrades to the cosine ranker on a server that has no fused ra
   const res = await app.inject({ method: 'GET', url: '/api/library/documents/semantic-search?q=restore&page=true&mode=hybrid' });
   assert.equal(res.statusCode, 200);
   assert.equal(res.json().items[0].id, 'd1');
+});
+
+// --- per-backend relevance floor ------------------------------------------------
+
+test("a backend's own relevance floor is used when the operator set none", async () => {
+  let captured = null;
+  const app = await makeApp({}, (f) => {
+    f.embedder.minSimilarity = 0.33;
+    f.library.searchDocumentsSemantic = async (v, b, opts) => { captured = opts; return { items: [], total: 0 }; };
+  });
+  await app.inject({ method: 'GET', url: '/api/library/documents/semantic-search?q=x&page=true' });
+  assert.equal(captured.minSimilarity, 0.33);
+});
+
+test('an explicitly configured floor still wins over the backend default', async () => {
+  let captured = null;
+  const f = fakes();
+  f.embedder.minSimilarity = 0.33;
+  f.library.searchDocumentsSemantic = async (v, b, opts) => { captured = opts; return { items: [], total: 0 }; };
+  const app = buildApp({
+    skipDb: true,
+    libraryRepository: f.library,
+    projectsRepository: { resolveProject: async () => ({ id: PROJECT_ID, slug: 'homelab' }) },
+    documentLinksRepository: { listDocumentLinks: async () => [], linkDocuments: async () => ({ linked: true }), unlinkDocuments: async () => true, listStaleDocuments: async () => [], listOutboundLinksForDocuments: async () => new Map() },
+    appSettingsRepository: f.appSettings,
+    embedder: f.embedder,
+    embeddingService: f.embeddingService,
+    config: loadConfig({ EMBEDDING_SEARCH_MIN_SIMILARITY: '0.6' }),
+  });
+  await (await app).inject({ method: 'GET', url: '/api/library/documents/semantic-search?q=x&page=true' });
+  assert.equal(captured.minSimilarity, 0.6);
 });

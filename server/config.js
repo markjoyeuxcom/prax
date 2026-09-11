@@ -56,6 +56,11 @@ export function loadConfig(env = process.env) {
     openaiApiKey: env.OPENAI_API_KEY || '',
     embeddingQueryPrefix: env.EMBEDDING_QUERY_PREFIX || '',
     embeddingSearchMinSimilarity: numberFromEnv(env.EMBEDDING_SEARCH_MIN_SIMILARITY, 0.45),
+    // Whether an operator actually chose that floor. Without this the route
+    // cannot tell a deliberate 0.45 from the default, and a backend that knows
+    // its own vectors better would either be ignored or would silently override
+    // a setting someone made on purpose.
+    embeddingSearchMinSimilarityExplicit: env.EMBEDDING_SEARCH_MIN_SIMILARITY !== undefined,
     embeddingSearchTopDrop: numberFromEnv(env.EMBEDDING_SEARCH_TOP_DROP, 0.20),
     // Chat / LLM-answer provider (generation layer). Env supplies defaults; the
     // runtime chatProvider persists per-backend overrides in app_settings.
