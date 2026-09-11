@@ -9,6 +9,8 @@
 // printed; `--recent` is active-only, so a retired memory can never be replayed
 // as current; every hit carries its trust label.
 
+import { checkCitation, describeCitationStatus } from './codeRefs.js';
+
 const BODY_CHARS = 800;
 const RELATED_MAX = 5;
 const RELATED_SNIPPET_CHARS = 90;
@@ -128,7 +130,26 @@ export function coverageNote(result) {
   return `index incomplete: ${scope} have no current embedding`;
 }
 
-export async function recall(client, { query, project, limit = 5, recent = false, mode = 'hybrid' } = {}) {
+// Check the top hit's code citations against the working tree this recall is
+// running in. Only the top hit: it is the one whose body is actually rendered,
+// and a per-hit round trip for every related title would cost more than it says.
+//
+// No reader (recalling from outside a checkout) means no claim in EITHER
+// direction — silence must not read as "still true", and absence of the file
+// must not read as "deleted".
+async function checkTopCitations(client, id, readFile) {
+  if (typeof readFile !== 'function' || typeof client.listCodeRefs !== 'function') return [];
+  const refs = await client.listCodeRefs(id).catch(() => []);
+  if (!Array.isArray(refs) || refs.length === 0) return [];
+  return refs.map((ref) => {
+    let text = null;
+    try { text = readFile(ref.path); } catch { text = null; }
+    const result = checkCitation(ref, text);
+    return { ...result, path: ref.path, note: describeCitationStatus(result, ref) };
+  });
+}
+
+export async function recall(client, { query, project, limit = 5, recent = false, mode = 'hybrid', readFile } = {}) {
   if (recent) {
     const docs = await client.listDocuments(project || undefined, { status: 'active' });
     const items = (Array.isArray(docs) ? docs : [])
@@ -182,11 +203,12 @@ export async function recall(client, { query, project, limit = 5, recent = false
   if (list.length === 0) return { kind: 'empty', query, note: null, ...coverage };
   const kept = list.slice(0, limit);
   const topDoc = await client.getDocument(kept[0].id).catch(() => null);
+  const citations = await checkTopCitations(client, kept[0].id, readFile);
   return {
     kind: 'hit',
     note: null,
     ...coverage,
-    top: mergeDefined(kept[0], topDoc, [
+    top: mergeDefined({ ...kept[0], citations }, topDoc, [
       'body', 'verified', 'verifiedBy', 'status', 'updatedAt', 'updatedBy', 'updatedByAgent',
     ]),
     related: kept.slice(1),
@@ -221,7 +243,8 @@ export function formatRecall(result, now = new Date()) {
   const bound = boundNote(result);
   if (bound) lines.push(`(${bound})`);
   const top = result.top;
-  const trust = trustLabel(top, now);
+  const citationNotes = (top.citations || []).map((c) => c.note).filter(Boolean);
+  const trust = [trustLabel(top, now), ...citationNotes].filter(Boolean).join(' · ');
   lines.push(`## ${top.title || 'Untitled'}  (${top.documentType || 'note'} · ${top.id}${trust ? ` · ${trust}` : ''})`);
   lines.push('');
   lines.push(trimBody(top.body));

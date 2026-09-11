@@ -211,6 +211,16 @@ function createClient({ baseUrl, token, agent, env = process.env, bases } = {}) 
     listProjects() {
       return request("GET", "/api/projects");
     },
+    listCodeRefs(documentId) {
+      return request("GET", `/api/library/documents/${encodeURIComponent(documentId)}/code-refs`);
+    },
+    addCodeRef(documentId, citation) {
+      return request("POST", `/api/library/documents/${encodeURIComponent(documentId)}/code-refs`, {
+        body: citation,
+        agent: true,
+        retryUnavailable: true
+      });
+    },
     addExternalRef(documentId, { url, label } = {}) {
       return request("POST", `/api/library/documents/${encodeURIComponent(documentId)}/external-refs`, {
         body: { url, label },
@@ -250,6 +260,55 @@ function createClient({ baseUrl, token, agent, env = process.env, bases } = {}) 
       return request("GET", `/api/library/documents${qs ? `?${qs}` : ""}`);
     }
   };
+}
+
+// cli/lib/codeRefs.js
+import { createHash } from "node:crypto";
+function toLines(text) {
+  return String(text).replace(/\r\n/g, "\n").split("\n");
+}
+function sliceLines(text, startLine, endLine) {
+  if (text === null || text === void 0) return null;
+  const lines = toLines(text);
+  if (!startLine) return lines.join("\n");
+  if (endLine > lines.length) return null;
+  return lines.slice(startLine - 1, endLine).join("\n");
+}
+function hashCitation(text) {
+  return createHash("sha256").update(toLines(text).join("\n"), "utf8").digest("hex");
+}
+function checkCitation(ref, currentText) {
+  const { startLine, endLine, contentHash } = ref;
+  if (currentText === null || currentText === void 0) {
+    return { status: "missing", startLine: startLine ?? null, endLine: endLine ?? null };
+  }
+  const atRecordedRange = sliceLines(currentText, startLine, endLine);
+  if (atRecordedRange !== null && hashCitation(atRecordedRange) === contentHash) {
+    return { status: "current", startLine: startLine ?? null, endLine: endLine ?? null };
+  }
+  if (!startLine) return { status: "changed", startLine: null, endLine: null };
+  const span = endLine - startLine + 1;
+  const lines = toLines(currentText);
+  for (let first = 1; first + span - 1 <= lines.length; first += 1) {
+    const window = lines.slice(first - 1, first + span - 1).join("\n");
+    if (hashCitation(window) === contentHash) {
+      return { status: "moved", startLine: first, endLine: first + span - 1 };
+    }
+  }
+  return { status: "changed", startLine, endLine };
+}
+function describeCitationStatus(result, ref) {
+  const path = ref?.path || "cited code";
+  switch (result?.status) {
+    case "changed":
+      return `${path} changed since this was written`;
+    case "missing":
+      return `${path} is gone`;
+    case "moved":
+      return `moved to ${path}:${result.startLine}-${result.endLine}`;
+    default:
+      return "";
+  }
 }
 
 // cli/lib/recall.js
@@ -329,7 +388,22 @@ function coverageNote(result) {
   const scope = total ? `${pending} of ${total} documents` : `${pending} documents`;
   return `index incomplete: ${scope} have no current embedding`;
 }
-async function recall(client, { query, project, limit = 5, recent = false, mode = "hybrid" } = {}) {
+async function checkTopCitations(client, id, readFile) {
+  if (typeof readFile !== "function" || typeof client.listCodeRefs !== "function") return [];
+  const refs = await client.listCodeRefs(id).catch(() => []);
+  if (!Array.isArray(refs) || refs.length === 0) return [];
+  return refs.map((ref) => {
+    let text = null;
+    try {
+      text = readFile(ref.path);
+    } catch {
+      text = null;
+    }
+    const result = checkCitation(ref, text);
+    return { ...result, path: ref.path, note: describeCitationStatus(result, ref) };
+  });
+}
+async function recall(client, { query, project, limit = 5, recent = false, mode = "hybrid", readFile } = {}) {
   if (recent) {
     const docs = await client.listDocuments(project || void 0, { status: "active" });
     const items = (Array.isArray(docs) ? docs : []).filter((d) => (d.status ?? "active") === "active").slice().sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))).slice(0, limit).map((d) => ({
@@ -378,11 +452,12 @@ async function recall(client, { query, project, limit = 5, recent = false, mode 
   if (list.length === 0) return { kind: "empty", query, note: null, ...coverage };
   const kept = list.slice(0, limit);
   const topDoc = await client.getDocument(kept[0].id).catch(() => null);
+  const citations = await checkTopCitations(client, kept[0].id, readFile);
   return {
     kind: "hit",
     note: null,
     ...coverage,
-    top: mergeDefined(kept[0], topDoc, [
+    top: mergeDefined({ ...kept[0], citations }, topDoc, [
       "body",
       "verified",
       "verifiedBy",
@@ -421,7 +496,8 @@ function formatRecall(result, now = /* @__PURE__ */ new Date()) {
   const bound = boundNote(result);
   if (bound) lines.push(`(${bound})`);
   const top = result.top;
-  const trust = trustLabel(top, now);
+  const citationNotes = (top.citations || []).map((c) => c.note).filter(Boolean);
+  const trust = [trustLabel(top, now), ...citationNotes].filter(Boolean).join(" \xB7 ");
   lines.push(`## ${top.title || "Untitled"}  (${top.documentType || "note"} \xB7 ${top.id}${trust ? ` \xB7 ${trust}` : ""})`);
   lines.push("");
   lines.push(trimBody(top.body));
@@ -452,7 +528,7 @@ var BY_VALUE = new Map(DOCUMENT_TYPES.map((t) => [t.value, t]));
 
 // cli/lib/skillArgs.js
 var RECALL_USAGE = 'Usage: recall "<query>" [--project <slug>] [--limit <n>] [--agent <id>]\n       recall --recent [n] [--project <slug>]';
-var REMEMBER_USAGE = `Usage: remember "<title>" "<body>" [--tags a,b] [--type ${DOCUMENT_TYPE_VALUES.join("|")}] [--project <slug>] [--ref <url>] [--agent <id>]`;
+var REMEMBER_USAGE = `Usage: remember "<title>" "<body>" [--tags a,b] [--type ${DOCUMENT_TYPE_VALUES.join("|")}] [--project <slug>] [--ref <url>] [--cite <path[:start[-end]]>] [--agent <id>]`;
 var UsageError = class extends Error {
   constructor(message, usage) {
     super(`${message}
@@ -504,11 +580,40 @@ function parseRecallArgs(argv) {
   return out;
 }
 
+// cli/lib/repoFiles.js
+import { readFileSync as readFileSync2 } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { resolve, sep } from "node:path";
+function repoRoot(cwd = process.cwd()) {
+  try {
+    return execFileSync("git", ["rev-parse", "--show-toplevel"], {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+function createRepoReader(root = repoRoot()) {
+  if (!root) return null;
+  const base = resolve(root);
+  return function readRepoFile(path) {
+    const full = resolve(base, path);
+    if (full !== base && !full.startsWith(base + sep)) return null;
+    try {
+      return readFileSync2(full, "utf8");
+    } catch {
+      return null;
+    }
+  };
+}
+
 // skills/src/recall.mjs
 async function main() {
   const { query, project, limit, recent, agent } = parseRecallArgs(process.argv.slice(2));
   const client = createClient({ agent });
-  const result = await recall(client, { query, project, limit, recent });
+  const result = await recall(client, { query, project, limit, recent, readFile: createRepoReader() });
   console.log(formatRecall(result));
 }
 main().catch((err) => {

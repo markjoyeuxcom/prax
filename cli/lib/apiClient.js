@@ -236,6 +236,14 @@ export function createClient({ baseUrl, token, agent, env = process.env, bases }
     listProjects() {
       return request('GET', '/api/projects');
     },
+    listCodeRefs(documentId) {
+      return request('GET', `/api/library/documents/${encodeURIComponent(documentId)}/code-refs`);
+    },
+    addCodeRef(documentId, citation) {
+      return request('POST', `/api/library/documents/${encodeURIComponent(documentId)}/code-refs`, {
+        body: citation, agent: true, retryUnavailable: true,
+      });
+    },
     addExternalRef(documentId, { url, label } = {}) {
       return request('POST', `/api/library/documents/${encodeURIComponent(documentId)}/external-refs`, {
         body: { url, label }, agent: true, retryUnavailable: true,
