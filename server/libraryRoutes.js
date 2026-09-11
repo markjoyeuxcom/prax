@@ -262,6 +262,12 @@ export async function registerLibraryRoutes(app, options = {}) {
       tags: doc.tags || [],
       kind: doc.kind || 'source',
       updatedBy: doc.updatedBy || null,
+      // Which agent CLI wrote the current revision, and when it was written.
+      // Retrieval clients weigh a memory by age and origin as much as by
+      // similarity; a ref that omits them forces every caller to re-fetch the
+      // whole document just to find out whether the hit is still plausible.
+      updatedByAgent: doc.updatedByAgent ?? null,
+      updatedAt: doc.updatedAt || null,
       verified: Boolean(doc.verified),
       verifiedAt: doc.verifiedAt || null,
       verifiedBy: doc.verifiedBy || null,
@@ -272,6 +278,9 @@ export async function registerLibraryRoutes(app, options = {}) {
       // it so the client can show "why it matched" honestly. Omitted on the
       // keyword/archive paths, where doc.similarity is undefined.
       ...(Number.isFinite(doc.similarity) ? { similarity: doc.similarity } : {}),
+      // Hybrid ranking explains itself: which ranking(s) found this, and what
+      // trust weight was applied. Absent on the pure-cosine path.
+      ...(doc.match ? { match: doc.match } : {}),
     };
   }
 
@@ -375,6 +384,16 @@ export async function registerLibraryRoutes(app, options = {}) {
     // only explicit paged mode is bounded. Ranking already evaluates every
     // candidate in the repository, so the unpaged slice can safely retain all
     // relevant hits rather than silently stopping at 20.
+    // Retrieval mode. `hybrid` fuses the cosine ranking with BM25 and weights
+    // by trust; `semantic` is the historical pure-cosine ranking and remains the
+    // default until a semantic relevance harness can prove a default change is
+    // an improvement rather than merely a difference.
+    const mode = request.query.mode === undefined ? 'semantic' : String(request.query.mode);
+    if (mode !== 'semantic' && mode !== 'hybrid') {
+      reply.code(400);
+      return { message: "mode must be 'semantic' or 'hybrid'" };
+    }
+
     let limit = Number.MAX_SAFE_INTEGER;
     let offset = 0;
     if (paged) {
@@ -395,7 +414,7 @@ export async function registerLibraryRoutes(app, options = {}) {
     try {
       const { vector } = await embedder.embed(String(q), { query: true });
       const search = app.embeddingSearch || {};
-      docs = await repository.searchDocumentsSemantic(vector, embedder.backend, {
+      const searchOpts = {
         projectId,
         limit,
         offset,
@@ -404,7 +423,12 @@ export async function registerLibraryRoutes(app, options = {}) {
         minSimilarity: search.minSimilarity,
         topDrop: search.topDrop,
         includeRetired,
-      });
+      };
+      // An injected or extension repository predating hybrid retrieval must
+      // degrade to cosine, not 500.
+      docs = (mode === 'hybrid' && typeof repository.searchDocumentsHybrid === 'function')
+        ? await repository.searchDocumentsHybrid(vector, String(q), embedder.backend, searchOpts)
+        : await repository.searchDocumentsSemantic(vector, embedder.backend, searchOpts);
     } catch (err) {
       // Feature is configured + enabled, but the backend is unreachable or
       // errored. Degrade cleanly rather than 500 — the rest of the feature

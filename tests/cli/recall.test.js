@@ -91,7 +91,9 @@ test('recall passes the limit to the paged semantic route and reads the object s
     getDocument: async () => ({ id: 't', body: 'B', verified: true, status: 'active' }),
   });
   const result = await recall(client, { query: 'x', limit: 3 });
-  assert.deepEqual(captured, { project: undefined, q: 'x', opts: { limit: 3 } });
+  // Recall asks for hybrid retrieval: the memory path wants a document whose
+  // vector is pending to remain findable by keyword rather than silently absent.
+  assert.deepEqual(captured, { project: undefined, q: 'x', opts: { limit: 3, mode: 'hybrid' } });
   assert.equal(result.kind, 'hit');
   assert.equal(result.degraded, false);
   assert.equal(coverageNote(result), '');
@@ -136,7 +138,12 @@ test('recall --recent asks for active documents only and drops any retired row t
   const result = await recall(client, { recent: true, project: 'memory' });
   assert.deepEqual(captured, { project: 'memory', opts: { status: 'active' } });
   assert.deepEqual(result.items.map((i) => i.id), ['new']);
-  assert.match(formatRecall(result), /- Current replacement — new \(verified\) — do the new thing/);
+  // The listing carries the same trust contract as a semantic hit: verification
+  // AND age, rendered against an injected clock so the assertion cannot rot.
+  assert.match(
+    formatRecall(result, new Date('2026-09-11T12:00:00Z')),
+    /- Current replacement — new \(verified · 5mo old\) — do the new thing/,
+  );
 });
 
 test('trustLabel names verification and any non-active lifecycle status', () => {
@@ -178,14 +185,14 @@ test('recall pages the semantic route up to the requested limit instead of cappi
     getDocument: async () => ({ id: 'd0', body: 'B' }),
   });
   const full = await recall(client, { query: 'x', limit: 100 });
-  assert.deepEqual(calls, [{ limit: 100 }, { limit: 50, offset: 50 }]);
+  assert.deepEqual(calls, [{ limit: 100, mode: 'hybrid' }, { limit: 50, offset: 50, mode: 'hybrid' }]);
   assert.equal(1 + full.related.length, 60, 'every match up to the bound is retained in the structured result');
   assert.equal(full.page.hasMore, false);
   assert.equal(boundNote(full), '');
 
   calls.length = 0;
   const bounded = await recall(client, { query: 'x', limit: 55 });
-  assert.deepEqual(calls, [{ limit: 55 }, { limit: 5, offset: 50 }]);
+  assert.deepEqual(calls, [{ limit: 55, mode: 'hybrid' }, { limit: 5, offset: 50, mode: 'hybrid' }]);
   assert.equal(1 + bounded.related.length, 55);
   assert.equal(bounded.page.hasMore, true);
   assert.equal(boundNote(bounded), '55 of 60 matches shown — raise --limit for the rest');

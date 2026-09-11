@@ -147,8 +147,9 @@ function createClient({ baseUrl, token, agent, env = process.env, bases } = {}) 
     // `reason: 'index-incomplete'`): the legacy array cannot say that pending
     // vectors were skipped, and a miss on an incomplete index is not an honest
     // miss. Older servers ignore `page` and return the array; normalise both.
-    async semanticSearch(project, q, { all = false, limit = SEMANTIC_PAGE_MAX, offset = 0 } = {}) {
+    async semanticSearch(project, q, { all = false, limit = SEMANTIC_PAGE_MAX, offset = 0, mode } = {}) {
       const params = new URLSearchParams({ q, page: "true" });
+      if (mode) params.set("mode", String(mode));
       if (project) params.set("project", project);
       if (all) params.set("all", "true");
       params.set("limit", String(Math.min(Math.max(Number(limit) || SEMANTIC_PAGE_MAX, 1), SEMANTIC_PAGE_MAX)));
@@ -254,15 +255,46 @@ function createClient({ baseUrl, token, agent, env = process.env, bases } = {}) 
 // cli/lib/recall.js
 var BODY_CHARS = 800;
 var RELATED_MAX = 5;
+var RELATED_SNIPPET_CHARS = 90;
+var DAY_MS = 864e5;
 function trimBody(body) {
   const text = String(body || "").trim();
   return text.length <= BODY_CHARS ? text : `${text.slice(0, BODY_CHARS).trimEnd()}\u2026`;
 }
-function trustLabel(doc) {
+function ageLabel(iso, now = /* @__PURE__ */ new Date()) {
+  if (!iso) return "";
+  const then = Date.parse(iso);
+  if (!Number.isFinite(then)) return "";
+  const days = Math.floor((now.getTime() - then) / DAY_MS);
+  if (days <= 0) return "today";
+  if (days < 30) return `${days}d old`;
+  if (days < 365) return `${Math.floor(days / 30)}mo old`;
+  return `${Math.floor(days / 365)}y old`;
+}
+function writerLabel(doc) {
   if (!doc) return "";
-  const parts = [doc.verified ? "verified" : "unverified"];
-  if (doc.status && doc.status !== "active") parts.push(doc.status);
-  return parts.join(", ");
+  if (doc.updatedBy === "agent") {
+    return doc.updatedByAgent ? `via ${doc.updatedByAgent}` : "via an unnamed agent";
+  }
+  return doc.updatedBy ? "human-written" : "";
+}
+function trustLabel(doc, now = /* @__PURE__ */ new Date()) {
+  if (!doc) return "";
+  const verification = doc.verified ? doc.verifiedBy ? `verified by ${doc.verifiedBy}` : "verified" : "unverified";
+  const lifecycle = doc.status && doc.status !== "active" ? `${verification}, ${doc.status}` : verification;
+  const keywordOnly = doc.match && doc.match.semanticRank === null && doc.match.keywordRank ? "keyword-only" : "";
+  return [lifecycle, ageLabel(doc.updatedAt, now), writerLabel(doc), keywordOnly].filter(Boolean).join(" \xB7 ");
+}
+function mergeDefined(base, extra, keys) {
+  const out = { ...base };
+  for (const key of keys) {
+    if (extra && extra[key] !== void 0) out[key] = extra[key];
+  }
+  return out;
+}
+function snippetOf(doc, chars = RELATED_SNIPPET_CHARS) {
+  const text = String(doc?.snippet || doc?.body || "").replace(/\s+/g, " ").trim();
+  return text.length <= chars ? text : `${text.slice(0, chars).trimEnd()}\u2026`;
 }
 function boundNote(result) {
   const page = result?.page;
@@ -270,16 +302,16 @@ function boundNote(result) {
   const total = Number.isInteger(page.total) ? page.total : null;
   return `${page.returned} of ${total ?? "more"} matches shown \u2014 raise --limit for the rest`;
 }
-async function collectSemantic(client, project, query, limit) {
+async function collectSemantic(client, project, query, limit, mode = "hybrid") {
   const wanted = Math.max(1, Number(limit) || 1);
-  let res = await client.semanticSearch(project, query, { limit: wanted });
+  let res = await client.semanticSearch(project, query, { limit: wanted, mode });
   if (Array.isArray(res)) return res;
   const items = [...res.items || []];
   let page = res.page;
   let guard = 0;
   while (page?.hasMore && items.length < wanted && Number.isInteger(page.nextOffset) && guard < 100) {
     guard += 1;
-    const next = await client.semanticSearch(project, query, { limit: wanted - items.length, offset: page.nextOffset });
+    const next = await client.semanticSearch(project, query, { limit: wanted - items.length, offset: page.nextOffset, mode });
     if (Array.isArray(next)) break;
     items.push(...next.items || []);
     page = next.page;
@@ -297,20 +329,24 @@ function coverageNote(result) {
   const scope = total ? `${pending} of ${total} documents` : `${pending} documents`;
   return `index incomplete: ${scope} have no current embedding`;
 }
-async function recall(client, { query, project, limit = 5, recent = false } = {}) {
+async function recall(client, { query, project, limit = 5, recent = false, mode = "hybrid" } = {}) {
   if (recent) {
     const docs = await client.listDocuments(project || void 0, { status: "active" });
     const items = (Array.isArray(docs) ? docs : []).filter((d) => (d.status ?? "active") === "active").slice().sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))).slice(0, limit).map((d) => ({
       title: d.title || "Untitled",
       id: d.id,
-      trust: trustLabel(d),
-      snippet: String(d.body || "").replace(/\s+/g, " ").trim().slice(0, 100)
+      verified: Boolean(d.verified),
+      status: d.status ?? "active",
+      updatedAt: d.updatedAt ?? null,
+      updatedBy: d.updatedBy ?? null,
+      updatedByAgent: d.updatedByAgent ?? null,
+      snippet: snippetOf(d, 100)
     }));
     return { kind: "recent", project: project || "", items };
   }
   let res;
   try {
-    res = await collectSemantic(client, project || void 0, query, limit);
+    res = await collectSemantic(client, project || void 0, query, limit, mode);
   } catch (err) {
     if (err && err.status === 409) {
       const docs = await client.keywordSearch(project || void 0, query, {});
@@ -346,11 +382,19 @@ async function recall(client, { query, project, limit = 5, recent = false } = {}
     kind: "hit",
     note: null,
     ...coverage,
-    top: { ...kept[0], ...topDoc ? { body: topDoc.body, verified: topDoc.verified, status: topDoc.status } : {} },
+    top: mergeDefined(kept[0], topDoc, [
+      "body",
+      "verified",
+      "verifiedBy",
+      "status",
+      "updatedAt",
+      "updatedBy",
+      "updatedByAgent"
+    ]),
     related: kept.slice(1)
   };
 }
-function formatRecall(result) {
+function formatRecall(result, now = /* @__PURE__ */ new Date()) {
   if (!result) return "";
   if (result.kind === "empty") {
     const notes = [];
@@ -364,7 +408,10 @@ function formatRecall(result) {
     if (!result.items.length) return "No documents yet.";
     const scope = result.project ? ` in "${result.project}"` : "";
     const head = `Most recent ${result.items.length} active document(s)${scope}:`;
-    const lines2 = result.items.map((d) => `- ${d.title} \u2014 ${d.id}${d.trust ? ` (${d.trust})` : ""}${d.snippet ? ` \u2014 ${d.snippet}` : ""}`);
+    const lines2 = result.items.map((d) => {
+      const label = trustLabel(d, now);
+      return `- ${d.title} \u2014 ${d.id}${label ? ` (${label})` : ""}${d.snippet ? ` \u2014 ${d.snippet}` : ""}`;
+    });
     return [head, ...lines2].join("\n");
   }
   const lines = [];
@@ -374,7 +421,7 @@ function formatRecall(result) {
   const bound = boundNote(result);
   if (bound) lines.push(`(${bound})`);
   const top = result.top;
-  const trust = trustLabel(top);
+  const trust = trustLabel(top, now);
   lines.push(`## ${top.title || "Untitled"}  (${top.documentType || "note"} \xB7 ${top.id}${trust ? ` \xB7 ${trust}` : ""})`);
   lines.push("");
   lines.push(trimBody(top.body));
@@ -383,8 +430,9 @@ function formatRecall(result) {
     lines.push("");
     lines.push("Related:");
     for (const r of related) {
-      const label = trustLabel(r);
-      lines.push(`- ${r.title || "Untitled"} \u2014 ${r.id}${label ? ` (${label})` : ""}`);
+      const label = trustLabel(r, now);
+      const snippet = snippetOf(r);
+      lines.push(`- ${r.title || "Untitled"} \u2014 ${r.id}${label ? ` (${label})` : ""}${snippet ? ` \u2014 ${snippet}` : ""}`);
     }
   }
   return lines.join("\n");
