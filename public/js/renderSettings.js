@@ -245,6 +245,7 @@ function renderAppearanceCard(preferences, state = {}) {
 
 const AI_PROVIDERS = [
   { key: 'none', label: 'Off', desc: 'Keyword search only' },
+  { key: 'local', label: 'On this device', desc: 'Runs inside Prax — no key, no server, nothing leaves the machine' },
   { key: 'ollama', label: 'Ollama', desc: 'Local or remote server — private by default' },
   { key: 'openai', label: 'OpenAI', desc: 'ChatGPT\u2019s embeddings — needs an API key' },
   { key: 'voyage', label: 'Claude \u00b7 Voyage AI', desc: 'Anthropic\u2019s embeddings partner — needs a Voyage key' },

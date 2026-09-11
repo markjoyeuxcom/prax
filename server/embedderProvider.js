@@ -6,9 +6,11 @@ import { createEmbedder } from './embedder/index.js';
 // back to a backend restores whatever the user entered for it. Env config
 // (loadConfig) supplies the defaults, so deployments that never touch the
 // settings behave exactly as before.
+import { LOCAL_DEFAULT_MODEL } from './embedder/local.js';
+
 export const EMBEDDING_PROVIDER_KEY = 'embedding_provider';
 
-const BACKENDS = new Set(['none', 'fake', 'ollama', 'openai', 'llamacpp', 'gemini', 'voyage']);
+const BACKENDS = new Set(['none', 'fake', 'local', 'ollama', 'openai', 'llamacpp', 'gemini', 'voyage']);
 // Hosted APIs refuse anonymous calls; local/offline backends work keyless.
 const KEY_REQUIRED = new Set(['openai', 'gemini', 'voyage']);
 // Pre-generalization field names the current UI still sends: each one maps
@@ -129,6 +131,8 @@ export function createEmbedderProvider({ appSettingsRepository = null, config = 
       model: 'text-embedding-3-small',
       apiKey: typeof config.openaiApiKey === 'string' ? config.openaiApiKey : '',
     },
+    // In-process embeddings: no base URL, because there is no server to reach.
+    local: { baseUrl: '', model: LOCAL_DEFAULT_MODEL },
     llamacpp: { baseUrl: 'http://127.0.0.1:8080/v1', model: '' },
     gemini: { baseUrl: 'https://generativelanguage.googleapis.com/v1beta', model: 'gemini-embedding-001' },
     voyage: { baseUrl: 'https://api.voyageai.com/v1', model: 'voyage-3-large' },
