@@ -324,3 +324,100 @@ test('semantic-search threads includeRetired from ?all=true', async () => {
   assert.ok(!capturedOptsNoAll.includeRetired);
   await appNoAll.close();
 });
+
+// --- the recall contract at the HTTP boundary ---------------------------------
+//
+// The library records WHEN a memory was last written and WHICH agent wrote it.
+// The semantic ref used to drop both, so no client — including the recall
+// skill — could weigh a fresh human note against a months-old synthesized one.
+// A trust model the retrieval path discards is decoration.
+
+test('a semantic ref carries updatedAt and the writing agent, not just verification', async () => {
+  const app = await makeApp({}, (f) => {
+    f.library.searchDocumentsSemantic = async () => [{
+      id: 'd1', title: 'Restore', documentType: 'runbook', projectId: PROJECT_ID, tags: [], body: 'b',
+      kind: 'synthesized', updatedBy: 'agent', updatedByAgent: 'codex',
+      updatedAt: '2026-05-02T09:00:00.000Z', verified: false, status: 'active', similarity: 0.9,
+    }];
+  });
+  const res = await app.inject({ method: 'GET', url: '/api/library/documents/semantic-search?q=restore&page=true' });
+  assert.equal(res.statusCode, 200);
+  const ref = res.json().items[0];
+  assert.equal(ref.updatedAt, '2026-05-02T09:00:00.000Z');
+  assert.equal(ref.updatedByAgent, 'codex');
+  assert.equal(ref.updatedBy, 'agent');
+  assert.equal(ref.kind, 'synthesized');
+});
+
+test('a ref for a human-written memory reports no writing agent rather than omitting the field', async () => {
+  const app = await makeApp({}, (f) => {
+    f.library.searchDocumentsSemantic = async () => [{
+      id: 'd2', title: 'Hand-written runbook', documentType: 'runbook', projectId: PROJECT_ID, tags: [], body: 'b',
+      kind: 'source', updatedBy: 'user', updatedByAgent: null,
+      updatedAt: '2026-09-01T09:00:00.000Z', verified: true, verifiedBy: 'mark', status: 'active',
+    }];
+  });
+  const ref = (await app.inject({ method: 'GET', url: '/api/library/documents/semantic-search?q=runbook&page=true' })).json().items[0];
+  assert.equal(ref.updatedByAgent, null);
+  assert.equal(ref.updatedBy, 'user');
+  assert.equal(ref.verifiedBy, 'mark');
+  assert.equal(ref.updatedAt, '2026-09-01T09:00:00.000Z');
+});
+
+// --- hybrid retrieval ----------------------------------------------------------
+//
+// mode=hybrid fuses the vector ranking with BM25 and weights by trust. It is
+// opt-in at the HTTP boundary on purpose: the default ranking stays put until
+// there is a semantic relevance harness to prove a change is an improvement.
+// The memory path (recall) opts in; the UI's ranking is unchanged.
+
+test('mode=hybrid routes to the fused ranker and passes the query text through', async () => {
+  let captured = null;
+  const app = await makeApp({}, (f) => {
+    f.library.searchDocumentsHybrid = async (vector, text, backend, opts) => {
+      captured = { vector, text, backend, opts };
+      return { items: [{ id: 'h1', title: 'Fused', documentType: 'note', projectId: PROJECT_ID, tags: [], body: 'b', match: { semanticRank: 2, keywordRank: 1, score: 0.03 } }], total: 1 };
+    };
+  });
+  const res = await app.inject({ method: 'GET', url: '/api/library/documents/semantic-search?q=restore+backup&page=true&mode=hybrid' });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().items[0].id, 'h1');
+  assert.equal(captured.text, 'restore backup', 'the raw query text reaches the FTS half');
+  assert.deepEqual(captured.vector, [0.1]);
+});
+
+test('a hybrid ref explains why it matched, so a client can discount the ranking', async () => {
+  const app = await makeApp({}, (f) => {
+    f.library.searchDocumentsHybrid = async () => ({
+      items: [{ id: 'h1', title: 'Fused', documentType: 'note', projectId: PROJECT_ID, tags: [], body: 'b', match: { semanticRank: null, keywordRank: 1, rrf: 0.016, trust: 1.25, score: 0.02 } }],
+      total: 1,
+    });
+  });
+  const ref = (await app.inject({ method: 'GET', url: '/api/library/documents/semantic-search?q=x&page=true&mode=hybrid' })).json().items[0];
+  assert.deepEqual(ref.match, { semanticRank: null, keywordRank: 1, rrf: 0.016, trust: 1.25, score: 0.02 });
+});
+
+test('the default mode is unchanged: pure cosine, no fused ranker call', async () => {
+  let hybridCalled = false;
+  const app = await makeApp({}, (f) => {
+    f.library.searchDocumentsHybrid = async () => { hybridCalled = true; return { items: [], total: 0 }; };
+  });
+  const res = await app.inject({ method: 'GET', url: '/api/library/documents/semantic-search?q=restore&page=true' });
+  assert.equal(res.statusCode, 200);
+  assert.equal(hybridCalled, false);
+});
+
+test('an unknown mode is rejected rather than silently falling back', async () => {
+  const app = await makeApp({});
+  const res = await app.inject({ method: 'GET', url: '/api/library/documents/semantic-search?q=x&page=true&mode=magic' });
+  assert.equal(res.statusCode, 400);
+  assert.match(res.json().message, /mode/);
+});
+
+test('mode=hybrid degrades to the cosine ranker on a server that has no fused ranker', async () => {
+  // An injected/extension repository predating hybrid must not 500.
+  const app = await makeApp({}, (f) => { delete f.library.searchDocumentsHybrid; });
+  const res = await app.inject({ method: 'GET', url: '/api/library/documents/semantic-search?q=restore&page=true&mode=hybrid' });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().items[0].id, 'd1');
+});
