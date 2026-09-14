@@ -363,6 +363,34 @@ between documents, created/removed/listed via the tools above and the
 `GET /api/tasks/:id` fetch a single record by id (returning archived records too). Outbound
 links are serialized into the `links:` block of every exported `.md` file (see Format 2).
 
+Code citations: `document_code_refs` pin a document to the code it makes a claim about, so
+the repository itself can report when the claim has gone stale. Where an external ref copies
+nothing and therefore has no staleness, a citation stores a `content_hash` (sha256 of the cited
+lines, line endings normalised) and is checked by re-hashing the file. The source is never
+stored — only its hash. Each citation is
+`{ id, documentId, path, startLine, endLine, commitSha, contentHash, createdAt }`, unique per
+`(document, path, startLine, endLine)`, deleted with the document. `startLine`/`endLine` are
+inclusive and 1-based; both null means the whole file. `commitSha` records where the pin was
+taken and is **informational** — the check is content-based, so a citation survives rebases and
+branch switches that a commit comparison would false-alarm on.
+
+Served at `GET`/`POST`/`DELETE /api/library/documents/:id/code-refs`. POST is an idempotent
+upsert on the range (`201`; re-citing refreshes the hash and commit, which is what re-verifying
+a memory does) — for a whole-file citation too: the key is a NULL-safe unique index over the
+coalesced bounds (migration 0029), because SQLite treats NULLs as distinct in a plain UNIQUE
+constraint and the 0028 key silently duplicated whole-file pins. `404` for a missing or archived
+document, `400` for a missing `path` or `contentHash`, an absolute or `..`-escaping path, an
+inverted range, or an `endLine` without a `startLine` (not a range). `prax remember --cite
+<path[:start[-end]]>` and the `prax-remember` skill attach one, resolving it against the current
+checkout.
+
+**Checking happens client-side**, because only a working tree can answer it: `prax recall` and
+the `prax-recall` skill re-read the cited file and report `current`, `moved` (the content was
+re-found elsewhere in the file — line numbers drift, and a staleness signal that cries wolf on
+every insertion above gets ignored), `changed`, or `missing`. Recall run from outside a checkout
+reports **nothing either way**: silence must not read as "still true", and an unreadable file
+must not read as "deleted".
+
 External references: `document_external_refs` attach outside URLs (a PR, a dashboard, an
 upstream issue) to a document without copying the content. Each ref is
 `{ id, documentId, url, label, createdAt }`, unique per `(document, url)`, deleted with the
@@ -508,10 +536,29 @@ falls back to recency otherwise.
 Semantic search ranks documents by embedding similarity (meaning), not keywords, so a
 paraphrased query can find topically-relevant docs that share no words with it. It is
 **retrieval-only** — no text is generated. Embeddings are stored in SQLite and cosine-ranked in
-process; no vector extension is required. It requires a configured embedding backend: `ollama`,
-`openai` (any OpenAI-compatible `/v1/embeddings` server — real OpenAI, vLLM, LiteLLM, … via
-`OPENAI_BASE_URL` + optional `OPENAI_API_KEY`), the dedicated `llamacpp`, `gemini`, and `voyage`
-providers, or the deterministic `fake` test backend. `EMBEDDING_BACKEND` and its companion
+process; no vector extension is required. It requires a configured embedding backend: `local`
+(in-process, see below), `ollama`, `openai` (any OpenAI-compatible `/v1/embeddings` server — real
+OpenAI, vLLM, LiteLLM, … via `OPENAI_BASE_URL` + optional `OPENAI_API_KEY`), the dedicated
+`llamacpp`, `gemini`, and `voyage` providers, or the deterministic `fake` test backend.
+
+**`local` — embeddings on this device.** Runs the model inside the Prax process: no daemon, no API
+key, no per-query cost, and no network after the first model fetch. Its runtime is an **optional**
+install, deliberately not a dependency of Prax (ONNX ships ~210MB of per-platform binaries, which
+does not belong in the default install or the desktop bundle):
+
+```bash
+npm install @huggingface/transformers
+```
+
+Without it the backend is selectable but reports itself unavailable with that install command,
+rather than failing at embed time. The default model is `Xenova/all-MiniLM-L6-v2` (384 dimensions,
+~23MB, a few milliseconds per document); set `EMBEDDING_MODEL` for another. Vectors are mean-pooled
+and L2-normalised.
+
+Relevance floors are per-backend. `EMBEDDING_SEARCH_MIN_SIMILARITY` remains the operator override
+and always wins; when it is unset, the active backend's own floor applies, falling back to the
+global 0.45. Cosine distributions belong to the model, not to search: on `all-MiniLM-L6-v2` the
+0.45 default discards most true positives, so that backend declares 0.35. `EMBEDDING_BACKEND` and its companion
 variables are the deployment defaults; the single-user Settings ▸ Intelligence screen can also
 choose the provider, model, URL, and key at runtime, and those values are persisted in the
 local SQLite database (the operator-settings model described in `README.md` and `SECURITY.md`).
@@ -522,15 +569,20 @@ optional `EMBEDDING_QUERY_PREFIX` is prepended to **search-query** embeddings
 only (never to document embeddings) for instruct-tuned models — e.g. `qwen3-embedding`'s
 `Instruct: …\nQuery:` or `nomic`'s `search_query: ` — so changing it needs no reindex.
 `search_documents_semantic` returns trust-bearing references (`id`, `title`, `documentType`,
-`projectId`, `tags`, `snippet`, `kind`, `updatedBy`, `verified`, `verifiedAt`, `verifiedBy`,
-`stale`, `status`, and `similarity`); the embedding vector is never returned. When the feature is
+`projectId`, `tags`, `snippet`, `kind`, `updatedBy`, `updatedByAgent`, `updatedAt`, `verified`,
+`verifiedAt`, `verifiedBy`, `stale`, `status`, `similarity`, and — in hybrid mode — `match`);
+the embedding vector is never returned. `updatedAt` and `updatedByAgent` ride on the ref so a
+retrieval client can weigh a hit by age and origin without fetching the whole document. When the feature is
 disabled or not configured the tool yields a friendly fallback
 message (use `search_documents` instead) rather than an error. The supporting routes —
 `GET /api/library/documents/semantic-search` (cosine-ranked refs; 409 when disabled, 400 on a
 blank query, 503 when a configured backend is unreachable), `POST /api/library/embeddings/reindex`
 (rebuilds/repairs the index — add `?force=true` to re-embed **every** active document, e.g. after
 changing the embedding model or upgrading), `GET`/`PUT /api/settings/semantic-search` (status +
-the boolean toggle), and the provider settings routes under `/api/settings` — are **HTTP-only**
+the boolean toggle; the status carries `connected` plus `unavailableReason`, a sentence naming
+why a configured backend is not usable when the backend can say — the on-device backend reports
+its missing runtime and the install command; other backends leave it `null`), and the provider
+settings routes under `/api/settings` — are **HTTP-only**
 and not part of the MCP surface. Each
 document is embedded as its **title + body** together (so a query matching the title retrieves it).
 
@@ -543,6 +595,22 @@ response is `degraded: true` with `reason: "index-incomplete"`, because document
 current vector cannot be ranked. Only the paged envelope carries coverage; the legacy array
 cannot. The web UI, the `prax` CLI, and the skill bundles use the paged envelope and surface
 `degraded` rather than presenting a partial index as a complete miss.
+
+**Retrieval mode.** `?mode=semantic` (the default) is the pure cosine ranking above.
+`?mode=hybrid` fuses that ranking with the FTS5 BM25 ranking by Reciprocal Rank Fusion
+(`k = 60`) and then weights each hit by trust; any other value is `400`. Hybrid exists for two
+memory-shaped misses: a document whose vector is pending, stale, or from another model is
+invisible to cosine alone (it is re-admitted by keyword rank), and an exact token — an error code,
+a version, a file name — is what embeddings are worst at. Each hybrid ref carries
+`match: { semanticRank, keywordRank, rrf, trust, score }` so the client can see *why* it placed
+where it did; a ref with `semanticRank: null` was found by keyword only (the query's meaning did
+not match), and the CLI/skill label it `keyword-only`. Trust is a bounded multiplier sized
+against RRF's narrow score band: a verified memory gets ×1.05 (about three places up, and its
+decay is arrested), an unverified one decays from ×1.0 toward a floor of ×0.9 with a one-year
+half-life (never more than about six places down). It re-orders near-ties; it cannot let trust
+outrank relevance, and `tests/backend/hybridRanking.test.js` pins that magnitude. The `prax`
+CLI and the `prax-recall` skill request `mode=hybrid`; the web UI keeps the default. Older
+servers ignore `mode` and answer with the cosine ranking.
 
 Results are filtered by a gap-based relevance cutoff: only documents scoring within
 `EMBEDDING_SEARCH_TOP_DROP` (default 0.20) of the best match and at least

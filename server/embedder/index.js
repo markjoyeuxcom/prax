@@ -3,6 +3,7 @@ import { createOllamaEmbedder } from './ollama.js';
 import { createOpenAiEmbedder } from './openai.js';
 import { createGeminiEmbedder } from './gemini.js';
 import { createVoyageEmbedder } from './voyage.js';
+import { createLocalEmbedder } from './local.js';
 
 // Prepend a query instruction to SEARCH-query embeddings only (opts.query), never
 // to document embeddings. Pass-through when no prefix is configured. Model-agnostic:
@@ -32,6 +33,11 @@ function resolveBackend(config) {
       return null;
     case 'fake':
       return createFakeEmbedder({ dim: 64 });
+    case 'local':
+      // In-process: no daemon, no key, no network after the first model fetch.
+      // The runtime is an optional install, so this may resolve to an embedder
+      // whose isAvailable() is false with an actionable reason.
+      return createLocalEmbedder({ model });
     case 'ollama':
       return createOllamaEmbedder({ url: baseUrl || config.ollamaUrl, model, fetch });
     case 'openai':

@@ -10,6 +10,8 @@ import { recall, formatRecall } from './lib/recall.js';
 import { remember } from './lib/remember.js';
 import { confirmDocumentVerification } from './lib/verify.js';
 import { searchLibrary, describeRetrieval } from './lib/search.js';
+import { createRepoReader, headSha } from './lib/repoFiles.js';
+import { resolveCitation } from './lib/codeRefs.js';
 
 function parseArgs(argv) {
   const positionals = [];
@@ -162,7 +164,7 @@ async function main(argv) {
     }
     const query = positionals.slice(1).join(' ');
     if (!recent && !query) throw new Error('recall requires a query (or use --recent).');
-    const result = await recall(client, { query, project, limit, recent });
+    const result = await recall(client, { query, project, limit, recent, readFile: createRepoReader() });
     out(flags.json ? result : formatRecall(result));
     return;
   }
@@ -194,6 +196,17 @@ async function main(argv) {
     if (flags.ref && flags.ref !== true) {
       try { await client.addExternalRef(doc.id, { url: String(flags.ref) }); }
       catch (err) { process.stderr.write(`prax: could not attach --ref: ${err.message}\n`); }
+    }
+    // Optional --cite <path[:start[-end]]> pins the code this memory makes a
+    // claim about, so a later recall can say the claim's ground has moved.
+    // Best-effort for the same reason as --ref: the memory is already saved.
+    if (flags.cite && flags.cite !== true) {
+      try {
+        const read = createRepoReader();
+        if (!read) throw new Error('not inside a git repository');
+        const citation = resolveCitation(String(flags.cite), { readFile: read, headSha: headSha() });
+        await client.addCodeRef(doc.id, citation);
+      } catch (err) { process.stderr.write(`prax: could not attach --cite: ${err.message}\n`); }
     }
     out(flags.json ? doc : `${action === 'updated' ? 'Updated' : 'Remembered'} "${doc.title}" (${doc.id}) — unverified, at ${client.base}.`);
     return;

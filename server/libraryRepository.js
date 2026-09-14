@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { toIso } from './columnTypes.js';
+import { fuseHybrid } from './hybridRanking.js';
 
 const DEFAULT_MIN_SIMILARITY = 0.45;
 const DEFAULT_TOP_DROP = 0.20;
@@ -377,6 +378,65 @@ export function buildListActiveDocumentsForExport({ projectId } = {}) {
 // full embedded input (title + body). A job that embedded an older title or
 // body therefore cannot overwrite a newer vector (QINV-09), and embedded_hash
 // records exactly which revision the stored vector describes.
+// The FTS half of hybrid retrieval: Unicode letter/digit runs (CJK and accented
+// words included, C15), each an FTS5 phrase with a prefix star. null = the query
+// carries no usable term, which must read as "ask nothing", never as "match
+// everything".
+//
+// Terms are joined with OR, unlike the LISTING path's implicit AND. A listing is
+// a filter — "show me the documents matching all of this" — but the keyword half
+// of a ranking is a signal, and BM25 already rewards documents that match more
+// terms and rarer ones. Under AND a natural-language recall query ("how do we
+// publish a release") requires every word to appear and matches nothing at all,
+// which is precisely the query shape this path exists to serve.
+export function ftsMatchExpression(q) {
+  if (q === undefined || q === null) return null;
+  const terms = String(q).match(/[\p{L}\p{N}]+/gu) || [];
+  if (!terms.length) return null;
+  return terms.map((term) => `"${term}"*`).join(' OR ');
+}
+
+// Candidates ordered by BM25 relevance. Deliberately NOT the listing query:
+// that one orders by project/type/updated_at, which is a browsing order, not a
+// relevance order, and Reciprocal Rank Fusion is only meaningful over ranks
+// that mean "how well does this match".
+export function buildSearchDocumentsKeyword(q, { projectId, includeRetired = false, limit = 50, preparedMatch = false } = {}) {
+  const match = preparedMatch ? (q || null) : ftsMatchExpression(q);
+  if (!match) return null;
+  const values = [match];
+  let where = `where d.archived_at is null and markdown_documents_fts match $1`;
+  if (!includeRetired) where += ` and d.status = 'active'`;
+  if (projectId) {
+    values.push(projectId);
+    where += ` and d.project_id = $${values.length}`;
+  }
+  return {
+    text: `
+      select d.id, d.title, d.document_type, d.project_id, d.tags, d.body,
+             d.kind, d.updated_by, d.updated_by_agent, d.updated_at,
+             d.verified, d.verified_at, d.verified_by,
+             d.status, d.revision,
+             bm25(markdown_documents_fts) as bm25_score,
+             exists (
+               select 1
+               from document_links dl
+               join markdown_documents target
+                 on target.id = dl.target_document_id and target.archived_at is null
+               where dl.source_document_id = d.id
+                 and dl.relation = 'derived-from'
+                 and dl.target_hash is not null
+                 and target.content_hash is distinct from dl.target_hash
+             ) as stale
+      from markdown_documents d
+      join markdown_documents_fts on markdown_documents_fts.rowid = d.rowid
+      ${where}
+      order by bm25(markdown_documents_fts)
+      limit ${Number.isInteger(limit) && limit > 0 ? limit : 50}
+    `,
+    values,
+  };
+}
+
 export function buildSetDocumentEmbedding(id, { vector, backend, model, dim, revision }) {
   // Embeddings are stored as JSON text (a JSON.stringify'd float array) in the
   // TEXT column; the JS cosine search path parses them back at query time.
@@ -440,7 +500,8 @@ export function buildSearchDocumentsSemantic(backend, { projectId, includeRetire
   return {
     text: `
       select d.id, d.title, d.document_type, d.project_id, d.tags, d.body,
-             d.kind, d.updated_by, d.updated_by_agent, d.verified, d.verified_at, d.verified_by,
+             d.kind, d.updated_by, d.updated_by_agent, d.updated_at,
+             d.verified, d.verified_at, d.verified_by,
              d.status, d.revision, d.embedding,
              exists (
                select 1
@@ -615,6 +676,47 @@ export function createLibraryRepository(db) {
     const result = await queryable.query(query.text, query.values);
     if (!result.rows[0]) throw new DocumentRevisionConflictError(current);
     return normalizeDocumentRow(result.rows[0]);
+  }
+
+  // Rank the vector candidates by cosine — the semantic half of the hybrid,
+  // factored out so both paths score identically. A closure, like ready() and
+  // updateDocumentOn(), so the method works however the caller obtained it.
+  async function rankSemanticCandidates(queryVector, backend, opts = {}) {
+    const q = buildSearchDocumentsSemantic(backend, {
+      projectId: opts.projectId, includeRetired: opts.includeRetired, model: opts.model,
+    });
+    const result = await db.query(q.text, q.values);
+    const ranked = [];
+    for (const r of result.rows) {
+      const similarity = cosineSimilarity(queryVector, parseEmbedding(r.embedding));
+      if (similarity === null || !Number.isFinite(similarity)) continue;
+      ranked.push({ ...r, similarity });
+    }
+    ranked.sort((a, b) => b.similarity - a.similarity);
+    return applyRelevanceCutoff(ranked, { minSimilarity: opts.minSimilarity, topDrop: opts.topDrop })
+      .map((r) => ({ ...normalizeDocumentRow(r), similarity: r.similarity }));
+  }
+
+  // Keep only the keyword matches that are actually competitive with the best
+  // one. OR-matching is what lets a natural-language query match at all, but it
+  // also admits every document containing "a" — and a weak match presented
+  // confidently costs an agent more than an honest miss. BM25 already weights
+  // by inverse document frequency, so the ranking is trustworthy; what is
+  // needed is a floor, not a term filter. (A document-frequency filter was
+  // tried first and is wrong in a specific way: it cannot tell a rare function
+  // word from a rare content word, so on a small library "how" looks more
+  // discriminating than "release".)
+  //
+  // SQLite's bm25() is negative, better matches being more negative.
+  function keywordRelevanceCutoff(rows, { dropFraction = 0.5 } = {}) {
+    if (!Array.isArray(rows) || rows.length === 0) return [];
+    const scored = rows
+      .map((r) => ({ row: r, score: Number(r.bm25_score) }))
+      .filter((r) => Number.isFinite(r.score));
+    if (!scored.length) return rows; // no scores available: trust the SQL order
+    const best = Math.min(...scored.map((r) => r.score));
+    const window = Math.abs(best) * dropFraction;
+    return scored.filter((r) => r.score - best <= window).map((r) => r.row);
   }
 
   return {
@@ -946,6 +1048,40 @@ export function createLibraryRepository(db) {
       const items = kept.slice(offset, offset + limit)
         .map((row) => ({ ...normalizeDocumentRow(row), similarity: row.similarity }));
       return opts.page ? { items, total: kept.length } : items;
+    },
+
+    rankSemanticCandidates,
+    keywordRelevanceCutoff,
+
+    // Hybrid retrieval: fuse the cosine ranking with the BM25 ranking, then
+    // weight by trust. This is what the memory path uses, because the two
+    // failure modes it fixes are memory-shaped — a document whose vector is
+    // pending is invisible to cosine alone, and an exact term (an error code, a
+    // flag, a filename) is what embeddings are worst at.
+    async searchDocumentsHybrid(queryVector, queryText, backend, opts = {}) {
+      await ready();
+      const semantic = await rankSemanticCandidates(queryVector, backend, opts);
+
+      let keyword = [];
+      const keywordQuery = buildSearchDocumentsKeyword(queryText, {
+        projectId: opts.projectId, includeRetired: opts.includeRetired,
+      });
+      if (keywordQuery) {
+        const kw = await db.query(keywordQuery.text, keywordQuery.values);
+        keyword = keywordRelevanceCutoff(kw.rows, { dropFraction: opts.keywordDropFraction })
+          .map(normalizeDocumentRow);
+      }
+
+      const fused = fuseHybrid({ semantic, keyword }, {
+        now: opts.now instanceof Date ? opts.now : new Date(),
+        trust: opts.trust !== false,
+        unverifiedHalfLifeDays: opts.unverifiedHalfLifeDays,
+      });
+
+      const limit = Number.isFinite(Number(opts.limit)) && Number(opts.limit) > 0 ? Number(opts.limit) : 20;
+      const offset = Number.isInteger(Number(opts.offset)) && Number(opts.offset) >= 0 ? Number(opts.offset) : 0;
+      const items = fused.slice(offset, offset + limit);
+      return opts.page ? { items, total: fused.length } : items;
     },
 
     // "More like this": rank documents by similarity to one document's OWN

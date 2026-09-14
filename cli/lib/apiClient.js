@@ -176,8 +176,11 @@ export function createClient({ baseUrl, token, agent, env = process.env, bases }
     // `reason: 'index-incomplete'`): the legacy array cannot say that pending
     // vectors were skipped, and a miss on an incomplete index is not an honest
     // miss. Older servers ignore `page` and return the array; normalise both.
-    async semanticSearch(project, q, { all = false, limit = SEMANTIC_PAGE_MAX, offset = 0 } = {}) {
+    async semanticSearch(project, q, { all = false, limit = SEMANTIC_PAGE_MAX, offset = 0, mode } = {}) {
       const params = new URLSearchParams({ q, page: 'true' });
+      // Older servers have no `mode` and ignore the parameter, so asking for
+      // hybrid is safe against any instance: it either fuses or it does not.
+      if (mode) params.set('mode', String(mode));
       if (project) params.set('project', project);
       if (all) params.set('all', 'true');
       params.set('limit', String(Math.min(Math.max(Number(limit) || SEMANTIC_PAGE_MAX, 1), SEMANTIC_PAGE_MAX)));
@@ -232,6 +235,14 @@ export function createClient({ baseUrl, token, agent, env = process.env, bases }
     },
     listProjects() {
       return request('GET', '/api/projects');
+    },
+    listCodeRefs(documentId) {
+      return request('GET', `/api/library/documents/${encodeURIComponent(documentId)}/code-refs`);
+    },
+    addCodeRef(documentId, citation) {
+      return request('POST', `/api/library/documents/${encodeURIComponent(documentId)}/code-refs`, {
+        body: citation, agent: true, retryUnavailable: true,
+      });
     },
     addExternalRef(documentId, { url, label } = {}) {
       return request('POST', `/api/library/documents/${encodeURIComponent(documentId)}/external-refs`, {

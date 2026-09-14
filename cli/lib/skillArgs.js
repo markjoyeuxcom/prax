@@ -8,7 +8,7 @@ import { sanitizeAgentId } from './apiClient.js';
 export const RECALL_USAGE = 'Usage: recall "<query>" [--project <slug>] [--limit <n>] [--agent <id>]\n'
   + '       recall --recent [n] [--project <slug>]';
 export const REMEMBER_USAGE = `Usage: remember "<title>" "<body>" [--tags a,b] [--type ${DOCUMENT_TYPE_VALUES.join('|')}]`
-  + ' [--project <slug>] [--ref <url>] [--agent <id>]';
+  + ' [--project <slug>] [--ref <url>] [--cite <path[:start[-end]]>] [--agent <id>]';
 
 export class UsageError extends Error {
   constructor(message, usage) {
@@ -58,7 +58,7 @@ export function parseRecallArgs(argv) {
 }
 
 export function parseRememberArgs(argv) {
-  const out = { title: '', body: '', tags: [], type: undefined, project: 'memory', ref: undefined, agent: undefined };
+  const out = { title: '', body: '', tags: [], type: undefined, project: 'memory', ref: undefined, cite: undefined, agent: undefined };
   const rest = [];
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -69,6 +69,11 @@ export function parseRememberArgs(argv) {
       if (!isDocumentType(type)) throw new UsageError(`Unknown --type "${type}". Types: ${DOCUMENT_TYPE_VALUES.join(', ')}.`, REMEMBER_USAGE);
       out.type = type;
     } else if (arg === '--project') { out.project = takeValue(argv, i, REMEMBER_USAGE) || 'memory'; i += 1; }
+    else if (arg === '--cite') {
+      // Pin the code this memory makes a claim about. Validated where it is
+      // resolved (against a working tree), not here.
+      out.cite = takeValue(argv, i, REMEMBER_USAGE); i += 1;
+    }
     else if (arg === '--ref') {
       const ref = takeValue(argv, i, REMEMBER_USAGE); i += 1;
       if (!/^https?:\/\/\S+$/i.test(ref)) throw new UsageError(`--ref must be an http(s) URL (got "${ref}")`, REMEMBER_USAGE);

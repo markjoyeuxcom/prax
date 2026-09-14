@@ -157,7 +157,10 @@ HOST=127.0.0.1 PORT=3100 PRAX_DB_FILE="$HOME/.local/share/prax/prax.db" npm star
 Prax has no built-in authentication. A non-loopback `HOST` fails closed unless the operator also
 sets `PRAX_ALLOW_UNAUTHENTICATED_NETWORK=true`. That acknowledgement does not add protection; use it
 only on a deliberately trusted network or behind an authenticated TLS proxy. The normal local and
-desktop paths need no acknowledgement because they listen on loopback.
+desktop paths need no acknowledgement because they listen on loopback. A loopback bind also refuses
+requests whose `Host` header is not a loopback name (`403`) — the DNS-rebinding defence described in
+`SECURITY.md` — so a reverse proxy on the same machine that forwards the public host name needs the
+same `PRAX_ALLOW_UNAUTHENTICATED_NETWORK=true` acknowledgement.
 
 Use the validated SQLite snapshot command for an authoritative backup. JSON/Markdown exports in
 Settings are portable content formats, not a full database backup — see

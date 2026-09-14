@@ -197,7 +197,8 @@ desktop-macos-arm64:
   variables:
     DOCKER_TLS_CERTDIR: "/certs"
   script:
-    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    # --password-stdin keeps the token out of the process list and the job log.
+    - printf '%s' "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
     - docker run --privileged --rm tonistiigi/binfmt --install arm64
     # docker:dind hands the client its endpoint through DOCKER_HOST and TLS
     # variables; buildx refuses to create a builder from environment-loaded
@@ -261,9 +262,16 @@ release:
       artifacts: true
   rules:
     - *rule-release-tag
+  variables:
+    # Pinned and checksummed: a `latest` download runs whatever was published
+    # that day, with no way to tell a swapped binary from an upgrade. Bump both
+    # together (sha256sum of release-cli-linux-amd64 for the new tag).
+    RELEASE_CLI_VERSION: v0.24.0
+    RELEASE_CLI_SHA256: f979ef752c648b2804051b052a3a7624e06f6fd278b077905b3a51b6e86f0221
   before_script:
     - apt-get update -qq && apt-get install -y --no-install-recommends curl ca-certificates
-    - curl --fail --location --output /usr/local/bin/release-cli "https://gitlab.com/api/v4/projects/gitlab-org%2Frelease-cli/packages/generic/release-cli/latest/release-cli-linux-amd64"
+    - curl --fail --location --output /usr/local/bin/release-cli "https://gitlab.com/api/v4/projects/gitlab-org%2Frelease-cli/packages/generic/release-cli/$RELEASE_CLI_VERSION/release-cli-linux-amd64"
+    - echo "$RELEASE_CLI_SHA256  /usr/local/bin/release-cli" | sha256sum -c -
     - chmod +x /usr/local/bin/release-cli
     - release-cli --version
   script:

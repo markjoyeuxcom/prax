@@ -147,8 +147,9 @@ function createClient({ baseUrl, token, agent, env = process.env, bases } = {}) 
     // `reason: 'index-incomplete'`): the legacy array cannot say that pending
     // vectors were skipped, and a miss on an incomplete index is not an honest
     // miss. Older servers ignore `page` and return the array; normalise both.
-    async semanticSearch(project, q, { all = false, limit = SEMANTIC_PAGE_MAX, offset = 0 } = {}) {
+    async semanticSearch(project, q, { all = false, limit = SEMANTIC_PAGE_MAX, offset = 0, mode } = {}) {
       const params = new URLSearchParams({ q, page: "true" });
+      if (mode) params.set("mode", String(mode));
       if (project) params.set("project", project);
       if (all) params.set("all", "true");
       params.set("limit", String(Math.min(Math.max(Number(limit) || SEMANTIC_PAGE_MAX, 1), SEMANTIC_PAGE_MAX)));
@@ -209,6 +210,16 @@ function createClient({ baseUrl, token, agent, env = process.env, bases } = {}) 
     },
     listProjects() {
       return request("GET", "/api/projects");
+    },
+    listCodeRefs(documentId) {
+      return request("GET", `/api/library/documents/${encodeURIComponent(documentId)}/code-refs`);
+    },
+    addCodeRef(documentId, citation) {
+      return request("POST", `/api/library/documents/${encodeURIComponent(documentId)}/code-refs`, {
+        body: citation,
+        agent: true,
+        retryUnavailable: true
+      });
     },
     addExternalRef(documentId, { url, label } = {}) {
       return request("POST", `/api/library/documents/${encodeURIComponent(documentId)}/external-refs`, {
@@ -316,7 +327,7 @@ function isDocumentType(value) {
 }
 
 // cli/lib/skillArgs.js
-var REMEMBER_USAGE = `Usage: remember "<title>" "<body>" [--tags a,b] [--type ${DOCUMENT_TYPE_VALUES.join("|")}] [--project <slug>] [--ref <url>] [--agent <id>]`;
+var REMEMBER_USAGE = `Usage: remember "<title>" "<body>" [--tags a,b] [--type ${DOCUMENT_TYPE_VALUES.join("|")}] [--project <slug>] [--ref <url>] [--cite <path[:start[-end]]>] [--agent <id>]`;
 var UsageError = class extends Error {
   constructor(message, usage) {
     super(`${message}
@@ -336,7 +347,7 @@ function parseAgent(value, usage) {
   return agent;
 }
 function parseRememberArgs(argv) {
-  const out = { title: "", body: "", tags: [], type: void 0, project: "memory", ref: void 0, agent: void 0 };
+  const out = { title: "", body: "", tags: [], type: void 0, project: "memory", ref: void 0, cite: void 0, agent: void 0 };
   const rest = [];
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -350,6 +361,9 @@ function parseRememberArgs(argv) {
       out.type = type;
     } else if (arg === "--project") {
       out.project = takeValue(argv, i, REMEMBER_USAGE) || "memory";
+      i += 1;
+    } else if (arg === "--cite") {
+      out.cite = takeValue(argv, i, REMEMBER_USAGE);
       i += 1;
     } else if (arg === "--ref") {
       const ref = takeValue(argv, i, REMEMBER_USAGE);
@@ -369,9 +383,97 @@ function parseRememberArgs(argv) {
   return out;
 }
 
+// cli/lib/repoFiles.js
+import { readFileSync as readFileSync2 } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { resolve, sep } from "node:path";
+function repoRoot(cwd = process.cwd()) {
+  try {
+    return execFileSync("git", ["rev-parse", "--show-toplevel"], {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+function headSha(cwd = process.cwd()) {
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+function createRepoReader(root = repoRoot()) {
+  if (!root) return null;
+  const base = resolve(root);
+  return function readRepoFile(path) {
+    const full = resolve(base, path);
+    if (full !== base && !full.startsWith(base + sep)) return null;
+    try {
+      return readFileSync2(full, "utf8");
+    } catch {
+      return null;
+    }
+  };
+}
+
+// cli/lib/codeRefs.js
+import { createHash } from "node:crypto";
+var CITATION_RE = /^(?<path>.+?)(?::(?<start>\d+)(?:-(?<end>\d+))?)?$/;
+var CitationError = class extends Error {
+};
+function parseCitation(spec) {
+  const raw = String(spec ?? "").trim();
+  if (!raw) throw new CitationError("a citation needs a repository-relative path, e.g. server/config.js:12-36");
+  const match = CITATION_RE.exec(raw);
+  if (!match) throw new CitationError(`could not read the citation "${raw}"`);
+  const { path, start, end } = match.groups;
+  if (path.startsWith("/") || path.split("/").includes("..")) {
+    throw new CitationError(`citation path must be relative to the repository root, got "${path}"`);
+  }
+  if (start === void 0) return { path, startLine: null, endLine: null };
+  const startLine = Number(start);
+  const endLine = end === void 0 ? startLine : Number(end);
+  if (startLine < 1) throw new CitationError("a citation line number starts at 1");
+  if (endLine < startLine) throw new CitationError(`citation end line ${endLine} is before start line ${startLine}`);
+  return { path, startLine, endLine };
+}
+function toLines(text) {
+  return String(text).replace(/\r\n/g, "\n").split("\n");
+}
+function sliceLines(text, startLine, endLine) {
+  if (text === null || text === void 0) return null;
+  const lines = toLines(text);
+  if (!startLine) return lines.join("\n");
+  if (endLine > lines.length) return null;
+  return lines.slice(startLine - 1, endLine).join("\n");
+}
+function hashCitation(text) {
+  return createHash("sha256").update(toLines(text).join("\n"), "utf8").digest("hex");
+}
+function resolveCitation(spec, { readFile, headSha: headSha2 = null } = {}) {
+  const { path, startLine, endLine } = parseCitation(spec);
+  const text = readFile(path);
+  if (text === null || text === void 0) {
+    throw new CitationError(`cannot cite ${path}: not found from here (paths are relative to the repository root)`);
+  }
+  const cited = sliceLines(text, startLine, endLine);
+  if (cited === null) {
+    const total = toLines(text).length;
+    throw new CitationError(`cannot cite ${path} lines ${startLine}-${endLine}: the file has only ${total}`);
+  }
+  return { path, startLine, endLine, contentHash: hashCitation(cited), commitSha: headSha2 };
+}
+
 // skills/src/remember.mjs
 async function main() {
-  const { title, body, tags, type, project, ref, agent } = parseRememberArgs(process.argv.slice(2));
+  const { title, body, tags, type, project, ref, cite, agent } = parseRememberArgs(process.argv.slice(2));
   const client = createClient({ agent });
   const { doc, action } = await remember(client, {
     title,
@@ -391,8 +493,20 @@ async function main() {
       refNote = ", ref NOT attached";
     }
   }
+  let citeNote = "";
+  if (cite) {
+    try {
+      const read = createRepoReader();
+      if (!read) throw new Error("not inside a git repository");
+      await client.addCodeRef(doc.id, resolveCitation(cite, { readFile: read, headSha: headSha() }));
+      citeNote = ", code pinned";
+    } catch (err) {
+      console.error(`warning: could not attach --cite ${cite}: ${err.message}`);
+      citeNote = ", code NOT pinned";
+    }
+  }
   const who = client.agent ? `, as ${client.agent}` : "";
-  console.log(`Remembered "${title}" \u2192 ${doc.id} (${action}${who}${refNote}) at ${client.base}`);
+  console.log(`Remembered "${title}" \u2192 ${doc.id} (${action}${who}${refNote}${citeNote}) at ${client.base}`);
 }
 main().catch((err) => {
   console.error(err.message);
