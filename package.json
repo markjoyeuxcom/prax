@@ -1,6 +1,6 @@
 {
   "name": "prax",
-  "version": "0.21.0",
+  "version": "0.30.0",
   "type": "module",
   "private": true,
   "engines": {

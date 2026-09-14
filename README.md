@@ -128,7 +128,7 @@ docker compose -f compose.yaml -f compose.image.yaml up
 The image override uses:
 
 ```text
-registry.gitlab.com/markjoyeuxcom/apps/prax:v0.21.0
+registry.gitlab.com/markjoyeuxcom/apps/prax:v0.30.0
 ```
 
 Use source-build Compose for development, and use the published image path when you want to test the same artifact Kubernetes will run.
