@@ -678,6 +678,47 @@ export function createLibraryRepository(db) {
     return normalizeDocumentRow(result.rows[0]);
   }
 
+  // Rank the vector candidates by cosine — the semantic half of the hybrid,
+  // factored out so both paths score identically. A closure, like ready() and
+  // updateDocumentOn(), so the method works however the caller obtained it.
+  async function rankSemanticCandidates(queryVector, backend, opts = {}) {
+    const q = buildSearchDocumentsSemantic(backend, {
+      projectId: opts.projectId, includeRetired: opts.includeRetired, model: opts.model,
+    });
+    const result = await db.query(q.text, q.values);
+    const ranked = [];
+    for (const r of result.rows) {
+      const similarity = cosineSimilarity(queryVector, parseEmbedding(r.embedding));
+      if (similarity === null || !Number.isFinite(similarity)) continue;
+      ranked.push({ ...r, similarity });
+    }
+    ranked.sort((a, b) => b.similarity - a.similarity);
+    return applyRelevanceCutoff(ranked, { minSimilarity: opts.minSimilarity, topDrop: opts.topDrop })
+      .map((r) => ({ ...normalizeDocumentRow(r), similarity: r.similarity }));
+  }
+
+  // Keep only the keyword matches that are actually competitive with the best
+  // one. OR-matching is what lets a natural-language query match at all, but it
+  // also admits every document containing "a" — and a weak match presented
+  // confidently costs an agent more than an honest miss. BM25 already weights
+  // by inverse document frequency, so the ranking is trustworthy; what is
+  // needed is a floor, not a term filter. (A document-frequency filter was
+  // tried first and is wrong in a specific way: it cannot tell a rare function
+  // word from a rare content word, so on a small library "how" looks more
+  // discriminating than "release".)
+  //
+  // SQLite's bm25() is negative, better matches being more negative.
+  function keywordRelevanceCutoff(rows, { dropFraction = 0.5 } = {}) {
+    if (!Array.isArray(rows) || rows.length === 0) return [];
+    const scored = rows
+      .map((r) => ({ row: r, score: Number(r.bm25_score) }))
+      .filter((r) => Number.isFinite(r.score));
+    if (!scored.length) return rows; // no scores available: trust the SQL order
+    const best = Math.min(...scored.map((r) => r.score));
+    const window = Math.abs(best) * dropFraction;
+    return scored.filter((r) => r.score - best <= window).map((r) => r.row);
+  }
+
   return {
     async listDocuments(filters = {}) {
       await ready();
@@ -1009,45 +1050,8 @@ export function createLibraryRepository(db) {
       return opts.page ? { items, total: kept.length } : items;
     },
 
-    // Rank the vector candidates by cosine — the semantic half of the hybrid,
-    // factored out so both paths score identically.
-    async rankSemanticCandidates(queryVector, backend, opts = {}) {
-      const q = buildSearchDocumentsSemantic(backend, {
-        projectId: opts.projectId, includeRetired: opts.includeRetired, model: opts.model,
-      });
-      const result = await db.query(q.text, q.values);
-      const ranked = [];
-      for (const r of result.rows) {
-        const similarity = cosineSimilarity(queryVector, parseEmbedding(r.embedding));
-        if (similarity === null || !Number.isFinite(similarity)) continue;
-        ranked.push({ ...r, similarity });
-      }
-      ranked.sort((a, b) => b.similarity - a.similarity);
-      return applyRelevanceCutoff(ranked, { minSimilarity: opts.minSimilarity, topDrop: opts.topDrop })
-        .map((r) => ({ ...normalizeDocumentRow(r), similarity: r.similarity }));
-    },
-
-    // Keep only the keyword matches that are actually competitive with the best
-    // one. OR-matching is what lets a natural-language query match at all, but it
-    // also admits every document containing "a" — and a weak match presented
-    // confidently costs an agent more than an honest miss. BM25 already weights
-    // by inverse document frequency, so the ranking is trustworthy; what is
-    // needed is a floor, not a term filter. (A document-frequency filter was
-    // tried first and is wrong in a specific way: it cannot tell a rare function
-    // word from a rare content word, so on a small library "how" looks more
-    // discriminating than "release".)
-    //
-    // SQLite's bm25() is negative, better matches being more negative.
-    keywordRelevanceCutoff(rows, { dropFraction = 0.5 } = {}) {
-      if (!Array.isArray(rows) || rows.length === 0) return [];
-      const scored = rows
-        .map((r) => ({ row: r, score: Number(r.bm25_score) }))
-        .filter((r) => Number.isFinite(r.score));
-      if (!scored.length) return rows; // no scores available: trust the SQL order
-      const best = Math.min(...scored.map((r) => r.score));
-      const window = Math.abs(best) * dropFraction;
-      return scored.filter((r) => r.score - best <= window).map((r) => r.row);
-    },
+    rankSemanticCandidates,
+    keywordRelevanceCutoff,
 
     // Hybrid retrieval: fuse the cosine ranking with the BM25 ranking, then
     // weight by trust. This is what the memory path uses, because the two
@@ -1056,7 +1060,7 @@ export function createLibraryRepository(db) {
     // flag, a filename) is what embeddings are worst at.
     async searchDocumentsHybrid(queryVector, queryText, backend, opts = {}) {
       await ready();
-      const semantic = await this.rankSemanticCandidates(queryVector, backend, opts);
+      const semantic = await rankSemanticCandidates(queryVector, backend, opts);
 
       let keyword = [];
       const keywordQuery = buildSearchDocumentsKeyword(queryText, {
@@ -1064,7 +1068,7 @@ export function createLibraryRepository(db) {
       });
       if (keywordQuery) {
         const kw = await db.query(keywordQuery.text, keywordQuery.values);
-        keyword = this.keywordRelevanceCutoff(kw.rows, { dropFraction: opts.keywordDropFraction })
+        keyword = keywordRelevanceCutoff(kw.rows, { dropFraction: opts.keywordDropFraction })
           .map(normalizeDocumentRow);
       }
 
