@@ -46,16 +46,16 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "archiver": "^8.0.0",
     "fastify": "^5.12.3",
-    "zod": "^4.5.4"
+    "zod": "^4.6.2"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
     "@codemirror/commands": "^6.11.0",
     "@codemirror/lang-markdown": "^6.5.2",
     "@codemirror/language": "^6.12.4",
-    "@codemirror/state": "^6.7.2",
+    "@codemirror/state": "^6.7.4",
     "@codemirror/view": "^6.43.11",
-    "@playwright/test": "^1.62.1",
+    "@playwright/test": "^1.63.0",
     "@tauri-apps/cli": "^2.11.4",
     "esbuild": "^0.28.2"
   },
