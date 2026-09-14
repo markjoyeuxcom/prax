@@ -58,6 +58,31 @@ test('GET /api/settings/semantic-search reports availability + counts', async ()
   await app.close();
 });
 
+test('GET semantic settings names WHY a configured backend is not connected, when it can', async () => {
+  const reason = 'local embeddings need the @huggingface/transformers runtime, which is not installed. Install it with: npm install @huggingface/transformers';
+  const app = await makeApp({ available: true }, (f) => {
+    f.embedder = {
+      backend: 'local',
+      async availability() { return { available: false, reason }; },
+      async isAvailable() { return false; },
+      async embed() { throw new Error(reason); },
+    };
+  });
+  const body = (await app.inject({ method: 'GET', url: '/api/settings/semantic-search' })).json();
+  assert.equal(body.available, true);
+  assert.equal(body.connected, false);
+  assert.equal(body.unavailableReason, reason);
+  await app.close();
+});
+
+test('GET semantic settings reports no reason for a backend that only answers yes/no', async () => {
+  const app = await makeApp({ available: true }, (f) => { f.embedder.isAvailable = async () => false; });
+  const body = (await app.inject({ method: 'GET', url: '/api/settings/semantic-search' })).json();
+  assert.equal(body.connected, false);
+  assert.equal(body.unavailableReason, null);
+  await app.close();
+});
+
 test('GET semantic settings shows unavailable when no embedder', async () => {
   const app = await makeApp({ available: false });
   const res = await app.inject({ method: 'GET', url: '/api/settings/semantic-search' });
@@ -390,12 +415,12 @@ test('mode=hybrid routes to the fused ranker and passes the query text through',
 test('a hybrid ref explains why it matched, so a client can discount the ranking', async () => {
   const app = await makeApp({}, (f) => {
     f.library.searchDocumentsHybrid = async () => ({
-      items: [{ id: 'h1', title: 'Fused', documentType: 'note', projectId: PROJECT_ID, tags: [], body: 'b', match: { semanticRank: null, keywordRank: 1, rrf: 0.016, trust: 1.25, score: 0.02 } }],
+      items: [{ id: 'h1', title: 'Fused', documentType: 'note', projectId: PROJECT_ID, tags: [], body: 'b', match: { semanticRank: null, keywordRank: 1, rrf: 0.016, trust: 1.05, score: 0.017 } }],
       total: 1,
     });
   });
   const ref = (await app.inject({ method: 'GET', url: '/api/library/documents/semantic-search?q=x&page=true&mode=hybrid' })).json().items[0];
-  assert.deepEqual(ref.match, { semanticRank: null, keywordRank: 1, rrf: 0.016, trust: 1.25, score: 0.02 });
+  assert.deepEqual(ref.match, { semanticRank: null, keywordRank: 1, rrf: 0.016, trust: 1.05, score: 0.017 });
 });
 
 test('the default mode is unchanged: pure cosine, no fused ranker call', async () => {
