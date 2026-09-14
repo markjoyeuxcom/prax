@@ -33,10 +33,21 @@ In order: `PRAX_API_URL` if set → the desktop app's saved loopback port
 
 ## Reading the output
 
-- A distilled block: the top hit's title, type, id and trust label (`verified` or
-  `unverified`, plus a lifecycle status when it is not `active`), its body trimmed to
-  about 800 characters, then a short `Related:` list (`title — id (trust)`). Fetch a full
-  document only when you need it: `GET $PRAX_API_URL/api/library/documents/<id>`.
+- A distilled block: the top hit's title, type, id and trust line, its body trimmed to
+  about 800 characters, then a short `Related:` list (`title — id (trust) — snippet`).
+  Fetch a full document only when you need it: `GET $PRAX_API_URL/api/library/documents/<id>`.
+- The trust line reads like `verified by mark · 3mo old · human-written` or
+  `unverified · 2d old · via codex · keyword-only`: verification (and by whom), a lifecycle
+  status when it is not `active`, the age of the current revision, who wrote it (a person, a
+  named agent CLI, or `via an unnamed agent`), and `keyword-only` when the hit was found by
+  exact terms but not by meaning. Weigh a months-old unverified agent note accordingly.
+- Retrieval is hybrid: the ranking fuses meaning (cosine) with exact terms (BM25) and nudges
+  by trust — a verified memory a few places up, an unverified one a few places down as it
+  ages. Trust never outranks relevance; age is disclosed so you can discount further.
+- When the top hit pins code (`--cite`) and you are inside the checkout, the trust line also
+  says `path changed since this was written`, `moved to path:a-b`, or `path is gone`. No
+  such note means the cited lines still match. Outside a checkout nothing is claimed either
+  way.
 - `No relevant memory found for: "…"` with no qualifier is an honest miss (the server
   applies a relevance cutoff). Treat it as "no prior memory" and start fresh.
 - `(index incomplete: N of M documents have no current embedding — …)` means some

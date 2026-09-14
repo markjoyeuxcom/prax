@@ -35,8 +35,13 @@ When you learn something that outlives this session — how a system works, a de
 convention, a reusable runbook — persist it:
 
 ```bash
-node skills/prax-remember/scripts/remember.mjs "<title>" "<body>" [--type note|runbook|decision|known-issue|reference|post-mortem] [--tags a,b] [--ref <url>]
+node skills/prax-remember/scripts/remember.mjs "<title>" "<body>" [--type note|runbook|decision|known-issue|reference|post-mortem] [--tags a,b] [--ref <url>] [--cite <path[:start[-end]]>]
 ```
+
+When the memory makes a claim about specific code, add `--cite server/config.js:12-36` (a
+repository-relative path, optionally a 1-based inclusive line range). Recall run from inside a
+checkout then re-hashes those lines and labels the hit `changed`, `moved to path:a-b`, or
+`is gone` when the ground under the claim has shifted — silence means the citation still holds.
 
 Writes to the dedicated **`memory`** project and **de-dups by exact title** in one server-side
 transaction (re-running refines the memory in place; two agents cannot create the same title
