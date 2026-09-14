@@ -19,7 +19,6 @@ function makeApp({ doc = { id: DOC, title: 'T' }, refs = [] } = {}) {
     documentLinksRepository: { listDocumentLinks: async () => [], linkDocuments: async () => ({ linked: true }), unlinkDocuments: async () => true, listStaleDocuments: async () => [], listOutboundLinksForDocuments: async () => new Map() },
     documentCodeRefsRepository: {
       listCodeRefs: async () => store,
-      listCodeRefsForDocuments: async () => new Map(),
       addCodeRef: async (id, c) => { if (id !== DOC) return null; const r = { id: 'r1', documentId: id, ...c }; store.push(r); return r; },
       removeCodeRef: async (id, refId) => { const i = store.findIndex((r) => r.id === refId); if (i < 0) return false; store.splice(i, 1); return true; },
     },
@@ -68,6 +67,16 @@ test('an absolute or escaping path is refused', async () => {
     assert.equal(res.statusCode, 400, path);
     assert.match(res.json().message, /relative/);
   }
+});
+
+test('an end line without a start line is refused — it is not a range', async () => {
+  const app = await makeApp();
+  const res = await app.inject({
+    method: 'POST', url: `/api/library/documents/${DOC}/code-refs`,
+    payload: { path: 'a.js', endLine: 9, contentHash: HASH },
+  });
+  assert.equal(res.statusCode, 400);
+  assert.match(res.json().message, /startLine/);
 });
 
 test('an inverted line range is refused', async () => {

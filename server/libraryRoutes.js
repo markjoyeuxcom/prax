@@ -1396,6 +1396,9 @@ export async function registerLibraryRoutes(app, options = {}) {
 
     const hasStart = body.startLine !== undefined && body.startLine !== null;
     const hasEnd = body.endLine !== undefined && body.endLine !== null;
+    // An end without a start is not a range: it would be stored as
+    // (null, N), read back as "the whole file", and occupy its own unique key.
+    if (hasEnd && !hasStart) return { message: 'endLine needs a startLine' };
     const startLine = hasStart ? Number(body.startLine) : null;
     const endLine = hasEnd ? Number(body.endLine) : startLine;
     if (hasStart && (!Number.isInteger(startLine) || startLine < 1)) {

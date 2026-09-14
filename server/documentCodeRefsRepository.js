@@ -30,22 +30,15 @@ export function buildListCodeRefs(documentId) {
   };
 }
 
-// One query for a page of search hits, rather than one per hit: recall renders
-// staleness for every result it shows.
-export function buildListCodeRefsForDocuments(documentIds) {
-  const ids = [...new Set((documentIds || []).filter(Boolean))];
-  if (!ids.length) return null;
-  const placeholders = ids.map((_, i) => `$${i + 1}`).join(', ');
-  return {
-    text: `select * from document_code_refs where document_id in (${placeholders}) order by document_id, path, start_line`,
-    values: ids,
-  };
-}
-
-// Upsert on (document_id, path, start_line, end_line). Re-citing a range after
-// the code moved on refreshes the pin — which is what a human re-verifying a
-// memory is doing — instead of erroring or accumulating near-duplicates. Gated
-// on the document being live, matching the links and external-ref conventions.
+// Upsert on (document_id, path, range). Re-citing a range after the code moved
+// on refreshes the pin — which is what a human re-verifying a memory is doing —
+// instead of erroring or accumulating near-duplicates. Gated on the document
+// being live, matching the links and external-ref conventions.
+//
+// The conflict target is the NULL-safe unique index from migration 0029, not
+// the column list: a whole-file citation stores NULL bounds, and SQLite treats
+// NULLs as distinct in a plain UNIQUE constraint, so the column-list target
+// never fired for it and every re-cite inserted another row.
 export function buildAddCodeRef(documentId, { path, startLine = null, endLine = null, commitSha = null, contentHash }) {
   if (typeof path !== 'string' || !path || path.length > MAX_PATH) {
     throw new Error('a code citation needs a repository-relative path');
@@ -58,7 +51,7 @@ export function buildAddCodeRef(documentId, { path, startLine = null, endLine = 
       insert into document_code_refs (document_id, path, start_line, end_line, commit_sha, content_hash)
       select $1, $2, $3, $4, $5, $6
       where exists (select 1 from markdown_documents where id = $1 and archived_at is null)
-      on conflict (document_id, path, start_line, end_line) do update
+      on conflict (document_id, path, coalesce(start_line, 0), coalesce(end_line, 0)) do update
         set content_hash = excluded.content_hash,
             commit_sha = excluded.commit_sha
       returning *
@@ -80,20 +73,6 @@ export function createDocumentCodeRefsRepository(db) {
       const q = buildListCodeRefs(documentId);
       const res = await db.query(q.text, q.values);
       return res.rows.map(normalizeCodeRefRow);
-    },
-
-    // documentId -> citations, so a caller rendering many hits does one round trip.
-    async listCodeRefsForDocuments(documentIds) {
-      const q = buildListCodeRefsForDocuments(documentIds);
-      if (!q) return new Map();
-      const res = await db.query(q.text, q.values);
-      const byDocument = new Map();
-      for (const row of res.rows) {
-        const ref = normalizeCodeRefRow(row);
-        if (!byDocument.has(ref.documentId)) byDocument.set(ref.documentId, []);
-        byDocument.get(ref.documentId).push(ref);
-      }
-      return byDocument;
     },
 
     async addCodeRef(documentId, citation) {
