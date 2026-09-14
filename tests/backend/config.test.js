@@ -73,6 +73,16 @@ test('embedding search thresholds default and override', () => {
   assert.equal(loadConfig({ EMBEDDING_SEARCH_TOP_DROP: 'NaN' }).embeddingSearchTopDrop, 0.20);
 });
 
+test('the similarity floor counts as explicit only when a number was actually set', () => {
+  // An explicit floor overrides the active backend's own floor, so garbage
+  // that fell back to the default must not ALSO pin that default.
+  assert.equal(loadConfig({}).embeddingSearchMinSimilarityExplicit, false);
+  assert.equal(loadConfig({ EMBEDDING_SEARCH_MIN_SIMILARITY: '' }).embeddingSearchMinSimilarityExplicit, false);
+  assert.equal(loadConfig({ EMBEDDING_SEARCH_MIN_SIMILARITY: 'abc' }).embeddingSearchMinSimilarityExplicit, false);
+  assert.equal(loadConfig({ EMBEDDING_SEARCH_MIN_SIMILARITY: '0.45' }).embeddingSearchMinSimilarityExplicit, true);
+  assert.equal(loadConfig({ EMBEDDING_SEARCH_MIN_SIMILARITY: '0' }).embeddingSearchMinSimilarityExplicit, true);
+});
+
 test('openai + query-prefix config defaults and overrides', () => {
   const d = loadConfig({});
   assert.equal(d.openaiBaseUrl, 'https://api.openai.com/v1');

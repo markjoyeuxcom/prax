@@ -4,9 +4,12 @@ import { fileURLToPath } from 'node:url';
 // finite number. A bare Number() would turn garbage ('abc') into NaN, which in the
 // relevance-cutoff math (max(NaN, …) → NaN; x >= NaN → false) would silently make
 // semantic search return zero results for every query — a safe default beats that.
+function isNumberEnv(value) {
+  return value != null && value !== '' && Number.isFinite(Number(value));
+}
+
 function numberFromEnv(value, fallback) {
-  const n = Number(value);
-  return Number.isFinite(n) && value !== '' && value != null ? n : fallback;
+  return isNumberEnv(value) ? Number(value) : fallback;
 }
 
 // Prax has no built-in authentication. Keep host classification deliberately
@@ -59,8 +62,9 @@ export function loadConfig(env = process.env) {
     // Whether an operator actually chose that floor. Without this the route
     // cannot tell a deliberate 0.45 from the default, and a backend that knows
     // its own vectors better would either be ignored or would silently override
-    // a setting someone made on purpose.
-    embeddingSearchMinSimilarityExplicit: env.EMBEDDING_SEARCH_MIN_SIMILARITY !== undefined,
+    // a setting someone made on purpose. Only a value that PARSED counts:
+    // garbage falls back to the default above and must not also pin it.
+    embeddingSearchMinSimilarityExplicit: isNumberEnv(env.EMBEDDING_SEARCH_MIN_SIMILARITY),
     embeddingSearchTopDrop: numberFromEnv(env.EMBEDDING_SEARCH_TOP_DROP, 0.20),
     // Chat / LLM-answer provider (generation layer). Env supplies defaults; the
     // runtime chatProvider persists per-backend overrides in app_settings.
