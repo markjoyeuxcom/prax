@@ -43,6 +43,21 @@ export async function buildApp(options = {}) {
     return payload;
   });
 
+  // DNS rebinding: a page on attacker.example whose name resolves to this
+  // machine is same-origin with itself, so a browser will send its requests
+  // here — unauthenticated — with `Host: attacker.example`. On a loopback bind
+  // the only honest Host names are loopback names, so anything else is refused
+  // before routing. A loopback bind behind a local reverse proxy sees the
+  // public name instead; that deployment acknowledges its exposure with
+  // PRAX_ALLOW_UNAUTHENTICATED_NETWORK=true, which also lifts this check.
+  if (isLoopbackHost(config.host) && config.allowUnauthenticatedNetwork !== true) {
+    app.addHook('onRequest', async (request, reply) => {
+      if (request.hostname && !isLoopbackHost(request.hostname)) {
+        reply.code(403).send({ message: 'Host header must name this machine (loopback); see SECURITY.md on DNS rebinding' });
+      }
+    });
+  }
+
   if (db && !options.skipDb && !options.db) {
     await runMigrations(db, { logger: app.log });
   }

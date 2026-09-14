@@ -1,5 +1,5 @@
 import { spawn as nodeSpawn } from 'node:child_process';
-import { accessSync, constants, mkdirSync } from 'node:fs';
+import { accessSync, constants, mkdtempSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { splitSystem } from './messages.js';
@@ -101,12 +101,18 @@ export function createCopilotCliChat({
   timeoutMs = 120_000,
 } = {}) {
   const chatModel = model || 'auto';
+  // A fresh private directory per chat instance (mkdtemp: unpredictable name,
+  // mode 0700), never a fixed name under the shared temp dir — see claudeCli.js
+  // for why a predictable cwd is a hook-injection path on a multi-user host.
   let scratch = null;
 
   function ensureScratch() {
     if (scratch) return scratch;
-    scratch = scratchDir || join(tmpdir(), 'prax-copilot-cli');
-    try { mkdirSync(scratch, { recursive: true }); } catch { /* spawn reports an unusable cwd */ }
+    try {
+      scratch = scratchDir || mkdtempSync(join(tmpdir(), 'prax-copilot-cli-'));
+    } catch (err) {
+      throw new Error(`copilot CLI needs a private scratch directory and could not create one: ${err.message}`);
+    }
     return scratch;
   }
 

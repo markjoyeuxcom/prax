@@ -1,5 +1,5 @@
 import { spawn as nodeSpawn } from 'node:child_process';
-import { accessSync, constants, mkdirSync } from 'node:fs';
+import { accessSync, constants, mkdtempSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join, delimiter } from 'node:path';
 import { splitSystem } from './messages.js';
@@ -139,11 +139,20 @@ export function createClaudeCliChat({
   timeoutMs = 120_000,
 } = {}) {
   const chatModel = model || 'haiku';
+  // A fresh private directory per chat instance (mkdtemp: unpredictable name,
+  // mode 0700), never a fixed name under the shared temp dir. The CLI reads
+  // project settings — including hooks that run shell commands — from its cwd,
+  // so a predictable path on a multi-user host would let another local user
+  // plant a `.claude/settings.json` that executes as the Prax user. One
+  // directory per provider instance; the OS reaps the temp dir.
   let scratch = null;
   function ensureScratch() {
     if (scratch) return scratch;
-    scratch = scratchDir || join(tmpdir(), 'prax-claude-cli');
-    try { mkdirSync(scratch, { recursive: true }); } catch { /* cwd falls back below */ }
+    try {
+      scratch = scratchDir || mkdtempSync(join(tmpdir(), 'prax-claude-cli-'));
+    } catch (err) {
+      throw new Error(`claude CLI needs a private scratch directory and could not create one: ${err.message}`);
+    }
     return scratch;
   }
 
