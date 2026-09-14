@@ -245,6 +245,7 @@ function renderAppearanceCard(preferences, state = {}) {
 
 const AI_PROVIDERS = [
   { key: 'none', label: 'Off', desc: 'Keyword search only' },
+  { key: 'local', label: 'On this device', desc: 'Runs inside Prax — no key, no server, nothing leaves the machine' },
   { key: 'ollama', label: 'Ollama', desc: 'Local or remote server — private by default' },
   { key: 'openai', label: 'OpenAI', desc: 'ChatGPT\u2019s embeddings — needs an API key' },
   { key: 'voyage', label: 'Claude \u00b7 Voyage AI', desc: 'Anthropic\u2019s embeddings partner — needs a Voyage key' },
@@ -374,15 +375,21 @@ function renderIntelligenceCard(state) {
     : status.loadError
       ? `<span role="alert" style="color:var(--danger);">${escapeHtml(status.loadError)}</span> <button class="settings-link" type="button" data-action="retry-intelligence-status">Retry status</button>`
       : available
-        ? `${escapeHtml(providerMeta ? providerMeta.label : status.backend)} · ${status.connected ? 'connected' : 'disconnected'} · ${Number(status.embeddedCount) || 0}/${Number(status.totalCount) || 0} documents embedded`
+        ? `${escapeHtml(providerMeta ? providerMeta.label : status.backend)} · ${status.connected ? 'connected' : `disconnected${status.unavailableReason ? ` — ${escapeHtml(status.unavailableReason)}` : ''}`} · ${Number(status.embeddedCount) || 0}/${Number(status.totalCount) || 0} documents embedded`
         : 'Pick a provider below to enable searching the library by meaning.';
+
+  // The on-device runtime is an npm install into the server's node_modules,
+  // which the signed desktop bundle cannot take — so the desktop shell does not
+  // offer it. It stays visible if it is somehow the active backend, so the
+  // user can still switch away from it.
+  const offered = AI_PROVIDERS.filter((provider) => provider.key !== 'local' || !state.desktopShell || backend === 'local');
 
   const providers = `
     <div class="settings-row">
       <div class="settings-row__text">
         <div class="settings-row__label">Provider</div>
         <div class="provider-grid">
-          ${AI_PROVIDERS.map((provider) => providerCard(provider, backend, 'set-ai-provider', locked)).join('')}
+          ${offered.map((provider) => providerCard(provider, backend, 'set-ai-provider', locked)).join('')}
         </div>
       </div>
     </div>`;

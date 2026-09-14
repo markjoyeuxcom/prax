@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   buildCliArgs,
   createClaudeCliChat,
@@ -111,6 +114,26 @@ test('complete: spawns with the fence, feeds the prompt over stdin, returns the 
   assert.deepEqual(call.args.slice(-2), ['--append-system-prompt', 'Be terse.\n\nAnswer directly as plain text. Do not use any tools.']);
   assert.equal(call.child.stdin.written, 'Summarize the week');
   assert.equal(call.options.cwd, '/tmp', 'runs in the empty scratch dir, never the user data dir');
+});
+
+test('without an injected scratch dir, the CLI runs in a fresh private temp directory', async () => {
+  const spawn = fakeSpawn((child) => {
+    child.stdout.emit('data', RESULT_OK);
+    child.emit('close', 0);
+  });
+  const chat = createClaudeCliChat({ binaryPath: '/bin/claude', exists: () => true, spawn });
+  await chat.complete([{ role: 'user', content: 'hi' }]);
+  await chat.complete([{ role: 'user', content: 'again' }]);
+  const [first, second] = spawn.calls.map((c) => c.options.cwd);
+  // Not a fixed, guessable name: the CLI reads hooks and instructions from its
+  // cwd, and a predictable path in the shared temp dir is a plant-a-hook
+  // opportunity for another local user.
+  assert.ok(first.startsWith(join(tmpdir(), 'prax-claude-cli-')), first);
+  assert.notEqual(first, join(tmpdir(), 'prax-claude-cli'));
+  assert.equal(second, first, 'one private directory per chat instance');
+  const mode = statSync(first).mode & 0o777;
+  if (process.platform !== 'win32') assert.equal(mode, 0o700, 'private to this user');
+  rmSync(first, { recursive: true, force: true });
 });
 
 test('complete: nonzero exit surfaces the CLI stderr verbatim; missing binary names what it tried', async () => {

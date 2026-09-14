@@ -37,7 +37,9 @@ retrieve  →  work  →  persist  →  supersede
    with a title and body. It writes to the `memory` project, stamped `updatedBy: agent`,
    `kind: synthesized`, and the agent id. When the memory is *about* something that lives
    elsewhere — a PR, a dashboard, an upstream issue — add `--ref <url>` to attach an external
-   reference instead of copying the content in.
+   reference instead of copying the content in. When it is *about* specific code, add
+   `--cite <path[:start[-end]]>` from inside the checkout: only a hash of those lines is stored,
+   and a later recall from a checkout says whether they changed, moved, or vanished.
 4. **Supersede** — re-remembering an existing title updates it in place (no duplicate). When one
    memory replaces another distinct one, run `prax supersede <oldId> --with <newId>` — it records
    the `supersedes` link and retires the old document from default retrieval. A retired title is

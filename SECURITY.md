@@ -46,10 +46,21 @@ Understand the trust boundary before exposing Prax to a network:
 - **Desktop Library export is user-bounded.** The localhost webview can request a Library ZIP save,
   but cannot supply a destination path. The Rust shell always opens the operating system Save dialog
   and writes only the path the user confirms; no general filesystem-write permission is exposed.
-- **Settings access includes host process execution.** The Claude CLI backend runs the selected
-  executable as the Prax process user. Provider URLs and credentials are also operator-controlled.
-  Protect the entire HTTP surface, including Settings, with the same trusted-operator boundary;
-  workspace access must not be granted to less-trusted automation or network clients.
+- **A loopback bind refuses foreign `Host` names (DNS rebinding).** A web page on
+  `attacker.example` whose DNS name resolves to `127.0.0.1` is same-origin with itself, so a
+  browser would happily send its requests to the unauthenticated local API. When Prax is bound to
+  loopback it answers `403` to any request whose `Host` header is not a loopback name
+  (`127.0.0.0/8`, `localhost`, `::1`). The check is lifted by `PRAX_ALLOW_UNAUTHENTICATED_NETWORK=true`,
+  which a loopback bind behind a local reverse proxy must set anyway to acknowledge that the
+  proxy is the exposure boundary. `tests/backend/hostHeader.test.js` pins this.
+- **Settings access includes host process execution.** The Claude and Copilot CLI backends run
+  the selected executable as the Prax process user, in a fresh private scratch directory
+  (`mkdtemp`, mode `0700`) per provider instance — never a fixed path under the shared temp
+  directory, because those CLIs read project settings and hooks from their working directory
+  and a predictable path on a multi-user host would let another local user plant one. Provider
+  URLs and credentials are also operator-controlled. Protect the entire HTTP surface, including
+  Settings, with the same trusted-operator boundary; workspace access must not be granted to
+  less-trusted automation or network clients.
 - **Desktop localhost is process-bound, not broadly trusted.** The Node child binds its own
   loopback port and announces it over its parent-owned stdout. Its first OS-selected port is saved
   under the app-data directory and reused on relaunch so browser drafts/preferences keep their

@@ -63,6 +63,8 @@ test('0010 rebuild preserves data, links, and FTS; retypes tagged post-mortems; 
     '0025_assistant_write_receipts.sql',
     '0026_add_document_updated_by_agent.sql',
     '0027_document_upsert_receipts.sql',
+    '0028_document_code_refs.sql',
+    '0029_document_code_refs_null_safe_key.sql',
   ]);
 
   // Every row survived, fields intact.

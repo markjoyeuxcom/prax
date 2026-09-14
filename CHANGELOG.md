@@ -12,6 +12,57 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Added
+
+- **Code-pinned memory.** `prax remember --cite <path[:start[-end]]>` (and the `prax-remember`
+  skill) pins a memory to the code it describes: `document_code_refs` stores the path, range,
+  commit and a sha256 of the cited lines — never the source. Recall run inside a checkout
+  re-hashes the file and labels the top hit `changed`, `moved to path:a-b`, or `is gone`;
+  outside a checkout it claims nothing either way. Served at
+  `GET`/`POST`/`DELETE /api/library/documents/:id/code-refs`.
+- **Hybrid retrieval (`?mode=hybrid`).** Semantic search can fuse the cosine ranking with
+  FTS5 BM25 by Reciprocal Rank Fusion and nudge by trust, so a document whose vector is
+  pending is still findable and an exact token (an error code, a version) matches. Each hit
+  carries `match: { semanticRank, keywordRank, rrf, trust, score }`. The CLI and the
+  `prax-recall` skill opt in; the web UI keeps the cosine default.
+- **Trust and age in every recall hit.** The trust line now reads like
+  `unverified · 2d old · via codex · keyword-only` (verification and by whom, lifecycle, age,
+  writer, and a keyword-only marker), and related hits carry a snippet. Semantic-search refs
+  gained `updatedAt` and `updatedByAgent`.
+- **On-device embeddings (`local`).** An in-process backend (`@huggingface/transformers`,
+  `Xenova/all-MiniLM-L6-v2`) with no daemon, key, or per-query cost. The runtime is an
+  optional install, so the backend reports itself unavailable with the install command rather
+  than failing at embed time; the desktop app, whose signed bundle cannot take the install,
+  does not offer it.
+- **Per-backend relevance floors.** A backend may declare the cosine floor its vectors need
+  (`local` declares 0.35); `EMBEDDING_SEARCH_MIN_SIMILARITY` remains the operator override and
+  wins only when it actually parsed as a number.
+- `GET /api/settings/semantic-search` reports `unavailableReason` next to `connected`.
+
+### Fixed
+
+- **Whole-file citations no longer duplicate.** SQLite treats NULLs as distinct in a UNIQUE
+  constraint, so the `document_code_refs` key never fired for a citation without a line range
+  and every re-cite (or retried POST) inserted another row. Migration 0029 collapses existing
+  duplicates to the newest pin and adds a NULL-safe unique index the upsert targets.
+- **Trust weighting was not mild.** RRF compresses ranks into a 1.8× band, so the previous
+  ×1.25 / halving-per-year weights let a verified hit at rank 16 take first place and sank a
+  year-old top hit to last. Weights are now bounded (×1.05 boost, decay floored at ×0.9) and the
+  magnitude is pinned by tests.
+- A code citation with an `endLine` but no `startLine` is refused (`400`) instead of being
+  stored as a whole-file pin under its own key.
+
+### Security
+
+- **DNS-rebinding defence.** A loopback bind now answers `403` to any request whose `Host`
+  header is not a loopback name; `PRAX_ALLOW_UNAUTHENTICATED_NETWORK=true` lifts it for a
+  loopback bind behind a local reverse proxy.
+- The Claude and Copilot CLI backends run in a fresh private scratch directory (`mkdtemp`,
+  mode `0700`) per provider instance instead of a fixed path under the shared temp directory,
+  which on a multi-user host would have let another local user plant CLI hooks.
+- The release pipeline pins `release-cli` to a version and verifies its SHA-256, and the
+  registry login reads the token from stdin instead of the command line.
+
 ## [0.21.0] - 2026-09-06
 
 ### Added

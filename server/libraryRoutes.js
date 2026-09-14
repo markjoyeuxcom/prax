@@ -13,6 +13,7 @@ import { createDocumentLinksRepository, DOCUMENT_LINK_RELATIONS } from './docume
 import { addDaysUtc, compileWeeklyReview, isoWeekId, weekStartOf, weeklyReviewTitle } from './weeklyReview.js';
 import { buildRelatedQuery } from './relatedDocuments.js';
 import { createDocumentExternalRefsRepository, sanitizeUrl, sanitizeLabel } from './documentExternalRefsRepository.js';
+import { createDocumentCodeRefsRepository } from './documentCodeRefsRepository.js';
 import {
   createRunbookRunsRepository,
   RunbookRunConflictError,
@@ -148,6 +149,8 @@ export async function registerLibraryRoutes(app, options = {}) {
     || (app.db ? createDocumentLinksRepository(app.db) : null);
   const documentExternalRefsRepository = options.documentExternalRefsRepository || app.documentExternalRefsRepository
     || (app.db ? createDocumentExternalRefsRepository(app.db) : null);
+  const documentCodeRefsRepository = options.documentCodeRefsRepository || app.documentCodeRefsRepository
+    || (app.db ? createDocumentCodeRefsRepository(app.db) : null);
 
   // Behavioral tests may inject an embedder/embeddingService directly — those
   // win. Otherwise the runtime provider resolves the current settings (cached
@@ -262,6 +265,12 @@ export async function registerLibraryRoutes(app, options = {}) {
       tags: doc.tags || [],
       kind: doc.kind || 'source',
       updatedBy: doc.updatedBy || null,
+      // Which agent CLI wrote the current revision, and when it was written.
+      // Retrieval clients weigh a memory by age and origin as much as by
+      // similarity; a ref that omits them forces every caller to re-fetch the
+      // whole document just to find out whether the hit is still plausible.
+      updatedByAgent: doc.updatedByAgent ?? null,
+      updatedAt: doc.updatedAt || null,
       verified: Boolean(doc.verified),
       verifiedAt: doc.verifiedAt || null,
       verifiedBy: doc.verifiedBy || null,
@@ -272,6 +281,9 @@ export async function registerLibraryRoutes(app, options = {}) {
       // it so the client can show "why it matched" honestly. Omitted on the
       // keyword/archive paths, where doc.similarity is undefined.
       ...(Number.isFinite(doc.similarity) ? { similarity: doc.similarity } : {}),
+      // Hybrid ranking explains itself: which ranking(s) found this, and what
+      // trust weight was applied. Absent on the pure-cosine path.
+      ...(doc.match ? { match: doc.match } : {}),
     };
   }
 
@@ -375,6 +387,16 @@ export async function registerLibraryRoutes(app, options = {}) {
     // only explicit paged mode is bounded. Ranking already evaluates every
     // candidate in the repository, so the unpaged slice can safely retain all
     // relevant hits rather than silently stopping at 20.
+    // Retrieval mode. `hybrid` fuses the cosine ranking with BM25 and weights
+    // by trust; `semantic` is the historical pure-cosine ranking and remains the
+    // default until a semantic relevance harness can prove a default change is
+    // an improvement rather than merely a difference.
+    const mode = request.query.mode === undefined ? 'semantic' : String(request.query.mode);
+    if (mode !== 'semantic' && mode !== 'hybrid') {
+      reply.code(400);
+      return { message: "mode must be 'semantic' or 'hybrid'" };
+    }
+
     let limit = Number.MAX_SAFE_INTEGER;
     let offset = 0;
     if (paged) {
@@ -395,16 +417,27 @@ export async function registerLibraryRoutes(app, options = {}) {
     try {
       const { vector } = await embedder.embed(String(q), { query: true });
       const search = app.embeddingSearch || {};
-      docs = await repository.searchDocumentsSemantic(vector, embedder.backend, {
+      // An operator's explicit floor wins; otherwise the active backend's own
+      // floor wins over the global default, because the right cutoff is a
+      // property of the model that produced the vectors.
+      const minSimilarity = search.minSimilarityExplicit
+        ? search.minSimilarity
+        : (Number.isFinite(embedder.minSimilarity) ? embedder.minSimilarity : search.minSimilarity);
+      const searchOpts = {
         projectId,
         limit,
         offset,
         page: paged,
         model: embedder.model,
-        minSimilarity: search.minSimilarity,
+        minSimilarity,
         topDrop: search.topDrop,
         includeRetired,
-      });
+      };
+      // An injected or extension repository predating hybrid retrieval must
+      // degrade to cosine, not 500.
+      docs = (mode === 'hybrid' && typeof repository.searchDocumentsHybrid === 'function')
+        ? await repository.searchDocumentsHybrid(vector, String(q), embedder.backend, searchOpts)
+        : await repository.searchDocumentsSemantic(vector, embedder.backend, searchOpts);
     } catch (err) {
       // Feature is configured + enabled, but the backend is unreachable or
       // errored. Degrade cleanly rather than 500 — the rest of the feature
@@ -1340,6 +1373,69 @@ export async function registerLibraryRoutes(app, options = {}) {
       reply.code(404); return { message: 'document not found' };
     }
     return documentExternalRefsRepository.listExternalRefs(documentId);
+  });
+
+  // Code citations — a document pins the code it makes a claim about, so the
+  // repository can answer whether the claim still holds. Unlike an external
+  // ref, the content IS pinned (by hash), which is what makes staleness
+  // detectable; unlike a document link, the target is a file in a checkout, so
+  // the check runs wherever the working tree is, not here.
+  function validateCitation(body) {
+    if (!isPlainObject(body)) return { message: 'a citation body is required' };
+    const path = typeof body.path === 'string' ? body.path.trim() : '';
+    if (!path) return { message: 'path is required' };
+    // Citations are re-resolved in a checkout, so an absolute or escaping path
+    // is meaningless there — and is a traversal waiting to happen.
+    if (path.startsWith('/') || path.split('/').includes('..')) {
+      return { message: 'path must be relative to the repository root' };
+    }
+    const contentHash = typeof body.contentHash === 'string' ? body.contentHash.trim() : '';
+    // Without a hash the citation could never go stale, which is the only
+    // reason it exists.
+    if (!contentHash) return { message: 'contentHash is required to pin the citation' };
+
+    const hasStart = body.startLine !== undefined && body.startLine !== null;
+    const hasEnd = body.endLine !== undefined && body.endLine !== null;
+    // An end without a start is not a range: it would be stored as
+    // (null, N), read back as "the whole file", and occupy its own unique key.
+    if (hasEnd && !hasStart) return { message: 'endLine needs a startLine' };
+    const startLine = hasStart ? Number(body.startLine) : null;
+    const endLine = hasEnd ? Number(body.endLine) : startLine;
+    if (hasStart && (!Number.isInteger(startLine) || startLine < 1)) {
+      return { message: 'startLine must be a positive integer' };
+    }
+    if (endLine !== null && (!Number.isInteger(endLine) || endLine < startLine)) {
+      return { message: 'endLine must be an integer not before startLine' };
+    }
+    const commitSha = typeof body.commitSha === 'string' && body.commitSha.trim() ? body.commitSha.trim() : null;
+    return { citation: { path, startLine, endLine, commitSha, contentHash } };
+  }
+
+  app.get('/api/library/documents/:id/code-refs', async (request, reply) => {
+    if (!isValidUuid(request.params.id)) { reply.code(400); return { message: 'document id is invalid' }; }
+    if (!(await repository.getDocument(request.params.id))) { reply.code(404); return { message: 'document not found' }; }
+    return documentCodeRefsRepository.listCodeRefs(request.params.id);
+  });
+
+  app.post('/api/library/documents/:id/code-refs', async (request, reply) => {
+    const documentId = request.params.id;
+    if (!isValidUuid(documentId)) { reply.code(400); return { message: 'document id is invalid' }; }
+    const { message, citation } = validateCitation(request.body);
+    if (message) { reply.code(400); return { message }; }
+    const ref = await documentCodeRefsRepository.addCodeRef(documentId, citation);
+    if (!ref) { reply.code(404); return { message: 'document not found' }; } // absent or archived
+    reply.code(201);
+    return documentCodeRefsRepository.listCodeRefs(documentId);
+  });
+
+  app.delete('/api/library/documents/:id/code-refs/:refId', async (request, reply) => {
+    const documentId = request.params.id;
+    if (!isValidUuid(documentId)) { reply.code(400); return { message: 'document id is invalid' }; }
+    const removed = await documentCodeRefsRepository.removeCodeRef(documentId, request.params.refId);
+    if (!removed && !(await repository.getDocument(documentId))) {
+      reply.code(404); return { message: 'document not found' };
+    }
+    return documentCodeRefsRepository.listCodeRefs(documentId);
   });
 
   app.get('/api/library/maintenance/stale', async (request, reply) => {

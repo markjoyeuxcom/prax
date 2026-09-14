@@ -50,9 +50,19 @@ export async function registerSettingsRoutes(app, options = {}) {
       ? Boolean(await appSettings.getSetting(SETTING_KEY, true).catch(() => false))
       : false;
     let connected = false;
+    // Why a configured backend is not usable, when it can say (the on-device
+    // backend names its missing runtime). A bare "disconnected" leaves the
+    // operator guessing between a typo, a stopped daemon and an absent install.
+    let unavailableReason = null;
     let counts = { total: 0, embedded: 0 };
     if (available) {
-      connected = await embedder.isAvailable().catch(() => false);
+      if (typeof embedder.availability === 'function') {
+        const probe = await embedder.availability().catch((err) => ({ available: false, reason: err?.message || null }));
+        connected = Boolean(probe?.available);
+        unavailableReason = connected ? null : (typeof probe?.reason === 'string' && probe.reason ? probe.reason : null);
+      } else {
+        connected = await embedder.isAvailable().catch(() => false);
+      }
       if (library.countEmbeddings) counts = await library.countEmbeddings(embedder.backend, embedder.model).catch(() => counts);
     }
     return {
@@ -60,6 +70,7 @@ export async function registerSettingsRoutes(app, options = {}) {
       enabled,
       backend: available ? embedder.backend : null,
       connected,
+      unavailableReason,
       embeddedCount: counts.embedded,
       totalCount: counts.total,
       model: settings ? settings.model : '',

@@ -24,9 +24,13 @@ test('recall: a query or --recent is required; --limit must be a positive intege
   assert.throws(() => parseRecallArgs(['q', '--limit']), /--limit needs a value/);
 });
 
-test('remember: title, body and every option parse, including --ref and --agent', () => {
-  const a = parseRememberArgs(['T', 'B', '--tags', 'a, b,,c', '--type', 'decision', '--project', 'homelab', '--ref', 'https://x/pr/1', '--agent', 'Codex']);
-  assert.deepEqual(a, { title: 'T', body: 'B', tags: ['a', 'b', 'c'], type: 'decision', project: 'homelab', ref: 'https://x/pr/1', agent: 'codex' });
+test('remember: title, body and every option parse, including --ref, --cite and --agent', () => {
+  const a = parseRememberArgs(['T', 'B', '--tags', 'a, b,,c', '--type', 'decision', '--project', 'homelab', '--ref', 'https://x/pr/1', '--cite', 'server/config.js:12-36', '--agent', 'Codex']);
+  assert.deepEqual(a, { title: 'T', body: 'B', tags: ['a', 'b', 'c'], type: 'decision', project: 'homelab', ref: 'https://x/pr/1', cite: 'server/config.js:12-36', agent: 'codex' });
+});
+
+test('remember: --cite is optional and absent by default', () => {
+  assert.equal(parseRememberArgs(['T', 'B']).cite, undefined);
 });
 
 test('remember: defaults keep the stored type (undefined) and the memory project', () => {

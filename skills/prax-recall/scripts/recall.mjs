@@ -147,8 +147,9 @@ function createClient({ baseUrl, token, agent, env = process.env, bases } = {}) 
     // `reason: 'index-incomplete'`): the legacy array cannot say that pending
     // vectors were skipped, and a miss on an incomplete index is not an honest
     // miss. Older servers ignore `page` and return the array; normalise both.
-    async semanticSearch(project, q, { all = false, limit = SEMANTIC_PAGE_MAX, offset = 0 } = {}) {
+    async semanticSearch(project, q, { all = false, limit = SEMANTIC_PAGE_MAX, offset = 0, mode } = {}) {
       const params = new URLSearchParams({ q, page: "true" });
+      if (mode) params.set("mode", String(mode));
       if (project) params.set("project", project);
       if (all) params.set("all", "true");
       params.set("limit", String(Math.min(Math.max(Number(limit) || SEMANTIC_PAGE_MAX, 1), SEMANTIC_PAGE_MAX)));
@@ -210,6 +211,16 @@ function createClient({ baseUrl, token, agent, env = process.env, bases } = {}) 
     listProjects() {
       return request("GET", "/api/projects");
     },
+    listCodeRefs(documentId) {
+      return request("GET", `/api/library/documents/${encodeURIComponent(documentId)}/code-refs`);
+    },
+    addCodeRef(documentId, citation) {
+      return request("POST", `/api/library/documents/${encodeURIComponent(documentId)}/code-refs`, {
+        body: citation,
+        agent: true,
+        retryUnavailable: true
+      });
+    },
     addExternalRef(documentId, { url, label } = {}) {
       return request("POST", `/api/library/documents/${encodeURIComponent(documentId)}/external-refs`, {
         body: { url, label },
@@ -251,18 +262,98 @@ function createClient({ baseUrl, token, agent, env = process.env, bases } = {}) 
   };
 }
 
+// cli/lib/codeRefs.js
+import { createHash } from "node:crypto";
+function toLines(text) {
+  return String(text).replace(/\r\n/g, "\n").split("\n");
+}
+function sliceLines(text, startLine, endLine) {
+  if (text === null || text === void 0) return null;
+  const lines = toLines(text);
+  if (!startLine) return lines.join("\n");
+  if (endLine > lines.length) return null;
+  return lines.slice(startLine - 1, endLine).join("\n");
+}
+function hashCitation(text) {
+  return createHash("sha256").update(toLines(text).join("\n"), "utf8").digest("hex");
+}
+function checkCitation(ref, currentText) {
+  const { startLine, endLine, contentHash } = ref;
+  if (currentText === null || currentText === void 0) {
+    return { status: "missing", startLine: startLine ?? null, endLine: endLine ?? null };
+  }
+  const atRecordedRange = sliceLines(currentText, startLine, endLine);
+  if (atRecordedRange !== null && hashCitation(atRecordedRange) === contentHash) {
+    return { status: "current", startLine: startLine ?? null, endLine: endLine ?? null };
+  }
+  if (!startLine) return { status: "changed", startLine: null, endLine: null };
+  const span = endLine - startLine + 1;
+  const lines = toLines(currentText);
+  for (let first = 1; first + span - 1 <= lines.length; first += 1) {
+    const window = lines.slice(first - 1, first + span - 1).join("\n");
+    if (hashCitation(window) === contentHash) {
+      return { status: "moved", startLine: first, endLine: first + span - 1 };
+    }
+  }
+  return { status: "changed", startLine, endLine };
+}
+function describeCitationStatus(result, ref) {
+  const path = ref?.path || "cited code";
+  switch (result?.status) {
+    case "changed":
+      return `${path} changed since this was written`;
+    case "missing":
+      return `${path} is gone`;
+    case "moved":
+      return `moved to ${path}:${result.startLine}-${result.endLine}`;
+    default:
+      return "";
+  }
+}
+
 // cli/lib/recall.js
 var BODY_CHARS = 800;
 var RELATED_MAX = 5;
+var RELATED_SNIPPET_CHARS = 90;
+var DAY_MS = 864e5;
 function trimBody(body) {
   const text = String(body || "").trim();
   return text.length <= BODY_CHARS ? text : `${text.slice(0, BODY_CHARS).trimEnd()}\u2026`;
 }
-function trustLabel(doc) {
+function ageLabel(iso, now = /* @__PURE__ */ new Date()) {
+  if (!iso) return "";
+  const then = Date.parse(iso);
+  if (!Number.isFinite(then)) return "";
+  const days = Math.floor((now.getTime() - then) / DAY_MS);
+  if (days <= 0) return "today";
+  if (days < 30) return `${days}d old`;
+  if (days < 365) return `${Math.floor(days / 30)}mo old`;
+  return `${Math.floor(days / 365)}y old`;
+}
+function writerLabel(doc) {
   if (!doc) return "";
-  const parts = [doc.verified ? "verified" : "unverified"];
-  if (doc.status && doc.status !== "active") parts.push(doc.status);
-  return parts.join(", ");
+  if (doc.updatedBy === "agent") {
+    return doc.updatedByAgent ? `via ${doc.updatedByAgent}` : "via an unnamed agent";
+  }
+  return doc.updatedBy ? "human-written" : "";
+}
+function trustLabel(doc, now = /* @__PURE__ */ new Date()) {
+  if (!doc) return "";
+  const verification = doc.verified ? doc.verifiedBy ? `verified by ${doc.verifiedBy}` : "verified" : "unverified";
+  const lifecycle = doc.status && doc.status !== "active" ? `${verification}, ${doc.status}` : verification;
+  const keywordOnly = doc.match && doc.match.semanticRank === null && doc.match.keywordRank ? "keyword-only" : "";
+  return [lifecycle, ageLabel(doc.updatedAt, now), writerLabel(doc), keywordOnly].filter(Boolean).join(" \xB7 ");
+}
+function mergeDefined(base, extra, keys) {
+  const out = { ...base };
+  for (const key of keys) {
+    if (extra && extra[key] !== void 0) out[key] = extra[key];
+  }
+  return out;
+}
+function snippetOf(doc, chars = RELATED_SNIPPET_CHARS) {
+  const text = String(doc?.snippet || doc?.body || "").replace(/\s+/g, " ").trim();
+  return text.length <= chars ? text : `${text.slice(0, chars).trimEnd()}\u2026`;
 }
 function boundNote(result) {
   const page = result?.page;
@@ -270,16 +361,16 @@ function boundNote(result) {
   const total = Number.isInteger(page.total) ? page.total : null;
   return `${page.returned} of ${total ?? "more"} matches shown \u2014 raise --limit for the rest`;
 }
-async function collectSemantic(client, project, query, limit) {
+async function collectSemantic(client, project, query, limit, mode = "hybrid") {
   const wanted = Math.max(1, Number(limit) || 1);
-  let res = await client.semanticSearch(project, query, { limit: wanted });
+  let res = await client.semanticSearch(project, query, { limit: wanted, mode });
   if (Array.isArray(res)) return res;
   const items = [...res.items || []];
   let page = res.page;
   let guard = 0;
   while (page?.hasMore && items.length < wanted && Number.isInteger(page.nextOffset) && guard < 100) {
     guard += 1;
-    const next = await client.semanticSearch(project, query, { limit: wanted - items.length, offset: page.nextOffset });
+    const next = await client.semanticSearch(project, query, { limit: wanted - items.length, offset: page.nextOffset, mode });
     if (Array.isArray(next)) break;
     items.push(...next.items || []);
     page = next.page;
@@ -297,20 +388,39 @@ function coverageNote(result) {
   const scope = total ? `${pending} of ${total} documents` : `${pending} documents`;
   return `index incomplete: ${scope} have no current embedding`;
 }
-async function recall(client, { query, project, limit = 5, recent = false } = {}) {
+async function checkTopCitations(client, id, readFile) {
+  if (typeof readFile !== "function" || typeof client.listCodeRefs !== "function") return [];
+  const refs = await client.listCodeRefs(id).catch(() => []);
+  if (!Array.isArray(refs) || refs.length === 0) return [];
+  return refs.map((ref) => {
+    let text = null;
+    try {
+      text = readFile(ref.path);
+    } catch {
+      text = null;
+    }
+    const result = checkCitation(ref, text);
+    return { ...result, path: ref.path, note: describeCitationStatus(result, ref) };
+  });
+}
+async function recall(client, { query, project, limit = 5, recent = false, mode = "hybrid", readFile } = {}) {
   if (recent) {
     const docs = await client.listDocuments(project || void 0, { status: "active" });
     const items = (Array.isArray(docs) ? docs : []).filter((d) => (d.status ?? "active") === "active").slice().sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))).slice(0, limit).map((d) => ({
       title: d.title || "Untitled",
       id: d.id,
-      trust: trustLabel(d),
-      snippet: String(d.body || "").replace(/\s+/g, " ").trim().slice(0, 100)
+      verified: Boolean(d.verified),
+      status: d.status ?? "active",
+      updatedAt: d.updatedAt ?? null,
+      updatedBy: d.updatedBy ?? null,
+      updatedByAgent: d.updatedByAgent ?? null,
+      snippet: snippetOf(d, 100)
     }));
     return { kind: "recent", project: project || "", items };
   }
   let res;
   try {
-    res = await collectSemantic(client, project || void 0, query, limit);
+    res = await collectSemantic(client, project || void 0, query, limit, mode);
   } catch (err) {
     if (err && err.status === 409) {
       const docs = await client.keywordSearch(project || void 0, query, {});
@@ -342,15 +452,24 @@ async function recall(client, { query, project, limit = 5, recent = false } = {}
   if (list.length === 0) return { kind: "empty", query, note: null, ...coverage };
   const kept = list.slice(0, limit);
   const topDoc = await client.getDocument(kept[0].id).catch(() => null);
+  const citations = await checkTopCitations(client, kept[0].id, readFile);
   return {
     kind: "hit",
     note: null,
     ...coverage,
-    top: { ...kept[0], ...topDoc ? { body: topDoc.body, verified: topDoc.verified, status: topDoc.status } : {} },
+    top: mergeDefined({ ...kept[0], citations }, topDoc, [
+      "body",
+      "verified",
+      "verifiedBy",
+      "status",
+      "updatedAt",
+      "updatedBy",
+      "updatedByAgent"
+    ]),
     related: kept.slice(1)
   };
 }
-function formatRecall(result) {
+function formatRecall(result, now = /* @__PURE__ */ new Date()) {
   if (!result) return "";
   if (result.kind === "empty") {
     const notes = [];
@@ -364,7 +483,10 @@ function formatRecall(result) {
     if (!result.items.length) return "No documents yet.";
     const scope = result.project ? ` in "${result.project}"` : "";
     const head = `Most recent ${result.items.length} active document(s)${scope}:`;
-    const lines2 = result.items.map((d) => `- ${d.title} \u2014 ${d.id}${d.trust ? ` (${d.trust})` : ""}${d.snippet ? ` \u2014 ${d.snippet}` : ""}`);
+    const lines2 = result.items.map((d) => {
+      const label = trustLabel(d, now);
+      return `- ${d.title} \u2014 ${d.id}${label ? ` (${label})` : ""}${d.snippet ? ` \u2014 ${d.snippet}` : ""}`;
+    });
     return [head, ...lines2].join("\n");
   }
   const lines = [];
@@ -374,7 +496,8 @@ function formatRecall(result) {
   const bound = boundNote(result);
   if (bound) lines.push(`(${bound})`);
   const top = result.top;
-  const trust = trustLabel(top);
+  const citationNotes = (top.citations || []).map((c) => c.note).filter(Boolean);
+  const trust = [trustLabel(top, now), ...citationNotes].filter(Boolean).join(" \xB7 ");
   lines.push(`## ${top.title || "Untitled"}  (${top.documentType || "note"} \xB7 ${top.id}${trust ? ` \xB7 ${trust}` : ""})`);
   lines.push("");
   lines.push(trimBody(top.body));
@@ -383,8 +506,9 @@ function formatRecall(result) {
     lines.push("");
     lines.push("Related:");
     for (const r of related) {
-      const label = trustLabel(r);
-      lines.push(`- ${r.title || "Untitled"} \u2014 ${r.id}${label ? ` (${label})` : ""}`);
+      const label = trustLabel(r, now);
+      const snippet = snippetOf(r);
+      lines.push(`- ${r.title || "Untitled"} \u2014 ${r.id}${label ? ` (${label})` : ""}${snippet ? ` \u2014 ${snippet}` : ""}`);
     }
   }
   return lines.join("\n");
@@ -404,7 +528,7 @@ var BY_VALUE = new Map(DOCUMENT_TYPES.map((t) => [t.value, t]));
 
 // cli/lib/skillArgs.js
 var RECALL_USAGE = 'Usage: recall "<query>" [--project <slug>] [--limit <n>] [--agent <id>]\n       recall --recent [n] [--project <slug>]';
-var REMEMBER_USAGE = `Usage: remember "<title>" "<body>" [--tags a,b] [--type ${DOCUMENT_TYPE_VALUES.join("|")}] [--project <slug>] [--ref <url>] [--agent <id>]`;
+var REMEMBER_USAGE = `Usage: remember "<title>" "<body>" [--tags a,b] [--type ${DOCUMENT_TYPE_VALUES.join("|")}] [--project <slug>] [--ref <url>] [--cite <path[:start[-end]]>] [--agent <id>]`;
 var UsageError = class extends Error {
   constructor(message, usage) {
     super(`${message}
@@ -456,11 +580,40 @@ function parseRecallArgs(argv) {
   return out;
 }
 
+// cli/lib/repoFiles.js
+import { readFileSync as readFileSync2 } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { resolve, sep } from "node:path";
+function repoRoot(cwd = process.cwd()) {
+  try {
+    return execFileSync("git", ["rev-parse", "--show-toplevel"], {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+function createRepoReader(root = repoRoot()) {
+  if (!root) return null;
+  const base = resolve(root);
+  return function readRepoFile(path) {
+    const full = resolve(base, path);
+    if (full !== base && !full.startsWith(base + sep)) return null;
+    try {
+      return readFileSync2(full, "utf8");
+    } catch {
+      return null;
+    }
+  };
+}
+
 // skills/src/recall.mjs
 async function main() {
   const { query, project, limit, recent, agent } = parseRecallArgs(process.argv.slice(2));
   const client = createClient({ agent });
-  const result = await recall(client, { query, project, limit, recent });
+  const result = await recall(client, { query, project, limit, recent, readFile: createRepoReader() });
   console.log(formatRecall(result));
 }
 main().catch((err) => {

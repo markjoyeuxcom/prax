@@ -171,6 +171,27 @@ test('no provider configured: disabled switch, invitation copy, Off card active'
   assert.doesNotMatch(html, /data-action="reindex-embeddings"/);
 });
 
+test('a disconnected provider shows the reason the server gave, escaped', () => {
+  const html = renderSettingsHtml(baseState({ settingsTab: 'intelligence',
+    semanticStatus: { available: true, enabled: false, backend: 'local', connected: false, unavailableReason: 'runtime <missing> — npm install it', embeddedCount: 0, totalCount: 3, baseUrl: '', model: 'Xenova/all-MiniLM-L6-v2', keyRequired: false },
+  }), baseModel());
+  assert.match(html, /On this device · disconnected — runtime &lt;missing&gt; — npm install it · 0\/3 documents embedded/);
+});
+
+test('the on-device provider is offered in a browser but not in the desktop shell', () => {
+  const status = { available: true, enabled: false, backend: 'ollama', connected: false, embeddedCount: 0, totalCount: 1, baseUrl: 'http://127.0.0.1:11434', model: 'm', keyRequired: false };
+  const browser = renderSettingsHtml(baseState({ settingsTab: 'intelligence', semanticStatus: status }), baseModel());
+  assert.match(browser, /data-action="set-ai-provider" data-backend="local"/);
+  // The runtime is an npm install into the sidecar's node_modules, which the
+  // signed bundle cannot take: offering it would be a card that never connects.
+  const desktop = renderSettingsHtml(baseState({ settingsTab: 'intelligence', desktopShell: true, semanticStatus: status }), baseModel());
+  assert.doesNotMatch(desktop, /data-action="set-ai-provider" data-backend="local"/);
+  assert.match(desktop, /data-action="set-ai-provider" data-backend="ollama"/);
+  // …unless it is somehow the active backend, so the user can switch away.
+  const stuck = renderSettingsHtml(baseState({ settingsTab: 'intelligence', desktopShell: true, semanticStatus: { ...status, backend: 'local' } }), baseModel());
+  assert.match(stuck, /provider-card is-active" data-action="set-ai-provider" data-backend="local"/);
+});
+
 test('ollama provider selected: generic config fields without a key input', () => {
   const html = renderSettingsHtml(baseState({ settingsTab: 'intelligence', 
     semanticStatus: { available: true, enabled: false, backend: 'ollama', connected: false, embeddedCount: 0, totalCount: 10, baseUrl: 'http://127.0.0.1:11434', model: 'nomic-embed-text', keyRequired: false },
