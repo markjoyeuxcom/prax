@@ -86,17 +86,28 @@ export function createLocalEmbedder({ model, load = defaultLoad } = {}) {
       return { vector, model: embedModel, dim: vector.length };
     },
 
+    // Loading the model, not merely importing the package: ollama.js sets the
+    // precedent that a reachable backend whose model is missing must not read
+    // as "connected" when every embed would still fail. The first call pays
+    // the model download; later calls are instant.
+    //
+    // The reason travels with the verdict: the settings screen shows it next
+    // to "disconnected", which is the only place an operator would otherwise
+    // learn that the runtime is not installed (the embed path is caught and
+    // reported as a generic 503, and the reindex path only shows a sample).
+    availability,
+
     async isAvailable() {
-      // Loading the model, not merely importing the package: ollama.js sets the
-      // precedent that a reachable backend whose model is missing must not read
-      // as "connected" when every embed would still fail. The first call pays
-      // the model download; later calls are instant.
-      try {
-        await pipelineFor();
-        return true;
-      } catch {
-        return false;
-      }
+      return (await availability()).available;
     },
   };
+
+  async function availability() {
+    try {
+      await pipelineFor();
+      return { available: true, reason: null };
+    } catch (err) {
+      return { available: false, reason: err?.message || String(err) };
+    }
+  }
 }
