@@ -20,7 +20,7 @@ de-duplication key.
 ```bash
 node <skill-dir>/scripts/remember.mjs "<title>" "<body>" \
   [--type note|runbook|decision|known-issue|reference|post-mortem] \
-  [--tags a,b] [--ref <url>] [--project <slug>] [--agent <id>]
+  [--tags a,b] [--ref <url>] [--cite <path[:start[-end]]>] [--project <slug>] [--agent <id>]
 ```
 
 `<skill-dir>` is the folder that holds this SKILL.md. In Claude Code it is
@@ -33,6 +33,12 @@ script is one self-contained file: Node 20+, no packages, no repository checkout
   type; pass it to retype (a note can graduate to a decision).
 - `--ref <url>` attaches an external reference (a PR, dashboard, issue) instead of
   copying its content into the body.
+- `--cite <path[:start[-end]]>` pins the memory to the code it makes a claim about
+  (`server/config.js:12-36`: repository-relative, 1-based inclusive lines, or the whole
+  file with no range). Only a sha256 of the cited lines is stored, never the source. Run
+  it from inside the checkout; a later recall from a checkout reports when those lines
+  changed, moved, or vanished. Best-effort: a bad citation warns and the memory is still
+  saved (`code NOT pinned`).
 - Quote the title and the body; unknown options are errors, not ignored.
 
 ## Behaviour
