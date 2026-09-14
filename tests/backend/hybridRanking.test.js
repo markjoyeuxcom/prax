@@ -10,7 +10,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fuseHybrid, trustWeight, RRF_K } from '../../server/hybridRanking.js';
+import { fuseHybrid, trustWeight, RRF_K, VERIFIED_BOOST, DECAY_FLOOR } from '../../server/hybridRanking.js';
 
 const NOW = new Date('2026-09-11T12:00:00Z');
 const daysAgo = (n) => new Date(NOW.getTime() - n * 86400000).toISOString();
@@ -25,11 +25,35 @@ test('verification boosts a document and arrests its decay', () => {
   assert.equal(fresh, ancient, 'a human blessing does not expire on a timer');
 });
 
-test('an unverified memory decays by half over the configured half-life', () => {
+test('an unverified memory decays halfway to the floor over the configured half-life, never below it', () => {
   const now0 = trustWeight(doc('a', { updatedAt: daysAgo(0) }), { now: NOW, unverifiedHalfLifeDays: 100 });
   const half = trustWeight(doc('b', { updatedAt: daysAgo(100) }), { now: NOW, unverifiedHalfLifeDays: 100 });
+  const ancient = trustWeight(doc('c', { updatedAt: daysAgo(100000) }), { now: NOW, unverifiedHalfLifeDays: 100 });
   assert.ok(Math.abs(now0 - 1) < 1e-9);
-  assert.ok(Math.abs(half - 0.5) < 1e-9);
+  assert.ok(Math.abs(half - (DECAY_FLOOR + (1 - DECAY_FLOOR) / 2)) < 1e-9);
+  assert.ok(ancient >= DECAY_FLOOR && ancient < half, 'decay is bounded: age alone cannot bury a memory');
+});
+
+// The weights are sized against RRF's narrow score band. These pin the
+// magnitude, because the equal-rank tests above would pass for ANY boost.
+test('trust re-orders near-ties only: a year-old unverified top hit stays near the top', () => {
+  const semantic = [doc('old-top', { updatedAt: daysAgo(365) })];
+  for (let i = 2; i <= 60; i += 1) semantic.push(doc(`fresh-${i}`, { updatedAt: daysAgo(0) }));
+  const fused = fuseHybrid({ semantic }, { now: NOW });
+  const position = fused.findIndex((d) => d.id === 'old-top') + 1;
+  assert.ok(position <= 6, `a year-old cosine-rank-1 hit fused to position ${position}; it must not sink out of sight`);
+  assert.ok(position > 1, 'age still costs something, or the decay is inert');
+});
+
+test('a verified memory cannot leapfrog a much better unverified match', () => {
+  const semantic = [];
+  for (let i = 1; i <= 20; i += 1) semantic.push(doc(`u-${i}`, { updatedAt: daysAgo(0) }));
+  semantic[15] = doc('verified-16', { verified: true });
+  const fused = fuseHybrid({ semantic }, { now: NOW });
+  const position = fused.findIndex((d) => d.id === 'verified-16') + 1;
+  assert.equal(fused[0].id, 'u-1', 'the best cosine match keeps first place');
+  assert.ok(position >= 12 && position <= 15, `verification moved rank 16 to ${position}: a few places, not to the top`);
+  assert.ok(VERIFIED_BOOST > 1 && VERIFIED_BOOST <= 1.1, 'the boost is a nudge');
 });
 
 test('an undated document is neither boosted nor decayed', () => {

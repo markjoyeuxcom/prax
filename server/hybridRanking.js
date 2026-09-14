@@ -23,23 +23,35 @@
 export const RRF_K = 60;
 
 // A verified memory is worth more than an unverified one, and an unverified one
-// gets less trustworthy with age. Both effects are deliberately mild: this
-// re-orders near-ties, it does not let a stale exact match outrank a good one.
-const VERIFIED_BOOST = 1.25;
+// gets less trustworthy with age. Both effects are deliberately mild: they
+// re-order near-ties, they do not let trust outrank relevance.
+//
+// "Mild" has to be sized against RRF, which compresses rank differences into a
+// narrow band: with k = 60, rank 1 scores 1/61 and rank 50 scores 1/110 — a
+// spread of only 1.8×, about 1.6% per place near the top. A multiplier of 1.25
+// or 0.5 is therefore not mild at all: measured, a year-old unverified hit at
+// cosine rank 1 fused to LAST of 60, and a verified hit at rank 16 fused to
+// first. So the weights are bounded to a few places: +5% moves a hit about
+// three places up, and decay bottoms out at −10% (about six places down) no
+// matter how old the memory is. Age is also disclosed on every hit, so the
+// reader can discount further where the ranking deliberately does not.
+export const VERIFIED_BOOST = 1.05;
+export const DECAY_FLOOR = 0.9;
 const DEFAULT_HALF_LIFE_DAYS = 365;
 const DAY_MS = 86400000;
 
 // Verification ARRESTS decay rather than resetting it: a human blessing is a
 // statement that the claim was true when checked, and nothing about the passage
 // of time alone falsifies it. Unverified memory is a machine's guess, and a
-// guess does get less believable as the system it describes moves on.
+// guess does get less believable as the system it describes moves on — halfway
+// to the floor at one half-life, never below the floor.
 export function trustWeight(doc, { now = new Date(), unverifiedHalfLifeDays = DEFAULT_HALF_LIFE_DAYS } = {}) {
   if (!doc) return 1;
   if (doc.verified) return VERIFIED_BOOST;
   const stamped = doc.updatedAt ? Date.parse(doc.updatedAt) : NaN;
   if (!Number.isFinite(stamped)) return 1; // undated: neither boosted nor punished
   const days = Math.max(0, (now.getTime() - stamped) / DAY_MS);
-  return Math.pow(0.5, days / unverifiedHalfLifeDays);
+  return DECAY_FLOOR + (1 - DECAY_FLOOR) * Math.pow(0.5, days / unverifiedHalfLifeDays);
 }
 
 // `semantic` and `keyword` are candidate lists already in their own best-first
