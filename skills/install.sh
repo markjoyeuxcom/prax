@@ -1,9 +1,10 @@
 #!/usr/bin/env sh
-# Install (or remove) the Prax memory skills for Claude Code and Codex without
-# keeping a checkout of the repository. Fetches only the skills/ folder into a
+# Install (or remove) the Prax memory skills for Claude Code, Codex, and Antigravity
+# without keeping a checkout of the repository. Fetches only the skills/ folder into a
 # temporary clone, copies the skills to $PRAX_SKILLS_DIR (default
 # ~/.agents/skills, read by Codex), links them into $PRAX_CLAUDE_SKILLS_DIR
-# (default ~/.claude/skills, read by Claude Code) and deletes the clone.
+# (default ~/.claude/skills, read by Claude Code) and $PRAX_GEMINI_SKILLS_DIR
+# (default ~/.gemini/config/skills, read by Antigravity) and deletes the clone.
 # Re-run to update.
 #
 #   glab api "projects/markjoyeuxcom%2Fapps%2Fprax/repository/files/skills%2Finstall.sh/raw?ref=main" | sh
@@ -16,12 +17,14 @@
 # The repository is private: the account must have been granted access.
 #
 # Overrides: PRAX_SKILLS_REPO, PRAX_SKILLS_REF (branch/tag, default main),
-# PRAX_SKILLS_DIR (real copies), PRAX_CLAUDE_SKILLS_DIR (Claude Code links).
+# PRAX_SKILLS_DIR (real copies), PRAX_CLAUDE_SKILLS_DIR (Claude Code links),
+# PRAX_GEMINI_SKILLS_DIR (Antigravity links).
 set -eu
 
 REF="${PRAX_SKILLS_REF:-main}"
 DEST="${PRAX_SKILLS_DIR:-$HOME/.agents/skills}"
 CLAUDE_DIR="${PRAX_CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}"
+GEMINI_DIR="${PRAX_GEMINI_SKILLS_DIR:-$HOME/.gemini/config/skills}"
 SKILLS="prax-recall prax-remember"
 HTTPS_REPO="https://gitlab.com/markjoyeuxcom/apps/prax.git"
 SSH_REPO="git@gitlab.com:markjoyeuxcom/apps/prax.git"
@@ -31,6 +34,7 @@ if [ "${1:-}" = "--uninstall" ]; then
   for s in $SKILLS; do
     rm -rf "$DEST/$s"
     [ -L "$CLAUDE_DIR/$s" ] && rm -f "$CLAUDE_DIR/$s"
+    [ -L "$GEMINI_DIR/$s" ] && rm -f "$GEMINI_DIR/$s"
     echo "removed $s"
   done
   exit 0
@@ -93,19 +97,24 @@ if ! run_git -C "$TMP/prax" sparse-checkout set --no-cone skills >/dev/null 2>"$
   exit 1
 fi
 
-mkdir -p "$DEST" "$CLAUDE_DIR"
+mkdir -p "$DEST" "$CLAUDE_DIR" "$GEMINI_DIR"
 for s in $SKILLS; do
   [ -f "$TMP/prax/skills/$s/SKILL.md" ] || { echo "install.sh: $s not found at $REF" >&2; exit 1; }
   rm -rf "$DEST/$s"
   cp -R "$TMP/prax/skills/$s" "$DEST/$s"
   chmod +x "$DEST/$s"/scripts/*.mjs
-  # Claude Code follows a symlinked skill folder; keep one real copy.
+  # Claude Code and Antigravity follow a symlinked skill folder; keep one real copy.
   if [ -e "$CLAUDE_DIR/$s" ] && [ ! -L "$CLAUDE_DIR/$s" ]; then
     echo "install.sh: $CLAUDE_DIR/$s exists and is not a symlink — left unchanged" >&2
   else
     ln -sfn "$DEST/$s" "$CLAUDE_DIR/$s"
   fi
-  echo "installed $s -> $DEST/$s (linked from $CLAUDE_DIR/$s)"
+  if [ -e "$GEMINI_DIR/$s" ] && [ ! -L "$GEMINI_DIR/$s" ]; then
+    echo "install.sh: $GEMINI_DIR/$s exists and is not a symlink — left unchanged" >&2
+  else
+    ln -sfn "$DEST/$s" "$GEMINI_DIR/$s"
+  fi
+  echo "installed $s -> $DEST/$s (linked from $CLAUDE_DIR/$s and $GEMINI_DIR/$s)"
 done
 
 echo "Prax skills installed from $REPO@$REF over $TRANSPORT."

@@ -50,7 +50,7 @@ script is one self-contained file: Node 20+, no packages, no repository checkout
   creates a new active memory; the old one keeps its body. To replace one memory
   with a different one, use `prax supersede <oldId> --with <newId>`.
 - **Provenance.** Every write is stamped `updatedBy: agent`, `kind: synthesized`,
-  plus which agent CLI wrote it: `claude` or `codex` are detected automatically;
+  plus which agent CLI wrote it: `claude`, `codex`, `copilot`, and `antigravity` are detected automatically;
   `--agent <id>` or `PRAX_AGENT` sets it explicitly. Agent memory lands
   **unverified** until a person verifies it.
 - **Exact-once retries.** Every write carries an operation id and the server keeps a
