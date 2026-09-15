@@ -10,7 +10,7 @@
 # - Desktop packages are automatic on release tags, MANUAL on merge requests and
 #   main, never blocking there.
 # - Tags vX.Y.Z or vX.Y.Z-pre: quality gate → both desktop builds with their
-#   packaged-runtime smoke → multi-arch container to this project's registry →
+#   packaged-runtime smoke → the amd64 container image to this project's registry →
 #   a release with every package, SHA256SUMS and the CHANGELOG section as its
 #   body. A missing package fails the release. If a self-hosted runner is
 #   offline the tag pipeline waits for it (a stuck job fails after the runner
@@ -188,7 +188,10 @@ desktop-macos-arm64:
 
 # ---- container ----------------------------------------------------------------
 
-# Multi-arch server image. `container` runs on release tags and gates the
+# Server image, linux/amd64 only for now (arm64 was dropped with the ARM
+# desktop target; restoring it means the platform list plus a
+# `tonistiigi/binfmt --install arm64` step before the build). `container` runs
+# on release tags and gates the
 # release; `container-preview` is a manual job on merge requests that pushes
 # the same build as `mr-<iid>` (never `latest`), so a registry or buildx
 # problem is found and fixed on the MR instead of on a release tag.
@@ -219,9 +222,6 @@ desktop-macos-arm64:
       docker version --format 'Docker {{.Server.Version}} on {{.Server.Os}}/{{.Server.Arch}}'
     # --password-stdin keeps the token out of the process list and the job log.
     - printf '%s' "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
-    # Registers qemu for arm64 in the HOST kernel (binfmt_misc). Idempotent, and
-    # it persists across jobs, so the second run is a no-op.
-    - docker run --privileged --rm tonistiigi/binfmt --install arm64
     # A buildkit container on the host, named per job so a builder left behind
     # by a killed job (or a concurrent one) can never collide with this one.
     - docker buildx create --use --driver docker-container --name "prax-$CI_JOB_ID"
@@ -235,12 +235,11 @@ desktop-macos-arm64:
           tags="$tags -t $CI_REGISTRY_IMAGE:$minor -t $CI_REGISTRY_IMAGE:$major -t $CI_REGISTRY_IMAGE:latest"
           ;;
       esac
-      # The server image stays multi-arch (amd64 + arm64 hosts) even though
-      # desktop packages are x64 and Apple Silicon only. Provenance and SBOM
-      # attestations are off: with them on, buildx pushed the multi-arch index
-      # before the registry had the platform manifests and GitLab's registry
+      # amd64 only for now: no cross-build, no qemu on the host. Provenance and
+      # SBOM attestations stay off: with them on, buildx pushed an image index
+      # before the registry had the platform manifest and GitLab's registry
       # rejected it with "blob unknown to registry" (v0.21.0-rc.3).
-      docker buildx build --platform linux/amd64,linux/arm64 -f deploy/Dockerfile \
+      docker buildx build --platform linux/amd64 -f deploy/Dockerfile \
         --provenance=false --sbom=false \
         --label org.opencontainers.image.title=Prax \
         --label "org.opencontainers.image.description=Local-first operations workspace for tasks, runbooks, and Markdown knowledge." \

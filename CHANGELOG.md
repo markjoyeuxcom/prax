@@ -28,6 +28,8 @@ fresh empty `[Unreleased]` section is started.
   `macos` tag. The container jobs build through the runner host's Docker socket
   (`/var/run/docker.sock`, mounted by the runner) instead of a `docker:dind` service, so the
   executor needs no privileged flag; the buildx builder is named per job and removed afterwards.
+  The image is built for **linux/amd64 only** for now — arm64 (and its qemu registration on
+  the runner host) is dropped, matching the desktop targets.
 
 ### Fixed
 

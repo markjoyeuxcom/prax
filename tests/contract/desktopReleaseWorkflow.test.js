@@ -67,7 +67,8 @@ test('a tagged release waits for the quality gate, both packages and the contain
   assert.doesNotMatch(build, /tags:/, 'the container build runs on the pipeline default runner, not a hosted one');
   assert.match(pipeline, /^default:\n(?:  .*\n)*?  tags: \[homelab\]/m, 'every job defaults to the self-hosted homelab runner; only the macOS build overrides it');
   assert.doesNotMatch(pipeline, /saas-linux/, 'no job is pinned to a GitLab shared runner');
-  assert.match(build, /--platform linux\/amd64,linux\/arm64/);
+  assert.match(build, /--platform linux\/amd64 /, 'the server image is built for amd64 only for now');
+  assert.doesNotMatch(build, /linux\/arm64|binfmt/, 'no arm64 cross-build and no qemu registration on the host until arm64 is a target again');
   // Host socket binding, not docker:dind: no dind service, no TLS cert dir, no
   // named-context workaround; a per-job builder that the job removes again.
   assert.doesNotMatch(build, /docker:\d+-dind|DOCKER_TLS_CERTDIR|docker context create/, 'the container build drives the host daemon over the mounted socket, not a dind service');
