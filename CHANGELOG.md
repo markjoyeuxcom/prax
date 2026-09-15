@@ -20,6 +20,13 @@ fresh empty `[Unreleased]` section is started.
   accordingly, as they already did for Claude Code and Codex. `skills/install.sh` also links
   the skills into `~/.gemini/config/skills/` (`PRAX_GEMINI_SKILLS_DIR`) for Antigravity.
 
+### Changed
+
+- **CI runs entirely on self-hosted runners.** `homelab` is now the pipeline's default
+  runner tag — checks, browser tests, the container build and the release job join the Linux
+  desktop build there — so no job consumes shared-runner minutes. The macOS build keeps its
+  `macos` tag. The homelab runner's docker executor must be privileged for `docker:dind`.
+
 ### Fixed
 
 - **Remember no longer splits a memory across projects.** Recall searches every project but
