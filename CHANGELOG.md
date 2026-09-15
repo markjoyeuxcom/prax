@@ -20,6 +20,16 @@ fresh empty `[Unreleased]` section is started.
   accordingly, as they already did for Claude Code and Codex. `skills/install.sh` also links
   the skills into `~/.gemini/config/skills/` (`PRAX_GEMINI_SKILLS_DIR`) for Antigravity.
 
+### Fixed
+
+- **Remember no longer splits a memory across projects.** Recall searches every project but
+  upsert-by-title is project-scoped, so refining a recalled `homelab` document with
+  `prax-remember` (defaulting to `memory`) created a second copy. Recall now prints the
+  project on every hit (`in homelab`), and a remember run without `--project` updates a
+  same-title document in the one other project it lives in — tags merged, never copied into
+  `memory`; a title present in several other projects is refused by name. `--id <uuid>`
+  targets one document outright. `prax remember --memory` follows the same rule.
+
 ## [0.30.0] - 2026-09-14
 
 ### Added

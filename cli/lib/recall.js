@@ -82,6 +82,29 @@ function mergeDefined(base, extra, keys) {
   return out;
 }
 
+// Which project a hit lives in. Recall searches EVERY project, so without
+// this an agent cannot tell a homelab runbook from a memory note with the same
+// title — and a later remember, defaulting to `memory`, creates a split-brain
+// duplicate of a note that already existed elsewhere.
+export function projectLabel(doc) {
+  return doc?.projectSlug ? `in ${doc.projectSlug}` : '';
+}
+
+// Semantic refs carry only projectId; the listing carries projectSlug. One
+// projects call per recall fills the gap for every hit at once. Fail-soft: an
+// old client or a failed call leaves the label off rather than failing recall.
+async function withProjectSlugs(client, docs) {
+  const list = Array.isArray(docs) ? docs : [];
+  const missing = list.some((d) => d && !d.projectSlug && d.projectId);
+  if (!missing || typeof client?.listProjects !== 'function') return list;
+  const projects = await client.listProjects().catch(() => null);
+  if (!Array.isArray(projects)) return list;
+  const slugById = new Map(projects.filter((p) => p && p.id && p.slug).map((p) => [p.id, p.slug]));
+  return list.map((d) => (d && !d.projectSlug && slugById.has(d.projectId)
+    ? { ...d, projectSlug: slugById.get(d.projectId) }
+    : d));
+}
+
 function snippetOf(doc, chars = RELATED_SNIPPET_CHARS) {
   const text = String(doc?.snippet || doc?.body || '').replace(/\s+/g, ' ').trim();
   return text.length <= chars ? text : `${text.slice(0, chars).trimEnd()}…`;
@@ -165,9 +188,11 @@ export async function recall(client, { query, project, limit = 5, recent = false
         updatedAt: d.updatedAt ?? null,
         updatedBy: d.updatedBy ?? null,
         updatedByAgent: d.updatedByAgent ?? null,
+        projectId: d.projectId ?? null,
+        projectSlug: d.projectSlug ?? null,
         snippet: snippetOf(d, 100),
       }));
-    return { kind: 'recent', project: project || '', items };
+    return { kind: 'recent', project: project || '', items: await withProjectSlugs(client, items) };
   }
 
   let res;
@@ -176,7 +201,7 @@ export async function recall(client, { query, project, limit = 5, recent = false
   } catch (err) {
     if (err && err.status === 409) {
       const docs = await client.keywordSearch(project || undefined, query, {});
-      const kept = (Array.isArray(docs) ? docs : []).slice(0, limit);
+      const kept = await withProjectSlugs(client, (Array.isArray(docs) ? docs : []).slice(0, limit));
       if (kept.length === 0) return { kind: 'empty', query, note: 'keyword', degraded: false, reason: null, index: null };
       return {
         kind: 'hit', note: 'semantic search disabled — keyword results', degraded: false, reason: null, index: null,
@@ -201,7 +226,7 @@ export async function recall(client, { query, project, limit = 5, recent = false
     page: legacy ? null : (res?.page || null),
   };
   if (list.length === 0) return { kind: 'empty', query, note: null, ...coverage };
-  const kept = list.slice(0, limit);
+  const kept = await withProjectSlugs(client, list.slice(0, limit));
   const topDoc = await client.getDocument(kept[0].id).catch(() => null);
   const citations = await checkTopCitations(client, kept[0].id, readFile);
   return {
@@ -209,7 +234,7 @@ export async function recall(client, { query, project, limit = 5, recent = false
     note: null,
     ...coverage,
     top: mergeDefined({ ...kept[0], citations }, topDoc, [
-      'body', 'verified', 'verifiedBy', 'status', 'updatedAt', 'updatedBy', 'updatedByAgent',
+      'body', 'verified', 'verifiedBy', 'status', 'updatedAt', 'updatedBy', 'updatedByAgent', 'projectSlug',
     ]),
     related: kept.slice(1),
   };
@@ -230,7 +255,7 @@ export function formatRecall(result, now = new Date()) {
     const scope = result.project ? ` in "${result.project}"` : '';
     const head = `Most recent ${result.items.length} active document(s)${scope}:`;
     const lines = result.items.map((d) => {
-      const label = trustLabel(d, now);
+      const label = [projectLabel(d), trustLabel(d, now)].filter(Boolean).join(' · ');
       return `- ${d.title} — ${d.id}${label ? ` (${label})` : ''}${d.snippet ? ` — ${d.snippet}` : ''}`;
     });
     return [head, ...lines].join('\n');
@@ -244,7 +269,9 @@ export function formatRecall(result, now = new Date()) {
   if (bound) lines.push(`(${bound})`);
   const top = result.top;
   const citationNotes = (top.citations || []).map((c) => c.note).filter(Boolean);
-  const trust = [trustLabel(top, now), ...citationNotes].filter(Boolean).join(' · ');
+  // Project first, then trust: "where it lives" is what a re-remember needs to
+  // avoid duplicating it, so it must not be buried behind the trust words.
+  const trust = [projectLabel(top), trustLabel(top, now), ...citationNotes].filter(Boolean).join(' · ');
   lines.push(`## ${top.title || 'Untitled'}  (${top.documentType || 'note'} · ${top.id}${trust ? ` · ${trust}` : ''})`);
   lines.push('');
   lines.push(trimBody(top.body));
@@ -253,7 +280,7 @@ export function formatRecall(result, now = new Date()) {
     lines.push('');
     lines.push('Related:');
     for (const r of related) {
-      const label = trustLabel(r, now);
+      const label = [projectLabel(r), trustLabel(r, now)].filter(Boolean).join(' · ');
       const snippet = snippetOf(r);
       lines.push(`- ${r.title || 'Untitled'} — ${r.id}${label ? ` (${label})` : ''}${snippet ? ` — ${snippet}` : ''}`);
     }

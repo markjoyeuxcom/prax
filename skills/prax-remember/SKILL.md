@@ -20,7 +20,7 @@ de-duplication key.
 ```bash
 node <skill-dir>/scripts/remember.mjs "<title>" "<body>" \
   [--type note|runbook|decision|known-issue|reference|post-mortem] \
-  [--tags a,b] [--ref <url>] [--cite <path[:start[-end]]>] [--project <slug>] [--agent <id>]
+  [--tags a,b] [--ref <url>] [--cite <path[:start[-end]]>] [--project <slug>] [--id <uuid>] [--agent <id>]
 ```
 
 `<skill-dir>` is the folder that holds this SKILL.md. In Claude Code it is
@@ -46,6 +46,17 @@ script is one self-contained file: Node 20+, no packages, no repository checkout
 - **Update in place by exact title.** Re-remembering a title refines that memory
   (body, tags, optional retype). The write is one server-side transaction, so two
   agents remembering the same title at once cannot create it twice.
+- **A title that already lives in another project is refined there.** Recall searches
+  every project, so when you run remember **without `--project`** and an active document
+  with that exact title exists in one other project (say `homelab`) and none in `memory`,
+  that document is updated in place — body replaced, your tags merged into its own — and
+  the output says `updated in homelab`. It is never copied into `memory`. If the title
+  exists in several other projects the write is refused and the projects are named: pass
+  `--project <slug>` or `--id <uuid>` to say which. Saying `--project memory` explicitly
+  keeps the write in `memory`.
+- **`--id <uuid>` targets one document outright**, wherever it lives (recall prints the
+  id on every hit). The body, tags (merged) and title are applied to that document, so
+  this is also how a memory is renamed.
 - **A superseded memory stays retired.** Remembering a title that was superseded
   creates a new active memory; the old one keeps its body. To replace one memory
   with a different one, use `prax supersede <oldId> --with <newId>`.

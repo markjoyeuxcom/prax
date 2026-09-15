@@ -353,6 +353,18 @@ function mergeDefined(base, extra, keys) {
   }
   return out;
 }
+function projectLabel(doc) {
+  return doc?.projectSlug ? `in ${doc.projectSlug}` : "";
+}
+async function withProjectSlugs(client, docs) {
+  const list = Array.isArray(docs) ? docs : [];
+  const missing = list.some((d) => d && !d.projectSlug && d.projectId);
+  if (!missing || typeof client?.listProjects !== "function") return list;
+  const projects = await client.listProjects().catch(() => null);
+  if (!Array.isArray(projects)) return list;
+  const slugById = new Map(projects.filter((p) => p && p.id && p.slug).map((p) => [p.id, p.slug]));
+  return list.map((d) => d && !d.projectSlug && slugById.has(d.projectId) ? { ...d, projectSlug: slugById.get(d.projectId) } : d);
+}
 function snippetOf(doc, chars = RELATED_SNIPPET_CHARS) {
   const text = String(doc?.snippet || doc?.body || "").replace(/\s+/g, " ").trim();
   return text.length <= chars ? text : `${text.slice(0, chars).trimEnd()}\u2026`;
@@ -416,9 +428,11 @@ async function recall(client, { query, project, limit = 5, recent = false, mode 
       updatedAt: d.updatedAt ?? null,
       updatedBy: d.updatedBy ?? null,
       updatedByAgent: d.updatedByAgent ?? null,
+      projectId: d.projectId ?? null,
+      projectSlug: d.projectSlug ?? null,
       snippet: snippetOf(d, 100)
     }));
-    return { kind: "recent", project: project || "", items };
+    return { kind: "recent", project: project || "", items: await withProjectSlugs(client, items) };
   }
   let res;
   try {
@@ -426,7 +440,7 @@ async function recall(client, { query, project, limit = 5, recent = false, mode 
   } catch (err) {
     if (err && err.status === 409) {
       const docs = await client.keywordSearch(project || void 0, query, {});
-      const kept2 = (Array.isArray(docs) ? docs : []).slice(0, limit);
+      const kept2 = await withProjectSlugs(client, (Array.isArray(docs) ? docs : []).slice(0, limit));
       if (kept2.length === 0) return { kind: "empty", query, note: "keyword", degraded: false, reason: null, index: null };
       return {
         kind: "hit",
@@ -452,7 +466,7 @@ async function recall(client, { query, project, limit = 5, recent = false, mode 
     page: legacy ? null : res?.page || null
   };
   if (list.length === 0) return { kind: "empty", query, note: null, ...coverage };
-  const kept = list.slice(0, limit);
+  const kept = await withProjectSlugs(client, list.slice(0, limit));
   const topDoc = await client.getDocument(kept[0].id).catch(() => null);
   const citations = await checkTopCitations(client, kept[0].id, readFile);
   return {
@@ -466,7 +480,8 @@ async function recall(client, { query, project, limit = 5, recent = false, mode 
       "status",
       "updatedAt",
       "updatedBy",
-      "updatedByAgent"
+      "updatedByAgent",
+      "projectSlug"
     ]),
     related: kept.slice(1)
   };
@@ -486,7 +501,7 @@ function formatRecall(result, now = /* @__PURE__ */ new Date()) {
     const scope = result.project ? ` in "${result.project}"` : "";
     const head = `Most recent ${result.items.length} active document(s)${scope}:`;
     const lines2 = result.items.map((d) => {
-      const label = trustLabel(d, now);
+      const label = [projectLabel(d), trustLabel(d, now)].filter(Boolean).join(" \xB7 ");
       return `- ${d.title} \u2014 ${d.id}${label ? ` (${label})` : ""}${d.snippet ? ` \u2014 ${d.snippet}` : ""}`;
     });
     return [head, ...lines2].join("\n");
@@ -499,7 +514,7 @@ function formatRecall(result, now = /* @__PURE__ */ new Date()) {
   if (bound) lines.push(`(${bound})`);
   const top = result.top;
   const citationNotes = (top.citations || []).map((c) => c.note).filter(Boolean);
-  const trust = [trustLabel(top, now), ...citationNotes].filter(Boolean).join(" \xB7 ");
+  const trust = [projectLabel(top), trustLabel(top, now), ...citationNotes].filter(Boolean).join(" \xB7 ");
   lines.push(`## ${top.title || "Untitled"}  (${top.documentType || "note"} \xB7 ${top.id}${trust ? ` \xB7 ${trust}` : ""})`);
   lines.push("");
   lines.push(trimBody(top.body));
@@ -508,7 +523,7 @@ function formatRecall(result, now = /* @__PURE__ */ new Date()) {
     lines.push("");
     lines.push("Related:");
     for (const r of related) {
-      const label = trustLabel(r, now);
+      const label = [projectLabel(r), trustLabel(r, now)].filter(Boolean).join(" \xB7 ");
       const snippet = snippetOf(r);
       lines.push(`- ${r.title || "Untitled"} \u2014 ${r.id}${label ? ` (${label})` : ""}${snippet ? ` \u2014 ${snippet}` : ""}`);
     }
@@ -530,7 +545,7 @@ var BY_VALUE = new Map(DOCUMENT_TYPES.map((t) => [t.value, t]));
 
 // cli/lib/skillArgs.js
 var RECALL_USAGE = 'Usage: recall "<query>" [--project <slug>] [--limit <n>] [--agent <id>]\n       recall --recent [n] [--project <slug>]';
-var REMEMBER_USAGE = `Usage: remember "<title>" "<body>" [--tags a,b] [--type ${DOCUMENT_TYPE_VALUES.join("|")}] [--project <slug>] [--ref <url>] [--cite <path[:start[-end]]>] [--agent <id>]`;
+var REMEMBER_USAGE = `Usage: remember "<title>" "<body>" [--tags a,b] [--type ${DOCUMENT_TYPE_VALUES.join("|")}] [--project <slug>] [--id <uuid>] [--ref <url>] [--cite <path[:start[-end]]>] [--agent <id>]`;
 var UsageError = class extends Error {
   constructor(message, usage) {
     super(`${message}
