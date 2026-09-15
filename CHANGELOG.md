@@ -25,7 +25,9 @@ fresh empty `[Unreleased]` section is started.
 - **CI runs entirely on self-hosted runners.** `homelab` is now the pipeline's default
   runner tag — checks, browser tests, the container build and the release job join the Linux
   desktop build there — so no job consumes shared-runner minutes. The macOS build keeps its
-  `macos` tag. The homelab runner's docker executor must be privileged for `docker:dind`.
+  `macos` tag. The container jobs build through the runner host's Docker socket
+  (`/var/run/docker.sock`, mounted by the runner) instead of a `docker:dind` service, so the
+  executor needs no privileged flag; the buildx builder is named per job and removed afterwards.
 
 ### Fixed
 

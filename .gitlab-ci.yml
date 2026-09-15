@@ -35,10 +35,11 @@ variables:
 default:
   interruptible: true
   # Self-hosted by default; a job that needs another machine says so itself
-  # (desktop-macos-arm64). The homelab runner's docker executor must be
-  # privileged, or the docker:dind container jobs cannot start — the manual
-  # container-preview job on a merge request is the cheap way to prove that
-  # before a release tag depends on it.
+  # (desktop-macos-arm64). The container jobs build through the runner host's
+  # Docker socket, so the homelab runner's docker executor must mount it
+  # (`volumes = ["/var/run/docker.sock:/var/run/docker.sock", "/cache"]`) — no
+  # privileged flag needed. The manual container-preview job on a merge request
+  # is the cheap way to prove that before a release tag depends on it.
   tags: [homelab]
 
 .rules-release-tag: &rule-release-tag
@@ -194,22 +195,36 @@ desktop-macos-arm64:
 .container:
   stage: container
   image: docker:27
-  # docker:dind needs a privileged executor; this runs on the default `homelab`
-  # runner, which must have `privileged = true` in its runner config.
-  services:
-    - docker:27-dind
+  # Host socket binding, not docker:dind: the runner mounts the host's
+  # /var/run/docker.sock into the job, so the `docker` client here drives the
+  # host daemon directly. No privileged executor, no dind service to start, no
+  # TLS certificate dance (the named-context workaround dind needed in rc.3 goes
+  # with it), and layers cache on the host between jobs. The trade is that the
+  # job has the host daemon's authority — the same trust a privileged dind job
+  # had — and anything it creates on the host persists: hence the per-job
+  # builder name and the after_script that removes it.
   variables:
-    DOCKER_TLS_CERTDIR: "/certs"
+    # Pinned so nothing is inferred: without a socket the docker image's
+    # entrypoint would quietly assume a dind service at tcp://docker:2375 and
+    # every command would fail on DNS instead of on the real cause.
+    DOCKER_HOST: unix:///var/run/docker.sock
   script:
+    # `docker info` exits 0 even when the daemon is unreachable, so the guard is
+    # the socket file itself, then `docker version`, which does fail honestly.
+    - |
+      test -S /var/run/docker.sock || {
+        echo 'No Docker socket in this job: the runner must mount /var/run/docker.sock (see the `default:` comment).' >&2
+        exit 1
+      }
+      docker version --format 'Docker {{.Server.Version}} on {{.Server.Os}}/{{.Server.Arch}}'
     # --password-stdin keeps the token out of the process list and the job log.
     - printf '%s' "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    # Registers qemu for arm64 in the HOST kernel (binfmt_misc). Idempotent, and
+    # it persists across jobs, so the second run is a no-op.
     - docker run --privileged --rm tonistiigi/binfmt --install arm64
-    # docker:dind hands the client its endpoint through DOCKER_HOST and TLS
-    # variables; buildx refuses to create a builder from environment-loaded
-    # TLS data (observed on v0.21.0-rc.3), so wrap that endpoint in a named
-    # context and build the builder from it.
-    - docker context create prax-dind
-    - docker buildx create --use --name prax prax-dind
+    # A buildkit container on the host, named per job so a builder left behind
+    # by a killed job (or a concurrent one) can never collide with this one.
+    - docker buildx create --use --driver docker-container --name "prax-$CI_JOB_ID"
     - |
       version="${CI_COMMIT_TAG:-mr-$CI_MERGE_REQUEST_IID}"
       tags="-t $CI_REGISTRY_IMAGE:$version"
@@ -236,6 +251,10 @@ desktop-macos-arm64:
         --cache-to "type=registry,ref=$CI_REGISTRY_IMAGE:buildcache,mode=max" \
         $tags --push .
     - docker buildx imagetools inspect "$CI_REGISTRY_IMAGE:$version"
+  after_script:
+    # Runs on success and failure: the builder is a container on the HOST. A
+    # job that died before creating it has nothing to remove.
+    - docker buildx inspect "prax-$CI_JOB_ID" >/dev/null 2>&1 && docker buildx rm "prax-$CI_JOB_ID" || true
 
 container:
   extends: .container
