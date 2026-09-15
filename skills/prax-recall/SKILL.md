@@ -33,9 +33,13 @@ In order: `PRAX_API_URL` if set → the desktop app's saved loopback port
 
 ## Reading the output
 
-- A distilled block: the top hit's title, type, id and trust line, its body trimmed to
-  about 800 characters, then a short `Related:` list (`title — id (trust) — snippet`).
-  Fetch a full document only when you need it: `GET $PRAX_API_URL/api/library/documents/<id>`.
+- A distilled block: the top hit's title, type, id, **the project it lives in** (`in homelab`)
+  and trust line, its body trimmed to about 800 characters, then a short `Related:` list
+  (`title — id (in <project> · trust) — snippet`). Fetch a full document only when you need
+  it: `GET $PRAX_API_URL/api/library/documents/<id>`.
+- The project matters when you re-remember: recall is cross-project, and a hit that says
+  `in homelab` is a homelab document. `prax-remember` without `--project` refines it there
+  rather than duplicating it into `memory`; `--id <its id>` targets it outright.
 - The trust line reads like `verified by mark · 3mo old · human-written` or
   `unverified · 2d old · via codex · keyword-only`: verification (and by whom), a lifecycle
   status when it is not `active`, the age of the current revision, who wrote it (a person, a

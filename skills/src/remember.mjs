@@ -12,11 +12,16 @@ import { createRepoReader, headSha } from '../../cli/lib/repoFiles.js';
 import { resolveCitation } from '../../cli/lib/codeRefs.js';
 
 async function main() {
-  const { title, body, tags, type, project, ref, cite, agent } = parseRememberArgs(process.argv.slice(2));
+  const { title, body, tags, type, project, projectExplicit, id, ref, cite, agent } = parseRememberArgs(process.argv.slice(2));
   const client = createClient({ agent });
-  const { doc, action } = await remember(client, {
+  // No --project and no --id means "wherever this title already lives": a
+  // same-title document in another project is refined there rather than
+  // duplicated into memory (recall is cross-project; the write must be too).
+  const result = await remember(client, {
     title, body, project, type, tags: ['memory', ...tags], kind: 'synthesized',
+    id, crossProject: !projectExplicit && !id,
   });
+  const { doc, action } = result;
   let refNote = '';
   if (ref) {
     // Best-effort: the memory is already saved; a rejected URL must not undo that.
@@ -44,10 +49,14 @@ async function main() {
     }
   }
   const who = client.agent ? `, as ${client.agent}` : '';
+  // Say WHERE it landed whenever that is not the memory namespace the skill
+  // defaults to — a cross-project update or an --id target — so the agent
+  // never believes it wrote a memory note when it refined a homelab runbook.
+  const where = result.project && result.project !== project ? ` in ${result.project}` : '';
   // Name the instance the write landed in: discovery may have chosen the
   // desktop app or the dev server, and a memory in the wrong workspace must
   // never look identical to one in the right place.
-  console.log(`Remembered "${title}" → ${doc.id} (${action}${who}${refNote}${citeNote}) at ${client.base}`);
+  console.log(`Remembered "${title}" → ${doc.id} (${action}${where}${who}${refNote}${citeNote}) at ${client.base}`);
 }
 
 main().catch((err) => {

@@ -165,3 +165,149 @@ test('legacy fallback never revives a superseded or deprecated title — it crea
   assert.equal(updateCalled, false);
   assert.deepEqual(listArgs, ['memory', { status: 'active' }]);
 });
+
+// --- cross-project resolution ---------------------------------------------------
+//
+// Recall searches every project; upsert-by-title is scoped to one. An agent that
+// recalls a homelab runbook and re-remembers it without --project used to get a
+// second copy in `memory` — split-brain, both looking current. With crossProject
+// (the skill's default when no project was chosen) the write goes where the
+// title already lives.
+
+import { AmbiguousTitleError } from '../../cli/lib/remember.js';
+
+const library = (...docs) => async (project, opts) => {
+  assert.equal(project, undefined, 'the cross-project lookup lists EVERY project');
+  assert.deepEqual(opts, { status: 'active' });
+  return docs;
+};
+
+test('crossProject: a same-title document that lives only in another project is updated THERE, tags merged', async () => {
+  let updated; let upserted = false;
+  const client = fakeClient({
+    listDocuments: library({ id: 'h1', title: 'Agy permissions', projectId: 'p-home', projectSlug: 'homelab', tags: ['agy', 'permissions'], status: 'active' }),
+    updateMemory: async (id, patch) => { updated = { id, patch }; return { id, ...patch, projectSlug: 'homelab' }; },
+    upsertMemory: async () => { upserted = true; return { document: { id: 'dup' }, created: true }; },
+  });
+  const result = await remember(client, { title: 'Agy permissions', body: 'refined', project: 'memory', tags: ['memory'], kind: 'synthesized', crossProject: true });
+  assert.equal(result.action, 'updated');
+  assert.equal(result.project, 'homelab', 'the caller learns where the write landed');
+  assert.equal(result.crossProject, true);
+  assert.equal(result.doc.id, 'h1');
+  assert.equal(upserted, false, 'no duplicate is created in memory');
+  assert.equal(updated.id, 'h1');
+  assert.equal(updated.patch.body, 'refined');
+  assert.deepEqual(updated.patch.tags, ['agy', 'permissions', 'memory'], 'stored tags survive; the caller\'s are added');
+  assert.equal('title' in updated.patch, false, 'a cross-project refine never retitles');
+  assert.equal('documentType' in updated.patch, false, 'no --type: the stored type is kept');
+});
+
+test('crossProject: when the target project already has the title, the ordinary project-scoped upsert runs', async () => {
+  let sent; let updateCalled = false;
+  const client = fakeClient({
+    listDocuments: library(
+      { id: 'm1', title: 'T', projectSlug: 'memory', status: 'active' },
+      { id: 'h1', title: 'T', projectSlug: 'homelab', status: 'active' },
+    ),
+    updateMemory: async () => { updateCalled = true; return {}; },
+    upsertMemory: async (doc) => { sent = doc; return { document: { id: 'm1' }, created: false }; },
+  });
+  const result = await remember(client, { title: 'T', body: 'B', project: 'memory', tags: [], crossProject: true });
+  assert.equal(result.action, 'updated');
+  assert.equal(result.project, 'memory');
+  assert.equal(sent.project, 'memory');
+  assert.equal(updateCalled, false);
+});
+
+test('crossProject: a title that exists in several OTHER projects is refused, naming them', async () => {
+  const client = fakeClient({
+    listDocuments: library(
+      { id: 'h1', title: 'T', projectSlug: 'homelab', status: 'active' },
+      { id: 'w1', title: 'T', projectSlug: 'work', status: 'active' },
+    ),
+    upsertMemory: async () => { throw new Error('must not reach the upsert'); },
+  });
+  await assert.rejects(
+    remember(client, { title: 'T', body: 'B', project: 'memory', tags: [], crossProject: true }),
+    (err) => err instanceof AmbiguousTitleError && /homelab:h1/.test(err.message) && /work:w1/.test(err.message) && /--project <slug> or --id <uuid>/.test(err.message),
+  );
+});
+
+test('crossProject: no match anywhere creates in the target project as before', async () => {
+  let sent;
+  const client = fakeClient({
+    listDocuments: library({ id: 'x', title: 'Other', projectSlug: 'homelab', status: 'active' }),
+    upsertMemory: async (doc) => { sent = doc; return { document: { id: doc.id }, created: true }; },
+  });
+  const result = await remember(client, { title: 'T', body: 'B', project: 'memory', tags: ['memory'], crossProject: true });
+  assert.equal(result.action, 'created');
+  assert.equal(result.project, 'memory');
+  assert.equal(sent.project, 'memory');
+});
+
+test('crossProject: a retired same-title document elsewhere is not revived', async () => {
+  let sent; let updateCalled = false;
+  const client = fakeClient({
+    listDocuments: library({ id: 'old', title: 'T', projectSlug: 'homelab', status: 'superseded' }),
+    updateMemory: async () => { updateCalled = true; return {}; },
+    upsertMemory: async (doc) => { sent = doc; return { document: { id: doc.id }, created: true }; },
+  });
+  const result = await remember(client, { title: 'T', body: 'B', project: 'memory', tags: [], crossProject: true });
+  assert.equal(result.action, 'created');
+  assert.equal(updateCalled, false);
+  assert.equal(sent.project, 'memory');
+});
+
+test('crossProject: an older server whose listing has no project slugs falls back to the project-scoped upsert', async () => {
+  let sent; let updateCalled = false;
+  const client = fakeClient({
+    listDocuments: library({ id: 'h1', title: 'T', projectId: 'p-home', status: 'active' }), // no projectSlug
+    updateMemory: async () => { updateCalled = true; return {}; },
+    upsertMemory: async (doc) => { sent = doc; return { document: { id: doc.id }, created: true }; },
+  });
+  await remember(client, { title: 'T', body: 'B', project: 'memory', tags: [], crossProject: true });
+  assert.equal(updateCalled, false, 'never guess which project a document is in');
+  assert.equal(sent.project, 'memory');
+});
+
+test('without crossProject the library is never listed (a chosen project means a chosen project)', async () => {
+  let listed = false;
+  const client = fakeClient({
+    listDocuments: async () => { listed = true; return [{ id: 'h1', title: 'T', projectSlug: 'homelab', status: 'active' }]; },
+    upsertMemory: async (doc) => ({ document: { id: doc.id }, created: true }),
+  });
+  const result = await remember(client, { title: 'T', body: 'B', project: 'memory', tags: [] });
+  assert.equal(listed, false);
+  assert.equal(result.project, 'memory');
+});
+
+// --- --id: target one document outright -----------------------------------------
+
+test('id: updates that document wherever it lives, merges tags, and may retitle', async () => {
+  let updated; let ensured = false; let listed = false;
+  const client = fakeClient({
+    ensureProject: async () => { ensured = true; return 'memory'; },
+    listDocuments: async () => { listed = true; return []; },
+    getDocument: async (id) => ({ id, title: 'Old title', projectSlug: 'homelab', tags: ['agy'] }),
+    updateMemory: async (id, patch) => { updated = { id, patch }; return { id, ...patch, projectSlug: 'homelab' }; },
+  });
+  const result = await remember(client, { title: 'New title', body: 'B', project: 'memory', tags: ['memory'], type: 'runbook', id: 'h1', crossProject: true });
+  assert.equal(result.action, 'updated');
+  assert.equal(result.project, 'homelab');
+  assert.equal(result.byId, true);
+  assert.equal(updated.id, 'h1');
+  assert.deepEqual(updated.patch, { title: 'New title', body: 'B', tags: ['agy', 'memory'], documentType: 'runbook' });
+  assert.equal(ensured, false, 'no project is created for a direct target');
+  assert.equal(listed, false, 'no title lookup for a direct target');
+});
+
+test('id: a missing document surfaces the server error rather than creating anything', async () => {
+  const missing = Object.assign(new Error('document not found'), { status: 404 });
+  let created = false;
+  const client = fakeClient({
+    getDocument: async () => { throw missing; },
+    upsertMemory: async () => { created = true; return { document: { id: 'x' }, created: true }; },
+  });
+  await assert.rejects(remember(client, { title: 'T', body: 'B', project: 'memory', id: 'gone' }), /document not found/);
+  assert.equal(created, false);
+});

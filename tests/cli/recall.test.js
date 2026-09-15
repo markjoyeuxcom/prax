@@ -236,3 +236,57 @@ test('legacy coverage-unknown survives the real client normalisation for a miss 
   assert.equal(hit.reason, 'coverage-unknown');
   assert.match(formatRecall(hit), /^\(index coverage unknown: this server predates coverage reporting — results may be missing\)\n## Old hit/);
 });
+
+// --- project disclosure ----------------------------------------------------------
+//
+// Recall is cross-project. Without the project on each hit an agent cannot tell
+// a homelab runbook from a memory note, and a later remember (defaulting to
+// memory) duplicates what it just read. Semantic refs carry only projectId, so
+// recall resolves slugs through one projects call and prints `in <slug>`.
+
+test('recall resolves projectId to a slug via listProjects and prints it on the hit, related lines and --recent', async () => {
+  let projectCalls = 0;
+  const client = fakeClient({
+    listProjects: async () => { projectCalls += 1; return [{ id: 'p-home', slug: 'homelab', name: 'Homelab' }, { id: 'p-mem', slug: 'memory', name: 'Memory' }]; },
+    semanticSearch: async () => [
+      { id: 't', title: 'Agy permissions', documentType: 'runbook', projectId: 'p-home', body: 'b' },
+      { id: 'r1', title: 'Related note', projectId: 'p-mem', body: 'rb' },
+      { id: 'r2', title: 'Orphan', projectId: 'p-unknown', body: 'x' },
+    ],
+    getDocument: async () => ({ id: 't', body: 'FULL' }),
+    listDocuments: async () => [{ id: 'a', title: 'A', updatedAt: '2026-01-01', body: 'aa', projectId: 'p-home', projectSlug: 'homelab' }],
+  });
+  const result = await recall(client, { query: 'agy', limit: 5 });
+  assert.equal(projectCalls, 1, 'one projects call per recall, not one per hit');
+  assert.equal(result.top.projectSlug, 'homelab');
+  const out = formatRecall(result);
+  assert.match(out, /## Agy permissions {2}\(runbook · t · in homelab · unverified\)/, 'the project comes right after the id, before trust');
+  assert.match(out, /- Related note — r1 \(in memory · unverified\) — rb/);
+  assert.match(out, /- Orphan — r2 \(unverified\) — x/, 'an unresolvable project id is simply not labelled');
+
+  const recent = await recall(client, { recent: true, limit: 5 });
+  assert.equal(projectCalls, 1, 'the listing already carries slugs; no extra call');
+  assert.match(formatRecall(recent), /- A — a \(in homelab · unverified · \d+(d|mo|y) old\) — aa/);
+});
+
+test('recall keeps working against a client or server that cannot list projects', async () => {
+  const noProjects = fakeClient({
+    semanticSearch: async () => [{ id: 't', title: 'Top', documentType: 'note', projectId: 'p1', body: 'b' }],
+  });
+  const out = formatRecall(await recall(noProjects, { query: 'x' }));
+  assert.match(out, /## Top {2}\(note · t · unverified\)/, 'no listProjects on the client: no label, no failure');
+
+  const failing = fakeClient({
+    listProjects: async () => { throw new Error('boom'); },
+    semanticSearch: async () => [{ id: 't', title: 'Top', documentType: 'note', projectId: 'p1', body: 'b' }],
+  });
+  assert.match(formatRecall(await recall(failing, { query: 'x' })), /## Top {2}\(note · t · unverified\)/);
+});
+
+test('recall prefers a slug the server already put on the document over resolving it', async () => {
+  const client = fakeClient({
+    listProjects: async () => { throw new Error('must not be called'); },
+    semanticSearch: async () => [{ id: 't', title: 'Top', documentType: 'note', projectId: 'p1', projectSlug: 'work', body: 'b' }],
+  });
+  assert.match(formatRecall(await recall(client, { query: 'x' })), /in work · unverified/);
+});
