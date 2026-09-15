@@ -40,6 +40,10 @@ retrieve  →  work  →  persist  →  supersede
    reference instead of copying the content in. When it is *about* specific code, add
    `--cite <path[:start[-end]]>` from inside the checkout: only a hash of those lines is stored,
    and a later recall from a checkout says whether they changed, moved, or vanished.
+   Recall is cross-project and says where each hit lives (`in homelab`). A remember run
+   without `--project` follows that: a same-title document that exists only in another
+   project is refined there, never copied into `memory`; several candidates are refused by
+   name; `--id <uuid>` targets one document outright.
 4. **Supersede** — re-remembering an existing title updates it in place (no duplicate). When one
    memory replaces another distinct one, run `prax supersede <oldId> --with <newId>` — it records
    the `supersedes` link and retires the old document from default retrieval. A retired title is

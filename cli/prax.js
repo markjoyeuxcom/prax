@@ -190,7 +190,17 @@ async function main(argv) {
     const project = flags.memory ? 'memory' : (await resolveProjectName(flags, client)).project;
     const userTags = flags.tag ? String(flags.tag).split(',').map((t) => t.trim()).filter(Boolean) : [];
     const tags = [...userTags, ...(flags.memory ? ['memory'] : [])];
-    const { doc, action } = await remember(client, { title, body, project, type, tags });
+    // --id targets one document wherever it lives; --memory without --project
+    // refines a same-title document in its own project instead of duplicating
+    // it into memory (the project-scoped `prax remember` is left alone: there
+    // the project was chosen, by flag or by the checkout).
+    const id = flags.id !== undefined && flags.id !== true ? String(flags.id) : undefined;
+    if (id !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+      throw new Error(`--id must be a document uuid (got "${id}").`);
+    }
+    const crossProject = Boolean(flags.memory) && !flags.project && !id;
+    const result = await remember(client, { title, body, project, type, tags, id, crossProject });
+    const { doc, action } = result;
     // Optional --ref <url> attaches an external reference to the memory. Best-
     // effort: a bad URL doesn't fail the remember (the doc is already saved).
     if (flags.ref && flags.ref !== true) {
@@ -208,7 +218,8 @@ async function main(argv) {
         await client.addCodeRef(doc.id, citation);
       } catch (err) { process.stderr.write(`prax: could not attach --cite: ${err.message}\n`); }
     }
-    out(flags.json ? doc : `${action === 'updated' ? 'Updated' : 'Remembered'} "${doc.title}" (${doc.id}) — unverified, at ${client.base}.`);
+    const where = result.project && result.project !== project ? ` in ${result.project}` : '';
+    out(flags.json ? doc : `${action === 'updated' ? 'Updated' : 'Remembered'} "${doc.title}" (${doc.id})${where} — unverified, at ${client.base}.`);
     return;
   }
 
