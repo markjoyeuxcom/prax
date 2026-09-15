@@ -8,7 +8,9 @@ import { sanitizeAgentId } from './apiClient.js';
 export const RECALL_USAGE = 'Usage: recall "<query>" [--project <slug>] [--limit <n>] [--agent <id>]\n'
   + '       recall --recent [n] [--project <slug>]';
 export const REMEMBER_USAGE = `Usage: remember "<title>" "<body>" [--tags a,b] [--type ${DOCUMENT_TYPE_VALUES.join('|')}]`
-  + ' [--project <slug>] [--ref <url>] [--cite <path[:start[-end]]>] [--agent <id>]';
+  + ' [--project <slug>] [--id <uuid>] [--ref <url>] [--cite <path[:start[-end]]>] [--agent <id>]';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export class UsageError extends Error {
   constructor(message, usage) {
@@ -58,7 +60,10 @@ export function parseRecallArgs(argv) {
 }
 
 export function parseRememberArgs(argv) {
-  const out = { title: '', body: '', tags: [], type: undefined, project: 'memory', ref: undefined, cite: undefined, agent: undefined };
+  // `projectExplicit` is what lets remember tell "the agent chose memory" from
+  // "the agent said nothing": only the latter may update a same-title document
+  // that lives in another project instead of duplicating it into memory.
+  const out = { title: '', body: '', tags: [], type: undefined, project: 'memory', projectExplicit: false, id: undefined, ref: undefined, cite: undefined, agent: undefined };
   const rest = [];
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -68,7 +73,13 @@ export function parseRememberArgs(argv) {
       const type = takeValue(argv, i, REMEMBER_USAGE); i += 1;
       if (!isDocumentType(type)) throw new UsageError(`Unknown --type "${type}". Types: ${DOCUMENT_TYPE_VALUES.join(', ')}.`, REMEMBER_USAGE);
       out.type = type;
-    } else if (arg === '--project') { out.project = takeValue(argv, i, REMEMBER_USAGE) || 'memory'; i += 1; }
+    } else if (arg === '--project') { out.project = takeValue(argv, i, REMEMBER_USAGE) || 'memory'; out.projectExplicit = true; i += 1; }
+    else if (arg === '--id') {
+      // Target one document outright, wherever it lives (recall prints the id).
+      const id = takeValue(argv, i, REMEMBER_USAGE); i += 1;
+      if (!UUID_RE.test(id)) throw new UsageError(`--id must be a document uuid (got "${id}")`, REMEMBER_USAGE);
+      out.id = id.toLowerCase();
+    }
     else if (arg === '--cite') {
       // Pin the code this memory makes a claim about. Validated where it is
       // resolved (against a working tree), not here.

@@ -26,7 +26,19 @@ test('recall: a query or --recent is required; --limit must be a positive intege
 
 test('remember: title, body and every option parse, including --ref, --cite and --agent', () => {
   const a = parseRememberArgs(['T', 'B', '--tags', 'a, b,,c', '--type', 'decision', '--project', 'homelab', '--ref', 'https://x/pr/1', '--cite', 'server/config.js:12-36', '--agent', 'Codex']);
-  assert.deepEqual(a, { title: 'T', body: 'B', tags: ['a', 'b', 'c'], type: 'decision', project: 'homelab', ref: 'https://x/pr/1', cite: 'server/config.js:12-36', agent: 'codex' });
+  assert.deepEqual(a, { title: 'T', body: 'B', tags: ['a', 'b', 'c'], type: 'decision', project: 'homelab', projectExplicit: true, id: undefined, ref: 'https://x/pr/1', cite: 'server/config.js:12-36', agent: 'codex' });
+});
+
+test('remember: --project marks the project as chosen; its absence leaves it defaulted', () => {
+  assert.equal(parseRememberArgs(['T', 'B']).projectExplicit, false);
+  assert.equal(parseRememberArgs(['T', 'B', '--project', 'memory']).projectExplicit, true, 'saying "memory" out loud is a choice, not a default');
+});
+
+test('remember: --id takes a document uuid, normalised to lowercase, and rejects anything else', () => {
+  const id = '1A9C8523-0D5F-4425-847D-B32EED8CE708';
+  assert.equal(parseRememberArgs(['T', 'B', '--id', id]).id, id.toLowerCase());
+  assert.throws(() => parseRememberArgs(['T', 'B', '--id', 'not-a-uuid']), /--id must be a document uuid/);
+  assert.throws(() => parseRememberArgs(['T', 'B', '--id']), /--id needs a value/);
 });
 
 test('remember: --cite is optional and absent by default', () => {

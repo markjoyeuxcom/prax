@@ -266,31 +266,67 @@ function createClient({ baseUrl, token, agent, env = process.env, bases } = {}) 
 
 // cli/lib/remember.js
 import { randomUUID } from "node:crypto";
-async function remember(client, { title, body, project, type, tags = [], kind } = {}) {
-  const slug = await client.ensureProject(project);
+var AmbiguousTitleError = class extends Error {
+  constructor(title, matches) {
+    const where = matches.map((m) => `${m.projectSlug || m.projectId || "?"}:${m.id}`).join(", ");
+    super(`"${title}" exists in more than one project (${where}) \u2014 pass --project <slug> or --id <uuid> to say which one to update`);
+    this.name = "AmbiguousTitleError";
+    this.matches = matches;
+  }
+};
+function isActive(doc) {
+  return (doc?.status ?? "active") === "active";
+}
+function mergedTags(existing, incoming) {
+  return Array.from(/* @__PURE__ */ new Set([...Array.isArray(existing) ? existing : [], ...incoming]));
+}
+async function remember(client, { title, body, project, type, tags = [], kind, id, crossProject = false } = {}) {
   const allTags = Array.from(new Set(tags));
-  const id = randomUUID();
+  const typePatch = type ? { documentType: type } : {};
+  if (id) {
+    const existing = await client.getDocument(id);
+    const doc = await client.updateMemory(id, { title, body, tags: mergedTags(existing?.tags, allTags), ...typePatch });
+    return { doc, action: "updated", project: existing?.projectSlug ?? doc?.projectSlug ?? project ?? null, byId: true };
+  }
+  const slug = await client.ensureProject(project);
+  if (crossProject) {
+    const elsewhere = await findTitleElsewhere(client, title, slug);
+    if (elsewhere) {
+      const doc = await client.updateMemory(elsewhere.id, { body, tags: mergedTags(elsewhere.tags, allTags), ...typePatch });
+      return { doc, action: "updated", project: elsewhere.projectSlug, crossProject: true };
+    }
+  }
+  const newId = randomUUID();
   if (typeof client.upsertMemory === "function") {
     try {
       const result = await client.upsertMemory({
-        id,
+        id: newId,
         title,
         body,
         project: slug,
         tags: allTags,
-        ...type ? { documentType: type } : {},
+        ...typePatch,
         ...kind ? { kind } : {}
       });
-      return { doc: result.document, action: result.created ? "created" : "updated" };
+      return { doc: result.document, action: result.created ? "created" : "updated", project: slug };
     } catch (err) {
       if (err?.status !== 404) throw err;
     }
   }
-  return legacyRemember(client, { id, title, body, slug, type, tags: allTags, kind });
+  return legacyRemember(client, { id: newId, title, body, slug, type, tags: allTags, kind });
+}
+async function findTitleElsewhere(client, title, slug) {
+  const docs = await client.listDocuments(void 0, { status: "active" });
+  const matches = (Array.isArray(docs) ? docs : []).filter((d) => d && d.title === title && isActive(d));
+  if (!matches.length) return null;
+  if (matches.some((d) => !d.projectSlug)) return null;
+  if (matches.some((d) => d.projectSlug === slug)) return null;
+  if (matches.length > 1) throw new AmbiguousTitleError(title, matches);
+  return matches[0];
 }
 async function legacyRemember(client, { id, title, body, slug, type, tags, kind }) {
   const docs = await client.listDocuments(slug, { status: "active" });
-  const existing = (Array.isArray(docs) ? docs : []).find((d) => d.title === title && (d.status ?? "active") === "active");
+  const existing = (Array.isArray(docs) ? docs : []).find((d) => d.title === title && isActive(d));
   if (existing) {
     const doc2 = await client.updateMemory(existing.id, {
       title,
@@ -299,7 +335,7 @@ async function legacyRemember(client, { id, title, body, slug, type, tags, kind 
       ...type ? { documentType: type } : {}
       // retype only on an explicit --type
     });
-    return { doc: doc2, action: "updated" };
+    return { doc: doc2, action: "updated", project: slug };
   }
   const doc = await client.createMemory({
     id,
@@ -310,7 +346,7 @@ async function legacyRemember(client, { id, title, body, slug, type, tags, kind 
     tags,
     ...kind ? { kind } : {}
   });
-  return { doc, action: "created" };
+  return { doc, action: "created", project: slug };
 }
 
 // public/js/documentTypes.js
@@ -329,7 +365,8 @@ function isDocumentType(value) {
 }
 
 // cli/lib/skillArgs.js
-var REMEMBER_USAGE = `Usage: remember "<title>" "<body>" [--tags a,b] [--type ${DOCUMENT_TYPE_VALUES.join("|")}] [--project <slug>] [--ref <url>] [--cite <path[:start[-end]]>] [--agent <id>]`;
+var REMEMBER_USAGE = `Usage: remember "<title>" "<body>" [--tags a,b] [--type ${DOCUMENT_TYPE_VALUES.join("|")}] [--project <slug>] [--id <uuid>] [--ref <url>] [--cite <path[:start[-end]]>] [--agent <id>]`;
+var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 var UsageError = class extends Error {
   constructor(message, usage) {
     super(`${message}
@@ -349,7 +386,7 @@ function parseAgent(value, usage) {
   return agent;
 }
 function parseRememberArgs(argv) {
-  const out = { title: "", body: "", tags: [], type: void 0, project: "memory", ref: void 0, cite: void 0, agent: void 0 };
+  const out = { title: "", body: "", tags: [], type: void 0, project: "memory", projectExplicit: false, id: void 0, ref: void 0, cite: void 0, agent: void 0 };
   const rest = [];
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -363,7 +400,13 @@ function parseRememberArgs(argv) {
       out.type = type;
     } else if (arg === "--project") {
       out.project = takeValue(argv, i, REMEMBER_USAGE) || "memory";
+      out.projectExplicit = true;
       i += 1;
+    } else if (arg === "--id") {
+      const id = takeValue(argv, i, REMEMBER_USAGE);
+      i += 1;
+      if (!UUID_RE.test(id)) throw new UsageError(`--id must be a document uuid (got "${id}")`, REMEMBER_USAGE);
+      out.id = id.toLowerCase();
     } else if (arg === "--cite") {
       out.cite = takeValue(argv, i, REMEMBER_USAGE);
       i += 1;
@@ -475,16 +518,19 @@ function resolveCitation(spec, { readFile, headSha: headSha2 = null } = {}) {
 
 // skills/src/remember.mjs
 async function main() {
-  const { title, body, tags, type, project, ref, cite, agent } = parseRememberArgs(process.argv.slice(2));
+  const { title, body, tags, type, project, projectExplicit, id, ref, cite, agent } = parseRememberArgs(process.argv.slice(2));
   const client = createClient({ agent });
-  const { doc, action } = await remember(client, {
+  const result = await remember(client, {
     title,
     body,
     project,
     type,
     tags: ["memory", ...tags],
-    kind: "synthesized"
+    kind: "synthesized",
+    id,
+    crossProject: !projectExplicit && !id
   });
+  const { doc, action } = result;
   let refNote = "";
   if (ref) {
     try {
@@ -508,7 +554,8 @@ async function main() {
     }
   }
   const who = client.agent ? `, as ${client.agent}` : "";
-  console.log(`Remembered "${title}" \u2192 ${doc.id} (${action}${who}${refNote}${citeNote}) at ${client.base}`);
+  const where = result.project && result.project !== project ? ` in ${result.project}` : "";
+  console.log(`Remembered "${title}" \u2192 ${doc.id} (${action}${where}${who}${refNote}${citeNote}) at ${client.base}`);
 }
 main().catch((err) => {
   console.error(err.message);
