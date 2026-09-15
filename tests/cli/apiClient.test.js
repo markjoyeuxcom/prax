@@ -94,11 +94,15 @@ test('listDocuments scopes by project when given and omits it otherwise', async 
 // --- agent identity, base-URL discovery, upsert ---------------------------------
 import { resolveBaseUrls, detectAgent, desktopPortFile, sanitizeAgentId } from '../../cli/lib/apiClient.js';
 
-test('detectAgent: PRAX_AGENT wins, then the Claude Code and Codex shell markers, else null', () => {
+test('detectAgent: PRAX_AGENT wins, then the Claude Code, Codex, Copilot and Antigravity shell markers, else null', () => {
   assert.equal(detectAgent({ PRAX_AGENT: 'Aider', CLAUDECODE: '1' }), 'aider');
   assert.equal(detectAgent({ CLAUDECODE: '1' }), 'claude');
   assert.equal(detectAgent({ CODEX_THREAD_ID: 't' }), 'codex');
   assert.equal(detectAgent({ CODEX_SESSION_ID: 's' }), 'codex');
+  assert.equal(detectAgent({ COPILOT_CLI: '1' }), 'copilot');
+  assert.equal(detectAgent({ COPILOT_AGENT_SESSION_ID: 's' }), 'copilot');
+  assert.equal(detectAgent({ ANTIGRAVITY_AGENT: '1' }), 'antigravity');
+  assert.equal(detectAgent({ ANTIGRAVITY_CONVERSATION_ID: 'c' }), 'antigravity');
   assert.equal(detectAgent({}), null);
   assert.equal(detectAgent({ PRAX_AGENT: 'bad id!' }), null);
   assert.equal(sanitizeAgentId('  Claude.Code-1 '), 'claude.code-1');

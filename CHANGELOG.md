@@ -12,6 +12,14 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Added
+
+- The memory skills and `prax` CLI detect **GitHub Copilot CLI** (`COPILOT_CLI`,
+  `COPILOT_AGENT_SESSION_ID`) and **Antigravity** (`ANTIGRAVITY_AGENT`,
+  `ANTIGRAVITY_CONVERSATION_ID`) from their shell markers and stamp `updatedByAgent`
+  accordingly, as they already did for Claude Code and Codex. `skills/install.sh` also links
+  the skills into `~/.gemini/config/skills/` (`PRAX_GEMINI_SKILLS_DIR`) for Antigravity.
+
 ## [0.30.0] - 2026-09-14
 
 ### Added
