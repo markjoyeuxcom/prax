@@ -60,7 +60,8 @@ needs an SSH key registered with GitLab. To force a transport, set `PRAX_SKILLS_
 
 It clones only the `skills/` folder into a temporary directory, copies the two
 skills to `~/.agents/skills/` (where Codex looks), links them into `~/.claude/skills/`
-(where Claude Code looks), and deletes the temporary clone. Re-run it to update. To
+(where Claude Code looks) and `~/.gemini/config/skills/` (where Antigravity looks),
+and deletes the temporary clone. Re-run it to update. To
 uninstall without a checkout, pipe the same installer with the flag:
 
 ```bash
@@ -75,9 +76,10 @@ glab api "projects/markjoyeuxcom%2Fapps%2Fprax/repository/files/skills%2Finstall
 | `PRAX_SKILLS_REF` | `main` | branch or tag |
 | `PRAX_SKILLS_DIR` | `~/.agents/skills` | where the real copies live |
 | `PRAX_CLAUDE_SKILLS_DIR` | `~/.claude/skills` | where the Claude Code symlinks are created |
+| `PRAX_GEMINI_SKILLS_DIR` | `~/.gemini/config/skills` | where the Antigravity symlinks are created |
 
-A custom `PRAX_SKILLS_DIR` changes where the real copies live but the Claude Code links are
-still created (in `PRAX_CLAUDE_SKILLS_DIR`); an arbitrary directory is **not** a place Codex
+A custom `PRAX_SKILLS_DIR` changes where the real copies live but the Claude Code and Antigravity links are
+still created (in `PRAX_CLAUDE_SKILLS_DIR` and `PRAX_GEMINI_SKILLS_DIR`); an arbitrary directory is **not** a place Codex
 discovers skills on its own, so keep the default unless you also point Codex at it. Nothing
 else is downloaded.
 

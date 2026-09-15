@@ -1,7 +1,7 @@
 # AGENTS.md — Prax
 
-Instructions for AI coding agents working in this repo — **Claude Code, Codex CLI, Cursor,
-aider, and any shell-capable agent**. `CLAUDE.md` is a symlink to this file, so both tools read
+Instructions for AI coding agents working in this repo — **Claude Code, Codex CLI, Antigravity (agy),
+Cursor, aider, and any shell-capable agent**. `CLAUDE.md` is a symlink to this file, so all tools read
 the same rules.
 
 ## Shared agent memory
@@ -47,7 +47,7 @@ Writes to the dedicated **`memory`** project and **de-dups by exact title** in o
 transaction (re-running refines the memory in place; two agents cannot create the same title
 twice). A superseded memory is never revived — a fresh memory under a retired title becomes a
 new document. Every write is stamped `updatedBy: agent`, `kind: synthesized`, plus **which
-agent** wrote it (`claude` / `codex` detected automatically; `--agent <id>` or `PRAX_AGENT`
+agent** wrote it (`claude` / `codex` / `copilot` / `antigravity` detected automatically; `--agent <id>` or `PRAX_AGENT`
 overrides). Agent-written memory lands **unverified** until a human verifies it — treat
 unverified recalls as leads, not gospel. Do **not** persist transient/session-only state or
 secrets.

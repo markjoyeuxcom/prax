@@ -19,6 +19,8 @@ function detectAgent(env = process.env) {
   if (env.PRAX_AGENT) return sanitizeAgentId(env.PRAX_AGENT);
   if (env.CLAUDECODE) return "claude";
   if (env.CODEX_THREAD_ID || env.CODEX_SESSION_ID) return "codex";
+  if (env.COPILOT_CLI || env.COPILOT_AGENT_SESSION_ID) return "copilot";
+  if (env.ANTIGRAVITY_AGENT || env.ANTIGRAVITY_CONVERSATION_ID) return "antigravity";
   return null;
 }
 function desktopPortFile({ env = process.env, os = platform(), home = homedir() } = {}) {

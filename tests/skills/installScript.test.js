@@ -9,7 +9,9 @@ import { fileURLToPath } from 'node:url';
 // The one path a new machine takes: skills/install.sh against a repository it has
 // never seen. The test builds a throwaway git repository holding this working
 // tree's skills/ folder, so it runs offline, on a detached HEAD in CI, and never
-// touches the real ~/.agents or ~/.claude (both destinations are overridden).
+// touches the real ~/.agents, ~/.claude or ~/.gemini: every run gets a throwaway
+// HOME, so a destination a test forgets to override still lands in the temp dir
+// (a forgotten PRAX_GEMINI_SKILLS_DIR once left dangling links in the real home).
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const installer = join(root, 'skills', 'install.sh');
@@ -30,26 +32,41 @@ function sourceRepo(base) {
   return repo;
 }
 
+// A HOME inside the test's temp dir: the installer's defaults all hang off
+// $HOME, so this is the isolation that does not depend on remembering a flag.
+function isolatedHome(base) {
+  const home = join(base, 'home');
+  mkdirSync(home, { recursive: true });
+  return home;
+}
+
 function run(args, env) {
+  if (!env?.HOME) throw new Error('installer tests must pass an isolated HOME (isolatedHome(base))');
   return spawnSync('sh', [installer, ...args], {
     env: {
       // The running Node first, so the installer's version check sees a real
       // binary rather than a version-manager shim that needs $HOME state.
       PATH: `${dirname(process.execPath)}:${process.env.PATH}`,
-      HOME: process.env.HOME,
       ...env,
     },
     encoding: 'utf8',
   });
 }
 
-test('install.sh installs both skills from a repository, links them for Claude Code, runs, updates and uninstalls', () => {
+test('install.sh installs both skills from a repository, links them for Claude Code and Antigravity, runs, updates and uninstalls', () => {
   const base = mkdtempSync(join(tmpdir(), 'prax-install-'));
   try {
     const repo = sourceRepo(base);
     const dest = join(base, 'agents-skills');
     const claude = join(base, 'claude-skills');
-    const env = { PRAX_SKILLS_REPO: repo, PRAX_SKILLS_DIR: dest, PRAX_CLAUDE_SKILLS_DIR: claude };
+    const gemini = join(base, 'gemini-skills');
+    const env = {
+      HOME: isolatedHome(base),
+      PRAX_SKILLS_REPO: repo,
+      PRAX_SKILLS_DIR: dest,
+      PRAX_CLAUDE_SKILLS_DIR: claude,
+      PRAX_GEMINI_SKILLS_DIR: gemini,
+    };
 
     const install = run([], env);
     assert.equal(install.status, 0, install.stderr);
@@ -64,6 +81,8 @@ test('install.sh installs both skills from a repository, links them for Claude C
       );
       assert.ok(lstatSync(join(claude, skill)).isSymbolicLink(), `${skill} is linked for Claude Code`);
       assert.equal(readlinkSync(join(claude, skill)), join(dest, skill));
+      assert.ok(lstatSync(join(gemini, skill)).isSymbolicLink(), `${skill} is linked for Antigravity`);
+      assert.equal(readlinkSync(join(gemini, skill)), join(dest, skill));
     }
 
     // The installed script runs from outside any checkout: no args is a usage error, not a crash.
@@ -75,12 +94,14 @@ test('install.sh installs both skills from a repository, links them for Claude C
     const again = run([], env);
     assert.equal(again.status, 0, again.stderr);
     assert.ok(lstatSync(join(claude, 'prax-recall')).isSymbolicLink());
+    assert.ok(lstatSync(join(gemini, 'prax-recall')).isSymbolicLink());
 
     const uninstall = run(['--uninstall'], env);
     assert.equal(uninstall.status, 0, uninstall.stderr);
     for (const skill of SKILLS) {
       assert.equal(existsSync(join(dest, skill)), false);
       assert.equal(existsSync(join(claude, skill)), false);
+      assert.equal(existsSync(join(gemini, skill)), false);
     }
   } finally {
     rmSync(base, { recursive: true, force: true });
@@ -97,7 +118,7 @@ test('install.sh refuses a Node older than 20 with an actionable message and ins
     const dest = join(base, 'agents-skills');
     const claude = join(base, 'claude-skills');
     const result = spawnSync('sh', [installer], {
-      env: { PATH: `${shims}:${process.env.PATH}`, HOME: process.env.HOME, PRAX_SKILLS_REPO: repo, PRAX_SKILLS_DIR: dest, PRAX_CLAUDE_SKILLS_DIR: claude },
+      env: { PATH: `${shims}:${process.env.PATH}`, HOME: isolatedHome(base), PRAX_SKILLS_REPO: repo, PRAX_SKILLS_DIR: dest, PRAX_CLAUDE_SKILLS_DIR: claude },
       encoding: 'utf8',
     });
     assert.equal(result.status, 1);
@@ -112,6 +133,7 @@ test('install.sh explains a failed clone in terms of repository access', () => {
   const base = mkdtempSync(join(tmpdir(), 'prax-install-noclone-'));
   try {
     const result = run([], {
+      HOME: isolatedHome(base),
       PRAX_SKILLS_REPO: join(base, 'does-not-exist'),
       PRAX_SKILLS_DIR: join(base, 'a'),
       PRAX_CLAUDE_SKILLS_DIR: join(base, 'c'),
@@ -152,15 +174,20 @@ exec "${realGit}" "$@"
     const result = spawnSync('sh', [installer], {
       env: {
         PATH: `${shims}:${dirname(process.execPath)}:${process.env.PATH}`,
-        HOME: process.env.HOME,
+        HOME: isolatedHome(base),
         PRAX_SKILLS_DIR: dest,
         PRAX_CLAUDE_SKILLS_DIR: claude,
-        // No PRAX_SKILLS_REPO: the installer must choose the gh HTTPS transport itself.
+        // No PRAX_GEMINI_SKILLS_DIR on purpose: the throwaway HOME must catch the
+        // default. No PRAX_SKILLS_REPO: the installer must choose the gh HTTPS
+        // transport itself.
       },
       encoding: 'utf8',
     });
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /over https \(glab credentials\)\./);
+    // The destination this test did not override landed in the throwaway HOME,
+    // not in the real one.
+    assert.ok(lstatSync(join(base, 'home', '.gemini', 'config', 'skills', 'prax-recall')).isSymbolicLink());
     const invocations = readFileSync(log, 'utf8').trim().split('\n');
     const helper = "-c credential.helper= -c credential.helper=!glab auth git-credential";
     const clone = invocations.find((line) => line.includes(' clone '));

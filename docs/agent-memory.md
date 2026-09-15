@@ -72,9 +72,10 @@ and the confirmation line names the base URL it wrote to.
   your hand-authored runbooks/notes; scope with `--project memory` when you only want the former.
 - **`updatedBy: agent`** — every skill write is stamped via the `x-prax-origin` header, so
   machine-written memory is always distinguishable from human-authored docs.
-- **`updatedByAgent`** — *which* agent wrote the current revision (`claude`, `codex`, …), from
-  the `x-prax-agent` header. The skills detect Claude Code and Codex from their shell
-  environments; `PRAX_AGENT` or `--agent <id>` sets it explicitly. A human edit clears it.
+- **`updatedByAgent`** — *which* agent wrote the current revision (`claude`, `codex`, `copilot`,
+  `antigravity`, …), from the `x-prax-agent` header. The skills detect Claude Code, Codex,
+  Copilot CLI and Antigravity from their shell environments; any other tool passes
+  `--agent <id>` or sets `PRAX_AGENT`. A human edit clears it.
 - **`kind: synthesized`** — marks memory as machine-generated, which the maintenance tooling treats
   as safe to refresh aggressively (vs. `source` docs left for human review).
 
