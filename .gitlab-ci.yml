@@ -1,14 +1,14 @@
 # Prax pipelines on GitLab CI (the repository moved here from GitHub on 2026-09-07).
 #
 # What runs when:
-# - Merge requests and the default branch: Node syntax/bundle check, the unit +
-#   contract suite, the dependency audit, and the Chromium browser suite, on
-#   GitLab's shared runners.
-# - Desktop packages, both on self-hosted group runners so they cost no compute
-#   minutes: Linux x64 on the runner tagged `homelab` (Linux amd64) and macOS
-#   Apple Silicon on the runner tagged `macos` (darwin arm64, Node 24, Rust
-#   stable and Xcode command line tools installed). Automatic on release tags,
-#   MANUAL on merge requests and main, never blocking there.
+# - Every job runs on a self-hosted group runner, so nothing costs shared-runner
+#   compute minutes. The default tag is `homelab` (Linux amd64, docker executor):
+#   the Node check, the unit + contract suite, the dependency audit, the Chromium
+#   browser suite, the Linux desktop build, the container build and the release
+#   all land there. Only the macOS build overrides it with the `macos` tag
+#   (darwin arm64, Node 24, Rust stable and Xcode command line tools installed).
+# - Desktop packages are automatic on release tags, MANUAL on merge requests and
+#   main, never blocking there.
 # - Tags vX.Y.Z or vX.Y.Z-pre: quality gate → both desktop builds with their
 #   packaged-runtime smoke → multi-arch container to this project's registry →
 #   a release with every package, SHA256SUMS and the CHANGELOG section as its
@@ -34,6 +34,12 @@ variables:
 
 default:
   interruptible: true
+  # Self-hosted by default; a job that needs another machine says so itself
+  # (desktop-macos-arm64). The homelab runner's docker executor must be
+  # privileged, or the docker:dind container jobs cannot start — the manual
+  # container-preview job on a merge request is the cheap way to prove that
+  # before a release tag depends on it.
+  tags: [homelab]
 
 .rules-release-tag: &rule-release-tag
   if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/
@@ -188,10 +194,8 @@ desktop-macos-arm64:
 .container:
   stage: container
   image: docker:27
-  # docker:dind needs a privileged runner. GitLab's shared runners are; the
-  # self-hosted `homelab` runner also accepts untagged jobs and its docker
-  # executor may not be, so this job is pinned to the hosted runner.
-  tags: [saas-linux-small-amd64]
+  # docker:dind needs a privileged executor; this runs on the default `homelab`
+  # runner, which must have `privileged = true` in its runner config.
   services:
     - docker:27-dind
   variables:
