@@ -31,7 +31,7 @@ spec:
             claimName: prax-data
       containers:
         - name: prax
-          image: registry.gitlab.com/markjoyeuxcom/apps/prax:v0.30.0
+          image: registry.gitlab.com/markjoyeuxcom/apps/prax:v0.31.0
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
