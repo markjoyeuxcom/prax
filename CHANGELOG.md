@@ -14,6 +14,13 @@ fresh empty `[Unreleased]` section is started.
 
 ### Added
 
+- **`skills/install.sh --instructions`** writes the standing "recall first / remember durable
+  findings" rule into each tool's global instructions file — `~/.claude/CLAUDE.md`,
+  `~/.codex/AGENTS.md`, `~/.copilot/instructions/AGENTS.md` — once, between
+  `<!-- prax-memory:start/end -->` markers, naming the installed script paths; it prints the
+  `COPILOT_CUSTOM_INSTRUCTIONS_DIRS` export Copilot needs and the workspace-file note for
+  Antigravity, and `--uninstall` removes exactly those blocks. Unknown options are now an
+  error instead of being ignored.
 - The memory skills and `prax` CLI detect **GitHub Copilot CLI** (`COPILOT_CLI`,
   `COPILOT_AGENT_SESSION_ID`) and **Antigravity** (`ANTIGRAVITY_AGENT`,
   `ANTIGRAVITY_CONVERSATION_ID`) from their shell markers and stamp `updatedByAgent`

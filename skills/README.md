@@ -68,7 +68,28 @@ uninstall without a checkout, pipe the same installer with the flag:
 glab api "projects/markjoyeuxcom%2Fapps%2Fprax/repository/files/skills%2Finstall.sh/raw?ref=main" | sh -s -- --uninstall
 ```
 
-(From a checkout, `sh skills/install.sh --uninstall` does the same.) Environment overrides:
+(From a checkout, `sh skills/install.sh --uninstall` does the same.)
+
+### Standing instructions: `--instructions`
+
+Skills only fire when the model decides to use them. What makes memory reliable is a standing
+rule in each tool's **global** instructions — recall before a task, remember durable findings —
+and `--instructions` writes that rule for you, once, between `<!-- prax-memory:start/end -->`
+markers (a second run is a no-op; `--uninstall` removes exactly that block):
+
+```bash
+glab api "projects/markjoyeuxcom%2Fapps%2Fprax/repository/files/skills%2Finstall.sh/raw?ref=main" | sh -s -- --instructions
+```
+
+| Tool | File written | Note |
+|---|---|---|
+| Claude Code | `~/.claude/CLAUDE.md` | appended; existing content kept |
+| Codex | `~/.codex/AGENTS.md` | appended; existing content kept |
+| Copilot CLI | `~/.copilot/instructions/AGENTS.md` | Copilot reads it only when your shell exports `COPILOT_CUSTOM_INSTRUCTIONS_DIRS="$HOME/.copilot/instructions"` — the installer prints the line |
+| Antigravity | — | no global file; paste the block into each workspace's `AGENTS.md` or `GEMINI.md` (the installer says so) |
+
+The block names the installed script paths (`~/.agents/skills/…`), so it works from any
+directory. Environment overrides:
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -77,6 +98,9 @@ glab api "projects/markjoyeuxcom%2Fapps%2Fprax/repository/files/skills%2Finstall
 | `PRAX_SKILLS_DIR` | `~/.agents/skills` | where the real copies live |
 | `PRAX_CLAUDE_SKILLS_DIR` | `~/.claude/skills` | where the Claude Code symlinks are created |
 | `PRAX_GEMINI_SKILLS_DIR` | `~/.gemini/config/skills` | where the Antigravity symlinks are created |
+| `PRAX_CLAUDE_INSTRUCTIONS` | `~/.claude/CLAUDE.md` | `--instructions`: Claude Code's global instructions file |
+| `PRAX_CODEX_INSTRUCTIONS` | `~/.codex/AGENTS.md` | `--instructions`: Codex's global instructions file |
+| `PRAX_COPILOT_INSTRUCTIONS_DIR` | `~/.copilot/instructions` | `--instructions`: the directory Copilot is pointed at via `COPILOT_CUSTOM_INSTRUCTIONS_DIRS` |
 
 A custom `PRAX_SKILLS_DIR` changes where the real copies live but the Claude Code and Antigravity links are
 still created (in `PRAX_CLAUDE_SKILLS_DIR` and `PRAX_GEMINI_SKILLS_DIR`); an arbitrary directory is **not** a place Codex
