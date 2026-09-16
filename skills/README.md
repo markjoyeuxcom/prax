@@ -18,6 +18,29 @@ the remember confirmation names the base URL it wrote to.
 The layout follows the [Agent Skills](https://agentskills.io) standard, which both
 Claude Code and Codex read.
 
+## Install from the desktop app (no repository, no git)
+
+The desktop bundle ships this pack next to the app's CLI and MCP server
+(`Prax.app/Contents/Resources/resources/app/{skills,cli,mcp}` on macOS), so a machine that
+installed Prax from the dmg needs neither a checkout nor repository access:
+
+```bash
+sh "/Applications/Prax.app/Contents/Resources/resources/app/skills/install.sh" --instructions --cli
+```
+
+Run from inside a pack (the bundle, or a checkout) the installer copies the skills from
+there — no clone, and the skills always match the installed app. The extra flags:
+
+| Flag | Does |
+|---|---|
+| `--instructions` | writes the standing recall/remember rule into each tool's global instructions file (below) |
+| `--cli` | writes a `prax` shim into `~/.local/bin` (`PRAX_BIN_DIR`) that runs the bundle's `cli/prax.js` on the app's **own** Node runtime — no Node install needed for it; from a checkout it runs `cli/prax.js` on `node` |
+| `--mcp` | prints the `mcp add prax …` command for Claude Code, Codex, Copilot CLI and Antigravity, pointing at the bundle's `mcp/server.js` on that same runtime (registration stays opt-in) |
+
+`--uninstall` removes the skills, the links, the instruction blocks and the shim (never a
+`prax` it did not write). The skills themselves still need Node 20+ on `PATH`, because the
+agents run them with `node`.
+
 ## Install without a checkout
 
 One command, both tools. It needs `git`, `node` **20 or newer** (the installer checks and

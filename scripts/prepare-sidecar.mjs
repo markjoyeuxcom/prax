@@ -1,6 +1,8 @@
 // Stage the Prax desktop sidecar (docs/desktop/checklist.md Phase 3):
 //   src-tauri/resources/app/   — the Fastify server, static frontend, MCP
-//                                server, CLI, and production node_modules
+//                                server, CLI, the agent-skills pack (so a
+//                                dmg-only machine can run skills/install.sh
+//                                without a checkout) and production node_modules
 //   src-tauri/binaries/        — the Node runtime, renamed to the Tauri
 //                                sidecar convention prax-server-<target-triple>
 //
@@ -40,7 +42,7 @@ console.log('[prepare-sidecar] staging server payload…');
 rmSync(staging, { recursive: true, force: true });
 mkdirSync(staging, { recursive: true });
 
-for (const dir of ['server', 'public', 'mcp', 'cli']) {
+for (const dir of ['server', 'public', 'mcp', 'cli', 'skills']) {
   cpSync(join(root, dir), join(staging, dir), { recursive: true });
 }
 copyFileSync(join(root, 'package.json'), join(staging, 'package.json'));
