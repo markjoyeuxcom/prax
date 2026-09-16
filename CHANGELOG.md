@@ -14,6 +14,18 @@ fresh empty `[Unreleased]` section is started.
 
 ### Added
 
+- **dmg-only machines need no repository.** The desktop bundle now stages the agent-skills pack
+  next to the CLI and MCP server (`…/resources/app/skills`, required by the release verifier),
+  and `skills/install.sh` run from inside a pack — the bundle or a checkout — installs from
+  there without git or repository access. `--cli` writes a `prax` shim onto the app's own Node
+  runtime; `--mcp` prints the four tools' `mcp add` commands against the bundle's server.
+- **`skills/install.sh --instructions`** writes the standing "recall first / remember durable
+  findings" rule into each tool's global instructions file — `~/.claude/CLAUDE.md`,
+  `~/.codex/AGENTS.md`, `~/.copilot/instructions/AGENTS.md` — once, between
+  `<!-- prax-memory:start/end -->` markers, naming the installed script paths; it prints the
+  `COPILOT_CUSTOM_INSTRUCTIONS_DIRS` export Copilot needs and the workspace-file note for
+  Antigravity, and `--uninstall` removes exactly those blocks. Unknown options are now an
+  error instead of being ignored.
 - The memory skills and `prax` CLI detect **GitHub Copilot CLI** (`COPILOT_CLI`,
   `COPILOT_AGENT_SESSION_ID`) and **Antigravity** (`ANTIGRAVITY_AGENT`,
   `ANTIGRAVITY_CONVERSATION_ID`) from their shell markers and stamp `updatedByAgent`

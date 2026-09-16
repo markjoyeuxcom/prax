@@ -123,6 +123,10 @@ the tasks/checklist suite and `derived-from` document linking, which the CLI doe
   Code can alternatively install it as a plugin:
   `claude plugin marketplace add git@gitlab.com:markjoyeuxcom/apps/prax.git` then
   `claude plugin install prax@prax`.
+  Add `--instructions` (`… | sh -s -- --instructions`) to also write the standing
+  "recall first / remember durable findings" rule into `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`
+  and `~/.copilot/instructions/AGENTS.md`, once, between markers; Antigravity has no global file,
+  so the installer tells you to paste the block into each workspace's `AGENTS.md`/`GEMINI.md`.
   See [`skills/README.md`](../skills/README.md).
 
 ### Finding the app
