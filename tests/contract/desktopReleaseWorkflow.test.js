@@ -45,7 +45,7 @@ test('exactly two desktop jobs exist and nothing in the pipeline is optional', (
   const desktopJobs = [...pipeline.matchAll(/^(desktop-[\w-]+):$/gm)].map((m) => m[1]);
   assert.deepEqual(desktopJobs, ['desktop-linux-x64', 'desktop-macos-arm64'], 'the supported targets are Linux x64 and macOS Apple Silicon, one job each');
   assert.doesNotMatch(pipeline, /optional: true/, 'a release never treats a package as optional');
-  assert.equal((pipeline.match(/allow_failure: true/g) || []).length, 2, 'allow_failure appears only in the shared manual-on-merge-request rule and the container preview');
+  assert.equal((pipeline.match(/allow_failure: true/g) || []).length, 1, 'allow_failure appears only in the shared manual-on-merge-request rule for the desktop builds');
 });
 
 test('the macOS job builds on the macos runner and is required for a release', () => {
@@ -58,39 +58,21 @@ test('the macOS job builds on the macos runner and is required for a release', (
   assert.doesNotMatch(mac, /allow_failure: true\n  rules/, 'the macOS package is not optional on a release tag');
 });
 
-test('a tagged release waits for the quality gate, both packages and the container, then publishes checksums', () => {
-  const container = job('container');
-  assert.match(container, /extends: \.container/);
-  assert.match(container, /needs: \[node-checks, browser-tests, desktop-linux-x64, desktop-macos-arm64\]/);
-  assert.match(container, /rules:\n    - \*rule-release-tag/);
-  const build = job('.container');
-  assert.doesNotMatch(build, /tags:/, 'the container build runs on the pipeline default runner, not a hosted one');
+test('a tagged release waits for the quality gate and both packages, then publishes checksums — no container image', () => {
+  // The desktop app is the product. Nothing builds or publishes a container
+  // image: no container stage, no dind, no registry login, no Docker socket or
+  // privileged executor on the runner. deploy/Dockerfile stays for self-builds.
+  assert.match(pipeline, /^stages: \[check, test, desktop, release\]$/m);
+  assert.doesNotMatch(pipeline, /^(\.container|container|container-preview):/m, 'no container job of any kind');
+  assert.doesNotMatch(pipeline, /docker:\d+(-dind)?|docker login|docker buildx|CI_REGISTRY|docker\.sock/, 'no Docker at all in the pipeline');
   assert.match(pipeline, /^default:\n(?:  .*\n)*?  tags: \[homelab\]/m, 'every job defaults to the self-hosted homelab runner; only the macOS build overrides it');
   assert.doesNotMatch(pipeline, /saas-linux/, 'no job is pinned to a GitLab shared runner');
-  assert.match(build, /--platform linux\/amd64 /, 'the server image is built for amd64 only for now');
-  assert.doesNotMatch(build, /linux\/arm64|binfmt/, 'no arm64 cross-build and no qemu registration on the host until arm64 is a target again');
-  // Host socket binding, not docker:dind: no dind service, no TLS cert dir, no
-  // named-context workaround; a per-job builder that the job removes again.
-  assert.doesNotMatch(build, /docker:\d+-dind|DOCKER_TLS_CERTDIR|docker context create/, 'the container build drives the host daemon over the mounted socket, not a dind service');
-  assert.match(build, /docker buildx create --use --driver docker-container --name "prax-\$CI_JOB_ID"/, 'the builder is named per job so leftovers and concurrent jobs cannot collide');
-  assert.match(build, /after_script:\n\s*(?:#.*\n\s*)*- docker buildx inspect "prax-\$CI_JOB_ID" >\/dev\/null 2>&1 && docker buildx rm "prax-\$CI_JOB_ID" \|\| true/, 'the builder container is removed from the host whether the job passed or failed');
-  assert.match(build, /DOCKER_HOST: unix:\/\/\/var\/run\/docker\.sock/, 'the daemon endpoint is pinned to the socket, never inferred from a dind hostname');
-  assert.match(build, /test -S \/var\/run\/docker\.sock \|\| \{\n\s*echo 'No Docker socket in this job: the runner must mount \/var\/run\/docker\.sock/, 'a runner without the socket fails with an actionable message, not a DNS error');
-  assert.match(build, /docker version --format/, 'reachability is checked with a command that exits non-zero on failure (docker info does not)');
-  assert.match(build, /--provenance=false --sbom=false/, 'attestations made GitLab\'s registry reject the multi-arch index (rc.3)');
-  assert.match(build, /version="\$\{CI_COMMIT_TAG:-mr-\$CI_MERGE_REQUEST_IID\}"/, 'a preview push is tagged mr-<iid>');
-  assert.match(build, /\*-\*\) ;;/, 'a prerelease or preview tag must not become latest');
-  assert.match(build, /imagetools inspect "\$CI_REGISTRY_IMAGE:\$version"/, 'the pushed index is read back');
-  const preview = job('container-preview');
-  assert.match(preview, /extends: \.container/);
-  assert.match(preview, /needs: \[node-checks, browser-tests\]/, 'a preview does not wait for the manual desktop jobs');
-  assert.match(preview, /merge_request_event.*\n\s*when: manual\n\s*allow_failure: true/, 'the preview is manual and non-blocking on merge requests');
-  assert.doesNotMatch(preview, /rule-release-tag/, 'a preview never runs on a release tag');
   const release = job('release');
-  assert.match(release, /needs:\n    - node-checks\n    - browser-tests\n    - container\n    - job: desktop-linux-x64\n      artifacts: true\n    - job: desktop-macos-arm64\n      artifacts: true\n  rules:/);
+  assert.match(release, /needs:\n    - node-checks\n    - browser-tests\n    - job: desktop-linux-x64\n      artifacts: true\n    - job: desktop-macos-arm64\n      artifacts: true\n  rules:/, 'the release waits for the gate and both packages, and nothing else');
   assert.doesNotMatch(release, /optional: true/, 'no package is optional');
   assert.match(release, /rules:\n    - \*rule-release-tag/);
-  assert.match(release, /release-notes\.mjs --tag "\$CI_COMMIT_TAG" --image "\$CI_REGISTRY_IMAGE" --assets-dir release-assets/, 'the body lists exactly what was attached');
+  assert.match(release, /release-notes\.mjs --tag "\$CI_COMMIT_TAG" --assets-dir release-assets/, 'the body lists exactly what was attached');
+  assert.doesNotMatch(release, /--image/, 'the body promises no container image');
   assert.match(release, /\*_amd64\.deb[\s\S]*?\*_amd64\.AppImage[\s\S]*?\*\.dmg[\s\S]*?\*\.app\.tar\.gz/, 'every supported package must be present');
   assert.match(release, /uniq -d/, 'filename collisions are rejected');
   assert.match(release, /sha256sum \* > SHA256SUMS/);

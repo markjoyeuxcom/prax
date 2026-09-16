@@ -116,16 +116,18 @@ initialised on first run. To reset local data:
 docker compose down -v
 ```
 
-## Run The Published Image
+## Run Your Own Image
 
-For release-style local testing, use the GitLab Container Registry image instead of building from source
-(`docker login registry.gitlab.com` first; the project is private):
+The pipeline builds desktop packages only — no container image is published (the last one
+pushed was `v0.30.0`). To run a release-style container, build and tag it yourself from
+`deploy/Dockerfile`, then use the image override:
 
 ```bash
+docker build -f deploy/Dockerfile -t registry.gitlab.com/markjoyeuxcom/apps/prax:<tag> .
 docker compose -f compose.yaml -f compose.image.yaml up
 ```
 
-The image override uses:
+The image override expects:
 
 ```text
 registry.gitlab.com/markjoyeuxcom/apps/prax:v0.31.0
