@@ -12,6 +12,14 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Changed
+
+- **Library filter bar folds the tag long tail.** The tag row shows the ten most-used tags and
+  a `+N more` pill (`Show fewer` once expanded) instead of every tag in the library; an active
+  tag is always visible so it can be cleared. The row carries a *Tags* label like the Type /
+  Trust / Project facets, so the filter bar reads as one block. On a 59-tag library this brings
+  the first document group up by roughly five rows.
+
 ## [0.31.1] - 2026-09-16
 
 ### Removed

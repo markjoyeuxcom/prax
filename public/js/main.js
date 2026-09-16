@@ -4748,6 +4748,7 @@ _Task:_ ${task.title || 'Untitled task'}`
       renderApp();
       break;
     }
+    case 'toggle-lib-tags': setState({ libraryTagsExpanded: !state.libraryTagsExpanded }); renderApp(); break;
     case 'clear-lib-filters': setState({ libraryQuery: '', activeLibraryTags: [], libraryTypes: [], libraryTrust: [], libraryProjects: [], ...resetSemanticSearchPatch() }); renderApp(); break;
     case 'toggle-new-doc-menu': setState({ newDocMenuOpen: !state.newDocMenuOpen }); renderApp(); break;
     case 'new-document': createNewDocument(el.dataset.templateId); break;
