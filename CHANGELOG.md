@@ -12,6 +12,16 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Removed
+
+- **CI no longer builds or publishes a container image.** The `container` and
+  `container-preview` jobs and the `container` stage are gone; a release tag now runs the
+  quality gate and the two desktop builds, then publishes. No Docker is needed on the runner
+  (no privileged executor, no socket mount), and release notes carry a *Container* section only
+  when `release-notes.mjs --image` is passed explicitly. `deploy/Dockerfile`, the compose files
+  and the Kubernetes manifests remain for self-built images; the last published image is
+  `v0.30.0`.
+
 ## [0.31.0] - 2026-09-16
 
 ### Added
