@@ -12,6 +12,8 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.31.1] - 2026-09-16
+
 ### Removed
 
 - **CI no longer builds or publishes a container image.** The `container` and
@@ -1579,7 +1581,8 @@ fresh empty `[Unreleased]` section is started.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.31.0...HEAD
+[Unreleased]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.31.1...HEAD
+[0.31.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.31.0...v0.31.1
 [0.31.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.30.0...v0.31.0
 [0.30.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.21.0...v0.30.0
 [0.21.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.20.0...v0.21.0
