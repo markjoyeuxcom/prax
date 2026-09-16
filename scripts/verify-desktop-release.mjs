@@ -89,6 +89,14 @@ export function verifyDesktopRelease({ tag = null, requirePrepared = false } = {
       ['server/desktopLifecycle.js', 'staged desktop lifecycle'],
       ['public/index.html', 'staged frontend'],
       ['package.json', 'staged package manifest'],
+      // A dmg-only machine gets its CLI, MCP server and agent skills from the
+      // bundle: skills/install.sh installs from here and its --cli/--mcp
+      // flags point at these files.
+      ['cli/prax.js', 'staged prax CLI'],
+      ['mcp/server.js', 'staged MCP server'],
+      ['skills/install.sh', 'staged agent-skills installer'],
+      ['skills/prax-recall/SKILL.md', 'staged prax-recall skill'],
+      ['skills/prax-remember/SKILL.md', 'staged prax-remember skill'],
     ]) requirePath(join(staging, relative), description);
 
     const stagedPackage = JSON.parse(readFileSync(join(staging, 'package.json'), 'utf8'));
