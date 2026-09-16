@@ -1101,7 +1101,9 @@ a { color: var(--accent); }
 .lib-search__input:focus { border-color: var(--accent); outline: none; }
 .lib-search.is-semantic .lib-search__input { border-color: var(--accent); }
 
-.tag-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 16px; }
+.tag-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 2px 0 14px; }
+.tag-pill--more { border-style: dashed; color: var(--ink3); }
+.tag-pill--more:hover { color: var(--ink); }
 .tag-pill {
   border: 1px solid var(--line);
   border-radius: 99px;

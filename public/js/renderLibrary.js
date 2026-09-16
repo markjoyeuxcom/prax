@@ -213,16 +213,38 @@ function renderSearchRow(state, semanticVisible) {
     </div>`;
 }
 
+// How many tag pills the row shows before folding the rest behind "+N more".
+// A library's tag set grows without bound — one-off tags from agent memories
+// dominate it — and rendering all of them pushed the documents themselves
+// below the fold. Ten is about one row at the default width; the most-used
+// tags come first (tagsForDocuments sorts by count), so the fold hides the
+// long tail, never the tags people actually filter by.
+export const TAG_ROW_LIMIT = 10;
+
 function renderTagRow(state, model) {
   const active = new Set((state.activeLibraryTags || []).map(normalizedTag).filter(Boolean));
-  const pills = model.tagChips.map(({ tag, count }) => {
+  const chips = model.tagChips || [];
+  const expanded = Boolean(state.libraryTagsExpanded);
+  // An active tag is always shown, wherever it ranks: a filter the user cannot
+  // see is a filter they cannot clear.
+  const shown = expanded ? chips : chips.filter(({ tag }, index) => index < TAG_ROW_LIMIT || active.has(tag));
+  const hidden = chips.length - shown.length;
+  const pills = shown.map(({ tag, count }) => {
     const isActive = active.has(tag);
     return `<button class="tag-pill${isActive ? ' is-active' : ''}" type="button" data-action="toggle-lib-tag" data-tag="${escapeHtml(tag)}" aria-pressed="${isActive}">#${escapeHtml(tag)} <span class="tag-pill__count">${Number(count) || 0}</span></button>`;
   });
+  if (hidden > 0) {
+    pills.push(`<button class="tag-pill tag-pill--more" type="button" data-action="toggle-lib-tags" aria-expanded="false">+${hidden} more</button>`);
+  } else if (expanded && chips.length > TAG_ROW_LIMIT) {
+    pills.push('<button class="tag-pill tag-pill--more" type="button" data-action="toggle-lib-tags" aria-expanded="true">Show fewer</button>');
+  }
   if (active.size) {
     pills.push('<button class="tag-pill tag-pill--save" type="button" data-action="save-library-view">＋ Save view</button>');
   }
-  return pills.length ? `<div class="tag-row">${pills.join('')}</div>` : '';
+  if (!pills.length) return '';
+  // Same label treatment as the Type / Trust / Project facets above it, so the
+  // four filter axes read as one bar instead of three labelled rows and a cloud.
+  return `<div class="tag-row facet-group"><span class="facet-group__label">Tags</span>${pills.join('')}</div>`;
 }
 
 const TYPE_FACETS = DOCUMENT_TYPES.map((t) => [t.value, t.plural]);
