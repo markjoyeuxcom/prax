@@ -108,6 +108,66 @@ test('install.sh installs both skills from a repository, links them for Claude C
   }
 });
 
+test('install.sh --instructions adds one marked block per tool, keeps existing content, is idempotent, and --uninstall removes it', () => {
+  const base = mkdtempSync(join(tmpdir(), 'prax-install-instr-'));
+  try {
+    const repo = sourceRepo(base);
+    const home = isolatedHome(base);
+    const dest = join(base, 'agents-skills');
+    const env = {
+      HOME: home, PRAX_SKILLS_REPO: repo, PRAX_SKILLS_DIR: dest,
+      PRAX_CLAUDE_SKILLS_DIR: join(base, 'claude-skills'), PRAX_GEMINI_SKILLS_DIR: join(base, 'gemini-skills'),
+    };
+    // A pre-existing global file must keep what it had.
+    mkdirSync(join(home, '.claude'), { recursive: true });
+    writeFileSync(join(home, '.claude', 'CLAUDE.md'), '# Mine\n\nKeep me.\n');
+
+    const first = run(['--instructions'], env);
+    assert.equal(first.status, 0, first.stderr);
+    const files = [
+      join(home, '.claude', 'CLAUDE.md'),
+      join(home, '.codex', 'AGENTS.md'),
+      join(home, '.copilot', 'instructions', 'AGENTS.md'),
+    ];
+    for (const file of files) {
+      const text = readFileSync(file, 'utf8');
+      assert.equal((text.match(/<!-- prax-memory:start -->/g) || []).length, 1, `${file} has exactly one block`);
+      assert.match(text, /<!-- prax-memory:end -->\s*$/, `${file} block is closed`);
+      assert.match(text, /## Long-term memory \(Prax\)/);
+      assert.ok(text.includes(`node "${dest}/prax-recall/scripts/recall.mjs"`), `${file} names the installed recall script`);
+      assert.ok(text.includes(`node "${dest}/prax-remember/scripts/remember.mjs"`), `${file} names the installed remember script`);
+      assert.doesNotMatch(text, /__SKILLS_DIR__/, 'the placeholder is fully substituted');
+    }
+    assert.match(readFileSync(files[0], 'utf8'), /^# Mine\n\nKeep me\.\n/, 'existing content stays above the block');
+    assert.match(first.stdout, /export COPILOT_CUSTOM_INSTRUCTIONS_DIRS="[^"]*\/\.copilot\/instructions"/, 'Copilot needs the env var; the installer prints the export');
+    assert.match(first.stdout, /Antigravity has no global instructions file/, 'Antigravity gets a workspace note, not a global write');
+
+    const again = run(['--instructions'], env);
+    assert.equal(again.status, 0, again.stderr);
+    for (const file of files) {
+      assert.equal((readFileSync(file, 'utf8').match(/prax-memory:start/g) || []).length, 1, `${file} gets no second block`);
+    }
+    assert.match(again.stdout, /instructions already present/);
+
+    // The env var already naming the directory changes the hint, not the file.
+    const told = run(['--instructions'], { ...env, COPILOT_CUSTOM_INSTRUCTIONS_DIRS: `/elsewhere,${join(home, '.copilot', 'instructions')}` });
+    assert.match(told.stdout, /already names/);
+
+    const uninstall = run(['--uninstall'], env);
+    assert.equal(uninstall.status, 0, uninstall.stderr);
+    for (const file of files) {
+      assert.doesNotMatch(readFileSync(file, 'utf8'), /prax-memory|Long-term memory \(Prax\)/, `${file} block removed`);
+    }
+    assert.match(readFileSync(files[0], 'utf8'), /# Mine\n\nKeep me\./, 'uninstall leaves the rest of the file alone');
+
+    const bad = run(['--nope'], env);
+    assert.equal(bad.status, 2, 'an unknown option is an error, never silently ignored');
+    assert.match(bad.stderr, /unknown option --nope/);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test('install.sh refuses a Node older than 20 with an actionable message and installs nothing', () => {
   const base = mkdtempSync(join(tmpdir(), 'prax-install-oldnode-'));
   try {
