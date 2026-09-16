@@ -109,7 +109,18 @@ test('the current changelog section, which becomes the release body, carries no 
   for (const stale of ['gh api', 'gh auth', 'ghcr.io', 'marketplace add markjoyeuxcom/prax', 'GitHub release body', 'github.com/markjoyeuxcom', ...staleClaims]) {
     assert.doesNotMatch(notes, new RegExp(stale.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `release body must not tell readers to use "${stale}"`);
   }
-  assert.match(notes, /registry\.gitlab\.com\/markjoyeuxcom\/apps\/prax:v/);
+  // The pipeline publishes no image, so the body must not promise one.
+  assert.doesNotMatch(notes, /## Container|registry\.gitlab\.com/);
+});
+
+test('release notes carry a container section only when an image is named explicitly', () => {
+  const changelog = cutChangelog(SAMPLE, '0.21.0', '2026-09-06');
+  const without = releaseNotes({ changelog, tag: 'v0.21.0' });
+  assert.doesNotMatch(without, /## Container/);
+  const withImage = releaseNotes({ changelog, tag: 'v0.21.0', image: 'example.test/prax' });
+  assert.match(withImage, /## Container\n\n```text\nexample\.test\/prax:v0\.21\.0\n```/);
+  const rc = releaseNotes({ changelog, tag: 'v0.21.0-rc.1' });
+  assert.match(rc, /release candidate \(`rc\.1`\) for 0\.21\.0: it is published as a prerelease\./, 'without an image the rc note says nothing about a latest tag');
 });
 
 test('release notes list exactly the packages the pipeline attached and name every platform it could not build', () => {

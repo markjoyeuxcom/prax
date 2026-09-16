@@ -6,11 +6,14 @@
 // tagged version's changelog section. A tag whose version has no changelog
 // section fails, so a release cannot ship without notes.
 //
-//   node scripts/release-notes.mjs --tag v0.21.0-rc.1 [--image registry.gitlab.com/markjoyeuxcom/apps/prax] [--assets-dir release-assets]
+//   node scripts/release-notes.mjs --tag v0.21.0-rc.1 [--assets-dir release-assets] [--image <registry/name>]
+//
+// --image adds a "Container" section naming <image>:<tag>. The pipeline no longer
+// builds or publishes an image, so it is off by default; pass it only when you
+// pushed one yourself.
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { IMAGE } from './release-sites.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const TAG = /^v(\d+\.\d+\.\d+)(?:-([0-9A-Za-z.-]+))?$/;
@@ -62,20 +65,15 @@ export function packagesSection(assets) {
   return lines.join('\n');
 }
 
-export function releaseNotes({ changelog, tag, image = IMAGE, assets = null }) {
+export function releaseNotes({ changelog, tag, image = null, assets = null }) {
   const { version, prerelease } = parseTag(tag);
   const section = changelogSection(changelog, version);
   const candidate = prerelease
-    ? `This is a release candidate (\`${prerelease}\`) for ${version}: it is published as a prerelease and the container is not tagged \`latest\`.\n\n`
+    ? `This is a release candidate (\`${prerelease}\`) for ${version}: it is published as a prerelease${image ? ' and the container is not tagged `latest`' : ''}.\n\n`
     : '';
   const packages = assets ? `${packagesSection(assets)}\n\n` : '';
-  return `${candidate}## Container
-
-\`\`\`text
-${image}:${tag}
-\`\`\`
-
-## Desktop packages
+  const container = image ? `## Container\n\n\`\`\`text\n${image}:${tag}\n\`\`\`\n\n` : '';
+  return `${candidate}${container}## Desktop packages
 
 The packages listed below were built and smoke-tested by the pipeline on the project's own
 runners and are attached with \`SHA256SUMS\`; the release is created only once every supported
@@ -95,7 +93,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   try {
     const args = process.argv.slice(2);
     let tag = null;
-    let image = IMAGE;
+    let image = null;
     let assetsDir = null;
     for (let i = 0; i < args.length; i += 1) {
       if (args[i] === '--tag') tag = args[++i];
