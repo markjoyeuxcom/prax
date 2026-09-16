@@ -299,6 +299,41 @@ test('tag row renders pills with counts and marks active tags', () => {
   assert.match(html, /class="tag-pill"[^>]*data-tag="homelab"[^>]*aria-pressed="false"/);
 });
 
+// The tag row folds its long tail: a library accumulates one-off tags faster
+// than anything else, and rendering all of them pushed the documents below
+// the fold. Ten most-used tags by default, the rest behind "+N more".
+function manyTagDocs(count) {
+  return Array.from({ length: count }, (_, i) => ({
+    id: `t${i}`, title: `Doc ${i}`, body: '', documentType: 'note', projectId: 'p1', updatedAt: '2026-09-01T00:00:00Z',
+    // tag0 appears on every doc, tag1 on all but one, … so the order is deterministic.
+    tags: Array.from({ length: count - i }, (_, k) => `tag${k}`),
+  }));
+}
+
+test('tag row folds beyond the ten most-used tags behind a "+N more" pill', () => {
+  const html = render({ documents: manyTagDocs(15) });
+  assert.match(html, /class="tag-row facet-group"><span class="facet-group__label">Tags<\/span>/);
+  for (let i = 0; i < 10; i += 1) assert.match(html, new RegExp(`data-tag="tag${i}"`), `tag${i} (rank ${i + 1}) is shown`);
+  for (let i = 10; i < 15; i += 1) assert.doesNotMatch(html, new RegExp(`data-tag="tag${i}"`), `tag${i} (rank ${i + 1}) is folded`);
+  assert.match(html, /class="tag-pill tag-pill--more"[^>]*data-action="toggle-lib-tags"[^>]*aria-expanded="false"[^>]*>\+5 more</);
+});
+
+test('an active tag beyond the fold stays visible, and expanding shows every tag with a "Show fewer" pill', () => {
+  const active = render({ documents: manyTagDocs(15), activeLibraryTags: ['tag14'] });
+  assert.match(active, /class="tag-pill is-active"[^>]*data-tag="tag14"/, 'a filter the user cannot see is a filter they cannot clear');
+  assert.match(active, />\+4 more</, 'the fold count excludes the pulled-forward active tag');
+
+  const expanded = render({ documents: manyTagDocs(15), libraryTagsExpanded: true });
+  for (let i = 0; i < 15; i += 1) assert.match(expanded, new RegExp(`data-tag="tag${i}"`));
+  assert.match(expanded, /data-action="toggle-lib-tags"[^>]*aria-expanded="true"[^>]*>Show fewer</);
+  assert.doesNotMatch(expanded, /more</);
+});
+
+test('a small tag set renders in full with no fold pill either way', () => {
+  assert.doesNotMatch(render(), /toggle-lib-tags/);
+  assert.doesNotMatch(render({ libraryTagsExpanded: true }), /toggle-lib-tags/);
+});
+
 test('Save view pill appears only while tags are active', () => {
   assert.match(render({ activeLibraryTags: ['postgres'] }), /data-action="save-library-view"[^>]*>＋ Save view</);
   assert.doesNotMatch(render(), /data-action="save-library-view"/);
