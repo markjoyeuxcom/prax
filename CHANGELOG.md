@@ -12,6 +12,8 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-09-16
+
 ### Changed
 
 - **Library filter bar folds the tag long tail.** The tag row shows the ten most-used tags and
@@ -1589,7 +1591,8 @@ fresh empty `[Unreleased]` section is started.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.31.1...HEAD
+[Unreleased]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.32.0...HEAD
+[0.32.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.31.1...v0.32.0
 [0.31.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.31.0...v0.31.1
 [0.31.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.30.0...v0.31.0
 [0.30.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.21.0...v0.30.0
