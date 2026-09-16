@@ -67,8 +67,16 @@ test('a tagged release waits for the quality gate, both packages and the contain
   assert.doesNotMatch(build, /tags:/, 'the container build runs on the pipeline default runner, not a hosted one');
   assert.match(pipeline, /^default:\n(?:  .*\n)*?  tags: \[homelab\]/m, 'every job defaults to the self-hosted homelab runner; only the macOS build overrides it');
   assert.doesNotMatch(pipeline, /saas-linux/, 'no job is pinned to a GitLab shared runner');
-  assert.match(build, /--platform linux\/amd64,linux\/arm64/);
-  assert.match(build, /docker context create prax-dind\n\s*- docker buildx create --use --name prax prax-dind/, 'buildx needs a named context under docker:dind TLS (rc.3 failed without one)');
+  assert.match(build, /--platform linux\/amd64 /, 'the server image is built for amd64 only for now');
+  assert.doesNotMatch(build, /linux\/arm64|binfmt/, 'no arm64 cross-build and no qemu registration on the host until arm64 is a target again');
+  // Host socket binding, not docker:dind: no dind service, no TLS cert dir, no
+  // named-context workaround; a per-job builder that the job removes again.
+  assert.doesNotMatch(build, /docker:\d+-dind|DOCKER_TLS_CERTDIR|docker context create/, 'the container build drives the host daemon over the mounted socket, not a dind service');
+  assert.match(build, /docker buildx create --use --driver docker-container --name "prax-\$CI_JOB_ID"/, 'the builder is named per job so leftovers and concurrent jobs cannot collide');
+  assert.match(build, /after_script:\n\s*(?:#.*\n\s*)*- docker buildx inspect "prax-\$CI_JOB_ID" >\/dev\/null 2>&1 && docker buildx rm "prax-\$CI_JOB_ID" \|\| true/, 'the builder container is removed from the host whether the job passed or failed');
+  assert.match(build, /DOCKER_HOST: unix:\/\/\/var\/run\/docker\.sock/, 'the daemon endpoint is pinned to the socket, never inferred from a dind hostname');
+  assert.match(build, /test -S \/var\/run\/docker\.sock \|\| \{\n\s*echo 'No Docker socket in this job: the runner must mount \/var\/run\/docker\.sock/, 'a runner without the socket fails with an actionable message, not a DNS error');
+  assert.match(build, /docker version --format/, 'reachability is checked with a command that exits non-zero on failure (docker info does not)');
   assert.match(build, /--provenance=false --sbom=false/, 'attestations made GitLab\'s registry reject the multi-arch index (rc.3)');
   assert.match(build, /version="\$\{CI_COMMIT_TAG:-mr-\$CI_MERGE_REQUEST_IID\}"/, 'a preview push is tagged mr-<iid>');
   assert.match(build, /\*-\*\) ;;/, 'a prerelease or preview tag must not become latest');
