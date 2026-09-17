@@ -32,7 +32,10 @@
 #
 # --instructions additionally appends the standing "recall first / remember
 # durable findings" rule — the thing that makes the skills fire reliably — to
-# each tool's global instructions file, once, between marker comments:
+# each tool's global instructions file, once, between marker comments. The
+# commands it writes are `prax …` when --cli has put the shim on PATH, and the
+# skill scripts' absolute paths otherwise, so the block never teaches a command
+# this machine cannot run:
 #   Claude Code  $PRAX_CLAUDE_INSTRUCTIONS      (default ~/.claude/CLAUDE.md)
 #   Codex        $PRAX_CODEX_INSTRUCTIONS       (default ~/.codex/AGENTS.md)
 #   Copilot CLI  $PRAX_COPILOT_INSTRUCTIONS_DIR/AGENTS.md (default ~/.copilot/instructions),
@@ -43,7 +46,8 @@
 #
 # --cli writes a `prax` shim into $PRAX_BIN_DIR that runs the CLI shipped next
 # to the pack (the app bundle's cli/prax.js on the app's own Node runtime, so
-# the machine needs no Node for it; a checkout's cli/prax.js on `node`).
+# the machine needs no Node for it; a checkout's cli/prax.js on `node`). It runs
+# before --instructions, because the shim decides which form that block teaches.
 # --mcp prints the MCP registration command for each tool, pointing at the
 # same payload's mcp/server.js — registration itself stays opt-in.
 # --uninstall removes the skills, their links, the instruction blocks and the
@@ -56,6 +60,7 @@ CLAUDE_DIR="${PRAX_CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}"
 GEMINI_DIR="${PRAX_GEMINI_SKILLS_DIR:-$HOME/.gemini/config/skills}"
 BIN_DIR="${PRAX_BIN_DIR:-$HOME/.local/bin}"
 SOURCE="${PRAX_SKILLS_SOURCE:-auto}"
+CLI_FORM=0
 SKILLS="prax-recall prax-remember"
 HTTPS_REPO="https://gitlab.com/markjoyeuxcom/apps/prax.git"
 SSH_REPO="git@gitlab.com:markjoyeuxcom/apps/prax.git"
@@ -115,11 +120,65 @@ runtime_for_app() {
   fi
 }
 
-# The block every tool gets. Quoted heredoc: nothing expands, so the backticks
-# are literal Markdown; the one substitution (the installed skills directory)
-# is done by awk below with index/substr, so a path with & or | is safe.
+# Substitute the installed paths into a block. awk with index/substr rather
+# than sed, so a path holding & or | is inserted literally.
+subst_paths() {
+  awk -v d="$DEST" -v b="$BIN_DIR" '
+    {
+      i = index($0, "__SKILLS_DIR__")
+      while (i) { $0 = substr($0, 1, i - 1) d substr($0, i + 14); i = index($0, "__SKILLS_DIR__") }
+      i = index($0, "__BIN_DIR__")
+      while (i) { $0 = substr($0, 1, i - 1) b substr($0, i + 11); i = index($0, "__BIN_DIR__") }
+    } 1'
+}
+
+# The commands the block teaches, in the form this machine can actually run:
+# the `prax` shim once --cli has put one on PATH (shorter, and it carries the
+# app's own Node), else the installed skill scripts by absolute path. CLI_FORM
+# is decided after the shim is written, below.
+recall_commands() {
+  if [ "$CLI_FORM" = 1 ]; then
+    cat <<'CMDS'
+prax recall "<what I'm about to work on>"
+prax recall --recent 5      # chronological list instead
+CMDS
+  else
+    cat <<'CMDS'
+node "__SKILLS_DIR__/prax-recall/scripts/recall.mjs" "<what I'm about to work on>"
+node "__SKILLS_DIR__/prax-recall/scripts/recall.mjs" --recent 5      # chronological list instead
+CMDS
+  fi
+}
+
+remember_commands() {
+  if [ "$CLI_FORM" = 1 ]; then
+    cat <<'CMDS'
+prax remember "<title>" --body "<body>" --memory [--type note|runbook|decision|known-issue|reference|post-mortem] [--tag a,b] [--ref <url>] [--cite <path[:start[-end]]>]
+CMDS
+  else
+    cat <<'CMDS'
+node "__SKILLS_DIR__/prax-remember/scripts/remember.mjs" "<title>" "<body>" [--type note|runbook|decision|known-issue|reference|post-mortem] [--tags a,b] [--ref <url>] [--cite <path[:start[-end]]>]
+CMDS
+  fi
+}
+
+# Only the CLI form needs explaining: --memory is what separates shared memory
+# from a note on the current project, and the shim has an absolute path when
+# PATH is not what the agent's shell ends up with.
+remember_note() {
+  [ "$CLI_FORM" = 1 ] || return 0
+  cat <<'NOTE'
+`--memory` is what makes this shared memory rather than a note on the current project. If `prax`
+is not found, run it as `__BIN_DIR__/prax`.
+
+NOTE
+}
+
+# The block every tool gets. Quoted heredocs: nothing expands, so the backticks
+# stay literal Markdown and the paths are filled in by subst_paths.
 instruction_block() {
-  cat <<'BLOCK' | awk -v d="$DEST" '{ i = index($0, "__SKILLS_DIR__"); while (i) { $0 = substr($0, 1, i - 1) d substr($0, i + 14); i = index($0, "__SKILLS_DIR__") } } 1'
+  {
+    cat <<'BLOCK'
 ## Long-term memory (Prax)
 
 Prax is the shared, local-first long-term memory for every agent CLI on this machine
@@ -129,8 +188,9 @@ in every project.
 **Recall first.** Before starting a task, retrieve what is already known:
 
 ```bash
-node "__SKILLS_DIR__/prax-recall/scripts/recall.mjs" "<what I'm about to work on>"
-node "__SKILLS_DIR__/prax-recall/scripts/recall.mjs" --recent 5      # chronological list instead
+BLOCK
+    recall_commands
+    cat <<'BLOCK'
 ```
 
 Every hit says which project it lives in (`in homelab`), its trust (`verified by …` or
@@ -142,14 +202,20 @@ reachable` means the app is not running — say so, never invent memory.
 system works, a decision or convention, a reusable runbook — persist it:
 
 ```bash
-node "__SKILLS_DIR__/prax-remember/scripts/remember.mjs" "<title>" "<body>" [--type note|runbook|decision|known-issue|reference|post-mortem] [--tags a,b] [--ref <url>] [--cite <path[:start[-end]]>]
+BLOCK
+    remember_commands
+    cat <<'BLOCK'
 ```
 
+BLOCK
+    remember_note
+    cat <<'BLOCK'
 Re-running with the same title refines the memory in place; without `--project`, a title that
 already lives in another project is refined there, never duplicated. Use `--cite` when the claim
 is about specific code (run it from inside the checkout). Never persist secrets or
 session-only state.
 BLOCK
+  } | subst_paths
 }
 
 # Append the block to one file, once. An existing file keeps everything it had;
@@ -292,17 +358,6 @@ done
 
 echo "Prax skills installed from $ORIGIN."
 
-if [ "$INSTRUCTIONS" = 1 ]; then
-  for f in "$CLAUDE_MD" "$CODEX_MD" "$COPILOT_MD"; do write_instructions "$f"; done
-  # Copilot only reads a custom-instructions directory it has been told about.
-  case ",${COPILOT_CUSTOM_INSTRUCTIONS_DIRS:-}," in
-    *",$COPILOT_DIR,"*) echo "Copilot CLI: COPILOT_CUSTOM_INSTRUCTIONS_DIRS already names $COPILOT_DIR" ;;
-    ",,") echo "Copilot CLI reads that file only when your shell profile exports: export COPILOT_CUSTOM_INSTRUCTIONS_DIRS=\"$COPILOT_DIR\"" ;;
-    *) echo "Copilot CLI: append $COPILOT_DIR to COPILOT_CUSTOM_INSTRUCTIONS_DIRS (comma-separated) in your shell profile" ;;
-  esac
-  echo "Antigravity has no global instructions file: paste the block from $CLAUDE_MD into each workspace's AGENTS.md or GEMINI.md."
-fi
-
 if [ "$CLI" = 1 ] || [ "$MCP" = 1 ]; then
   if [ -z "$APP_DIR" ]; then
     echo "install.sh: --cli and --mcp need the app payload (cli/ and mcp/ next to skills/): run this installer from the Prax app bundle or a checkout." >&2
@@ -330,6 +385,32 @@ if [ "$CLI" = 1 ]; then
   fi
 fi
 
+# What form the instruction block teaches: `prax` only when this machine really
+# has the installer's shim AND resolves it on PATH, so every command the block
+# writes is one that runs here. Anything else keeps the skill scripts' absolute
+# paths, which need nothing but Node.
+CLI_FORM=0
+if [ -f "$BIN_DIR/prax" ] && grep -qF "$SHIM_MARK" "$BIN_DIR/prax"; then
+  case ":$PATH:" in *":$BIN_DIR:"*) CLI_FORM=1 ;; esac
+fi
+
+if [ "$INSTRUCTIONS" = 1 ]; then
+  for f in "$CLAUDE_MD" "$CODEX_MD" "$COPILOT_MD"; do write_instructions "$f"; done
+  # Copilot only reads a custom-instructions directory it has been told about.
+  case ",${COPILOT_CUSTOM_INSTRUCTIONS_DIRS:-}," in
+    *",$COPILOT_DIR,"*) echo "Copilot CLI: COPILOT_CUSTOM_INSTRUCTIONS_DIRS already names $COPILOT_DIR" ;;
+    ",,") echo "Copilot CLI reads that file only when your shell profile exports: export COPILOT_CUSTOM_INSTRUCTIONS_DIRS=\"$COPILOT_DIR\"" ;;
+    *) echo "Copilot CLI: append $COPILOT_DIR to COPILOT_CUSTOM_INSTRUCTIONS_DIRS (comma-separated) in your shell profile" ;;
+  esac
+  if [ "$CLI_FORM" = 1 ]; then
+    echo "instructions use the \`prax\` command (the shim in $BIN_DIR)."
+  elif [ "$CLI" = 1 ]; then
+    echo "instructions use the skill scripts: $BIN_DIR is not on PATH, so \`prax\` would not resolve there."
+    echo "  add $BIN_DIR to your PATH, then re-run with --uninstall followed by --instructions --cli to switch them."
+  fi
+  echo "Antigravity has no global instructions file: paste the block from $CLAUDE_MD into each workspace's AGENTS.md or GEMINI.md."
+fi
+
 if [ "$MCP" = 1 ]; then
   echo "MCP (optional — the skills do not need it; registers the app's full task/library tool tree):"
   echo "  claude mcp add prax -- \"$RUNTIME\" \"$APP_DIR/mcp/server.js\""
@@ -338,4 +419,8 @@ if [ "$MCP" = 1 ]; then
   echo "  agy mcp add prax \"$RUNTIME\" \"$APP_DIR/mcp/server.js\""
 fi
 
-echo "Check: node \"$DEST/prax-recall/scripts/recall.mjs\" --recent 3"
+if [ "$CLI_FORM" = 1 ]; then
+  echo "Check: prax recall --recent 3"
+else
+  echo "Check: node \"$DEST/prax-recall/scripts/recall.mjs\" --recent 3"
+fi
