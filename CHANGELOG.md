@@ -12,6 +12,16 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Changed
+
+- **The standing memory instructions teach the command the machine can run.** `skills/install.sh
+  --instructions` now writes the short `prax recall …` / `prax remember … --memory` form when
+  `--cli` has put the shim on `PATH`, naming the shim's absolute path as the fallback, and keeps
+  the installed skill scripts' absolute paths otherwise. `--cli` is applied before
+  `--instructions` so the shim decides the form, and the closing check line follows the same
+  rule. Switching an existing block to the other form still takes `--uninstall` first, because
+  the start marker guards against a second write.
+
 ### Fixed
 
 - **`prax remember --memory` stamps the provenance it always claimed.** A memory written through

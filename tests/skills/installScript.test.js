@@ -360,3 +360,54 @@ test('install.sh piped through sh (no pack next to it) still clones, and --cli t
     rmSync(base, { recursive: true, force: true });
   }
 });
+
+test('--instructions teaches `prax` only when the shim is installed AND on PATH', () => {
+  // The block is useless if it names a command this machine cannot run, so the
+  // form follows the shim: `prax …` when it resolves, the skill scripts' own
+  // paths otherwise. --cli therefore has to run before --instructions.
+  const base = mkdtempSync(join(tmpdir(), 'prax-install-form-'));
+  try {
+    const { app } = fakeAppBundle(base);
+    const home = isolatedHome(base);
+    const dest = join(base, 'agents-skills');
+    const bin = join(base, 'local-bin');
+    const script = join(app, 'skills', 'install.sh');
+    const claudeMd = join(home, '.claude', 'CLAUDE.md');
+    const common = {
+      HOME: home, PRAX_SKILLS_DIR: dest, PRAX_BIN_DIR: bin,
+      PRAX_CLAUDE_SKILLS_DIR: join(base, 'claude-skills'), PRAX_GEMINI_SKILLS_DIR: join(base, 'gemini-skills'),
+    };
+
+    // Shim written, but $PRAX_BIN_DIR is not on PATH: keep the script paths.
+    const offPath = spawnSync('sh', [script, '--instructions', '--cli'], {
+      env: { PATH: `${dirname(process.execPath)}:${process.env.PATH}`, ...common }, encoding: 'utf8',
+    });
+    assert.equal(offPath.status, 0, offPath.stderr);
+    let text = readFileSync(claudeMd, 'utf8');
+    assert.ok(text.includes(`node "${dest}/prax-recall/scripts/recall.mjs"`), 'falls back to the installed script');
+    assert.doesNotMatch(text, /^prax recall/m, 'never names a command that would not resolve');
+    assert.match(offPath.stdout, /is not on PATH, so `prax` would not resolve/);
+
+    // Same machine, shim on PATH: the block switches to the command form.
+    const onPathEnv = { PATH: `${bin}:${dirname(process.execPath)}:${process.env.PATH}`, ...common };
+    assert.equal(spawnSync('sh', [script, '--uninstall'], { env: onPathEnv, encoding: 'utf8' }).status, 0);
+    const onPath = spawnSync('sh', [script, '--instructions', '--cli'], { env: onPathEnv, encoding: 'utf8' });
+    assert.equal(onPath.status, 0, onPath.stderr);
+    text = readFileSync(claudeMd, 'utf8');
+    assert.match(text, /^prax recall "<what I'm about to work on>"$/m);
+    assert.match(text, /^prax recall --recent 5 /m);
+    assert.match(text, /^prax remember "<title>" --body "<body>" --memory /m);
+    assert.ok(text.includes(`${bin}/prax`), 'the absolute shim path is offered as the fallback');
+    assert.doesNotMatch(text, /recall\.mjs|remember\.mjs/, 'the CLI form carries no script paths');
+    assert.doesNotMatch(text, /__SKILLS_DIR__|__BIN_DIR__/, 'both placeholders are substituted');
+    assert.match(onPath.stdout, /instructions use the `prax` command/);
+    assert.match(onPath.stdout, /Check: prax recall --recent 3/);
+
+    // The marked block still comes out whole, and uninstall still removes it.
+    assert.equal((text.match(/<!-- prax-memory:start -->/g) || []).length, 1);
+    assert.equal(spawnSync('sh', [script, '--uninstall'], { env: onPathEnv, encoding: 'utf8' }).status, 0);
+    assert.doesNotMatch(readFileSync(claudeMd, 'utf8'), /prax-memory|Long-term memory/);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
