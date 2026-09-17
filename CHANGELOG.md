@@ -12,6 +12,14 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`prax remember --memory` stamps the provenance it always claimed.** A memory written through
+  the CLI's `--memory` namespace now carries `kind: synthesized`, as the `prax-remember` skill
+  already did, so it gets the *SYNTH* chip in the library and is visible to the maintenance
+  tooling instead of looking like a hand-written note. `prax help` says so, and its auto-detected
+  agent list now names `copilot` and `antigravity` alongside `claude` and `codex`.
+
 ## [0.32.0] - 2026-09-16
 
 ### Changed
