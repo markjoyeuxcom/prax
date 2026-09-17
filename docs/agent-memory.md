@@ -114,20 +114,45 @@ the tasks/checklist suite and `derived-from` document linking, which the CLI doe
 
 ### Installing the skills
 
+The installer covers four agent CLIs: it copies the skills to `~/.agents/skills/` (where **Codex**
+and **Copilot CLI** look) and links them into `~/.claude/skills/` (**Claude Code**) and
+`~/.gemini/config/skills/` (**Antigravity**). Node 20+ must be on `PATH` on every route, because
+the agents run the skill scripts with `node`.
+
 - **In a checkout of this repo:** nothing to do. `.claude/skills/` and `.agents/skills/` link to
-  `skills/`, so Claude Code and Codex both see `prax-recall` and `prax-remember`.
+  `skills/`, so Claude Code and Codex see `prax-recall` and `prax-remember` with no install.
+- **On a machine that installed the desktop app (dmg or package), with no checkout:** the bundle
+  ships the pack next to the app's CLI and MCP server, so neither git nor repository access is
+  needed, and the skills always match the installed app:
+
+  ```bash
+  sh "/Applications/Prax.app/Contents/Resources/resources/app/skills/install.sh" --instructions --cli
+  ```
+
+  Run from inside a pack (the bundle, or a checkout) the installer copies the skills from there
+  instead of cloning. `--cli` also writes a `prax` shim into `~/.local/bin` that runs the bundle's
+  `cli/prax.js` on the app's **own** bundled Node runtime — so the CLI itself needs no Node
+  install — and `--mcp` prints the MCP registration command for each tool (registration stays
+  opt-in). On Linux the same script sits beside the installed payload; only the leading path
+  differs.
 - **On any other machine:** `glab api "projects/markjoyeuxcom%2Fapps%2Fprax/repository/files/skills%2Finstall.sh/raw?ref=main" | sh`
-  installs the pack for both tools without keeping a checkout. The repository is private, so the
+  installs the pack without keeping a checkout. The repository is private, so the
   account must have been granted access; with `glab auth login` done the installer clones over
   HTTPS using `glab`'s credentials, otherwise it needs an SSH key registered with GitLab. Claude
   Code can alternatively install it as a plugin:
   `claude plugin marketplace add git@gitlab.com:markjoyeuxcom/apps/prax.git` then
   `claude plugin install prax@prax`.
-  Add `--instructions` (`… | sh -s -- --instructions`) to also write the standing
-  "recall first / remember durable findings" rule into `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`
-  and `~/.copilot/instructions/AGENTS.md`, once, between markers; Antigravity has no global file,
-  so the installer tells you to paste the block into each workspace's `AGENTS.md`/`GEMINI.md`.
-  See [`skills/README.md`](../skills/README.md).
+
+On every route, `--instructions` also writes the standing "recall first / remember durable
+findings" rule into each tool's global instructions file, once, between markers. Paired with
+`--cli` it writes that rule in `prax …` form; on its own it names the installed skill scripts by
+absolute path, so the block never teaches a command the machine cannot run. The files:
+`~/.claude/CLAUDE.md` (Claude Code), `~/.codex/AGENTS.md` (Codex) and
+`~/.copilot/instructions/AGENTS.md` (Copilot CLI, which reads it only when your shell exports
+`COPILOT_CUSTOM_INSTRUCTIONS_DIRS="$HOME/.copilot/instructions"` — the installer prints the
+line). Antigravity has no global file, so the installer tells you to paste the block into each
+workspace's `AGENTS.md`/`GEMINI.md`. `--uninstall` removes the skills, the links, the instruction
+blocks and the shim. See [`skills/README.md`](../skills/README.md).
 
 ### Finding the app
 
