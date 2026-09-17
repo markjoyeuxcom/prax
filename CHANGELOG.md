@@ -14,6 +14,14 @@ fresh empty `[Unreleased]` section is started.
 
 ### Changed
 
+- **Documented the desktop-bundle install route for the memory skills.** `docs/agent-memory.md`
+  listed only the checkout and the `glab` clone, so a machine that installed Prax from the dmg
+  looked like it needed repository access — it does not: the bundle ships the pack next to the
+  app's CLI and MCP server. The install section now covers all three routes, names where the
+  skills land per agent CLI, and states the Node 20+ requirement. `AGENTS.md` leads with the
+  `prax` command (with the `node cli/prax.js …` fallback for a checkout without it), and the
+  README no longer describes the skills as Claude Code and Codex only.
+
 - **The standing memory instructions teach the command the machine can run.** `skills/install.sh
   --instructions` now writes the short `prax recall …` / `prax remember … --memory` form when
   `--cli` has put the shim on `PATH`, naming the shim's absolute path as the fallback, and keeps
