@@ -66,7 +66,7 @@ both on self-hosted group runners, so neither costs compute minutes:
 | Job | Runner tag | Host | What the job installs itself |
 |---|---|---|---|
 | `desktop-linux-x64` | `homelab` | Linux amd64, runs the job in the `node:24-bookworm` image | WebKitGTK/GTK toolchain, Rust (rustup), xvfb/dbus smoke harness |
-| `desktop-macos-arm64` | `macos` | Apple Silicon Mac, runs the job in a throwaway Tart VM cloned from `$MACOS_IMAGE` | Rust (rustup); the VM image already has Node 24 (Homebrew keg) and the Xcode command line tools |
+| `desktop-macos-arm64` | `macos` | Apple Silicon Mac, runs the job in a throwaway Tart VM cloned from `$MACOS_IMAGE` | an official Node `$NODE_VERSION` (pinned + checksummed) and Rust (rustup); the VM image supplies the Xcode command line tools |
 
 The `macos` runner uses gitlab-runner's custom executor with
 [gitlab-tart-executor](https://github.com/cirruslabs/gitlab-tart-executor), which clones a fresh
@@ -76,9 +76,19 @@ macOS VM per job from the job's `image:` and throws it away afterwards. That mak
 the job named no image. `$MACOS_IMAGE` pins `ghcr.io/cirruslabs/macos-tahoe-base` by digest, and
 the runner's `config.toml` repeats it as `--default-image` so the same mistake in another job
 cannot take the runner down; `--allow-image "ghcr.io/cirruslabs/macos-*"` keeps a merge request
-from running some other image on that Mac. Because the VM is discarded, the job installs Rust
-itself and every toolchain path is named explicitly — the job's shell is not a login shell, so
-nothing from the image's profile (Homebrew, the Node 24 keg) is on PATH by default.
+from running some other image on that Mac. Because the VM is discarded, the job installs its
+own toolchain and names every path explicitly — the job's shell is not a login shell, so nothing
+from the image's profile is on PATH by default.
+
+**The macOS job must build with an official nodejs.org Node, and the pipeline pins which one.**
+`scripts/prepare-sidecar.mjs` stages the sidecar by copying `process.execPath` verbatim, so the
+Node that builds the package *is* the Node that ships inside it. An official build depends on
+`/usr/lib` and `/System` alone; Homebrew's `node@24` links against `@rpath/libnode.<abi>.dylib`
+and seventeen Cellar dylibs, so a `.dmg` built with it ships a sidecar that aborts with
+`dyld: Library not loaded` on every Mac except the build machine. Nothing before the
+packaged-runtime smoke notices, because the failure is in the child process. `prepare-sidecar`
+now refuses a runtime that depends on anything outside macOS itself
+(`foreignRuntimeDependencies`, pinned by `tests/backend/sidecarDependencies.test.js`).
 
 Each job stages the Node runtime and dependencies, builds the installers, runs the two-launch
 runtime smoke, and hands its packages to the release job as artifacts. Tagged releases attach both

@@ -16,7 +16,7 @@ import { cpSync, chmodSync, copyFileSync, mkdirSync, rmSync, existsSync } from '
 import { execSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { pruneSidecarDependencies } from './sidecar-dependencies.mjs';
+import { pruneSidecarDependencies, foreignRuntimeDependencies } from './sidecar-dependencies.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const staging = join(root, 'src-tauri', 'resources', 'app');
@@ -64,6 +64,20 @@ const suffix = process.platform === 'win32' ? '.exe' : '';
 const sidecar = join(binaries, `prax-server-${targetTriple()}${suffix}`);
 copyFileSync(process.execPath, sidecar);
 if (process.platform !== 'win32') chmodSync(sidecar, 0o755);
+
+// Copying the Node binary copies its dynamic linkage too. A runtime that needs
+// libraries from the build machine (a Homebrew Node wants
+// @rpath/libnode.<abi>.dylib and its Cellar dependencies) produces a package
+// that aborts on the user's Mac before the server writes a single log line.
+if (process.platform === 'darwin') {
+  const foreign = foreignRuntimeDependencies(execSync(`otool -L ${JSON.stringify(sidecar)}`, { encoding: 'utf8' }));
+  if (foreign.length > 0) {
+    throw new Error(
+      `The staged Node runtime is not self-contained: ${process.execPath} needs ${foreign.join(', ')}, ` +
+        'which a user\'s Mac will not have. Build with an official nodejs.org distribution, not a Homebrew one.',
+    );
+  }
+}
 
 if (!existsSync(join(staging, 'node_modules', 'fastify'))) {
   throw new Error('staging looks incomplete: fastify missing from node_modules');
