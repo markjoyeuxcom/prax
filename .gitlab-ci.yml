@@ -161,21 +161,37 @@ desktop-linux-x64:
 
 # macOS Apple Silicon on the self-hosted `macos` runner. Every job there runs in
 # a throwaway Tart VM cloned from $MACOS_IMAGE, so nothing survives between jobs
-# and the toolchain is set up here rather than assumed: the cirruslabs base image
-# ships Homebrew, Node 24 and the Xcode command line tools but no Rust, and none
-# of it is on PATH for a non-login shell.
+# and the toolchain is installed here rather than assumed: the cirruslabs base
+# image ships the Xcode command line tools but no Rust, and its Homebrew Node is
+# the wrong Node to build a package with (see NODE_VERSION).
 desktop-macos-arm64:
   stage: desktop
   image: $MACOS_IMAGE
   tags: [macos]
   needs: [node-checks]
+  variables:
+    # scripts/prepare-sidecar.mjs copies this very binary into the bundle as the
+    # sidecar, so the Node that Prax ships to users is pinned here rather than
+    # inherited from the build machine. It must be an official nodejs.org build:
+    # Homebrew's node@24 links against @rpath/libnode.<abi>.dylib and a dozen
+    # Cellar dylibs, and a .dmg built with it ships a sidecar that aborts with
+    # "Library not loaded" on every Mac but the builder's. prepare-sidecar now
+    # refuses such a runtime; this is the runtime that passes.
+    # Bump both together (shasum -a 256 of the darwin-arm64 tarball, published
+    # at https://nodejs.org/dist/v<version>/SHASUMS256.txt).
+    NODE_VERSION: "24.21.0"
+    NODE_SHA256: "6239d4cf92d864487ec8cd3615038f7b67e7f58b77b21cd2f09ea9fbd68065fe"
   before_script:
-    # The job's shell is neither a login nor an interactive shell, so the VM's
-    # profile never runs and PATH is only /usr/bin:/bin:/usr/sbin:/sbin. Name
-    # every toolchain location: rustup's and mise's (a Mac provisioned by hand
-    # keeps working) ahead of the image's Homebrew Node 24 keg.
-    - export PATH="$HOME/.cargo/bin:$HOME/.local/share/mise/shims:/opt/homebrew/opt/node@24/bin:/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
-    # Rust is not in the image; a provisioned Mac that already has it keeps it.
+    # A fresh VM every time: PATH holds only the system directories, because the
+    # job's shell is neither a login nor an interactive shell and the image's
+    # profile never runs. Everything below is named explicitly for that reason.
+    - |
+      node_dir="node-v$NODE_VERSION-darwin-arm64"
+      curl --fail --location --silent --show-error --output "$HOME/$node_dir.tar.xz" "https://nodejs.org/dist/v$NODE_VERSION/$node_dir.tar.xz"
+      echo "$NODE_SHA256  $HOME/$node_dir.tar.xz" | shasum -a 256 -c -
+      tar -xJf "$HOME/$node_dir.tar.xz" -C "$HOME"
+    - export PATH="$HOME/node-v$NODE_VERSION-darwin-arm64/bin:$HOME/.cargo/bin:$PATH"
+    # Rust is not in the image; a Mac provisioned by hand keeps the one it has.
     - |
       if ! command -v cargo >/dev/null 2>&1; then
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --component rustfmt --no-modify-path
