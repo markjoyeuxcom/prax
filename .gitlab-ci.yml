@@ -5,7 +5,9 @@
 #   compute minutes. The default tag is `homelab` (Linux amd64, docker executor):
 #   the Node check, the unit + contract suite, the dependency audit, the Chromium
 #   browser suite, the Linux desktop build and the release all land there. Only the macOS build overrides it with the `macos` tag
-#   (darwin arm64, Node 24, Rust stable and Xcode command line tools installed).
+#   (an Apple Silicon Mac running gitlab-runner with the Tart custom executor:
+#   every job gets a throwaway macOS VM cloned from its `image:`, so that job
+#   puts its own toolchain on PATH and installs what the image lacks).
 # - Desktop packages are automatic on release tags, MANUAL on merge requests and
 #   main, never blocking there.
 # - Tags vX.Y.Z or vX.Y.Z-pre: quality gate → both desktop builds with their
@@ -27,6 +29,15 @@ stages: [check, test, desktop, release]
 
 variables:
   NODE_IMAGE: node:24-bookworm
+  # The Tart executor clones a throwaway VM from this image for every job on the
+  # `macos` runner, so the macOS build has to name one: with no `image:` here and
+  # no `--default-image` in that runner's config.toml, its prepare stage fails
+  # with "CUSTOM_ENV_CI_JOB_ID is missing and no --default-image was set" — the
+  # executor's (mislabelled) wording for a missing job image. Pinned by digest so
+  # a release is never built on an image that moved under it; this is what
+  # `ghcr.io/cirruslabs/macos-tahoe-base:latest` resolved to. Bump with
+  # `tart pull ghcr.io/cirruslabs/macos-tahoe-base:latest && tart list`.
+  MACOS_IMAGE: ghcr.io/cirruslabs/macos-tahoe-base@sha256:1b093499716409d29e8b5336844528e1cae375db97d2ad8e5aeff78cf0da201e
   GIT_DEPTH: "1"
   npm_config_cache: "$CI_PROJECT_DIR/.npm"
   PLAYWRIGHT_BROWSERS_PATH: "$CI_PROJECT_DIR/.playwright-browsers"
@@ -148,15 +159,27 @@ desktop-linux-x64:
     expire_in: 14 days
   rules: *rules-desktop
 
-# macOS Apple Silicon on the self-hosted `macos` runner (a Mac with Node 24,
-# Rust stable and the Xcode command line tools already installed).
+# macOS Apple Silicon on the self-hosted `macos` runner. Every job there runs in
+# a throwaway Tart VM cloned from $MACOS_IMAGE, so nothing survives between jobs
+# and the toolchain is set up here rather than assumed: the cirruslabs base image
+# ships Homebrew, Node 24 and the Xcode command line tools but no Rust, and none
+# of it is on PATH for a non-login shell.
 desktop-macos-arm64:
   stage: desktop
+  image: $MACOS_IMAGE
   tags: [macos]
   needs: [node-checks]
   before_script:
-    # The runner's shell is not a login shell: put rustup's and mise's tools on PATH.
-    - export PATH="$HOME/.cargo/bin:$HOME/.local/share/mise/shims:$PATH"
+    # The job's shell is neither a login nor an interactive shell, so the VM's
+    # profile never runs and PATH is only /usr/bin:/bin:/usr/sbin:/sbin. Name
+    # every toolchain location: rustup's and mise's (a Mac provisioned by hand
+    # keeps working) ahead of the image's Homebrew Node 24 keg.
+    - export PATH="$HOME/.cargo/bin:$HOME/.local/share/mise/shims:/opt/homebrew/opt/node@24/bin:/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
+    # Rust is not in the image; a provisioned Mac that already has it keeps it.
+    - |
+      if ! command -v cargo >/dev/null 2>&1; then
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --component rustfmt --no-modify-path
+      fi
     - node --version && npm --version && cargo --version && xcode-select -p
     - npm ci --prefer-offline --no-audit --no-fund
   script:

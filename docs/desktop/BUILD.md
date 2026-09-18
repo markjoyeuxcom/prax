@@ -66,7 +66,19 @@ both on self-hosted group runners, so neither costs compute minutes:
 | Job | Runner tag | Host | What the job installs itself |
 |---|---|---|---|
 | `desktop-linux-x64` | `homelab` | Linux amd64, runs the job in the `node:24-bookworm` image | WebKitGTK/GTK toolchain, Rust (rustup), xvfb/dbus smoke harness |
-| `desktop-macos-arm64` | `macos` | Apple Silicon Mac | nothing: the Mac must already have Node 24, Rust stable (`~/.cargo/bin`) and the Xcode command line tools |
+| `desktop-macos-arm64` | `macos` | Apple Silicon Mac, runs the job in a throwaway Tart VM cloned from `$MACOS_IMAGE` | Rust (rustup); the VM image already has Node 24 (Homebrew keg) and the Xcode command line tools |
+
+The `macos` runner uses gitlab-runner's custom executor with
+[gitlab-tart-executor](https://github.com/cirruslabs/gitlab-tart-executor), which clones a fresh
+macOS VM per job from the job's `image:` and throws it away afterwards. That makes the macOS job's
+`image:` mandatory: a job without one fails in the executor's prepare stage with
+`CUSTOM_ENV_CI_JOB_ID is missing and no --default-image was set`, which despite the wording means
+the job named no image. `$MACOS_IMAGE` pins `ghcr.io/cirruslabs/macos-tahoe-base` by digest, and
+the runner's `config.toml` repeats it as `--default-image` so the same mistake in another job
+cannot take the runner down; `--allow-image "ghcr.io/cirruslabs/macos-*"` keeps a merge request
+from running some other image on that Mac. Because the VM is discarded, the job installs Rust
+itself and every toolchain path is named explicitly — the job's shell is not a login shell, so
+nothing from the image's profile (Homebrew, the Node 24 keg) is on PATH by default.
 
 Each job stages the Node runtime and dependencies, builds the installers, runs the two-launch
 runtime smoke, and hands its packages to the release job as artifacts. Tagged releases attach both
