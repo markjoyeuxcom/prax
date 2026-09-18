@@ -35,3 +35,19 @@ export function pruneSidecarDependencies(root, { platform = process.platform, ar
   }
   return removed;
 }
+
+// macOS ships the sidecar as a verbatim copy of the build machine's Node
+// binary, so that binary has to keep working on a Mac that has nothing but
+// macOS on it. An official nodejs.org build links only against /usr/lib and
+// /System; a Homebrew one links against @rpath/libnode.<abi>.dylib and a dozen
+// Cellar dylibs, so a .dmg built with one ships a sidecar that aborts with
+// "Library not loaded" everywhere but the build machine. Only the packaged
+// runtime smoke notices, and only if it runs — hence the check at staging.
+export function foreignRuntimeDependencies(otoolOutput) {
+  return otoolOutput
+    .split('\n')
+    .slice(1) // The first line names the file that was inspected, not a dependency.
+    .map(line => line.trim().split(' ')[0])
+    .filter(Boolean)
+    .filter(path => !path.startsWith('/usr/lib/') && !path.startsWith('/System/'));
+}
