@@ -76,7 +76,7 @@ Global flags: --project <slug>  --url <baseUrl>  --agent <id>  --json
 Env: PRAX_API_URL  PRAX_PROJECT  PRAX_TOKEN  PRAX_AGENT
 App discovery: --url > PRAX_API_URL > the desktop app's saved port (webview-port) > http://127.0.0.1:3000
 Project detection: --project > PRAX_PROJECT > .prax/project.json > git remote match > folder name
-Provenance: writes are stamped updatedBy=agent plus the agent id (--agent, PRAX_AGENT, or auto: claude / codex)`;
+Provenance: writes are stamped updatedBy=agent plus the agent id (--agent, PRAX_AGENT, or auto: claude / codex / copilot / antigravity); --memory writes also carry kind=synthesized`;
 
 async function main(argv) {
   const { positionals, flags } = parseArgs(argv);
@@ -199,7 +199,11 @@ async function main(argv) {
       throw new Error(`--id must be a document uuid (got "${id}").`);
     }
     const crossProject = Boolean(flags.memory) && !flags.project && !id;
-    const result = await remember(client, { title, body, project, type, tags, id, crossProject });
+    // A --memory write is agent memory, so it carries the same provenance the
+    // prax-remember skill stamps (kind: synthesized). A project-scoped write is
+    // left alone: it is a note about this project, not synthesized memory.
+    const kind = flags.memory ? 'synthesized' : undefined;
+    const result = await remember(client, { title, body, project, type, tags, kind, id, crossProject });
     const { doc, action } = result;
     // Optional --ref <url> attaches an external reference to the memory. Best-
     // effort: a bad URL doesn't fail the remember (the doc is already saved).
