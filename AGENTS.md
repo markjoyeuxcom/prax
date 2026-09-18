@@ -11,19 +11,25 @@ Prax's library + semantic search. Use it so durable knowledge carries across ses
 *and across tools*: what one agent learns, another can recall. The memory lives in Prax
 (SQLite + embeddings), not in your context window.
 
-Two skills implement it, **prax-recall** and **prax-remember**. They live in
-[`skills/`](skills/) and are mirrored into `.claude/skills/` (Claude Code) and
-`.agents/skills/` (Codex), so in a checkout both tools already have them. Each is one
-self-contained Node script; outside a checkout install them with
-[`skills/install.sh`](skills/README.md) — no repository needed on that machine.
+The commands below are the `prax` CLI. Get it with `npm link` in a checkout, or with
+`skills/install.sh --cli` on a machine that installed the desktop app (that shim runs the
+bundled CLI on the app's own Node runtime). **Without a global `prax`, run every command as
+`node cli/prax.js …` from a checkout** — same binary, same behaviour.
+
+The same memory loop also ships as two skills, **prax-recall** and **prax-remember**, for tools
+that fire skills on their own. They live in [`skills/`](skills/) and are mirrored into
+`.claude/skills/` (Claude Code) and `.agents/skills/` (Codex), so in a checkout both tools
+already have them. Each is one self-contained Node script; outside a checkout install them with
+[`skills/install.sh`](skills/README.md) — no repository needed on that machine. The skills and
+the CLI share one engine (`cli/lib/`), so either surface does the same thing.
 
 ### 1. Recall first
 
 Before starting a task, retrieve what's already known:
 
 ```bash
-node skills/prax-recall/scripts/recall.mjs "<what you're about to work on>"
-node skills/prax-recall/scripts/recall.mjs --recent 5      # chronological list instead
+prax recall "<what you're about to work on>"
+prax recall --recent 5      # chronological list instead
 ```
 
 It searches **all projects** by meaning and returns a distilled summary (top hit + a short
@@ -35,8 +41,12 @@ When you learn something that outlives this session — how a system works, a de
 convention, a reusable runbook — persist it:
 
 ```bash
-node skills/prax-remember/scripts/remember.mjs "<title>" "<body>" [--type note|runbook|decision|known-issue|reference|post-mortem] [--tags a,b] [--ref <url>] [--cite <path[:start[-end]]>]
+prax remember "<title>" --body "<body>" --memory [--type note|runbook|decision|known-issue|reference|post-mortem] [--tag a,b] [--ref <url>] [--cite <path[:start[-end]]>]
 ```
+
+`--memory` is what makes this a *shared* memory write instead of a note on the current project.
+(The `prax-remember` skill takes the body as a second positional and spells the flag `--tags`;
+it defaults to `--memory` behaviour, so it needs no such flag.)
 
 When the memory makes a claim about specific code, add `--cite server/config.js:12-36` (a
 repository-relative path, optionally a 1-based inclusive line range). Recall run from inside a
@@ -55,8 +65,8 @@ secrets.
 ### 3. Supersede, don't duplicate
 
 Re-remember an existing title to refine it. When one memory replaces a *different* one, run
-`node cli/prax.js supersede <oldId> --with <newId>`: the old document is retired from default
-retrieval and linked to its replacement.
+`prax supersede <oldId> --with <newId>`: the old document is retired from default retrieval and
+linked to its replacement.
 
 ### Finding the app
 
@@ -72,18 +82,18 @@ For a task-scoped briefing of *this project's* verified memory, the `prax` CLI a
 bounded, trust-aware context pack (Markdown):
 
 ```bash
-node cli/prax.js context "<task>"     # briefing for the current project (.prax/project.json)
-node cli/prax.js search "<query>"     # semantic search, scoped to the current project
-node cli/prax.js help                 # full surface: init/context/search/get/recall/remember/verify/unverify/supersede
+prax context "<task>"     # briefing for the current project (.prax/project.json)
+prax search "<query>"     # semantic search, scoped to the current project
+prax help                 # full surface: init/context/search/get/recall/remember/verify/unverify/supersede
 ```
 
-`npm link` installs a global `prax`. The project-scoped commands (`context`, `search`, and
-`remember` without `--memory`) resolve the project from `--project` / `PRAX_PROJECT` /
-`.prax/project.json` / the git remote / the folder name, whereas the `prax-remember` skill
-**writes** to the cross-tool **`memory`** namespace. Recall is cross-project on both surfaces:
-`prax recall` and the `prax-recall` skill search every project by default and take
-`--project memory` to narrow to agent memory. Use the skills for durable shared memory, the
-project-scoped CLI commands for "what does *this project* know."
+The project-scoped commands (`context`, `search`, and `remember` without `--memory`) resolve the
+project from `--project` / `PRAX_PROJECT` / `.prax/project.json` / the git remote / the folder
+name, whereas `prax remember --memory` and the `prax-remember` skill **write** to the cross-tool
+**`memory`** namespace. Recall is cross-project on both surfaces: `prax recall` and the
+`prax-recall` skill search every project by default and take `--project memory` to narrow to
+agent memory. Use `--memory` for durable shared memory, the project-scoped commands for "what
+does *this project* know."
 
 ## Configuration
 

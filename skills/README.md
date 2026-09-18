@@ -34,7 +34,7 @@ there — no clone, and the skills always match the installed app. The extra fla
 | Flag | Does |
 |---|---|
 | `--instructions` | writes the standing recall/remember rule into each tool's global instructions file (below) |
-| `--cli` | writes a `prax` shim into `~/.local/bin` (`PRAX_BIN_DIR`) that runs the bundle's `cli/prax.js` on the app's **own** Node runtime — no Node install needed for it; from a checkout it runs `cli/prax.js` on `node` |
+| `--cli` | writes a `prax` shim into `~/.local/bin` (`PRAX_BIN_DIR`) that runs the bundle's `cli/prax.js` on the app's **own** Node runtime — no Node install needed for it; from a checkout it runs `cli/prax.js` on `node`. Combined with `--instructions`, the standing rule is written in `prax …` form |
 | `--mcp` | prints the `mcp add prax …` command for Claude Code, Codex, Copilot CLI and Antigravity, pointing at the bundle's `mcp/server.js` on that same runtime (registration stays opt-in) |
 
 `--uninstall` removes the skills, the links, the instruction blocks and the shim (never a
@@ -111,8 +111,12 @@ glab api "projects/markjoyeuxcom%2Fapps%2Fprax/repository/files/skills%2Finstall
 | Copilot CLI | `~/.copilot/instructions/AGENTS.md` | Copilot reads it only when your shell exports `COPILOT_CUSTOM_INSTRUCTIONS_DIRS="$HOME/.copilot/instructions"` — the installer prints the line |
 | Antigravity | — | no global file; paste the block into each workspace's `AGENTS.md` or `GEMINI.md` (the installer says so) |
 
-The block names the installed script paths (`~/.agents/skills/…`), so it works from any
-directory. Environment overrides:
+The commands in the block follow what the machine can run. With `--cli` (and `PRAX_BIN_DIR` on
+your `PATH`) it teaches the short form — `prax recall "…"`, `prax remember "…" --body "…"
+--memory` — and names the shim's absolute path as the fallback; otherwise it names the installed
+script paths (`~/.agents/skills/…`). Either way it works from any directory. `--cli` is applied
+before `--instructions` for exactly this reason, and because the guard is the start marker,
+switching an existing block to the other form takes `--uninstall` first. Environment overrides:
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -124,6 +128,7 @@ directory. Environment overrides:
 | `PRAX_CLAUDE_INSTRUCTIONS` | `~/.claude/CLAUDE.md` | `--instructions`: Claude Code's global instructions file |
 | `PRAX_CODEX_INSTRUCTIONS` | `~/.codex/AGENTS.md` | `--instructions`: Codex's global instructions file |
 | `PRAX_COPILOT_INSTRUCTIONS_DIR` | `~/.copilot/instructions` | `--instructions`: the directory Copilot is pointed at via `COPILOT_CUSTOM_INSTRUCTIONS_DIRS` |
+| `PRAX_BIN_DIR` | `~/.local/bin` | `--cli`: where the `prax` shim is written (and what decides whether `--instructions` can use the `prax` form) |
 
 A custom `PRAX_SKILLS_DIR` changes where the real copies live but the Claude Code and Antigravity links are
 still created (in `PRAX_CLAUDE_SKILLS_DIR` and `PRAX_GEMINI_SKILLS_DIR`); an arbitrary directory is **not** a place Codex

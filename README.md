@@ -40,7 +40,7 @@ it. See [docs/desktop/BUILD.md](docs/desktop/BUILD.md#menu-bar-quick-capture-and
 - Ships light ("Porcelain") and dark ("Deep Fern") themes with four accent colours and a reading-size control; fully keyboard-driven — **⌘K command palette**, **quick capture (N)**, list navigation, and undo toasts.
 - Moves content through Settings: JSON task import/export (append / skip duplicates / replace-project modes) and scoped Markdown library export. Desktop and supporting browsers let you choose the ZIP destination; full-fidelity recovery uses the SQLite backup runbook.
 - Exposes the API to Claude Code through an optional local MCP server for interactive, subscription-backed task and document workflows.
-- Acts as **shared long-term memory for AI agents**: the portable `prax-recall` / `prax-remember` skills (Claude Code and Codex) and the `prax` CLI recall prior findings by meaning and persist new ones with agent provenance — see [skills/README.md](skills/README.md) and [docs/agent-memory.md](docs/agent-memory.md).
+- Acts as **shared long-term memory for AI agents**: the portable `prax-recall` / `prax-remember` skills (Claude Code, Codex, Copilot CLI and Antigravity) and the `prax` CLI recall prior findings by meaning and persist new ones with agent provenance — see [skills/README.md](skills/README.md) and [docs/agent-memory.md](docs/agent-memory.md).
 - Runs locally with plain Node or Docker Compose, or deploys to Kubernetes — the embedded SQLite database needs no separate server.
 
 ## Screenshots
@@ -249,9 +249,10 @@ clearly-labelled section so AI tools can see it while treating it with appropria
 ### Agent memory skills
 
 For agent CLIs the same memory loop ships as two portable skills, `prax-recall` and
-`prax-remember`, which Claude Code and Codex load on demand. Each is one dependency-free Node
-script that talks to the running app; a checkout of this repo already has them linked in, and
-any other machine installs them with one command and no checkout. See
+`prax-remember`, which Claude Code, Codex, Copilot CLI and Antigravity load on demand. Each is one
+dependency-free Node script that talks to the running app; a checkout of this repo already has
+them linked in, a machine that installed the desktop app runs the installer straight from the
+bundle (no checkout, no git), and any other machine installs them with one command. See
 [skills/README.md](skills/README.md) for installation and [docs/agent-memory.md](docs/agent-memory.md)
 for the memory convention (what to remember, provenance, supersede).
 
