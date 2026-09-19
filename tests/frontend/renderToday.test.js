@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildTodayGroups, renderTodayHtml } from '../../public/js/renderToday.js';
+import {
+  buildTodayGroups, renderTodayHtml, weekLoad, recentAgentDocs, onCallProjects, weeklyReviewStatus, nextMondayIso,
+  TODAY_OVERDUE_ALL, OVERDUE_PREVIEW, SLIPPED_DEFERRALS,
+} from '../../public/js/renderToday.js';
 
 // Fixed clock for deterministic buckets and the date line: Monday, July 6 2026.
 const NOW = new Date('2026-07-06T09:00:00');
@@ -88,8 +91,8 @@ test('renderTodayHtml wraps in .page so it aligns with every other top-level vie
   // Both the populated and empty branches must sit inside the standard .page
   // inset — otherwise the Today heading hangs flush-left of the others.
   const { groups } = buildTodayGroups([task({ id: 'a', dueDate: '2026-07-06' })], PROJECTS, { now: NOW });
-  assert.match(renderTodayHtml(baseState(), groups, { now: NOW }), /^\s*<div class="page">/);
-  assert.match(renderTodayHtml(baseState(), [], { now: NOW }), /^\s*<div class="page">/);
+  assert.match(renderTodayHtml(baseState(), groups, { now: NOW }), /^\s*<div class="page today">/);
+  assert.match(renderTodayHtml(baseState(), [], { now: NOW }), /^\s*<div class="page today">/);
 });
 
 test('renderTodayHtml adds a project chip tinted with the project color after the title', () => {
@@ -113,7 +116,10 @@ test('renderTodayHtml rows keep the list-row affordances', () => {
   assert.match(html, /class="task-row is-multi"[^>]*data-task-id="b"/);
   assert.match(html, /data-action="toggle-task-done" data-task-id="a"/);
   assert.match(html, /class="chip chip--due-overdue">Jul 4 · overdue</);
-  assert.match(html, /class="group-label group-label--hi"/);
+  // Overdue rows live in the triage band now, not under a plain group label.
+  assert.match(html, /<section class="triage" data-triage aria-label="Overdue triage">/);
+  assert.match(html, /class="chip chip--due-overdue">1 overdue</);
+  assert.match(html, /<div class="rows" data-group="overdue">/);
 });
 
 test('renderTodayHtml renders the all-clear empty state under the head', () => {
@@ -187,4 +193,127 @@ test('renderTodayHtml: the week ahead is a collapsible "Next 7 days" section wit
   assert.match(empty, /All clear/);
   assert.match(empty, /next 7 days/);
   assert.doesNotMatch(empty, /data-today-week/);
+});
+
+// ---------------------------------------------------------------------------
+// Year-one Today (spec item 8): triage band, ritual tails, side cards
+// ---------------------------------------------------------------------------
+
+test('buildTodayGroups orders overdue oldest first and counts the slipping set', () => {
+  const tasks = [
+    task({ id: 'recent', dueDate: '2026-07-05', deferralCount: SLIPPED_DEFERRALS }),
+    task({ id: 'oldest', dueDate: '2026-06-01', deferralCount: 5 }),
+    task({ id: 'mid', dueDate: '2026-06-20', deferralCount: 1 }),
+    task({ id: 'now', dueDate: '2026-07-06' }),
+  ];
+  const built = buildTodayGroups(tasks, PROJECTS, { now: NOW });
+  assert.deepEqual(built.groups.find((g) => g.key === 'overdue').tasks.map((t) => t.id), ['oldest', 'mid', 'recent']);
+  assert.equal(built.overdueCount, 3);
+  assert.equal(built.slippedCount, 2);
+  assert.equal(built.dueTodayCount, 1);
+});
+
+test('the triage band names the set, offers the three bulk decisions, previews the oldest rows, and grows a decision strip under the selected row', () => {
+  const tasks = Array.from({ length: OVERDUE_PREVIEW + 3 }, (_, i) => task({ id: `o${i}`, title: `Slipped ${i}`, dueDate: `2026-06-${String(10 + i).padStart(2, '0')}`, deferralCount: 3 }));
+  const built = buildTodayGroups(tasks, PROJECTS, { now: NOW });
+  // main.js trims the preview; mirror it here.
+  const preview = built.groups.map((g) => (g.key === 'overdue' ? { ...g, tasks: g.tasks.slice(0, OVERDUE_PREVIEW), totalCount: g.tasks.length } : g));
+  const html = renderTodayHtml(baseState({ selectedTaskId: 'o1' }), preview, { now: NOW, overdueTotal: built.overdueCount, slippedCount: built.slippedCount });
+  assert.match(html, /class="chip chip--due-overdue">8 overdue</);
+  assert.match(html, /8 of them have slipped at least twice\. Decide once for the set, or one at a time\./);
+  assert.match(html, /data-action="triage-all" data-decision="monday"[^>]*>Reschedule all to Monday</);
+  assert.match(html, /data-action="triage-all" data-decision="backlog"[^>]*>Send to backlog</);
+  assert.match(html, /class="btn-primary" data-action="open-plan-mode"[^>]*>Review one by one</);
+  assert.match(html, /Slipped 0/);
+  assert.match(html, /Slipped 4/);
+  assert.doesNotMatch(html, /Slipped 5/, 'beyond the preview');
+  assert.match(html, /class="triage__more" data-action="toggle-section" data-section-key="today:overdue-all" aria-expanded="false">3 more, oldest first</);
+  // The decision strip follows the selected row only.
+  assert.match(html, /data-task-id="o1"[\s\S]*?<div class="triage__decide" role="group" aria-label="Decide: Slipped 1">[\s\S]*?data-action="triage-task" data-task-id="o1" data-decision="today">Today<[\s\S]*?data-decision="monday">Monday<[\s\S]*?data-decision="backlog">Backlog</);
+  assert.equal((html.match(/triage__decide/g) || []).length, 1);
+  // Expanded: every row and a "Show fewer".
+  const all = renderTodayHtml(baseState(), built.groups, { now: NOW, overdueTotal: built.overdueCount, overdueExpanded: true });
+  assert.match(all, /Slipped 7/);
+  assert.match(all, /data-section-key="today:overdue-all" aria-expanded="true">Show fewer</);
+  assert.equal(TODAY_OVERDUE_ALL, 'today:overdue-all');
+});
+
+test('Planned and Due today carry their ritual tails; the header gains the weekly review with its due chip', () => {
+  const tasks = [
+    task({ id: 'p', title: 'Planned one', plannedFor: '2026-07-06', sortOrder: 0 }),
+    task({ id: 'd', title: 'Due one', dueDate: '2026-07-06' }),
+    task({ id: 'd2', title: 'Due two', dueDate: '2026-07-06' }),
+  ];
+  const built = buildTodayGroups(tasks, PROJECTS, { now: NOW });
+  const html = renderTodayHtml(baseState(), built.groups, { now: NOW, plannedCount: 1 });
+  assert.match(html, /Planned <span class="group-label__count">1<\/span><button type="button" class="group-label__action" data-action="open-plan-mode">Edit plan</);
+  assert.match(html, /Due today <span class="group-label__count">2<\/span><button type="button" class="group-label__action" data-action="plan-add-today"[^>]*>Add all to plan</);
+  assert.match(html, /data-action="generate-weekly-review"[^>]*>Weekly review <span class="chip chip--due-today">due</);
+  const reviewed = renderTodayHtml(baseState({ documents: [{ id: 'w', title: 'Weekly review — 2026-W27', updatedAt: '2026-07-05T10:00:00.000Z' }] }), built.groups, { now: NOW });
+  assert.doesNotMatch(reviewed, /chip--due-today">due/);
+});
+
+test('weekLoad counts open tasks per day for seven days starting today', () => {
+  const days = weekLoad([
+    task({ id: 'a', dueDate: '2026-07-06' }), task({ id: 'b', dueDate: '2026-07-06', status: 'completed' }),
+    task({ id: 'c', dueDate: '2026-07-08' }), task({ id: 'd', dueDate: '2026-07-13' }), task({ id: 'e', dueDate: '2026-07-20' }),
+  ], { now: NOW });
+  assert.equal(days.length, 7);
+  assert.deepEqual(days.map((d) => d.count), [1, 0, 1, 0, 0, 0, 0]);
+  assert.deepEqual(days.map((d) => d.label), ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']);
+  assert.equal(days[0].isToday, true);
+  assert.equal(days[1].isToday, false);
+});
+
+test('recentAgentDocs keeps agent-written documents from the last day, newest first, capped', () => {
+  const documents = [
+    { id: 'h', title: 'Human', updatedAt: '2026-07-06T08:00:00.000Z' },
+    { id: 'old', title: 'Old agent', updatedBy: 'agent', updatedAt: '2026-07-01T08:00:00.000Z' },
+    { id: 'a1', title: 'Agent one', updatedBy: 'agent', updatedAt: '2026-07-06T07:00:00.000Z' },
+    { id: 'a2', title: 'Agent two', kind: 'synthesized', updatedAt: '2026-07-06T08:30:00.000Z' },
+    { id: 'gone', title: 'Archived', updatedBy: 'agent', archivedAt: '2026-07-06T08:00:00.000Z', updatedAt: '2026-07-06T08:00:00.000Z' },
+  ];
+  assert.deepEqual(recentAgentDocs(documents, { now: NOW }).map((d) => d.id), ['a2', 'a1']);
+  assert.deepEqual(recentAgentDocs(documents, { now: NOW, limit: 1 }).map((d) => d.id), ['a2']);
+});
+
+test('onCallProjects lists projects carrying on-call or handoff notes, live ones only', () => {
+  const projects = [
+    { id: 'p1', name: 'Homelab', status: 'active', onCall: 'Mark' },
+    { id: 'p2', name: 'Quiet', status: 'active' },
+    { id: 'p3', name: 'Done', status: 'completed', onCall: 'Mark' },
+    { id: 'p4', name: 'Platform', status: 'on-hold', handoffNotes: 'Window Wed' },
+  ];
+  assert.deepEqual(onCallProjects(projects).map((p) => p.id), ['p1', 'p4']);
+  assert.deepEqual(onCallProjects(projects, { limit: 1 }).map((p) => p.id), ['p1']);
+});
+
+test('weeklyReviewStatus is due with no review or one six days old, else reports the age', () => {
+  assert.deepEqual(weeklyReviewStatus([], { now: NOW }), { due: true, daysAgo: null });
+  assert.deepEqual(weeklyReviewStatus([{ title: 'Weekly review — 2026-W27', updatedAt: '2026-07-05T09:00:00' }], { now: NOW }), { due: false, daysAgo: 1 });
+  assert.deepEqual(weeklyReviewStatus([{ title: 'Weekly review — 2026-W26', updatedAt: '2026-06-30T09:00:00' }], { now: NOW }), { due: true, daysAgo: 6 });
+  assert.equal(weeklyReviewStatus([{ title: 'Not a review', updatedAt: '2026-07-06T09:00:00' }], { now: NOW }).due, true);
+  assert.equal(nextMondayIso(NOW), '2026-07-13', 'a Monday jumps a full week');
+});
+
+test('side cards render from loaded state: week strip always, agents and on-call only when there is something', () => {
+  const state = baseState({
+    tasks: [task({ id: 'a', dueDate: '2026-07-06' }), task({ id: 'b', dueDate: '2026-07-08' })],
+    documents: [{ id: 'a1', title: 'Agent memory', updatedBy: 'agent', updatedByAgent: 'claude', updatedAt: '2026-07-06T07:00:00.000Z' }],
+    projects: [{ id: 'p1', name: 'Homelab', status: 'active', onCall: 'Mark', handoffNotes: 'Talos window Wed 20:00', color: '#7c9885' }],
+  });
+  const html = renderTodayHtml(state, [], { now: NOW, queueCount: 3 });
+  assert.match(html, /<aside class="today-side" aria-label="Today at a glance">/);
+  assert.match(html, /data-week-card>[\s\S]*?This week<span class="today-card__meta">2 due</);
+  assert.match(html, /class="week-strip__day is-today" title="Mon: 1 due"><b>1</);
+  assert.match(html, /data-today-agents>[\s\S]*?<button type="button" class="settings-link" data-action="open-review-queue">Review queue 3 →</);
+  assert.match(html, /class="agent-row" data-action="open-linked-doc" data-document-id="a1"><span class="agent-row__who">claude</);
+  assert.match(html, /chip--unverified">UNVERIFIED</);
+  assert.match(html, /data-today-oncall>[\s\S]*?On call · Homelab<span class="today-card__meta">Mark</);
+  assert.match(html, /Talos window Wed 20:00/);
+  assert.match(html, /data-action="nav-project" data-project-id="p1">Open project</);
+  const bare = renderTodayHtml(baseState(), [], { now: NOW });
+  assert.match(bare, /data-week-card/);
+  assert.doesNotMatch(bare, /data-today-agents/);
+  assert.doesNotMatch(bare, /data-today-oncall/);
 });

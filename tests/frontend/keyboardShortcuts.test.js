@@ -12,6 +12,7 @@ test('cmd/ctrl+K opens the palette, ⌘I the assistant, and cmd/ctrl+J toggles t
   assert.equal(matchShortcut({ key: 'i', metaOrCtrl: true }).action, 'assistant');
   assert.equal(matchShortcut({ key: 'I', metaOrCtrl: true }).action, 'assistant');
   assert.equal(matchShortcut({ key: 'j', metaOrCtrl: true }).action, 'theme');
+  assert.equal(matchShortcut({ key: '/', metaOrCtrl: true }).action, 'shortcuts');
 });
 
 test('other modified keys never trigger shortcuts', () => {

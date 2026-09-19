@@ -11,22 +11,25 @@ function fakeRepository(overrides = {}) {
     async createProject({ name }) { return { id: PROJECT_ID, name, slug: 'work', status: 'active', sortOrder: 0 }; },
     async updateProject(id, fields) { return id === PROJECT_ID ? { id, name: 'Work', slug: 'work', status: 'active', sortOrder: 0, ...fields } : null; },
     async archiveProject(id) { return id === PROJECT_ID ? { id, name: 'Work', slug: 'work', status: 'archived', sortOrder: 0 } : null; },
-    async countProjectDependents() { return 0; },
-    async deleteProject(id) { return id === PROJECT_ID ? { id, name: 'Work', slug: 'work', status: 'active', sortOrder: 0 } : null; },
+    async deleteProject(id) {
+      return id === PROJECT_ID
+        ? { project: { id, name: 'Work', slug: 'work', status: 'active', sortOrder: 0 }, deleted: { tasks: 2, documents: 1 } }
+        : null;
+    },
     async resolveProject(id) { return id === PROJECT_ID ? { id, name: 'Work', slug: 'work', status: 'active', sortOrder: 0 } : null; },
     ...overrides,
   };
 }
 
-const INBOX_ID = '00000000-0000-4000-8000-000000000001';
-// Reports every id as the reserved Inbox, and blows up if any mutation slips
-// past the guard.
-function inboxOverrides() {
+const MEMORY_ID = '4d454d4f-5259-4000-8000-000000000001';
+// Reports every id as the reserved Memory project, and blows up if any
+// mutation slips past the guard.
+function memoryOverrides() {
   return {
-    async resolveProject() { return { id: INBOX_ID, name: 'Inbox', slug: 'inbox', status: 'active', sortOrder: -1 }; },
-    async updateProject() { throw new Error('guard failed: reached updateProject for Inbox'); },
-    async archiveProject() { throw new Error('guard failed: reached archiveProject for Inbox'); },
-    async deleteProject() { throw new Error('guard failed: reached deleteProject for Inbox'); },
+    async resolveProject() { return { id: MEMORY_ID, name: 'Memory', slug: 'memory', status: 'active', sortOrder: 3 }; },
+    async updateProject() { throw new Error('guard failed: reached updateProject for Memory'); },
+    async archiveProject() { throw new Error('guard failed: reached archiveProject for Memory'); },
+    async deleteProject() { throw new Error('guard failed: reached deleteProject for Memory'); },
   };
 }
 
@@ -125,12 +128,45 @@ test('DELETE archives the project', async () => {
   assert.equal(res.json().status, 'archived');
 });
 
-test('DELETE /permanent succeeds only when empty (409 otherwise)', async () => {
-  const empty = await build();
-  assert.equal((await empty.inject({ method: 'DELETE', url: `/api/projects/${PROJECT_ID}/permanent` })).statusCode, 200);
+test('DELETE /permanent deletes a non-empty project and reports what went with it', async () => {
+  const app = await build();
+  const res = await app.inject({ method: 'DELETE', url: `/api/projects/${PROJECT_ID}/permanent` });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().id, PROJECT_ID);
+  assert.deepEqual(res.json().deleted, { tasks: 2, documents: 1 });
+  assert.equal((await app.inject({ method: 'DELETE', url: `/api/projects/22222222-2222-4222-8222-222222222222/permanent` })).statusCode, 404);
+  assert.equal((await app.inject({ method: 'DELETE', url: '/api/projects/not-a-uuid/permanent' })).statusCode, 400);
+});
 
-  const busy = await build({ async countProjectDependents() { return 3; } });
-  assert.equal((await busy.inject({ method: 'DELETE', url: `/api/projects/${PROJECT_ID}/permanent` })).statusCode, 409);
+test('DELETE /permanent removes the project with its tasks and documents in one go; Inbox is deletable', async () => {
+  const { buildApp } = await import('../../server/index.js');
+  const { loadConfig } = await import('../../server/config.js');
+  const app = await buildApp({ config: loadConfig({ PRAX_DB_FILE: ':memory:', EMBEDDING_BACKEND: 'none' }) });
+  const project = (await app.inject({ method: 'POST', url: '/api/projects', payload: { name: 'Doomed' } })).json();
+  const task = (await app.inject({ method: 'POST', url: '/api/tasks', payload: { title: 'Goes too', project: 'doomed', priority: 'medium', status: 'planned' } })).json();
+  const doc = (await app.inject({ method: 'POST', url: '/api/library/documents', payload: { title: 'Also goes', body: 'body', documentType: 'note', project: 'doomed' } })).json();
+  await app.inject({ method: 'POST', url: `/api/tasks/${task.id}/checklist`, payload: { label: 'cascades' } });
+
+  const res = await app.inject({ method: 'DELETE', url: `/api/projects/${project.id}/permanent` });
+  assert.equal(res.statusCode, 200, res.body);
+  assert.deepEqual(res.json().deleted, { tasks: 1, documents: 1 });
+  assert.equal((await app.inject({ method: 'GET', url: `/api/tasks/${task.id}` })).statusCode, 404, 'task is gone');
+  assert.equal((await app.inject({ method: 'GET', url: `/api/library/documents/${doc.id}` })).statusCode, 404, 'document is gone');
+  const remaining = (await app.inject({ method: 'GET', url: '/api/projects?status=all' })).json().map((p) => p.slug);
+  assert.ok(!remaining.includes('doomed'), 'project is gone');
+  const { rows } = await app.db.query('select count(*) as n from task_checklist_items');
+  assert.equal(Number(rows[0].n), 0, 'checklist items cascade with their task');
+
+  // Inbox is an ordinary project now: it can be renamed and deleted like any other.
+  const inbox = (await app.inject({ method: 'GET', url: '/api/projects' })).json().find((p) => p.slug === 'inbox');
+  assert.equal((await app.inject({ method: 'PATCH', url: `/api/projects/${inbox.id}`, payload: { name: 'Triage' } })).statusCode, 200);
+  assert.equal((await app.inject({ method: 'DELETE', url: `/api/projects/${inbox.id}/permanent` })).statusCode, 200);
+
+  // The Memory project exists on a fresh database and is the one that stays.
+  const memory = (await app.inject({ method: 'GET', url: '/api/projects' })).json().find((p) => p.slug === 'memory');
+  assert.ok(memory, 'memory project is seeded');
+  assert.equal((await app.inject({ method: 'DELETE', url: `/api/projects/${memory.id}/permanent` })).statusCode, 403);
+  await app.close();
 });
 
 test('PATCH /api/projects/:id renames a non-reserved project (slug stays stable)', async () => {
@@ -152,24 +188,12 @@ test('PATCH /api/projects/:id rejects a blank rename', async () => {
   assert.match(res.json().message, /name is invalid/);
 });
 
-test('the reserved Inbox project is protected from rename, archive, and delete', async () => {
-  const app = await build(inboxOverrides());
-  const patch = await app.inject({ method: 'PATCH', url: `/api/projects/${INBOX_ID}`, payload: { name: 'Renamed' } });
+test('the reserved Memory project is protected from rename, status change, archive, and delete', async () => {
+  const app = await build(memoryOverrides());
+  const patch = await app.inject({ method: 'PATCH', url: `/api/projects/${MEMORY_ID}`, payload: { name: 'Renamed' } });
   assert.equal(patch.statusCode, 403);
-  assert.match(patch.json().message, /Inbox/);
-  assert.equal((await app.inject({ method: 'DELETE', url: `/api/projects/${INBOX_ID}` })).statusCode, 403);
-  assert.equal((await app.inject({ method: 'DELETE', url: `/api/projects/${INBOX_ID}/permanent` })).statusCode, 403);
-});
-
-test('DELETE /permanent returns 409 if a dependent FK blocks the delete', async () => {
-  const app = await build({
-    async countProjectDependents() { return 0; },
-    async deleteProject() {
-      const err = new Error('foreign key violation');
-      err.code = '23503';
-      throw err;
-    },
-  });
-  const res = await app.inject({ method: 'DELETE', url: `/api/projects/${PROJECT_ID}/permanent` });
-  assert.equal(res.statusCode, 409);
+  assert.match(patch.json().message, /Memory/);
+  assert.equal((await app.inject({ method: 'PATCH', url: `/api/projects/${MEMORY_ID}`, payload: { status: 'archived' } })).statusCode, 403);
+  assert.equal((await app.inject({ method: 'DELETE', url: `/api/projects/${MEMORY_ID}` })).statusCode, 403);
+  assert.equal((await app.inject({ method: 'DELETE', url: `/api/projects/${MEMORY_ID}/permanent` })).statusCode, 403);
 });

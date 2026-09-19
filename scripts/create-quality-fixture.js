@@ -116,6 +116,9 @@ function schemaFeatures(ordinal) {
     // vector is CURRENT only when embedded_hash carries that token; older
     // schemas keep the body hash and their vectors stay pending after upgrade.
     documentRevision: ordinal >= 23,
+    // 0030: the reserved Memory system project (slug 'memory') is seeded by
+    // migration, so a workspace upgraded past it holds one more project row.
+    memoryProject: ordinal >= 30,
   };
 }
 
@@ -618,7 +621,7 @@ function buildManifest({
   const sourceFeatures = schemaFeatures(sourceBoundary.ordinal);
   const finalFeatures = schemaFeatures(finalBoundary.ordinal);
   const documents = finalDocumentModels(seeded.documents, sourceBoundary.ordinal, finalBoundary.ordinal);
-  const expectedProjectCount = 3 + (finalFeatures.inboxProject ? 1 : 0) + 1;
+  const expectedProjectCount = 3 + (finalFeatures.inboxProject ? 1 : 0) + (finalFeatures.memoryProject ? 1 : 0) + 1;
   const expectedCounts = {
     schemaMigrations: migrations.filter((migration) => migration.ordinal <= finalBoundary.ordinal).length,
     projects: expectedProjectCount,

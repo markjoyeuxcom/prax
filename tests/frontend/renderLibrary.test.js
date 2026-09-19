@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  buildLibraryModel, limitDocumentGroups, renderLibraryHtml,
+  buildLibraryModel, limitDocumentGroups, renderLibraryHtml, libraryFacetCounts,
+  isReviewQueueDoc, reviewQueue, reviewQueueSummary, renderDocTable, renderDocBulkBarHtml,
 } from '../../public/js/renderLibrary.js';
 
 const NOW = new Date('2026-07-06T12:00:00.000Z');
@@ -224,21 +225,35 @@ test('semantic results render match cards when there are hits', () => {
 // renderLibraryHtml — header, search row, tag row
 // ---------------------------------------------------------------------------
 
-test('header renders title and import/export/archive/new actions', () => {
+test('header keeps Ask Prax, ＋ New doc and a closed ⋯ overflow; the rest waits inside it', () => {
   const html = render();
   assert.match(html, /class="page-head__title">Library</);
-  assert.match(html, /data-action="import-documents"[^>]*title="Choose Markdown files and their destination project"[^>]*>Import Markdown…</);
-  assert.match(html, /data-action="export-library"[^>]*title="Choose scope and where to save the Markdown archive"[^>]*>Export…</);
-  assert.match(html, /data-action="toggle-library-view"[^>]*>Archive</);
+  assert.match(html, /data-action="open-ask-prax"/);
   // ＋ New doc is a template chooser: the button toggles the menu; the menu's
   // items carry the actual new-document action (only when open).
   assert.match(html, /class="btn-primary"[^>]*data-action="toggle-new-doc-menu"[^>]*>＋ New doc</);
   assert.doesNotMatch(html, /data-action="new-document"/); // closed by default
+  assert.match(html, /data-action="toggle-library-menu"[^>]*aria-haspopup="true"[^>]*aria-expanded="false"[^>]*aria-label="More library actions"/);
+  for (const action of ['open-generate-runbook', 'open-health', 'generate-weekly-review', 'import-documents', 'export-library', 'toggle-library-view']) {
+    assert.doesNotMatch(html, new RegExp(`data-action="${action}"`), `${action} stays behind the overflow until opened`);
+  }
+});
+
+test('the ⋯ overflow, when open, lists every occasional action with its original data-action', () => {
+  const html = render({ libraryMenuOpen: true });
+  assert.match(html, /data-action="toggle-library-menu"[^>]*aria-expanded="true"/);
+  assert.match(html, /class="menu__panel menu__panel--right" role="menu"/);
+  assert.match(html, /class="menu__item"[^>]*data-action="open-generate-runbook"/);
+  assert.match(html, /class="menu__item"[^>]*data-action="open-health"[^>]*>\s*Health/);
+  assert.match(html, /class="menu__item"[^>]*data-action="generate-weekly-review"[^>]*>\s*Weekly review/);
+  assert.match(html, /data-action="import-documents"[^>]*title="Choose Markdown files and their destination project"[^>]*>\s*Import Markdown…/);
+  assert.match(html, /data-action="export-library"[^>]*title="Choose scope and where to save the Markdown archive"[^>]*>\s*Export…/);
+  assert.match(html, /data-action="toggle-library-view"[^>]*aria-pressed="false"[^>]*>\s*Archive/);
 });
 
 test('Markdown intake opens a dedicated destination dialog instead of deriving ownership from navigation', () => {
-  const html = render({ navId: 'p2' });
-  assert.match(html, /data-action="import-documents"[^>]*>Import Markdown…</);
+  const html = render({ navId: 'p2', libraryMenuOpen: true });
+  assert.match(html, /data-action="import-documents"[^>]*>\s*Import Markdown…/);
   assert.doesNotMatch(html, /Import plain \.md · Work|Import plain \.md · Homelab/);
   assert.doesNotMatch(html, /data-action="import-documents"[^>]*disabled/);
 });
@@ -250,9 +265,55 @@ test('the ＋ New doc menu, when open, offers Blank note and Runbook templates',
   assert.match(html, /data-action="new-document" data-template-id="runbook"[\s\S]*?Runbook/);
 });
 
-test('archive view flips the toggle label to Active', () => {
-  const html = render({ libraryView: 'archive' });
-  assert.match(html, /data-action="toggle-library-view"[^>]*aria-pressed="true"[^>]*>Active</);
+test('archive view flips the overflow toggle label to Active and says so in the header', () => {
+  const html = render({ libraryView: 'archive', libraryMenuOpen: true });
+  assert.match(html, /data-action="toggle-library-view"[^>]*aria-pressed="true"[^>]*>\s*Active/);
+  assert.match(html, /class="page-head__sub">Archive</);
+});
+
+// ---- facets in the panel (wide windows) --------------------------------------
+
+test('facetsInPanel drops the facet and tag rows and shows nothing when no filter is active', () => {
+  const html = renderLibraryHtml(makeState(), buildLibraryModel(makeState()), { facetsInPanel: true });
+  assert.doesNotMatch(html, /facet-row/);
+  assert.doesNotMatch(html, /tag-row/);
+  assert.doesNotMatch(html, /filter-row/);
+  assert.match(html, /data-library-search/, 'search stays in the main view');
+  // Narrow windows (default) keep the rows.
+  const narrow = render();
+  assert.match(narrow, /facet-row/);
+  assert.match(narrow, /tag-row/);
+});
+
+test('facetsInPanel renders active filters as removable chips with the same toggle actions', () => {
+  const state = makeState({ libraryTypes: ['runbook'], libraryTrust: ['verified'], libraryProjects: ['p2'], activeLibraryTags: ['postgres'] });
+  const html = renderLibraryHtml(state, buildLibraryModel(state), { facetsInPanel: true });
+  assert.match(html, /class="filter-row" aria-label="Active filters"/);
+  assert.match(html, /class="filter-chip"[^>]*data-action="toggle-lib-type" data-facet="runbook" aria-label="Remove filter Type: Runbooks"/);
+  assert.match(html, /data-action="toggle-lib-trust" data-facet="verified" aria-label="Remove filter Trust: Verified"/);
+  assert.match(html, /data-action="toggle-lib-project" data-facet="p2" aria-label="Remove filter Project: Work"/);
+  assert.match(html, /data-action="toggle-lib-tag" data-tag="postgres" aria-label="Remove filter #postgres"/);
+  assert.match(html, /data-action="save-library-view"/);
+  assert.match(html, /data-action="clear-lib-filters"[^>]*>Clear filters</);
+});
+
+test('facetsInPanel: in archive and semantic modes only tag chips remain, since type/trust/project do not apply there', () => {
+  const state = makeState({ libraryView: 'archive', libraryTypes: ['runbook'], activeLibraryTags: ['dns'] });
+  const html = renderLibraryHtml(state, buildLibraryModel(state), { facetsInPanel: true });
+  assert.doesNotMatch(html, /data-facet="runbook"/);
+  assert.match(html, /data-tag="dns"/);
+});
+
+test('libraryFacetCounts counts type, trust and project over the whole set', () => {
+  const counts = libraryFacetCounts([
+    ...DOCS,
+    { id: 'v', documentType: 'note', projectId: 'p1', verified: true, kind: 'synthesized' },
+  ]);
+  assert.equal(counts.type.runbook, 2);
+  assert.equal(counts.type.note, 2);
+  assert.equal(counts.trust.verified, 1);
+  assert.equal(counts.trust.agent, 1);
+  assert.deepEqual(counts.project, { p1: 3, p2: 1 });
 });
 
 test('search input uses the keyword placeholder and search action hooks', () => {
@@ -273,20 +334,32 @@ test('semantic mode switches the placeholder and marks the search row', () => {
   assert.match(html, /placeholder="Ask in plain language — e\.g\. &quot;what do I do when the database dies&quot;"/);
 });
 
-test('semantic toggle renders only when available AND enabled, with is-on state', () => {
+test('the Keyword | Semantic segment renders only when semantic is available AND enabled, marking the active mode', () => {
   const on = render({ semanticStatus: { available: true, enabled: true }, librarySemantic: true });
-  assert.match(on, /data-action="toggle-semantic"/);
-  assert.match(on, /class="btn-ghost is-on"[^>]*data-action="toggle-semantic"[^>]*aria-pressed="true"/);
-  assert.match(on, /toggle-semantic[^>]*>[\s\S]*?<span>Semantic<\/span>/);
+  assert.match(on, /class="seg" role="group" aria-label="Search mode"/);
+  assert.match(on, /class="seg__btn" type="button" data-action="set-search-mode" data-mode="keyword" aria-pressed="false">Keyword</);
+  assert.match(on, /class="seg__btn is-active" type="button" data-action="set-search-mode" data-mode="semantic" aria-pressed="true">[\s\S]*?<span>Semantic<\/span>/);
 
   const off = render({ semanticStatus: { available: true, enabled: true }, librarySemantic: false });
-  assert.match(off, /class="btn-ghost"[^>]*data-action="toggle-semantic"[^>]*aria-pressed="false"/);
+  assert.match(off, /class="seg__btn is-active"[^>]*data-mode="keyword" aria-pressed="true"/);
+  assert.match(off, /class="seg__btn"[^>]*data-mode="semantic" aria-pressed="false"/);
 
-  assert.doesNotMatch(render({ semanticStatus: { available: false } }), /data-action="toggle-semantic"/);
-  assert.doesNotMatch(
-    render({ semanticStatus: { available: true, enabled: false } }),
-    /data-action="toggle-semantic"/,
-  );
+  assert.doesNotMatch(render({ semanticStatus: { available: false } }), /set-search-mode/);
+  assert.doesNotMatch(render({ semanticStatus: { available: true, enabled: false } }), /set-search-mode/);
+});
+
+test('Group: Type groups cards by type; Group: None is one flat run in sort order; hidden in archive and semantic', () => {
+  const typed = render();
+  assert.match(typed, /data-action="cycle-lib-group">Group: Type</);
+  assert.match(typed, /class="group-label">Runbooks/);
+  const flat = render({ libraryGroupBy: 'none' });
+  assert.match(flat, /data-action="cycle-lib-group">Group: None</);
+  assert.match(flat, /class="group-label">All documents <span class="group-label__count">3</);
+  assert.doesNotMatch(flat, /class="group-label">Runbooks/);
+  assert.equal(buildLibraryModel(makeState({ libraryGroupBy: 'none' })).groups.length, 1);
+  assert.deepEqual(buildLibraryModel(makeState({ libraryGroupBy: 'none', libraryQuery: 'zzz' })).groups, []);
+  assert.doesNotMatch(render({ libraryView: 'archive' }), /cycle-lib-group/);
+  assert.doesNotMatch(render({ librarySemantic: true, semanticStatus: { available: true, enabled: true } }), /cycle-lib-group/);
 });
 
 test('sort cycler shows Title when sorting by title', () => {
@@ -697,4 +770,107 @@ test('semantic results disclose incomplete indexing even when matches exist', ()
   const html = render({librarySemantic:true,libraryQuery:'recovery',semanticStatus:{available:true,enabled:true},semanticResults:[{id:'one',title:'One',snippet:'Current match'}],semanticIndex:{total:10,embedded:2,pending:8}});
   assert.match(html,/2 of 10 documents are current; 8 pending/);
   assert.match(html,/Re-index/);
+});
+
+// ---- table mode + review queue (year-one shell spec, item 7) ------------------
+
+const AGENT_DOCS = [
+  { id: 'a1', title: 'CNPG restore fails without listBuckets', documentType: 'known-issue', projectId: 'p1', tags: ['postgres'], updatedBy: 'agent', updatedByAgent: 'claude', verified: false, updatedAt: '2026-07-05T10:00:00.000Z' },
+  { id: 'a2', title: 'Talos drain order', documentType: 'runbook', projectId: 'p1', tags: ['talos'], kind: 'synthesized', updatedByAgent: 'codex', verified: false, stale: true, updatedAt: '2026-07-04T10:00:00.000Z' },
+  { id: 'a3', title: 'Verified memory', documentType: 'note', projectId: 'p2', tags: [], updatedBy: 'agent', updatedByAgent: 'claude', verified: true, updatedAt: '2026-07-03T10:00:00.000Z' },
+  { id: 'a4', title: 'Superseded memory', documentType: 'note', projectId: 'p2', tags: [], updatedBy: 'agent', status: 'superseded', verified: false, updatedAt: '2026-07-02T10:00:00.000Z' },
+  { id: 'a5', title: 'Archived memory', documentType: 'note', projectId: 'p2', tags: [], updatedBy: 'agent', verified: false, archivedAt: '2026-07-01T00:00:00.000Z', updatedAt: '2026-07-01T10:00:00.000Z' },
+];
+
+test('the review queue is unverified agent-written documents, minus superseded and archived', () => {
+  assert.deepEqual(reviewQueue([...DOCS, ...AGENT_DOCS]).map(d => d.id), ['a1', 'a2']);
+  assert.equal(isReviewQueueDoc(DOCS[0]), false, 'a human document is not queued');
+  assert.equal(isReviewQueueDoc(null), false);
+  assert.deepEqual(reviewQueueSummary([...DOCS, ...AGENT_DOCS]), {
+    total: 2, stale: 1, byAgent: [{ agent: 'claude', count: 1 }, { agent: 'codex', count: 1 }],
+  });
+  assert.deepEqual(reviewQueueSummary([{ id: 'x', updatedBy: 'agent' }]).byAgent, [{ agent: 'agent', count: 1 }], 'no agent id falls back to "agent"');
+});
+
+test('the review view narrows the model to the queue, forces the table layout, and keeps facets applying', () => {
+  const state = makeState({ documents: [...DOCS, ...AGENT_DOCS], libraryView: 'review' });
+  const model = buildLibraryModel(state);
+  assert.equal(model.review, true);
+  assert.equal(model.layout, 'table');
+  assert.deepEqual(model.groups.flatMap(g => g.docs).map(d => d.id).sort(), ['a1', 'a2']);
+  assert.equal(model.queueCount, 2);
+  assert.equal(model.reviewSummary.total, 2);
+  assert.equal(model.welcome, false);
+  const typed = buildLibraryModel(makeState({ documents: [...DOCS, ...AGENT_DOCS], libraryView: 'review', libraryTypes: ['runbook'] }));
+  assert.deepEqual(typed.groups.flatMap(g => g.docs).map(d => d.id), ['a2']);
+  assert.equal(buildLibraryModel(makeState({ documents: DOCS, libraryView: 'review' })).visibleCount, 0);
+});
+
+test('renderLibraryHtml in the review view: sub-line, banner with counts, table with Review buttons, no layout toggle', () => {
+  const html = render({ documents: [...DOCS, ...AGENT_DOCS], libraryView: 'review' });
+  assert.match(html, /class="page-head__sub">Review queue</);
+  assert.match(html, /class="review-banner" role="status"/);
+  assert.match(html, /chip chip--unverified">2 to review</);
+  assert.match(html, /class="review-banner__agents">claude 1 · codex 1 · 1 stale</);
+  assert.match(html, /data-action="select-visible-docs">Select shown</);
+  assert.match(html, /class="btn-primary" type="button" data-action="review-next">Review next</);
+  assert.match(html, /class="doc-table doc-table--review" role="table" aria-label="Review queue"/);
+  assert.match(html, /data-action="review-doc" data-document-id="a1"/);
+  assert.match(html, /class="doc-table__by">claude</);
+  assert.match(html, /chip--unverified">UNVERIFIED</);
+  assert.match(html, /chip--stale">STALE</);
+  assert.doesNotMatch(html, /doc-card/);
+  assert.doesNotMatch(html, /layout-toggle/);
+  assert.doesNotMatch(html, /data-document-id="a3"/, 'verified documents are not in the queue');
+});
+
+test('an empty review queue distinguishes "clear" from "filtered out"', () => {
+  const clear = render({ documents: DOCS, libraryView: 'review' });
+  assert.match(clear, /The queue is clear/);
+  assert.doesNotMatch(clear, /review-banner/);
+  const filtered = render({ documents: [...DOCS, ...AGENT_DOCS], libraryView: 'review', libraryTypes: ['post-mortem'] });
+  assert.match(filtered, /No queued documents match/);
+  assert.match(filtered, /data-action="clear-lib-filters"/);
+});
+
+test('table layout in the browse view: a flat table of the visible documents, select-all, and Review only on unverified rows', () => {
+  const html = render({ documents: [...DOCS, ...AGENT_DOCS.slice(0, 3)], libraryLayout: 'table' });
+  assert.match(html, /class="doc-table" role="table" aria-label="Documents"/);
+  assert.match(html, /class="doc-table__check" data-action="select-visible-docs" aria-pressed="false" aria-label="Select all 6 shown"/);
+  assert.match(html, /class="doc-table__title" data-action="open-doc" data-document-id="doc-restore">Restore CloudNativePG</);
+  assert.match(html, /class="doc-table__by">you</);
+  assert.match(html, /data-document-id="a3"[^>]*>[\s\S]*?chip--verified">VERIFIED/);
+  assert.doesNotMatch(html, /data-action="review-doc" data-document-id="a3"/, 'verified rows get no Review');
+  assert.match(html, /data-action="review-doc" data-document-id="a1"/);
+  assert.doesNotMatch(html, /doc-card/);
+  assert.doesNotMatch(html, /review-banner/);
+  // The toggle marks table active; cards stays the default.
+  assert.match(html, /class="layout-toggle__btn is-active" data-action="set-library-layout" data-layout="table" aria-pressed="true"/);
+  assert.match(render(), /class="layout-toggle__btn is-active" data-action="set-library-layout" data-layout="cards"/);
+  assert.match(render(), /doc-card/);
+  assert.doesNotMatch(render({ libraryView: 'archive' }), /layout-toggle/, 'archive keeps its rows');
+});
+
+test('selection: rows mark is-selected, select-all flips to clear, and the bulk bar offers Archive', () => {
+  const docs = [...DOCS];
+  const html = renderDocTable(docs, makeState({ librarySelectedDocIds: ['doc-ideas'] }));
+  assert.match(html, /class="doc-table__row is-selected" role="row" data-document-id="doc-ideas"/);
+  assert.match(html, /class="doc-table__check is-on" data-action="toggle-doc-selection" data-document-id="doc-ideas" aria-pressed="true" aria-label="Deselect Ideas"/);
+  assert.match(html, /aria-label="Select Restore CloudNativePG"/);
+  const all = renderDocTable(docs, makeState({ librarySelectedDocIds: docs.map(d => d.id) }));
+  assert.match(all, /data-action="select-visible-docs" aria-pressed="true" aria-label="Clear selection">✓</);
+  assert.equal(renderDocBulkBarHtml(makeState()), '');
+  const bar = renderDocBulkBarHtml(makeState({ librarySelectedDocIds: ['a', 'b'] }));
+  assert.match(bar, /aria-label="Bulk document actions"/);
+  assert.match(bar, /class="bulkbar__count">2 selected</);
+  assert.match(bar, /data-action="bulk-archive-docs">Archive</);
+  assert.match(bar, /data-action="clear-doc-selection"/);
+  assert.doesNotMatch(bar, /verify/i, 'verification never happens blind');
+  assert.match(render({ librarySelectedDocIds: ['doc-ideas'] }), /bulkbar/, 'the page carries the bar');
+});
+
+test('the ⋯ overflow lists the review queue with its count', () => {
+  const html = render({ documents: [...DOCS, ...AGENT_DOCS], libraryMenuOpen: true });
+  assert.match(html, /data-action="open-review-queue" aria-pressed="false">\s*Review queue <span class="menu__count">2</);
+  assert.doesNotMatch(render({ libraryMenuOpen: true }), /menu__count/, 'no badge when the queue is empty');
 });

@@ -47,7 +47,7 @@ test('semantic retrieval reports exact totals, preserves trust, and loads every 
 
   await page.goto('/');
   await page.locator('[data-action="nav-library"]').first().click();
-  await page.locator('[data-action="toggle-semantic"]').click();
+  await page.locator('[data-action="set-search-mode"][data-mode="semantic"]').click();
   const search = page.getByRole('searchbox', { name: 'Search library' });
   await search.fill('database recovery');
   await search.press('Enter');

@@ -12,6 +12,98 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Changed
+
+- **Small shell pieces from the year-one canvas.** The titlebar's New is a split button —
+  capture stays the primary half, the chevron offers New document and New project (which lands
+  on All projects with the name field focused). In narrow windows the rail shows the current,
+  pinned and recent projects as lettered tiles, five at most, instead of one identical dot per
+  project. Lists gain a comfortable / compact row density (a preference, applied on `<body>`).
+  A project's Overdue header carries Reschedule all to Monday for that project. The Library's
+  Semantic toggle becomes a Keyword | Semantic segment and gains Group: Type / None. ⌘K's
+  selected task offers Today beside Done. Ninth and final item of the year-one shell spec.
+- **Today, year one: overdue is a set to decide on, and the day has a second column.** Overdue
+  work moves out of a plain group into a **triage band**: the count, how many have slipped at
+  least twice, and three decisions for the whole set — reschedule everything to next Monday,
+  send everything to the backlog (both undoable), or review one by one in Plan mode. The band
+  previews the five oldest and unfolds on request; the selected row grows a Today / Monday /
+  Backlog strip. Planned gets an **Edit plan** tail, Due today an **Add all to plan** tail, and
+  the header a **Weekly review** button that says when one is due. A right-hand column shows
+  the week's load by day, what agents wrote since yesterday with a link into the review queue,
+  and any project carrying on-call or handoff notes; the Today panel groups the rituals
+  (weekly review, brief, library health). Everything derives from already-loaded state.
+  Eighth item of the year-one shell spec.
+- **Library table mode and a review queue for agent memory.** The Library gains a **table**
+  layout beside cards (a per-device switch next to Sort): one row per document with type,
+  project, trust, tags, who wrote it and when, a select box per row, and a sticky bulk bar
+  whose one action is Archive. The **Review queue** is a first-class destination — the panel's
+  first row, an amber badge on the rail's Library button, a ⋯ menu item, and Library › Review
+  queue in the breadcrumb — listing agent-written documents nobody has verified (superseded and
+  archived ones excluded) with a banner that counts them per agent. Facets and search apply
+  inside the queue. Each row's **Review** (and the banner's **Review next**) opens the document
+  in preview with Verify at hand; leaving the editor returns to the queue. Verification itself
+  stays a read-then-verify action in the editor, by design — nothing verifies blind. Seventh
+  and last item of the year-one shell spec.
+- **⌘K has scopes, deeper results, and an inline Done.** The palette gains a scope bar — All,
+  Commands, Projects, Views, Tasks, Docs — with honest match counts; ⇥ / ⇧⇥ walk it and the
+  input keeps focus. All keeps the mixed list with five per group and a "+N more in Tasks" row
+  that jumps into that scope; a single scope lists up to forty and says how many more there
+  are. A scope with an empty query browses the whole group (every project, every view), which
+  All never did. The selected task row carries a Done button, also reachable with ⌘↵. Sixth
+  item of the year-one shell spec.
+- **On hold folds away, and the statusbar stops teaching.** On-hold projects leave the area
+  sections of the browser panel for one trailing **On hold** section that starts folded (it
+  opens on click and stays open per device, while you type a filter, or when the current
+  project is in it); pinned on-hold projects still float to Pinned. The statusbar's permanent
+  strip of shortcut hints is replaced by one line of facts — projects, open tasks, documents —
+  and a **⌘/ shortcuts** button; the full keymap now lives in a Keyboard shortcuts overlay
+  (`⌘/`, Esc to close) that lists what `keyboardShortcuts.js` actually binds, including the
+  desktop capture chord. Fifth item of the year-one shell spec.
+- **The titlebar crumb is a breadcrumb, and the panel remembers where you were.** "prax —
+  Homelab" is now a path: Area › Project › View, Library › document (› Run), Library › Archive,
+  Filter › view, Settings › section. Every earlier segment is a button that goes back there
+  (the same actions the rail and panel use); the current place is plain text. Calendar and
+  Filter, which used to show an empty crumb, are named. In the browser panel a **Recent**
+  section lists the last three projects you visited (per device, like pins) once you have six
+  or more projects, above Pinned and the areas; it steps aside while you type a filter. Fourth
+  item of the year-one shell spec.
+- **Library facets live in the panel on wide windows; the header is three controls.** The
+  Library's context panel now carries every filter axis with live counts — Type, Project,
+  Trust and Tags (most-used first, folded past ten, with a "Find a tag…" box once the list
+  outgrows that) — dispatching the same `toggle-lib-*` actions as before. The main view keeps
+  one search box and shows only the *active* filters, as removable chips with Clear filters and
+  Save view, so nothing is filtering invisibly. Windows narrower than 940 px (no panel) keep the
+  facet and tag rows. The header shrinks from eight buttons to **Ask Prax**, **＋ New doc** and
+  a **⋯** overflow holding New runbook from an incident, Health, Weekly review, Import
+  Markdown…, Export… and Archive/Active. Third and last item of the year-one shell spec.
+- **List groups fold, and done work splits at a week.** Every group header in a project's
+  List tab is now a collapse toggle (remembered per device, like panel areas), so Upcoming and
+  No date can stay out of the way of the rows that need action today. The Completed group is
+  replaced by **Done this week** and **Done earlier** (split at seven days on `completedAt`,
+  else `updatedAt`, the same fallback the weekly review uses), both folded by default and each
+  with an **Archive all** on its header that goes through the undoable bulk-archive path. Folded
+  rows leave the keyboard order and the "Showing N of M" count. Second item of the year-one
+  shell spec.
+- **Project names no longer truncate behind the ops fields.** On-call, handoff, repo and area
+  used to share the header row with the title and rendered even when empty, so a project called
+  "Homelab" showed as "Homel…" at ordinary window widths. The header now keeps an **Ops**
+  disclosure (collapsible, remembered per device like panel areas, with a count of set fields)
+  and the fields sit on their own row beneath it; a field without a value is a small `＋ Field`
+  button instead of an empty input. Inline editing and the debounced save are unchanged. First
+  item of the year-one shell spec
+  (`docs/superpowers/specs/2026-09-19-year-one-shell-design.md`).
+- **Any project can be deleted, and `memory` is the only protected one.** Permanent delete used
+  to refuse every project that still held a task or a document (`409`), which in practice meant
+  no real project could ever be removed, while the Inbox project was reserved outright. Delete
+  from All projects now removes the project together with everything filed under it — tasks
+  (with their checklist and activity), documents (with their links, refs and run chronicles) and
+  staged imports — in one transaction, and the confirmation says so; the toast reports how many
+  tasks and documents went with it. The reserved project is now the shared agent-memory home:
+  migration 0030 seeds a `memory` project (adopting one the CLI already created), the server
+  refuses to rename, change the status of, archive or delete it, and its All projects card shows a
+  System chip instead of actions. Inbox is an ordinary project: still the default capture target
+  while it exists, but the person may rename or delete it like any other.
+
 ## [0.32.1] - 2026-09-19
 
 ### Changed

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPaletteGroups, renderPaletteHtml } from '../../public/js/renderPalette.js';
+import { buildPaletteGroups, renderPaletteHtml, PALETTE_SCOPES, MAX_SCOPED_ITEMS, cyclePaletteScope, normalizePaletteScope } from '../../public/js/renderPalette.js';
 
 const PROJECTS = [{ id: 'p1', name: 'Homelab' }];
 const TASKS = [
@@ -117,15 +117,58 @@ test('documents also match on body text, not just title/tags', () => {
   assert.deepEqual(docs.items.map(i => i.id), ['d1']); // matched only by body
 });
 
-test('task and document groups cap at five items', () => {
-  const many = {
-    tasks: Array.from({ length: 9 }, (_, i) => ({ id: `t${i}`, projectId: 'p1', title: `match ${i}`, archivedAt: null })),
-    documents: Array.from({ length: 9 }, (_, i) => ({ id: `d${i}`, title: `match ${i}`, tags: [], documentType: 'note' })),
-    projects: PROJECTS,
+const MANY = {
+  tasks: Array.from({ length: 9 }, (_, i) => ({ id: `t${i}`, projectId: 'p1', title: `match ${i}`, archivedAt: null })),
+  documents: Array.from({ length: 9 }, (_, i) => ({ id: `d${i}`, title: `match ${i}`, tags: [], documentType: 'note' })),
+  projects: PROJECTS,
+};
+
+test('in the All scope, task and document groups show five items plus a "+N more" row that switches scope', () => {
+  const { groups, flat, scope, scopes } = buildPaletteGroups({ paletteQuery: 'match' }, MANY);
+  assert.equal(scope, 'all');
+  const tasks = groups.find(g => g.label === 'Tasks');
+  assert.equal(tasks.items.length, 6);
+  assert.deepEqual(tasks.items.slice(0, 5).map(i => i.id), ['t0', 't1', 't2', 't3', 't4']);
+  assert.deepEqual(tasks.items[5], { title: '4 more in Tasks', sub: '⇥', icon: 'check', action: 'palette-scope', scope: 'tasks', more: true });
+  const docs = groups.find(g => g.label === 'Documents');
+  assert.equal(docs.items[5].scope, 'docs');
+  assert.equal(flat.length, 12, 'the more rows are selectable like any item');
+  assert.deepEqual(scopes, [
+    { key: 'all', label: 'All', count: 18 }, { key: 'commands', label: 'Commands', count: 0 },
+    { key: 'projects', label: 'Projects', count: 0 }, { key: 'views', label: 'Views', count: 0 },
+    { key: 'tasks', label: 'Tasks', count: 9 }, { key: 'docs', label: 'Docs', count: 9 },
+  ]);
+});
+
+test('a single scope lists that group alone and much deeper, and browses without a query', () => {
+  const { groups, flat } = buildPaletteGroups({ paletteQuery: 'match', paletteScope: 'tasks' }, MANY);
+  assert.deepEqual(groups.map(g => g.label), ['Tasks']);
+  assert.equal(groups[0].items.length, 9);
+  assert.equal(groups[0].truncated, 0);
+  assert.ok(flat.every(i => i.action === 'open-task'));
+
+  const browse = buildPaletteGroups({ paletteQuery: '', paletteScope: 'projects' }, { ...DATA, projects: [{ id: 'p1', name: 'Homelab', status: 'active' }, { id: 'p2', name: 'Work', status: 'active' }] });
+  assert.deepEqual(browse.groups.map(g => g.label), ['Projects']);
+  assert.deepEqual(browse.flat.map(i => i.title), ['Homelab', 'Work']);
+  assert.deepEqual(buildPaletteGroups({ paletteQuery: '', paletteScope: 'all' }, DATA).groups.map(g => g.label), ['Commands'], 'All with no query stays a command list');
+
+  const deep = {
+    ...MANY,
+    tasks: Array.from({ length: MAX_SCOPED_ITEMS + 3 }, (_, i) => ({ id: `t${i}`, projectId: 'p1', title: `match ${i}`, archivedAt: null })),
   };
-  const { groups } = buildPaletteGroups({ paletteQuery: 'match' }, many);
-  assert.equal(groups.find(g => g.label === 'Tasks').items.length, 5);
-  assert.equal(groups.find(g => g.label === 'Documents').items.length, 5);
+  const capped = buildPaletteGroups({ paletteQuery: 'match', paletteScope: 'tasks' }, deep);
+  assert.equal(capped.groups[0].items.length, MAX_SCOPED_ITEMS);
+  assert.equal(capped.groups[0].truncated, 3);
+  assert.equal(capped.scopes.find(s => s.key === 'tasks').count, MAX_SCOPED_ITEMS + 3, 'the count stays honest');
+});
+
+test('scope helpers: unknown scopes fall back to All; Tab cycles forward and Shift+Tab back, wrapping', () => {
+  assert.equal(normalizePaletteScope('bogus'), 'all');
+  assert.equal(normalizePaletteScope('docs'), 'docs');
+  const keys = PALETTE_SCOPES.map(([key]) => key);
+  assert.equal(cyclePaletteScope('all', 1), keys[1]);
+  assert.equal(cyclePaletteScope(keys.at(-1), 1), 'all');
+  assert.equal(cyclePaletteScope('all', -1), keys.at(-1));
 });
 
 // ---- renderPaletteHtml --------------------------------------------------------
@@ -150,6 +193,7 @@ test('marks is-selected on the clamped selection index', () => {
   const html = renderPaletteHtml(state, buildPaletteGroups(state, DATA));
   assert.match(html, /class="palette__item is-selected"[^>]*data-palette-index="2"/);
   assert.doesNotMatch(html, /is-selected"[^>]*data-palette-index="0"/);
+  assert.match(html, /class="palette__row is-selected"/);
 
   const negative = { paletteQuery: 'upgrade', paletteSelection: -4 }; // clamps to 0
   const htmlNeg = renderPaletteHtml(negative, buildPaletteGroups(negative, DATA));
@@ -174,4 +218,37 @@ test('escapes task titles and the query value', () => {
   assert.doesNotMatch(html, /<script>alert/);
   assert.match(html, /&lt;script&gt;alert\(&quot;x&quot;\)&lt;\/script&gt;/);
   assert.match(html, /value="&lt;script&gt;"/);
+});
+
+test('renders the scope bar with counts and the active scope, and the footer hints for done and scope', () => {
+  const state = { paletteQuery: 'match', paletteSelection: 0, paletteScope: 'docs' };
+  const html = renderPaletteHtml(state, buildPaletteGroups(state, MANY));
+  assert.match(html, /class="palette__scopes" role="tablist" aria-label="Search scope"/);
+  assert.match(html, /class="palette__scope" data-action="palette-scope" data-scope="all" aria-selected="false">All <span class="palette__scope-count">18</);
+  assert.match(html, /class="palette__scope is-active" data-action="palette-scope" data-scope="docs" aria-selected="true">Docs <span class="palette__scope-count">9</);
+  assert.match(html, /data-scope="commands" aria-selected="false">Commands</);
+  assert.doesNotMatch(html, /data-scope="commands"[^>]*>Commands <span/, 'no count badge at zero');
+  assert.match(html, /class="kbd">⌘↵<\/span> done/);
+  assert.match(html, /class="kbd">⇥<\/span> scope/);
+  assert.doesNotMatch(html, /palette__group">Tasks/, 'a single scope hides the other groups');
+});
+
+test('the selected task row carries an inline Done button; other rows and non-task rows do not', () => {
+  const state = { paletteQuery: 'match', paletteSelection: 1, paletteScope: 'tasks' };
+  const html = renderPaletteHtml(state, buildPaletteGroups(state, MANY));
+  assert.match(html, /class="palette__row is-selected">[\s\S]*?data-palette-index="1"[\s\S]*?<\/button><button class="palette__action" type="button" data-action="palette-task-done" data-task-id="t1" title="Mark done \(⌘↵\)">Done<\/button>/);
+  assert.equal((html.match(/palette-task-done/g) || []).length, 1);
+  assert.match(html, /Done<\/button><button class="palette__action palette__action--ghost" type="button" data-action="palette-task-today" data-task-id="t1"[^>]*>Today</);
+  assert.equal((html.match(/palette-task-today/g) || []).length, 1);
+  const docs = { paletteQuery: 'match', paletteSelection: 0, paletteScope: 'docs' };
+  assert.doesNotMatch(renderPaletteHtml(docs, buildPaletteGroups(docs, MANY)), /palette-task-done/);
+});
+
+test('the "+N more" row renders as a more-styled item and a truncated scope says so', () => {
+  const state = { paletteQuery: 'match', paletteSelection: 0 };
+  const html = renderPaletteHtml(state, buildPaletteGroups(state, MANY));
+  assert.match(html, /class="palette__item palette__item--more" type="button" data-action="palette-run" data-palette-index="5">[\s\S]*?4 more in Tasks/);
+  const deep = { ...MANY, tasks: Array.from({ length: MAX_SCOPED_ITEMS + 2 }, (_, i) => ({ id: `t${i}`, projectId: 'p1', title: `match ${i}`, archivedAt: null })) };
+  const scoped = { paletteQuery: 'match', paletteSelection: 0, paletteScope: 'tasks' };
+  assert.match(renderPaletteHtml(scoped, buildPaletteGroups(scoped, deep)), /class="palette__truncated">2 more — keep typing to narrow it down\./);
 });

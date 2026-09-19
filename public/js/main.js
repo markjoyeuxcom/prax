@@ -92,8 +92,9 @@ import {
 } from './renderShell.js';
 import {
   TASK_RENDER_BATCH_SIZE, renderListHtml, renderBulkBarHtml, buildListGroups, limitTaskGroups,
+  applyCollapsedGroups,
 } from './renderList.js';
-import { renderTodayHtml, buildTodayGroups, TODAY_WEEK_SECTION } from './renderToday.js';
+import { renderTodayHtml, buildTodayGroups, TODAY_WEEK_SECTION, TODAY_OVERDUE_ALL, OVERDUE_PREVIEW, nextMondayIso } from './renderToday.js';
 import { renderPlanModeHtml } from './renderPlanMode.js';
 import {
   createExternalRefresh, installExternalRefreshTriggers, collectionFingerprint,
@@ -105,11 +106,13 @@ import { parseTaskFilter, projectResolver } from './taskFilter.js';
 import { createSmartView, findSmartView, smartViewsFromJson } from './taskSmartViews.js';
 import { loadPinned, savePinned, togglePinned } from './pinned.js';
 import { isCollapsed, loadCollapsed, saveCollapsed, toggleCollapsed } from './collapsed.js';
+import { loadRecent, saveRecent, pushRecent } from './recentProjects.js';
+import { loadLayout, saveLayout } from './libraryLayout.js';
 import { renderBoardHtml, buildBoardColumns, limitBoardColumns } from './renderBoard.js';
 import { renderBacklogHtml, renderArchiveHtml } from './renderBacklog.js';
 import { renderTaskDrawerHtml, renderMissingTaskDrawerHtml } from './renderTaskDetail.js';
 import { renderLinkPickerHtml } from './renderLinkPicker.js';
-import { LIBRARY_RENDER_BATCH_SIZE, renderLibraryHtml, buildLibraryModel } from './renderLibrary.js';
+import { LIBRARY_RENDER_BATCH_SIZE, renderLibraryHtml, buildLibraryModel, reviewQueue } from './renderLibrary.js';
 import { templateById } from './documentTemplates.js';
 import { renderEditorHtml, buildOutline, buildBacklinks, WRITE_ACTIONS } from './renderEditor.js';
 import { renderRunHtml, buildChronicle } from './renderRun.js';
@@ -123,14 +126,16 @@ import { assistantOutcomeNotice } from './assistantOutcome.js';
 import { renderWritingPreviewHtml } from './renderWritingPreview.js';
 import { renderSearchPanelHtml, searchCountLabel } from './renderSearchPanel.js';
 import { renderAllProjectsHtml, buildProjectGroups } from './renderAllProjects.js';
-import { renderPaletteHtml, buildPaletteGroups } from './renderPalette.js';
+import { renderPaletteHtml, buildPaletteGroups, cyclePaletteScope, normalizePaletteScope } from './renderPalette.js';
 import { renderCaptureHtml } from './renderCapture.js';
 import { renderToastHtml } from './renderToast.js';
 import { renderConfirmHtml } from './renderConfirm.js';
+import { renderShortcutsHtml } from './renderShortcuts.js';
 import { renderMarkdownImportHtml } from './renderMarkdownImport.js';
 import { renderLibraryExportHtml } from './renderLibraryExport.js';
 import { renderSettingsHtml } from './renderSettings.js';
 import { escapeHtml } from './renderHelpers.js';
+import { renderOpsToggleHtml, renderProjectOpsHtml, opsSectionKey, revealKey, opsFieldAttr } from './renderProjectOps.js';
 import { icon } from './icons.js';
 
 const SAVED_LIBRARY_VIEWS_KEY = 'moomora.librarySavedViews.v1';
@@ -205,7 +210,7 @@ function openConfirm(confirm) {
   // "click outside a menu closes it" handler swallows the first click on the
   // confirm's buttons — forcing a second click. The confirm is a modal, so the
   // menu should be gone anyway.
-  setState({ confirm, docMenuOpen: false, newDocMenuOpen: false, captureMenuOpen: false });
+  setState({ confirm, docMenuOpen: false, newDocMenuOpen: false, libraryMenuOpen: false, newMenuOpen: false, captureMenuOpen: false });
   renderApp();
 }
 
@@ -1299,6 +1304,53 @@ async function toggleTaskDone(id) {
       }
     }, 5000, saved.recurrence ? 'Reopen' : 'Undo');
   }
+}
+
+// Today triage (spec item 8): one decision applied to a set of tasks — a new
+// due date (today / next Monday) or the backlog — through the same per-task
+// mutation queue as the bulk bar, with one undo that restores what each task
+// had before.
+function triagePatch(decision) {
+  if (decision === 'today') return { dueDate: todayISODate() };
+  if (decision === 'monday') return { dueDate: nextMondayIso(new Date()) };
+  if (decision === 'backlog') return { status: apiStatus('backlog') };
+  return null;
+}
+
+async function triageTasks(ids, decision, label) {
+  const patch = triagePatch(decision);
+  if (!patch || !ids.length) return;
+  const prior = ids.map((id) => {
+    const task = taskById(id);
+    return task ? { id, dueDate: task.dueDate ?? null, status: task.status } : null;
+  }).filter(Boolean);
+  setState({ selectedTaskId: null });
+  try {
+    await Promise.all(ids.map((id) => enqueueTaskMutation(id, () => updateTaskWithReadback(id, patch))));
+    await loadTasks();
+    showToast(`${ids.length === 1 ? '1 task' : `${ids.length} tasks`} → ${label}`, async () => {
+      dismissToast();
+      await Promise.all(prior.map((entry) => enqueueTaskMutation(entry.id, () => updateTaskWithReadback(entry.id,
+        decision === 'backlog' ? { status: entry.status } : { dueDate: entry.dueDate }))));
+      await loadTasks();
+      renderApp();
+    });
+  } catch {
+    alertError('apply the triage decision');
+    await loadTasks();
+  }
+  renderApp();
+}
+
+function overdueTaskIds() {
+  return (buildTodayGroups(state.tasks, state.projects, { now: new Date() }).groups
+    .find((group) => group.key === 'overdue')?.tasks || []).map((task) => task.id);
+}
+
+function triageLabel(decision) {
+  if (decision === 'monday') return new Date(`${nextMondayIso(new Date())}T00:00:00`).toLocaleDateString('en-US', { weekday: 'long' });
+  if (decision === 'today') return 'today';
+  return 'Backlog';
 }
 
 async function bulkSetStatus(designKey, label) {
@@ -2865,6 +2917,18 @@ async function backFromRun() {
 // Library helpers
 // ---------------------------------------------------------------------------
 
+// Toast line after a permanent project delete, from the server's summary of
+// what went with it: `Project “X” deleted (3 tasks, 2 documents)`.
+function deletedProjectMessage(result) {
+  const parts = [];
+  const tasks = result?.deleted?.tasks || 0;
+  const documents = result?.deleted?.documents || 0;
+  if (tasks) parts.push(`${tasks} task${tasks === 1 ? '' : 's'}`);
+  if (documents) parts.push(`${documents} document${documents === 1 ? '' : 's'}`);
+  const name = result?.name ? `Project “${result.name}”` : 'Project';
+  return parts.length ? `${name} deleted (${parts.join(', ')})` : `${name} deleted`;
+}
+
 const INBOX_SLUG = 'inbox';
 function inboxProject() {
   return (state.projects || []).find((p) => p.slug === INBOX_SLUG) || null;
@@ -3502,8 +3566,54 @@ async function selectTaskImportFile(file) {
 function resetLibraryFilters() {
   return {
     libraryQuery: '', librarySemantic: false, activeLibraryTags: [], libraryProjects: [],
-    ...resetSemanticSearchPatch(), libraryView: 'active',
+    ...resetSemanticSearchPatch(), libraryView: 'active', librarySelectedDocIds: [],
   };
+}
+
+// The library model exactly as renderMainHtml builds it, for handlers that
+// need the VISIBLE documents (select all shown, review next).
+function visibleLibraryDocuments() {
+  const collectionKey = JSON.stringify([
+    state.libraryView, state.libraryQuery, state.librarySemantic, state.librarySortBy,
+    state.activeLibraryTags, state.libraryTypes, state.libraryTrust, state.libraryProjects,
+  ]);
+  const model = buildLibraryModel(state, { limit: libraryCollectionLimit(collectionKey) });
+  return model.groups.flatMap((group) => group.docs);
+}
+
+// Enter (or leave) the review queue. From anywhere else, go to the library
+// first; inside the library, toggle without losing facets.
+async function toggleReviewQueue() {
+  if (state.navType !== 'library') { await goLibrary({ libraryView: 'review' }); return; }
+  const wasArchive = state.libraryView === 'archive';
+  setState({
+    libraryView: state.libraryView === 'review' ? 'active' : 'review',
+    librarySelectedDocIds: [], libraryMenuOpen: false, ...resetSemanticSearchPatch(),
+  });
+  if (wasArchive) await loadDocuments();
+  renderApp();
+}
+
+// Archive every selected document through the same reconcile path as the
+// single action, with one summary toast instead of one per document.
+async function bulkArchiveDocuments() {
+  const ids = [...(state.librarySelectedDocIds || [])];
+  if (!ids.length) return;
+  let archived = 0;
+  for (const id of ids) {
+    const done = await performDocumentLifecycleOnce(`document:${id}`, async () => {
+      const result = await reconcileDocumentLifecycle({ id, intent: { type: 'archive' }, mutate: () => archiveDocument(id) });
+      if (result.committed) cacheLifecycleDocument(result.document, { remove: state.libraryView !== 'archive' });
+      return result.committed;
+    });
+    if (done) archived += 1;
+  }
+  setState({ librarySelectedDocIds: [] });
+  try { await loadDocuments(); } catch { /* the cache already reflects the commits */ }
+  renderApp();
+  showToast(archived === ids.length
+    ? `${archived === 1 ? '1 document' : `${archived} documents`} archived. Restore from the Archive.`
+    : `${archived} of ${ids.length} archived; the rest could not be confirmed. Reload to reconcile.`, null, 7000);
 }
 
 async function navigateTopLevel(patch) {
@@ -3532,6 +3642,7 @@ async function goProject(projectId, tab = 'list') {
     selectedTaskId: null, multiSelectIds: [], drawerTaskId: null,
     taskNotesDraftId: null, taskDraftBaseline: null,
     taskLabelDraftId: null, taskLabelDraft: '',
+    recentProjects: saveRecent(pushRecent(state.recentProjects, projectId)),
   });
   persistActiveProject(projectId);
   externalRefresh.trigger('navigate');
@@ -3566,7 +3677,15 @@ async function goSettings() {
   return true;
 }
 
+function openShortcuts() {
+  if (state.shortcutsOpen) { setState({ shortcutsOpen: false }); renderApp(); return; }
+  setState({ shortcutsOpen: true });
+  renderApp();
+  appRoot.querySelector('[data-overlay="shortcuts"] [data-action="close-shortcuts"]')?.focus();
+}
+
 function escapeCascade() {
+  if (state.shortcutsOpen) { setState({ shortcutsOpen: false }); renderApp(); return; }
   // The writing preview is a full-screen modal — it owns Esc over the (hidden,
   // behind-the-scrim) editor search panel.
   if (state.writeContext) { closeWrite(); return; }
@@ -3627,24 +3746,6 @@ function projectsById() {
   return map;
 }
 
-// Ops metadata inline in a project header: who's on call, handoff notes for
-// the next shift, and the repo this project corresponds to (the prax CLI
-// auto-detects the project from the local git remote via this URL). All are
-// inline-editable; input events debounce a PATCH.
-function renderProjectOps(project) {
-  const id = escapeHtml(project.id);
-  return `<div class="proj-ops">
-    <label class="proj-ops__field"><span class="proj-ops__label">On call</span>
-      <input class="proj-ops__input" type="text" data-project-oncall data-project-id="${id}" value="${escapeHtml(project.onCall || '')}" placeholder="—" aria-label="On-call owner"></label>
-    <label class="proj-ops__field proj-ops__field--notes"><span class="proj-ops__label">Handoff</span>
-      <input class="proj-ops__input" type="text" data-project-handoff data-project-id="${id}" value="${escapeHtml(project.handoffNotes || '')}" placeholder="notes for the next shift…" aria-label="Handoff notes"></label>
-    <label class="proj-ops__field proj-ops__field--repo"><span class="proj-ops__label">Repo</span>
-      <input class="proj-ops__input" type="text" data-project-repourl data-project-id="${id}" value="${escapeHtml(project.repoUrl || '')}" placeholder="git@github.com:org/repo.git" aria-label="Repository URL"></label>
-    <label class="proj-ops__field"><span class="proj-ops__label">Area</span>
-      <input class="proj-ops__input" type="text" data-project-area data-project-id="${id}" value="${escapeHtml(project.area || '')}" placeholder="e.g. Work" maxlength="60" aria-label="Area"></label>
-  </div>`;
-}
-
 function sidebarCounts() {
   const projectOpen = {};
   for (const task of state.tasks) {
@@ -3653,11 +3754,22 @@ function sidebarCounts() {
   }
   const now = new Date();
   const { badge } = buildTodayGroups(state.tasks, state.projects, { now });
-  return { todayBadge: badge, projectOpen };
+  // The archive collection swaps state.documents; no queue count from it.
+  const reviewCount = state.libraryView === 'archive' ? 0 : reviewQueue(state.documents).length;
+  return { todayBadge: badge, projectOpen, reviewQueue: reviewCount };
 }
 
 function projectTasks() {
   return state.tasks.filter(t => t.projectId === state.navId);
+}
+
+// Comfortable / compact rows (spec item 9), a preference applied on <body>.
+function renderDensityToggle(state) {
+  const density = state.preferences?.listDensity === 'compact' ? 'compact' : 'comfortable';
+  const button = (key, label, glyph) => (
+    `<button type="button" class="layout-toggle__btn${density === key ? ' is-active' : ''}" data-action="set-list-density" data-density="${key}" aria-pressed="${density === key}" aria-label="${label} rows" title="${label} rows">${glyph}</button>`
+  );
+  return `<div class="layout-toggle" role="group" aria-label="Row density">${button('comfortable', 'Comfortable', '<span aria-hidden="true">☰</span>')}${button('compact', 'Compact', '<span aria-hidden="true">≡</span>')}</div>`;
 }
 
 function renderMainHtml() {
@@ -3675,14 +3787,23 @@ function renderMainHtml() {
       // A collapsed week ahead leaves the collection so arrow keys and the
       // "load more" progress only ever address rows that are on screen.
       const weekCollapsed = isCollapsed(state.collapsedSections, TODAY_WEEK_SECTION);
-      const groups = weekCollapsed ? built.groups.filter((group) => !group.week) : built.groups;
-      const collection = limitTaskGroups(groups, taskCollectionLimit(`today|${weekCollapsed ? 'folded' : 'week'}`));
+      // The triage band previews the oldest OVERDUE_PREVIEW rows unless the
+      // user asked for all of them; hidden rows leave the collection so ↑↓
+      // only ever reach what is on screen.
+      const overdueExpanded = isCollapsed(state.collapsedSections, TODAY_OVERDUE_ALL);
+      const groups = (weekCollapsed ? built.groups.filter((group) => !group.week) : built.groups)
+        .map((group) => (group.key === 'overdue' && !overdueExpanded && group.tasks.length > OVERDUE_PREVIEW
+          ? { ...group, tasks: group.tasks.slice(0, OVERDUE_PREVIEW), totalCount: group.tasks.length }
+          : group));
+      const collection = limitTaskGroups(groups, taskCollectionLimit(`today|${weekCollapsed ? 'folded' : 'week'}|${overdueExpanded ? 'all' : 'preview'}`));
       flatIds = collection.flatIds;
       return renderTodayHtml(state, collection.groups, {
         now, snoozedCount: built.snoozedCount, collection,
         plannedCount: built.plannedCount, plannedDone: built.plannedDone,
         stalePlannedCount: built.stalePlannedCount,
         weekCount: built.weekCount, weekCollapsed,
+        overdueTotal: built.overdueCount, overdueExpanded, slippedCount: built.slippedCount,
+        queueCount: reviewQueue(state.documents).length,
       });
     }
     case 'all': {
@@ -3695,7 +3816,10 @@ function renderMainHtml() {
         state.activeLibraryTags, state.libraryTypes, state.libraryTrust, state.libraryProjects,
       ]);
       const model = buildLibraryModel(state, { limit: libraryCollectionLimit(collectionKey) });
-      return renderLibraryHtml(state, model);
+      // Wide windows show the facets in the Library panel (renderShell); the
+      // main view then carries active-filter chips only. Same 940px line as
+      // the rail/panel switch in renderApp.
+      return renderLibraryHtml(state, model, { facetsInPanel: state.winW >= 940 });
     }
     case 'editor': {
       const doc = currentDocument();
@@ -3769,7 +3893,7 @@ function renderMainHtml() {
         }).join('');
       const groupLabel = { due: 'Due date', priority: 'Priority', status: 'Status' }[state.groupBy];
       const right = state.tab === 'list'
-        ? `<div class="tabs__right"><button class="btn-ghost" type="button" data-action="cycle-group">Group: ${groupLabel}</button></div>`
+        ? `<div class="tabs__right"><button class="btn-ghost" type="button" data-action="cycle-group">Group: ${groupLabel}</button>${renderDensityToggle(state)}</div>`
         : '';
       let body = '';
       if (state.tab === 'board') {
@@ -3797,14 +3921,21 @@ function renderMainHtml() {
         body = renderArchiveHtml(state, collection.groups[0]?.tasks || [], { collection });
       } else {
         const built = buildListGroups(state, tasks, { now });
+        // Folded groups keep their header and count but leave the collection,
+        // so ↑↓ and the progress row only ever address rows on screen.
+        const folded = applyCollapsedGroups(built.groups, state.collapsedSections, state.navId);
         const collection = limitTaskGroups(
-          built.groups,
+          folded,
           taskCollectionLimit(`project|${state.navId}|list|${state.groupBy}`),
         );
         flatIds = collection.flatIds;
         body = renderListHtml(state, collection.groups, { collection }) + renderBulkBarHtml(state);
       }
       const canRename = project && project.slug !== INBOX_SLUG;
+      // Ops metadata (on call / handoff / repo / area) sits on its own row under
+      // an Ops disclosure; the title keeps the header row (year-one shell spec).
+      const hasOps = Boolean(project) && project.slug !== INBOX_SLUG;
+      const opsCollapsed = hasOps && isCollapsed(state.collapsedSections, opsSectionKey(project.id));
       const titleHtml = (canRename && state.renamingProjectId === project.id)
         ? `<input class="page-head__rename" type="text" data-project-rename data-project-id="${escapeHtml(project.id)}" value="${escapeHtml(project.name)}" aria-label="Rename project" autocomplete="off" spellcheck="false">`
         : `<h1 class="page-head__title">${escapeHtml(project?.name || 'Tasks')}</h1>`
@@ -3814,8 +3945,9 @@ function renderMainHtml() {
           <span class="page-head__dot" style="--dot:${project ? projectColor(project) : 'var(--accent)'}"></span>
           ${titleHtml}
           <span class="chip ${chipClass}">${escapeHtml((project?.status || 'active').replace('-', ' '))}</span>
-          ${project && project.slug !== INBOX_SLUG ? renderProjectOps(project) : ''}
+          ${hasOps ? renderOpsToggleHtml(project, { collapsed: opsCollapsed }) : ''}
         </header>
+        ${hasOps ? renderProjectOpsHtml(project, { collapsed: opsCollapsed, revealed: state.revealedOpsFields }) : ''}
         <nav class="tabs">${tabs}${right}</nav>
         ${body}
       </div>`;
@@ -3898,6 +4030,7 @@ function renderOverlaysHtml() {
     html += renderWritingPreviewHtml(state, { resultHtml: state.writeResult ? renderMarkdownHtml(state.writeResult, { resolveWikiLink }) : '' });
   }
   if (state.planMode) html += renderPlanModeHtml(state);
+  if (state.shortcutsOpen) html += renderShortcutsHtml(state);
   if (state.confirm) html += renderConfirmHtml(state.confirm);
   html += renderToastHtml(state);
   return html;
@@ -3997,13 +4130,16 @@ function renderApp() {
 
 function afterRender() {
   mountEditorIfNeeded();
+  // The Import / Export triggers live in the Library's ⋯ overflow, which is
+  // closed by the time the dialog goes; focus then returns to the overflow
+  // button rather than nowhere.
   if (restoreMarkdownImportFocus && !state.markdownImportOpen) {
     restoreMarkdownImportFocus = false;
-    appRoot.querySelector('[data-action="import-documents"]')?.focus();
+    (appRoot.querySelector('[data-action="import-documents"]') || appRoot.querySelector('[data-action="toggle-library-menu"]'))?.focus();
   }
   if (restoreLibraryExportFocus && !state.libraryExportOpen) {
     restoreLibraryExportFocus = false;
-    appRoot.querySelector(`[data-action="${libraryExportReturnAction}"]`)?.focus();
+    (appRoot.querySelector(`[data-action="${libraryExportReturnAction}"]`) || appRoot.querySelector('[data-action="toggle-library-menu"]'))?.focus();
   }
   if (state.renamingProjectId) {
     const input = appRoot.querySelector('[data-project-rename]');
@@ -4090,8 +4226,22 @@ const paletteCommands = {
   'go-settings': async () => { setState({ paletteOpen: false }); await goSettings(); },
 };
 
-async function runPaletteItem(item) {
+// Switch the palette scope in place, keeping the caret in the search box.
+function setPaletteScope(scope) {
+  setState({ paletteScope: normalizePaletteScope(scope), paletteSelection: 0 });
+  renderApp();
+  const input = appRoot.querySelector('[data-palette-input]');
+  if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+}
+
+async function runPaletteItem(item, { done = false } = {}) {
   if (!item) return;
+  if (item.action === 'palette-scope') { setPaletteScope(item.scope); return; }
+  if (item.action === 'open-task' && done) {
+    setState({ paletteOpen: false });
+    await toggleTaskDone(item.id);
+    return;
+  }
   if (item.action === 'open-task') {
     const task = taskById(item.id);
     setState({ paletteOpen: false });
@@ -4310,6 +4460,17 @@ async function handleAction(action, el, event) {
     case 'refresh-deployment-status': loadDeploymentStatus().then(renderApp); renderApp(); break;
     case 'nav-project': await goProject(el.dataset.projectId); break;
     case 'rename-project': startRenameProject(el.dataset.projectId); break;
+    case 'breadcrumb': await handleAction(el.dataset.target, el, event); break;
+    case 'reveal-ops-field': {
+      // Show the input for an unset ops field and put the caret in it. The
+      // reveal is session state: it survives re-renders until navigation.
+      const key = revealKey(el.dataset.projectId, el.dataset.field);
+      if (!state.revealedOpsFields.includes(key)) setState({ revealedOpsFields: [...state.revealedOpsFields, key] });
+      renderApp();
+      const attr = opsFieldAttr(el.dataset.field);
+      if (attr) document.querySelector(`#proj-ops-${CSS.escape(el.dataset.projectId)} input[${attr}]`)?.focus();
+      break;
+    }
     case 'set-tab': {
       const tab = el.dataset.tab;
       setState({ tab, selectedTaskId: null, multiSelectIds: [] });
@@ -4333,7 +4494,7 @@ async function handleAction(action, el, event) {
     case 'open-palette':
       if (state.captureSubmitting) break;
       if (state.captureOpen) discardCapture();
-      setState({ paletteOpen: true, paletteQuery: '', paletteSelection: 0 });
+      setState({ paletteOpen: true, paletteQuery: '', paletteSelection: 0, paletteScope: 'all' });
       renderApp();
       break;
     case 'open-capture': openFreshCapture(); break;
@@ -4400,6 +4561,14 @@ async function handleAction(action, el, event) {
     case 'bulk-complete': bulkSetStatus('completed', 'Completed'); break;
     case 'bulk-backlog': bulkSetStatus('backlog', 'Backlog'); break;
     case 'bulk-archive': bulkArchive(); break;
+    case 'archive-group': {
+      // "Archive all" on a done group header: every task the group holds right
+      // now, through the same undoable path as the bulk bar.
+      const group = buildListGroups(state, projectTasks(), { now: new Date() }).groups
+        .find((candidate) => candidate.key === el.dataset.groupKey);
+      if (group?.tasks.length) await archiveSelectedTasks(group.tasks.map((task) => task.id));
+      break;
+    }
     case 'clear-selection': setState({ multiSelectIds: [], selectedTaskId: null }); renderApp(); break;
 
     // ---- drawer ----
@@ -4687,6 +4856,31 @@ _Task:_ ${task.title || 'Untitled task'}`
       }
       break;
     }
+    case 'triage-all': {
+      // From a project list the set is that project's overdue group; from
+      // Today it is every project's.
+      const ids = el.dataset.projectId
+        ? (buildListGroups(state, state.tasks.filter((task) => task.projectId === el.dataset.projectId), { now: new Date() }).groups
+          .find((group) => group.key === 'overdue')?.tasks || []).map((task) => task.id)
+        : overdueTaskIds();
+      await triageTasks(ids, el.dataset.decision, triageLabel(el.dataset.decision));
+      break;
+    }
+    case 'triage-task': await triageTasks([el.dataset.taskId], el.dataset.decision, triageLabel(el.dataset.decision)); break;
+    case 'plan-add-today': {
+      // Every task due today that is not yet in the plan joins it.
+      const today = todayISODate();
+      const ids = (buildTodayGroups(state.tasks, state.projects, { now: new Date() }).groups
+        .find((group) => group.key === 'today')?.tasks || []).map((task) => task.id);
+      if (!ids.length) break;
+      try {
+        await Promise.all(ids.map((id) => enqueueTaskMutation(id, () => updateTaskWithReadback(id, { plannedFor: today }))));
+        await loadTasks();
+        showToast(`${ids.length === 1 ? '1 task' : `${ids.length} tasks`} added to today's plan`);
+      } catch { alertError('add those tasks to the plan'); await loadTasks(); }
+      renderApp();
+      break;
+    }
     case 'open-plan-mode': openPlanMode(); break;
     case 'open-shutdown': openShutdown(); break;
     case 'close-plan-mode': {
@@ -4751,11 +4945,31 @@ _Task:_ ${task.title || 'Untitled task'}`
     case 'toggle-lib-tags': setState({ libraryTagsExpanded: !state.libraryTagsExpanded }); renderApp(); break;
     case 'clear-lib-filters': setState({ libraryQuery: '', activeLibraryTags: [], libraryTypes: [], libraryTrust: [], libraryProjects: [], ...resetSemanticSearchPatch() }); renderApp(); break;
     case 'toggle-new-doc-menu': setState({ newDocMenuOpen: !state.newDocMenuOpen }); renderApp(); break;
-    case 'new-document': createNewDocument(el.dataset.templateId); break;
-    case 'import-documents': openMarkdownImport(); break;
+    case 'toggle-library-menu': setState({ libraryMenuOpen: !state.libraryMenuOpen, newDocMenuOpen: false }); renderApp(); break;
+    case 'toggle-new-menu': setState({ newMenuOpen: !state.newMenuOpen, libraryMenuOpen: false, newDocMenuOpen: false }); renderApp(); break;
+    case 'new-project': {
+      // All projects owns project creation; land there with the name field ready.
+      setState({ newMenuOpen: false });
+      if (await navigateTopLevel({ navType: 'all' })) appRoot.querySelector('[data-new-project-name]')?.focus();
+      break;
+    }
+    case 'set-search-mode': {
+      const semantic = el.dataset.mode === 'semantic';
+      if (semantic !== Boolean(state.librarySemantic)) setState({ librarySemantic: semantic, ...resetSemanticSearchPatch() });
+      renderApp();
+      break;
+    }
+    case 'cycle-lib-group': setState({ libraryGroupBy: state.libraryGroupBy === 'none' ? 'type' : 'none' }); renderApp(); break;
+    case 'set-list-density': {
+      setState({ preferences: applyPreferences(savePreferences({ ...state.preferences, listDensity: el.dataset.density })) });
+      renderApp();
+      break;
+    }
+    case 'new-document': setState({ newMenuOpen: false }); createNewDocument(el.dataset.templateId); break;
+    case 'import-documents': setState({ libraryMenuOpen: false }); openMarkdownImport(); break;
     case 'close-markdown-import': closeMarkdownImport(); break;
     case 'submit-markdown-import': await submitMarkdownImport(); break;
-    case 'export-library': openLibraryExport('all', action); break;
+    case 'export-library': setState({ libraryMenuOpen: false }); openLibraryExport('all', action); break;
     case 'close-library-export': closeLibraryExport(); break;
     case 'submit-library-export': await submitLibraryExport(); break;
     case 'save-library-view': {
@@ -4786,8 +5000,33 @@ _Task:_ ${task.title || 'Untitled task'}`
       renderApp();
       break;
     }
+    case 'open-review-queue': await toggleReviewQueue(); break;
+    case 'set-library-layout': setState({ libraryLayout: saveLayout(el.dataset.layout) }); renderApp(); break;
+    case 'toggle-doc-selection': {
+      const id = el.dataset.documentId;
+      const current = state.librarySelectedDocIds || [];
+      setState({ librarySelectedDocIds: current.includes(id) ? current.filter((item) => item !== id) : [...current, id] });
+      renderApp();
+      break;
+    }
+    case 'select-visible-docs': {
+      const visible = visibleLibraryDocuments().map((doc) => doc.id);
+      const allSelected = visible.length > 0 && visible.every((id) => (state.librarySelectedDocIds || []).includes(id));
+      setState({ librarySelectedDocIds: allSelected ? [] : visible });
+      renderApp();
+      break;
+    }
+    case 'clear-doc-selection': setState({ librarySelectedDocIds: [] }); renderApp(); break;
+    case 'bulk-archive-docs': await bulkArchiveDocuments(); break;
+    case 'review-doc': await verifyHealthDoc(el.dataset.documentId); break;
+    case 'review-next': {
+      const next = visibleLibraryDocuments().find((doc) => doc.verified !== true);
+      if (next) await verifyHealthDoc(next.id);
+      break;
+    }
     case 'toggle-library-view': {
-      setState({ libraryView: state.libraryView === 'archive' ? 'active' : 'archive', ...resetSemanticSearchPatch() });
+      setState({ libraryMenuOpen: false });
+      setState({ libraryView: state.libraryView === 'archive' ? 'active' : 'archive', librarySelectedDocIds: [], ...resetSemanticSearchPatch() });
       await loadDocuments();
       renderApp();
       break;
@@ -4813,7 +5052,8 @@ _Task:_ ${task.title || 'Untitled task'}`
     }
 
     // ---- editor ----
-    case 'back-to-library': await goLibrary(); break;
+    // Leaving a document opened from the review queue returns to the queue.
+    case 'back-to-library': await goLibrary(state.libraryView === 'review' ? { libraryView: 'review' } : {}); break;
     // Explicit exit from a failed/recovered/conflict document draft: without
     // it, a doc archived/deleted externally left the retry failing forever
     // and every navigation vetoed — only a reload escaped.
@@ -5107,9 +5347,11 @@ _Task:_ ${task.title || 'Untitled task'}`
     }
     case 'delete-project': {
       event.stopPropagation();
+      const target = (state.managedProjects || state.projects).find((p) => p.id === el.dataset.projectId);
       if (!el.dataset.confirmed) {
+        const name = target ? `“${target.name}”` : 'this project';
         openConfirm({
-          message: 'Permanently delete this project? Only empty projects (no tasks or documents) can be deleted.',
+          message: `Permanently delete ${name}? Every task and document filed under it is deleted with it. This cannot be undone.`,
           okLabel: 'Delete project', danger: true,
           action: 'delete-project', data: { 'project-id': el.dataset.projectId || '' },
         });
@@ -5117,10 +5359,13 @@ _Task:_ ${task.title || 'Untitled task'}`
       }
       setState({ confirm: null });
       try {
-        await deleteProjectPermanent(el.dataset.projectId);
+        const result = await deleteProjectPermanent(el.dataset.projectId);
         await loadProjects();
-      } catch {
-        showToast('Could not delete: the project still has tasks or documents.');
+        if (state.navType === 'project' && state.navId === el.dataset.projectId) setState({ navType: 'all', navId: null });
+        await loadTasks({ announceReminders: false });
+        showToast(deletedProjectMessage(result));
+      } catch (err) {
+        showToast(err?.message ? `Could not delete the project: ${err.message}` : 'Prax could not delete the project.');
       }
       renderApp();
       break;
@@ -5128,6 +5373,17 @@ _Task:_ ${task.title || 'Untitled task'}`
 
     // ---- palette / capture / toast ----
     case 'palette-run': await runPaletteItem(paletteFlat[Number(el.dataset.paletteIndex)]); break;
+    case 'palette-scope': setPaletteScope(el.dataset.scope); break;
+    case 'palette-task-done': {
+      setState({ paletteOpen: false });
+      await toggleTaskDone(el.dataset.taskId);
+      break;
+    }
+    case 'palette-task-today': {
+      setState({ paletteOpen: false });
+      await triageTasks([el.dataset.taskId], 'today', 'today');
+      break;
+    }
     case 'close-palette': setState({ paletteOpen: false }); renderApp(); break;
     case 'close-capture': if (discardCapture()) renderCaptureOverlayLayer({ restoreFocus: true }); break;
     case 'submit-capture':
@@ -5136,6 +5392,12 @@ _Task:_ ${task.title || 'Untitled task'}`
       else await addQuickTask(state.captureQuery.trim());
       break;
     case 'confirm-cancel': setState({ confirm: null }); renderApp(); break;
+    case 'open-shortcuts': openShortcuts(); break;
+    case 'close-shortcuts': {
+      // The scrim carries the action too; a click inside the dialog stays.
+      if (el.dataset.overlay === 'shortcuts' && event.target !== el) break;
+      setState({ shortcutsOpen: false }); renderApp(); break;
+    }
     case 'toast-undo': state.toast?.undo?.(); break;
 
     // ---- settings ----
@@ -5545,7 +5807,7 @@ _Task:_ ${task.title || 'Untitled task'}`
     }
     case 'export-library-all': openLibraryExport('all', action); break;
     case 'refresh-maintenance': await loadMaintenance(); renderApp(); break;
-    case 'open-health': await goHealth(); break;
+    case 'open-health': setState({ libraryMenuOpen: false }); await goHealth(); break;
     case 'refresh-health': await loadHealth(); renderApp(); break;
     case 'open-health-doc': await openDocumentInEditor(el.dataset.docId); break;
     case 'verify-health-doc': verifyHealthDoc(el.dataset.docId); break;
@@ -5563,8 +5825,8 @@ _Task:_ ${task.title || 'Untitled task'}`
 
 function bindEvents() {
   appRoot.addEventListener('click', (event) => {
-    if ((state.docMenuOpen || state.newDocMenuOpen || state.captureMenuOpen || state.writeMenuOpen) && !event.target.closest?.('.menu')) {
-      setState({ docMenuOpen: false, newDocMenuOpen: false, captureMenuOpen: false, writeMenuOpen: false, writeSelection: null });
+    if ((state.docMenuOpen || state.newDocMenuOpen || state.libraryMenuOpen || state.newMenuOpen || state.captureMenuOpen || state.writeMenuOpen) && !event.target.closest?.('.menu')) {
+      setState({ docMenuOpen: false, newDocMenuOpen: false, libraryMenuOpen: false, newMenuOpen: false, captureMenuOpen: false, writeMenuOpen: false, writeSelection: null });
       // A click on another control should both dismiss the open menu and
       // activate that control. Only consume clicks on otherwise inert space.
       if (!event.target.closest?.('[data-action], [data-link-picker-doc]')) {
@@ -5663,6 +5925,20 @@ function bindEvents() {
       }
       return;
     }
+    if (target.matches?.('[data-library-tag-filter]')) {
+      // Library panel tag box: same re-render + focus/caret restore as the
+      // browser panel's filter, on its own state key so a leftover value never
+      // leaks into the Projects/Views filter.
+      const caret = target.selectionStart;
+      setState({ libraryTagFilter: target.value });
+      renderApp();
+      const next = appRoot.querySelector('[data-library-tag-filter]');
+      if (next) {
+        next.focus();
+        if (caret != null) next.setSelectionRange(caret, caret);
+      }
+      return;
+    }
     if (target.matches?.('[data-library-search]')) {
       // Search input changes invalidate any submitted meaning query. Re-render
       // both modes to clear an old result set, then restore focus/caret so
@@ -5710,6 +5986,10 @@ function bindEvents() {
       const value = target.value;
       projectDrafts.set(id, field, value);
       applyProjectPatchLocal(id, { [field]: value });
+      // Keep the input on screen even if the value is now empty: a background
+      // re-render must not swap it for a "+ Field" button under the caret.
+      const shown = revealKey(id, field);
+      if (!state.revealedOpsFields.includes(shown)) state.revealedOpsFields = [...state.revealedOpsFields, shown];
       clearTimeout(projectOpsTimers.get(id));
       projectOpsTimers.set(id, setTimeout(() => {
         projectOpsTimers.delete(id);
@@ -5835,7 +6115,7 @@ function bindEvents() {
     const target = event.target;
     const modalOverlay = state.libraryExportOpen
       ? 'library-export'
-      : (state.markdownImportOpen ? 'markdown-import' : null);
+      : (state.markdownImportOpen ? 'markdown-import' : (state.shortcutsOpen ? 'shortcuts' : null));
     if (modalOverlay && event.key === 'Tab') {
       const dialog = appRoot.querySelector(`[data-overlay="${modalOverlay}"] [role="dialog"]`);
       const focusable = [...(dialog?.querySelectorAll('button:not([disabled]), select:not([disabled]), input:not([disabled])') || [])];
@@ -5900,7 +6180,12 @@ function bindEvents() {
         renderApp();
       } else if (event.key === 'Enter') {
         event.preventDefault();
-        await runPaletteItem(paletteFlat[Math.min(state.paletteSelection, Math.max(0, paletteFlat.length - 1))]);
+        const item = paletteFlat[Math.min(state.paletteSelection, Math.max(0, paletteFlat.length - 1))];
+        await runPaletteItem(item, { done: event.metaKey || event.ctrlKey });
+      } else if (event.key === 'Tab') {
+        // ⇥ / ⇧⇥ walk the scope bar; the input keeps focus.
+        event.preventDefault();
+        setPaletteScope(cyclePaletteScope(state.paletteScope, event.shiftKey ? -1 : 1));
       }
       return;
     }
@@ -6336,11 +6621,12 @@ function installShortcuts() {
       openPalette() {
         if (state.captureSubmitting) return;
         if (state.captureOpen) discardCapture();
-        setState({ paletteOpen: true, paletteQuery: '', paletteSelection: 0 });
+        setState({ paletteOpen: true, paletteQuery: '', paletteSelection: 0, paletteScope: 'all' });
         renderApp();
       },
       openAssistant,
       toggleTheme,
+      openShortcuts,
       openCapture() {
         openFreshCapture();
       },
@@ -6414,7 +6700,7 @@ async function init() {
   // macOS merges the native titlebar into the app's top bar (overlay style) —
   // inset the bar so the traffic lights sit inside it.
   document.body.classList.toggle('is-desktop-mac', desktopShell && desktopPlatform === 'macos');
-  setState({ preferences, librarySavedViews: loadSavedViews(), taskSmartViews: loadSmartViews(), pinned: loadPinned(), collapsedSections: loadCollapsed(), winW: window.innerWidth, desktopShell, desktopPlatform });
+  setState({ preferences, librarySavedViews: loadSavedViews(), taskSmartViews: loadSmartViews(), pinned: loadPinned(), recentProjects: loadRecent(), libraryLayout: loadLayout(), collapsedSections: loadCollapsed(), winW: window.innerWidth, desktopShell, desktopPlatform });
   applyPreferences(preferences);
   appRoot.innerHTML = '<main class="empty" style="height:100vh"><p class="empty__sub">Loading Prax…</p></main>';
   try {

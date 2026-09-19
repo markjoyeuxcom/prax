@@ -129,3 +129,13 @@ test('escapes project names', () => {
   assert.doesNotMatch(html, /<script>alert/);
   assert.match(html, /&lt;script&gt;alert\(&quot;x&quot;\)&lt;\/script&gt;/);
 });
+
+test('the Memory system project shows a System chip instead of state chips and Delete', () => {
+  const projects = [{ id: 'mem', name: 'Memory', slug: 'memory', status: 'active' }, PROJECTS[0]];
+  const html = renderAllProjectsHtml({}, buildProjectGroups(projects, []));
+  const memoryCard = html.slice(html.indexOf('data-project-id="mem"'), html.indexOf('data-project-id="p1"'));
+  assert.match(memoryCard, /chip--system/);
+  assert.doesNotMatch(memoryCard, /data-action="delete-project"/);
+  assert.doesNotMatch(memoryCard, /data-action="set-project-state"/);
+  assert.match(html, /data-action="delete-project" data-project-id="p1"/, 'ordinary projects keep Delete');
+});

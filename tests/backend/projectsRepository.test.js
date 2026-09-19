@@ -6,7 +6,8 @@ import {
   buildCreateProject,
   buildUpdateProject,
   buildArchiveProject,
-  buildCountProjectDependents,
+  buildCountProjectContents,
+  buildDeleteProjectContents,
   buildDeleteProject,
   createProjectsRepository,
 } from '../../server/projectsRepository.js';
@@ -57,11 +58,18 @@ test('buildUpdateProject sets only provided fields', () => {
   assert.deepEqual(q.values, ['p1', 'Renamed', 'on-hold']);
 });
 
-test('buildCountProjectDependents counts tasks + documents', () => {
-  const q = buildCountProjectDependents('p1');
-  assert.match(q.text, /from tasks/);
-  assert.match(q.text, /from markdown_documents/);
+test('buildCountProjectContents counts tasks and documents separately', () => {
+  const q = buildCountProjectContents('p1');
+  assert.match(q.text, /from tasks where project_id = \$1\) as tasks/);
+  assert.match(q.text, /from markdown_documents where project_id = \$1\) as documents/);
   assert.deepEqual(q.values, ['p1']);
+});
+
+test('buildDeleteProjectContents removes every project-scoped table, children first', () => {
+  const statements = buildDeleteProjectContents('p1');
+  const tables = statements.map((q) => q.text.match(/^delete from (\w+)/)[1]);
+  assert.deepEqual(tables, ['task_import_session_chunks', 'task_import_sessions', 'task_import_operations', 'tasks', 'markdown_documents']);
+  assert.ok(statements.every((q) => q.values.length === 1 && q.values[0] === 'p1'));
 });
 
 test('buildArchiveProject sets status archived', () => {

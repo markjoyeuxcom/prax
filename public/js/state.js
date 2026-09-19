@@ -16,6 +16,7 @@ export const state = {
   panelTab: 'projects',         // rail+panel shell: which browser tab ('projects' | 'views')
   panelFilter: '',              // type-to-filter text for the active panel tab
   pinned: { projects: [], smartViews: [], libraryViews: [] }, // starred favorites (localStorage)
+  recentProjects: [],           // last-visited project ids, most recent first (localStorage)
   captureShortcut: null,        // { shortcut, default } from the server (desktop shell)
   captureShortcutNotice: null,  // last apply outcome shown in Settings
   taskRelatedDocs: null,        // { taskId, loading, suggestions, degraded, reason } — drawer Related knowledge
@@ -24,6 +25,13 @@ export const state = {
   calendarMonth: null,          // 'YYYY-MM' shown in the Calendar view; null = current month
   calendarSelectedDay: null,    // ISO day whose tasks show in the calendar detail strip (null = none)
   renamingProjectId: null,      // project whose header title is being inline-edited (null = none)
+  revealedOpsFields: [],        // 'projectId:field' ops inputs shown while empty (session only)
+  paletteScope: 'all',          // ⌘K scope: 'all' | 'commands' | 'projects' | 'views' | 'tasks' | 'docs'
+  shortcutsOpen: false,         // ⌘/ keyboard shortcuts overlay
+  newMenuOpen: false,           // titlebar New ▾ split menu
+  libraryGroupBy: 'type',       // Library cards grouping: 'type' | 'none'
+  libraryMenuOpen: false,       // Library header ⋯ overflow (import/export/health/review/archive)
+  libraryTagFilter: '',         // Library panel: type-to-filter text over the tag list
   tab: 'list',                  // project tab: 'list' | 'board' | 'backlog' | 'archive'
   groupBy: 'due',               // list grouping cycler: 'due' | 'priority' | 'status'
 
@@ -95,7 +103,9 @@ export const state = {
   libraryProjects: [],          // facet: owning project ids (OR within project axis)
   librarySavedViews: [],
   librarySortBy: 'updated',     // 'updated' | 'title' cycler
-  libraryView: 'active',        // 'active' | 'archive'
+  libraryView: 'active',        // 'active' | 'archive' | 'review' (the agent-memory review queue)
+  libraryLayout: 'cards',       // 'cards' | 'table' (localStorage)
+  librarySelectedDocIds: [],    // table-mode multi-select for the bulk bar
   markdownImportOpen: false,
   markdownImportProjectId: null, // explicit destination selected inside the import dialog
   markdownImportFiles: [],       // retained [{ id, name, title, body }] after native input rerenders
