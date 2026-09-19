@@ -560,6 +560,10 @@ a { color: var(--accent); }
   font-size: 11px;
   color: var(--ink3);
 }
+.statusbar__facts { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; }
+.statusbar__dot { opacity: .6; }
+.statusbar__shortcuts { display: inline-flex; align-items: center; gap: 6px; color: var(--ink3); padding: 2px 6px; border-radius: 6px; font-size: 11px; }
+.statusbar__shortcuts:hover { color: var(--ink); background: var(--accent-soft); }
 .statusbar__saved { display: flex; align-items: center; gap: 6px; }
 .statusbar__saved::before {
   content: '';
@@ -2136,6 +2140,23 @@ a { color: var(--accent); }
   animation: mmPop .18s cubic-bezier(.2, .8, .25, 1);
 }
 .confirm__message { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--ink); }
+
+/* Keyboard shortcuts overlay (⌘/) */
+.shortcuts {
+  width: min(640px, calc(100vw - 32px)); margin-top: 8vh; max-height: 84vh; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--line2); border-radius: 12px; box-shadow: var(--pop);
+  padding: 18px 22px 20px; box-sizing: border-box;
+}
+.shortcuts__head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.shortcuts__heading { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
+.shortcuts__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 28px; }
+.shortcuts__title { margin: 0 0 4px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--ink3); }
+.shortcuts__row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 0; font-size: 12.5px; border-top: 1px solid var(--line); }
+.shortcuts__row:first-of-type { border-top: 0; }
+.shortcuts__label { min-width: 0; }
+.shortcuts__keys { display: inline-flex; gap: 4px; flex: none; }
+.shortcuts__keys .kbd { font-size: 10.5px; }
+@media (max-width: 600px) { .shortcuts__grid { grid-template-columns: minmax(0, 1fr); } }
 .confirm__actions { display: flex; justify-content: flex-end; gap: 8px; }
 .confirm__ok--danger { background: var(--hi); }
 

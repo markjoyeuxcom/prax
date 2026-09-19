@@ -14,6 +14,14 @@ fresh empty `[Unreleased]` section is started.
 
 ### Changed
 
+- **On hold folds away, and the statusbar stops teaching.** On-hold projects leave the area
+  sections of the browser panel for one trailing **On hold** section that starts folded (it
+  opens on click and stays open per device, while you type a filter, or when the current
+  project is in it); pinned on-hold projects still float to Pinned. The statusbar's permanent
+  strip of shortcut hints is replaced by one line of facts — projects, open tasks, documents —
+  and a **⌘/ shortcuts** button; the full keymap now lives in a Keyboard shortcuts overlay
+  (`⌘/`, Esc to close) that lists what `keyboardShortcuts.js` actually binds, including the
+  desktop capture chord. Fifth item of the year-one shell spec.
 - **The titlebar crumb is a breadcrumb, and the panel remembers where you were.** "prax —
   Homelab" is now a path: Area › Project › View, Library › document (› Run), Library › Archive,
   Filter › view, Settings › section. Every earlier segment is a button that goes back there

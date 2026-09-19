@@ -26,6 +26,7 @@ export const state = {
   calendarSelectedDay: null,    // ISO day whose tasks show in the calendar detail strip (null = none)
   renamingProjectId: null,      // project whose header title is being inline-edited (null = none)
   revealedOpsFields: [],        // 'projectId:field' ops inputs shown while empty (session only)
+  shortcutsOpen: false,         // ⌘/ keyboard shortcuts overlay
   libraryMenuOpen: false,       // Library header ⋯ overflow (import/export/health/review/archive)
   libraryTagFilter: '',         // Library panel: type-to-filter text over the tag list
   tab: 'list',                  // project tab: 'list' | 'board' | 'backlog' | 'archive'
