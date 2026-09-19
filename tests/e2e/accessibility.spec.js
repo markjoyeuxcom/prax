@@ -59,6 +59,8 @@ test('task collection, detail, and quick capture have no automatic WCAG A/AA vio
   await audit(page, 'task-detail');
 
   await page.keyboard.press('Escape');
+  // Quick capture lives in the titlebar's New menu.
+  await page.locator('[data-action="toggle-new-menu"]').click();
   await page.locator('[data-action="open-capture"]').first().click();
   await expect(page.getByRole('dialog', { name: 'Quick capture' })).toBeVisible();
   await audit(page, 'quick-capture');
