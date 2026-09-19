@@ -12,6 +12,8 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.32.1] - 2026-09-19
+
 ### Changed
 
 - **Documented the desktop-bundle install route for the memory skills.** `docs/agent-memory.md`
@@ -31,6 +33,24 @@ fresh empty `[Unreleased]` section is started.
   the start marker guards against a second write.
 
 ### Fixed
+
+- **The macOS package can no longer ship a Node runtime that only starts on the build machine.**
+  `scripts/prepare-sidecar.mjs` stages the sidecar by copying `process.execPath` verbatim, so the
+  Node that builds the package is the Node inside it. A Homebrew `node@24` links against
+  `@rpath/libnode.<abi>.dylib` and seventeen Cellar dylibs, and a dmg built with one shipped a
+  `prax-server` that aborted with `dyld: Library not loaded` on every Mac but the builder's —
+  invisible to `cargo build`, `tauri build` and the bundlers, because the failure is in the
+  spawned child. Staging now inspects the runtime with `otool` and refuses anything that depends
+  on more than `/usr/lib` and `/System`, naming each offending library, and the macOS job pins a
+  checksummed official nodejs.org build so the shipped runtime is chosen rather than inherited.
+
+- **The macOS build runs again after the runner moved to Tart.** The `macos` runner now uses
+  gitlab-runner's custom executor with `gitlab-tart-executor`, which clones a throwaway VM per
+  job, so `desktop-macos-arm64` must name its `image:` — without one every run died in the
+  prepare stage with `CUSTOM_ENV_CI_JOB_ID is missing and no --default-image was set`, which is
+  the executor's mislabelled wording for a missing job image. The job pins its VM image by
+  digest and installs its own Rust, and names every toolchain path explicitly because the job's
+  shell is not a login shell and the image's profile never runs.
 
 - **`prax remember --memory` stamps the provenance it always claimed.** A memory written through
   the CLI's `--memory` namespace now carries `kind: synthesized`, as the `prax-remember` skill
@@ -1617,7 +1637,8 @@ fresh empty `[Unreleased]` section is started.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.32.0...HEAD
+[Unreleased]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.32.1...HEAD
+[0.32.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.32.0...v0.32.1
 [0.32.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.31.1...v0.32.0
 [0.31.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.31.0...v0.31.1
 [0.31.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.30.0...v0.31.0
