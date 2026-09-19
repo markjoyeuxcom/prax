@@ -299,3 +299,11 @@ test('renderTaskGroupsHtml renders section-keyed groups as toggles, folded ones 
   assert.doesNotMatch(plain, /toggle-section/);
   assert.match(plain, /<div class="group-label"[^>]*>Done this week <span class="group-label__count">1<\/span><\/div>/);
 });
+
+test('renderTaskGroupsHtml appends a group tailHtml after the count on plain headers', () => {
+  const state = baseState();
+  const groups = [{ key: 'today', label: 'Due today', tone: 'med', tasks: [task({ id: 'a', title: 'One' })], tailHtml: '<button type="button" data-action="plan-add-today">Add it to plan</button>' }];
+  const html = renderTaskGroupsHtml(state, groups);
+  assert.match(html, /Due today <span class="group-label__count">1<\/span><button type="button" data-action="plan-add-today">Add it to plan<\/button><\/div>/);
+  assert.doesNotMatch(renderTaskGroupsHtml(state, [{ ...groups[0], tailHtml: undefined }]), /plan-add-today/);
+});

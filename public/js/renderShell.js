@@ -8,7 +8,7 @@ import { icon, logo } from './icons.js';
 import { BUILT_IN_SMART_VIEWS } from './taskSmartViews.js';
 import { isPinned, splitPinned } from './pinned.js';
 import { isCollapsed } from './collapsed.js';
-import { buildTodayGroups } from './renderToday.js';
+import { buildTodayGroups, weeklyReviewStatus } from './renderToday.js';
 import { buildCalendarModel, monthKeyOf } from './renderCalendar.js';
 import { DOCUMENT_TYPES } from './documentTypes.js';
 import { libraryFacetCounts, TRUST_FACETS, TAG_ROW_LIMIT, reviewQueue } from './renderLibrary.js';
@@ -559,6 +559,14 @@ function renderTodayPanel(state, counts = {}) {
   const plannedRows = planned.slice(0, 8).map(panelTaskRow).join('')
     + (planned.length > 8 ? `<div class="panel__empty">＋${planned.length - 8} more on Today</div>` : '');
 
+  // The rituals, grouped (spec item 8): the weekly review with its due state,
+  // the brief, and library health — each already a data-action elsewhere.
+  const weekly = weeklyReviewStatus(state.documents, { now });
+  const weeklySub = weekly.due ? 'due' : (weekly.daysAgo === 0 ? 'today' : `${weekly.daysAgo}d ago`);
+  const rituals = '<div class="side-section"><span>Rituals</span></div>'
+    + `<button type="button" class="side-item" data-action="generate-weekly-review">${icon('month')}<span class="side-item__label">Weekly review</span><span class="side-item__count${weekly.due ? ' is-due' : ''}">${escapeHtml(weeklySub)}</span></button>`
+    + `<button type="button" class="side-item" data-action="open-daily-brief">${icon('spark')}<span class="side-item__label">Brief me</span></button>`
+    + `<button type="button" class="side-item" data-action="open-health">${icon('book')}<span class="side-item__label">Library health</span></button>`;
   return `<aside class="panel" aria-label="Today">`
     + panelBrand(state)
     + `<div class="side-section"><span>Today · ${escapeHtml(dateLabel)}</span></div>`
@@ -569,6 +577,7 @@ function renderTodayPanel(state, counts = {}) {
     + countRow('Next 7 days', built.weekCount)
     + countRow('Snoozed', built.snoozedCount)
     + stale
+    + rituals
     + (planned.length ? '<div class="side-section"><span>Planned</span></div>' : '')
     + `<div class="panel__scroll">${plannedRows}</div>`
     + '</aside>';

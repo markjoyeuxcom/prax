@@ -1,12 +1,13 @@
 # Year-One Shell Design
 
 **Date:** 2026-09-19
-**Status:** Approved (brainstorm); all seven items implemented
+**Status:** Approved (brainstorm); all eight items implemented
 **Builds on:** v0.32.1
 **Scope:** The lowest-cost structural fixes from the year-one UI audit (items 1–3), the
 navigation pair (item 4: breadcrumb and Recent projects), the chrome pair (item 5: folded
 On hold and the statusbar), the palette (item 6: ⌘K scopes) and the Library table mode with
-its review queue (item 7), all added on 2026-09-19. The full audit
+its review queue (item 7), and the Today redesign from the canvas (item 8), all added on
+2026-09-19. The full audit
 and the alternative mocks live on the design canvas
 [Prax UI Alternatives](https://claude.ai/artifact/DEPREJFVT1bmBLj4Edvjw7) (private; the audit
 summary is also a `reference` memory in Prax: "Prax UI audit at year-one scale").
@@ -48,7 +49,11 @@ Fern tokens, Instrument Sans, rail + panel + main frame all stay).
    two hundred rows of three cards each, and the 143 unverified memories agents wrote sit
    behind a trust facet with no count anywhere, no next step, and no way to act on several.
 
-Every finding of the audit is now covered by this spec.
+8. **Today is a list, not a cockpit.** Twenty-three overdue tasks render as twenty-three rows
+   to handle one at a time; the week's load, what agents wrote overnight and who is on call
+   are each a click away in another view.
+
+Every finding of the audit, and the Today artboard, is now covered by this spec.
 
 ## 1. Project header: Ops disclosure — implemented
 
@@ -303,3 +308,41 @@ Every finding of the audit is now covered by this spec.
 - Manual: create an agent-written document via the API, see the badge and panel row, open the
   queue, Review a row, Verify in the editor, go back and see the queue shrink; switch the
   browse view to table and archive two selected documents.
+
+## 8. Today, year one — implemented
+
+### Decisions
+
+- `buildTodayGroups` orders Overdue oldest first and returns `overdueCount`, `slippedCount`
+  (deferred at least `SLIPPED_DEFERRALS` = 2 times) and `dueTodayCount`. `main.js` trims the
+  overdue group to `OVERDUE_PREVIEW` (5) unless the stored key `today:overdue-all` says show
+  all, so the collection (and ↑↓) only holds what is on screen.
+- **Triage band** (`renderTriageBand`): count chip, the slipping sentence, and three set-level
+  decisions — `triage-all` with `monday` (next Monday via `nextWeekday`) or `backlog`, and
+  Review one by one (`open-plan-mode`). Rows are the shared task rows with the project chip;
+  the selected row is followed by a sibling decision strip (`triage-task`: today / monday /
+  backlog). `triageTasks` applies the patch through the per-task mutation queue and offers one
+  undo that restores each task's prior due date or status.
+- **Ritual tails** via `group.tailHtml` on plain group headers: Planned → Edit plan
+  (`open-plan-mode`); Due today → Add all to plan (`plan-add-today`, `plannedFor` = today).
+  The header gains Weekly review (`generate-weekly-review`) with a *due* chip from
+  `weeklyReviewStatus` (no review, or the latest older than six days — the nudge's rule).
+- **Side column** (`.today-layout`, one column under 1180 px): `weekLoad` (open tasks due per
+  day for seven days from today), `recentAgentDocs` (agent-written, last 24 h, newest first,
+  four at most, with the review-queue link), `onCallProjects` (live projects carrying on-call
+  or handoff notes, two at most). Cards render only when they have something to say; the week
+  strip always renders.
+- The Today panel gains a **Rituals** section: Weekly review (with the same due state), Brief
+  me, Library health.
+
+### Testing
+
+- `tests/frontend/renderToday.test.js`: overdue order and counts, the band (chip, sentence,
+  bulk buttons, preview and unfold, the decision strip on the selected row only), the ritual
+  tails and weekly chip, `weekLoad`, `recentAgentDocs`, `onCallProjects`,
+  `weeklyReviewStatus`, `nextMondayIso`, and the side cards from state.
+- `tests/frontend/renderShell.test.js` (panel rituals), `tests/frontend/renderList.test.js`
+  (`tailHtml`).
+- Manual: with overdue tasks, Reschedule all to Monday moves them and Undo restores; select a
+  row and use its strip; Add all to plan fills Planned; the cards reflect agent writes and
+  on-call notes.
