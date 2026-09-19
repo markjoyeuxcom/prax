@@ -14,6 +14,16 @@ fresh empty `[Unreleased]` section is started.
 
 ### Fixed
 
+- **Dark-mode and accessibility pass on the year-one surfaces.** A new Playwright axe audit
+  covers Today's triage band and cards, the Library table and review queue, ⌘K with scopes,
+  the shortcuts overlay and the New menu, in both themes. It found and this fixes: the overdue
+  chip, Overdue group label and rail badge were below 4.5:1 in both themes (a new `--hi-text`
+  token moves alarm red toward the theme pole before it becomes small text, as the accent
+  already did); the UNVERIFIED chip referenced an undefined token and sat on a translucent
+  wash, so it now has a solid card ground; the Library table's rows had no cell roles; the
+  Today card links were under the 24 px target size; every menu panel's items now carry
+  `role="menuitem"`. The audit for an open popover skips the target-size rule for the
+  controls the popover legitimately covers.
 - **Recent knows the project you launched into.** The project restored on boot is pushed into
   the panel's Recent list at once instead of after the next visit.
 - **Every Library action behind the ⋯ menu has a ⌘K command.** Ask Prax, Review queue,

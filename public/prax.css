@@ -31,6 +31,10 @@
   --accent-soft: color-mix(in oklab, var(--accent-choice) 11%, transparent);
   --accent-soft2: color-mix(in oklab, var(--accent-choice) 20%, transparent);
   --hi: oklch(0.60 0.16 27);
+  /* Alarm red as SMALL TEXT (due chips, group labels, badges): the decorative
+     --hi is ~3.6:1 on its wash, so text moves toward the theme pole first,
+     the same rule the accent follows. */
+  --hi-text: color-mix(in oklab, var(--hi) 76%, #000);
   /* Amber is also used as small status text; the previous decorative amber
      was only ~2.3:1 on its wash. */
   --med: oklch(0.48 0.11 78);
@@ -88,6 +92,7 @@ body[data-theme="dark"] {
   --accent: color-mix(in oklab, var(--accent-choice) 68%, #fff);
   --accent-ink: #0E1F1B;
   --hi: oklch(0.70 0.15 25);
+  --hi-text: color-mix(in oklab, var(--hi) 68%, #fff);
   --med: oklch(0.78 0.12 80);
   --lo: oklch(0.68 0.05 230);
   --shadow: 0 24px 70px rgba(0, 0, 0, .5), 0 2px 8px rgba(0, 0, 0, .35);
@@ -518,7 +523,7 @@ body[data-density="compact"] .group-label { margin-top: 12px; }
 .rail__btn { position: relative; }
 .rail__badge {
   position: absolute; top: 1px; right: 1px; min-width: 15px; height: 15px;
-  padding: 0 4px; border-radius: 8px; background: var(--hi-soft); color: var(--hi);
+  padding: 0 4px; border-radius: 8px; background: var(--hi-soft); color: var(--hi-text);
   font-size: 9.5px; font-weight: 650; line-height: 15px; text-align: center;
 }
 .rail__badge--review { background: var(--med-soft); color: var(--med); }
@@ -700,7 +705,7 @@ body[data-density="compact"] .group-label { margin-top: 12px; }
 .chip--state-completed { background: var(--line); color: var(--ink2); }
 .chip--state-archived { background: var(--line); color: var(--ink3); }
 .chip--system { background: var(--accent-soft); color: var(--accent); font-size: 10px; letter-spacing: .06em; }
-.chip--due-overdue { background: var(--hi-soft); color: var(--hi); }
+.chip--due-overdue { background: var(--hi-soft); color: var(--hi-text); }
 .chip--due-today, .chip--due-soon { background: var(--med-soft); color: var(--med); }
 .chip--due-later, .chip--due-done { background: var(--line); color: var(--ink2); }
 /* Slippage honesty chips — subdued, informative, never alarm-red. */
@@ -738,7 +743,9 @@ body[data-density="compact"] .group-label { margin-top: 12px; }
 .today-card__title .proj-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dot); flex: none; }
 .today-card__meta { margin-left: auto; font-weight: 500; font-size: 11.5px; color: var(--ink3); }
 .today-card__text { margin: 8px 0 0; font-size: 12.5px; color: var(--ink2); line-height: 1.45; }
-.today-card .settings-link { margin-top: 8px; display: inline-block; }
+/* Card links meet the 24px target size without looking like buttons. */
+.today-card .settings-link { margin-top: 6px; display: inline-flex; align-items: center; min-height: 24px; }
+.today-card__meta .settings-link { margin-top: 0; }
 .week-strip { display: flex; gap: 8px; align-items: flex-end; height: 78px; margin-top: 12px; }
 .week-strip__day { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 0; }
 .week-strip__day b { font-size: 10.5px; font-weight: 600; color: var(--ink3); height: 13px; }
@@ -806,7 +813,9 @@ body[data-density="compact"] .group-label { margin-top: 12px; }
 .chip--synth { background: var(--med-soft); color: var(--med); font-size: 10px; letter-spacing: .06em; }
 .chip--stale { background: var(--hi-soft); color: var(--hi); font-size: 10px; letter-spacing: .06em; }
 .chip--verified { background: var(--accent-soft); color: var(--accent); font-size: 10px; letter-spacing: .06em; }
-.chip--unverified { background: var(--surface2); color: var(--ink3); font-size: 10px; letter-spacing: .06em; }
+/* A solid card ground: the chip sits on tinted banners and table rows, and a
+   translucent wash there left the text short of 4.5:1. */
+.chip--unverified { background: var(--card); border: 1px solid var(--line2); color: var(--ink2); font-size: 10px; letter-spacing: .06em; }
 .chip--superseded { background: var(--line); color: var(--ink3); font-size: 10px; letter-spacing: .06em; text-decoration: line-through; }
 
 .tabs {
@@ -1259,6 +1268,8 @@ body[data-density="compact"] .group-label { margin-top: 12px; }
   display: inline-flex; align-items: center; justify-content: center; font-size: 10px; color: var(--accent-ink); box-sizing: border-box;
 }
 .doc-table__check.is-on { background: var(--accent); border-color: var(--accent); }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.doc-table__title-cell { min-width: 0; display: flex; }
 .doc-table__title { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; font-weight: 500; color: var(--ink); }
 .doc-table__title:hover { color: var(--accent); }
 .doc-table__dim { font-size: 12px; color: var(--ink3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1272,7 +1283,7 @@ body[data-density="compact"] .group-label { margin-top: 12px; }
   background: var(--med-soft); border: 1px solid color-mix(in oklab, var(--med) 35%, transparent);
 }
 .review-banner__text { font-size: 12.5px; color: var(--ink2); flex: 1 1 320px; min-width: 0; }
-.review-banner__agents { font-size: 11.5px; color: var(--ink3); white-space: nowrap; }
+.review-banner__agents { font-size: 11.5px; color: var(--ink2); white-space: nowrap; }
 .review-banner__actions { display: flex; gap: 6px; margin-left: auto; }
 .menu__count { font-size: 10.5px; font-weight: 700; color: var(--med); margin-left: 4px; }
 @media (max-width: 940px) {

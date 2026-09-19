@@ -130,7 +130,7 @@ test('renderListHtml renders toned group headers with counts and due chips', () 
     task({ id: 'now', title: 'Due now', dueDate: '2026-07-06' }),
   ], { now: NOW });
   const html = renderListHtml(state, groups);
-  assert.match(html, /class="group-label group-label--hi" style="--group-fg:var\(--hi\)">Overdue <span class="group-label__count">1<\/span>/);
+  assert.match(html, /class="group-label group-label--hi" style="--group-fg:var\(--hi-text\)">Overdue <span class="group-label__count">1<\/span>/);
   assert.match(html, /class="group-label group-label--med" style="--group-fg:var\(--med\)">Today <span class="group-label__count">1<\/span>/);
   assert.match(html, /class="rows" data-group="overdue"/);
   assert.match(html, /data-action="open-task" data-task-id="over"/);
