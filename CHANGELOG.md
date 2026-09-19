@@ -17,6 +17,10 @@ fresh empty `[Unreleased]` section is started.
 - **Panel section labels read as structure.** TYPE, PROJECT, TRUST, TAGS and every other panel
   section label are one shade stronger and sit under more air, so the groups separate by
   whitespace instead of blending into the rows beneath them.
+- **The Library search matches the design.** One full-width bar with the search icon and the
+  Keyword | Semantic segment inside it; Sort, Group and the cards / table switch move to a
+  toolbar row beneath, where the active-filter chips sit on the left. The header now says how
+  many documents there are and how many are verified.
 - **New is one menu button.** The titlebar's New task button and its separate chevron are
   replaced by a single **New ▾** that opens New task (quick capture, still `N` from anywhere),
   New document and New project, task first so Enter gets the common case.
