@@ -4,4 +4,4 @@ resources:
   - ../../base
 images:
   - name: registry.gitlab.com/markjoyeuxcom/apps/prax
-    newTag: v0.33.0
+    newTag: v0.34.0
