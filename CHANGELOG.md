@@ -22,6 +22,14 @@ fresh empty `[Unreleased]` section is started.
   search or facet narrows what you review; a document verified elsewhere meanwhile is skipped.
   One click per memory instead of three.
 
+- **⌘K opens on where you just were.** With an empty query the palette leads with a Recent
+  group: the last projects visited and documents opened, most recent first, before the
+  commands. Recently opened documents are remembered per device like recent projects.
+- **Row density is in Settings.** The comfortable / compact preference sits in Appearance beside
+  the other type and layout choices, as well as on every list's toolbar.
+- **All projects groups by area.** Within each state, projects sit under their area — the same
+  partition as the browser panel — with unassigned ones under Other; a workspace without areas
+  looks exactly as before.
 - **The board's Completed column is this week's, and creation is not activity.** The column is
   now **Done this week**, the same seven-day rule as the list; older finished cards leave it
   and a footer says how many and points at the list's Done earlier. Cards no longer show

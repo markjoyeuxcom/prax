@@ -722,3 +722,12 @@ test('the wide-window settings page drops the tab strip (the context panel owns 
   const narrow = renderSettingsHtml(baseState({ winW: 800 }), baseModel());
   assert.match(narrow, /class="tabs__tab is-active"[^>]*data-tab="appearance"/);
 });
+
+test('row density is a segmented pair in Appearance, comfortable by default, reflecting the preference', () => {
+  const def = renderSettingsHtml(baseState(), baseModel());
+  assert.match(def, /Row density/);
+  assert.match(def, /data-action="set-list-density" data-density="comfortable" aria-pressed="true"/);
+  assert.match(def, /data-action="set-list-density" data-density="compact" aria-pressed="false"/);
+  const compact = renderSettingsHtml(baseState({ preferences: { theme: 'light', accent: 'fern', chromeOS: 'mac', readingScale: 1, listDensity: 'compact' } }), baseModel());
+  assert.match(compact, /data-density="compact" aria-pressed="true"/);
+});

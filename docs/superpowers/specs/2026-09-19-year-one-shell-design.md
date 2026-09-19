@@ -410,3 +410,19 @@ Every finding of the audit, and the Today artboard, is now covered by this spec.
   for an extras row without a kind, when the message is the creation message.
 - Tests: `renderBoard.test.js` (time box, older count and footer, creation-only activity),
   backend repository and route shape tests carry the new field.
+
+## 13–15. ⌘K recents, density in Settings, All projects by area — implemented
+
+- **⌘K Recent**: `recentDocuments` (per device, `prax.recentDocuments.v1`, pushed in
+  `openDocumentInEditor`, five at most) joins `recentProjects`; `buildPaletteGroups` puts a
+  Recent group (three projects, three documents) before Commands when the query is empty and
+  the scope is All. Unknown and archived ids are skipped.
+- **Density in Settings**: an Appearance row with the same `set-list-density` segment as the
+  list toolbar.
+- **All projects by area**: `areasOf(entries)` partitions a state group by `project.area`
+  (alphabetical, Other last; one unlabelled run when no area exists); `renderGroup` renders an
+  `h3` per area with its count.
+- **Calendar**: checked, not changed — each day already caps at three chips with a "+N more"
+  overflow (`MAX_CHIPS_PER_DAY` in `renderCalendar.js`), so heavy days stay bounded.
+- Tests: `recentProjects.test.js`, `renderPalette.test.js`, `renderSettings.test.js`,
+  `renderAllProjects.test.js`.

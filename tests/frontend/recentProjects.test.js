@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   RECENT_STORAGE_KEY, MAX_RECENT, normalizeRecent, loadRecent, saveRecent, pushRecent,
+  RECENT_DOCS_STORAGE_KEY, MAX_RECENT_DOCS, loadRecentDocuments, saveRecentDocuments, pushRecentDocument,
 } from '../../public/js/recentProjects.js';
 
 function memoryStorage(initial = {}) {
@@ -37,4 +38,16 @@ test('load/save round-trip through storage and tolerate broken storage', () => {
   assert.deepEqual(loadRecent(memoryStorage({ [RECENT_STORAGE_KEY]: '{not json' })), []);
   assert.deepEqual(saveRecent(['z'], { setItem() { throw new Error('quota'); } }), ['z']);
   assert.deepEqual(loadRecent(null), []);
+});
+
+test('recent documents: their own key, cap of five, same push and storage rules', () => {
+  assert.equal(MAX_RECENT_DOCS, 5);
+  assert.deepEqual(pushRecentDocument([], 'd1'), ['d1']);
+  assert.deepEqual(pushRecentDocument(['d1', 'd2'], 'd2'), ['d2', 'd1']);
+  assert.deepEqual(pushRecentDocument(['a', 'b', 'c', 'd', 'e'], 'f'), ['f', 'a', 'b', 'c', 'd']);
+  const storage = memoryStorage();
+  saveRecentDocuments(['x'], storage);
+  assert.equal(storage.data[RECENT_DOCS_STORAGE_KEY], '["x"]');
+  assert.deepEqual(loadRecentDocuments(storage), ['x']);
+  assert.deepEqual(loadRecentDocuments(memoryStorage({ [RECENT_DOCS_STORAGE_KEY]: 'nope' })), []);
 });

@@ -106,7 +106,7 @@ import { parseTaskFilter, projectResolver } from './taskFilter.js';
 import { createSmartView, findSmartView, smartViewsFromJson } from './taskSmartViews.js';
 import { loadPinned, savePinned, togglePinned } from './pinned.js';
 import { isCollapsed, loadCollapsed, saveCollapsed, toggleCollapsed } from './collapsed.js';
-import { loadRecent, saveRecent, pushRecent } from './recentProjects.js';
+import { loadRecent, saveRecent, pushRecent, loadRecentDocuments, saveRecentDocuments, pushRecentDocument } from './recentProjects.js';
 import { loadLayout, saveLayout } from './libraryLayout.js';
 import { renderBoardHtml, buildBoardColumns, limitBoardColumns } from './renderBoard.js';
 import { renderBacklogHtml, renderArchiveHtml } from './renderBacklog.js';
@@ -2668,7 +2668,10 @@ async function openDocumentInEditor(documentId) {
   if (!doc) { alertError('open that document'); return false; }
   seedEditorDraft(doc);
   writeToken += 1; // drop any in-flight writing action from a previous doc
-  setState({ navType: 'editor', editorFocus: false, writeMenuOpen: false, writeSelection: null, writeContext: null, writeResult: null, writeLoading: false, writeError: null });
+  setState({
+    navType: 'editor', editorFocus: false, writeMenuOpen: false, writeSelection: null, writeContext: null, writeResult: null, writeLoading: false, writeError: null,
+    recentDocuments: saveRecentDocuments(pushRecentDocument(state.recentDocuments, documentId)),
+  });
   renderApp();
   loadDocumentContext(doc);
   return true;
@@ -6791,7 +6794,7 @@ async function init() {
   // macOS merges the native titlebar into the app's top bar (overlay style) —
   // inset the bar so the traffic lights sit inside it.
   document.body.classList.toggle('is-desktop-mac', desktopShell && desktopPlatform === 'macos');
-  setState({ preferences, librarySavedViews: loadSavedViews(), taskSmartViews: loadSmartViews(), pinned: loadPinned(), recentProjects: loadRecent(), libraryLayout: loadLayout(), collapsedSections: loadCollapsed(), winW: window.innerWidth, desktopShell, desktopPlatform });
+  setState({ preferences, librarySavedViews: loadSavedViews(), taskSmartViews: loadSmartViews(), pinned: loadPinned(), recentProjects: loadRecent(), recentDocuments: loadRecentDocuments(), libraryLayout: loadLayout(), collapsedSections: loadCollapsed(), winW: window.innerWidth, desktopShell, desktopPlatform });
   applyPreferences(preferences);
   appRoot.innerHTML = '<main class="empty" style="height:100vh"><p class="empty__sub">Loading Prax…</p></main>';
   try {

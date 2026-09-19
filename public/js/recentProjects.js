@@ -37,3 +37,35 @@ export function pushRecent(recent, projectId) {
   if (typeof projectId !== 'string' || !projectId) return normalizeRecent(recent);
   return normalizeRecent([projectId, ...normalizeRecent(recent).filter((id) => id !== projectId)]);
 }
+
+// Recently opened documents share the regime (spec item 13): the ⌘K Recent
+// group lists them with the recent projects when the query is empty.
+export const RECENT_DOCS_STORAGE_KEY = 'prax.recentDocuments.v1';
+export const MAX_RECENT_DOCS = 5;
+
+function normalizeList(value, max) {
+  const list = Array.isArray(value) ? value : [];
+  return [...new Set(list.filter((entry) => typeof entry === 'string' && entry))].slice(0, max);
+}
+
+export function loadRecentDocuments(storage = globalThis.localStorage) {
+  try {
+    const raw = storage?.getItem?.(RECENT_DOCS_STORAGE_KEY);
+    return normalizeList(raw ? JSON.parse(raw) : [], MAX_RECENT_DOCS);
+  } catch {
+    return [];
+  }
+}
+
+export function saveRecentDocuments(recent, storage = globalThis.localStorage) {
+  const normalized = normalizeList(recent, MAX_RECENT_DOCS);
+  try {
+    storage?.setItem?.(RECENT_DOCS_STORAGE_KEY, JSON.stringify(normalized));
+  } catch { /* a convenience; runtime state still applies */ }
+  return normalized;
+}
+
+export function pushRecentDocument(recent, documentId) {
+  if (typeof documentId !== 'string' || !documentId) return normalizeList(recent, MAX_RECENT_DOCS);
+  return normalizeList([documentId, ...normalizeList(recent, MAX_RECENT_DOCS).filter((id) => id !== documentId)], MAX_RECENT_DOCS);
+}

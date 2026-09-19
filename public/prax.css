@@ -1214,6 +1214,10 @@ body[data-density="compact"] .group-label { margin-top: 12px; }
 }
 .proj-card__actions .chip-btn:hover { border-color: var(--accent); color: var(--accent); }
 
+.all-projects__area { display: flex; align-items: center; gap: 6px; margin: 12px 2px 6px; font-size: 12px; font-weight: 600; color: var(--ink2); }
+.all-projects__area-count { font-weight: 500; color: var(--ink3); }
+.all-projects__area + .proj-grid { margin-bottom: 4px; }
+
 /* ---- Library -------------------------------------------------------------- */
 
 .lib-search { display: flex; align-items: center; gap: 8px; margin: 14px 0 10px; }

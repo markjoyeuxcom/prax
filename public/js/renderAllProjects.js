@@ -37,10 +37,8 @@ export function buildProjectGroups(projects = [], tasks = []) {
     byProject.set(task.projectId, bucket);
   }
 
-  return STATE_DEFS.map(({ state, groupLabel }) => ({
-    state,
-    label: groupLabel,
-    projects: projects
+  return STATE_DEFS.map(({ state, groupLabel }) => {
+    const entries = projects
       .filter((project) => normalizedStatus(project) === state)
       .map((project) => {
         const { open, done } = byProject.get(project.id) || { open: 0, done: 0 };
@@ -52,8 +50,31 @@ export function buildProjectGroups(projects = [], tasks = []) {
           pct: total ? Math.round((done / total) * 100) : 0,
           updated: project.updatedAt ? String(project.updatedAt).slice(0, 10) : '',
         };
-      }),
-  })).filter((group) => group.projects.length > 0);
+      });
+    return { state, label: groupLabel, projects: entries, areas: areasOf(entries) };
+  }).filter((group) => group.projects.length > 0);
+}
+
+// Within a state group, projects sit under their area (spec item 15), the
+// same partition the browser panel uses: named areas alphabetically, then
+// the unassigned rest under Other. A group with no areas at all keeps one
+// unlabelled run, so a small workspace looks exactly as before.
+export function areasOf(entries = []) {
+  const named = new Map();
+  const loose = [];
+  for (const entry of entries) {
+    const area = String(entry.project?.area || '').trim();
+    if (area) {
+      if (!named.has(area)) named.set(area, []);
+      named.get(area).push(entry);
+    } else {
+      loose.push(entry);
+    }
+  }
+  if (!named.size) return [{ label: null, projects: entries }];
+  const areas = [...named.keys()].sort((a, b) => a.localeCompare(b)).map((label) => ({ label, projects: named.get(label) }));
+  if (loose.length) areas.push({ label: 'Other', projects: loose });
+  return areas;
 }
 
 function renderStateChips(project) {
@@ -93,12 +114,15 @@ function renderProjectCard(entry, groupState, colorFor) {
 }
 
 function renderGroup(group, colorFor) {
+  const areas = Array.isArray(group.areas) && group.areas.length ? group.areas : [{ label: null, projects: group.projects }];
+  const grids = areas.map((area) => `
+      ${area.label ? `<h3 class="all-projects__area">${escapeHtml(area.label)} <span class="all-projects__area-count">${area.projects.length}</span></h3>` : ''}
+      <div class="proj-grid">
+        ${area.projects.map((entry) => renderProjectCard(entry, group.state, colorFor)).join('')}
+      </div>`).join('');
   return `
     <section class="all-projects__group">
-      <h2 class="group-label">${escapeHtml(group.label)}</h2>
-      <div class="proj-grid">
-        ${group.projects.map((entry) => renderProjectCard(entry, group.state, colorFor)).join('')}
-      </div>
+      <h2 class="group-label">${escapeHtml(group.label)}</h2>${grids}
     </section>`;
 }
 
