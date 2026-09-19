@@ -74,6 +74,9 @@ test('the project title owns the header row and the ops row wraps beneath it', (
 test('panel section labels are structural (stronger ink, more air); the split-button styles are gone', () => {
   assert.match(css, /\.side-section\s*\{[^}]*color:\s*var\(--ink2\)/s);
   assert.match(css, /\.side-section\s*\{[^}]*padding:\s*20px 8px 6px/s);
+  // Content group labels sit a half-step above the panel's section labels.
+  assert.match(css, /\.group-label\s*\{[^}]*font-size:\s*11\.5px/s);
+  assert.match(css, /\.group-label\s*\{[^}]*color:\s*var\(--group-fg, var\(--ink2\)\)/s);
   assert.doesNotMatch(css, /btn-primary--split|btn-primary--chev/);
   assert.match(css, /\.btn-primary__chevron\s*\{/);
 });
