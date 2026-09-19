@@ -1,13 +1,13 @@
 # Year-One Shell Design
 
 **Date:** 2026-09-19
-**Status:** Approved (brainstorm); all eight items implemented
+**Status:** Approved (brainstorm); all nine items implemented — the canvas is built
 **Builds on:** v0.32.1
 **Scope:** The lowest-cost structural fixes from the year-one UI audit (items 1–3), the
 navigation pair (item 4: breadcrumb and Recent projects), the chrome pair (item 5: folded
 On hold and the statusbar), the palette (item 6: ⌘K scopes) and the Library table mode with
-its review queue (item 7), and the Today redesign from the canvas (item 8), all added on
-2026-09-19. The full audit
+its review queue (item 7), the Today redesign from the canvas (item 8) and the remaining small
+shell pieces of the canvas (item 9), all added on 2026-09-19. The full audit
 and the alternative mocks live on the design canvas
 [Prax UI Alternatives](https://claude.ai/artifact/DEPREJFVT1bmBLj4Edvjw7) (private; the audit
 summary is also a `reference` memory in Prax: "Prax UI audit at year-one scale").
@@ -346,3 +346,27 @@ Every finding of the audit, and the Today artboard, is now covered by this spec.
 - Manual: with overdue tasks, Reschedule all to Monday moves them and Undo restores; select a
   row and use its strip; Add all to plan fills Planned; the cards reflect agent writes and
   on-call notes.
+
+## 9. The remaining small pieces of the canvas — implemented
+
+- **New ▾ split button** (`renderNewSplitHtml`): `open-capture` stays primary; the chevron
+  (`toggle-new-menu`, `newMenuOpen`) opens New task / New document (`new-document`) / New
+  project (`new-project` → All projects with `[data-new-project-name]` focused). Closed by the
+  shared outside-click rule.
+- **Rail project tiles** (`railProjectsHtml`, `RAIL_PROJECT_LIMIT` = 5): in narrow windows the
+  rail shows the current project, then pinned, then recent — lettered tiles in the project
+  colour — instead of every project as a dot. Nothing pinned or recent means no tiles.
+- **Row density**: `preferences.listDensity` (`comfortable` | `compact`, normalized like the
+  other preferences) applied as `data-density` on `<body>`; a two-button toggle beside Group
+  on the List tab (`set-list-density`). Compact tightens task rows, list rows and table rows.
+- **Reschedule all on a project's Overdue header**: `buildListGroups` attaches a
+  `triage-all` tail with `data-project-id`; `main.js` scopes the set to that project's overdue
+  group. `renderTaskGroupsHtml` renders `tailHtml` on section-keyed headers too.
+- **Library**: the Semantic toggle is a Keyword | Semantic segment (`set-search-mode`);
+  Group: Type / None (`cycle-lib-group`, `libraryGroupBy`) — None is one flat run in sort
+  order; both hidden in the archive and in semantic mode.
+- **⌘K**: the selected task's row offers Today (`palette-task-today` → the triage path with
+  today's date) beside Done.
+- Tests: `renderShell.test.js` (split button, tiles: order, cap, none), `preferences.test.js`
+  (density), `renderList.test.js` (the tail on section headers), `renderLibrary.test.js`
+  (segment, group control), `renderPalette.test.js` (Today).

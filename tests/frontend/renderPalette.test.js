@@ -238,6 +238,8 @@ test('the selected task row carries an inline Done button; other rows and non-ta
   const html = renderPaletteHtml(state, buildPaletteGroups(state, MANY));
   assert.match(html, /class="palette__row is-selected">[\s\S]*?data-palette-index="1"[\s\S]*?<\/button><button class="palette__action" type="button" data-action="palette-task-done" data-task-id="t1" title="Mark done \(⌘↵\)">Done<\/button>/);
   assert.equal((html.match(/palette-task-done/g) || []).length, 1);
+  assert.match(html, /Done<\/button><button class="palette__action palette__action--ghost" type="button" data-action="palette-task-today" data-task-id="t1"[^>]*>Today</);
+  assert.equal((html.match(/palette-task-today/g) || []).length, 1);
   const docs = { paletteQuery: 'match', paletteSelection: 0, paletteScope: 'docs' };
   assert.doesNotMatch(renderPaletteHtml(docs, buildPaletteGroups(docs, MANY)), /palette-task-done/);
 });

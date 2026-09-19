@@ -4,6 +4,7 @@ import { dueFlag } from './dueFlags.js';
 import { slippageChips } from './slippageFlags.js';
 import { icon, logo } from './icons.js';
 import { isCollapsed } from './collapsed.js';
+import { isoDate, nextWeekday } from './dateHelpers.js';
 
 // Project ▸ List tab — grouped task rows (docs/desktop/design-handoff.md §1).
 // Pure render module (phase1-actions.md): state → HTML string, events are
@@ -159,6 +160,13 @@ export function buildListGroups(state, tasks, { now = new Date() } = {}) {
   const groups = defs.map(([key, label, tone]) => ({
     key, label, tone, tasks: open.filter((task) => keyOf(task) === key),
   }));
+  // Overdue in a project list carries the same set-level decision as Today's
+  // triage band (spec item 9), scoped to this project.
+  const overdue = groups.find((group) => group.key === 'overdue');
+  if (overdue && overdue.tasks.length && state.navId) {
+    const monday = new Date(`${isoDate(nextWeekday(now, 1))}T00:00:00`).toLocaleDateString('en-US', { weekday: 'long' });
+    overdue.tailHtml = `<button type="button" class="group-label__action" data-action="triage-all" data-decision="monday" data-project-id="${escapeHtml(state.navId)}" title="Move every overdue task in this project to ${escapeHtml(monday)}">Reschedule all to ${escapeHtml(monday)}</button>`;
+  }
   const recentDone = done.filter((task) => doneWithinWeek(task, now));
   const olderDone = done.filter((task) => !doneWithinWeek(task, now));
   if (recentDone.length) groups.push({ key: 'completed', label: 'Done this week', tone: 'muted', tasks: recentDone, defaultCollapsed: true, archivable: true });
@@ -231,6 +239,7 @@ export function renderTaskGroupsHtml(state, groups, { rowExtra } = {}) {
       + `<button type="button" class="group-label__toggle" data-action="toggle-section" data-section-key="${escapeHtml(group.sectionKey)}" aria-expanded="${!collapsed}">`
       + `<span class="side-section__chevron" aria-hidden="true">${collapsed ? '▸' : '▾'}</span>${escapeHtml(group.label)} ${countHtml}</button>`
       + archive
+      + (group.tailHtml || '')
       + '</div>'
       + (collapsed ? '' : `<div class="rows" data-group="${escapeHtml(group.key)}">${rows}</div>`);
   }).join('');

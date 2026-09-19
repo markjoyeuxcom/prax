@@ -179,7 +179,11 @@ export function buildLibraryModel(state, { limit = LIBRARY_RENDER_BATCH_SIZE } =
   const anyFilter = Boolean(query) || activeTags.length > 0
     || (facetsShown && (types.length > 0 || trust.length > 0 || projectIds.length > 0));
 
-  const collection = limitDocumentGroups(groupDocumentsByType(filtered), limit);
+  // Group: Type (the registry order) or None (one flat run in sort order).
+  const grouped = state.libraryGroupBy === 'none'
+    ? (filtered.length ? [{ type: 'all', label: 'All documents', docs: filtered }] : [])
+    : groupDocumentsByType(filtered);
+  const collection = limitDocumentGroups(grouped, limit);
 
   return {
     groups: collection.groups,
@@ -310,14 +314,23 @@ function renderSearchRow(state, semanticVisible, model = {}) {
   const isSemantic = Boolean(state.librarySemantic);
   const layoutToggle = renderLayoutToggle(state, model);
   const placeholder = isSemantic ? SEMANTIC_PLACEHOLDER : KEYWORD_PLACEHOLDER;
+  // Keyword | Semantic as one segmented control (spec item 9): the mode
+  // reads as a choice, not a lit-up toggle.
   const semanticButton = semanticVisible
-    ? `<button class="btn-ghost${isSemantic ? ' is-on' : ''}" type="button" data-action="toggle-semantic" aria-pressed="${isSemantic}">${icon('spark', 13)}<span>Semantic</span></button>`
+    ? '<div class="seg" role="group" aria-label="Search mode">'
+      + `<button class="seg__btn${isSemantic ? '' : ' is-active'}" type="button" data-action="set-search-mode" data-mode="keyword" aria-pressed="${!isSemantic}">Keyword</button>`
+      + `<button class="seg__btn${isSemantic ? ' is-active' : ''}" type="button" data-action="set-search-mode" data-mode="semantic" aria-pressed="${isSemantic}">${icon('spark', 13)}<span>Semantic</span></button>`
+      + '</div>'
     : '';
+  const groupButton = model.archive || isSemantic
+    ? ''
+    : `<button class="btn-ghost" type="button" data-action="cycle-lib-group">Group: ${state.libraryGroupBy === 'none' ? 'None' : 'Type'}</button>`;
   return `
     <div class="lib-search${isSemantic ? ' is-semantic' : ''}">
       <input class="lib-search__input" type="search" data-library-search placeholder="${escapeHtml(placeholder)}" value="${escapeHtml(state.libraryQuery || '')}" autocomplete="off" aria-label="Search library">
       ${semanticButton}
       <button class="btn-ghost" type="button" data-action="cycle-lib-sort">Sort: ${state.librarySortBy === 'title' ? 'Title' : 'Updated'}</button>
+      ${groupButton}
       ${layoutToggle}
     </div>`;
 }

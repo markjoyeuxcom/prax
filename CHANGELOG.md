@@ -14,6 +14,14 @@ fresh empty `[Unreleased]` section is started.
 
 ### Changed
 
+- **Small shell pieces from the year-one canvas.** The titlebar's New is a split button —
+  capture stays the primary half, the chevron offers New document and New project (which lands
+  on All projects with the name field focused). In narrow windows the rail shows the current,
+  pinned and recent projects as lettered tiles, five at most, instead of one identical dot per
+  project. Lists gain a comfortable / compact row density (a preference, applied on `<body>`).
+  A project's Overdue header carries Reschedule all to Monday for that project. The Library's
+  Semantic toggle becomes a Keyword | Semantic segment and gains Group: Type / None. ⌘K's
+  selected task offers Today beside Done. Ninth and final item of the year-one shell spec.
 - **Today, year one: overdue is a set to decide on, and the day has a second column.** Overdue
   work moves out of a plain group into a **triage band**: the count, how many have slipped at
   least twice, and three decisions for the whole set — reschedule everything to next Monday,

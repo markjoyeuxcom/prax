@@ -10,6 +10,7 @@ import {
   RECENT_MIN_PROJECTS,
   ON_HOLD_SECTION,
   statusbarFacts,
+  RAIL_PROJECT_LIMIT,
 } from '../../public/js/renderShell.js';
 
 function makeState(overrides = {}) {
@@ -117,8 +118,15 @@ test('titlebar renders search pill, new task, and theme toggle actions', () => {
   assert.match(html, /class="searchpill" data-action="open-palette"/);
   assert.match(html, /Search or jump to…/);
   assert.match(html, /class="kbd">⌘K</);
-  assert.match(html, /class="btn-primary" data-action="open-capture"/);
+  // New is a split button: capture stays primary, the chevron opens document / project.
+  assert.match(html, /class="btn-primary btn-primary--split" data-action="open-capture"/);
   assert.match(html, /New task/);
+  assert.match(html, /class="btn-primary btn-primary--chev" data-action="toggle-new-menu" aria-haspopup="true" aria-expanded="false"/);
+  assert.doesNotMatch(html, /data-action="new-project"/);
+  const open = renderTitlebarHtml(makeState({ newMenuOpen: true }));
+  assert.match(open, /aria-expanded="true"/);
+  assert.match(open, /class="menu__item" type="button" data-action="new-document">New document/);
+  assert.match(open, /class="menu__item" type="button" data-action="new-project">New project/);
   assert.match(html, /class="btn-icon" data-action="toggle-theme"[^>]*>◐/);
 });
 
@@ -175,12 +183,22 @@ test('rail includes an Inbox button navigating to the Inbox project', () => {
   assert.match(html, /class="rail__btn[^"]*" title="Inbox" data-action="nav-project" data-project-id="inbox-id"/);
 });
 
-test('rail project dots render in narrow mode and are suppressed when the panel owns projects', () => {
-  const state = makeState({ navType: 'project', navId: 'p2', projects: PROJECTS });
+test('rail project tiles in narrow mode: current, pinned and recent only, lettered, capped; none when the panel owns projects', () => {
+  const state = makeState({ navType: 'project', navId: 'p2', projects: PROJECTS, pinned: { projects: ['p1'], smartViews: [], libraryViews: [] } });
   const narrow = renderRailHtml(state, {}, { showProjects: true });
   assert.match(narrow, /class="rail__divider"/);
-  assert.match(narrow, /class="rail__proj is-active" title="Reading Pipeline" data-action="nav-project" data-project-id="p2"/);
-  assert.match(narrow, /class="rail__proj" title="Homelab"/);
+  assert.match(narrow, /class="rail__proj is-active" title="Reading Pipeline" data-action="nav-project" data-project-id="p2"[^>]*><span class="rail__proj-letter" style="--dot: oklch\([^"]+\)">R</);
+  assert.match(narrow, /class="rail__proj" title="Homelab"[^>]*><span class="rail__proj-letter"[^>]*>H</);
+  assert.ok(narrow.indexOf('data-project-id="p2"') < narrow.indexOf('data-project-id="p1"'), 'the current project leads');
+  // Neither pinned nor recent nor current: no tiles at all, no divider.
+  const bare = renderRailHtml(makeState({ navType: 'today', projects: PROJECTS }), {}, { showProjects: true });
+  assert.doesNotMatch(bare, /rail__proj/);
+  assert.doesNotMatch(bare, /rail__divider/);
+  // Capped at RAIL_PROJECT_LIMIT, recents after pins, no duplicates.
+  const many = Array.from({ length: 8 }, (_, i) => ({ id: `q${i}`, name: `Q${i}`, status: 'active' }));
+  const capped = renderRailHtml(makeState({ navType: 'today', projects: many, pinned: { projects: ['q1', 'q2'], smartViews: [], libraryViews: [] }, recentProjects: ['q2', 'q5', 'q6', 'q7'] }), {}, { showProjects: true });
+  assert.equal((capped.match(/class="rail__proj"/g) || []).length, RAIL_PROJECT_LIMIT);
+  assert.deepEqual([...capped.matchAll(/data-project-id="(q\d)"/g)].map((m) => m[1]), ['q1', 'q2', 'q5', 'q6', 'q7']);
   const wide = renderRailHtml(state, {}, { showProjects: false });
   assert.doesNotMatch(wide, /rail__proj/);
   assert.doesNotMatch(wide, /rail__divider/);

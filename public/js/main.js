@@ -210,7 +210,7 @@ function openConfirm(confirm) {
   // "click outside a menu closes it" handler swallows the first click on the
   // confirm's buttons — forcing a second click. The confirm is a modal, so the
   // menu should be gone anyway.
-  setState({ confirm, docMenuOpen: false, newDocMenuOpen: false, libraryMenuOpen: false, captureMenuOpen: false });
+  setState({ confirm, docMenuOpen: false, newDocMenuOpen: false, libraryMenuOpen: false, newMenuOpen: false, captureMenuOpen: false });
   renderApp();
 }
 
@@ -3763,6 +3763,15 @@ function projectTasks() {
   return state.tasks.filter(t => t.projectId === state.navId);
 }
 
+// Comfortable / compact rows (spec item 9), a preference applied on <body>.
+function renderDensityToggle(state) {
+  const density = state.preferences?.listDensity === 'compact' ? 'compact' : 'comfortable';
+  const button = (key, label, glyph) => (
+    `<button type="button" class="layout-toggle__btn${density === key ? ' is-active' : ''}" data-action="set-list-density" data-density="${key}" aria-pressed="${density === key}" aria-label="${label} rows" title="${label} rows">${glyph}</button>`
+  );
+  return `<div class="layout-toggle" role="group" aria-label="Row density">${button('comfortable', 'Comfortable', '<span aria-hidden="true">☰</span>')}${button('compact', 'Compact', '<span aria-hidden="true">≡</span>')}</div>`;
+}
+
 function renderMainHtml() {
   const now = new Date();
   if (state.apiStatus === 'loading'
@@ -3884,7 +3893,7 @@ function renderMainHtml() {
         }).join('');
       const groupLabel = { due: 'Due date', priority: 'Priority', status: 'Status' }[state.groupBy];
       const right = state.tab === 'list'
-        ? `<div class="tabs__right"><button class="btn-ghost" type="button" data-action="cycle-group">Group: ${groupLabel}</button></div>`
+        ? `<div class="tabs__right"><button class="btn-ghost" type="button" data-action="cycle-group">Group: ${groupLabel}</button>${renderDensityToggle(state)}</div>`
         : '';
       let body = '';
       if (state.tab === 'board') {
@@ -4847,7 +4856,16 @@ _Task:_ ${task.title || 'Untitled task'}`
       }
       break;
     }
-    case 'triage-all': await triageTasks(overdueTaskIds(), el.dataset.decision, triageLabel(el.dataset.decision)); break;
+    case 'triage-all': {
+      // From a project list the set is that project's overdue group; from
+      // Today it is every project's.
+      const ids = el.dataset.projectId
+        ? (buildListGroups(state, state.tasks.filter((task) => task.projectId === el.dataset.projectId), { now: new Date() }).groups
+          .find((group) => group.key === 'overdue')?.tasks || []).map((task) => task.id)
+        : overdueTaskIds();
+      await triageTasks(ids, el.dataset.decision, triageLabel(el.dataset.decision));
+      break;
+    }
     case 'triage-task': await triageTasks([el.dataset.taskId], el.dataset.decision, triageLabel(el.dataset.decision)); break;
     case 'plan-add-today': {
       // Every task due today that is not yet in the plan joins it.
@@ -4928,7 +4946,26 @@ _Task:_ ${task.title || 'Untitled task'}`
     case 'clear-lib-filters': setState({ libraryQuery: '', activeLibraryTags: [], libraryTypes: [], libraryTrust: [], libraryProjects: [], ...resetSemanticSearchPatch() }); renderApp(); break;
     case 'toggle-new-doc-menu': setState({ newDocMenuOpen: !state.newDocMenuOpen }); renderApp(); break;
     case 'toggle-library-menu': setState({ libraryMenuOpen: !state.libraryMenuOpen, newDocMenuOpen: false }); renderApp(); break;
-    case 'new-document': createNewDocument(el.dataset.templateId); break;
+    case 'toggle-new-menu': setState({ newMenuOpen: !state.newMenuOpen, libraryMenuOpen: false, newDocMenuOpen: false }); renderApp(); break;
+    case 'new-project': {
+      // All projects owns project creation; land there with the name field ready.
+      setState({ newMenuOpen: false });
+      if (await navigateTopLevel({ navType: 'all' })) appRoot.querySelector('[data-new-project-name]')?.focus();
+      break;
+    }
+    case 'set-search-mode': {
+      const semantic = el.dataset.mode === 'semantic';
+      if (semantic !== Boolean(state.librarySemantic)) setState({ librarySemantic: semantic, ...resetSemanticSearchPatch() });
+      renderApp();
+      break;
+    }
+    case 'cycle-lib-group': setState({ libraryGroupBy: state.libraryGroupBy === 'none' ? 'type' : 'none' }); renderApp(); break;
+    case 'set-list-density': {
+      setState({ preferences: applyPreferences(savePreferences({ ...state.preferences, listDensity: el.dataset.density })) });
+      renderApp();
+      break;
+    }
+    case 'new-document': setState({ newMenuOpen: false }); createNewDocument(el.dataset.templateId); break;
     case 'import-documents': setState({ libraryMenuOpen: false }); openMarkdownImport(); break;
     case 'close-markdown-import': closeMarkdownImport(); break;
     case 'submit-markdown-import': await submitMarkdownImport(); break;
@@ -5340,6 +5377,11 @@ _Task:_ ${task.title || 'Untitled task'}`
     case 'palette-task-done': {
       setState({ paletteOpen: false });
       await toggleTaskDone(el.dataset.taskId);
+      break;
+    }
+    case 'palette-task-today': {
+      setState({ paletteOpen: false });
+      await triageTasks([el.dataset.taskId], 'today', 'today');
       break;
     }
     case 'close-palette': setState({ paletteOpen: false }); renderApp(); break;
@@ -5783,8 +5825,8 @@ _Task:_ ${task.title || 'Untitled task'}`
 
 function bindEvents() {
   appRoot.addEventListener('click', (event) => {
-    if ((state.docMenuOpen || state.newDocMenuOpen || state.libraryMenuOpen || state.captureMenuOpen || state.writeMenuOpen) && !event.target.closest?.('.menu')) {
-      setState({ docMenuOpen: false, newDocMenuOpen: false, libraryMenuOpen: false, captureMenuOpen: false, writeMenuOpen: false, writeSelection: null });
+    if ((state.docMenuOpen || state.newDocMenuOpen || state.libraryMenuOpen || state.newMenuOpen || state.captureMenuOpen || state.writeMenuOpen) && !event.target.closest?.('.menu')) {
+      setState({ docMenuOpen: false, newDocMenuOpen: false, libraryMenuOpen: false, newMenuOpen: false, captureMenuOpen: false, writeMenuOpen: false, writeSelection: null });
       // A click on another control should both dismiss the open menu and
       // activate that control. Only consume clicks on otherwise inert space.
       if (!event.target.closest?.('[data-action], [data-link-picker-doc]')) {

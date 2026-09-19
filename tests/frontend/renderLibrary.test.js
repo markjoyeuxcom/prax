@@ -334,20 +334,32 @@ test('semantic mode switches the placeholder and marks the search row', () => {
   assert.match(html, /placeholder="Ask in plain language — e\.g\. &quot;what do I do when the database dies&quot;"/);
 });
 
-test('semantic toggle renders only when available AND enabled, with is-on state', () => {
+test('the Keyword | Semantic segment renders only when semantic is available AND enabled, marking the active mode', () => {
   const on = render({ semanticStatus: { available: true, enabled: true }, librarySemantic: true });
-  assert.match(on, /data-action="toggle-semantic"/);
-  assert.match(on, /class="btn-ghost is-on"[^>]*data-action="toggle-semantic"[^>]*aria-pressed="true"/);
-  assert.match(on, /toggle-semantic[^>]*>[\s\S]*?<span>Semantic<\/span>/);
+  assert.match(on, /class="seg" role="group" aria-label="Search mode"/);
+  assert.match(on, /class="seg__btn" type="button" data-action="set-search-mode" data-mode="keyword" aria-pressed="false">Keyword</);
+  assert.match(on, /class="seg__btn is-active" type="button" data-action="set-search-mode" data-mode="semantic" aria-pressed="true">[\s\S]*?<span>Semantic<\/span>/);
 
   const off = render({ semanticStatus: { available: true, enabled: true }, librarySemantic: false });
-  assert.match(off, /class="btn-ghost"[^>]*data-action="toggle-semantic"[^>]*aria-pressed="false"/);
+  assert.match(off, /class="seg__btn is-active"[^>]*data-mode="keyword" aria-pressed="true"/);
+  assert.match(off, /class="seg__btn"[^>]*data-mode="semantic" aria-pressed="false"/);
 
-  assert.doesNotMatch(render({ semanticStatus: { available: false } }), /data-action="toggle-semantic"/);
-  assert.doesNotMatch(
-    render({ semanticStatus: { available: true, enabled: false } }),
-    /data-action="toggle-semantic"/,
-  );
+  assert.doesNotMatch(render({ semanticStatus: { available: false } }), /set-search-mode/);
+  assert.doesNotMatch(render({ semanticStatus: { available: true, enabled: false } }), /set-search-mode/);
+});
+
+test('Group: Type groups cards by type; Group: None is one flat run in sort order; hidden in archive and semantic', () => {
+  const typed = render();
+  assert.match(typed, /data-action="cycle-lib-group">Group: Type</);
+  assert.match(typed, /class="group-label">Runbooks/);
+  const flat = render({ libraryGroupBy: 'none' });
+  assert.match(flat, /data-action="cycle-lib-group">Group: None</);
+  assert.match(flat, /class="group-label">All documents <span class="group-label__count">3</);
+  assert.doesNotMatch(flat, /class="group-label">Runbooks/);
+  assert.equal(buildLibraryModel(makeState({ libraryGroupBy: 'none' })).groups.length, 1);
+  assert.deepEqual(buildLibraryModel(makeState({ libraryGroupBy: 'none', libraryQuery: 'zzz' })).groups, []);
+  assert.doesNotMatch(render({ libraryView: 'archive' }), /cycle-lib-group/);
+  assert.doesNotMatch(render({ librarySemantic: true, semanticStatus: { available: true, enabled: true } }), /cycle-lib-group/);
 });
 
 test('sort cycler shows Title when sorting by title', () => {

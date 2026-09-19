@@ -242,6 +242,26 @@ a { color: var(--accent); }
 .side-item--recent .side-item__label { flex: 1 1 auto; }
 
 .titlebar__actions { display: flex; align-items: center; gap: 8px; flex: none; }
+/* New ▾ split button (spec item 9) */
+.titlebar__new { display: inline-flex; }
+.btn-primary--split { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.btn-primary--chev { border-top-left-radius: 0; border-bottom-left-radius: 0; padding: 0 8px; border-left: 1px solid color-mix(in oklab, var(--accent-ink) 25%, transparent); font-size: 11px; }
+.rail__proj-letter {
+  width: 22px; height: 22px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 10.5px; font-weight: 700; color: var(--dot); background: color-mix(in oklab, var(--dot) 16%, transparent);
+}
+.rail__proj.is-active .rail__proj-letter { background: var(--dot); color: #fff; }
+/* Segmented control (Library search mode) */
+.seg { display: inline-flex; border: 1px solid var(--line2); border-radius: 7px; overflow: hidden; background: var(--card); flex: none; }
+.seg__btn { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; font-size: 12px; font-weight: 500; color: var(--ink3); }
+.seg__btn:hover { color: var(--ink); }
+.seg__btn.is-active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+/* Compact rows: a preference on <body> */
+body[data-density="compact"] .task-row { font-size: 13px; }
+body[data-density="compact"] .task-row__open { padding: 5px 12px 5px 4px; }
+body[data-density="compact"] .rows .row, body[data-density="compact"] .doc-table__row { height: 32px; }
+body[data-density="compact"] .group-label { margin-top: 12px; }
+.palette__action--ghost { background: var(--accent-soft); color: var(--accent); }
 
 .searchpill {
   display: flex;
