@@ -11,14 +11,14 @@ import { chip, escapeHtml, prioDotClass } from './renderHelpers.js';
 import { dueFlag } from './dueFlags.js';
 import { slippageChips } from './slippageFlags.js';
 import { icon } from './icons.js';
-import { TASK_RENDER_BATCH_SIZE } from './renderList.js';
+import { TASK_RENDER_BATCH_SIZE, doneWithinWeek } from './renderList.js';
 
 // Column labels + dot tones in design vocabulary (Prax.dc.html colDefs).
 const COLUMN_META = {
   priority: { label: 'Priority', tone: 'hi' },
   inprogress: { label: 'In progress', tone: 'accent' },
   planned: { label: 'Planned', tone: 'lo' },
-  completed: { label: 'Completed', tone: 'muted' },
+  completed: { label: 'Done this week', tone: 'muted' },
 };
 
 const TONE_VARS = {
@@ -39,14 +39,20 @@ function sortCards(cards) {
 // Pure column model: membership by designStatus, board order by sortOrder,
 // drop-indicator flags derived from the drag state (state.dragPos = the
 // { col, beforeId } slot the pointer hovers; beforeId null = end of column).
-export function buildBoardColumns(state = {}, tasks = []) {
+export function buildBoardColumns(state = {}, tasks = [], { now = new Date() } = {}) {
   const safeTasks = Array.isArray(tasks) ? tasks : [];
   const boardable = safeTasks.filter(task => isBoardable(task));
   const dragPos = state.dragPos || null;
 
   return BOARD_COLUMNS.map((key) => {
     const meta = COLUMN_META[key];
-    const cards = sortCards(boardable.filter(task => designStatus(task.status) === key))
+    const members = boardable.filter(task => designStatus(task.status) === key);
+    // Completed is this week's done work (the list's "Done this week" rule);
+    // older cards leave the column and are counted, so a year of finished
+    // tasks never buries the three columns that still matter.
+    const kept = key === 'completed' ? members.filter(task => doneWithinWeek(task, now)) : members;
+    const olderCount = members.length - kept.length;
+    const cards = sortCards(kept)
       .map(task => ({
         ...task,
         showInd: !!(dragPos && dragPos.col === key
@@ -59,6 +65,7 @@ export function buildBoardColumns(state = {}, tasks = []) {
       label: meta.label,
       tone: meta.tone,
       cards,
+      olderCount,
       isOver: state.dragOverColumn === key,
       endInd: !!(dragPos && dragPos.col === key && dragPos.beforeId === null),
     };
@@ -131,7 +138,11 @@ function renderCard(state, task, projectsById, now) {
     ? `<div class="board-card__meta">${metaParts.join('')}</div>`
     : '';
 
-  const activity = extras && extras.latestActivity
+  // The latest activity is a signal only once something has happened: the
+  // creation event on every fresh card said nothing and was noise at scale.
+  const creationOnly = extras && (extras.latestActivityKind === 'created'
+    || (!extras.latestActivityKind && extras.latestActivity === 'Task created'));
+  const activity = extras && extras.latestActivity && !creationOnly
     ? `<div class="board-card__activity">${escapeHtml(extras.latestActivity)}</div>`
     : '';
 
@@ -173,9 +184,12 @@ function renderColumn(state, column, projectsById, now) {
   const emptySlot = (Number.isInteger(column.totalCount) ? column.totalCount : column.cards.length) === 0
     ? '<div class="empty-slot">Drop cards here</div>'
     : '';
+  const older = column.olderCount > 0
+    ? `<button type="button" class="board-col__older" data-action="set-tab" data-tab="list" title="Older finished work lives in the list under Done earlier">${column.olderCount} older, in the list</button>`
+    : '';
 
   return `<div class="board-col${column.isOver ? ' is-over' : ''}" data-board-column="${escapeHtml(column.key)}">`
-    + head + cards + endInd + emptySlot
+    + head + cards + endInd + emptySlot + older
     + '</div>';
 }
 

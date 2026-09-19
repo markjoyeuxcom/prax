@@ -106,13 +106,13 @@ import { parseTaskFilter, projectResolver } from './taskFilter.js';
 import { createSmartView, findSmartView, smartViewsFromJson } from './taskSmartViews.js';
 import { loadPinned, savePinned, togglePinned } from './pinned.js';
 import { isCollapsed, loadCollapsed, saveCollapsed, toggleCollapsed } from './collapsed.js';
-import { loadRecent, saveRecent, pushRecent } from './recentProjects.js';
+import { loadRecent, saveRecent, pushRecent, loadRecentDocuments, saveRecentDocuments, pushRecentDocument } from './recentProjects.js';
 import { loadLayout, saveLayout } from './libraryLayout.js';
 import { renderBoardHtml, buildBoardColumns, limitBoardColumns } from './renderBoard.js';
 import { renderBacklogHtml, renderArchiveHtml } from './renderBacklog.js';
 import { renderTaskDrawerHtml, renderMissingTaskDrawerHtml } from './renderTaskDetail.js';
 import { renderLinkPickerHtml } from './renderLinkPicker.js';
-import { LIBRARY_RENDER_BATCH_SIZE, renderLibraryHtml, buildLibraryModel, reviewQueue } from './renderLibrary.js';
+import { LIBRARY_RENDER_BATCH_SIZE, renderLibraryHtml, buildLibraryModel, reviewQueue, isReviewQueueDoc } from './renderLibrary.js';
 import { templateById } from './documentTemplates.js';
 import { renderEditorHtml, buildOutline, buildBacklinks, WRITE_ACTIONS } from './renderEditor.js';
 import { renderRunHtml, buildChronicle } from './renderRun.js';
@@ -2668,7 +2668,10 @@ async function openDocumentInEditor(documentId) {
   if (!doc) { alertError('open that document'); return false; }
   seedEditorDraft(doc);
   writeToken += 1; // drop any in-flight writing action from a previous doc
-  setState({ navType: 'editor', editorFocus: false, writeMenuOpen: false, writeSelection: null, writeContext: null, writeResult: null, writeLoading: false, writeError: null });
+  setState({
+    navType: 'editor', editorFocus: false, writeMenuOpen: false, writeSelection: null, writeContext: null, writeResult: null, writeLoading: false, writeError: null,
+    recentDocuments: saveRecentDocuments(pushRecentDocument(state.recentDocuments, documentId)),
+  });
   renderApp();
   loadDocumentContext(doc);
   return true;
@@ -3619,6 +3622,66 @@ async function toggleReviewQueue() {
   renderApp();
 }
 
+// ---------------------------------------------------------------------------
+// Review-queue walk (year-one spec item 11): open a queued document, read it,
+// verify or skip, and land on the next one — one click per document instead
+// of three. The walk is a snapshot of the queue as it was shown, so what you
+// asked to review is what you review; documents verified elsewhere meanwhile
+// are skipped at advance time.
+// ---------------------------------------------------------------------------
+
+function startReviewWalk(fromId) {
+  const ids = visibleLibraryDocuments().filter(isReviewQueueDoc).map((doc) => doc.id);
+  const index = Math.max(0, ids.indexOf(fromId));
+  setState({ reviewWalk: ids.length ? { ids: ids.includes(fromId) ? ids : [fromId, ...ids], index, verified: 0 } : { ids: [fromId], index: 0, verified: 0 } });
+}
+
+// Open a queued document for review: the first one through the health-style
+// preview (with its coaching toast), later ones silently — the strip explains.
+async function openWalkDocument(id, { coach = false } = {}) {
+  if (coach) { await verifyHealthDoc(id); return; }
+  if (!id || !(await prepareEditorNavigation(id))) return;
+  try {
+    cacheLifecycleDocument(await fetchDocument(id));
+    await openDocumentInEditor(id);
+    destroyEditorController();
+    setState({ editorMode: 'preview' });
+    renderApp();
+  } catch { showToast('Could not load the next document for review.'); }
+}
+
+async function advanceReviewWalk() {
+  const walk = state.reviewWalk;
+  if (!walk) return;
+  const byId = new Map((state.documents || []).map((doc) => [doc.id, doc]));
+  let next = walk.index + 1;
+  while (next < walk.ids.length && !isReviewQueueDoc(byId.get(walk.ids[next]))) next += 1;
+  if (next >= walk.ids.length) {
+    const verified = walk.verified;
+    setState({ reviewWalk: null });
+    await goLibrary({ libraryView: 'review' });
+    showToast(verified ? `Queue walked — ${verified === 1 ? '1 document' : `${verified} documents`} verified.` : 'Queue walked — nothing verified.');
+    return;
+  }
+  setState({ reviewWalk: { ...walk, index: next } });
+  await openWalkDocument(walk.ids[next]);
+}
+
+async function reviewWalkVerify() {
+  const doc = currentDocument();
+  const walk = state.reviewWalk;
+  if (!doc || !walk || walk.ids[walk.index] !== doc.id) return;
+  if (doc.verified !== true) {
+    await performDocumentLifecycleOnce(`document:${doc.id}`, () => changeDocumentVerification(doc.id, true));
+    // Advance only on a committed verification; a refusal (dirty draft,
+    // changed revision) leaves the strip in place with its toast explaining.
+    const after = (state.documents || []).find((item) => item.id === doc.id);
+    if (after?.verified !== true) return;
+    setState({ reviewWalk: { ...state.reviewWalk, verified: (state.reviewWalk?.verified || 0) + 1 } });
+  }
+  await advanceReviewWalk();
+}
+
 // Archive every selected document through the same reconcile path as the
 // single action, with one summary toast instead of one per document.
 async function bulkArchiveDocuments() {
@@ -3922,7 +3985,7 @@ function renderMainHtml() {
         : '';
       let body = '';
       if (state.tab === 'board') {
-        const columns = buildBoardColumns(state, tasks);
+        const columns = buildBoardColumns(state, tasks, { now });
         const collection = limitBoardColumns(
           columns,
           taskCollectionLimit(`project|${state.navId}|board`),
@@ -5035,12 +5098,21 @@ _Task:_ ${task.title || 'Untitled task'}`
     }
     case 'clear-doc-selection': setState({ librarySelectedDocIds: [] }); renderApp(); break;
     case 'bulk-archive-docs': await bulkArchiveDocuments(); break;
-    case 'review-doc': await verifyHealthDoc(el.dataset.documentId); break;
-    case 'review-next': {
-      const next = visibleLibraryDocuments().find((doc) => doc.verified !== true);
-      if (next) await verifyHealthDoc(next.id);
+    case 'review-doc': {
+      // From the queue, Review starts a walk through what is shown.
+      if (state.libraryView === 'review') startReviewWalk(el.dataset.documentId);
+      await openWalkDocument(el.dataset.documentId, { coach: true });
       break;
     }
+    case 'review-next': {
+      const next = visibleLibraryDocuments().find((doc) => doc.verified !== true);
+      if (!next) break;
+      startReviewWalk(next.id);
+      await openWalkDocument(next.id, { coach: true });
+      break;
+    }
+    case 'review-walk-verify': await reviewWalkVerify(); break;
+    case 'review-walk-skip': await advanceReviewWalk(); break;
     case 'toggle-library-view': {
       setState({ libraryMenuOpen: false });
       setState({ libraryView: state.libraryView === 'archive' ? 'active' : 'archive', librarySelectedDocIds: [], ...resetSemanticSearchPatch() });
@@ -5070,7 +5142,12 @@ _Task:_ ${task.title || 'Untitled task'}`
 
     // ---- editor ----
     // Leaving a document opened from the review queue returns to the queue.
-    case 'back-to-library': await goLibrary(state.libraryView === 'review' ? { libraryView: 'review' } : {}); break;
+    case 'back-to-library': {
+      const toQueue = state.libraryView === 'review';
+      if (state.reviewWalk) setState({ reviewWalk: null });
+      await goLibrary(toQueue ? { libraryView: 'review' } : {});
+      break;
+    }
     // Explicit exit from a failed/recovered/conflict document draft: without
     // it, a doc archived/deleted externally left the retry failing forever
     // and every navigation vetoed — only a reload escaped.
@@ -6717,7 +6794,7 @@ async function init() {
   // macOS merges the native titlebar into the app's top bar (overlay style) —
   // inset the bar so the traffic lights sit inside it.
   document.body.classList.toggle('is-desktop-mac', desktopShell && desktopPlatform === 'macos');
-  setState({ preferences, librarySavedViews: loadSavedViews(), taskSmartViews: loadSmartViews(), pinned: loadPinned(), recentProjects: loadRecent(), libraryLayout: loadLayout(), collapsedSections: loadCollapsed(), winW: window.innerWidth, desktopShell, desktopPlatform });
+  setState({ preferences, librarySavedViews: loadSavedViews(), taskSmartViews: loadSmartViews(), pinned: loadPinned(), recentProjects: loadRecent(), recentDocuments: loadRecentDocuments(), libraryLayout: loadLayout(), collapsedSections: loadCollapsed(), winW: window.innerWidth, desktopShell, desktopPlatform });
   applyPreferences(preferences);
   appRoot.innerHTML = '<main class="empty" style="height:100vh"><p class="empty__sub">Loading Prax…</p></main>';
   try {
