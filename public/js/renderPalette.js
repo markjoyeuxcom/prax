@@ -133,6 +133,28 @@ export function buildPaletteGroups(state, { tasks = [], documents = [], projects
     if (docItems.length) full.push({ key: 'docs', label: 'Documents', items: docItems, icon: 'doc' });
   }
 
+  // An empty query in All leads with where you just were (spec item 13):
+  // the last projects visited and documents opened, most recent first.
+  const recent = [];
+  if (!query && scope === 'all') {
+    const projectById = new Map(projects.map((project) => [project.id, project]));
+    for (const id of (state?.recentProjects || []).slice(0, 3)) {
+      const project = projectById.get(id);
+      if (!project) continue;
+      recent.push({
+        title: project.name,
+        sub: ['Project', project.area || null].filter(Boolean).join(' · '),
+        icon: project.slug === 'inbox' ? 'inbox' : 'grid', action: 'go-project', id: project.id,
+      });
+    }
+    const documentById = new Map(documents.map((doc) => [doc.id, doc]));
+    for (const id of (state?.recentDocuments || []).slice(0, 3)) {
+      const doc = documentById.get(id);
+      if (!doc || doc.archivedAt) continue;
+      recent.push({ title: doc.title, sub: doc.documentType || '', icon: 'doc', action: 'open-doc', id: doc.id });
+    }
+  }
+
   const countOf = (key) => full.find((group) => group.key === key)?.items.length || 0;
   const scopes = PALETTE_SCOPES.map(([key, label]) => ({
     key, label, count: key === 'all' ? full.reduce((sum, group) => sum + group.items.length, 0) : countOf(key),
@@ -161,6 +183,8 @@ export function buildPaletteGroups(state, { tasks = [], documents = [], projects
         truncated: Math.max(0, group.items.length - MAX_SCOPED_ITEMS),
       }));
   }
+
+  if (recent.length) groups.unshift({ label: 'Recent', items: recent });
 
   const flat = groups.flatMap((group) => group.items);
   return { groups, flat, scope, scopes };

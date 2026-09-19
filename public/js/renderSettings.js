@@ -172,6 +172,18 @@ function renderAppearanceCard(preferences, state = {}) {
       </div>
       <div class="settings-row">
         <div class="settings-row__text">
+          <div class="settings-row__label">Row density</div>
+          <div class="settings-row__desc">Comfortable rows breathe; compact fits more tasks and documents on screen. Also on every list's toolbar.</div>
+        </div>
+        <div class="seg">
+          ${['comfortable', 'compact'].map((density) => {
+            const on = (preferences.listDensity || 'comfortable') === density;
+            return `<button type="button"${on ? ' class="is-active"' : ''} data-action="set-list-density" data-density="${density}" aria-pressed="${on}">${density === 'compact' ? 'Compact' : 'Comfortable'}</button>`;
+          }).join('')}
+        </div>
+      </div>
+      <div class="settings-row">
+        <div class="settings-row__text">
           <div class="settings-row__label">Due-date reminders</div>
           <div class="settings-row__desc">Nudge you when a task is due or overdue while Prax is open.${remindersNotifHint(preferences)}</div>
         </div>

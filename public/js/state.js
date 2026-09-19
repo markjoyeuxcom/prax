@@ -17,6 +17,7 @@ export const state = {
   panelFilter: '',              // type-to-filter text for the active panel tab
   pinned: { projects: [], smartViews: [], libraryViews: [] }, // starred favorites (localStorage)
   recentProjects: [],           // last-visited project ids, most recent first (localStorage)
+  recentDocuments: [],          // last-opened document ids, most recent first (localStorage)
   captureShortcut: null,        // { shortcut, default } from the server (desktop shell)
   captureShortcutNotice: null,  // last apply outcome shown in Settings
   taskRelatedDocs: null,        // { taskId, loading, suggestions, degraded, reason } — drawer Related knowledge
