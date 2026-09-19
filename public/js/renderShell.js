@@ -80,7 +80,7 @@ function documentTitle(state, documentId) {
 
 // The titlebar breadcrumb is a PATH, not a caption (year-one shell spec, item
 // 4): every segment before the last one is a place you can go back to, and it
-// dispatches the same data-action the rail and panel use for that place.
+// re-dispatches the same action the rail and panel use for that place.
 // Pure: [{ label, action?, data? }], last = current. Area names are context,
 // not a destination (there is no area view), so they render as plain text.
 export function buildBreadcrumb(state) {
@@ -136,7 +136,11 @@ function renderBreadcrumbHtml(state) {
     } else if (segment.action) {
       const data = Object.entries(segment.data || {})
         .map(([key, value]) => ` data-${key}="${escapeHtml(value)}"`).join('');
-      html = `<button type="button" class="titlebar__crumb-link" data-action="${segment.action}"${data}>${label}</button>`;
+      // A crumb link re-dispatches the rail/panel action through
+      // `breadcrumb` + data-target, so `[data-action="nav-project"]` keeps
+      // meaning the rail and panel rows (tests, focus restores) and never the
+      // titlebar.
+      html = `<button type="button" class="titlebar__crumb-link" data-action="breadcrumb" data-target="${segment.action}"${data}>${label}</button>`;
     } else {
       html = `<span class="titlebar__crumb-text">${label}</span>`;
     }

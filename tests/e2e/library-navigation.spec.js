@@ -47,13 +47,15 @@ test('a delayed Active response cannot overwrite the newer Archive view', async 
 
   await page.locator('[data-action="nav-library"]').first().click();
   await activeStarted;
+  await page.locator('[data-action="toggle-library-menu"]').click();
   await page.locator('[data-action="toggle-library-view"]').click();
-  await expect(page.locator('[data-action="toggle-library-view"]')).toHaveText('Active');
+  // The archive is named in the header once the toggle sits inside the ⋯ overflow.
+  await expect(page.locator('.page-head__sub')).toHaveText('Archive');
   await expect(page.locator('.plain-row', { hasText: archived.title })).toBeVisible();
 
   releaseActive();
   await activeCompleted;
-  await expect(page.locator('[data-action="toggle-library-view"]')).toHaveText('Active');
+  await expect(page.locator('.page-head__sub')).toHaveText('Archive');
   await expect(page.locator('.plain-row', { hasText: archived.title })).toBeVisible();
   await expect(page.getByText(active.title, { exact: true })).toHaveCount(0);
 

@@ -50,7 +50,10 @@ test('project fields edited together both survive saving and reload', async ({ p
   const p = await project(request);
   await page.goto('/');
   await page.locator(`[data-action="nav-project"][data-project-id="${p.id}"]`).first().click();
+  // Unset ops fields render as "+ Field" buttons; reveal each before typing.
+  await page.locator('[data-action="reveal-ops-field"][data-field="onCall"]').click();
   await page.locator('[data-project-oncall]').fill('First field');
+  await page.locator('[data-action="reveal-ops-field"][data-field="handoffNotes"]').click();
   await page.locator('[data-project-handoff]').fill('Second field');
   await expect.poll(async () => (await (await request.get('/api/projects')).json()).find(x => x.id === p.id).handoffNotes).toBe('Second field');
   await page.reload();
@@ -72,7 +75,7 @@ test('body-only autosave preserves a newer remote title', async ({ page, request
 
 test('Health opens the actual document for review before verification', async ({page,request})=>{
   const doc=await (await request.post('/api/library/documents',{data:{title:`Health-${randomUUID()}`,body:'Previously read content',project:'inbox',documentType:'note'},headers:{'x-prax-origin':'agent'}})).json();
-  await page.goto('/');await page.locator('[data-action="nav-library"]').first().click();await page.locator('[data-action="open-health"]').click();
+  await page.goto('/');await page.locator('[data-action="nav-library"]').first().click();await page.locator('[data-action="toggle-library-menu"]').click();await page.locator('[data-action="open-health"]').click();
   const verify=page.locator(`[data-action="verify-health-doc"][data-doc-id="${doc.id}"]`);await verify.waitFor();
   await request.patch(`/api/library/documents/${doc.id}`,{data:{body:'New agent content requiring review'},headers:{'x-prax-origin':'agent'}});
   await verify.click();

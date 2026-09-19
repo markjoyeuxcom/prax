@@ -29,8 +29,9 @@ test('Library export chooses scope and writes the ZIP through the browser Save d
   await page.goto('/');
   await page.locator('[data-action="nav-library"]').first().click();
 
+  await page.locator('[data-action="toggle-library-menu"]').click();
   const action = page.locator('[data-action="export-library"]').first();
-  await expect(action).toHaveText('Export…');
+  await expect(action).toContainText('Export…');
   await action.click();
 
   const dialog = page.getByRole('dialog', { name: 'Export Library' });
@@ -46,8 +47,11 @@ test('Library export chooses scope and writes the ZIP through the browser Save d
   await expect(dialog.getByRole('button', { name: 'Close Library export' })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
-  await expect(action).toBeFocused();
+  // The opener sits in the (now closed) ⋯ overflow, so focus returns to the overflow button.
+  const overflow = page.locator('[data-action="toggle-library-menu"]');
+  await expect(overflow).toBeFocused();
 
+  await overflow.click();
   await action.click();
   await scope.selectOption('work');
   await expect(scope).toHaveValue('work');
@@ -73,6 +77,7 @@ test('cancelling the browser Save dialog leaves Library export open without an e
   });
   await page.goto('/');
   await page.locator('[data-action="nav-library"]').first().click();
+  await page.locator('[data-action="toggle-library-menu"]').click();
   await page.locator('[data-action="export-library"]').first().click();
 
   const dialog = page.getByRole('dialog', { name: 'Export Library' });

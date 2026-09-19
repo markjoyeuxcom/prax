@@ -4065,13 +4065,16 @@ function renderApp() {
 
 function afterRender() {
   mountEditorIfNeeded();
+  // The Import / Export triggers live in the Library's ⋯ overflow, which is
+  // closed by the time the dialog goes; focus then returns to the overflow
+  // button rather than nowhere.
   if (restoreMarkdownImportFocus && !state.markdownImportOpen) {
     restoreMarkdownImportFocus = false;
-    appRoot.querySelector('[data-action="import-documents"]')?.focus();
+    (appRoot.querySelector('[data-action="import-documents"]') || appRoot.querySelector('[data-action="toggle-library-menu"]'))?.focus();
   }
   if (restoreLibraryExportFocus && !state.libraryExportOpen) {
     restoreLibraryExportFocus = false;
-    appRoot.querySelector(`[data-action="${libraryExportReturnAction}"]`)?.focus();
+    (appRoot.querySelector(`[data-action="${libraryExportReturnAction}"]`) || appRoot.querySelector('[data-action="toggle-library-menu"]'))?.focus();
   }
   if (state.renamingProjectId) {
     const input = appRoot.querySelector('[data-project-rename]');
@@ -4392,6 +4395,7 @@ async function handleAction(action, el, event) {
     case 'refresh-deployment-status': loadDeploymentStatus().then(renderApp); renderApp(); break;
     case 'nav-project': await goProject(el.dataset.projectId); break;
     case 'rename-project': startRenameProject(el.dataset.projectId); break;
+    case 'breadcrumb': await handleAction(el.dataset.target, el, event); break;
     case 'reveal-ops-field': {
       // Show the input for an unset ops field and put the caret in it. The
       // reveal is session state: it survives re-renders until navigation.

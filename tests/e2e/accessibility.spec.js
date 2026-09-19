@@ -102,11 +102,14 @@ test('Settings and data-transfer dialogs have no automatic WCAG A/AA violations'
   }
 
   await page.locator('[data-action="nav-library"]').first().click();
+  // Import and Export live in the Library's ⋯ overflow.
+  await page.locator('[data-action="toggle-library-menu"]').click();
   await page.locator('[data-action="import-documents"]').first().click();
   await expect(page.getByRole('dialog', { name: 'Import Markdown' })).toBeVisible();
   await audit(page, 'markdown-import-dialog');
   await page.getByRole('button', { name: 'Close Markdown import' }).click();
 
+  await page.locator('[data-action="toggle-library-menu"]').click();
   await page.locator('[data-action="export-library"]').first().click();
   await expect(page.getByRole('dialog', { name: 'Export Library' })).toBeVisible();
   await audit(page, 'library-export-dialog');
