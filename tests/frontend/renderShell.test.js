@@ -8,6 +8,8 @@ import {
   projectColor,
   buildBreadcrumb,
   RECENT_MIN_PROJECTS,
+  ON_HOLD_SECTION,
+  statusbarFacts,
 } from '../../public/js/renderShell.js';
 
 function makeState(overrides = {}) {
@@ -204,7 +206,9 @@ test('panel project rows keep dots, counts, active state, and exclude the pinned
   );
   assert.match(html, /class="side-item side-item--saved is-active" data-action="nav-project" data-project-id="p1" aria-current="true"/);
   assert.match(html, /class="side-item__count">4</);
-  assert.match(html, /data-project-id="p2"[^>]*><span class="proj-dot is-onhold" style="--dot: oklch\(/);
+  // On-hold projects live in a folded section; open it to see the hollow dot.
+  const opened = renderPanelHtml(makeState({ projects: PROJECTS, collapsedSections: [ON_HOLD_SECTION] }), {});
+  assert.match(opened, /data-project-id="p2"[^>]*><span class="proj-dot is-onhold" style="--dot: oklch\(/);
   assert.doesNotMatch(html, /data-project-id="inbox-id"/, 'Inbox lives in the rail, not the panel');
 });
 
@@ -298,16 +302,18 @@ test('panel escapes hostile project and view names', () => {
 // Statusbar
 // ---------------------------------------------------------------------------
 
-test('statusbar shows the saved indicator and all keyboard hints', () => {
-  const html = renderStatusbarHtml(makeState());
+test('statusbar shows the saved indicator, one line of workspace facts, and a way to the shortcut list', () => {
+  const html = renderStatusbarHtml(makeState({
+    projects: [...PROJECTS, { id: 'p3', name: 'Done', status: 'completed' }],
+    tasks: [{ id: 't1', status: 'planned' }, { id: 't2', status: 'completed' }, { id: 't3', status: 'in-progress', archivedAt: '2026-07-01' }],
+    documents: [{ id: 'd1' }, { id: 'd2', archivedAt: '2026-07-01' }],
+  }));
   assert.match(html, /class="statusbar"/);
-  assert.match(html, /class="statusbar__saved">All changes saved locally</);
-  assert.match(html, /class="statusbar__hints"/);
-  assert.match(html, /class="kbd">⌘K<\/span> command/);
-  assert.match(html, /class="kbd">N<\/span> new task/);
-  assert.match(html, /class="kbd">↑↓<\/span> navigate/);
-  assert.match(html, /class="kbd">E<\/span> done/);
-  assert.match(html, /class="kbd">⌘J<\/span> theme/);
+  assert.match(html, /class="statusbar__saved">Saved locally</);
+  assert.match(html, /class="statusbar__facts"><span>2 projects<\/span><span class="statusbar__dot" aria-hidden="true">·<\/span><span>1 open task<\/span><span class="statusbar__dot" aria-hidden="true">·<\/span><span>1 document<\/span><\/span>/);
+  assert.match(html, /class="statusbar__shortcuts" data-action="open-shortcuts"[^>]*><span class="kbd">⌘\/<\/span> shortcuts</);
+  assert.doesNotMatch(html, /statusbar__hints/, 'the fixed hint strip is gone');
+  assert.deepEqual(statusbarFacts(makeState()), ['0 projects', '0 open tasks', '0 documents']);
 });
 
 // ---------------------------------------------------------------------------
@@ -392,6 +398,37 @@ test('Recent projects lead the panel once the list is long enough; stale ids ski
   assert.doesNotMatch(renderPanelHtml({ ...state, recentProjects: ['ghost'] }, {}), /<span>Recent<\/span>/);
 });
 
+test('on-hold projects fold into a trailing On hold section: closed by default, open with the stored key, a filter, or when current', () => {
+  const projects = [
+    { id: 'a1', name: 'Alpha', status: 'active', area: 'Work' },
+    { id: 'h1', name: 'Paused one', status: 'on-hold', area: 'Work' },
+    { id: 'h2', name: 'Paused two', status: 'on-hold' },
+  ];
+  const closed = renderPanelHtml(makeState({ projects }), {});
+  assert.match(closed, /data-action="toggle-section" data-section-key="panel:onhold" aria-expanded="false"[^>]*>[\s\S]*?<span>On hold<\/span><span class="side-section__count">2</);
+  assert.doesNotMatch(closed, /data-project-id="h1"/);
+  assert.doesNotMatch(closed, /data-project-id="h2"/);
+  assert.match(closed, /data-section-key="area:Work"[^>]*>[\s\S]*?side-section__count">1/, 'the area counts active projects only');
+  assert.ok(closed.indexOf('data-section-key="area:Work"') < closed.indexOf('data-section-key="panel:onhold"'), 'On hold trails the areas');
+
+  const opened = renderPanelHtml(makeState({ projects, collapsedSections: [ON_HOLD_SECTION] }), {});
+  assert.match(opened, /data-section-key="panel:onhold" aria-expanded="true"/);
+  assert.match(opened, /data-project-id="h1"/);
+  assert.match(opened, /data-project-id="h2"/);
+
+  const filtered = renderPanelHtml(makeState({ projects, panelFilter: 'paused' }), {});
+  assert.match(filtered, /data-project-id="h1"/);
+  assert.doesNotMatch(filtered, /data-project-id="a1"/);
+
+  const current = renderPanelHtml(makeState({ navType: 'project', navId: 'h2', projects }), {});
+  assert.match(current, /data-section-key="panel:onhold" aria-expanded="true"/);
+  assert.match(current, /class="side-item side-item--saved is-active" data-action="nav-project" data-project-id="h2"/);
+
+  const pinnedHold = renderPanelHtml(makeState({ projects, pinned: { projects: ['h1'], smartViews: [], libraryViews: [] } }), {});
+  assert.match(pinnedHold, /<span>Pinned<\/span>[\s\S]*?data-project-id="h1"/, 'a pinned on-hold project floats to Pinned');
+  assert.match(pinnedHold, /side-section__count">1<\/span>[\s\S]*$/, 'and leaves the On hold count');
+});
+
 test('a stale pin for a deleted project renders no Pinned section', () => {
   const html = renderPanelHtml(makeState({
     projects: PROJECTS,
@@ -436,9 +473,11 @@ test('projects group under alphabetical area sections with counts; unassigned un
   assert.ok(home < work && work < other, 'areas alphabetical, Other last');
   assert.match(html, /data-section-key="area:Work"[^>]*aria-expanded="true"/);
   assert.match(html, /<span>Other<\/span><span class="side-section__count">1</);
-  // No areas anywhere -> the exact flat list (no section headers at all).
+  // No areas anywhere -> no area sections (the on-hold project in PROJECTS
+  // still gets its own folded On hold section).
   const flat = renderPanelHtml(makeState({ projects: PROJECTS, collapsedSections: [] }), {});
-  assert.doesNotMatch(flat, /data-section-key/);
+  assert.doesNotMatch(flat, /data-section-key="area:/);
+  assert.match(flat, /data-section-key="panel:onhold"/);
 });
 
 test('a collapsed area hides its rows and flips the chevron; the filter auto-expands', () => {

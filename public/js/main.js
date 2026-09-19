@@ -129,6 +129,7 @@ import { renderPaletteHtml, buildPaletteGroups } from './renderPalette.js';
 import { renderCaptureHtml } from './renderCapture.js';
 import { renderToastHtml } from './renderToast.js';
 import { renderConfirmHtml } from './renderConfirm.js';
+import { renderShortcutsHtml } from './renderShortcuts.js';
 import { renderMarkdownImportHtml } from './renderMarkdownImport.js';
 import { renderLibraryExportHtml } from './renderLibraryExport.js';
 import { renderSettingsHtml } from './renderSettings.js';
@@ -3582,7 +3583,15 @@ async function goSettings() {
   return true;
 }
 
+function openShortcuts() {
+  if (state.shortcutsOpen) { setState({ shortcutsOpen: false }); renderApp(); return; }
+  setState({ shortcutsOpen: true });
+  renderApp();
+  appRoot.querySelector('[data-overlay="shortcuts"] [data-action="close-shortcuts"]')?.focus();
+}
+
 function escapeCascade() {
+  if (state.shortcutsOpen) { setState({ shortcutsOpen: false }); renderApp(); return; }
   // The writing preview is a full-screen modal — it owns Esc over the (hidden,
   // behind-the-scrim) editor search panel.
   if (state.writeContext) { closeWrite(); return; }
@@ -3907,6 +3916,7 @@ function renderOverlaysHtml() {
     html += renderWritingPreviewHtml(state, { resultHtml: state.writeResult ? renderMarkdownHtml(state.writeResult, { resolveWikiLink }) : '' });
   }
   if (state.planMode) html += renderPlanModeHtml(state);
+  if (state.shortcutsOpen) html += renderShortcutsHtml(state);
   if (state.confirm) html += renderConfirmHtml(state.confirm);
   html += renderToastHtml(state);
   return html;
@@ -5170,6 +5180,12 @@ _Task:_ ${task.title || 'Untitled task'}`
       else await addQuickTask(state.captureQuery.trim());
       break;
     case 'confirm-cancel': setState({ confirm: null }); renderApp(); break;
+    case 'open-shortcuts': openShortcuts(); break;
+    case 'close-shortcuts': {
+      // The scrim carries the action too; a click inside the dialog stays.
+      if (el.dataset.overlay === 'shortcuts' && event.target !== el) break;
+      setState({ shortcutsOpen: false }); renderApp(); break;
+    }
     case 'toast-undo': state.toast?.undo?.(); break;
 
     // ---- settings ----
@@ -5887,7 +5903,7 @@ function bindEvents() {
     const target = event.target;
     const modalOverlay = state.libraryExportOpen
       ? 'library-export'
-      : (state.markdownImportOpen ? 'markdown-import' : null);
+      : (state.markdownImportOpen ? 'markdown-import' : (state.shortcutsOpen ? 'shortcuts' : null));
     if (modalOverlay && event.key === 'Tab') {
       const dialog = appRoot.querySelector(`[data-overlay="${modalOverlay}"] [role="dialog"]`);
       const focusable = [...(dialog?.querySelectorAll('button:not([disabled]), select:not([disabled]), input:not([disabled])') || [])];
@@ -6393,6 +6409,7 @@ function installShortcuts() {
       },
       openAssistant,
       toggleTheme,
+      openShortcuts,
       openCapture() {
         openFreshCapture();
       },

@@ -1,10 +1,11 @@
 # Year-One Shell Design
 
 **Date:** 2026-09-19
-**Status:** Approved (brainstorm); items 1–4 implemented
+**Status:** Approved (brainstorm); items 1–5 implemented
 **Builds on:** v0.32.1
-**Scope:** The lowest-cost structural fixes from the year-one UI audit (items 1–3), plus the
-navigation pair added on 2026-09-19 (item 4: breadcrumb and Recent projects). The full audit
+**Scope:** The lowest-cost structural fixes from the year-one UI audit (items 1–3), the
+navigation pair (item 4: breadcrumb and Recent projects) and the chrome pair (item 5: folded
+On hold and the statusbar), all added on 2026-09-19. The full audit
 and the alternative mocks live on the design canvas
 [Prax UI Alternatives](https://claude.ai/artifact/DEPREJFVT1bmBLj4Edvjw7) (private; the audit
 summary is also a `reference` memory in Prax: "Prax UI audit at year-one scale").
@@ -34,8 +35,12 @@ Fern tokens, Instrument Sans, rail + panel + main frame all stay).
    run. Calendar and Filter render an empty crumb. And with 34 projects in the panel there is no
    recency: the three projects you were just in are wherever their areas put them.
 
-Findings the audit raised but this spec leaves for later: folded On-hold in the browser panel,
-the shortcut-hint statusbar, the Library table mode and review queue, and ⌘K scopes.
+5. **Paused work sits between live work, and the statusbar is a cheat sheet.** On-hold
+   projects render inside their areas beside active ones, hollow dot or not. The statusbar
+   spends its width on five shortcut hints that were learned in week one.
+
+Findings the audit raised but this spec leaves for later: the Library table mode and review
+queue, and ⌘K scopes.
 
 ## 1. Project header: Ops disclosure — implemented
 
@@ -190,3 +195,34 @@ the shortcut-hint statusbar, the Library table mode and review queue, and ⌘K s
   stale-id skipping, sub-labels, threshold and filter rules.
 - Manual: open Homelab › Board, click "Homelab" in the crumb to return to List; open a document
   and click "Library"; with six projects, visit three and see them lead the panel.
+
+## 5. Folded On hold and the statusbar — implemented
+
+### Decisions
+
+- In the browser panel, `panelProjectRows` partitions the unpinned rows into active (grouped
+  by area as before, so area counts are active-only) and on-hold, which render as one trailing
+  **On hold** section via the existing `sectionHeader` / `toggle-section` machinery under the
+  key `panel:onhold`. The stored key means *expanded* (the opposite of the default, as with
+  the list's done groups). A typed filter and a section holding the current project always
+  open it. Pinning is applied first, so a pinned on-hold project floats to Pinned as before.
+- The statusbar renders `Saved locally`, then `statusbarFacts(state)` — active + on-hold
+  projects, open tasks (`isOpen`), unarchived documents — then a `⌘/ shortcuts` button
+  (`open-shortcuts`). The hint strip is gone.
+- The **Keyboard shortcuts** overlay (`public/js/renderShortcuts.js`, `state.shortcutsOpen`)
+  is a modal dialog on the shared `overlay-center` scrim: `SHORTCUT_GROUPS` mirrors the keymap
+  in `keyboardShortcuts.js` (Everywhere, Lists and boards, Go to, Quick capture); the desktop
+  shell adds the global capture chord from `captureShortcut`. `⌘/` toggles it (new
+  `shortcuts` action in `matchShortcut`), Esc closes it first in the cascade, the scrim closes
+  it on an outside click, and the Tab trap treats it like the other modal overlays.
+
+### Testing
+
+- `tests/frontend/renderShell.test.js`: the On hold section closed / opened / filtered /
+  current / pinned, area counts, and the statusbar facts and button.
+- `tests/frontend/renderShortcuts.test.js`: dialog semantics, every group and key renders, the
+  listed keys agree with `matchShortcut`, the desktop capture chord.
+- `tests/frontend/keyboardShortcuts.test.js`: `⌘/` → `shortcuts`.
+- Manual: with an on-hold project the panel shows a folded On hold row that opens on click and
+  stays open after reload; `⌘/` and the statusbar button open the overlay, Esc and a scrim
+  click close it.

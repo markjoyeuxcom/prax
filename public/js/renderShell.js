@@ -13,6 +13,7 @@ import { buildCalendarModel, monthKeyOf } from './renderCalendar.js';
 import { DOCUMENT_TYPES } from './documentTypes.js';
 import { libraryFacetCounts, TRUST_FACETS, TAG_ROW_LIMIT } from './renderLibrary.js';
 import { tagsForDocuments } from './libraryFilters.js';
+import { isOpen } from './statusMap.js';
 
 // ---------------------------------------------------------------------------
 // Project colors
@@ -304,6 +305,7 @@ function groupedRowsHtml(items, { prefix, otherLabel, collapsedSections, filterA
 // is already in view) and never while a typed filter is narrowing the list.
 // Rows repeat below in their area: Recent is a jump list, not a partition.
 export const RECENT_MIN_PROJECTS = 6;
+export const ON_HOLD_SECTION = 'panel:onhold';
 
 function panelRecentRows(state, counts, projects) {
   if (projects.length < RECENT_MIN_PROJECTS) return '';
@@ -339,17 +341,32 @@ function panelProjectRows(state, counts, filter) {
         + '</button>'
         + pinButton('projects', project.id, project.name, state.pinned)
         + '</div>';
-      return { key: project.id, row, group: project.area || null };
+      return { key: project.id, row, group: project.area || null, status: project.status };
     });
   if (!items.length) return '<div class="panel__empty">No matches.</div>';
   const { pinned, rest } = splitPinned(items, state.pinned?.projects);
-  const grouped = groupedRowsHtml(rest, {
+  // On-hold projects leave the areas for one trailing section that starts
+  // folded (year-one shell spec, item 5): paused work should not sit between
+  // the projects you are actually in. The stored key means "expanded" here —
+  // the opposite of the default, as with the list's done groups. A typed
+  // filter and the section holding the CURRENT project always open it.
+  const active = rest.filter((item) => item.status !== 'on-hold');
+  const onHold = rest.filter((item) => item.status === 'on-hold');
+  const grouped = groupedRowsHtml(active, {
     prefix: 'area',
     otherLabel: 'Other',
     collapsedSections: state.collapsedSections,
     filterActive: Boolean(filter),
   });
-  return recent + pinnedSectionHtml(pinned.map((item) => item.row), grouped ? [grouped] : []);
+  let onHoldHtml = '';
+  if (onHold.length) {
+    const holdsCurrent = onHold.some((item) => isCurrentProject(state, item.key));
+    const collapsed = !filter && !holdsCurrent && !isCollapsed(state.collapsedSections, ON_HOLD_SECTION);
+    onHoldHtml = sectionHeader(ON_HOLD_SECTION, 'On hold', onHold.length, collapsed)
+      + (collapsed ? '' : onHold.map((item) => item.row).join(''));
+  }
+  const restRows = [...(grouped ? [grouped] : []), ...(onHoldHtml ? [onHoldHtml] : [])];
+  return recent + pinnedSectionHtml(pinned.map((item) => item.row), restRows);
 }
 
 function panelViewRows(state, filter) {
@@ -472,15 +489,25 @@ function renderBrowserPanel(state, counts = {}) {
 // Statusbar
 // ---------------------------------------------------------------------------
 
-export function renderStatusbarHtml(state) { // eslint-disable-line no-unused-vars
+// One line of facts about the workspace and a way to the shortcut list
+// (year-one shell spec, item 5). The fixed hints that used to live here were
+// learned in week one and then permanent chrome; they are behind ⌘/ now.
+function plural(count, noun) {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`;
+}
+
+export function statusbarFacts(state) {
+  const projects = (state.projects || []).filter((project) => project?.status === 'active' || project?.status === 'on-hold').length;
+  const openTasks = (state.tasks || []).filter((task) => task && isOpen(task)).length;
+  const documents = (state.documents || []).filter((doc) => doc && !doc.archivedAt).length;
+  return [plural(projects, 'project'), plural(openTasks, 'open task'), plural(documents, 'document')];
+}
+
+export function renderStatusbarHtml(state) {
   return '<footer class="statusbar">'
-    + '<span class="statusbar__saved">All changes saved locally</span>'
-    + '<span class="statusbar__hints">'
-    + '<span><span class="kbd">⌘K</span> command</span>'
-    + '<span><span class="kbd">N</span> new task</span>'
-    + '<span><span class="kbd">↑↓</span> navigate · <span class="kbd">E</span> done</span>'
-    + '<span><span class="kbd">⌘J</span> theme</span>'
-    + '</span>'
+    + '<span class="statusbar__saved">Saved locally</span>'
+    + `<span class="statusbar__facts">${statusbarFacts(state).map((fact) => `<span>${escapeHtml(fact)}</span>`).join('<span class="statusbar__dot" aria-hidden="true">·</span>')}</span>`
+    + '<button type="button" class="statusbar__shortcuts" data-action="open-shortcuts" title="Keyboard shortcuts (⌘/)"><span class="kbd">⌘/</span> shortcuts</button>'
     + '</footer>';
 }
 
