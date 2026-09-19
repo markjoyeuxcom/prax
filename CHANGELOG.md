@@ -12,6 +12,20 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Recent knows the project you launched into.** The project restored on boot is pushed into
+  the panel's Recent list at once instead of after the next visit.
+- **Every Library action behind the ⋯ menu has a ⌘K command.** Ask Prax, Review queue,
+  Library health, Weekly review, Import Markdown…, Export library… and Keyboard shortcuts are
+  palette commands, so nothing moved into the overflow lost its keyboard route. The weekly
+  review runs through one shared function with a single in-flight guard, whichever entry
+  point starts it.
+- **Library health has a breadcrumb.** The health view read as an empty crumb; it is now
+  Library › Health with Library a link back.
+- **The task-context Playwright spec asserts its own premise.** It resets the semantic-search
+  setting before it starts rather than inheriting whatever a failed earlier spec left behind.
+
 ### Changed
 
 - **Small shell pieces from the year-one canvas.** The titlebar's New is a split button —

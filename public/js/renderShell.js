@@ -117,6 +117,8 @@ export function buildBreadcrumb(state) {
         { label: 'Run' },
       ];
     }
+    case 'health':
+      return [{ label: 'Library', action: 'nav-library' }, { label: 'Health' }];
     case 'settings': {
       const tab = SETTINGS_LABELS[state.settingsTab] ? state.settingsTab : 'appearance';
       return [{ label: 'Settings', action: 'nav-settings' }, { label: SETTINGS_LABELS[tab] }];

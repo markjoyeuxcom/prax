@@ -20,13 +20,15 @@ function build(paletteQuery, extra = {}) {
 
 // ---- buildPaletteGroups -----------------------------------------------------
 
-test('with no query: only the Commands group, all eight commands, in order', () => {
+test('with no query: only the Commands group, every command, in order', () => {
   const { groups, flat } = build('');
   assert.deepEqual(groups.map(g => g.label), ['Commands']);
   assert.deepEqual(flat.map(i => i.action), [
     'new-task', 'new-document', 'toggle-theme', 'go-board',
     'go-library', 'go-all', 'focus-writing', 'go-settings',
+    'go-ask-prax', 'go-review-queue', 'go-health', 'go-weekly-review', 'go-import', 'go-export', 'go-shortcuts',
   ]);
+  assert.equal(flat.find(i => i.action === 'go-shortcuts').sub, '⌘/');
   assert.equal(flat.find(i => i.action === 'toggle-theme').sub, '⌘J');
 });
 
