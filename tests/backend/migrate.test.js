@@ -138,9 +138,9 @@ test('runMigrations applies the real consolidated schema against real SQLite', a
   const { createDb } = await import('../../server/db.js');
   const db = createDb(':memory:');
   const result = await runMigrations(db, { logger: SILENT });
-  assert.deepEqual(result.applied, ['0001_init.sql', '0002_add_inbox_project.sql', '0003_add_task_deferred_until.sql', '0004_add_project_oncall.sql', '0005_add_runbook_runs.sql', '0006_add_task_recurrence.sql', '0007_add_task_labels.sql', '0008_add_task_due_time.sql', '0009_add_project_repo_url.sql', '0010_document_type_taxonomy.sql', '0011_add_document_external_refs.sql', '0012_enforce_supersession_lifecycle.sql', '0013_add_durable_run_chronicle.sql', '0014_add_task_import_operations.sql', '0015_add_document_creation_receipts.sql', '0016_add_task_activity_actor.sql', '0017_clamp_task_recurrence_intervals.sql', '0018_reconcile_restored_supersession.sql', '0019_resequence_chronicle_by_time.sql', '0020_add_task_deferral_count.sql', '0021_add_task_planning.sql', '0022_add_project_area.sql', '0023_add_document_revision.sql', '0024_add_task_import_sessions.sql', '0025_assistant_write_receipts.sql', '0026_add_document_updated_by_agent.sql', '0027_document_upsert_receipts.sql', '0028_document_code_refs.sql', '0029_document_code_refs_null_safe_key.sql']);
+  assert.deepEqual(result.applied, ['0001_init.sql', '0002_add_inbox_project.sql', '0003_add_task_deferred_until.sql', '0004_add_project_oncall.sql', '0005_add_runbook_runs.sql', '0006_add_task_recurrence.sql', '0007_add_task_labels.sql', '0008_add_task_due_time.sql', '0009_add_project_repo_url.sql', '0010_document_type_taxonomy.sql', '0011_add_document_external_refs.sql', '0012_enforce_supersession_lifecycle.sql', '0013_add_durable_run_chronicle.sql', '0014_add_task_import_operations.sql', '0015_add_document_creation_receipts.sql', '0016_add_task_activity_actor.sql', '0017_clamp_task_recurrence_intervals.sql', '0018_reconcile_restored_supersession.sql', '0019_resequence_chronicle_by_time.sql', '0020_add_task_deferral_count.sql', '0021_add_task_planning.sql', '0022_add_project_area.sql', '0023_add_document_revision.sql', '0024_add_task_import_sessions.sql', '0025_assistant_write_receipts.sql', '0026_add_document_updated_by_agent.sql', '0027_document_upsert_receipts.sql', '0028_document_code_refs.sql', '0029_document_code_refs_null_safe_key.sql', '0030_add_memory_system_project.sql']);
   const { rows } = await db.query('select slug from projects order by sort_order');
-  assert.deepEqual(rows.map(r => r.slug), ['inbox', 'personal', 'work', 'homelab']);
+  assert.deepEqual(rows.map(r => r.slug), ['inbox', 'personal', 'work', 'homelab', 'memory']);
   // idempotent second run
   const again = await runMigrations(db, { logger: SILENT });
   assert.deepEqual(again.applied, []);
@@ -236,5 +236,16 @@ test('0013 preserves legacy runs and steps while backfilling source snapshots an
     { document_id: null, document_title: 'Legacy failover' },
   ]);
   assert.equal((await db.query('PRAGMA foreign_key_check')).rows.length, 0);
+  await db.close();
+});
+
+test('0030 seeds the Memory system project, adopting one the CLI already created', async () => {
+  const { createDb } = await import('../../server/db.js');
+  const db = createDb(':memory:');
+  await runMigrations(db, { logger: SILENT, through: '0029' });
+  await db.query("insert into projects (id, name, slug, sort_order) values ('cli-made', 'memory', 'memory', 9)");
+  assert.deepEqual((await runMigrations(db, { logger: SILENT, through: '0030' })).applied, ['0030_add_memory_system_project.sql']);
+  const { rows } = await db.query("select id, sort_order from projects where slug = 'memory'");
+  assert.deepEqual(rows.map(row => ({ ...row })), [{ id: 'cli-made', sort_order: 9 }], 'the existing row is kept, not duplicated or replaced');
   await db.close();
 });

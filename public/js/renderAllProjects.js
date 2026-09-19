@@ -1,6 +1,7 @@
 import { escapeHtml, chip } from './renderHelpers.js';
 import { designStatus } from './statusMap.js';
 import { logo } from './icons.js';
+import { isSystemProject } from './systemProject.js';
 
 // All-projects screen (design-handoff §6) — state-grouped project cards with
 // progress bars + state-change chip actions. Replaces the old project
@@ -83,8 +84,10 @@ function renderProjectCard(entry, groupState, colorFor) {
         <span>${escapeHtml(updated)}</span>
       </div>
       <div class="proj-card__actions">
-        ${renderStateChips(project)}
-        <button class="chip-btn" type="button" data-action="delete-project" data-project-id="${id}">Delete</button>
+        ${isSystemProject(project)
+          ? chip('System · shared agent memory', 'system')
+          : `${renderStateChips(project)}
+        <button class="chip-btn" type="button" data-action="delete-project" data-project-id="${id}">Delete</button>`}
       </div>
     </div>`;
 }

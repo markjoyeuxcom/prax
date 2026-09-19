@@ -70,13 +70,29 @@ export function buildArchiveProject(id) {
   };
 }
 
-export function buildCountProjectDependents(id) {
+// Everything filed under a project goes with it. Tasks and documents own
+// their dependents through FK cascades (checklist items, activity, task↔doc
+// links, document links/refs/runs; the FTS index follows its trigger), and a
+// run chronicle keeps its rows with project_id set null. Staged/replayable
+// import records are project-scoped bookkeeping with no meaning once the
+// project is gone, so they are removed too. Order matters: children before the
+// parent row, since `projects` has no cascade of its own.
+export function buildDeleteProjectContents(id) {
+  return [
+    { text: `delete from task_import_session_chunks where session_id in (select id from task_import_sessions where project_id = $1)`, values: [id] },
+    { text: `delete from task_import_sessions where project_id = $1`, values: [id] },
+    { text: `delete from task_import_operations where project_id = $1`, values: [id] },
+    { text: `delete from tasks where project_id = $1`, values: [id] },
+    { text: `delete from markdown_documents where project_id = $1`, values: [id] },
+  ];
+}
+
+export function buildCountProjectContents(id) {
   return {
     text: `
-      select (
-        (select count(*) from tasks where project_id = $1)
-        + (select count(*) from markdown_documents where project_id = $1)
-      ) as count
+      select
+        (select count(*) from tasks where project_id = $1) as tasks,
+        (select count(*) from markdown_documents where project_id = $1) as documents
     `,
     values: [id],
   };
@@ -136,15 +152,35 @@ export function createProjectsRepository(db) {
       const result = await db.query(q.text, q.values);
       return result.rows[0] ? normalizeProjectRow(result.rows[0]) : null;
     },
-    async countProjectDependents(id) {
-      const q = buildCountProjectDependents(id);
-      const result = await db.query(q.text, q.values);
-      return result.rows[0] ? result.rows[0].count : 0;
-    },
+    // Permanently delete a project with everything filed under it, as one
+    // transaction: either the project and all of its contents are gone, or
+    // nothing changed. Resolves `{ project, deleted: { tasks, documents } }`,
+    // or null when no such project exists.
     async deleteProject(id) {
-      const q = buildDeleteProject(id);
-      const result = await db.query(q.text, q.values);
-      return result.rows[0] ? normalizeProjectRow(result.rows[0]) : null;
+      const client = await db.connect();
+      try {
+        await client.query('begin immediate');
+        try {
+          const counts = buildCountProjectContents(id);
+          const counted = (await client.query(counts.text, counts.values)).rows[0] || {};
+          for (const statement of buildDeleteProjectContents(id)) {
+            await client.query(statement.text, statement.values);
+          }
+          const q = buildDeleteProject(id);
+          const result = await client.query(q.text, q.values);
+          await client.query('commit');
+          if (!result.rows[0]) return null;
+          return {
+            project: normalizeProjectRow(result.rows[0]),
+            deleted: { tasks: Number(counted.tasks) || 0, documents: Number(counted.documents) || 0 },
+          };
+        } catch (err) {
+          await client.query('rollback').catch(() => {});
+          throw err;
+        }
+      } finally {
+        client.release();
+      }
     },
     // Resolve a project from whatever a human or an LLM naturally provides: an
     // id, an exact slug, or the display NAME (case-insensitive, and tolerant of
