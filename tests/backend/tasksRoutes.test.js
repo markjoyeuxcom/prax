@@ -82,17 +82,18 @@ function createFakeRepository() {
           .filter(link => link.taskId === taskId)
           .map(link => documents.find(doc => doc.id === link.documentId))
           .filter(Boolean);
-        const latestActivity = activity
+        const latest = activity
           .filter(event => event.taskId === taskId)
           .slice()
-          .reverse()[0]?.message || '';
+          .reverse()[0] || null;
         return {
           taskId,
           docsCount: taskDocs.length,
           checklistDone: 0,
           checklistTotal: 0,
           nextChecklistItem: '',
-          latestActivity,
+          latestActivity: latest?.message || '',
+          latestActivityKind: latest?.eventType || latest?.type || latest?.kind || '',
         };
       });
     },
@@ -252,6 +253,7 @@ test('GET /api/tasks/board-extras returns board card summaries for requested ids
       checklistTotal: 0,
       nextChecklistItem: '',
       latestActivity: 'Status → in-progress',
+      latestActivityKind: 'status',
     },
     {
       taskId: SECOND_TASK_ID,
@@ -260,6 +262,7 @@ test('GET /api/tasks/board-extras returns board card summaries for requested ids
       checklistTotal: 0,
       nextChecklistItem: '',
       latestActivity: '',
+      latestActivityKind: '',
     },
   ]);
   await app.close();

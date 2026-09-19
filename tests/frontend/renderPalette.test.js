@@ -254,3 +254,25 @@ test('the "+N more" row renders as a more-styled item and a truncated scope says
   const scoped = { paletteQuery: 'match', paletteSelection: 0, paletteScope: 'tasks' };
   assert.match(renderPaletteHtml(scoped, buildPaletteGroups(scoped, deep)), /class="palette__truncated">2 more — keep typing to narrow it down\./);
 });
+
+test('an empty query leads with Recent — last projects and documents — and only in the All scope', () => {
+  const data = {
+    ...DATA,
+    projects: [{ id: 'p1', name: 'Homelab', status: 'active', area: 'Labs' }, { id: 'p2', name: 'Work', status: 'active' }],
+    documents: [...DOCS, { id: 'gone', title: 'Archived', tags: [], documentType: 'note', archivedAt: '2026-01-01' }],
+  };
+  const state = { paletteQuery: '', paletteSelection: 0, recentProjects: ['p2', 'ghost', 'p1'], recentDocuments: ['d2', 'gone', 'd1'] };
+  const { groups, flat } = buildPaletteGroups(state, data);
+  assert.deepEqual(groups.map(g => g.label), ['Recent', 'Commands']);
+  assert.deepEqual(groups[0].items.map(i => [i.action, i.id, i.title]), [
+    ['go-project', 'p2', 'Work'], ['go-project', 'p1', 'Homelab'], ['open-doc', 'd2', 'Notes'], ['open-doc', 'd1', 'Upgrade runbook'],
+  ]);
+  assert.equal(groups[0].items[1].sub, 'Project · Labs');
+  assert.equal(flat[0].action, 'go-project', 'the first recent is the default selection');
+  assert.doesNotMatch(JSON.stringify(groups), /ghost|gone/, 'unknown and archived ids are skipped');
+  assert.deepEqual(buildPaletteGroups({ ...state, paletteQuery: 'zzz' }, data).groups.map(g => g.label), [], 'a query drops Recent');
+  assert.deepEqual(buildPaletteGroups({ ...state, paletteScope: 'projects' }, data).groups.map(g => g.label), ['Projects'], 'a scope drops Recent');
+  assert.deepEqual(build('').groups.map(g => g.label), ['Commands'], 'nothing recent, nothing shown');
+  const html = renderPaletteHtml(state, buildPaletteGroups(state, data));
+  assert.match(html, /class="palette__group">Recent</);
+});

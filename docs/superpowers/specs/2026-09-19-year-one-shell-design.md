@@ -383,3 +383,46 @@ Every finding of the audit, and the Today artboard, is now covered by this spec.
   card links; `role="menuitem"` on every `.menu__item`.
 - Visual check in Deep Fern: project list, Today, Library cards and table, review queue, ⌘K,
   shortcuts overlay, New menu — all on tokens, nothing hard-coded.
+
+## 11. Review-queue walk — implemented
+
+- `state.reviewWalk = { ids, index, verified }` is a snapshot of the queue as shown
+  (`visibleLibraryDocuments()` filtered by `isReviewQueueDoc`), started by a row's Review or
+  the banner's Review next. `renderReviewWalkHtml` (in `renderEditor.js`) renders the strip
+  only while the walk's current id is the open document, so opening anything else hides it.
+- **Verify and next** (`review-walk-verify`) runs the existing `changeDocumentVerification`
+  through `performDocumentLifecycleOnce` and advances only if the document is verified
+  afterwards — a refused verification (dirty draft, changed revision) leaves the strip with
+  its toast. **Skip** (`review-walk-skip`) advances; both skip ids no longer in the queue. The
+  end returns to the queue (`goLibrary({ libraryView: 'review' })`) with a count toast.
+  `back-to-library` clears the walk.
+- Tests: `tests/frontend/renderEditor.test.js` (strip conditions and labels),
+  `tests/e2e/review-queue-walk.spec.js` (verify-and-next, verify-and-finish with the API
+  confirming both verified, skip without verifying, back to queue).
+
+## 12. Board at year one — implemented
+
+- `buildBoardColumns(state, tasks, { now })` keeps only `doneWithinWeek` tasks in the
+  Completed column (relabelled **Done this week**) and reports `olderCount`; the column renders
+  a footer button to the List tab (`set-tab`) naming the older cards.
+- The extras endpoint adds `latestActivityKind` (the `task_activity.event_type` behind
+  `latestActivity`, additive). Cards hide the activity line when the kind is `created`, or,
+  for an extras row without a kind, when the message is the creation message.
+- Tests: `renderBoard.test.js` (time box, older count and footer, creation-only activity),
+  backend repository and route shape tests carry the new field.
+
+## 13–15. ⌘K recents, density in Settings, All projects by area — implemented
+
+- **⌘K Recent**: `recentDocuments` (per device, `prax.recentDocuments.v1`, pushed in
+  `openDocumentInEditor`, five at most) joins `recentProjects`; `buildPaletteGroups` puts a
+  Recent group (three projects, three documents) before Commands when the query is empty and
+  the scope is All. Unknown and archived ids are skipped.
+- **Density in Settings**: an Appearance row with the same `set-list-density` segment as the
+  list toolbar.
+- **All projects by area**: `areasOf(entries)` partitions a state group by `project.area`
+  (alphabetical, Other last; one unlabelled run when no area exists); `renderGroup` renders an
+  `h3` per area with its count.
+- **Calendar**: checked, not changed — each day already caps at three chips with a "+N more"
+  overflow (`MAX_CHIPS_PER_DAY` in `renderCalendar.js`), so heavy days stay bounded.
+- Tests: `recentProjects.test.js`, `renderPalette.test.js`, `renderSettings.test.js`,
+  `renderAllProjects.test.js`.

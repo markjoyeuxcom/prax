@@ -613,6 +613,7 @@ test('listTaskBoardExtras normalizes aggregate rows for board cards', async () =
             checklist_total: '3',
             next_checklist_item: 'Confirm object-store creds',
             latest_activity: 'Status -> planned',
+            latest_activity_kind: 'status',
           },
         ],
       };
@@ -629,6 +630,7 @@ test('listTaskBoardExtras normalizes aggregate rows for board cards', async () =
       checklistTotal: 3,
       nextChecklistItem: 'Confirm object-store creds',
       latestActivity: 'Status -> planned',
+      latestActivityKind: 'status',
     },
   ]);
 });

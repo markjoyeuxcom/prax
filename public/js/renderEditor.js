@@ -125,6 +125,34 @@ function renderDocMenu(state, doc, { readOnly }) {
       </div>`;
 }
 
+// The review-queue walk (year-one spec item 11): when this document was
+// opened from the queue, a strip under the header says where you are in it
+// and offers the next step — verify (the same read-then-verify action as
+// the menu) and move on, skip, or go back. It shows only while the walk's
+// current id is THIS document, so opening something else simply hides it.
+export function renderReviewWalkHtml(state, doc) {
+  const walk = state.reviewWalk;
+  if (!walk || !Array.isArray(walk.ids) || walk.ids[walk.index] !== doc?.id) return '';
+  const position = walk.index + 1;
+  const total = walk.ids.length;
+  const last = position >= total;
+  const verified = Number(walk.verified) || 0;
+  const primary = doc.verified === true
+    ? `<button class="btn-primary btn-primary--sm" type="button" data-action="review-walk-skip">${last ? 'Finish' : 'Next'}</button>`
+    : `<button class="btn-primary btn-primary--sm" type="button" data-action="review-walk-verify" title="Approve the saved content shown, then move on">${last ? 'Verify and finish' : 'Verify and next'}</button>`;
+  // Skip stays available on the last document too — leaving it unverified is
+  // a decision, and it should not take a detour through Back to queue.
+  const skip = doc.verified === true
+    ? ''
+    : `<button class="btn-ghost" type="button" data-action="review-walk-skip">${last ? 'Skip and finish' : 'Skip'}</button>`;
+  return `
+    <div class="review-walk" role="region" aria-label="Review queue walk">
+      <span class="review-walk__label">Review queue · <b>${position} of ${total}</b>${verified ? ` · ${verified} verified` : ''}</span>
+      <span class="review-walk__hint">Read it, then decide. Only verified memory is recalled by default.</span>
+      <span class="review-walk__actions">${primary}${skip}<button class="btn-ghost" type="button" data-action="back-to-library">Back to queue</button></span>
+    </div>`;
+}
+
 function renderHead(state, doc, { mode, readOnly, project }) {
   const tags = (Array.isArray(doc.tags) ? doc.tags : []).filter(Boolean);
   const title = state.documentDraftId === doc.id ? state.documentDraftTitle : doc.title;
@@ -470,6 +498,7 @@ export function renderEditorHtml(state, doc, model = {}) {
   return `
   <div class="editor">
     ${renderHead(state, doc, { mode, readOnly, project })}
+    ${renderReviewWalkHtml(state, doc)}
     ${state.isDocumentInfoEditorOpen ? renderInfoForm(state, doc, projects) : ''}
     ${toolbarHtml}
     <div class="editor-body">${outlineHtml}${panesHtml}

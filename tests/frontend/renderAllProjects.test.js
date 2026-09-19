@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildProjectGroups, renderAllProjectsHtml } from '../../public/js/renderAllProjects.js';
+import { buildProjectGroups, renderAllProjectsHtml, areasOf } from '../../public/js/renderAllProjects.js';
 
 const PROJECTS = [
   { id: 'p1', name: 'Homelab', status: 'active', updatedAt: '2026-07-01T10:00:00.000Z' },
@@ -138,4 +138,33 @@ test('the Memory system project shows a System chip instead of state chips and D
   assert.doesNotMatch(memoryCard, /data-action="delete-project"/);
   assert.doesNotMatch(memoryCard, /data-action="set-project-state"/);
   assert.match(html, /data-action="delete-project" data-project-id="p1"/, 'ordinary projects keep Delete');
+});
+
+// ---- areas within a state group (spec item 15) --------------------------------
+
+test('areasOf partitions entries by area alphabetically with Other last, or one unlabelled run when no area exists', () => {
+  const entry = (id, area) => ({ project: { id, name: id, area } });
+  assert.deepEqual(areasOf([entry('a', 'Work'), entry('b', null), entry('c', 'Labs'), entry('d', 'Work'), entry('e', '  ')]).map((area) => [area.label, area.projects.map((e) => e.project.id)]),
+    [['Labs', ['c']], ['Work', ['a', 'd']], ['Other', ['b', 'e']]]);
+  assert.deepEqual(areasOf([entry('a'), entry('b')]).map((area) => [area.label, area.projects.length]), [[null, 2]]);
+  assert.deepEqual(areasOf([]), [{ label: null, projects: [] }]);
+});
+
+test('buildProjectGroups carries areas, and the page renders area headings only where areas exist', () => {
+  const projects = [
+    { id: 'p1', name: 'Homelab', status: 'active', area: 'Labs' },
+    { id: 'p2', name: 'Platform', status: 'active', area: 'Work' },
+    { id: 'p3', name: 'Loose', status: 'active' },
+    { id: 'p4', name: 'Paused', status: 'on-hold' },
+  ];
+  const groups = buildProjectGroups(projects, []);
+  assert.deepEqual(groups[0].areas.map((area) => area.label), ['Labs', 'Work', 'Other']);
+  assert.deepEqual(groups[1].areas.map((area) => area.label), [null]);
+  const html = renderAllProjectsHtml({}, groups, () => '#abc');
+  assert.match(html, /<h3 class="all-projects__area">Labs <span class="all-projects__area-count">1<\/span><\/h3>/);
+  assert.match(html, /all-projects__area">Other /);
+  assert.equal((html.match(/all-projects__area"/g) || []).length, 3, 'the on-hold group has no area heading');
+  assert.equal((html.match(/class="proj-grid"/g) || []).length, 4);
+  const plain = renderAllProjectsHtml({}, buildProjectGroups(PROJECTS, TASKS), () => '#abc');
+  assert.doesNotMatch(plain, /all-projects__area/, 'no areas anywhere, no headings');
 });

@@ -17,6 +17,7 @@ export const state = {
   panelFilter: '',              // type-to-filter text for the active panel tab
   pinned: { projects: [], smartViews: [], libraryViews: [] }, // starred favorites (localStorage)
   recentProjects: [],           // last-visited project ids, most recent first (localStorage)
+  recentDocuments: [],          // last-opened document ids, most recent first (localStorage)
   captureShortcut: null,        // { shortcut, default } from the server (desktop shell)
   captureShortcutNotice: null,  // last apply outcome shown in Settings
   taskRelatedDocs: null,        // { taskId, loading, suggestions, degraded, reason } — drawer Related knowledge
@@ -106,6 +107,7 @@ export const state = {
   libraryView: 'active',        // 'active' | 'archive' | 'review' (the agent-memory review queue)
   libraryLayout: 'cards',       // 'cards' | 'table' (localStorage)
   librarySelectedDocIds: [],    // table-mode multi-select for the bulk bar
+  reviewWalk: null,             // { ids, index, verified } while reviewing the queue one document at a time
   markdownImportOpen: false,
   markdownImportProjectId: null, // explicit destination selected inside the import dialog
   markdownImportFiles: [],       // retained [{ id, name, title, body }] after native input rerenders

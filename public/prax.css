@@ -1078,6 +1078,8 @@ body[data-density="compact"] .group-label { margin-top: 12px; }
 .board-col__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dot, var(--ink3)); }
 .board-col__count { font-weight: 450; color: var(--ink3); }
 .board-col__count.is-over-wip { color: var(--hi); font-weight: 600; }
+.board-col__older { display: block; width: 100%; text-align: left; margin-top: 6px; padding: 7px 10px; border-radius: 8px; border: 1px dashed var(--line2); font-size: 12px; color: var(--ink3); }
+.board-col__older:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
 
 .board-card {
   background: var(--card);
@@ -1211,6 +1213,10 @@ body[data-density="compact"] .group-label { margin-top: 12px; }
   transition: border-color .15s ease, color .15s ease;
 }
 .proj-card__actions .chip-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+.all-projects__area { display: flex; align-items: center; gap: 6px; margin: 12px 2px 6px; font-size: 12px; font-weight: 600; color: var(--ink2); }
+.all-projects__area-count { font-weight: 500; color: var(--ink3); }
+.all-projects__area + .proj-grid { margin-bottom: 4px; }
 
 /* ---- Library -------------------------------------------------------------- */
 
@@ -1419,6 +1425,14 @@ body[data-density="compact"] .group-label { margin-top: 12px; }
   border-bottom: 1px solid var(--line);
   flex: none;
 }
+/* Review-queue walk strip under the editor header */
+.review-walk {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; flex: none;
+  padding: 8px 20px; background: var(--med-soft); border-bottom: 1px solid var(--line); font-size: 12.5px;
+}
+.review-walk__label { color: var(--ink); }
+.review-walk__hint { color: var(--ink2); flex: 1 1 260px; min-width: 0; }
+.review-walk__actions { display: flex; gap: 6px; margin-left: auto; }
 .editor-head__back {
   width: 28px;
   height: 28px;
