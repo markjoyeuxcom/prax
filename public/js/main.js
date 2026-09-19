@@ -131,6 +131,7 @@ import { renderMarkdownImportHtml } from './renderMarkdownImport.js';
 import { renderLibraryExportHtml } from './renderLibraryExport.js';
 import { renderSettingsHtml } from './renderSettings.js';
 import { escapeHtml } from './renderHelpers.js';
+import { renderOpsToggleHtml, renderProjectOpsHtml, opsSectionKey, revealKey, opsFieldAttr } from './renderProjectOps.js';
 import { icon } from './icons.js';
 
 const SAVED_LIBRARY_VIEWS_KEY = 'moomora.librarySavedViews.v1';
@@ -3639,24 +3640,6 @@ function projectsById() {
   return map;
 }
 
-// Ops metadata inline in a project header: who's on call, handoff notes for
-// the next shift, and the repo this project corresponds to (the prax CLI
-// auto-detects the project from the local git remote via this URL). All are
-// inline-editable; input events debounce a PATCH.
-function renderProjectOps(project) {
-  const id = escapeHtml(project.id);
-  return `<div class="proj-ops">
-    <label class="proj-ops__field"><span class="proj-ops__label">On call</span>
-      <input class="proj-ops__input" type="text" data-project-oncall data-project-id="${id}" value="${escapeHtml(project.onCall || '')}" placeholder="—" aria-label="On-call owner"></label>
-    <label class="proj-ops__field proj-ops__field--notes"><span class="proj-ops__label">Handoff</span>
-      <input class="proj-ops__input" type="text" data-project-handoff data-project-id="${id}" value="${escapeHtml(project.handoffNotes || '')}" placeholder="notes for the next shift…" aria-label="Handoff notes"></label>
-    <label class="proj-ops__field proj-ops__field--repo"><span class="proj-ops__label">Repo</span>
-      <input class="proj-ops__input" type="text" data-project-repourl data-project-id="${id}" value="${escapeHtml(project.repoUrl || '')}" placeholder="git@github.com:org/repo.git" aria-label="Repository URL"></label>
-    <label class="proj-ops__field"><span class="proj-ops__label">Area</span>
-      <input class="proj-ops__input" type="text" data-project-area data-project-id="${id}" value="${escapeHtml(project.area || '')}" placeholder="e.g. Work" maxlength="60" aria-label="Area"></label>
-  </div>`;
-}
-
 function sidebarCounts() {
   const projectOpen = {};
   for (const task of state.tasks) {
@@ -3817,6 +3800,10 @@ function renderMainHtml() {
         body = renderListHtml(state, collection.groups, { collection }) + renderBulkBarHtml(state);
       }
       const canRename = project && project.slug !== INBOX_SLUG;
+      // Ops metadata (on call / handoff / repo / area) sits on its own row under
+      // an Ops disclosure; the title keeps the header row (year-one shell spec).
+      const hasOps = Boolean(project) && project.slug !== INBOX_SLUG;
+      const opsCollapsed = hasOps && isCollapsed(state.collapsedSections, opsSectionKey(project.id));
       const titleHtml = (canRename && state.renamingProjectId === project.id)
         ? `<input class="page-head__rename" type="text" data-project-rename data-project-id="${escapeHtml(project.id)}" value="${escapeHtml(project.name)}" aria-label="Rename project" autocomplete="off" spellcheck="false">`
         : `<h1 class="page-head__title">${escapeHtml(project?.name || 'Tasks')}</h1>`
@@ -3826,8 +3813,9 @@ function renderMainHtml() {
           <span class="page-head__dot" style="--dot:${project ? projectColor(project) : 'var(--accent)'}"></span>
           ${titleHtml}
           <span class="chip ${chipClass}">${escapeHtml((project?.status || 'active').replace('-', ' '))}</span>
-          ${project && project.slug !== INBOX_SLUG ? renderProjectOps(project) : ''}
+          ${hasOps ? renderOpsToggleHtml(project, { collapsed: opsCollapsed }) : ''}
         </header>
+        ${hasOps ? renderProjectOpsHtml(project, { collapsed: opsCollapsed, revealed: state.revealedOpsFields }) : ''}
         <nav class="tabs">${tabs}${right}</nav>
         ${body}
       </div>`;
@@ -4322,6 +4310,16 @@ async function handleAction(action, el, event) {
     case 'refresh-deployment-status': loadDeploymentStatus().then(renderApp); renderApp(); break;
     case 'nav-project': await goProject(el.dataset.projectId); break;
     case 'rename-project': startRenameProject(el.dataset.projectId); break;
+    case 'reveal-ops-field': {
+      // Show the input for an unset ops field and put the caret in it. The
+      // reveal is session state: it survives re-renders until navigation.
+      const key = revealKey(el.dataset.projectId, el.dataset.field);
+      if (!state.revealedOpsFields.includes(key)) setState({ revealedOpsFields: [...state.revealedOpsFields, key] });
+      renderApp();
+      const attr = opsFieldAttr(el.dataset.field);
+      if (attr) document.querySelector(`#proj-ops-${CSS.escape(el.dataset.projectId)} input[${attr}]`)?.focus();
+      break;
+    }
     case 'set-tab': {
       const tab = el.dataset.tab;
       setState({ tab, selectedTaskId: null, multiSelectIds: [] });
@@ -5727,6 +5725,10 @@ function bindEvents() {
       const value = target.value;
       projectDrafts.set(id, field, value);
       applyProjectPatchLocal(id, { [field]: value });
+      // Keep the input on screen even if the value is now empty: a background
+      // re-render must not swap it for a "+ Field" button under the caret.
+      const shown = revealKey(id, field);
+      if (!state.revealedOpsFields.includes(shown)) state.revealedOpsFields = [...state.revealedOpsFields, shown];
       clearTimeout(projectOpsTimers.get(id));
       projectOpsTimers.set(id, setTimeout(() => {
         projectOpsTimers.delete(id);

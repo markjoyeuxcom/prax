@@ -24,6 +24,7 @@ export const state = {
   calendarMonth: null,          // 'YYYY-MM' shown in the Calendar view; null = current month
   calendarSelectedDay: null,    // ISO day whose tasks show in the calendar detail strip (null = none)
   renamingProjectId: null,      // project whose header title is being inline-edited (null = none)
+  revealedOpsFields: [],        // 'projectId:field' ops inputs shown while empty (session only)
   tab: 'list',                  // project tab: 'list' | 'board' | 'backlog' | 'archive'
   groupBy: 'due',               // list grouping cycler: 'due' | 'priority' | 'status'
 

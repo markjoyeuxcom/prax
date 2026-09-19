@@ -14,6 +14,14 @@ fresh empty `[Unreleased]` section is started.
 
 ### Changed
 
+- **Project names no longer truncate behind the ops fields.** On-call, handoff, repo and area
+  used to share the header row with the title and rendered even when empty, so a project called
+  "Homelab" showed as "Homel…" at ordinary window widths. The header now keeps an **Ops**
+  disclosure (collapsible, remembered per device like panel areas, with a count of set fields)
+  and the fields sit on their own row beneath it; a field without a value is a small `＋ Field`
+  button instead of an empty input. Inline editing and the debounced save are unchanged. First
+  item of the year-one shell spec
+  (`docs/superpowers/specs/2026-09-19-year-one-shell-design.md`).
 - **Any project can be deleted, and `memory` is the only protected one.** Permanent delete used
   to refuse every project that still held a task or a document (`409`), which in practice meant
   no real project could ever be removed, while the Inbox project was reserved outright. Delete
