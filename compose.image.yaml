@@ -1,4 +1,4 @@
 services:
   app:
-    image: registry.gitlab.com/markjoyeuxcom/apps/prax:v0.33.0
+    image: registry.gitlab.com/markjoyeuxcom/apps/prax:v0.34.0
     build: !reset null
