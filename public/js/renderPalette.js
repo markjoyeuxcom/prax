@@ -19,6 +19,14 @@ const COMMANDS = [
   { title: 'All projects', sub: '', icon: 'grid', action: 'go-all' },
   { title: 'Focus writing', sub: '', icon: 'doc', action: 'focus-writing' },
   { title: 'Open settings', sub: '', icon: 'sliders', action: 'go-settings' },
+  // Library actions that sit behind its ⋯ menu — a keyboard route for each.
+  { title: 'Ask Prax', sub: 'Library', icon: 'spark', action: 'go-ask-prax' },
+  { title: 'Review queue', sub: 'Library', icon: 'check', action: 'go-review-queue' },
+  { title: 'Library health', sub: 'Library', icon: 'book', action: 'go-health' },
+  { title: 'Weekly review', sub: 'Library', icon: 'month', action: 'go-weekly-review' },
+  { title: 'Import Markdown…', sub: 'Library', icon: 'doc', action: 'go-import' },
+  { title: 'Export library…', sub: 'Library', icon: 'book', action: 'go-export' },
+  { title: 'Keyboard shortcuts', sub: '⌘/', icon: 'cmd', action: 'go-shortcuts' },
 ];
 
 const MAX_SEARCH_ITEMS = 5;
