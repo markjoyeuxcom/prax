@@ -14,6 +14,14 @@ fresh empty `[Unreleased]` section is started.
 
 ### Changed
 
+- **The titlebar crumb is a breadcrumb, and the panel remembers where you were.** "prax —
+  Homelab" is now a path: Area › Project › View, Library › document (› Run), Library › Archive,
+  Filter › view, Settings › section. Every earlier segment is a button that goes back there
+  (the same actions the rail and panel use); the current place is plain text. Calendar and
+  Filter, which used to show an empty crumb, are named. In the browser panel a **Recent**
+  section lists the last three projects you visited (per device, like pins) once you have six
+  or more projects, above Pinned and the areas; it steps aside while you type a filter. Fourth
+  item of the year-one shell spec.
 - **Library facets live in the panel on wide windows; the header is three controls.** The
   Library's context panel now carries every filter axis with live counts — Type, Project,
   Trust and Tags (most-used first, folded past ten, with a "Find a tag…" box once the list

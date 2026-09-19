@@ -6,6 +6,8 @@ import {
   renderRailHtml,
   renderStatusbarHtml,
   projectColor,
+  buildBreadcrumb,
+  RECENT_MIN_PROJECTS,
 } from '../../public/js/renderShell.js';
 
 function makeState(overrides = {}) {
@@ -38,25 +40,45 @@ const PROJECTS = [
 // Titlebar — breadcrumb
 // ---------------------------------------------------------------------------
 
-test('titlebar breadcrumb reflects each fixed navType', () => {
-  assert.match(renderTitlebarHtml(makeState({ navType: 'today' })), /prax — Today</);
-  assert.match(renderTitlebarHtml(makeState({ navType: 'all' })), /prax — All projects</);
-  assert.match(renderTitlebarHtml(makeState({ navType: 'library' })), /prax — Library</);
-  assert.match(renderTitlebarHtml(makeState({ navType: 'settings' })), /prax — Settings</);
+const CURRENT = (label) => new RegExp(`<span class="titlebar__crumb-current" aria-current="page">${label}</span>`);
+
+test('titlebar breadcrumb reflects each fixed navType as a single current segment', () => {
+  for (const [navType, label] of [['today', 'Today'], ['calendar', 'Calendar'], ['all', 'All projects'], ['library', 'Library'], ['filter', 'Filter']]) {
+    const html = renderTitlebarHtml(makeState({ navType }));
+    assert.match(html, /<nav class="titlebar__crumb" aria-label="Breadcrumb">/);
+    assert.match(html, CURRENT(label));
+    assert.doesNotMatch(html, /titlebar__crumb-link/, `${navType} has nothing to go back to`);
+  }
+  assert.doesNotMatch(renderTitlebarHtml(makeState({ navType: 'today' })), /prax — /);
 });
 
-test('titlebar breadcrumb shows the project name for project nav', () => {
-  const html = renderTitlebarHtml(makeState({ navType: 'project', navId: 'p1', projects: PROJECTS }));
-  assert.match(html, /class="titlebar__crumb">prax — Homelab</);
+test('titlebar breadcrumb for a project is Area › Project › Tab, with the project a link when off the list tab', () => {
+  const projects = [{ id: 'p1', name: 'Homelab', status: 'active', area: 'Labs' }];
+  const list = renderTitlebarHtml(makeState({ navType: 'project', navId: 'p1', tab: 'list', projects }));
+  assert.match(list, /<span class="titlebar__crumb-text">Labs<\/span><span class="titlebar__crumb-sep" aria-hidden="true">›<\/span><button type="button" class="titlebar__crumb-link" data-action="nav-project" data-project-id="p1">Homelab<\/button>/);
+  assert.match(list, CURRENT('List'));
+  const board = renderTitlebarHtml(makeState({ navType: 'project', navId: 'p1', tab: 'board', projects: PROJECTS }));
+  assert.doesNotMatch(board, /crumb-text/, 'no area, no area segment');
+  assert.match(board, /data-action="nav-project" data-project-id="p1">Homelab</);
+  assert.match(board, CURRENT('Board'));
+  assert.deepEqual(buildBreadcrumb(makeState({ navType: 'project', navId: 'missing' })), [{ label: 'Tasks' }]);
 });
 
-test('titlebar breadcrumb shows Library / doc title in the editor', () => {
-  const html = renderTitlebarHtml(makeState({
-    navType: 'editor',
-    editorDocId: 'd1',
-    documents: [{ id: 'd1', title: 'Backup runbook' }],
-  }));
-  assert.match(html, /prax — Library \/ Backup runbook</);
+test('titlebar breadcrumb: Library › doc in the editor, Library › doc › Run in a run, Library › Archive', () => {
+  const documents = [{ id: 'd1', title: 'Backup runbook' }];
+  const editor = renderTitlebarHtml(makeState({ navType: 'editor', editorDocId: 'd1', documents }));
+  assert.match(editor, /<button type="button" class="titlebar__crumb-link" data-action="nav-library">Library<\/button>/);
+  assert.match(editor, CURRENT('Backup runbook'));
+  const run = renderTitlebarHtml(makeState({ navType: 'run', runReturnDocId: 'd1', documents }));
+  assert.match(run, /data-action="nav-library">Library</);
+  assert.match(run, /class="titlebar__crumb-link" data-action="open-linked-doc" data-document-id="d1">Backup runbook</);
+  assert.match(run, CURRENT('Run'));
+  const archive = renderTitlebarHtml(makeState({ navType: 'library', libraryView: 'archive' }));
+  assert.match(archive, /data-action="nav-library">Library</);
+  assert.match(archive, CURRENT('Archive'));
+  const settings = renderTitlebarHtml(makeState({ navType: 'settings', settingsTab: 'data' }));
+  assert.match(settings, /data-action="nav-settings">Settings</);
+  assert.match(settings, CURRENT('Data &amp; admin'));
 });
 
 // ---------------------------------------------------------------------------
@@ -269,7 +291,7 @@ test('panel escapes hostile project and view names', () => {
 
   const titlebar = renderTitlebarHtml(state);
   assert.doesNotMatch(titlebar, /<script>alert\(1\)<\/script>/);
-  assert.match(titlebar, /prax — &lt;script&gt;/);
+  assert.match(titlebar, /titlebar__crumb-link[^>]*>&lt;script&gt;/);
 });
 
 // ---------------------------------------------------------------------------
@@ -325,7 +347,7 @@ test('desktop shell keeps the panel mark inline with the wordmark, smaller than 
 test('desktop shell titlebar is the drag region with no left ornament', () => {
   const html = renderTitlebarHtml(makeState({ desktopShell: true }));
   assert.match(html, /<div class="titlebar" data-tauri-drag-region>/);
-  assert.match(html, /titlebar__crumb" data-tauri-drag-region/);
+  assert.match(html, /class="titlebar__crumb" aria-label="Breadcrumb" data-tauri-drag-region/);
   assert.doesNotMatch(html, /titlebar" data-tauri-drag-region><svg/);
   const web = renderTitlebarHtml(makeState());
   assert.doesNotMatch(web, /data-tauri-drag-region/);
@@ -347,6 +369,27 @@ test('pinned projects float into a leading Pinned section in list order; stars r
   assert.ok(pinnedPos !== -1 && pinnedPos < restPos, 'the pinned project renders first');
   assert.match(html, /data-action="toggle-pin" data-kind="projects" data-key="p2"[^>]*aria-pressed="true"[^>]*>★/);
   assert.match(html, /data-action="toggle-pin" data-kind="projects" data-key="p1"[^>]*aria-pressed="false"[^>]*>☆/);
+});
+
+test('Recent projects lead the panel once the list is long enough; stale ids skip; a typed filter hides it', () => {
+  const projects = Array.from({ length: RECENT_MIN_PROJECTS }, (_, index) => ({
+    id: `r${index}`, name: `Project ${index}`, status: 'active', area: index % 2 ? 'Work' : null,
+  }));
+  const state = makeState({ navType: 'project', navId: 'r1', projects, recentProjects: ['r1', 'ghost', 'r4'] });
+  const html = renderPanelHtml(state, { projectOpen: { r4: 7 } });
+  assert.match(html, /<span>Recent<\/span>/);
+  const recentBlock = html.slice(html.indexOf('<span>Recent</span>'), html.indexOf('panel__rest-gap'));
+  assert.match(recentBlock, /class="side-item side-item--recent is-active" data-action="nav-project" data-project-id="r1" aria-current="true">[\s\S]*?Project 1<\/span><span class="side-item__sub">Work</);
+  assert.match(recentBlock, /data-project-id="r4"[^>]*>[\s\S]*?side-item__count">7/);
+  assert.doesNotMatch(recentBlock, /ghost/);
+  assert.ok(recentBlock.indexOf('data-project-id="r1"') < recentBlock.indexOf('data-project-id="r4"'), 'most recent first');
+  assert.doesNotMatch(recentBlock, /toggle-pin/, 'recent rows carry no star; the area row below does');
+  assert.ok(html.indexOf('<span>Recent</span>') < html.indexOf('data-project-id="r0"'), 'Recent leads the areas');
+  assert.equal((html.match(/data-project-id="r1"/g) || []).length, 2, 'the project still lists in its area');
+
+  assert.doesNotMatch(renderPanelHtml({ ...state, panelFilter: 'pro' }, {}), /<span>Recent<\/span>/);
+  assert.doesNotMatch(renderPanelHtml({ ...state, projects: projects.slice(0, RECENT_MIN_PROJECTS - 1) }, {}), /<span>Recent<\/span>/);
+  assert.doesNotMatch(renderPanelHtml({ ...state, recentProjects: ['ghost'] }, {}), /<span>Recent<\/span>/);
 });
 
 test('a stale pin for a deleted project renders no Pinned section', () => {

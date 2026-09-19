@@ -106,6 +106,7 @@ import { parseTaskFilter, projectResolver } from './taskFilter.js';
 import { createSmartView, findSmartView, smartViewsFromJson } from './taskSmartViews.js';
 import { loadPinned, savePinned, togglePinned } from './pinned.js';
 import { isCollapsed, loadCollapsed, saveCollapsed, toggleCollapsed } from './collapsed.js';
+import { loadRecent, saveRecent, pushRecent } from './recentProjects.js';
 import { renderBoardHtml, buildBoardColumns, limitBoardColumns } from './renderBoard.js';
 import { renderBacklogHtml, renderArchiveHtml } from './renderBacklog.js';
 import { renderTaskDrawerHtml, renderMissingTaskDrawerHtml } from './renderTaskDetail.js';
@@ -3546,6 +3547,7 @@ async function goProject(projectId, tab = 'list') {
     selectedTaskId: null, multiSelectIds: [], drawerTaskId: null,
     taskNotesDraftId: null, taskDraftBaseline: null,
     taskLabelDraftId: null, taskLabelDraft: '',
+    recentProjects: saveRecent(pushRecent(state.recentProjects, projectId)),
   });
   persistActiveProject(projectId);
   externalRefresh.trigger('navigate');
@@ -6464,7 +6466,7 @@ async function init() {
   // macOS merges the native titlebar into the app's top bar (overlay style) —
   // inset the bar so the traffic lights sit inside it.
   document.body.classList.toggle('is-desktop-mac', desktopShell && desktopPlatform === 'macos');
-  setState({ preferences, librarySavedViews: loadSavedViews(), taskSmartViews: loadSmartViews(), pinned: loadPinned(), collapsedSections: loadCollapsed(), winW: window.innerWidth, desktopShell, desktopPlatform });
+  setState({ preferences, librarySavedViews: loadSavedViews(), taskSmartViews: loadSmartViews(), pinned: loadPinned(), recentProjects: loadRecent(), collapsedSections: loadCollapsed(), winW: window.innerWidth, desktopShell, desktopPlatform });
   applyPreferences(preferences);
   appRoot.innerHTML = '<main class="empty" style="height:100vh"><p class="empty__sub">Loading Prax…</p></main>';
   try {
