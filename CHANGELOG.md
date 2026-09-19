@@ -12,6 +12,16 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Added
+
+- **The review queue walks.** Review (on a row) or Review next opens the document with a strip
+  under the editor header: where you are in the queue, **Verify and next** (the same
+  read-then-verify action as the document menu, then straight on to the next unverified
+  document), **Skip**, and **Back to queue**. The last document offers Verify and finish and
+  lands back on the queue with a count. The walk is a snapshot of the queue as shown, so a
+  search or facet narrows what you review; a document verified elsewhere meanwhile is skipped.
+  One click per memory instead of three.
+
 ### Fixed
 
 - **Dark-mode and accessibility pass on the year-one surfaces.** A new Playwright axe audit

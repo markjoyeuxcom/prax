@@ -383,3 +383,19 @@ Every finding of the audit, and the Today artboard, is now covered by this spec.
   card links; `role="menuitem"` on every `.menu__item`.
 - Visual check in Deep Fern: project list, Today, Library cards and table, review queue, ⌘K,
   shortcuts overlay, New menu — all on tokens, nothing hard-coded.
+
+## 11. Review-queue walk — implemented
+
+- `state.reviewWalk = { ids, index, verified }` is a snapshot of the queue as shown
+  (`visibleLibraryDocuments()` filtered by `isReviewQueueDoc`), started by a row's Review or
+  the banner's Review next. `renderReviewWalkHtml` (in `renderEditor.js`) renders the strip
+  only while the walk's current id is the open document, so opening anything else hides it.
+- **Verify and next** (`review-walk-verify`) runs the existing `changeDocumentVerification`
+  through `performDocumentLifecycleOnce` and advances only if the document is verified
+  afterwards — a refused verification (dirty draft, changed revision) leaves the strip with
+  its toast. **Skip** (`review-walk-skip`) advances; both skip ids no longer in the queue. The
+  end returns to the queue (`goLibrary({ libraryView: 'review' })`) with a count toast.
+  `back-to-library` clears the walk.
+- Tests: `tests/frontend/renderEditor.test.js` (strip conditions and labels),
+  `tests/e2e/review-queue-walk.spec.js` (verify-and-next, verify-and-finish with the API
+  confirming both verified, skip without verifying, back to queue).
