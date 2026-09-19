@@ -336,7 +336,7 @@ test('semantic mode switches the placeholder and marks the search row', () => {
 
 test('the Keyword | Semantic segment renders only when semantic is available AND enabled, marking the active mode', () => {
   const on = render({ semanticStatus: { available: true, enabled: true }, librarySemantic: true });
-  assert.match(on, /class="seg" role="group" aria-label="Search mode"/);
+  assert.match(on, /class="seg seg--in-bar" role="group" aria-label="Search mode"/);
   assert.match(on, /class="seg__btn" type="button" data-action="set-search-mode" data-mode="keyword" aria-pressed="false">Keyword</);
   assert.match(on, /class="seg__btn is-active" type="button" data-action="set-search-mode" data-mode="semantic" aria-pressed="true">[\s\S]*?<span>Semantic<\/span>/);
 
@@ -873,4 +873,33 @@ test('the ⋯ overflow lists the review queue with its count', () => {
   const html = render({ documents: [...DOCS, ...AGENT_DOCS], libraryMenuOpen: true });
   assert.match(html, /data-action="open-review-queue" aria-pressed="false">\s*Review queue <span class="menu__count">2</);
   assert.doesNotMatch(render({ libraryMenuOpen: true }), /menu__count/, 'no badge when the queue is empty');
+});
+
+// ---- search bar + toolbar, as drawn ----------------------------------------------
+
+test('the search is one bar with the icon, input and mode segment inside; Sort, Group and layout sit on the toolbar beneath', () => {
+  const html = render({ semanticStatus: { available: true, enabled: true } });
+  assert.match(html, /<label class="lib-search">[\s\S]*?class="lib-search__icon"[\s\S]*?data-library-search[\s\S]*?class="seg seg--in-bar" role="group" aria-label="Search mode"[\s\S]*?<\/label>/);
+  const bar = html.slice(html.indexOf('<label class="lib-search"'), html.indexOf('</label>'));
+  assert.doesNotMatch(bar, /cycle-lib-sort|cycle-lib-group|layout-toggle/, 'no controls inside the bar');
+  const toolbar = html.slice(html.indexOf('<div class="lib-toolbar">'), html.indexOf('</div>', html.indexOf('lib-toolbar__controls')));
+  assert.match(toolbar, /class="lib-toolbar__filters">/);
+  assert.match(toolbar, /class="lib-toolbar__controls">[\s\S]*?cycle-lib-sort[\s\S]*?cycle-lib-group[\s\S]*?layout-toggle/);
+  assert.ok(html.indexOf('lib-search') < html.indexOf('lib-toolbar'), 'the bar comes first');
+});
+
+test('on wide windows the active-filter chips share the toolbar; the welcome state has no toolbar', () => {
+  const state = makeState({ libraryTypes: ['runbook'] });
+  const html = renderLibraryHtml(state, buildLibraryModel(state), { facetsInPanel: true });
+  const filters = html.slice(html.indexOf('lib-toolbar__filters'), html.indexOf('lib-toolbar__controls'));
+  assert.match(filters, /class="filter-row" aria-label="Active filters"/);
+  assert.doesNotMatch(render({ documents: [] }), /lib-toolbar/);
+});
+
+test('the header names how much there is and how much is verified, except in the archive and review views', () => {
+  assert.match(render(), /class="page-head__sub page-head__meta">3 documents · 0 verified</);
+  assert.match(render({ documents: [{ ...DOCS[0], verified: true }] }), /1 document · 1 verified</);
+  assert.doesNotMatch(render({ libraryView: 'archive' }), /page-head__meta/);
+  assert.match(render({ libraryView: 'review' }), /class="page-head__sub">Review queue</);
+  assert.doesNotMatch(render({ documents: [] }), /page-head__meta/);
 });

@@ -121,13 +121,13 @@ test('titlebar renders search pill, new task, and theme toggle actions', () => {
   assert.match(html, /class="searchpill" data-action="open-palette"/);
   assert.match(html, /Search or jump to…/);
   assert.match(html, /class="kbd">⌘K</);
-  // New is a split button: capture stays primary, the chevron opens document / project.
-  assert.match(html, /class="btn-primary btn-primary--split" data-action="open-capture"/);
-  assert.match(html, /New task/);
-  assert.match(html, /class="btn-primary btn-primary--chev" data-action="toggle-new-menu" aria-haspopup="true" aria-expanded="false"/);
+  // New is one menu button: task (quick capture), document, project.
+  assert.match(html, /class="btn-primary" data-action="toggle-new-menu" aria-haspopup="true" aria-expanded="false"[^>]*>[\s\S]*?<span>New<\/span><span class="btn-primary__chevron" aria-hidden="true">▾/);
+  assert.doesNotMatch(html, /data-action="open-capture"/, 'capture lives in the menu, not the bar');
   assert.doesNotMatch(html, /data-action="new-project"/);
   const open = renderTitlebarHtml(makeState({ newMenuOpen: true }));
   assert.match(open, /aria-expanded="true"/);
+  assert.match(open, /class="menu__item" type="button" data-action="open-capture">New task<span class="menu__item-sub">Quick capture · N/);
   assert.match(open, /class="menu__item" type="button" data-action="new-document">New document/);
   assert.match(open, /class="menu__item" type="button" data-action="new-project">New project/);
   assert.match(html, /class="btn-icon" data-action="toggle-theme"[^>]*>◐/);
@@ -357,7 +357,7 @@ test('desktop shell suppresses the fake window chrome (the OS provides it)', () 
   assert.doesNotMatch(desktopWin, /class="winctl"/);
   // the app toolbar itself stays
   assert.match(desktopMac, /data-action="open-palette"/);
-  assert.match(desktopMac, /data-action="open-capture"/);
+  assert.match(desktopMac, /data-action="toggle-new-menu"/);
 });
 
 test('desktop shell keeps the panel mark inline with the wordmark, smaller than in the browser', () => {

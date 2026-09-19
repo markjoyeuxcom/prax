@@ -36,7 +36,9 @@ async function openDrawer(page, task) {
 
 async function openCapture(page) {
   await page.goto('/');
-  await page.getByRole('button', { name: 'New task', exact: true }).first().click();
+  // Quick capture lives in the titlebar's New menu.
+  await page.locator('[data-action="toggle-new-menu"]').click();
+  await page.getByRole('menuitem', { name: /^New task/ }).click();
   await expect(page.getByRole('dialog', { name: 'Quick capture' })).toBeVisible();
 }
 
