@@ -207,7 +207,7 @@ function openConfirm(confirm) {
   // "click outside a menu closes it" handler swallows the first click on the
   // confirm's buttons — forcing a second click. The confirm is a modal, so the
   // menu should be gone anyway.
-  setState({ confirm, docMenuOpen: false, newDocMenuOpen: false, captureMenuOpen: false });
+  setState({ confirm, docMenuOpen: false, newDocMenuOpen: false, libraryMenuOpen: false, captureMenuOpen: false });
   renderApp();
 }
 
@@ -3691,7 +3691,10 @@ function renderMainHtml() {
         state.activeLibraryTags, state.libraryTypes, state.libraryTrust, state.libraryProjects,
       ]);
       const model = buildLibraryModel(state, { limit: libraryCollectionLimit(collectionKey) });
-      return renderLibraryHtml(state, model);
+      // Wide windows show the facets in the Library panel (renderShell); the
+      // main view then carries active-filter chips only. Same 940px line as
+      // the rail/panel switch in renderApp.
+      return renderLibraryHtml(state, model, { facetsInPanel: state.winW >= 940 });
     }
     case 'editor': {
       const doc = currentDocument();
@@ -4773,11 +4776,12 @@ _Task:_ ${task.title || 'Untitled task'}`
     case 'toggle-lib-tags': setState({ libraryTagsExpanded: !state.libraryTagsExpanded }); renderApp(); break;
     case 'clear-lib-filters': setState({ libraryQuery: '', activeLibraryTags: [], libraryTypes: [], libraryTrust: [], libraryProjects: [], ...resetSemanticSearchPatch() }); renderApp(); break;
     case 'toggle-new-doc-menu': setState({ newDocMenuOpen: !state.newDocMenuOpen }); renderApp(); break;
+    case 'toggle-library-menu': setState({ libraryMenuOpen: !state.libraryMenuOpen, newDocMenuOpen: false }); renderApp(); break;
     case 'new-document': createNewDocument(el.dataset.templateId); break;
-    case 'import-documents': openMarkdownImport(); break;
+    case 'import-documents': setState({ libraryMenuOpen: false }); openMarkdownImport(); break;
     case 'close-markdown-import': closeMarkdownImport(); break;
     case 'submit-markdown-import': await submitMarkdownImport(); break;
-    case 'export-library': openLibraryExport('all', action); break;
+    case 'export-library': setState({ libraryMenuOpen: false }); openLibraryExport('all', action); break;
     case 'close-library-export': closeLibraryExport(); break;
     case 'submit-library-export': await submitLibraryExport(); break;
     case 'save-library-view': {
@@ -4809,6 +4813,7 @@ _Task:_ ${task.title || 'Untitled task'}`
       break;
     }
     case 'toggle-library-view': {
+      setState({ libraryMenuOpen: false });
       setState({ libraryView: state.libraryView === 'archive' ? 'active' : 'archive', ...resetSemanticSearchPatch() });
       await loadDocuments();
       renderApp();
@@ -5572,7 +5577,7 @@ _Task:_ ${task.title || 'Untitled task'}`
     }
     case 'export-library-all': openLibraryExport('all', action); break;
     case 'refresh-maintenance': await loadMaintenance(); renderApp(); break;
-    case 'open-health': await goHealth(); break;
+    case 'open-health': setState({ libraryMenuOpen: false }); await goHealth(); break;
     case 'refresh-health': await loadHealth(); renderApp(); break;
     case 'open-health-doc': await openDocumentInEditor(el.dataset.docId); break;
     case 'verify-health-doc': verifyHealthDoc(el.dataset.docId); break;
@@ -5590,8 +5595,8 @@ _Task:_ ${task.title || 'Untitled task'}`
 
 function bindEvents() {
   appRoot.addEventListener('click', (event) => {
-    if ((state.docMenuOpen || state.newDocMenuOpen || state.captureMenuOpen || state.writeMenuOpen) && !event.target.closest?.('.menu')) {
-      setState({ docMenuOpen: false, newDocMenuOpen: false, captureMenuOpen: false, writeMenuOpen: false, writeSelection: null });
+    if ((state.docMenuOpen || state.newDocMenuOpen || state.libraryMenuOpen || state.captureMenuOpen || state.writeMenuOpen) && !event.target.closest?.('.menu')) {
+      setState({ docMenuOpen: false, newDocMenuOpen: false, libraryMenuOpen: false, captureMenuOpen: false, writeMenuOpen: false, writeSelection: null });
       // A click on another control should both dismiss the open menu and
       // activate that control. Only consume clicks on otherwise inert space.
       if (!event.target.closest?.('[data-action], [data-link-picker-doc]')) {
@@ -5684,6 +5689,20 @@ function bindEvents() {
       setState({ panelFilter: target.value });
       renderApp();
       const next = appRoot.querySelector('[data-panel-filter]');
+      if (next) {
+        next.focus();
+        if (caret != null) next.setSelectionRange(caret, caret);
+      }
+      return;
+    }
+    if (target.matches?.('[data-library-tag-filter]')) {
+      // Library panel tag box: same re-render + focus/caret restore as the
+      // browser panel's filter, on its own state key so a leftover value never
+      // leaks into the Projects/Views filter.
+      const caret = target.selectionStart;
+      setState({ libraryTagFilter: target.value });
+      renderApp();
+      const next = appRoot.querySelector('[data-library-tag-filter]');
       if (next) {
         next.focus();
         if (caret != null) next.setSelectionRange(caret, caret);

@@ -143,8 +143,10 @@ test('Markdown intake selects ownership inside Library, retries exactly once, fi
   await page.goto('/');
   await page.locator('[data-action="nav-library"]').first().click();
 
+  // Import lives in the Library header's ⋯ overflow (year-one shell spec, item 3).
+  await page.locator('[data-action="toggle-library-menu"]').click();
   const action = page.locator('[data-action="import-documents"]').first();
-  await expect(action).toHaveText('Import Markdown…');
+  await expect(action).toContainText('Import Markdown…');
   await action.click();
 
   const dialog = page.getByRole('dialog', { name: 'Import Markdown' });
