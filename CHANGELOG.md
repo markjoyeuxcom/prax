@@ -33,6 +33,10 @@ fresh empty `[Unreleased]` section is started.
   point starts it.
 - **Library health has a breadcrumb.** The health view read as an empty crumb; it is now
   Library › Health with Library a link back.
+- **The Today plan Playwright spec no longer walks other specs' seeds.** Plan mode only offers
+  Done at the end of its queue, and in a full run the shared server's queue outgrew the spec's
+  40-card walk, so it timed out three runs in four. It now stops once its own two tasks are
+  planned and leaves with Escape.
 - **The task-context Playwright spec asserts its own premise.** It resets the semantic-search
   setting before it starts rather than inheriting whatever a failed earlier spec left behind.
 
