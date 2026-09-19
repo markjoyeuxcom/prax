@@ -12,6 +12,20 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Changed
+
+- **Any project can be deleted, and `memory` is the only protected one.** Permanent delete used
+  to refuse every project that still held a task or a document (`409`), which in practice meant
+  no real project could ever be removed, while the Inbox project was reserved outright. Delete
+  from All projects now removes the project together with everything filed under it — tasks
+  (with their checklist and activity), documents (with their links, refs and run chronicles) and
+  staged imports — in one transaction, and the confirmation says so; the toast reports how many
+  tasks and documents went with it. The reserved project is now the shared agent-memory home:
+  migration 0030 seeds a `memory` project (adopting one the CLI already created), the server
+  refuses to rename, change the status of, archive or delete it, and its All projects card shows a
+  System chip instead of actions. Inbox is an ordinary project: still the default capture target
+  while it exists, but the person may rename or delete it like any other.
+
 ## [0.32.1] - 2026-09-19
 
 ### Changed

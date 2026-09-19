@@ -2865,6 +2865,18 @@ async function backFromRun() {
 // Library helpers
 // ---------------------------------------------------------------------------
 
+// Toast line after a permanent project delete, from the server's summary of
+// what went with it: `Project “X” deleted (3 tasks, 2 documents)`.
+function deletedProjectMessage(result) {
+  const parts = [];
+  const tasks = result?.deleted?.tasks || 0;
+  const documents = result?.deleted?.documents || 0;
+  if (tasks) parts.push(`${tasks} task${tasks === 1 ? '' : 's'}`);
+  if (documents) parts.push(`${documents} document${documents === 1 ? '' : 's'}`);
+  const name = result?.name ? `Project “${result.name}”` : 'Project';
+  return parts.length ? `${name} deleted (${parts.join(', ')})` : `${name} deleted`;
+}
+
 const INBOX_SLUG = 'inbox';
 function inboxProject() {
   return (state.projects || []).find((p) => p.slug === INBOX_SLUG) || null;
@@ -5107,9 +5119,11 @@ _Task:_ ${task.title || 'Untitled task'}`
     }
     case 'delete-project': {
       event.stopPropagation();
+      const target = (state.managedProjects || state.projects).find((p) => p.id === el.dataset.projectId);
       if (!el.dataset.confirmed) {
+        const name = target ? `“${target.name}”` : 'this project';
         openConfirm({
-          message: 'Permanently delete this project? Only empty projects (no tasks or documents) can be deleted.',
+          message: `Permanently delete ${name}? Every task and document filed under it is deleted with it. This cannot be undone.`,
           okLabel: 'Delete project', danger: true,
           action: 'delete-project', data: { 'project-id': el.dataset.projectId || '' },
         });
@@ -5117,10 +5131,13 @@ _Task:_ ${task.title || 'Untitled task'}`
       }
       setState({ confirm: null });
       try {
-        await deleteProjectPermanent(el.dataset.projectId);
+        const result = await deleteProjectPermanent(el.dataset.projectId);
         await loadProjects();
-      } catch {
-        showToast('Could not delete: the project still has tasks or documents.');
+        if (state.navType === 'project' && state.navId === el.dataset.projectId) setState({ navType: 'all', navId: null });
+        await loadTasks({ announceReminders: false });
+        showToast(deletedProjectMessage(result));
+      } catch (err) {
+        showToast(err?.message ? `Could not delete the project: ${err.message}` : 'Prax could not delete the project.');
       }
       renderApp();
       break;

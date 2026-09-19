@@ -635,6 +635,7 @@ a { color: var(--accent); }
 .chip--state-on-hold { background: var(--med-soft); color: var(--med); }
 .chip--state-completed { background: var(--line); color: var(--ink2); }
 .chip--state-archived { background: var(--line); color: var(--ink3); }
+.chip--system { background: var(--accent-soft); color: var(--accent); font-size: 10px; letter-spacing: .06em; }
 .chip--due-overdue { background: var(--hi-soft); color: var(--hi); }
 .chip--due-today, .chip--due-soon { background: var(--med-soft); color: var(--med); }
 .chip--due-later, .chip--due-done { background: var(--line); color: var(--ink2); }

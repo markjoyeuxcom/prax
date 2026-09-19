@@ -71,9 +71,12 @@ and the confirmation line names the base URL it wrote to.
 
 ## Namespace & provenance
 
-- **`memory` project** — the namespace the agent writes to (created automatically on first
-  remember). Recall searches **all** projects by default, so it surfaces both agent memories and
-  your hand-authored runbooks/notes; scope with `--project memory` when you only want the former.
+- **`memory` project** — the namespace the agent writes to. It is Prax's one reserved system
+  project: seeded by migration, and the server refuses to rename, archive or delete it (the CLI
+  still creates it on first remember for a database that predates the seed). Every other project,
+  Inbox included, can be deleted from All projects — together with everything filed under it.
+  Recall searches **all** projects by default, so it surfaces both agent memories and your
+  hand-authored runbooks/notes; scope with `--project memory` when you only want the former.
 - **`updatedBy: agent`** — every skill write is stamped via the `x-prax-origin` header, so
   machine-written memory is always distinguishable from human-authored docs.
 - **`updatedByAgent`** — *which* agent wrote the current revision (`claude`, `codex`, `copilot`,

@@ -31,8 +31,13 @@ export async function archiveProject(id) {
   return response.json();
 }
 
+// Deletes the project and everything filed under it. A refusal carries the
+// server's reason (e.g. the protected Memory project) so the UI can show it.
 export async function deleteProjectPermanent(id) {
   const response = await fetch(`/api/projects/${id}/permanent`, { method: 'DELETE' });
-  if (!response.ok) throw new Error('Failed to delete project');
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.message || 'Failed to delete project');
+  }
   return response.json();
 }

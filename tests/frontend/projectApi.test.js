@@ -67,3 +67,11 @@ test('deleteProjectPermanent DELETEs the permanent endpoint', async () => {
   assert.equal(c.url, '/api/projects/p1/permanent');
   assert.equal(c.options.method, 'DELETE');
 });
+
+test('deleteProjectPermanent surfaces the server refusal reason', async () => {
+  const c = {};
+  stubFetch(c, { ok: false, json: async () => ({ message: 'The Memory project is the shared agent-memory home and can’t be deleted.' }) });
+  await assert.rejects(() => deleteProjectPermanent('mem'), /Memory project/);
+  stubFetch(c, { ok: false, json: async () => { throw new Error('no body'); } });
+  await assert.rejects(() => deleteProjectPermanent('p1'), /Failed to delete project/);
+});
