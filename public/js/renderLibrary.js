@@ -203,6 +203,10 @@ export function buildLibraryModel(state, { limit = LIBRARY_RENDER_BATCH_SIZE } =
     totalCount: Number(state.semanticIndex?.total ?? state.semanticStatus?.totalCount) || 0,
     archive: state.libraryView === 'archive',
     review,
+    // Whole-library facts for the header: how much there is, how much of it
+    // a human has verified. Independent of the current filters.
+    documentCount: documents.length,
+    verifiedCount: documents.filter(TRUST_PREDICATES.verified).length,
     // Cards or table: the queue is always a table (it is a work list), the
     // archive keeps its flat rows, the browse view follows the preference.
     layout: review ? 'table' : normalizeLayout(state.libraryLayout),
@@ -260,9 +264,12 @@ function renderLibraryMenu(state, model) {
 }
 
 function renderPageHead(state, model) {
+  const count = Number(model.documentCount) || 0;
   const sub = model.archive
     ? '<span class="page-head__sub">Archive</span>'
-    : (model.review ? '<span class="page-head__sub">Review queue</span>' : '');
+    : (model.review
+      ? '<span class="page-head__sub">Review queue</span>'
+      : (count ? `<span class="page-head__sub page-head__meta">${count === 1 ? '1 document' : `${count} documents`} · ${Number(model.verifiedCount) || 0} verified</span>` : ''));
   return `
     <header class="page-head">
       <h1 class="page-head__title">Library</h1>
@@ -310,28 +317,38 @@ export function renderActiveFilters(state, model) {
   return `<div class="filter-row" aria-label="Active filters">${chips.join('')}${save}<button class="btn-ghost" type="button" data-action="clear-lib-filters">Clear filters</button></div>`;
 }
 
-function renderSearchRow(state, semanticVisible, model = {}) {
+// The search is one full-width bar — icon, input, and the Keyword | Semantic
+// segment inside it — as drawn on the canvas. Sort, Group and the layout
+// switch live on the toolbar row beneath, beside the active filters.
+function renderSearchBar(state, semanticVisible) {
   const isSemantic = Boolean(state.librarySemantic);
-  const layoutToggle = renderLayoutToggle(state, model);
   const placeholder = isSemantic ? SEMANTIC_PLACEHOLDER : KEYWORD_PLACEHOLDER;
   // Keyword | Semantic as one segmented control (spec item 9): the mode
   // reads as a choice, not a lit-up toggle.
   const semanticButton = semanticVisible
-    ? '<div class="seg" role="group" aria-label="Search mode">'
+    ? '<div class="seg seg--in-bar" role="group" aria-label="Search mode">'
       + `<button class="seg__btn${isSemantic ? '' : ' is-active'}" type="button" data-action="set-search-mode" data-mode="keyword" aria-pressed="${!isSemantic}">Keyword</button>`
       + `<button class="seg__btn${isSemantic ? ' is-active' : ''}" type="button" data-action="set-search-mode" data-mode="semantic" aria-pressed="${isSemantic}">${icon('spark', 13)}<span>Semantic</span></button>`
       + '</div>'
     : '';
+  return `
+    <label class="lib-search${isSemantic ? ' is-semantic' : ''}">
+      <span class="lib-search__icon" aria-hidden="true">${icon('search', 14)}</span>
+      <input class="lib-search__input" type="search" data-library-search placeholder="${escapeHtml(placeholder)}" value="${escapeHtml(state.libraryQuery || '')}" autocomplete="off" aria-label="Search library">
+      ${semanticButton}
+    </label>`;
+}
+
+function renderToolbar(state, model, filtersHtml) {
+  const isSemantic = Boolean(state.librarySemantic);
   const groupButton = model.archive || isSemantic
     ? ''
     : `<button class="btn-ghost" type="button" data-action="cycle-lib-group">Group: ${state.libraryGroupBy === 'none' ? 'None' : 'Type'}</button>`;
+  const controls = `<button class="btn-ghost" type="button" data-action="cycle-lib-sort">Sort: ${state.librarySortBy === 'title' ? 'Title' : 'Updated'}</button>${groupButton}${renderLayoutToggle(state, model)}`;
   return `
-    <div class="lib-search${isSemantic ? ' is-semantic' : ''}">
-      <input class="lib-search__input" type="search" data-library-search placeholder="${escapeHtml(placeholder)}" value="${escapeHtml(state.libraryQuery || '')}" autocomplete="off" aria-label="Search library">
-      ${semanticButton}
-      <button class="btn-ghost" type="button" data-action="cycle-lib-sort">Sort: ${state.librarySortBy === 'title' ? 'Title' : 'Updated'}</button>
-      ${groupButton}
-      ${layoutToggle}
+    <div class="lib-toolbar">
+      <div class="lib-toolbar__filters">${filtersHtml}</div>
+      <div class="lib-toolbar__controls">${controls}</div>
     </div>`;
 }
 
@@ -722,14 +739,16 @@ function renderBody(state, model, semanticVisible) {
 // main view then shows active filters only. Narrow windows keep the rows.
 export function renderLibraryHtml(state, model, { facetsInPanel = false } = {}) {
   const semanticVisible = Boolean(state.semanticStatus?.available && state.semanticStatus?.enabled);
-  const filters = facetsInPanel
-    ? renderActiveFilters(state, model)
-    : renderFacetRow(state, model) + renderTagRow(state, model);
+  // Wide windows: the active-filter chips share the toolbar with the
+  // controls. Narrow windows: the facet and tag rows follow the toolbar.
+  const toolbarFilters = facetsInPanel ? renderActiveFilters(state, model) : '';
+  const rows = facetsInPanel ? '' : renderFacetRow(state, model) + renderTagRow(state, model);
   return `
   <section class="page" aria-label="Library">
     ${renderPageHead(state, model)}
-    ${renderSearchRow(state, semanticVisible, model)}
-    ${filters}
+    ${renderSearchBar(state, semanticVisible)}
+    ${model.welcome ? '' : renderToolbar(state, model, toolbarFilters)}
+    ${rows}
     ${model.review ? renderReviewBanner(model) : ''}
     ${renderBody(state, model, semanticVisible)}
     ${renderDocBulkBarHtml(state)}

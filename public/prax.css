@@ -672,6 +672,10 @@ body[data-density="compact"] .group-label { margin-top: 12px; }
   text-overflow: ellipsis;
 }
 .page-head__sub { font-size: 12.5px; color: var(--ink3); margin: 2px 0 0; }
+/* A count beside the title (Library): the meta takes the free space so the
+   title does not push it across to the actions. */
+.page-head__meta { margin: 0; flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.page-head:has(.page-head__meta) .page-head__title { flex: 0 1 auto; }
 .page-head__actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 
 /* Inline project rename: a pencil that reveals on header hover, and the edit input. */
@@ -1222,19 +1226,28 @@ body[data-density="compact"] .group-label { margin-top: 12px; }
 
 /* ---- Library -------------------------------------------------------------- */
 
-.lib-search { display: flex; align-items: center; gap: 8px; margin: 14px 0 10px; }
-.lib-search__input {
-  flex: 1;
-  height: 34px;
-  padding: 0 12px;
-  border-radius: 8px;
-  border: 1px solid var(--line);
-  background: var(--card);
-  font-size: 13px;
-  transition: border-color .15s ease;
+/* One full-width search bar: icon, input, and the mode segment inside it. */
+.lib-search {
+  display: flex; align-items: center; gap: 10px; margin: 14px 0 10px;
+  height: 36px; padding: 0 6px 0 12px; border-radius: 9px;
+  border: 1px solid var(--line2); background: var(--card); color: var(--ink3);
+  transition: border-color .15s ease, box-shadow .15s ease;
 }
-.lib-search__input:focus { border-color: var(--accent); outline: none; }
-.lib-search.is-semantic .lib-search__input { border-color: var(--accent); }
+.lib-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.lib-search.is-semantic { border-color: var(--accent); }
+.lib-search__icon { display: inline-flex; flex: none; }
+.lib-search__input {
+  flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: transparent;
+  font-size: 13.5px; color: var(--ink);
+}
+.lib-search__input:focus { outline: none; }
+.seg--in-bar { border-color: var(--line); }
+.seg--in-bar .seg__btn { height: 24px; font-size: 11.5px; }
+/* The toolbar beneath: active filters left, Sort / Group / layout right. */
+.lib-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; }
+.lib-toolbar__filters { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: 1 1 200px; min-width: 0; }
+.lib-toolbar__filters .filter-row { margin: 0; }
+.lib-toolbar__controls { display: flex; align-items: center; gap: 6px; margin-left: auto; flex: 0 1 auto; flex-wrap: wrap; }
 
 .tag-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 2px 0 14px; }
 .tag-pill--more { border-style: dashed; color: var(--ink3); }
@@ -1254,7 +1267,7 @@ body[data-density="compact"] .group-label { margin-top: 12px; }
 .facet-row { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin: 2px 0 10px; }
 /* Wide windows: facets live in the Library panel; the main view shows the
    ACTIVE filters as removable chips (year-one shell spec, item 3). */
-.filter-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 2px 0 12px; }
+.filter-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 /* Layout switch, table mode, review queue (year-one shell spec, item 7) */
 .layout-toggle { display: inline-flex; border: 1px solid var(--line2); border-radius: 7px; overflow: hidden; background: var(--card); flex: none; }
 .layout-toggle__btn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 28px; color: var(--ink3); }
@@ -2667,6 +2680,8 @@ body[data-density="compact"] .group-label { margin-top: 12px; }
    400% zoom. Core task lifecycle views reflow into one dimension here. */
 @media (max-width: 600px) {
   .page { padding: 16px 12px 22px; }
+  .lib-toolbar__controls { width: 100%; margin-left: 0; justify-content: flex-start; }
+  .lib-search { padding-right: 4px; gap: 6px; }
   .page-head { align-items: flex-start; flex-wrap: wrap; }
   .page-head__title { flex: 1 1 120px; }
   .page-head__actions { width: 100%; margin-left: 0; flex-wrap: wrap; }
@@ -2696,8 +2711,6 @@ body[data-density="compact"] .group-label { margin-top: 12px; }
 
   /* Library collection/search chrome reflows instead of inheriting desktop
      card and input minimums that exceed the 400%-equivalent content width. */
-  .lib-search { align-items: stretch; flex-wrap: wrap; }
-  .lib-search__input { flex: 1 0 100%; min-width: 0; }
   .facet-row, .facet-group, .tag-row { min-width: 0; }
   .facet-pill, .tag-pill { max-width: 100%; overflow-wrap: anywhere; }
   .doc-grid { grid-template-columns: minmax(0, 1fr); }
