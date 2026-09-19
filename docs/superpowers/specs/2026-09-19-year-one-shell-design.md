@@ -399,3 +399,14 @@ Every finding of the audit, and the Today artboard, is now covered by this spec.
 - Tests: `tests/frontend/renderEditor.test.js` (strip conditions and labels),
   `tests/e2e/review-queue-walk.spec.js` (verify-and-next, verify-and-finish with the API
   confirming both verified, skip without verifying, back to queue).
+
+## 12. Board at year one — implemented
+
+- `buildBoardColumns(state, tasks, { now })` keeps only `doneWithinWeek` tasks in the
+  Completed column (relabelled **Done this week**) and reports `olderCount`; the column renders
+  a footer button to the List tab (`set-tab`) naming the older cards.
+- The extras endpoint adds `latestActivityKind` (the `task_activity.event_type` behind
+  `latestActivity`, additive). Cards hide the activity line when the kind is `created`, or,
+  for an extras row without a kind, when the message is the creation message.
+- Tests: `renderBoard.test.js` (time box, older count and footer, creation-only activity),
+  backend repository and route shape tests carry the new field.

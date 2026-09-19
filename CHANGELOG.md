@@ -22,6 +22,12 @@ fresh empty `[Unreleased]` section is started.
   search or facet narrows what you review; a document verified elsewhere meanwhile is skipped.
   One click per memory instead of three.
 
+- **The board's Completed column is this week's, and creation is not activity.** The column is
+  now **Done this week**, the same seven-day rule as the list; older finished cards leave it
+  and a footer says how many and points at the list's Done earlier. Cards no longer show
+  "Task created" as their latest activity: the extras endpoint now carries the event type
+  (`latestActivityKind`), and a creation-only history renders no activity line.
+
 ### Fixed
 
 - **Dark-mode and accessibility pass on the year-one surfaces.** A new Playwright axe audit

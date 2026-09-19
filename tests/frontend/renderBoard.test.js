@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildBoardColumns, limitBoardColumns, renderBoardHtml } from '../../public/js/renderBoard.js';
+import { DONE_WEEK_MS } from '../../public/js/renderList.js';
 
 // Fixed clock for deterministic due chips: Monday 2026-07-06.
 const NOW = new Date('2026-07-06T09:30:00');
@@ -62,7 +63,7 @@ test('buildBoardColumns always returns the four design columns in order', () => 
 
   assert.equal(columns.length, 4);
   assert.deepEqual(columns.map(c => c.key), ['priority', 'inprogress', 'planned', 'completed']);
-  assert.deepEqual(columns.map(c => c.label), ['Priority', 'In progress', 'Planned', 'Completed']);
+  assert.deepEqual(columns.map(c => c.label), ['Priority', 'In progress', 'Planned', 'Done this week']);
   assert.deepEqual(columns.map(c => c.tone), ['hi', 'accent', 'lo', 'muted']);
   assert.deepEqual(columns.map(c => c.cards), [[], [], [], []]);
 });
@@ -306,4 +307,45 @@ test('renderBoardHtml shows a drop slot in every empty column', () => {
 
   assert.equal((html.match(/class="empty-slot">Drop cards here</g) || []).length, 3);
   assert.doesNotMatch(html, /data-board-column="planned">[\s\S]*?Drop cards here[\s\S]*?data-board-column="completed"/);
+});
+
+// ---- year one: the Completed column is this week's, and creation is not activity ----
+
+test('buildBoardColumns keeps only this week\'s done work in Completed and counts the older cards', () => {
+  const now = new Date('2026-07-06T09:00:00');
+  const columns = buildBoardColumns(baseState(), [
+    { id: 'fresh', title: 'Fresh', status: 'completed', completedAt: '2026-07-05T10:00:00.000Z' },
+    { id: 'edge', title: 'Edge', status: 'completed', updatedAt: new Date(now.getTime() - DONE_WEEK_MS + 60_000).toISOString() },
+    { id: 'old', title: 'Old', status: 'completed', updatedAt: '2026-05-01T10:00:00.000Z' },
+    { id: 'older', title: 'Older', status: 'completed', completedAt: '2026-01-01T10:00:00.000Z', updatedAt: '2026-07-05T10:00:00.000Z' },
+    { id: 'unstamped', title: 'Unstamped', status: 'completed' },
+    { id: 'open', title: 'Open', status: 'planned' },
+  ], { now });
+  const completed = columns.find((c) => c.key === 'completed');
+  assert.equal(completed.label, 'Done this week');
+  assert.deepEqual(completed.cards.map((c) => c.id).sort(), ['edge', 'fresh', 'unstamped']);
+  assert.equal(completed.olderCount, 2, 'completedAt wins over a later updatedAt');
+  assert.equal(columns.find((c) => c.key === 'planned').olderCount, 0);
+  const html = renderBoardHtml(baseState(), columns, null, { now });
+  assert.match(html, /class="board-col__older" data-action="set-tab" data-tab="list"[^>]*>2 older, in the list</);
+  assert.match(html, /<span>Done this week<\/span><span class="board-col__count">3</);
+  assert.equal((html.match(/board-col__older/g) || []).length, 1);
+});
+
+test('renderBoardHtml hides the activity line when the only event is creation', () => {
+  const state = baseState({
+    taskBoardExtras: {
+      a: { latestActivity: 'Task created', latestActivityKind: 'created' },
+      b: { latestActivity: 'Task created' },
+      c: { latestActivity: 'Status → in-progress', latestActivityKind: 'status' },
+    },
+  });
+  const html = renderAll(state, [
+    { id: 'a', title: 'Fresh with kind', status: 'planned' },
+    { id: 'b', title: 'Fresh without kind', status: 'planned' },
+    { id: 'c', title: 'Moved', status: 'in-progress' },
+  ]);
+  assert.equal((html.match(/board-card__activity/g) || []).length, 1);
+  assert.match(html, /class="board-card__activity">Status → in-progress</);
+  assert.doesNotMatch(html, /Task created/);
 });
