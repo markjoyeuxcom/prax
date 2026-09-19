@@ -105,7 +105,7 @@ test('semantic result metadata reflows without page-level horizontal travel', as
   });
 
   await openLibrary(page);
-  await page.locator('[data-action="toggle-semantic"]').tap();
+  await page.locator('[data-action="set-search-mode"][data-mode="semantic"]').tap();
   const search = page.getByLabel('Search library');
   await search.fill('recover the database safely');
   await search.press('Enter');

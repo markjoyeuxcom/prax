@@ -160,6 +160,22 @@ const WIN_CONTROLS = '<div class="winctl">'
   + '<button type="button" class="winctl__close" title="Close" aria-label="Close">✕</button>'
   + '</div>';
 
+// "New" is a split button (spec item 9): the primary half is still quick
+// capture (N); the chevron opens the other two things you create — a
+// document and a project — so the titlebar answers "new what?" everywhere.
+function renderNewSplitHtml(state) {
+  const open = Boolean(state.newMenuOpen);
+  return '<div class="menu titlebar__new">'
+    + `<button type="button" class="btn-primary btn-primary--split" data-action="open-capture" title="Quick capture (N)">${icon('plus', 12)}<span>New task</span></button>`
+    + `<button type="button" class="btn-primary btn-primary--chev" data-action="toggle-new-menu" aria-haspopup="true" aria-expanded="${open}" aria-label="New…" title="New document or project">▾</button>`
+    + (open ? '<div class="menu__panel menu__panel--right" role="menu">'
+      + '<button class="menu__item" type="button" data-action="open-capture">New task<span class="menu__item-sub">Quick capture · N</span></button>'
+      + '<button class="menu__item" type="button" data-action="new-document">New document<span class="menu__item-sub">A blank note in the Library</span></button>'
+      + '<button class="menu__item" type="button" data-action="new-project">New project<span class="menu__item-sub">Opens All projects with the name field ready</span></button>'
+      + '</div>' : '')
+    + '</div>';
+}
+
 export function renderTitlebarHtml(state) {
   const isMac = state.preferences?.chromeOS === 'mac';
   // Inside the desktop shell the OS provides the real window chrome — the
@@ -175,7 +191,7 @@ export function renderTitlebarHtml(state) {
   const actions = state.editorFocus ? '' : '<div class="titlebar__actions">'
     + `<button type="button" class="searchpill" data-action="open-palette">${icon('search', 13)}<span>Search or jump to…</span><span class="kbd">⌘K</span></button>`
     + `<button type="button" class="btn-icon" data-action="open-assistant" title="Assistant (⌘I)">${icon('chat', 14)}</button>`
-    + `<button type="button" class="btn-primary" data-action="open-capture" title="Quick capture (N)">${icon('plus', 12)}<span>New task</span></button>`
+    + renderNewSplitHtml(state)
     + '<button type="button" class="btn-icon" data-action="toggle-theme" title="Toggle theme (⌘J)">◐</button>'
     + (isMac || state.desktopShell ? '' : WIN_CONTROLS)
     + '</div>';
@@ -192,6 +208,31 @@ export function renderTitlebarHtml(state) {
 // with the browser panel below; narrow windows (<940px) show it alone with
 // per-project dots, exactly as before the panel existed.
 // ---------------------------------------------------------------------------
+
+export const RAIL_PROJECT_LIMIT = 5;
+
+function railProjectsHtml(state) {
+  const byId = new Map(sidebarProjects(state).map((project) => [project.id, project]));
+  const order = [
+    ...(state.navType === 'project' ? [state.navId] : []),
+    ...(state.pinned?.projects || []),
+    ...(state.recentProjects || []),
+  ];
+  const picked = [];
+  for (const id of order) {
+    const project = byId.get(id);
+    if (project && !picked.includes(project)) picked.push(project);
+    if (picked.length >= RAIL_PROJECT_LIMIT) break;
+  }
+  if (!picked.length) return '';
+  return '<div class="rail__divider"></div>' + picked.map((project) => {
+    const active = isCurrentProject(state, project.id);
+    const letter = String(project.name || '?').trim().charAt(0).toUpperCase() || '?';
+    return `<button type="button" class="rail__proj${active ? ' is-active' : ''}" title="${escapeHtml(project.name)}" data-action="nav-project" data-project-id="${escapeHtml(project.id)}"${active ? ' aria-current="true"' : ''}>`
+      + `<span class="rail__proj-letter" style="--dot: ${projectColor(project)}">${escapeHtml(letter)}</span>`
+      + '</button>';
+  }).join('');
+}
 
 function railBadge(count, variant = '') {
   return count > 0 ? `<span class="rail__badge${variant ? ` rail__badge--${variant}` : ''}">${count > 99 ? '99+' : count}</span>` : '';
@@ -216,14 +257,11 @@ export function renderRailHtml(state, counts = {}, { showProjects = true } = {})
     `<button type="button" class="rail__btn${active ? ' is-active' : ''}" title="${title}${badge > 0 && badgeVariant === 'review' ? ` · ${badge} to review` : ''}" data-action="${action}"${projectId ? ` data-project-id="${escapeHtml(projectId)}"` : ''}${active ? ' aria-current="true"' : ''}>${icon(iconName, 16)}${railBadge(badge, badgeVariant)}</button>`
   )).join('');
 
-  const projects = showProjects
-    ? '<div class="rail__divider"></div>' + sidebarProjects(state).map((project) => {
-      const active = isCurrentProject(state, project.id);
-      return `<button type="button" class="rail__proj${active ? ' is-active' : ''}" title="${escapeHtml(project.name)}" data-action="nav-project" data-project-id="${escapeHtml(project.id)}"${active ? ' aria-current="true"' : ''}>`
-        + `<span style="--dot: ${projectColor(project)}"></span>`
-        + '</button>';
-    }).join('')
-    : '';
+  // Narrow windows (no panel): not every project as an identical dot (spec
+  // item 9) but the ones you keep close — pinned, then recent, at most
+  // RAIL_PROJECT_LIMIT — as lettered tiles in their colour. The current
+  // project always shows so the rail never loses its place.
+  const projects = showProjects ? railProjectsHtml(state) : '';
 
   const settingsActive = state.navType === 'settings';
   const settings = '<div class="rail__spacer"></div>'

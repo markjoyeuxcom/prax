@@ -75,7 +75,7 @@ test('a slow semantic query cannot overwrite newer visible results', async ({ pa
   await page.goto('/');
   await expect(page.locator('[data-action="nav-library"]').first()).toBeVisible();
   await page.locator('[data-action="nav-library"]').first().click();
-  await page.locator('[data-action="toggle-semantic"]').click();
+  await page.locator('[data-action="set-search-mode"][data-mode="semantic"]').click();
 
   let releaseFirst;
   let markFirstStarted;

@@ -307,3 +307,14 @@ test('renderTaskGroupsHtml appends a group tailHtml after the count on plain hea
   assert.match(html, /Due today <span class="group-label__count">1<\/span><button type="button" data-action="plan-add-today">Add it to plan<\/button><\/div>/);
   assert.doesNotMatch(renderTaskGroupsHtml(state, [{ ...groups[0], tailHtml: undefined }]), /plan-add-today/);
 });
+
+test('the project list Overdue header carries a project-scoped Reschedule all tail, on section-keyed headers too', () => {
+  const state = baseState({ navId: 'p1' });
+  const built = buildListGroups(state, [task({ id: 'o', dueDate: '2026-07-01' }), task({ id: 'n' })], { now: NOW });
+  const overdue = built.groups.find((g) => g.key === 'overdue');
+  assert.match(overdue.tailHtml, /data-action="triage-all" data-decision="monday" data-project-id="p1"[^>]*>Reschedule all to Monday</);
+  assert.equal(built.groups.find((g) => g.key === 'none').tailHtml, undefined);
+  const html = renderTaskGroupsHtml(state, applyCollapsedGroups(built.groups, [], 'p1'));
+  assert.match(html, /data-section-key="list:p1:overdue"[^>]*>[\s\S]*?<\/button><button type="button" class="group-label__action" data-action="triage-all"/);
+  assert.equal(buildListGroups(baseState(), [task({ id: 'o', dueDate: '2026-07-01' })], { now: NOW }).groups[0].tailHtml, undefined, 'no project, no tail');
+});

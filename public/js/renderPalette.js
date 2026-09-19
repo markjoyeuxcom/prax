@@ -165,6 +165,7 @@ function renderItem(item, index, selectedIndex) {
   // click or ⌘↵.
   const action = selected && item.action === 'open-task'
     ? `<button class="palette__action" type="button" data-action="palette-task-done" data-task-id="${escapeHtml(item.id)}" title="Mark done (⌘↵)">Done</button>`
+      + `<button class="palette__action palette__action--ghost" type="button" data-action="palette-task-today" data-task-id="${escapeHtml(item.id)}" title="Set the due date to today">Today</button>`
     : '';
   return `
         <div class="palette__row${selected ? ' is-selected' : ''}">

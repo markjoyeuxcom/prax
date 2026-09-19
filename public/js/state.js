@@ -28,6 +28,8 @@ export const state = {
   revealedOpsFields: [],        // 'projectId:field' ops inputs shown while empty (session only)
   paletteScope: 'all',          // ⌘K scope: 'all' | 'commands' | 'projects' | 'views' | 'tasks' | 'docs'
   shortcutsOpen: false,         // ⌘/ keyboard shortcuts overlay
+  newMenuOpen: false,           // titlebar New ▾ split menu
+  libraryGroupBy: 'type',       // Library cards grouping: 'type' | 'none'
   libraryMenuOpen: false,       // Library header ⋯ overflow (import/export/health/review/archive)
   libraryTagFilter: '',         // Library panel: type-to-filter text over the tag list
   tab: 'list',                  // project tab: 'list' | 'board' | 'backlog' | 'archive'
