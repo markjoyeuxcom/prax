@@ -101,7 +101,9 @@ export const state = {
   libraryProjects: [],          // facet: owning project ids (OR within project axis)
   librarySavedViews: [],
   librarySortBy: 'updated',     // 'updated' | 'title' cycler
-  libraryView: 'active',        // 'active' | 'archive'
+  libraryView: 'active',        // 'active' | 'archive' | 'review' (the agent-memory review queue)
+  libraryLayout: 'cards',       // 'cards' | 'table' (localStorage)
+  librarySelectedDocIds: [],    // table-mode multi-select for the bulk bar
   markdownImportOpen: false,
   markdownImportProjectId: null, // explicit destination selected inside the import dialog
   markdownImportFiles: [],       // retained [{ id, name, title, body }] after native input rerenders

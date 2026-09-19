@@ -1,11 +1,12 @@
 # Year-One Shell Design
 
 **Date:** 2026-09-19
-**Status:** Approved (brainstorm); items 1–6 implemented
+**Status:** Approved (brainstorm); all seven items implemented
 **Builds on:** v0.32.1
 **Scope:** The lowest-cost structural fixes from the year-one UI audit (items 1–3), the
 navigation pair (item 4: breadcrumb and Recent projects), the chrome pair (item 5: folded
-On hold and the statusbar) and the palette (item 6: ⌘K scopes), all added on 2026-09-19. The full audit
+On hold and the statusbar), the palette (item 6: ⌘K scopes) and the Library table mode with
+its review queue (item 7), all added on 2026-09-19. The full audit
 and the alternative mocks live on the design canvas
 [Prax UI Alternatives](https://claude.ai/artifact/DEPREJFVT1bmBLj4Edvjw7) (private; the audit
 summary is also a `reference` memory in Prax: "Prax UI audit at year-one scale").
@@ -43,8 +44,11 @@ Fern tokens, Instrument Sans, rail + panel + main frame all stay).
    tasks shows five of forty with no count and no next step; nothing can be done to a result
    without opening it.
 
-The one audit finding this spec leaves for later is the Library table mode with a review
-queue.
+7. **The Library is cards-only, and agent memory has no queue.** Six hundred documents are
+   two hundred rows of three cards each, and the 143 unverified memories agents wrote sit
+   behind a trust facet with no count anywhere, no next step, and no way to act on several.
+
+Every finding of the audit is now covered by this spec.
 
 ## 1. Project header: Ops disclosure — implemented
 
@@ -256,3 +260,40 @@ queue.
   the inline Done on the selected task only, footer hints.
 - Manual: ⌘K, type a common word, see counts on the pills, ⇥ into Tasks, ⌘↵ on a task marks
   it done with the undo toast.
+
+## 7. Library table mode and the review queue — implemented
+
+### Decisions
+
+- **Table layout** (`renderDocTable`): a flat table of the visible documents — select box,
+  title (`open-doc`), type chip, project, trust chips (UNVERIFIED shown explicitly), tags, By
+  (`updatedByAgent`, else "agent" for agent-touched documents, else "you"), updated, and a
+  **Review** button on unverified rows (`review-doc` → `verifyHealthDoc`: preview mode with
+  the Verify control and a toast saying to read first). The cards/table choice is per device
+  (`public/js/libraryLayout.js`, `prax.libraryLayout.v1`), switched beside Sort; the archive
+  keeps its rows and the queue is always a table, so the switch hides there.
+- **Selection and bulk bar**: `librarySelectedDocIds`, `toggle-doc-selection`,
+  `select-visible-docs` (all shown ↔ clear), `clear-doc-selection`. The bulk bar's one action
+  is **Archive** (`bulk-archive-docs`): each id goes through `reconcileDocumentLifecycle` +
+  `cacheLifecycleDocument`, then one reload and one summary toast. No bulk verify: the trust
+  model requires reading the saved content before verifying (the editor's revision check),
+  and supersede needs a replacement per document.
+- **Review queue**: `isReviewQueueDoc` = agent-written (`TRUST_PREDICATES.agent`) and not
+  verified, superseded or archived. `libraryView: 'review'` narrows the model to the queue
+  before facets, tags and the query; `reviewQueueSummary` feeds the banner (total, per agent,
+  stale). Entry points: the panel's first row (`open-review-queue`, shown while anything waits
+  or the queue is open), the rail's amber Library badge (`counts.reviewQueue`), the ⋯ menu item
+  with a count, and the breadcrumb `Library › Review queue`. `toggleReviewQueue` flips between
+  review and active without dropping facets; `back-to-library` from a document opened in the
+  queue returns to the queue. **Review next** opens the first unverified document in the
+  current order.
+
+### Testing
+
+- `tests/frontend/libraryLayout.test.js`; `tests/frontend/renderLibrary.test.js` (queue
+  predicate and summary, the review model, the review page, both empty states, table layout
+  and toggle, selection and the bulk bar, the overflow item); `tests/frontend/renderShell.test.js`
+  (panel row, rail badge, breadcrumb).
+- Manual: create an agent-written document via the API, see the badge and panel row, open the
+  queue, Review a row, Verify in the editor, go back and see the queue shrink; switch the
+  browse view to table and archive two selected documents.

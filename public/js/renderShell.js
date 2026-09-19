@@ -11,7 +11,7 @@ import { isCollapsed } from './collapsed.js';
 import { buildTodayGroups } from './renderToday.js';
 import { buildCalendarModel, monthKeyOf } from './renderCalendar.js';
 import { DOCUMENT_TYPES } from './documentTypes.js';
-import { libraryFacetCounts, TRUST_FACETS, TAG_ROW_LIMIT } from './renderLibrary.js';
+import { libraryFacetCounts, TRUST_FACETS, TAG_ROW_LIMIT, reviewQueue } from './renderLibrary.js';
 import { tagsForDocuments } from './libraryFilters.js';
 import { isOpen } from './statusMap.js';
 
@@ -104,9 +104,9 @@ export function buildBreadcrumb(state) {
       ];
     }
     case 'library':
-      return state.libraryView === 'archive'
-        ? [{ label: 'Library', action: 'nav-library' }, { label: 'Archive' }]
-        : [{ label: 'Library' }];
+      if (state.libraryView === 'archive') return [{ label: 'Library', action: 'nav-library' }, { label: 'Archive' }];
+      if (state.libraryView === 'review') return [{ label: 'Library', action: 'nav-library' }, { label: 'Review queue' }];
+      return [{ label: 'Library' }];
     case 'editor':
       return [{ label: 'Library', action: 'nav-library' }, { label: documentTitle(state, state.editorDocId) }];
     case 'run': {
@@ -189,8 +189,8 @@ export function renderTitlebarHtml(state) {
 // per-project dots, exactly as before the panel existed.
 // ---------------------------------------------------------------------------
 
-function railBadge(count) {
-  return count > 0 ? `<span class="rail__badge">${count > 99 ? '99+' : count}</span>` : '';
+function railBadge(count, variant = '') {
+  return count > 0 ? `<span class="rail__badge${variant ? ` rail__badge--${variant}` : ''}">${count > 99 ? '99+' : count}</span>` : '';
 }
 
 export function renderRailHtml(state, counts = {}, { showProjects = true } = {}) {
@@ -204,10 +204,12 @@ export function renderRailHtml(state, counts = {}, { showProjects = true } = {})
       badge: counts?.projectOpen?.[inbox.id] || 0,
     }] : []),
     { title: 'All projects', iconName: 'grid', action: 'nav-all', active: state.navType === 'all' },
-    { title: 'Library', iconName: 'book', action: 'nav-library', active: isLibraryNav(state) },
+    // The Library badge is the review queue (amber, not overdue red): agent
+    // memory waiting for a human.
+    { title: 'Library', iconName: 'book', action: 'nav-library', active: isLibraryNav(state), badge: counts.reviewQueue, badgeVariant: 'review' },
     { title: 'Filter', iconName: 'filter', action: 'nav-filter', active: state.navType === 'filter' },
-  ].map(({ title, iconName, action, active, projectId, badge }) => (
-    `<button type="button" class="rail__btn${active ? ' is-active' : ''}" title="${title}" data-action="${action}"${projectId ? ` data-project-id="${escapeHtml(projectId)}"` : ''}${active ? ' aria-current="true"' : ''}>${icon(iconName, 16)}${railBadge(badge)}</button>`
+  ].map(({ title, iconName, action, active, projectId, badge, badgeVariant }) => (
+    `<button type="button" class="rail__btn${active ? ' is-active' : ''}" title="${title}${badge > 0 && badgeVariant === 'review' ? ` · ${badge} to review` : ''}" data-action="${action}"${projectId ? ` data-project-id="${escapeHtml(projectId)}"` : ''}${active ? ' aria-current="true"' : ''}>${icon(iconName, 16)}${railBadge(badge, badgeVariant)}</button>`
   )).join('');
 
   const projects = showProjects
@@ -619,6 +621,8 @@ function renderCalendarPanel(state) {
 // panel-local filter over the tag list, not a document search.
 function renderLibraryPanel(state) {
   const documents = (state.documents || []).filter((doc) => !doc.archivedAt);
+  // Facets apply while browsing and inside the review queue, not in the
+  // archive or a semantic result list.
   const browsing = state.libraryView !== 'archive' && !state.librarySemantic;
   const counts = libraryFacetCounts(documents);
   const facetRow = (action, key, label, count, active, extraClass = '') => (
@@ -672,6 +676,17 @@ function renderLibraryPanel(state) {
     ? `<input class="panel__filter" type="text" data-library-tag-filter placeholder="Find a tag…" value="${escapeHtml(state.libraryTagFilter || '')}" autocomplete="off" aria-label="Find a tag">`
     : '';
 
+  // The review queue leads the panel whenever there is one (or while it is
+  // open): a destination, not a facet — agent memory waiting for a human.
+  const queueCount = reviewQueue(documents).length;
+  const reviewActive = state.libraryView === 'review';
+  const reviewRow = queueCount || reviewActive
+    ? `<button type="button" class="side-item side-item--review${reviewActive ? ' is-active' : ''}" data-action="open-review-queue" aria-pressed="${reviewActive}">`
+      + icon('check')
+      + `<span class="side-item__label">Review queue</span>`
+      + `<span class="side-item__count">${queueCount || ''}</span>`
+      + '</button>'
+    : '';
   const facets = browsing
     ? '<div class="side-section"><span>Type</span></div>' + typeRows
       + (projectRows ? '<div class="side-section"><span>Project</span></div>' + projectRows : '')
@@ -702,6 +717,7 @@ function renderLibraryPanel(state) {
   return `<aside class="panel" aria-label="Library">`
     + panelBrand(state)
     + '<div class="panel__scroll">'
+    + reviewRow
     + facets
     + (savedViews ? `<div class="side-section"><span>Saved views</span></div>${savedViews}` : '')
     + (recent ? `<div class="side-section"><span>Recent</span></div>${recent}` : '')

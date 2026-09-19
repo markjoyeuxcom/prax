@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildLibraryModel, limitDocumentGroups, renderLibraryHtml, libraryFacetCounts,
+  isReviewQueueDoc, reviewQueue, reviewQueueSummary, renderDocTable, renderDocBulkBarHtml,
 } from '../../public/js/renderLibrary.js';
 
 const NOW = new Date('2026-07-06T12:00:00.000Z');
@@ -757,4 +758,107 @@ test('semantic results disclose incomplete indexing even when matches exist', ()
   const html = render({librarySemantic:true,libraryQuery:'recovery',semanticStatus:{available:true,enabled:true},semanticResults:[{id:'one',title:'One',snippet:'Current match'}],semanticIndex:{total:10,embedded:2,pending:8}});
   assert.match(html,/2 of 10 documents are current; 8 pending/);
   assert.match(html,/Re-index/);
+});
+
+// ---- table mode + review queue (year-one shell spec, item 7) ------------------
+
+const AGENT_DOCS = [
+  { id: 'a1', title: 'CNPG restore fails without listBuckets', documentType: 'known-issue', projectId: 'p1', tags: ['postgres'], updatedBy: 'agent', updatedByAgent: 'claude', verified: false, updatedAt: '2026-07-05T10:00:00.000Z' },
+  { id: 'a2', title: 'Talos drain order', documentType: 'runbook', projectId: 'p1', tags: ['talos'], kind: 'synthesized', updatedByAgent: 'codex', verified: false, stale: true, updatedAt: '2026-07-04T10:00:00.000Z' },
+  { id: 'a3', title: 'Verified memory', documentType: 'note', projectId: 'p2', tags: [], updatedBy: 'agent', updatedByAgent: 'claude', verified: true, updatedAt: '2026-07-03T10:00:00.000Z' },
+  { id: 'a4', title: 'Superseded memory', documentType: 'note', projectId: 'p2', tags: [], updatedBy: 'agent', status: 'superseded', verified: false, updatedAt: '2026-07-02T10:00:00.000Z' },
+  { id: 'a5', title: 'Archived memory', documentType: 'note', projectId: 'p2', tags: [], updatedBy: 'agent', verified: false, archivedAt: '2026-07-01T00:00:00.000Z', updatedAt: '2026-07-01T10:00:00.000Z' },
+];
+
+test('the review queue is unverified agent-written documents, minus superseded and archived', () => {
+  assert.deepEqual(reviewQueue([...DOCS, ...AGENT_DOCS]).map(d => d.id), ['a1', 'a2']);
+  assert.equal(isReviewQueueDoc(DOCS[0]), false, 'a human document is not queued');
+  assert.equal(isReviewQueueDoc(null), false);
+  assert.deepEqual(reviewQueueSummary([...DOCS, ...AGENT_DOCS]), {
+    total: 2, stale: 1, byAgent: [{ agent: 'claude', count: 1 }, { agent: 'codex', count: 1 }],
+  });
+  assert.deepEqual(reviewQueueSummary([{ id: 'x', updatedBy: 'agent' }]).byAgent, [{ agent: 'agent', count: 1 }], 'no agent id falls back to "agent"');
+});
+
+test('the review view narrows the model to the queue, forces the table layout, and keeps facets applying', () => {
+  const state = makeState({ documents: [...DOCS, ...AGENT_DOCS], libraryView: 'review' });
+  const model = buildLibraryModel(state);
+  assert.equal(model.review, true);
+  assert.equal(model.layout, 'table');
+  assert.deepEqual(model.groups.flatMap(g => g.docs).map(d => d.id).sort(), ['a1', 'a2']);
+  assert.equal(model.queueCount, 2);
+  assert.equal(model.reviewSummary.total, 2);
+  assert.equal(model.welcome, false);
+  const typed = buildLibraryModel(makeState({ documents: [...DOCS, ...AGENT_DOCS], libraryView: 'review', libraryTypes: ['runbook'] }));
+  assert.deepEqual(typed.groups.flatMap(g => g.docs).map(d => d.id), ['a2']);
+  assert.equal(buildLibraryModel(makeState({ documents: DOCS, libraryView: 'review' })).visibleCount, 0);
+});
+
+test('renderLibraryHtml in the review view: sub-line, banner with counts, table with Review buttons, no layout toggle', () => {
+  const html = render({ documents: [...DOCS, ...AGENT_DOCS], libraryView: 'review' });
+  assert.match(html, /class="page-head__sub">Review queue</);
+  assert.match(html, /class="review-banner" role="status"/);
+  assert.match(html, /chip chip--unverified">2 to review</);
+  assert.match(html, /class="review-banner__agents">claude 1 · codex 1 · 1 stale</);
+  assert.match(html, /data-action="select-visible-docs">Select shown</);
+  assert.match(html, /class="btn-primary" type="button" data-action="review-next">Review next</);
+  assert.match(html, /class="doc-table doc-table--review" role="table" aria-label="Review queue"/);
+  assert.match(html, /data-action="review-doc" data-document-id="a1"/);
+  assert.match(html, /class="doc-table__by">claude</);
+  assert.match(html, /chip--unverified">UNVERIFIED</);
+  assert.match(html, /chip--stale">STALE</);
+  assert.doesNotMatch(html, /doc-card/);
+  assert.doesNotMatch(html, /layout-toggle/);
+  assert.doesNotMatch(html, /data-document-id="a3"/, 'verified documents are not in the queue');
+});
+
+test('an empty review queue distinguishes "clear" from "filtered out"', () => {
+  const clear = render({ documents: DOCS, libraryView: 'review' });
+  assert.match(clear, /The queue is clear/);
+  assert.doesNotMatch(clear, /review-banner/);
+  const filtered = render({ documents: [...DOCS, ...AGENT_DOCS], libraryView: 'review', libraryTypes: ['post-mortem'] });
+  assert.match(filtered, /No queued documents match/);
+  assert.match(filtered, /data-action="clear-lib-filters"/);
+});
+
+test('table layout in the browse view: a flat table of the visible documents, select-all, and Review only on unverified rows', () => {
+  const html = render({ documents: [...DOCS, ...AGENT_DOCS.slice(0, 3)], libraryLayout: 'table' });
+  assert.match(html, /class="doc-table" role="table" aria-label="Documents"/);
+  assert.match(html, /class="doc-table__check" data-action="select-visible-docs" aria-pressed="false" aria-label="Select all 6 shown"/);
+  assert.match(html, /class="doc-table__title" data-action="open-doc" data-document-id="doc-restore">Restore CloudNativePG</);
+  assert.match(html, /class="doc-table__by">you</);
+  assert.match(html, /data-document-id="a3"[^>]*>[\s\S]*?chip--verified">VERIFIED/);
+  assert.doesNotMatch(html, /data-action="review-doc" data-document-id="a3"/, 'verified rows get no Review');
+  assert.match(html, /data-action="review-doc" data-document-id="a1"/);
+  assert.doesNotMatch(html, /doc-card/);
+  assert.doesNotMatch(html, /review-banner/);
+  // The toggle marks table active; cards stays the default.
+  assert.match(html, /class="layout-toggle__btn is-active" data-action="set-library-layout" data-layout="table" aria-pressed="true"/);
+  assert.match(render(), /class="layout-toggle__btn is-active" data-action="set-library-layout" data-layout="cards"/);
+  assert.match(render(), /doc-card/);
+  assert.doesNotMatch(render({ libraryView: 'archive' }), /layout-toggle/, 'archive keeps its rows');
+});
+
+test('selection: rows mark is-selected, select-all flips to clear, and the bulk bar offers Archive', () => {
+  const docs = [...DOCS];
+  const html = renderDocTable(docs, makeState({ librarySelectedDocIds: ['doc-ideas'] }));
+  assert.match(html, /class="doc-table__row is-selected" role="row" data-document-id="doc-ideas"/);
+  assert.match(html, /class="doc-table__check is-on" data-action="toggle-doc-selection" data-document-id="doc-ideas" aria-pressed="true" aria-label="Deselect Ideas"/);
+  assert.match(html, /aria-label="Select Restore CloudNativePG"/);
+  const all = renderDocTable(docs, makeState({ librarySelectedDocIds: docs.map(d => d.id) }));
+  assert.match(all, /data-action="select-visible-docs" aria-pressed="true" aria-label="Clear selection">✓</);
+  assert.equal(renderDocBulkBarHtml(makeState()), '');
+  const bar = renderDocBulkBarHtml(makeState({ librarySelectedDocIds: ['a', 'b'] }));
+  assert.match(bar, /aria-label="Bulk document actions"/);
+  assert.match(bar, /class="bulkbar__count">2 selected</);
+  assert.match(bar, /data-action="bulk-archive-docs">Archive</);
+  assert.match(bar, /data-action="clear-doc-selection"/);
+  assert.doesNotMatch(bar, /verify/i, 'verification never happens blind');
+  assert.match(render({ librarySelectedDocIds: ['doc-ideas'] }), /bulkbar/, 'the page carries the bar');
+});
+
+test('the ⋯ overflow lists the review queue with its count', () => {
+  const html = render({ documents: [...DOCS, ...AGENT_DOCS], libraryMenuOpen: true });
+  assert.match(html, /data-action="open-review-queue" aria-pressed="false">\s*Review queue <span class="menu__count">2</);
+  assert.doesNotMatch(render({ libraryMenuOpen: true }), /menu__count/, 'no badge when the queue is empty');
 });

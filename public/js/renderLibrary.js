@@ -13,6 +13,7 @@ import {
   docTypeKey as sharedDocTypeKey,
 } from './libraryFilters.js';
 import { DOCUMENT_TYPES, documentTypeLabel } from './documentTypes.js';
+import { normalizeLayout } from './libraryLayout.js';
 
 // Library page (Prax design): header actions, keyword/semantic search row,
 // tag-pill filters, Runbooks/Notes card grid, semantic idle/result states and
@@ -91,6 +92,36 @@ function matchesQuery(doc, query) {
     .includes(query);
 }
 
+// The review queue (year-one shell spec, item 7): agent-written documents
+// nobody has verified yet. Agents recall only verified memory by default, so
+// this is the pile that decides how useful the shared memory is. Superseded
+// and archived documents are out — they have been dealt with.
+export function isReviewQueueDoc(doc) {
+  return Boolean(doc) && TRUST_PREDICATES.agent(doc) && doc.verified !== true
+    && doc.status !== 'superseded' && !doc.archivedAt;
+}
+
+export function reviewQueue(documents) {
+  return (Array.isArray(documents) ? documents : []).filter(isReviewQueueDoc);
+}
+
+export const REVIEW_BATCH_SIZE = 10;
+
+// Counts for the queue banner: total, per writing agent (most first), stale.
+export function reviewQueueSummary(documents) {
+  const queue = reviewQueue(documents);
+  const byAgent = new Map();
+  for (const doc of queue) {
+    const agent = String(doc.updatedByAgent || 'agent').trim().toLowerCase() || 'agent';
+    byAgent.set(agent, (byAgent.get(agent) || 0) + 1);
+  }
+  return {
+    total: queue.length,
+    stale: queue.filter((doc) => doc.stale === true).length,
+    byAgent: [...byAgent.entries()].map(([agent, count]) => ({ agent, count })).sort((a, b) => b.count - a.count || a.agent.localeCompare(b.agent)),
+  };
+}
+
 // Type / trust / project counts over the full active set — shared by the main
 // view's facet rows (narrow windows) and the Library panel (wide windows), so
 // both surfaces show the same numbers.
@@ -122,6 +153,7 @@ export function buildLibraryModel(state, { limit = LIBRARY_RENDER_BATCH_SIZE } =
   const projectIds = Array.isArray(state.libraryProjects) ? state.libraryProjects : [];
   const query = String(state.libraryQuery || '').trim().toLowerCase();
   const semantic = Boolean(state.librarySemantic);
+  const review = state.libraryView === 'review';
 
   // Tag chips come from the pre-filter set so narrowing never hides pills.
   const tagChips = tagsForDocuments(documents);
@@ -129,7 +161,9 @@ export function buildLibraryModel(state, { limit = LIBRARY_RENDER_BATCH_SIZE } =
   // exist regardless of the other facets.
   const facetCounts = libraryFacetCounts(documents);
 
-  let filtered = filterDocumentsByTags(documents, activeTags);
+  // The review queue narrows the set first; facets, tags and the query then
+  // apply inside it exactly as in the browse view.
+  let filtered = filterDocumentsByTags(review ? reviewQueue(documents) : documents, activeTags);
   // Type + trust + project facets only apply where their pills are shown (the browse
   // view). In archive/semantic the facet row is hidden, so a leftover selection
   // would be an invisible, unclearable filter — ignore it there.
@@ -164,6 +198,12 @@ export function buildLibraryModel(state, { limit = LIBRARY_RENDER_BATCH_SIZE } =
     embeddedCount: Number(state.semanticIndex?.embedded ?? state.semanticStatus?.embeddedCount) || 0,
     totalCount: Number(state.semanticIndex?.total ?? state.semanticStatus?.totalCount) || 0,
     archive: state.libraryView === 'archive',
+    review,
+    // Cards or table: the queue is always a table (it is a work list), the
+    // archive keeps its flat rows, the browse view follows the preference.
+    layout: review ? 'table' : normalizeLayout(state.libraryLayout),
+    reviewSummary: review ? reviewQueueSummary(documents) : null,
+    queueCount: reviewQueue(documents).length,
     visibleCount: filtered.length,
     renderedCount: collection.shown,
     hasMore: collection.hasMore,
@@ -171,7 +211,7 @@ export function buildLibraryModel(state, { limit = LIBRARY_RENDER_BATCH_SIZE } =
     // a coaching welcome instead of the "no documents match / Clear filters"
     // dead end, which only makes sense once something exists to filter.
     welcome: documents.length === 0 && !semantic && !anyFilter
-      && state.libraryView !== 'archive',
+      && state.libraryView !== 'archive' && !review,
   };
 }
 
@@ -210,12 +250,15 @@ function renderLibraryMenu(state, model) {
           ${item('import-documents', 'Import Markdown…', 'Choose Markdown files and their destination project', ' title="Choose Markdown files and their destination project"')}
           ${item('export-library', 'Export…', 'Choose scope and where to save the Markdown archive', ' title="Choose scope and where to save the Markdown archive"')}
           ${item('toggle-library-view', model.archive ? 'Active' : 'Archive', model.archive ? 'Back to the browse view' : 'Archived documents: restore or delete', ` aria-pressed="${model.archive}"`)}
+          ${item('open-review-queue', `Review queue${model.queueCount ? ` <span class="menu__count">${model.queueCount}</span>` : ''}`, 'Agent-written documents awaiting your verification', ` aria-pressed="${model.review}"`)}
         </div>` : ''}
       </div>`;
 }
 
 function renderPageHead(state, model) {
-  const sub = model.archive ? '<span class="page-head__sub">Archive</span>' : '';
+  const sub = model.archive
+    ? '<span class="page-head__sub">Archive</span>'
+    : (model.review ? '<span class="page-head__sub">Review queue</span>' : '');
   return `
     <header class="page-head">
       <h1 class="page-head__title">Library</h1>
@@ -263,8 +306,9 @@ export function renderActiveFilters(state, model) {
   return `<div class="filter-row" aria-label="Active filters">${chips.join('')}${save}<button class="btn-ghost" type="button" data-action="clear-lib-filters">Clear filters</button></div>`;
 }
 
-function renderSearchRow(state, semanticVisible) {
+function renderSearchRow(state, semanticVisible, model = {}) {
   const isSemantic = Boolean(state.librarySemantic);
+  const layoutToggle = renderLayoutToggle(state, model);
   const placeholder = isSemantic ? SEMANTIC_PLACEHOLDER : KEYWORD_PLACEHOLDER;
   const semanticButton = semanticVisible
     ? `<button class="btn-ghost${isSemantic ? ' is-on' : ''}" type="button" data-action="toggle-semantic" aria-pressed="${isSemantic}">${icon('spark', 13)}<span>Semantic</span></button>`
@@ -274,7 +318,20 @@ function renderSearchRow(state, semanticVisible) {
       <input class="lib-search__input" type="search" data-library-search placeholder="${escapeHtml(placeholder)}" value="${escapeHtml(state.libraryQuery || '')}" autocomplete="off" aria-label="Search library">
       ${semanticButton}
       <button class="btn-ghost" type="button" data-action="cycle-lib-sort">Sort: ${state.librarySortBy === 'title' ? 'Title' : 'Updated'}</button>
+      ${layoutToggle}
     </div>`;
+}
+
+// Cards / table switch (year-one shell spec, item 7). Hidden where the layout
+// is not a choice: the archive's flat rows, the semantic result list, and the
+// review queue, which is always a table.
+function renderLayoutToggle(state, model) {
+  if (model.archive || model.review || state.librarySemantic || model.welcome) return '';
+  const layout = normalizeLayout(state.libraryLayout);
+  const button = (key, label, glyph) => (
+    `<button type="button" class="layout-toggle__btn${layout === key ? ' is-active' : ''}" data-action="set-library-layout" data-layout="${key}" aria-pressed="${layout === key}" aria-label="${label}" title="${label}">${glyph}</button>`
+  );
+  return `<div class="layout-toggle" role="group" aria-label="Layout">${button('cards', 'Cards', icon('grid', 13))}${button('table', 'Table', icon('group', 13))}</div>`;
 }
 
 // How many tag pills the row shows before folding the rest behind "+N more".
@@ -540,6 +597,94 @@ function renderArchiveRows(model, state) {
     </div>${renderCollectionProgress(model)}`;
 }
 
+function docAuthorLabel(doc) {
+  if (doc.updatedByAgent) return String(doc.updatedByAgent);
+  if (doc.updatedBy === 'agent' || doc.kind === 'synthesized') return 'agent';
+  return 'you';
+}
+
+// Table mode: one row per document, the same open-doc action as a card, a
+// select box per row for the bulk bar, and Review on anything unverified.
+// Verification itself stays in the editor (read, then Verify) by design — the
+// table never verifies blind.
+export function renderDocTable(docs, state, { review = false } = {}) {
+  const selected = new Set(state.librarySelectedDocIds || []);
+  const allSelected = docs.length > 0 && docs.every((doc) => selected.has(doc.id));
+  const head = `
+      <div class="doc-table__head" role="row">
+        <button type="button" class="doc-table__check${allSelected ? ' is-on' : ''}" data-action="select-visible-docs" aria-pressed="${allSelected}" aria-label="${allSelected ? 'Clear selection' : `Select all ${docs.length} shown`}">${allSelected ? '✓' : ''}</button>
+        <span role="columnheader">Title</span><span role="columnheader">Type</span><span role="columnheader">Project</span>
+        <span role="columnheader">Trust</span><span role="columnheader">Tags</span><span role="columnheader">By</span><span role="columnheader">Updated</span><span role="columnheader" class="doc-table__actions-head"></span>
+      </div>`;
+  const rows = docs.map((doc) => {
+    const isSelected = selected.has(doc.id);
+    const tags = (doc.tags || []).map(normalizedTag).filter(Boolean).map((tag) => `#${tag}`).join(' ');
+    const actions = doc.verified === true
+      ? ''
+      : `<button type="button" class="btn-outline doc-table__review" data-action="review-doc" data-document-id="${escapeHtml(doc.id)}" title="Open in preview, then Verify">Review</button>`;
+    return `
+      <div class="doc-table__row${isSelected ? ' is-selected' : ''}" role="row" data-document-id="${escapeHtml(doc.id)}">
+        <button type="button" class="doc-table__check${isSelected ? ' is-on' : ''}" data-action="toggle-doc-selection" data-document-id="${escapeHtml(doc.id)}" aria-pressed="${isSelected}" aria-label="${isSelected ? 'Deselect' : 'Select'} ${escapeHtml(doc.title || 'Untitled')}">${isSelected ? '✓' : ''}</button>
+        <button type="button" class="doc-table__title" data-action="open-doc" data-document-id="${escapeHtml(doc.id)}">${escapeHtml(doc.title || 'Untitled')}</button>
+        <span>${typeChip(doc)}</span>
+        <span class="doc-table__dim">${escapeHtml(projectNameFor(doc, state))}</span>
+        <span class="doc-table__trust">${trustChips(doc, { showUnverified: true })}</span>
+        <span class="doc-table__dim doc-table__tags" title="${escapeHtml(tags)}">${escapeHtml(tags)}</span>
+        <span class="doc-table__by">${escapeHtml(docAuthorLabel(doc))}</span>
+        <span class="doc-table__dim">${escapeHtml(updatedLabel(doc.updatedAt))}</span>
+        <span class="doc-table__actions">${actions}</span>
+      </div>`;
+  }).join('');
+  return `<div class="doc-table${review ? ' doc-table--review' : ''}" role="table" aria-label="${review ? 'Review queue' : 'Documents'}">${head}${rows}</div>`;
+}
+
+function projectNameFor(doc, state) {
+  const projects = [...(state.managedProjects || []), ...(state.projects || [])];
+  return projects.find((item) => item?.id === doc?.projectId)?.name || 'Project unavailable';
+}
+
+// The queue banner: the count that matters, who wrote them, and the two ways
+// through the pile — review the oldest next, or select what is shown.
+function renderReviewBanner(model) {
+  const summary = model.reviewSummary;
+  if (!summary || !summary.total) return '';
+  const agents = summary.byAgent.map(({ agent, count }) => `${escapeHtml(agent)} ${count}`).join(' · ');
+  return `
+    <div class="review-banner" role="status">
+      ${chip(`${summary.total} to review`, 'unverified')}
+      <span class="review-banner__text">Agent-written memory waits here until you verify it. Only verified memory is recalled by default.</span>
+      <span class="review-banner__agents">${agents}${summary.stale ? ` · ${summary.stale} stale` : ''}</span>
+      <span class="review-banner__actions">
+        <button class="btn-ghost" type="button" data-action="select-visible-docs">Select shown</button>
+        <button class="btn-primary" type="button" data-action="review-next">Review next</button>
+      </span>
+    </div>`;
+}
+
+function renderReviewEmpty(model) {
+  return `
+    <div class="empty" role="status">
+      ${icon('check', 28)}
+      <h2 class="empty__title">${model.queueCount ? 'No queued documents match' : 'The queue is clear'}</h2>
+      <p class="empty__sub">${model.queueCount
+        ? 'Every unverified agent memory is filtered out. Clear the filters to see the queue.'
+        : 'Every agent-written document has been verified, superseded or archived. New memories will land here.'}</p>
+      ${model.queueCount ? '<button class="btn-ghost" type="button" data-action="clear-lib-filters">Clear filters</button>' : ''}
+    </div>`;
+}
+
+// Sticky bulk bar for selected documents. Archive is the one bulk action:
+// verify needs the content read (editor), supersede needs a replacement each.
+export function renderDocBulkBarHtml(state) {
+  const count = Array.isArray(state.librarySelectedDocIds) ? state.librarySelectedDocIds.length : 0;
+  if (!count) return '';
+  return '<div class="bulkbar" role="toolbar" aria-label="Bulk document actions">'
+    + `<span class="bulkbar__count">${count} selected</span>`
+    + '<button type="button" data-action="bulk-archive-docs">Archive</button>'
+    + '<button type="button" class="bulkbar__clear" data-action="clear-doc-selection" aria-label="Clear selection">✕</button>'
+    + '</div>';
+}
+
 function renderBody(state, model, semanticVisible) {
   if (model.welcome) return renderWelcome(state);
   if (model.archive) return renderArchiveRows(model, state);
@@ -548,7 +693,14 @@ function renderBody(state, model, semanticVisible) {
     // Idle covers both "no query yet" and "results not back yet".
     return model.semanticActive ? renderSemanticResults(model.semanticResults, model, state) : renderSemanticIdle();
   }
+  if (model.review) {
+    if (!model.visibleCount) return renderReviewEmpty(model);
+    return renderDocTable(model.groups.flatMap((group) => group.docs), state, { review: true }) + renderCollectionProgress(model);
+  }
   if (!model.visibleCount) return renderNoResults(semanticVisible);
+  if (model.layout === 'table') {
+    return renderDocTable(model.groups.flatMap((group) => group.docs), state) + renderCollectionProgress(model);
+  }
   return renderGroups(model.groups, state) + renderCollectionProgress(model);
 }
 
@@ -563,8 +715,10 @@ export function renderLibraryHtml(state, model, { facetsInPanel = false } = {}) 
   return `
   <section class="page" aria-label="Library">
     ${renderPageHead(state, model)}
-    ${renderSearchRow(state, semanticVisible)}
+    ${renderSearchRow(state, semanticVisible, model)}
     ${filters}
+    ${model.review ? renderReviewBanner(model) : ''}
     ${renderBody(state, model, semanticVisible)}
+    ${renderDocBulkBarHtml(state)}
   </section>`;
 }

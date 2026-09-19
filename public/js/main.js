@@ -107,11 +107,12 @@ import { createSmartView, findSmartView, smartViewsFromJson } from './taskSmartV
 import { loadPinned, savePinned, togglePinned } from './pinned.js';
 import { isCollapsed, loadCollapsed, saveCollapsed, toggleCollapsed } from './collapsed.js';
 import { loadRecent, saveRecent, pushRecent } from './recentProjects.js';
+import { loadLayout, saveLayout } from './libraryLayout.js';
 import { renderBoardHtml, buildBoardColumns, limitBoardColumns } from './renderBoard.js';
 import { renderBacklogHtml, renderArchiveHtml } from './renderBacklog.js';
 import { renderTaskDrawerHtml, renderMissingTaskDrawerHtml } from './renderTaskDetail.js';
 import { renderLinkPickerHtml } from './renderLinkPicker.js';
-import { LIBRARY_RENDER_BATCH_SIZE, renderLibraryHtml, buildLibraryModel } from './renderLibrary.js';
+import { LIBRARY_RENDER_BATCH_SIZE, renderLibraryHtml, buildLibraryModel, reviewQueue } from './renderLibrary.js';
 import { templateById } from './documentTemplates.js';
 import { renderEditorHtml, buildOutline, buildBacklinks, WRITE_ACTIONS } from './renderEditor.js';
 import { renderRunHtml, buildChronicle } from './renderRun.js';
@@ -3518,8 +3519,54 @@ async function selectTaskImportFile(file) {
 function resetLibraryFilters() {
   return {
     libraryQuery: '', librarySemantic: false, activeLibraryTags: [], libraryProjects: [],
-    ...resetSemanticSearchPatch(), libraryView: 'active',
+    ...resetSemanticSearchPatch(), libraryView: 'active', librarySelectedDocIds: [],
   };
+}
+
+// The library model exactly as renderMainHtml builds it, for handlers that
+// need the VISIBLE documents (select all shown, review next).
+function visibleLibraryDocuments() {
+  const collectionKey = JSON.stringify([
+    state.libraryView, state.libraryQuery, state.librarySemantic, state.librarySortBy,
+    state.activeLibraryTags, state.libraryTypes, state.libraryTrust, state.libraryProjects,
+  ]);
+  const model = buildLibraryModel(state, { limit: libraryCollectionLimit(collectionKey) });
+  return model.groups.flatMap((group) => group.docs);
+}
+
+// Enter (or leave) the review queue. From anywhere else, go to the library
+// first; inside the library, toggle without losing facets.
+async function toggleReviewQueue() {
+  if (state.navType !== 'library') { await goLibrary({ libraryView: 'review' }); return; }
+  const wasArchive = state.libraryView === 'archive';
+  setState({
+    libraryView: state.libraryView === 'review' ? 'active' : 'review',
+    librarySelectedDocIds: [], libraryMenuOpen: false, ...resetSemanticSearchPatch(),
+  });
+  if (wasArchive) await loadDocuments();
+  renderApp();
+}
+
+// Archive every selected document through the same reconcile path as the
+// single action, with one summary toast instead of one per document.
+async function bulkArchiveDocuments() {
+  const ids = [...(state.librarySelectedDocIds || [])];
+  if (!ids.length) return;
+  let archived = 0;
+  for (const id of ids) {
+    const done = await performDocumentLifecycleOnce(`document:${id}`, async () => {
+      const result = await reconcileDocumentLifecycle({ id, intent: { type: 'archive' }, mutate: () => archiveDocument(id) });
+      if (result.committed) cacheLifecycleDocument(result.document, { remove: state.libraryView !== 'archive' });
+      return result.committed;
+    });
+    if (done) archived += 1;
+  }
+  setState({ librarySelectedDocIds: [] });
+  try { await loadDocuments(); } catch { /* the cache already reflects the commits */ }
+  renderApp();
+  showToast(archived === ids.length
+    ? `${archived === 1 ? '1 document' : `${archived} documents`} archived. Restore from the Archive.`
+    : `${archived} of ${ids.length} archived; the rest could not be confirmed. Reload to reconcile.`, null, 7000);
 }
 
 async function navigateTopLevel(patch) {
@@ -3660,7 +3707,9 @@ function sidebarCounts() {
   }
   const now = new Date();
   const { badge } = buildTodayGroups(state.tasks, state.projects, { now });
-  return { todayBadge: badge, projectOpen };
+  // The archive collection swaps state.documents; no queue count from it.
+  const reviewCount = state.libraryView === 'archive' ? 0 : reviewQueue(state.documents).length;
+  return { todayBadge: badge, projectOpen, reviewQueue: reviewCount };
 }
 
 function projectTasks() {
@@ -4838,9 +4887,33 @@ _Task:_ ${task.title || 'Untitled task'}`
       renderApp();
       break;
     }
+    case 'open-review-queue': await toggleReviewQueue(); break;
+    case 'set-library-layout': setState({ libraryLayout: saveLayout(el.dataset.layout) }); renderApp(); break;
+    case 'toggle-doc-selection': {
+      const id = el.dataset.documentId;
+      const current = state.librarySelectedDocIds || [];
+      setState({ librarySelectedDocIds: current.includes(id) ? current.filter((item) => item !== id) : [...current, id] });
+      renderApp();
+      break;
+    }
+    case 'select-visible-docs': {
+      const visible = visibleLibraryDocuments().map((doc) => doc.id);
+      const allSelected = visible.length > 0 && visible.every((id) => (state.librarySelectedDocIds || []).includes(id));
+      setState({ librarySelectedDocIds: allSelected ? [] : visible });
+      renderApp();
+      break;
+    }
+    case 'clear-doc-selection': setState({ librarySelectedDocIds: [] }); renderApp(); break;
+    case 'bulk-archive-docs': await bulkArchiveDocuments(); break;
+    case 'review-doc': await verifyHealthDoc(el.dataset.documentId); break;
+    case 'review-next': {
+      const next = visibleLibraryDocuments().find((doc) => doc.verified !== true);
+      if (next) await verifyHealthDoc(next.id);
+      break;
+    }
     case 'toggle-library-view': {
       setState({ libraryMenuOpen: false });
-      setState({ libraryView: state.libraryView === 'archive' ? 'active' : 'archive', ...resetSemanticSearchPatch() });
+      setState({ libraryView: state.libraryView === 'archive' ? 'active' : 'archive', librarySelectedDocIds: [], ...resetSemanticSearchPatch() });
       await loadDocuments();
       renderApp();
       break;
@@ -4866,7 +4939,8 @@ _Task:_ ${task.title || 'Untitled task'}`
     }
 
     // ---- editor ----
-    case 'back-to-library': await goLibrary(); break;
+    // Leaving a document opened from the review queue returns to the queue.
+    case 'back-to-library': await goLibrary(state.libraryView === 'review' ? { libraryView: 'review' } : {}); break;
     // Explicit exit from a failed/recovered/conflict document draft: without
     // it, a doc archived/deleted externally left the retry failing forever
     // and every navigation vetoed — only a reload escaped.
@@ -6508,7 +6582,7 @@ async function init() {
   // macOS merges the native titlebar into the app's top bar (overlay style) —
   // inset the bar so the traffic lights sit inside it.
   document.body.classList.toggle('is-desktop-mac', desktopShell && desktopPlatform === 'macos');
-  setState({ preferences, librarySavedViews: loadSavedViews(), taskSmartViews: loadSmartViews(), pinned: loadPinned(), recentProjects: loadRecent(), collapsedSections: loadCollapsed(), winW: window.innerWidth, desktopShell, desktopPlatform });
+  setState({ preferences, librarySavedViews: loadSavedViews(), taskSmartViews: loadSmartViews(), pinned: loadPinned(), recentProjects: loadRecent(), libraryLayout: loadLayout(), collapsedSections: loadCollapsed(), winW: window.innerWidth, desktopShell, desktopPlatform });
   applyPreferences(preferences);
   appRoot.innerHTML = '<main class="empty" style="height:100vh"><p class="empty__sub">Loading Prax…</p></main>';
   try {
