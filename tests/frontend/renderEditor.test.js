@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { renderEditorHtml, buildOutline, buildBacklinks } from '../../public/js/renderEditor.js';
+import { renderEditorHtml, buildOutline, buildBacklinks, renderReviewWalkHtml } from '../../public/js/renderEditor.js';
 
 const baseDoc = {
   id: 'doc-1',
@@ -441,4 +441,30 @@ test('info form shows a conflict review with both values and explicit keep-their
   assert.match(html, /data-action="doc-info-keep-mine"/);
   // Typed values remain in the inputs — nothing was discarded.
   assert.match(html, /data-doc-info-title value="Typed title"/);
+});
+
+// ---- review-queue walk strip (year-one spec item 11) --------------------------
+
+test('the walk strip renders only while the walk\'s current id is this document', () => {
+  assert.equal(renderReviewWalkHtml(makeState(), baseDoc), '');
+  assert.equal(renderReviewWalkHtml(makeState({ reviewWalk: { ids: ['other', 'doc-1'], index: 0, verified: 0 } }), baseDoc), '', 'another document is current');
+  const html = render({ reviewWalk: { ids: ['doc-1', 'd2', 'd3'], index: 0, verified: 0 } });
+  assert.match(html, /<div class="review-walk" role="region" aria-label="Review queue walk">/);
+  assert.match(html, /Review queue · <b>1 of 3<\/b><\/span>/);
+  assert.match(html, /class="btn-primary btn-primary--sm" type="button" data-action="review-walk-verify"[^>]*>Verify and next</);
+  assert.match(html, /data-action="review-walk-skip">Skip</);
+  assert.match(html, /data-action="back-to-library">Back to queue</);
+  assert.ok(html.indexOf('</header>') < html.indexOf('review-walk'), 'the strip sits under the header');
+});
+
+test('the last document offers Verify and finish; a verified one offers Next or Finish; the verified count shows', () => {
+  const last = render({ reviewWalk: { ids: ['a', 'doc-1'], index: 1, verified: 1 } });
+  assert.match(last, /2 of 2<\/b> · 1 verified/);
+  assert.match(last, /data-action="review-walk-verify"[^>]*>Verify and finish</);
+  assert.match(last, /data-action="review-walk-skip">Skip and finish</);
+  const already = render({ reviewWalk: { ids: ['doc-1', 'b'], index: 0, verified: 0 } }, { verified: true });
+  assert.match(already, /data-action="review-walk-skip">Next</);
+  assert.doesNotMatch(already, /review-walk-verify/);
+  const alreadyLast = render({ reviewWalk: { ids: ['doc-1'], index: 0, verified: 0 } }, { verified: true });
+  assert.match(alreadyLast, /data-action="review-walk-skip">Finish</);
 });

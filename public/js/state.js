@@ -106,6 +106,7 @@ export const state = {
   libraryView: 'active',        // 'active' | 'archive' | 'review' (the agent-memory review queue)
   libraryLayout: 'cards',       // 'cards' | 'table' (localStorage)
   librarySelectedDocIds: [],    // table-mode multi-select for the bulk bar
+  reviewWalk: null,             // { ids, index, verified } while reviewing the queue one document at a time
   markdownImportOpen: false,
   markdownImportProjectId: null, // explicit destination selected inside the import dialog
   markdownImportFiles: [],       // retained [{ id, name, title, body }] after native input rerenders

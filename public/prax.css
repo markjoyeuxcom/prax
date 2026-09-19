@@ -1419,6 +1419,14 @@ body[data-density="compact"] .group-label { margin-top: 12px; }
   border-bottom: 1px solid var(--line);
   flex: none;
 }
+/* Review-queue walk strip under the editor header */
+.review-walk {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; flex: none;
+  padding: 8px 20px; background: var(--med-soft); border-bottom: 1px solid var(--line); font-size: 12.5px;
+}
+.review-walk__label { color: var(--ink); }
+.review-walk__hint { color: var(--ink2); flex: 1 1 260px; min-width: 0; }
+.review-walk__actions { display: flex; gap: 6px; margin-left: auto; }
 .editor-head__back {
   width: 28px;
   height: 28px;
