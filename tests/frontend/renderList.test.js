@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildListGroups, limitTaskGroups, renderListHtml, renderBulkBarHtml,
+  applyCollapsedGroups, isGroupCollapsed, groupSectionKey, renderTaskGroupsHtml, DONE_WEEK_MS,
 } from '../../public/js/renderList.js';
 
 // Fixed clock for deterministic due buckets: Monday, July 6 2026.
@@ -30,7 +31,7 @@ function task(overrides = {}) {
   };
 }
 
-test('buildListGroups buckets open tasks by due date with Completed last', () => {
+test('buildListGroups buckets open tasks by due date with done work last', () => {
   const tasks = [
     task({ id: 'later', dueDate: '2026-07-20' }),
     task({ id: 'over', dueDate: '2026-07-03' }),
@@ -41,7 +42,9 @@ test('buildListGroups buckets open tasks by due date with Completed last', () =>
   ];
   const { groups, flatIds } = buildListGroups(baseState(), tasks, { now: NOW });
   assert.deepEqual(groups.map((g) => g.key), ['overdue', 'today', 'soon', 'later', 'none', 'completed']);
-  assert.deepEqual(groups.map((g) => g.label), ['Overdue', 'Today', 'Due soon', 'Upcoming', 'No date', 'Completed']);
+  assert.deepEqual(groups.map((g) => g.label), ['Overdue', 'Today', 'Due soon', 'Upcoming', 'No date', 'Done this week']);
+  assert.equal(groups.at(-1).defaultCollapsed, true);
+  assert.equal(groups.at(-1).archivable, true);
   assert.deepEqual(groups.map((g) => g.tone), ['hi', 'med', 'muted', 'muted', 'muted', 'muted']);
   assert.deepEqual(flatIds, ['over', 'now', 'soon', 'later', 'nodate', 'fin']);
 });
@@ -115,7 +118,7 @@ test('buildListGroups groups by design status when groupBy=status', () => {
   const { groups, flatIds } = buildListGroups(baseState({ groupBy: 'status' }), tasks, { now: NOW });
   assert.deepEqual(
     groups.map((g) => [g.key, g.label]),
-    [['priority', 'Priority'], ['inprogress', 'In progress'], ['planned', 'Planned'], ['completed', 'Completed']],
+    [['priority', 'Priority'], ['inprogress', 'In progress'], ['planned', 'Planned'], ['completed', 'Done this week']],
   );
   assert.deepEqual(flatIds, ['urgent', 'wip', 'p', 'fin']);
 });
@@ -212,4 +215,87 @@ test('renderBulkBarHtml renders the count and bulk actions', () => {
   assert.match(html, /data-action="bulk-backlog"[^>]*>Backlog</);
   assert.match(html, /data-action="bulk-archive"[^>]*>Archive</);
   assert.match(html, /class="bulkbar__clear" data-action="clear-selection"[^>]*>✕</);
+});
+
+// ---------------------------------------------------------------------------
+// Year-one shell spec, item 2: done work splits at seven days; groups fold.
+// ---------------------------------------------------------------------------
+
+test('buildListGroups splits done work at seven days using completedAt, else updatedAt', () => {
+  const tasks = [
+    task({ id: 'open' }),
+    task({ id: 'fresh', status: 'completed', completedAt: '2026-07-04T10:00:00.000Z' }),
+    task({ id: 'edge', status: 'completed', updatedAt: new Date(NOW.getTime() - DONE_WEEK_MS + 60_000).toISOString() }),
+    task({ id: 'old', status: 'completed', updatedAt: '2026-06-01T10:00:00.000Z' }),
+    task({ id: 'stale', status: 'completed', completedAt: '2026-05-20T10:00:00.000Z', updatedAt: '2026-07-05T10:00:00.000Z' }),
+    task({ id: 'unstamped', status: 'completed' }),
+  ];
+  const { groups, flatIds } = buildListGroups(baseState(), tasks, { now: NOW });
+  assert.deepEqual(groups.map((g) => [g.key, g.label]), [['none', 'No date'], ['completed', 'Done this week'], ['completed-earlier', 'Done earlier']]);
+  assert.deepEqual(groups[1].tasks.map((t) => t.id), ['fresh', 'edge', 'unstamped']);
+  assert.deepEqual(groups[2].tasks.map((t) => t.id), ['old', 'stale'], 'completedAt wins over a later updatedAt');
+  assert.deepEqual(flatIds, ['open', 'fresh', 'edge', 'unstamped', 'old', 'stale']);
+});
+
+test('isGroupCollapsed treats the stored key as a toggle away from the group default', () => {
+  const open = { key: 'overdue' };
+  const done = { key: 'completed', defaultCollapsed: true };
+  assert.equal(isGroupCollapsed(open, [], 'list:p1:overdue'), false);
+  assert.equal(isGroupCollapsed(open, ['list:p1:overdue'], 'list:p1:overdue'), true);
+  assert.equal(isGroupCollapsed(done, [], 'list:p1:completed'), true, 'done groups start folded');
+  assert.equal(isGroupCollapsed(done, ['list:p1:completed'], 'list:p1:completed'), false);
+  assert.equal(groupSectionKey('p1', 'completed'), 'list:p1:completed');
+});
+
+test('applyCollapsedGroups + limitTaskGroups keep folded headers but drop their rows from the collection', () => {
+  const tasks = [
+    task({ id: 'a', dueDate: '2026-07-03' }),
+    task({ id: 'b' }),
+    task({ id: 'c' }),
+    task({ id: 'fin1', status: 'completed' }),
+    task({ id: 'fin2', status: 'completed' }),
+  ];
+  const built = buildListGroups(baseState(), tasks, { now: NOW });
+  const folded = applyCollapsedGroups(built.groups, ['list:p1:none'], 'p1');
+  assert.deepEqual(folded.map((g) => [g.key, g.collapsed, g.tasks.length, g.totalCount]),
+    [['overdue', false, 1, undefined], ['none', true, 0, 2], ['completed', true, 0, 2]]);
+  const collection = limitTaskGroups(folded, 100);
+  assert.deepEqual(collection.groups.map((g) => [g.key, g.totalCount]), [['overdue', 1], ['none', 2], ['completed', 2]]);
+  assert.deepEqual(collection.flatIds, ['a'], 'keyboard navigation never reaches a folded row');
+  assert.equal(collection.total, 1);
+  assert.equal(collection.hasMore, false);
+  // A batch limit still counts only what is expanded: the done group is
+  // folded by default, so its two rows are not part of the total.
+  const tight = limitTaskGroups(applyCollapsedGroups(built.groups, [], 'p1'), 2);
+  assert.deepEqual(tight.flatIds, ['a', 'b']);
+  assert.equal(tight.total, 3);
+  assert.equal(tight.hasMore, true);
+  // Unfold it (stored key flips the default) and the total includes them.
+  const unfolded = limitTaskGroups(applyCollapsedGroups(built.groups, ['list:p1:completed'], 'p1'), 100);
+  assert.equal(unfolded.total, 5);
+  assert.deepEqual(unfolded.flatIds, ['a', 'b', 'c', 'fin1', 'fin2']);
+});
+
+test('renderTaskGroupsHtml renders section-keyed groups as toggles, folded ones without rows, done ones with Archive all', () => {
+  const state = baseState();
+  const built = buildListGroups(state, [
+    task({ id: 'a', title: 'Open one', dueDate: '2026-07-03' }),
+    task({ id: 'fin', title: 'Shipped', status: 'completed' }),
+  ], { now: NOW });
+  const html = renderTaskGroupsHtml(state, applyCollapsedGroups(built.groups, [], 'p1'));
+  // Expanded due group: toggle open, rows mounted, no archive action.
+  assert.match(html, /<button type="button" class="group-label__toggle" data-action="toggle-section" data-section-key="list:p1:overdue" aria-expanded="true">/);
+  assert.match(html, /data-group="overdue">[\s\S]*Open one/);
+  assert.doesNotMatch(html, /data-section-key="list:p1:overdue"[^>]*>[\s\S]*?archive-group[\s\S]*?data-group="overdue"/);
+  // Folded done group: header + count + Archive all, no rows, no task markup.
+  assert.match(html, /class="group-label is-collapsed"/);
+  assert.match(html, /data-section-key="list:p1:completed" aria-expanded="false">/);
+  assert.match(html, /group-label__count">1</);
+  assert.match(html, /data-action="archive-group" data-group-key="completed" aria-label="Archive all 1 in Done this week"/);
+  assert.doesNotMatch(html, /data-group="completed"/);
+  assert.doesNotMatch(html, /Shipped/);
+  // Groups without a section key keep the plain header (Today's reuse).
+  const plain = renderTaskGroupsHtml(state, built.groups);
+  assert.doesNotMatch(plain, /toggle-section/);
+  assert.match(plain, /<div class="group-label"[^>]*>Done this week <span class="group-label__count">1<\/span><\/div>/);
 });

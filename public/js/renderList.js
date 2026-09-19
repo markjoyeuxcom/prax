@@ -3,6 +3,7 @@ import { designPriority, designStatus } from './statusMap.js';
 import { dueFlag } from './dueFlags.js';
 import { slippageChips } from './slippageFlags.js';
 import { icon, logo } from './icons.js';
+import { isCollapsed } from './collapsed.js';
 
 // Project ▸ List tab — grouped task rows (docs/desktop/design-handoff.md §1).
 // Pure render module (phase1-actions.md): state → HTML string, events are
@@ -37,6 +38,38 @@ const STATUS_GROUPS = [
 
 export const TASK_RENDER_BATCH_SIZE = 100;
 
+// Done work splits at seven days (year-one shell spec, item 2): "Done this
+// week" stays close at hand, "Done earlier" is the pile that wants archiving.
+export const DONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+// collapsedSections key for a project list group (public/js/collapsed.js).
+export function groupSectionKey(projectId, groupKey) {
+  return `list:${projectId}:${groupKey}`;
+}
+
+// Collapsed state is a toggle away from the group's default: due/priority/
+// status groups start open, the done groups start folded. The stored key
+// therefore means "the opposite of the default" — flipping it is still one
+// toggle-section action, and a stale key for a group that no longer renders
+// is inert.
+export function isGroupCollapsed(group, collapsedSections, key) {
+  return Boolean(group?.defaultCollapsed) !== isCollapsed(collapsedSections, key);
+}
+
+// Annotate groups with their section key and collapsed state; a collapsed
+// group keeps its count but sheds its tasks, so limitTaskGroups' flatIds and
+// the collection progress never point at rows that are not on screen.
+export function applyCollapsedGroups(groups, collapsedSections, projectId) {
+  return (groups || []).map((group) => {
+    const sectionKey = groupSectionKey(projectId, group.key);
+    const collapsed = isGroupCollapsed(group, collapsedSections, sectionKey);
+    const tasks = Array.isArray(group.tasks) ? group.tasks : [];
+    return collapsed
+      ? { ...group, sectionKey, collapsed: true, tasks: [], totalCount: tasks.length }
+      : { ...group, sectionKey, collapsed: false, tasks };
+  });
+}
+
 // Keep the initial DOM bounded without lying about collection size. Groups
 // retain their full count while only the first `limit` tasks (in the existing
 // group order) are mounted. The returned flatIds exactly match the visible DOM
@@ -54,7 +87,15 @@ export function limitTaskGroups(groups, limit = TASK_RENDER_BATCH_SIZE) {
     const tasks = Array.isArray(group.tasks) ? group.tasks : [];
     const visibleTasks = tasks.slice(0, remaining);
     remaining = Math.max(0, remaining - visibleTasks.length);
-    if (visibleTasks.length) visibleGroups.push({ ...group, tasks: visibleTasks, totalCount: tasks.length });
+    // A collapsed group renders as its header alone, so it stays in place
+    // even though it mounts no rows.
+    if (visibleTasks.length || group.collapsed) {
+      visibleGroups.push({
+        ...group,
+        tasks: visibleTasks,
+        totalCount: Number.isInteger(group.totalCount) ? group.totalCount : tasks.length,
+      });
+    }
   }
 
   const flatIds = visibleGroups.flatMap((group) => group.tasks.map((task) => task.id));
@@ -82,10 +123,22 @@ function decorate(task, now) {
   return { ...task, done, dueInfo: dueFlag(task.dueDate, { dueTime: task.dueTime, done, now }) };
 }
 
+// When a completed task was finished. Tasks carry no completion column; the
+// weekly review uses the same fallback (completedAt, else updatedAt), and a
+// task with neither is treated as recent because there is nothing to age it by.
+function doneWithinWeek(task, now) {
+  const stamp = task.completedAt || task.updatedAt;
+  if (!stamp) return true;
+  const then = new Date(stamp).getTime();
+  if (!Number.isFinite(then)) return true;
+  return now.getTime() - then < DONE_WEEK_MS;
+}
+
 // Pure. Project-scoped API-shaped tasks → { groups, flatIds }. Excludes
-// archived + backlog tasks; groups open tasks by state.groupBy and appends a
-// Completed group last. Empty groups are dropped. flatIds is the visible row
-// order for ↑↓ keyboard navigation.
+// archived + backlog tasks; groups open tasks by state.groupBy and appends the
+// done groups last ("Done this week", then "Done earlier"), both folded by
+// default and archivable from their header. Empty groups are dropped. flatIds
+// is the visible row order for ↑↓ keyboard navigation.
 export function buildListGroups(state, tasks, { now = new Date() } = {}) {
   const visible = (tasks || [])
     .filter((task) => !task.archivedAt && designStatus(task.status) !== 'backlog')
@@ -106,7 +159,10 @@ export function buildListGroups(state, tasks, { now = new Date() } = {}) {
   const groups = defs.map(([key, label, tone]) => ({
     key, label, tone, tasks: open.filter((task) => keyOf(task) === key),
   }));
-  if (done.length) groups.push({ key: 'completed', label: 'Completed', tone: 'muted', tasks: done });
+  const recentDone = done.filter((task) => doneWithinWeek(task, now));
+  const olderDone = done.filter((task) => !doneWithinWeek(task, now));
+  if (recentDone.length) groups.push({ key: 'completed', label: 'Done this week', tone: 'muted', tasks: recentDone, defaultCollapsed: true, archivable: true });
+  if (olderDone.length) groups.push({ key: 'completed-earlier', label: 'Done earlier', tone: 'muted', tasks: olderDone, defaultCollapsed: true, archivable: true });
   const kept = groups.filter((group) => group.tasks.length);
   return { groups: kept, flatIds: kept.flatMap((group) => group.tasks.map((task) => task.id)) };
 }
@@ -158,8 +214,24 @@ export function renderTaskGroupsHtml(state, groups, { rowExtra } = {}) {
       .map((task) => renderTaskRowHtml(state, task, { afterTitle: rowExtra ? rowExtra(task) : '' }))
       .join('');
     const count = Number.isInteger(group.totalCount) ? group.totalCount : group.tasks.length;
-    return `<div class="group-label${tone.cls}"${tone.style}>${escapeHtml(group.label)} <span class="group-label__count">${count}</span></div>`
-      + `<div class="rows" data-group="${escapeHtml(group.key)}">${rows}</div>`;
+    const countHtml = `<span class="group-label__count">${count}</span>`;
+    // Plain header (Today reuses this without section keys); with a section
+    // key the label is a collapse toggle, and archivable groups (done work)
+    // carry an "Archive all" beside it — a sibling, never nested in the toggle.
+    if (!group.sectionKey) {
+      return `<div class="group-label${tone.cls}"${tone.style}>${escapeHtml(group.label)} ${countHtml}</div>`
+        + `<div class="rows" data-group="${escapeHtml(group.key)}">${rows}</div>`;
+    }
+    const collapsed = Boolean(group.collapsed);
+    const archive = group.archivable && count > 0
+      ? `<button type="button" class="group-label__action" data-action="archive-group" data-group-key="${escapeHtml(group.key)}" aria-label="Archive all ${count} in ${escapeHtml(group.label)}">Archive all</button>`
+      : '';
+    return `<div class="group-label${tone.cls}${collapsed ? ' is-collapsed' : ''}"${tone.style}>`
+      + `<button type="button" class="group-label__toggle" data-action="toggle-section" data-section-key="${escapeHtml(group.sectionKey)}" aria-expanded="${!collapsed}">`
+      + `<span class="side-section__chevron" aria-hidden="true">${collapsed ? '▸' : '▾'}</span>${escapeHtml(group.label)} ${countHtml}</button>`
+      + archive
+      + '</div>'
+      + (collapsed ? '' : `<div class="rows" data-group="${escapeHtml(group.key)}">${rows}</div>`);
   }).join('');
 }
 
