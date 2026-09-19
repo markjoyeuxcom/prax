@@ -91,6 +91,26 @@ function matchesQuery(doc, query) {
     .includes(query);
 }
 
+// Type / trust / project counts over the full active set — shared by the main
+// view's facet rows (narrow windows) and the Library panel (wide windows), so
+// both surfaces show the same numbers.
+export function libraryFacetCounts(documents) {
+  const docs = Array.isArray(documents) ? documents : [];
+  return {
+    type: Object.fromEntries(DOCUMENT_TYPES.map((t) => [t.value, docs.filter((doc) => docTypeKey(doc) === t.value).length])),
+    trust: {
+      verified: docs.filter(TRUST_PREDICATES.verified).length,
+      stale: docs.filter(TRUST_PREDICATES.stale).length,
+      superseded: docs.filter(TRUST_PREDICATES.superseded).length,
+      agent: docs.filter(TRUST_PREDICATES.agent).length,
+    },
+    project: Object.fromEntries(
+      [...new Set(docs.map(doc => doc.projectId).filter(Boolean))]
+        .map(projectId => [projectId, docs.filter(doc => doc.projectId === projectId).length]),
+    ),
+  };
+}
+
 // Pure derivation of everything the library page renders from state.
 // The `{ now }` options bag is part of the shared build* signature; the
 // library shows absolute short dates, so it is currently unused.
@@ -107,19 +127,7 @@ export function buildLibraryModel(state, { limit = LIBRARY_RENDER_BATCH_SIZE } =
   const tagChips = tagsForDocuments(documents);
   // Facet counts come from the full active set, so a pill always shows how many
   // exist regardless of the other facets.
-  const facetCounts = {
-    type: Object.fromEntries(DOCUMENT_TYPES.map((t) => [t.value, documents.filter((doc) => docTypeKey(doc) === t.value).length])),
-    trust: {
-      verified: documents.filter(TRUST_PREDICATES.verified).length,
-      stale: documents.filter(TRUST_PREDICATES.stale).length,
-      superseded: documents.filter(TRUST_PREDICATES.superseded).length,
-      agent: documents.filter(TRUST_PREDICATES.agent).length,
-    },
-    project: Object.fromEntries(
-      [...new Set(documents.map(doc => doc.projectId).filter(Boolean))]
-        .map(projectId => [projectId, documents.filter(doc => doc.projectId === projectId).length]),
-    ),
-  };
+  const facetCounts = libraryFacetCounts(documents);
 
   let filtered = filterDocumentsByTags(documents, activeTags);
   // Type + trust + project facets only apply where their pills are shown (the browse
@@ -182,21 +190,77 @@ function renderNewDocMenu(state) {
       </div>`;
 }
 
+// The header keeps three things (year-one shell spec, item 3): Ask Prax, the
+// ＋ New doc template menu, and an overflow holding the occasional actions —
+// every one of them keeps its data-action, so nothing else needs to change.
+function renderLibraryMenu(state, model) {
+  const open = Boolean(state.libraryMenuOpen);
+  const item = (action, label, hint, extra = '') => `
+          <button class="menu__item" type="button" data-action="${action}"${extra}>
+            ${label}
+            ${hint ? `<span class="menu__item-sub">${hint}</span>` : ''}
+          </button>`;
+  return `
+      <div class="menu">
+        <button class="btn-ghost btn-ghost--icon" type="button" data-action="toggle-library-menu" aria-haspopup="true" aria-expanded="${open}" aria-label="More library actions" title="More library actions">⋯</button>
+        ${open ? `<div class="menu__panel menu__panel--right" role="menu">
+          ${item('open-generate-runbook', `${icon('spark', 13)} New runbook from an incident`, 'Generate a runbook from an incident description')}
+          ${item('open-health', 'Health', 'Library health — docs needing attention')}
+          ${item('generate-weekly-review', 'Weekly review', 'Compile last week into a Library doc (idempotent per week)')}
+          ${item('import-documents', 'Import Markdown…', 'Choose Markdown files and their destination project', ' title="Choose Markdown files and their destination project"')}
+          ${item('export-library', 'Export…', 'Choose scope and where to save the Markdown archive', ' title="Choose scope and where to save the Markdown archive"')}
+          ${item('toggle-library-view', model.archive ? 'Active' : 'Archive', model.archive ? 'Back to the browse view' : 'Archived documents: restore or delete', ` aria-pressed="${model.archive}"`)}
+        </div>` : ''}
+      </div>`;
+}
+
 function renderPageHead(state, model) {
+  const sub = model.archive ? '<span class="page-head__sub">Archive</span>' : '';
   return `
     <header class="page-head">
       <h1 class="page-head__title">Library</h1>
+      ${sub}
       <div class="page-head__actions">
         <button class="btn-ghost" type="button" data-action="open-ask-prax" title="Ask Prax a question, answered from your library">${icon('spark', 13)}<span>Ask Prax</span></button>
-        <button class="btn-ghost" type="button" data-action="open-generate-runbook" title="Generate a runbook from an incident description">${icon('spark', 13)}<span>New runbook</span></button>
-        <button class="btn-ghost" type="button" data-action="open-health" title="Library health — docs needing attention">Health</button>
-        <button class="btn-ghost" type="button" data-action="generate-weekly-review" title="Compile last week — shipped, stalled, slipped, aging inbox, silent projects — into a Library doc (idempotent per week)">Weekly review</button>
-        <button class="btn-ghost" type="button" data-action="import-documents" title="Choose Markdown files and their destination project">Import Markdown…</button>
-        <button class="btn-ghost" type="button" data-action="export-library" title="Choose scope and where to save the Markdown archive">Export…</button>
-        <button class="btn-ghost" type="button" data-action="toggle-library-view" aria-pressed="${model.archive}">${model.archive ? 'Active' : 'Archive'}</button>
         ${renderNewDocMenu(state)}
+        ${renderLibraryMenu(state, model)}
       </div>
     </header>`;
+}
+
+// Wide windows carry the facets in the Library panel; the main view then shows
+// only what is ACTIVE, as removable chips, so a filter is never invisible.
+export function renderActiveFilters(state, model) {
+  if (model.welcome) return '';
+  const facetsShown = !model.archive && !state.librarySemantic;
+  const chips = [];
+  const chipHtml = (action, attrs, label) => (
+    `<button class="filter-chip" type="button" data-action="${action}" ${attrs} aria-label="Remove filter ${escapeHtml(label)}">${escapeHtml(label)}<span class="filter-chip__x" aria-hidden="true">×</span></button>`
+  );
+  if (facetsShown) {
+    for (const key of (state.libraryTypes || [])) {
+      const type = DOCUMENT_TYPES.find((t) => t.value === key);
+      chips.push(chipHtml('toggle-lib-type', `data-facet="${escapeHtml(key)}"`, `Type: ${type?.plural || key}`));
+    }
+    for (const key of (state.libraryTrust || [])) {
+      const trust = TRUST_FACETS.find(([value]) => value === key);
+      chips.push(chipHtml('toggle-lib-trust', `data-facet="${escapeHtml(key)}"`, `Trust: ${trust?.[1] || key}`));
+    }
+    const projects = [...(state.managedProjects || []), ...(state.projects || [])];
+    for (const id of (state.libraryProjects || [])) {
+      const project = projects.find((item) => item?.id === id);
+      chips.push(chipHtml('toggle-lib-project', `data-facet="${escapeHtml(id)}"`, `Project: ${project?.name || 'Unavailable'}`));
+    }
+  }
+  const activeTags = (state.activeLibraryTags || []).map(normalizedTag).filter(Boolean);
+  for (const tag of activeTags) {
+    chips.push(chipHtml('toggle-lib-tag', `data-tag="${escapeHtml(tag)}"`, `#${tag}`));
+  }
+  if (!chips.length) return '';
+  const save = activeTags.length
+    ? '<button class="tag-pill tag-pill--save" type="button" data-action="save-library-view">＋ Save view</button>'
+    : '';
+  return `<div class="filter-row" aria-label="Active filters">${chips.join('')}${save}<button class="btn-ghost" type="button" data-action="clear-lib-filters">Clear filters</button></div>`;
 }
 
 function renderSearchRow(state, semanticVisible) {
@@ -248,7 +312,7 @@ function renderTagRow(state, model) {
 }
 
 const TYPE_FACETS = DOCUMENT_TYPES.map((t) => [t.value, t.plural]);
-const TRUST_FACETS = [['verified', 'Verified'], ['stale', 'Stale'], ['superseded', 'Superseded'], ['agent', 'Agent-written']];
+export const TRUST_FACETS = [['verified', 'Verified'], ['stale', 'Stale'], ['superseded', 'Superseded'], ['agent', 'Agent-written']];
 
 function facetPill(action, key, label, count, isActive) {
   return `<button class="facet-pill${isActive ? ' is-active' : ''}" type="button" data-action="${action}" data-facet="${escapeHtml(key)}" aria-pressed="${isActive}">`
@@ -488,14 +552,19 @@ function renderBody(state, model, semanticVisible) {
   return renderGroups(model.groups, state) + renderCollectionProgress(model);
 }
 
-export function renderLibraryHtml(state, model) {
+// `facetsInPanel`: the caller (main.js) sets it when the Library panel is on
+// screen (wide windows), where the facet and tag rows would duplicate it; the
+// main view then shows active filters only. Narrow windows keep the rows.
+export function renderLibraryHtml(state, model, { facetsInPanel = false } = {}) {
   const semanticVisible = Boolean(state.semanticStatus?.available && state.semanticStatus?.enabled);
+  const filters = facetsInPanel
+    ? renderActiveFilters(state, model)
+    : renderFacetRow(state, model) + renderTagRow(state, model);
   return `
   <section class="page" aria-label="Library">
     ${renderPageHead(state, model)}
     ${renderSearchRow(state, semanticVisible)}
-    ${renderFacetRow(state, model)}
-    ${renderTagRow(state, model)}
+    ${filters}
     ${renderBody(state, model, semanticVisible)}
   </section>`;
 }

@@ -14,6 +14,15 @@ fresh empty `[Unreleased]` section is started.
 
 ### Changed
 
+- **Library facets live in the panel on wide windows; the header is three controls.** The
+  Library's context panel now carries every filter axis with live counts — Type, Project,
+  Trust and Tags (most-used first, folded past ten, with a "Find a tag…" box once the list
+  outgrows that) — dispatching the same `toggle-lib-*` actions as before. The main view keeps
+  one search box and shows only the *active* filters, as removable chips with Clear filters and
+  Save view, so nothing is filtering invisibly. Windows narrower than 940 px (no panel) keep the
+  facet and tag rows. The header shrinks from eight buttons to **Ask Prax**, **＋ New doc** and
+  a **⋯** overflow holding New runbook from an incident, Health, Weekly review, Import
+  Markdown…, Export… and Archive/Active. Third and last item of the year-one shell spec.
 - **List groups fold, and done work splits at a week.** Every group header in a project's
   List tab is now a collapse toggle (remembered per device, like panel areas), so Upcoming and
   No date can stay out of the way of the rows that need action today. The Completed group is

@@ -1156,6 +1156,25 @@ a { color: var(--accent); }
 
 /* Type + trust facet filters */
 .facet-row { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin: 2px 0 10px; }
+/* Wide windows: facets live in the Library panel; the main view shows the
+   ACTIVE filters as removable chips (year-one shell spec, item 3). */
+.filter-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 2px 0 12px; }
+.filter-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11.5px; font-weight: 550; padding: 3px 8px 3px 10px; border-radius: 99px;
+  background: var(--accent-soft2); color: var(--accent); border: 1px solid transparent;
+  transition: background .12s, border-color .12s;
+}
+.filter-chip:hover { border-color: var(--accent); }
+.filter-chip__x { font-size: 13px; line-height: 1; opacity: .7; }
+.filter-chip:hover .filter-chip__x { opacity: 1; }
+.btn-ghost--icon { width: 30px; padding: 0; justify-content: center; font-size: 16px; letter-spacing: .05em; }
+.menu__panel--right { right: 0; left: auto; }
+.side-item--tag .side-item__label { color: var(--ink2); }
+.side-item--tag.is-active .side-item__label { color: inherit; }
+.side-item--more .side-item__label { color: var(--ink3); font-size: 12px; }
+.side-section__count { margin-left: auto; font-weight: 500; letter-spacing: 0; color: var(--ink3); }
+.panel .panel__filter { margin: 2px 0 4px; }
 .facet-group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .facet-group__label {
   font-size: 10px;

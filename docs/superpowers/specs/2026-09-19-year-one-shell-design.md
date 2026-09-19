@@ -1,7 +1,7 @@
 # Year-One Shell Design
 
 **Date:** 2026-09-19
-**Status:** Approved (brainstorm); items 1–2 implemented, item 3 pending
+**Status:** Approved (brainstorm); all three items implemented
 **Builds on:** v0.32.1
 **Scope:** The three lowest-cost structural fixes from the year-one UI audit. The full audit
 and the alternative mocks live on the design canvas
@@ -110,15 +110,50 @@ mode and review queue, and ⌘K scopes.
 - Manual: fold No date, reload, it stays folded; complete a task, it moves under a folded
   "Done this week" whose count goes up; Archive all on it shows the undo toast.
 
-## 3. Library facets move into the context panel — pending
+## 3. Library facets move into the context panel — implemented
 
-- The Library panel already lists types with counts. Extend it with **Project** and **Trust**
-  sections (same `toggle-lib-project` / `toggle-lib-trust` actions the facet pills dispatch) and
-  a tag section: a "Find a tag…" filter box plus the top tags by use, with a "N more" row.
-- The main view drops the three facet rows and keeps the search box, the active-filter chips
-  with an × each, and the sort / group controls.
-- The header collapses to **Ask Prax**, **New ▾** (runbook / note / decision / …) and an
-  overflow menu holding Import, Export, Health, Weekly review and Archive. Every action keeps its
-  `data-action`, so the command palette entries are unchanged.
-- Tests: `renderShell.test.js` (panel sections and counts) and `renderLibrary.test.js` (facet
-  rows gone, chips present, overflow menu items present).
+### Decisions
+
+- The Library panel (`renderLibraryPanel` in `renderShell.js`) carries every filter axis:
+  **Type** (all registry types), **Project** and **Trust** (only where a document exists or the
+  facet is active, so an active facet can always be cleared), and **Tags** (most-used first,
+  folded past `TAG_ROW_LIMIT` with an "N more, by use" row; a "Find a tag…" box appears once
+  the tag set outgrows the limit and narrows the list on its own state key,
+  `libraryTagFilter`, so nothing leaks into the Projects/Views filter). Saved views and Recent
+  stay beneath. Counts come from one shared `libraryFacetCounts`.
+- The panel dispatches the same `toggle-lib-type` / `-trust` / `-project` / `-tag` /
+  `toggle-lib-tags` / `save-library-view` actions the main view's rows did, so `main.js` gains
+  no new filter handlers.
+- **Facets apply while browsing.** In the archive and semantic modes the panel shows one line
+  saying so instead of dead toggles, matching the main view's existing rule.
+- The main view takes `facetsInPanel` from `main.js` (true when `winW >= 940`, the rail/panel
+  line). With it, the facet and tag rows are replaced by an **active-filter row**: one
+  removable chip per active type, trust, project and tag (each dispatching its toggle), plus
+  Save view (tags active) and Clear filters. Narrow windows render exactly what they did.
+- The header is **Ask Prax**, **＋ New doc** (the existing template menu) and a **⋯** overflow
+  (`toggle-library-menu`, `libraryMenuOpen`) holding New runbook from an incident, Health,
+  Weekly review, Import Markdown…, Export… and Archive/Active, every item with its original
+  `data-action` and title. Choosing an item closes the menu; the archive view is named in the
+  header sub-line since its toggle is now inside the overflow.
+
+### Files
+
+- `public/js/renderLibrary.js`: `libraryFacetCounts`, `TRUST_FACETS` exported;
+  `renderLibraryMenu`, `renderActiveFilters`; `renderLibraryHtml(state, model, { facetsInPanel })`.
+- `public/js/renderShell.js`: the facet panel.
+- `public/js/main.js`: passes `facetsInPanel`; `toggle-library-menu`; the tag-box input handler;
+  overflow items close the menu. `public/js/state.js`: `libraryMenuOpen`, `libraryTagFilter`.
+- `public/prax.css`: `.filter-row`, `.filter-chip`, `.btn-ghost--icon`, panel tag rows.
+- `tests/e2e/import-restore.spec.js`: opens the overflow before clicking Import.
+
+### Testing
+
+- `tests/frontend/renderShell.test.js`: Project/Trust facets and counts, the tag fold, the tag
+  box and its narrowing, active-tag visibility, archive/semantic mode.
+- `tests/frontend/renderLibrary.test.js`: header contents closed and open, `facetsInPanel`
+  hiding the rows and rendering chips, archive/semantic chip rules, `libraryFacetCounts`.
+- The Playwright spec change is unverified here (no browsers installed on this machine);
+  run `npm run test:e2e` before release.
+- Manual: at 1360 px the panel filters the grid with live counts and chips appear in the main
+  view; at 900 px the rows return; ⋯ opens and closes on outside click; Import from ⋯ opens the
+  destination dialog.

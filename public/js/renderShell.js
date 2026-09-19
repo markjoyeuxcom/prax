@@ -11,6 +11,8 @@ import { isCollapsed } from './collapsed.js';
 import { buildTodayGroups } from './renderToday.js';
 import { buildCalendarModel, monthKeyOf } from './renderCalendar.js';
 import { DOCUMENT_TYPES } from './documentTypes.js';
+import { libraryFacetCounts, TRUST_FACETS, TAG_ROW_LIMIT } from './renderLibrary.js';
+import { tagsForDocuments } from './libraryFilters.js';
 
 // ---------------------------------------------------------------------------
 // Project colors
@@ -492,22 +494,75 @@ function renderCalendarPanel(state) {
     + '</aside>';
 }
 
-// Library — the document browser: types as one-click filters (the SAME
-// toggle-lib-type facets the main view uses), Library saved views, and the
-// most recently touched documents. No duplicate search box — the main view
-// owns search, and twin inputs would fight the focus-restore machinery.
+// Library — the facet panel (year-one shell spec, item 3): every filter axis
+// with live counts — Type, Project, Trust, Tags — plus saved views and the
+// most recently touched documents. The actions are the SAME toggle-lib-*
+// facets the main view's rows dispatch on narrow windows, so one handler
+// serves both surfaces. Facets apply while browsing only; in the archive and
+// semantic modes the panel says so instead of showing dead toggles. No
+// duplicate search box — the main view owns search; the tag box below is a
+// panel-local filter over the tag list, not a document search.
 function renderLibraryPanel(state) {
-  const documents = state.documents || [];
+  const documents = (state.documents || []).filter((doc) => !doc.archivedAt);
+  const browsing = state.libraryView !== 'archive' && !state.librarySemantic;
+  const counts = libraryFacetCounts(documents);
+  const facetRow = (action, key, label, count, active, extraClass = '') => (
+    `<button type="button" class="side-item${extraClass}${active ? ' is-active' : ''}" data-action="${action}" data-facet="${escapeHtml(key)}" aria-pressed="${active}">`
+    + `<span class="side-item__label">${escapeHtml(label)}</span>`
+    + `<span class="side-item__count">${count || ''}</span>`
+    + '</button>'
+  );
+
   const activeTypes = new Set(state.libraryTypes || []);
-  const typeRows = DOCUMENT_TYPES.map((type) => {
-    const count = documents.filter((doc) => !doc.archivedAt && (doc.documentType || 'note') === type.value).length;
-    const active = activeTypes.has(type.value);
-    return `<button type="button" class="side-item${active ? ' is-active' : ''}" data-action="toggle-lib-type" data-facet="${escapeHtml(type.value)}" aria-pressed="${active}">`
-      + icon('doc')
-      + `<span class="side-item__label">${escapeHtml(type.label)}</span>`
-      + `<span class="side-item__count">${count || ''}</span>`
-      + '</button>';
-  }).join('');
+  const typeRows = DOCUMENT_TYPES.map((type) => (
+    facetRow('toggle-lib-type', type.value, type.label, counts.type[type.value], activeTypes.has(type.value))
+  )).join('');
+
+  const activeProjects = new Set(state.libraryProjects || []);
+  const projects = [...(state.managedProjects || []), ...(state.projects || [])]
+    .filter((project, index, all) => project?.id && all.findIndex((item) => item?.id === project.id) === index)
+    .filter((project) => (counts.project[project.id] || 0) > 0 || activeProjects.has(project.id));
+  const projectRows = projects.map((project) => (
+    facetRow('toggle-lib-project', project.id, project.name, counts.project[project.id], activeProjects.has(project.id))
+  )).join('');
+
+  const activeTrust = new Set(state.libraryTrust || []);
+  const trustRows = TRUST_FACETS
+    .filter(([key]) => (counts.trust[key] || 0) > 0 || activeTrust.has(key))
+    .map(([key, label]) => facetRow('toggle-lib-trust', key, label, counts.trust[key], activeTrust.has(key)))
+    .join('');
+
+  // Tags: most-used first (tagsForDocuments sorts by count), folded past
+  // TAG_ROW_LIMIT unless expanded or narrowed by the panel-local tag box. An
+  // active tag always shows — a filter the user cannot see cannot be cleared.
+  const activeTags = new Set((state.activeLibraryTags || []).map((tag) => String(tag).trim().toLowerCase()).filter(Boolean));
+  const tagFilter = String(state.libraryTagFilter || '').trim().toLowerCase().replace(/^#/, '');
+  const allTags = tagsForDocuments(documents);
+  const matching = tagFilter ? allTags.filter(({ tag }) => tag.includes(tagFilter)) : allTags;
+  const expanded = Boolean(state.libraryTagsExpanded) || Boolean(tagFilter);
+  const shownTags = expanded ? matching : matching.filter(({ tag }, index) => index < TAG_ROW_LIMIT || activeTags.has(tag));
+  const hiddenTags = matching.length - shownTags.length;
+  const tagRows = shownTags.map(({ tag, count }) => (
+    `<button type="button" class="side-item side-item--tag${activeTags.has(tag) ? ' is-active' : ''}" data-action="toggle-lib-tag" data-tag="${escapeHtml(tag)}" aria-pressed="${activeTags.has(tag)}">`
+    + `<span class="side-item__label">#${escapeHtml(tag)}</span><span class="side-item__count">${count}</span></button>`
+  )).join('')
+    + (hiddenTags > 0
+      ? `<button type="button" class="side-item side-item--more" data-action="toggle-lib-tags" aria-expanded="false"><span class="side-item__label">${hiddenTags} more, by use</span></button>`
+      : (state.libraryTagsExpanded && !tagFilter && allTags.length > TAG_ROW_LIMIT
+        ? '<button type="button" class="side-item side-item--more" data-action="toggle-lib-tags" aria-expanded="true"><span class="side-item__label">Show fewer</span></button>'
+        : ''))
+    + (tagFilter && !matching.length ? '<div class="panel__empty">No matching tags.</div>' : '')
+    + (activeTags.size ? '<button type="button" class="side-item side-item--more" data-action="save-library-view"><span class="side-item__label">＋ Save view</span></button>' : '');
+  const tagBox = allTags.length > TAG_ROW_LIMIT
+    ? `<input class="panel__filter" type="text" data-library-tag-filter placeholder="Find a tag…" value="${escapeHtml(state.libraryTagFilter || '')}" autocomplete="off" aria-label="Find a tag">`
+    : '';
+
+  const facets = browsing
+    ? '<div class="side-section"><span>Type</span></div>' + typeRows
+      + (projectRows ? '<div class="side-section"><span>Project</span></div>' + projectRows : '')
+      + (trustRows ? '<div class="side-section"><span>Trust</span></div>' + trustRows : '')
+      + (allTags.length ? `<div class="side-section"><span>Tags</span><span class="side-section__count">${allTags.length}</span></div>${tagBox}${tagRows}` : '')
+    : `<div class="panel__empty">${state.librarySemantic ? 'Semantic search ranks the whole library; facets apply while browsing.' : 'Facets apply to the browse view.'}</div>`;
 
   const savedViews = (state.librarySavedViews || []).map((view, index) => {
     const active = state.navType === 'library'
@@ -522,7 +577,6 @@ function renderLibraryPanel(state) {
   }).join('');
 
   const recent = [...documents]
-    .filter((doc) => !doc.archivedAt)
     .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))
     .slice(0, 5)
     .map((doc) => `<button type="button" class="side-item" data-action="open-linked-doc" data-document-id="${escapeHtml(doc.id)}">`
@@ -532,10 +586,11 @@ function renderLibraryPanel(state) {
 
   return `<aside class="panel" aria-label="Library">`
     + panelBrand(state)
-    + '<div class="side-section"><span>Types</span></div>'
-    + typeRows
+    + '<div class="panel__scroll">'
+    + facets
     + (savedViews ? `<div class="side-section"><span>Saved views</span></div>${savedViews}` : '')
-    + `<div class="panel__scroll">${recent ? `<div class="side-section"><span>Recent</span></div>${recent}` : ''}</div>`
+    + (recent ? `<div class="side-section"><span>Recent</span></div>${recent}` : '')
+    + '</div>'
     + '</aside>';
 }
 

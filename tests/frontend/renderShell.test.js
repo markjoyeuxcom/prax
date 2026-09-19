@@ -524,6 +524,69 @@ test('Library panel: type counts as toggle-lib-type facets, saved views, recent 
   assert.doesNotMatch(html, /data-document-id="d3"/, 'archived docs are not recent');
 });
 
+test('Library panel: Project and Trust facets with counts, only where they have documents or are active', () => {
+  const documents = [
+    { id: 'd1', title: 'A', documentType: 'note', projectId: 'p1', verified: true },
+    { id: 'd2', title: 'B', documentType: 'runbook', projectId: 'p1', stale: true },
+    { id: 'd3', title: 'C', documentType: 'note', projectId: 'p2' },
+  ];
+  const html = renderPanelHtml(makeState({
+    navType: 'library', documents, libraryTrust: ['superseded'], libraryProjects: ['p2'],
+    projects: [{ id: 'p1', name: 'Homelab', status: 'active' }, { id: 'p2', name: 'Work', status: 'active' }, { id: 'p3', name: 'Empty', status: 'active' }],
+  }), {});
+  assert.match(html, /<span>Project<\/span>/);
+  assert.match(html, /data-action="toggle-lib-project" data-facet="p1" aria-pressed="false">[\s\S]*?Homelab[\s\S]*?side-item__count">2/);
+  assert.match(html, /class="side-item is-active" data-action="toggle-lib-project" data-facet="p2" aria-pressed="true"/);
+  assert.doesNotMatch(html, /data-facet="p3"/, 'a project with no documents is not a facet');
+  assert.match(html, /<span>Trust<\/span>/);
+  assert.match(html, /data-action="toggle-lib-trust" data-facet="verified"[^>]*>[\s\S]*?side-item__count">1/);
+  assert.match(html, /data-action="toggle-lib-trust" data-facet="stale"/);
+  assert.match(html, /class="side-item is-active" data-action="toggle-lib-trust" data-facet="superseded" aria-pressed="true"/, 'an active facet with no documents stays visible so it can be cleared');
+  assert.doesNotMatch(html, /data-facet="agent"/);
+});
+
+test('Library panel: tags by use with a fold, a tag box past the limit, active tags always shown, Save view when active', () => {
+  const documents = Array.from({ length: 14 }, (_, index) => ({
+    id: `d${index}`, title: `Doc ${index}`, documentType: 'note',
+    // tag0 is on every doc, tag1 on all but one, … so counts descend by index.
+    tags: Array.from({ length: 14 - index }, (_, tagIndex) => `tag${tagIndex}`),
+  }));
+  const html = renderPanelHtml(makeState({ navType: 'library', documents, activeLibraryTags: ['tag13'] }), {});
+  assert.match(html, /<span>Tags<\/span><span class="side-section__count">14</);
+  assert.match(html, /data-library-tag-filter[^>]*placeholder="Find a tag…"/);
+  assert.match(html, /class="side-item side-item--tag" data-action="toggle-lib-tag" data-tag="tag0" aria-pressed="false">[\s\S]*?#tag0[\s\S]*?side-item__count">14/);
+  assert.match(html, /class="side-item side-item--tag is-active" data-action="toggle-lib-tag" data-tag="tag13" aria-pressed="true"/, 'the active tag ranks last but is shown');
+  assert.doesNotMatch(html, /data-tag="tag11"/, 'past the fold');
+  assert.match(html, /data-action="toggle-lib-tags" aria-expanded="false"[^>]*>[\s\S]*?3 more, by use/);
+  assert.match(html, /data-action="save-library-view"/);
+
+  const expanded = renderPanelHtml(makeState({ navType: 'library', documents, libraryTagsExpanded: true }), {});
+  assert.match(expanded, /data-tag="tag11"/);
+  assert.match(expanded, /data-action="toggle-lib-tags" aria-expanded="true"[^>]*>[\s\S]*?Show fewer/);
+
+  const narrowed = renderPanelHtml(makeState({ navType: 'library', documents, libraryTagFilter: '#TAG1' }), {});
+  assert.match(narrowed, /data-tag="tag1"/);
+  assert.match(narrowed, /data-tag="tag13"/, 'a narrowed list ignores the fold');
+  assert.doesNotMatch(narrowed, /data-tag="tag0"/);
+  assert.doesNotMatch(narrowed, /toggle-lib-tags/);
+  assert.match(renderPanelHtml(makeState({ navType: 'library', documents, libraryTagFilter: 'zzz' }), {}), /No matching tags\./);
+
+  const few = renderPanelHtml(makeState({ navType: 'library', documents: documents.slice(12) }), {});
+  assert.doesNotMatch(few, /data-library-tag-filter/, 'no tag box under the limit');
+});
+
+test('Library panel: facets step aside in archive and semantic modes; saved views and recent stay', () => {
+  const documents = [{ id: 'd1', title: 'Only', documentType: 'note', tags: ['x'], updatedAt: '2026-07-01T00:00:00Z' }];
+  const archive = renderPanelHtml(makeState({ navType: 'library', documents, libraryView: 'archive', librarySavedViews: [{ label: 'Saved', tags: ['x'] }] }), {});
+  assert.doesNotMatch(archive, /toggle-lib-type/);
+  assert.match(archive, /Facets apply to the browse view\./);
+  assert.match(archive, /data-action="select-saved-view"/);
+  assert.match(archive, /data-document-id="d1"/);
+  const semantic = renderPanelHtml(makeState({ navType: 'library', documents, librarySemantic: true }), {});
+  assert.doesNotMatch(semantic, /toggle-lib-tag/);
+  assert.match(semantic, /facets apply while browsing/);
+});
+
 test('Settings panel: section rows with active state; status renders only from loaded state', () => {
   const html = renderPanelHtml(makeState({ navType: 'settings', settingsTab: 'integrations' }), {});
   assert.match(html, /class="side-item is-active" data-action="set-settings-tab" data-tab="integrations" aria-current="true"/);

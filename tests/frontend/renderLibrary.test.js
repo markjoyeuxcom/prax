@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  buildLibraryModel, limitDocumentGroups, renderLibraryHtml,
+  buildLibraryModel, limitDocumentGroups, renderLibraryHtml, libraryFacetCounts,
 } from '../../public/js/renderLibrary.js';
 
 const NOW = new Date('2026-07-06T12:00:00.000Z');
@@ -224,21 +224,35 @@ test('semantic results render match cards when there are hits', () => {
 // renderLibraryHtml — header, search row, tag row
 // ---------------------------------------------------------------------------
 
-test('header renders title and import/export/archive/new actions', () => {
+test('header keeps Ask Prax, ＋ New doc and a closed ⋯ overflow; the rest waits inside it', () => {
   const html = render();
   assert.match(html, /class="page-head__title">Library</);
-  assert.match(html, /data-action="import-documents"[^>]*title="Choose Markdown files and their destination project"[^>]*>Import Markdown…</);
-  assert.match(html, /data-action="export-library"[^>]*title="Choose scope and where to save the Markdown archive"[^>]*>Export…</);
-  assert.match(html, /data-action="toggle-library-view"[^>]*>Archive</);
+  assert.match(html, /data-action="open-ask-prax"/);
   // ＋ New doc is a template chooser: the button toggles the menu; the menu's
   // items carry the actual new-document action (only when open).
   assert.match(html, /class="btn-primary"[^>]*data-action="toggle-new-doc-menu"[^>]*>＋ New doc</);
   assert.doesNotMatch(html, /data-action="new-document"/); // closed by default
+  assert.match(html, /data-action="toggle-library-menu"[^>]*aria-haspopup="true"[^>]*aria-expanded="false"[^>]*aria-label="More library actions"/);
+  for (const action of ['open-generate-runbook', 'open-health', 'generate-weekly-review', 'import-documents', 'export-library', 'toggle-library-view']) {
+    assert.doesNotMatch(html, new RegExp(`data-action="${action}"`), `${action} stays behind the overflow until opened`);
+  }
+});
+
+test('the ⋯ overflow, when open, lists every occasional action with its original data-action', () => {
+  const html = render({ libraryMenuOpen: true });
+  assert.match(html, /data-action="toggle-library-menu"[^>]*aria-expanded="true"/);
+  assert.match(html, /class="menu__panel menu__panel--right" role="menu"/);
+  assert.match(html, /class="menu__item"[^>]*data-action="open-generate-runbook"/);
+  assert.match(html, /class="menu__item"[^>]*data-action="open-health"[^>]*>\s*Health/);
+  assert.match(html, /class="menu__item"[^>]*data-action="generate-weekly-review"[^>]*>\s*Weekly review/);
+  assert.match(html, /data-action="import-documents"[^>]*title="Choose Markdown files and their destination project"[^>]*>\s*Import Markdown…/);
+  assert.match(html, /data-action="export-library"[^>]*title="Choose scope and where to save the Markdown archive"[^>]*>\s*Export…/);
+  assert.match(html, /data-action="toggle-library-view"[^>]*aria-pressed="false"[^>]*>\s*Archive/);
 });
 
 test('Markdown intake opens a dedicated destination dialog instead of deriving ownership from navigation', () => {
-  const html = render({ navId: 'p2' });
-  assert.match(html, /data-action="import-documents"[^>]*>Import Markdown…</);
+  const html = render({ navId: 'p2', libraryMenuOpen: true });
+  assert.match(html, /data-action="import-documents"[^>]*>\s*Import Markdown…/);
   assert.doesNotMatch(html, /Import plain \.md · Work|Import plain \.md · Homelab/);
   assert.doesNotMatch(html, /data-action="import-documents"[^>]*disabled/);
 });
@@ -250,9 +264,55 @@ test('the ＋ New doc menu, when open, offers Blank note and Runbook templates',
   assert.match(html, /data-action="new-document" data-template-id="runbook"[\s\S]*?Runbook/);
 });
 
-test('archive view flips the toggle label to Active', () => {
-  const html = render({ libraryView: 'archive' });
-  assert.match(html, /data-action="toggle-library-view"[^>]*aria-pressed="true"[^>]*>Active</);
+test('archive view flips the overflow toggle label to Active and says so in the header', () => {
+  const html = render({ libraryView: 'archive', libraryMenuOpen: true });
+  assert.match(html, /data-action="toggle-library-view"[^>]*aria-pressed="true"[^>]*>\s*Active/);
+  assert.match(html, /class="page-head__sub">Archive</);
+});
+
+// ---- facets in the panel (wide windows) --------------------------------------
+
+test('facetsInPanel drops the facet and tag rows and shows nothing when no filter is active', () => {
+  const html = renderLibraryHtml(makeState(), buildLibraryModel(makeState()), { facetsInPanel: true });
+  assert.doesNotMatch(html, /facet-row/);
+  assert.doesNotMatch(html, /tag-row/);
+  assert.doesNotMatch(html, /filter-row/);
+  assert.match(html, /data-library-search/, 'search stays in the main view');
+  // Narrow windows (default) keep the rows.
+  const narrow = render();
+  assert.match(narrow, /facet-row/);
+  assert.match(narrow, /tag-row/);
+});
+
+test('facetsInPanel renders active filters as removable chips with the same toggle actions', () => {
+  const state = makeState({ libraryTypes: ['runbook'], libraryTrust: ['verified'], libraryProjects: ['p2'], activeLibraryTags: ['postgres'] });
+  const html = renderLibraryHtml(state, buildLibraryModel(state), { facetsInPanel: true });
+  assert.match(html, /class="filter-row" aria-label="Active filters"/);
+  assert.match(html, /class="filter-chip"[^>]*data-action="toggle-lib-type" data-facet="runbook" aria-label="Remove filter Type: Runbooks"/);
+  assert.match(html, /data-action="toggle-lib-trust" data-facet="verified" aria-label="Remove filter Trust: Verified"/);
+  assert.match(html, /data-action="toggle-lib-project" data-facet="p2" aria-label="Remove filter Project: Work"/);
+  assert.match(html, /data-action="toggle-lib-tag" data-tag="postgres" aria-label="Remove filter #postgres"/);
+  assert.match(html, /data-action="save-library-view"/);
+  assert.match(html, /data-action="clear-lib-filters"[^>]*>Clear filters</);
+});
+
+test('facetsInPanel: in archive and semantic modes only tag chips remain, since type/trust/project do not apply there', () => {
+  const state = makeState({ libraryView: 'archive', libraryTypes: ['runbook'], activeLibraryTags: ['dns'] });
+  const html = renderLibraryHtml(state, buildLibraryModel(state), { facetsInPanel: true });
+  assert.doesNotMatch(html, /data-facet="runbook"/);
+  assert.match(html, /data-tag="dns"/);
+});
+
+test('libraryFacetCounts counts type, trust and project over the whole set', () => {
+  const counts = libraryFacetCounts([
+    ...DOCS,
+    { id: 'v', documentType: 'note', projectId: 'p1', verified: true, kind: 'synthesized' },
+  ]);
+  assert.equal(counts.type.runbook, 2);
+  assert.equal(counts.type.note, 2);
+  assert.equal(counts.trust.verified, 1);
+  assert.equal(counts.trust.agent, 1);
+  assert.deepEqual(counts.project, { p1: 3, p2: 1 });
 });
 
 test('search input uses the keyword placeholder and search action hooks', () => {
