@@ -76,7 +76,7 @@ Each overlay pins the image tag. Exposure is intentionally not part of the rende
 | staging | `prax-staging` |
 | prod | `prax-prod` |
 
-Overlays are currently pinned to `v0.32.1`. CI-driven `newTag` bumping on release is planned as
+Overlays are currently pinned to `v0.33.0`. CI-driven `newTag` bumping on release is planned as
 future work.
 
 ## Data Volume
