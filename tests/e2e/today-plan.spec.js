@@ -32,11 +32,14 @@ test('plan -> complete one -> shutdown walks the survivor -> carry rolls it to t
   await page.locator('[data-action="open-plan-mode"]').first().click();
   const dialog = page.locator('[data-overlay="planmode"]');
   await expect(dialog).toBeVisible();
-  // The queue may contain seeds from other tests — walk it: Add our two, skip
-  // the rest. The click handlers are async (each decision is a PATCH +
-  // re-render), so after every action wait for the progress counter to move
-  // before reading the next card.
-  for (let guard = 0; guard < 40; guard += 1) {
+  // The queue holds every earlier spec's seeds on the shared server, and only
+  // the end-of-queue summary offers the Done button — so walk it just until
+  // our two are in (overdue and today come first, so that is quick), then
+  // leave with Escape, which closes plan mode from any card. The click
+  // handlers are async (each decision is a PATCH + re-render), so after every
+  // action wait for the progress counter to move before reading the next card.
+  let added = 0;
+  for (let guard = 0; guard < 120 && added < 2; guard += 1) {
     const progress = await dialog.locator('.planmode__progress')
       .innerText({ timeout: 1500 })
       .catch(() => null);
@@ -44,6 +47,7 @@ test('plan -> complete one -> shutdown walks the survivor -> carry rolls it to t
     const cardText = await dialog.locator('.planmode__title').innerText();
     if (cardText.includes(prefix)) {
       await dialog.locator('[data-action="plan-mode-add"], [data-action="plan-mode-today"]').first().click();
+      added += 1;
     } else {
       await dialog.locator('[data-action="plan-mode-skip"]').click();
     }
@@ -52,7 +56,13 @@ test('plan -> complete one -> shutdown walks the survivor -> carry rolls it to t
       expect(now).not.toBe(progress);
     }).toPass({ timeout: 5000 });
   }
-  await dialog.locator('[data-action="close-plan-mode"]').last().click();
+  expect(added).toBe(2);
+  if (await dialog.locator('.planmode__progress').count()) {
+    await page.keyboard.press('Escape');
+  } else {
+    await dialog.locator('[data-action="close-plan-mode"]').last().click();
+  }
+  await expect(dialog).toHaveCount(0);
 
   // The Planned section leads Today with both tasks and the honest score.
   await expect(page.locator('[data-plan-score]')).toContainText('planned 2 — 0 done');
