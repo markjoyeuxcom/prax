@@ -170,8 +170,10 @@ Every finding of the audit is now covered by this spec.
   box and its narrowing, active-tag visibility, archive/semantic mode.
 - `tests/frontend/renderLibrary.test.js`: header contents closed and open, `facetsInPanel`
   hiding the rows and rendering chips, archive/semantic chip rules, `libraryFacetCounts`.
-- The Playwright spec change is unverified here (no browsers installed on this machine);
-  run `npm run test:e2e` before release.
+- Playwright: every spec that clicked Import, Export, Health, Weekly review or Archive directly
+  now opens the ⋯ overflow first; the focus-restore assertions after the Import and Export
+  dialogs expect the overflow button, since the opener is gone once the menu closes (the app
+  falls back to it in `afterRender`). Full suite green (121) on 2026-09-19.
 - Manual: at 1360 px the panel filters the grid with live counts and chips appear in the main
   view; at 900 px the rows return; ⋯ opens and closes on outside click; Import from ⋯ opens the
   destination dialog.
@@ -183,9 +185,13 @@ Every finding of the audit is now covered by this spec.
 - `buildBreadcrumb(state)` in `renderShell.js` returns `[{ label, action?, data? }]`, last =
   current. Paths: Today · Calendar · All projects · Filter (› smart view) · Area › Project ›
   Tab · Library (› Archive) · Library › document · Library › document › Run · Settings ›
-  section. A segment with an `action` renders as a button dispatching that existing action
-  (`nav-project`, `nav-library`, `open-linked-doc`, `nav-filter`, `nav-settings`); the area is
-  plain text because there is no area view. The `<nav>` keeps `data-tauri-drag-region`, so the
+  section. A segment with an `action` renders as a button with `data-action="breadcrumb"` and
+  `data-target` set to the existing action (`nav-project`, `nav-library`, `open-linked-doc`,
+  `nav-filter`, `nav-settings`), which `main.js` re-dispatches. The indirection keeps
+  `[data-action="nav-project"]` meaning the rail and panel rows only — the Playwright specs
+  and focus restores select on those, and a crumb link matching first (invisible at narrow
+  widths, no `aria-current`) broke four of them. The area is plain text because there is no
+  area view. The `<nav>` keeps `data-tauri-drag-region`, so the
   desktop titlebar still drags; the buttons inside it still click.
 - **Recent** in the browser panel: the last `MAX_RECENT` (3) project ids, most recent first,
   stored per device (`prax.recentProjects.v1`, `public/js/recentProjects.js`) and pushed from

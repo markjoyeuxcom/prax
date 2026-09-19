@@ -97,6 +97,7 @@ test('Markdown import and Library export dialogs contain long controls and parse
   await page.goto('/');
   await page.locator('[data-action="nav-library"]').first().tap();
 
+  await page.locator('[data-action="toggle-library-menu"]').tap();
   await page.locator('[data-action="import-documents"]').first().tap();
   const importDialog = page.getByRole('dialog', { name: 'Import Markdown' });
   await importDialog.locator('[data-markdown-import-files]').setInputFiles([
@@ -117,6 +118,7 @@ test('Markdown import and Library export dialogs contain long controls and parse
   await expectNoHorizontalOverflow(importDialog, 'Markdown import dialog');
   await importDialog.getByRole('button', { name: 'Cancel' }).tap();
 
+  await page.locator('[data-action="toggle-library-menu"]').tap();
   await page.locator('[data-action="export-library"]').first().tap();
   const exportDialog = page.getByRole('dialog', { name: 'Export Library' });
   await expect(exportDialog).toContainText('Browser Save dialog');

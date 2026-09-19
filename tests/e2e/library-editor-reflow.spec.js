@@ -71,6 +71,7 @@ test('active Library and archive reflow long ownership, trust, tags, and actions
   await expect(card.getByText('Homelab', { exact: true })).toBeVisible();
   await expectNoContentOverflow(page, 'active Library');
 
+  await page.locator('[data-action="toggle-library-menu"]').tap();
   await page.locator('[data-action="toggle-library-view"]').tap();
   const archivedRow = page.locator('.plain-row', { hasText: archived.title });
   await expect(archivedRow).toBeVisible();

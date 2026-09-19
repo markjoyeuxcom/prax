@@ -50,6 +50,7 @@ test('titlebar breadcrumb reflects each fixed navType as a single current segmen
     assert.match(html, /<nav class="titlebar__crumb" aria-label="Breadcrumb">/);
     assert.match(html, CURRENT(label));
     assert.doesNotMatch(html, /titlebar__crumb-link/, `${navType} has nothing to go back to`);
+    assert.doesNotMatch(html, /data-action="nav-/, 'crumb links never carry the rail actions directly');
   }
   assert.doesNotMatch(renderTitlebarHtml(makeState({ navType: 'today' })), /prax — /);
 });
@@ -57,11 +58,11 @@ test('titlebar breadcrumb reflects each fixed navType as a single current segmen
 test('titlebar breadcrumb for a project is Area › Project › Tab, with the project a link when off the list tab', () => {
   const projects = [{ id: 'p1', name: 'Homelab', status: 'active', area: 'Labs' }];
   const list = renderTitlebarHtml(makeState({ navType: 'project', navId: 'p1', tab: 'list', projects }));
-  assert.match(list, /<span class="titlebar__crumb-text">Labs<\/span><span class="titlebar__crumb-sep" aria-hidden="true">›<\/span><button type="button" class="titlebar__crumb-link" data-action="nav-project" data-project-id="p1">Homelab<\/button>/);
+  assert.match(list, /<span class="titlebar__crumb-text">Labs<\/span><span class="titlebar__crumb-sep" aria-hidden="true">›<\/span><button type="button" class="titlebar__crumb-link" data-action="breadcrumb" data-target="nav-project" data-project-id="p1">Homelab<\/button>/);
   assert.match(list, CURRENT('List'));
   const board = renderTitlebarHtml(makeState({ navType: 'project', navId: 'p1', tab: 'board', projects: PROJECTS }));
   assert.doesNotMatch(board, /crumb-text/, 'no area, no area segment');
-  assert.match(board, /data-action="nav-project" data-project-id="p1">Homelab</);
+  assert.match(board, /data-action="breadcrumb" data-target="nav-project" data-project-id="p1">Homelab</);
   assert.match(board, CURRENT('Board'));
   assert.deepEqual(buildBreadcrumb(makeState({ navType: 'project', navId: 'missing' })), [{ label: 'Tasks' }]);
 });
@@ -69,17 +70,17 @@ test('titlebar breadcrumb for a project is Area › Project › Tab, with the pr
 test('titlebar breadcrumb: Library › doc in the editor, Library › doc › Run in a run, Library › Archive', () => {
   const documents = [{ id: 'd1', title: 'Backup runbook' }];
   const editor = renderTitlebarHtml(makeState({ navType: 'editor', editorDocId: 'd1', documents }));
-  assert.match(editor, /<button type="button" class="titlebar__crumb-link" data-action="nav-library">Library<\/button>/);
+  assert.match(editor, /<button type="button" class="titlebar__crumb-link" data-action="breadcrumb" data-target="nav-library">Library<\/button>/);
   assert.match(editor, CURRENT('Backup runbook'));
   const run = renderTitlebarHtml(makeState({ navType: 'run', runReturnDocId: 'd1', documents }));
-  assert.match(run, /data-action="nav-library">Library</);
-  assert.match(run, /class="titlebar__crumb-link" data-action="open-linked-doc" data-document-id="d1">Backup runbook</);
+  assert.match(run, /data-target="nav-library">Library</);
+  assert.match(run, /class="titlebar__crumb-link" data-action="breadcrumb" data-target="open-linked-doc" data-document-id="d1">Backup runbook</);
   assert.match(run, CURRENT('Run'));
   const archive = renderTitlebarHtml(makeState({ navType: 'library', libraryView: 'archive' }));
-  assert.match(archive, /data-action="nav-library">Library</);
+  assert.match(archive, /data-target="nav-library">Library</);
   assert.match(archive, CURRENT('Archive'));
   const settings = renderTitlebarHtml(makeState({ navType: 'settings', settingsTab: 'data' }));
-  assert.match(settings, /data-action="nav-settings">Settings</);
+  assert.match(settings, /data-target="nav-settings">Settings</);
   assert.match(settings, CURRENT('Data &amp; admin'));
 });
 
@@ -680,7 +681,7 @@ test('rail: the Library button carries an amber review badge and names the count
 
 test('titlebar breadcrumb: Library › Review queue', () => {
   const html = renderTitlebarHtml(makeState({ navType: 'library', libraryView: 'review' }));
-  assert.match(html, /data-action="nav-library">Library</);
+  assert.match(html, /data-target="nav-library">Library</);
   assert.match(html, CURRENT('Review queue'));
 });
 
