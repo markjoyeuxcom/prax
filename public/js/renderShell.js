@@ -171,9 +171,9 @@ function renderNewSplitHtml(state) {
     + `<button type="button" class="btn-primary btn-primary--split" data-action="open-capture" title="Quick capture (N)">${icon('plus', 12)}<span>New task</span></button>`
     + `<button type="button" class="btn-primary btn-primary--chev" data-action="toggle-new-menu" aria-haspopup="true" aria-expanded="${open}" aria-label="New…" title="New document or project">▾</button>`
     + (open ? '<div class="menu__panel menu__panel--right" role="menu">'
-      + '<button class="menu__item" type="button" data-action="open-capture">New task<span class="menu__item-sub">Quick capture · N</span></button>'
-      + '<button class="menu__item" type="button" data-action="new-document">New document<span class="menu__item-sub">A blank note in the Library</span></button>'
-      + '<button class="menu__item" type="button" data-action="new-project">New project<span class="menu__item-sub">Opens All projects with the name field ready</span></button>'
+      + '<button role="menuitem" class="menu__item" type="button" data-action="open-capture">New task<span class="menu__item-sub">Quick capture · N</span></button>'
+      + '<button role="menuitem" class="menu__item" type="button" data-action="new-document">New document<span class="menu__item-sub">A blank note in the Library</span></button>'
+      + '<button role="menuitem" class="menu__item" type="button" data-action="new-project">New project<span class="menu__item-sub">Opens All projects with the name field ready</span></button>'
       + '</div>' : '')
     + '</div>';
 }
