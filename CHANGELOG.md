@@ -14,6 +14,13 @@ fresh empty `[Unreleased]` section is started.
 
 ### Changed
 
+- **⌘K has scopes, deeper results, and an inline Done.** The palette gains a scope bar — All,
+  Commands, Projects, Views, Tasks, Docs — with honest match counts; ⇥ / ⇧⇥ walk it and the
+  input keeps focus. All keeps the mixed list with five per group and a "+N more in Tasks" row
+  that jumps into that scope; a single scope lists up to forty and says how many more there
+  are. A scope with an empty query browses the whole group (every project, every view), which
+  All never did. The selected task row carries a Done button, also reachable with ⌘↵. Sixth
+  item of the year-one shell spec.
 - **On hold folds away, and the statusbar stops teaching.** On-hold projects leave the area
   sections of the browser panel for one trailing **On hold** section that starts folded (it
   opens on click and stays open per device, while you type a filter, or when the current
