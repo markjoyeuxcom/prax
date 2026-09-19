@@ -247,14 +247,9 @@ a { color: var(--accent); }
 .side-item--recent .side-item__label { flex: 1 1 auto; }
 
 .titlebar__actions { display: flex; align-items: center; gap: 8px; flex: none; }
-/* New ▾ split button (spec item 9) */
+/* New ▾ menu button */
 .titlebar__new { display: inline-flex; }
-.btn-primary--split { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-/* The chevron is the quiet half of one control: a light tint of the same
-   accent, so the pair reads as "New task, with options" rather than two
-   green buttons side by side. */
-.btn-primary--chev { border-top-left-radius: 0; border-bottom-left-radius: 0; padding: 0 8px; background: var(--accent-soft2); color: var(--accent); border-color: var(--accent-soft2); font-size: 11px; }
-.btn-primary--chev:hover { background: var(--accent); color: var(--accent-ink); }
+.btn-primary__chevron { font-size: 10px; opacity: .8; margin-left: 2px; }
 .rail__proj-letter {
   width: 22px; height: 22px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center;
   font-size: 10.5px; font-weight: 700; color: var(--dot); background: color-mix(in oklab, var(--dot) 16%, transparent);

@@ -17,9 +17,9 @@ fresh empty `[Unreleased]` section is started.
 - **Panel section labels read as structure.** TYPE, PROJECT, TRUST, TAGS and every other panel
   section label are one shade stronger and sit under more air, so the groups separate by
   whitespace instead of blending into the rows beneath them.
-- **The New button reads as one control.** The chevron half is a light tint of the accent
-  rather than a second green block; the primary half is still quick capture in one click, and
-  the chevron still opens New document and New project.
+- **New is one menu button.** The titlebar's New task button and its separate chevron are
+  replaced by a single **New ▾** that opens New task (quick capture, still `N` from anywhere),
+  New document and New project, task first so Enter gets the common case.
 
 ## [0.33.0] - 2026-09-19
 
