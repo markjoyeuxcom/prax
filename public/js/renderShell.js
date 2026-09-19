@@ -162,14 +162,14 @@ const WIN_CONTROLS = '<div class="winctl">'
   + '<button type="button" class="winctl__close" title="Close" aria-label="Close">✕</button>'
   + '</div>';
 
-// "New" is a split button (spec item 9): the primary half is still quick
-// capture (N); the chevron opens the other two things you create — a
-// document and a project — so the titlebar answers "new what?" everywhere.
-function renderNewSplitHtml(state) {
+// "New" is one menu button: it opens the three things you create — a task
+// (quick capture, still N from anywhere), a document, a project — with the
+// task first so Enter gets you the common case. It replaced a split button
+// whose two green halves read as a duplicated control.
+function renderNewMenuHtml(state) {
   const open = Boolean(state.newMenuOpen);
   return '<div class="menu titlebar__new">'
-    + `<button type="button" class="btn-primary btn-primary--split" data-action="open-capture" title="Quick capture (N)">${icon('plus', 12)}<span>New task</span></button>`
-    + `<button type="button" class="btn-primary btn-primary--chev" data-action="toggle-new-menu" aria-haspopup="true" aria-expanded="${open}" aria-label="New…" title="New document or project">▾</button>`
+    + `<button type="button" class="btn-primary" data-action="toggle-new-menu" aria-haspopup="true" aria-expanded="${open}" title="New task, document or project">${icon('plus', 12)}<span>New</span><span class="btn-primary__chevron" aria-hidden="true">▾</span></button>`
     + (open ? '<div class="menu__panel menu__panel--right" role="menu">'
       + '<button role="menuitem" class="menu__item" type="button" data-action="open-capture">New task<span class="menu__item-sub">Quick capture · N</span></button>'
       + '<button role="menuitem" class="menu__item" type="button" data-action="new-document">New document<span class="menu__item-sub">A blank note in the Library</span></button>'
@@ -193,7 +193,7 @@ export function renderTitlebarHtml(state) {
   const actions = state.editorFocus ? '' : '<div class="titlebar__actions">'
     + `<button type="button" class="searchpill" data-action="open-palette">${icon('search', 13)}<span>Search or jump to…</span><span class="kbd">⌘K</span></button>`
     + `<button type="button" class="btn-icon" data-action="open-assistant" title="Assistant (⌘I)">${icon('chat', 14)}</button>`
-    + renderNewSplitHtml(state)
+    + renderNewMenuHtml(state)
     + '<button type="button" class="btn-icon" data-action="toggle-theme" title="Toggle theme (⌘J)">◐</button>'
     + (isMac || state.desktopShell ? '' : WIN_CONTROLS)
     + '</div>';
