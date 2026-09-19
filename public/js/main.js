@@ -694,6 +694,31 @@ async function planModeAct(action) {
   }
 }
 
+// Compile (or refresh) this week's review and open it. One in flight at a
+// time — the button, the Today ritual row and the ⌘K command all come here.
+let weeklyReviewBusy = false;
+async function runWeeklyReview() {
+  if (weeklyReviewBusy) return;
+  weeklyReviewBusy = true;
+  showToast('Compiling the week…');
+  try {
+    const result = await generateWeeklyReview();
+    if (result.degraded) {
+      showToast(result.message || 'Weekly review unavailable.');
+      // A verified review still exists — open it so the refusal is legible.
+      if (result.documentId) await openDocumentInEditor(result.documentId);
+    } else {
+      await loadDocuments();
+      showToast(result.created ? 'Weekly review created.' : 'Weekly review updated.');
+      await openDocumentInEditor(result.documentId);
+    }
+  } catch {
+    showToast('Weekly review failed — Prax may be unreachable.');
+  } finally {
+    weeklyReviewBusy = false;
+  }
+}
+
 function openDailyBrief() {
   setState({ dailyBriefOpen: true, dailyBriefNarrative: null, dailyBriefError: false, dailyBriefLoading: false });
   renderApp();
@@ -4224,6 +4249,19 @@ const paletteCommands = {
     renderApp();
   },
   'go-settings': async () => { setState({ paletteOpen: false }); await goSettings(); },
+  // The Library's occasional actions live behind its ⋯ menu; these give each
+  // a keyboard route. The dialogs are overlays, so they open from any view.
+  'go-ask-prax': () => { openAskPrax(); },
+  'go-health': async () => { setState({ paletteOpen: false }); await goHealth(); },
+  'go-weekly-review': async () => { setState({ paletteOpen: false }); renderApp(); await runWeeklyReview(); },
+  'go-review-queue': async () => {
+    setState({ paletteOpen: false });
+    if (state.navType === 'library' && state.libraryView === 'review') { renderApp(); return; }
+    await toggleReviewQueue();
+  },
+  'go-import': () => { setState({ paletteOpen: false }); openMarkdownImport(); },
+  'go-export': () => { setState({ paletteOpen: false }); openLibraryExport('all', 'export-library'); },
+  'go-shortcuts': () => { setState({ paletteOpen: false }); openShortcuts(); },
 };
 
 // Switch the palette scope in place, keeping the caret in the search box.
@@ -4834,28 +4872,7 @@ _Task:_ ${task.title || 'Untitled task'}`
       renderApp();
       break;
     }
-    case 'generate-weekly-review': {
-      if (el.dataset.busy) break;
-      el.dataset.busy = '1';
-      showToast('Compiling the week…');
-      try {
-        const result = await generateWeeklyReview();
-        if (result.degraded) {
-          showToast(result.message || 'Weekly review unavailable.');
-          // A verified review still exists — open it so the refusal is legible.
-          if (result.documentId) await openDocumentInEditor(result.documentId);
-        } else {
-          await loadDocuments();
-          showToast(result.created ? 'Weekly review created.' : 'Weekly review updated.');
-          await openDocumentInEditor(result.documentId);
-        }
-      } catch {
-        showToast('Weekly review failed — Prax may be unreachable.');
-      } finally {
-        delete el.dataset.busy;
-      }
-      break;
-    }
+    case 'generate-weekly-review': await runWeeklyReview(); break;
     case 'triage-all': {
       // From a project list the set is that project's overdue group; from
       // Today it is every project's.
@@ -6707,10 +6724,11 @@ async function init() {
     await loadProjects();
     const persisted = loadActiveProject();
     const valid = persisted !== 'all' && state.projects.some(p => p.id === persisted);
+    // The restored project counts as visited, so Recent is right from launch.
     if (valid) {
-      setState({ navType: 'project', navId: persisted });
+      setState({ navType: 'project', navId: persisted, recentProjects: saveRecent(pushRecent(state.recentProjects, persisted)) });
     } else if (state.projects[0]) {
-      setState({ navType: 'project', navId: state.projects[0].id });
+      setState({ navType: 'project', navId: state.projects[0].id, recentProjects: saveRecent(pushRecent(state.recentProjects, state.projects[0].id)) });
     } else {
       setState({ navType: 'all', navId: null });
     }
