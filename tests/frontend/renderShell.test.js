@@ -80,6 +80,9 @@ test('titlebar breadcrumb: Library › doc in the editor, Library › doc › Ru
   const archive = renderTitlebarHtml(makeState({ navType: 'library', libraryView: 'archive' }));
   assert.match(archive, /data-target="nav-library">Library</);
   assert.match(archive, CURRENT('Archive'));
+  const health = renderTitlebarHtml(makeState({ navType: 'health' }));
+  assert.match(health, /data-target="nav-library">Library</);
+  assert.match(health, CURRENT('Health'));
   const settings = renderTitlebarHtml(makeState({ navType: 'settings', settingsTab: 'data' }));
   assert.match(settings, /data-target="nav-settings">Settings</);
   assert.match(settings, CURRENT('Data &amp; admin'));

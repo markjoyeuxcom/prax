@@ -14,6 +14,11 @@ async function createTask(request, title) {
 }
 
 test('drawer shows the honest embeddings-off line and spawns a pre-linked working note', async ({ page, request }) => {
+  // The embeddings-off state is this spec's premise, not something to inherit:
+  // a semantic spec that fails before its own reset would otherwise leave the
+  // backend enabled and this line reading differently.
+  const reset = await request.put('/api/settings/semantic-search', { data: { backend: 'none', enabled: false } });
+  expect(reset.ok()).toBe(true);
   const title = `context-surface-${Date.now()}`;
   await createTask(request, title);
 
