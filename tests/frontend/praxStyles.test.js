@@ -61,3 +61,12 @@ test('macOS overlay titlebar insets content to clear the traffic lights', () => 
 test('provider grid lays cards out responsively', () => {
   assert.match(css, /\.provider-grid\s*\{[^}]*grid-template-columns:\s*repeat\(auto-fill, minmax\(170px, 1fr\)\)/s);
 });
+
+test('the project title owns the header row and the ops row wraps beneath it', () => {
+  assert.match(css, /\.page-head__title\s*\{[^}]*min-width:\s*0/s);
+  assert.match(css, /\.page-head__title\s*\{[^}]*flex:\s*1 1 auto/s);
+  assert.match(css, /\.proj-ops\s*\{[^}]*flex-wrap:\s*wrap/s);
+  assert.doesNotMatch(css, /\.proj-ops\s*\{[^}]*margin-left:\s*auto/s, 'the ops row no longer competes with the title');
+  assert.match(css, /\.proj-ops__add\s*\{/);
+  assert.match(css, /\.page-head__ops-toggle\s*\{/);
+});

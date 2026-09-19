@@ -574,8 +574,27 @@ a { color: var(--accent); }
 .page-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
 .page-head__dot { width: 10px; height: 10px; border-radius: 50%; background: var(--dot, var(--accent)); flex: none; }
 /* Inline on-call / handoff ops metadata, pushed to the right of a project header. */
-.proj-ops { display: flex; align-items: center; gap: 14px; margin-left: auto; flex-wrap: wrap; }
-.proj-ops__field { display: inline-flex; align-items: center; gap: 6px; }
+/* Ops row (on call / handoff / repo / area): a wrapping row of its own beneath
+   the header, never a competitor for the title's width. Unset fields render as
+   "+ Field" buttons, not empty inputs. */
+.proj-ops { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0 2px 20px; }
+.proj-ops__field {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 4px 2px 9px; border: 1px solid var(--line); border-radius: 99px; background: var(--card);
+}
+.proj-ops__add {
+  height: 24px; padding: 0 9px; border-radius: 99px; border: 1px dashed var(--line2);
+  font-size: 11.5px; color: var(--ink3); transition: color .12s, border-color .12s, background .12s;
+}
+.proj-ops__add:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.page-head__ops-toggle {
+  display: inline-flex; align-items: center; gap: 5px; margin-left: auto; flex: none;
+  height: 26px; padding: 0 9px; border-radius: 7px; font-size: 12px; font-weight: 500; color: var(--ink2);
+  transition: background .12s, color .12s;
+}
+.page-head__ops-toggle:hover, .page-head__ops-toggle.is-open { background: var(--accent-soft); color: var(--accent); }
+.page-head__ops-count { font-size: 10.5px; font-weight: 600; padding: 0 5px; border-radius: 99px; background: var(--accent-soft2); }
+.page-head__ops-chevron { font-size: 10px; }
 .proj-ops__label { font-size: 10.5px; color: var(--ink3); text-transform: uppercase; letter-spacing: .05em; }
 .proj-ops__input {
   border: 1px solid transparent;
@@ -596,6 +615,10 @@ a { color: var(--accent); }
   font-weight: 650;
   letter-spacing: -0.015em;
   margin: 0;
+  /* The title owns the header row (ops metadata lives on its own row below),
+     so it only ellipsises when the window itself is too narrow for the name. */
+  flex: 1 1 auto;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
