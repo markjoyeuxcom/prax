@@ -4,7 +4,7 @@ A living backlog of planned and deferred work. This is **direction, not a commit
 catalogue of candidate next steps kept honest. Substantial items go through the repo's
 spec → plan → review workflow under [`docs/superpowers/`](superpowers/) before implementation.
 
-**Current release:** `v0.32.0`.
+**Current release:** `v0.32.1`.
 
 ## Recently shipped
 
