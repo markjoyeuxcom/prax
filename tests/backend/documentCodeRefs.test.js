@@ -108,7 +108,7 @@ test('migration 0029 collapses duplicates left by the 0028 key to the newest pin
   }
   assert.equal((await db.query('select count(*) as n from document_code_refs')).rows[0].n, 3);
   const { applied } = await runMigrations(db, { logger: SILENT });
-  assert.deepEqual(applied, ['0029_document_code_refs_null_safe_key.sql']);
+  assert.deepEqual(applied, ['0029_document_code_refs_null_safe_key.sql', '0030_add_memory_system_project.sql']);
   const rows = (await db.query('select content_hash from document_code_refs')).rows;
   assert.deepEqual(rows.map((r) => r.content_hash), ['newest']);
   await db.close();

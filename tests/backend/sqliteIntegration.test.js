@@ -25,7 +25,7 @@ test('readyz reports ready against the embedded database', async () => {
 test('projects: seeds exist, create/update/archive/delete work', async () => {
   const list = await app.inject({ method: 'GET', url: '/api/projects' });
   assert.equal(list.statusCode, 200);
-  assert.deepEqual(list.json().map(p => p.slug).sort(), ['homelab', 'inbox', 'personal', 'work']);
+  assert.deepEqual(list.json().map(p => p.slug).sort(), ['homelab', 'inbox', 'memory', 'personal', 'work']);
 
   const created = await app.inject({ method: 'POST', url: '/api/projects', payload: { name: 'Skunkworks' } });
   assert.equal(created.statusCode, 201);
@@ -627,10 +627,20 @@ test('tasks: archive → restore → permanent delete lifecycle', async () => {
   assert.equal(gone.statusCode, 200);
 });
 
-test('projects: deleting a project with dependents returns 409', async () => {
-  const proj = await homelab();
+test('projects: deleting a project takes its tasks and documents with it; Memory is refused', async () => {
+  const proj = (await app.inject({ method: 'POST', url: '/api/projects', payload: { name: 'Disposable' } })).json();
+  const task = (await app.inject({ method: 'POST', url: '/api/tasks', payload: { title: 'Goes with it', priority: 'low', status: 'planned', project: 'disposable' } })).json();
+  const doc = (await app.inject({ method: 'POST', url: '/api/library/documents', payload: { title: 'Goes with it too', body: 'x', documentType: 'note', project: 'disposable' } })).json();
   const res = await app.inject({ method: 'DELETE', url: `/api/projects/${proj.id}/permanent` });
-  assert.equal(res.statusCode, 409);
+  assert.equal(res.statusCode, 200, res.body);
+  assert.deepEqual(res.json().deleted, { tasks: 1, documents: 1 });
+  assert.equal((await app.inject({ method: 'GET', url: `/api/tasks/${task.id}` })).statusCode, 404);
+  assert.equal((await app.inject({ method: 'GET', url: `/api/library/documents/${doc.id}` })).statusCode, 404);
+
+  const memory = (await app.inject({ method: 'GET', url: '/api/projects' })).json().find(p => p.slug === 'memory');
+  const refused = await app.inject({ method: 'DELETE', url: `/api/projects/${memory.id}/permanent` });
+  assert.equal(refused.statusCode, 403);
+  assert.match(refused.json().message, /Memory project/);
 });
 
 test('library export: single .md front-matter and zip archive', async () => {

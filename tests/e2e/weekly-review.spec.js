@@ -13,6 +13,7 @@ test('Library ▸ Weekly review compiles, opens, and regenerates idempotently', 
 
   await page.goto('/');
   await page.locator('[data-action="nav-library"]').first().click();
+  await page.locator('[data-action="toggle-library-menu"]').click();
   await page.locator('[data-action="generate-weekly-review"]').click();
 
   // The generated review opens in the editor: its tag chip and synthesized
@@ -22,6 +23,7 @@ test('Library ▸ Weekly review compiles, opens, and regenerates idempotently', 
 
   // Regenerate from the Library: still exactly one review doc for the week.
   await page.locator('[data-action="nav-library"]').first().click();
+  await page.locator('[data-action="toggle-library-menu"]').click();
   await page.locator('[data-action="generate-weekly-review"]').click();
   await expect(page.locator('body')).toContainText('#weekly-review', { timeout: 10_000 });
 

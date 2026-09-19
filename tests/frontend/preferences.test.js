@@ -67,7 +67,7 @@ test('normalizePreferences returns defaults for empty or invalid input', () => {
 test('normalizePreferences preserves valid theme, accent, and chrome values', () => {
   assert.deepEqual(
     normalizePreferences({ theme: 'dark', accent: 'indigo', chromeOS: 'win', readingScale: 1.1 }),
-    { theme: 'dark', accent: 'indigo', chromeOS: 'win', readingScale: 1.1, lineNumbers: false, reminders: true, editorFont: 'proportional', previewFont: 'serif', slippageChips: true, slippageDeferrals: 3, slippageAgeDays: 30, wipLimit: 0, shutdownNudge: false, weeklyReviewNudge: false },
+    { theme: 'dark', accent: 'indigo', chromeOS: 'win', readingScale: 1.1, lineNumbers: false, reminders: true, editorFont: 'proportional', previewFont: 'serif', slippageChips: true, slippageDeferrals: 3, slippageAgeDays: 30, wipLimit: 0, shutdownNudge: false, weeklyReviewNudge: false, listDensity: 'comfortable' },
   );
 });
 
@@ -97,7 +97,7 @@ test('loadPreferences parses saved localStorage JSON', () => {
     [LOCAL_STORAGE_KEY]: JSON.stringify({ theme: 'dark', accent: 'moss' }),
   });
 
-  assert.deepEqual(loadPreferences(storage), { theme: 'dark', accent: 'moss', chromeOS: 'mac', readingScale: 1, lineNumbers: false, reminders: true, editorFont: 'proportional', previewFont: 'serif', slippageChips: true, slippageDeferrals: 3, slippageAgeDays: 30, wipLimit: 0, shutdownNudge: false, weeklyReviewNudge: false });
+  assert.deepEqual(loadPreferences(storage), { theme: 'dark', accent: 'moss', chromeOS: 'mac', readingScale: 1, lineNumbers: false, reminders: true, editorFont: 'proportional', previewFont: 'serif', slippageChips: true, slippageDeferrals: 3, slippageAgeDays: 30, wipLimit: 0, shutdownNudge: false, weeklyReviewNudge: false, listDensity: 'comfortable' });
 });
 
 test('loadPreferences returns defaults for malformed saved JSON', () => {
@@ -111,7 +111,7 @@ test('savePreferences stores normalized preferences', () => {
 
   const saved = savePreferences({ theme: 'dark', accent: 'clay', readingScale: 1.25 }, storage);
 
-  assert.deepEqual(saved, { theme: 'dark', accent: 'clay', chromeOS: 'mac', readingScale: 1.25, lineNumbers: false, reminders: true, editorFont: 'proportional', previewFont: 'serif', slippageChips: true, slippageDeferrals: 3, slippageAgeDays: 30, wipLimit: 0, shutdownNudge: false, weeklyReviewNudge: false });
+  assert.deepEqual(saved, { theme: 'dark', accent: 'clay', chromeOS: 'mac', readingScale: 1.25, lineNumbers: false, reminders: true, editorFont: 'proportional', previewFont: 'serif', slippageChips: true, slippageDeferrals: 3, slippageAgeDays: 30, wipLimit: 0, shutdownNudge: false, weeklyReviewNudge: false, listDensity: 'comfortable' });
   assert.equal(storage.getItem(LOCAL_STORAGE_KEY), JSON.stringify(saved));
 });
 
@@ -202,4 +202,13 @@ test('retired editor-engine preferences are discarded without resetting other ch
     assert.equal(saved.editorFont, 'monospace');
     assert.equal(saved.previewFont, 'sans');
   }
+});
+
+test('listDensity normalizes to comfortable or compact and lands on <body> as data-density', () => {
+  assert.equal(normalizePreferences({ listDensity: 'compact' }).listDensity, 'compact');
+  assert.equal(normalizePreferences({ listDensity: 'cozy' }).listDensity, 'comfortable');
+  const attrs = {};
+  const body = { setAttribute: (key, value) => { attrs[key] = value; }, style: { setProperty() {}, removeProperty() {} } };
+  applyPreferences({ listDensity: 'compact' }, body);
+  assert.equal(attrs['data-density'], 'compact');
 });

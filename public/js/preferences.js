@@ -24,7 +24,11 @@ export const DEFAULT_PREFERENCES = Object.freeze({
   shutdownNudge: false,
   // Sunday-evening weekly-review nudge — opt-in.
   weeklyReviewNudge: false,
+  // List row density (year-one shell spec, item 9): comfortable or compact.
+  listDensity: 'comfortable',
 });
+
+export const LIST_DENSITY_OPTIONS = Object.freeze(['comfortable', 'compact']);
 
 export const SLIPPAGE_DEFERRAL_OPTIONS = Object.freeze([2, 3, 5]);
 export const SLIPPAGE_AGE_OPTIONS = Object.freeze([14, 30, 60, 90]);
@@ -97,6 +101,7 @@ export function normalizePreferences(value = {}) {
       ? source.wipLimit : DEFAULT_PREFERENCES.wipLimit,
     shutdownNudge: source.shutdownNudge === true, // opt-in; defaults off
     weeklyReviewNudge: source.weeklyReviewNudge === true, // opt-in; defaults off
+    listDensity: isAllowed(source.listDensity, LIST_DENSITY_OPTIONS) ? source.listDensity : DEFAULT_PREFERENCES.listDensity,
   };
 }
 
@@ -136,6 +141,7 @@ export function applyPreferences(preferences, body = globalThis.document?.body) 
   body?.setAttribute?.('data-theme', normalized.theme);
   body?.setAttribute?.('data-editor-font', normalized.editorFont);
   body?.setAttribute?.('data-preview-font', normalized.previewFont);
+  body?.setAttribute?.('data-density', normalized.listDensity);
   const accentCss = ACCENT_CSS[normalized.accent];
   // Remove the pre-accessibility-ratchet property if applyPreferences runs on
   // a live DOM that was styled by an older bundle.

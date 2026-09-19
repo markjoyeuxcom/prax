@@ -2,7 +2,7 @@
 // return { action, view, pending } where action/view may be null and
 // pending is the next chord-prefix state ('' or 'g').
 //
-// The Prax keymap: ⌘K palette · ⌘I assistant · ⌘J theme · N capture · E done ·
+// The Prax keymap: ⌘K palette · ⌘I assistant · ⌘J theme · ⌘/ shortcuts · N capture · E done ·
 // ↑↓/↵ list navigation · Esc close-cascade · '/' also opens the palette · plus
 // the legacy g-chord view navigation (g t/b/k/a/l).
 export function matchShortcut({ key, metaOrCtrl = false, alt = false }, pending = '') {
@@ -11,6 +11,7 @@ export function matchShortcut({ key, metaOrCtrl = false, alt = false }, pending 
     if (k === 'k') return { action: 'palette', view: null, pending: '' };
     if (k === 'i') return { action: 'assistant', view: null, pending: '' };
     if (k === 'j') return { action: 'theme', view: null, pending: '' };
+    if (k === '/') return { action: 'shortcuts', view: null, pending: '' };
     return { action: null, view: null, pending: '' };
   }
   if (alt) return { action: null, view: null, pending: '' };
@@ -91,6 +92,7 @@ export function installKeyboardShortcuts({ handlers }) {
       case 'palette': handlers.openPalette(); break;
       case 'assistant': handlers.openAssistant?.(); break;
       case 'theme': handlers.toggleTheme(); break;
+      case 'shortcuts': handlers.openShortcuts?.(); break;
       case 'capture': handlers.openCapture(); break;
       case 'toggle-done': handlers.toggleDoneSelected(); break;
       case 'nav-down': handlers.navigate(1); break;

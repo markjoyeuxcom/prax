@@ -8,9 +8,12 @@ import { icon, logo } from './icons.js';
 import { BUILT_IN_SMART_VIEWS } from './taskSmartViews.js';
 import { isPinned, splitPinned } from './pinned.js';
 import { isCollapsed } from './collapsed.js';
-import { buildTodayGroups } from './renderToday.js';
+import { buildTodayGroups, weeklyReviewStatus } from './renderToday.js';
 import { buildCalendarModel, monthKeyOf } from './renderCalendar.js';
 import { DOCUMENT_TYPES } from './documentTypes.js';
+import { libraryFacetCounts, TRUST_FACETS, TAG_ROW_LIMIT, reviewQueue } from './renderLibrary.js';
+import { tagsForDocuments } from './libraryFilters.js';
+import { isOpen } from './statusMap.js';
 
 // ---------------------------------------------------------------------------
 // Project colors
@@ -68,14 +71,81 @@ function isCurrentProject(state, projectId) {
 // Titlebar
 // ---------------------------------------------------------------------------
 
-function crumbContext(state) {
-  if (state.navType === 'project') return findProject(state, state.navId)?.name || '';
-  if (state.navType === 'editor') {
-    const doc = (state.documents || []).find((d) => d?.id === state.editorDocId);
-    return `Library / ${doc?.title || ''}`;
+const TAB_LABELS = { list: 'List', board: 'Board', backlog: 'Backlog', archive: 'Archive' };
+const SETTINGS_LABELS = { appearance: 'Appearance', intelligence: 'Intelligence', integrations: 'Integrations', data: 'Data & admin' };
+
+function documentTitle(state, documentId) {
+  return (state.documents || []).find((d) => d?.id === documentId)?.title || 'Untitled document';
+}
+
+// The titlebar breadcrumb is a PATH, not a caption (year-one shell spec, item
+// 4): every segment before the last one is a place you can go back to, and it
+// re-dispatches the same action the rail and panel use for that place.
+// Pure: [{ label, action?, data? }], last = current. Area names are context,
+// not a destination (there is no area view), so they render as plain text.
+export function buildBreadcrumb(state) {
+  switch (state.navType) {
+    case 'today': return [{ label: 'Today' }];
+    case 'calendar': return [{ label: 'Calendar' }];
+    case 'all': return [{ label: 'All projects' }];
+    case 'filter': {
+      const view = [...(state.taskSmartViews || []), ...BUILT_IN_SMART_VIEWS]
+        .find((candidate) => candidate?.id === state.activeSmartViewId);
+      return view ? [{ label: 'Filter', action: 'nav-filter' }, { label: view.label }] : [{ label: 'Filter' }];
+    }
+    case 'project': {
+      const project = findProject(state, state.navId);
+      if (!project) return [{ label: 'Tasks' }];
+      const tab = TAB_LABELS[state.tab] ? state.tab : 'list';
+      return [
+        ...(project.area && project.slug !== INBOX_SLUG ? [{ label: project.area }] : []),
+        { label: project.name, action: 'nav-project', data: { 'project-id': project.id } },
+        { label: TAB_LABELS[tab] },
+      ];
+    }
+    case 'library':
+      if (state.libraryView === 'archive') return [{ label: 'Library', action: 'nav-library' }, { label: 'Archive' }];
+      if (state.libraryView === 'review') return [{ label: 'Library', action: 'nav-library' }, { label: 'Review queue' }];
+      return [{ label: 'Library' }];
+    case 'editor':
+      return [{ label: 'Library', action: 'nav-library' }, { label: documentTitle(state, state.editorDocId) }];
+    case 'run': {
+      const docId = state.runReturnDocId || state.activeRun?.documentId;
+      return [
+        { label: 'Library', action: 'nav-library' },
+        ...(docId ? [{ label: documentTitle(state, docId), action: 'open-linked-doc', data: { 'document-id': docId } }] : []),
+        { label: 'Run' },
+      ];
+    }
+    case 'settings': {
+      const tab = SETTINGS_LABELS[state.settingsTab] ? state.settingsTab : 'appearance';
+      return [{ label: 'Settings', action: 'nav-settings' }, { label: SETTINGS_LABELS[tab] }];
+    }
+    default: return [];
   }
-  const fixed = { today: 'Today', all: 'All projects', library: 'Library', settings: 'Settings' };
-  return fixed[state.navType] || '';
+}
+
+function renderBreadcrumbHtml(state) {
+  const segments = buildBreadcrumb(state);
+  return segments.map((segment, index) => {
+    const last = index === segments.length - 1;
+    const label = escapeHtml(segment.label);
+    let html;
+    if (last) {
+      html = `<span class="titlebar__crumb-current" aria-current="page">${label}</span>`;
+    } else if (segment.action) {
+      const data = Object.entries(segment.data || {})
+        .map(([key, value]) => ` data-${key}="${escapeHtml(value)}"`).join('');
+      // A crumb link re-dispatches the rail/panel action through
+      // `breadcrumb` + data-target, so `[data-action="nav-project"]` keeps
+      // meaning the rail and panel rows (tests, focus restores) and never the
+      // titlebar.
+      html = `<button type="button" class="titlebar__crumb-link" data-action="breadcrumb" data-target="${segment.action}"${data}>${label}</button>`;
+    } else {
+      html = `<span class="titlebar__crumb-text">${label}</span>`;
+    }
+    return (index ? '<span class="titlebar__crumb-sep" aria-hidden="true">›</span>' : '') + html;
+  }).join('');
 }
 
 const TRAFFIC_LIGHTS = '<div class="traffic" aria-hidden="true">'
@@ -89,6 +159,22 @@ const WIN_CONTROLS = '<div class="winctl">'
   + '<button type="button" title="Maximize" aria-label="Maximize">▢</button>'
   + '<button type="button" class="winctl__close" title="Close" aria-label="Close">✕</button>'
   + '</div>';
+
+// "New" is a split button (spec item 9): the primary half is still quick
+// capture (N); the chevron opens the other two things you create — a
+// document and a project — so the titlebar answers "new what?" everywhere.
+function renderNewSplitHtml(state) {
+  const open = Boolean(state.newMenuOpen);
+  return '<div class="menu titlebar__new">'
+    + `<button type="button" class="btn-primary btn-primary--split" data-action="open-capture" title="Quick capture (N)">${icon('plus', 12)}<span>New task</span></button>`
+    + `<button type="button" class="btn-primary btn-primary--chev" data-action="toggle-new-menu" aria-haspopup="true" aria-expanded="${open}" aria-label="New…" title="New document or project">▾</button>`
+    + (open ? '<div class="menu__panel menu__panel--right" role="menu">'
+      + '<button class="menu__item" type="button" data-action="open-capture">New task<span class="menu__item-sub">Quick capture · N</span></button>'
+      + '<button class="menu__item" type="button" data-action="new-document">New document<span class="menu__item-sub">A blank note in the Library</span></button>'
+      + '<button class="menu__item" type="button" data-action="new-project">New project<span class="menu__item-sub">Opens All projects with the name field ready</span></button>'
+      + '</div>' : '')
+    + '</div>';
+}
 
 export function renderTitlebarHtml(state) {
   const isMac = state.preferences?.chromeOS === 'mac';
@@ -105,14 +191,14 @@ export function renderTitlebarHtml(state) {
   const actions = state.editorFocus ? '' : '<div class="titlebar__actions">'
     + `<button type="button" class="searchpill" data-action="open-palette">${icon('search', 13)}<span>Search or jump to…</span><span class="kbd">⌘K</span></button>`
     + `<button type="button" class="btn-icon" data-action="open-assistant" title="Assistant (⌘I)">${icon('chat', 14)}</button>`
-    + `<button type="button" class="btn-primary" data-action="open-capture" title="Quick capture (N)">${icon('plus', 12)}<span>New task</span></button>`
+    + renderNewSplitHtml(state)
     + '<button type="button" class="btn-icon" data-action="toggle-theme" title="Toggle theme (⌘J)">◐</button>'
     + (isMac || state.desktopShell ? '' : WIN_CONTROLS)
     + '</div>';
 
   return `<div class="titlebar"${drag}>`
     + left
-    + `<div class="titlebar__crumb-wrap"${drag}><div class="titlebar__crumb"${drag}>prax — ${escapeHtml(crumbContext(state))}</div></div>`
+    + `<div class="titlebar__crumb-wrap"${drag}><nav class="titlebar__crumb" aria-label="Breadcrumb"${drag}>${renderBreadcrumbHtml(state)}</nav></div>`
     + actions
     + '</div>';
 }
@@ -123,8 +209,33 @@ export function renderTitlebarHtml(state) {
 // per-project dots, exactly as before the panel existed.
 // ---------------------------------------------------------------------------
 
-function railBadge(count) {
-  return count > 0 ? `<span class="rail__badge">${count > 99 ? '99+' : count}</span>` : '';
+export const RAIL_PROJECT_LIMIT = 5;
+
+function railProjectsHtml(state) {
+  const byId = new Map(sidebarProjects(state).map((project) => [project.id, project]));
+  const order = [
+    ...(state.navType === 'project' ? [state.navId] : []),
+    ...(state.pinned?.projects || []),
+    ...(state.recentProjects || []),
+  ];
+  const picked = [];
+  for (const id of order) {
+    const project = byId.get(id);
+    if (project && !picked.includes(project)) picked.push(project);
+    if (picked.length >= RAIL_PROJECT_LIMIT) break;
+  }
+  if (!picked.length) return '';
+  return '<div class="rail__divider"></div>' + picked.map((project) => {
+    const active = isCurrentProject(state, project.id);
+    const letter = String(project.name || '?').trim().charAt(0).toUpperCase() || '?';
+    return `<button type="button" class="rail__proj${active ? ' is-active' : ''}" title="${escapeHtml(project.name)}" data-action="nav-project" data-project-id="${escapeHtml(project.id)}"${active ? ' aria-current="true"' : ''}>`
+      + `<span class="rail__proj-letter" style="--dot: ${projectColor(project)}">${escapeHtml(letter)}</span>`
+      + '</button>';
+  }).join('');
+}
+
+function railBadge(count, variant = '') {
+  return count > 0 ? `<span class="rail__badge${variant ? ` rail__badge--${variant}` : ''}">${count > 99 ? '99+' : count}</span>` : '';
 }
 
 export function renderRailHtml(state, counts = {}, { showProjects = true } = {}) {
@@ -138,20 +249,19 @@ export function renderRailHtml(state, counts = {}, { showProjects = true } = {})
       badge: counts?.projectOpen?.[inbox.id] || 0,
     }] : []),
     { title: 'All projects', iconName: 'grid', action: 'nav-all', active: state.navType === 'all' },
-    { title: 'Library', iconName: 'book', action: 'nav-library', active: isLibraryNav(state) },
+    // The Library badge is the review queue (amber, not overdue red): agent
+    // memory waiting for a human.
+    { title: 'Library', iconName: 'book', action: 'nav-library', active: isLibraryNav(state), badge: counts.reviewQueue, badgeVariant: 'review' },
     { title: 'Filter', iconName: 'filter', action: 'nav-filter', active: state.navType === 'filter' },
-  ].map(({ title, iconName, action, active, projectId, badge }) => (
-    `<button type="button" class="rail__btn${active ? ' is-active' : ''}" title="${title}" data-action="${action}"${projectId ? ` data-project-id="${escapeHtml(projectId)}"` : ''}${active ? ' aria-current="true"' : ''}>${icon(iconName, 16)}${railBadge(badge)}</button>`
+  ].map(({ title, iconName, action, active, projectId, badge, badgeVariant }) => (
+    `<button type="button" class="rail__btn${active ? ' is-active' : ''}" title="${title}${badge > 0 && badgeVariant === 'review' ? ` · ${badge} to review` : ''}" data-action="${action}"${projectId ? ` data-project-id="${escapeHtml(projectId)}"` : ''}${active ? ' aria-current="true"' : ''}>${icon(iconName, 16)}${railBadge(badge, badgeVariant)}</button>`
   )).join('');
 
-  const projects = showProjects
-    ? '<div class="rail__divider"></div>' + sidebarProjects(state).map((project) => {
-      const active = isCurrentProject(state, project.id);
-      return `<button type="button" class="rail__proj${active ? ' is-active' : ''}" title="${escapeHtml(project.name)}" data-action="nav-project" data-project-id="${escapeHtml(project.id)}"${active ? ' aria-current="true"' : ''}>`
-        + `<span style="--dot: ${projectColor(project)}"></span>`
-        + '</button>';
-    }).join('')
-    : '';
+  // Narrow windows (no panel): not every project as an identical dot (spec
+  // item 9) but the ones you keep close — pinned, then recent, at most
+  // RAIL_PROJECT_LIMIT — as lettered tiles in their colour. The current
+  // project always shows so the rail never loses its place.
+  const projects = showProjects ? railProjectsHtml(state) : '';
 
   const settingsActive = state.navType === 'settings';
   const settings = '<div class="rail__spacer"></div>'
@@ -234,7 +344,33 @@ function groupedRowsHtml(items, { prefix, otherLabel, collapsedSections, filterA
   return parts.join('');
 }
 
+// "Recent" shows the last MAX_RECENT projects visited, but only once the
+// list is long enough to need a shortcut (below the threshold every project
+// is already in view) and never while a typed filter is narrowing the list.
+// Rows repeat below in their area: Recent is a jump list, not a partition.
+export const RECENT_MIN_PROJECTS = 6;
+export const ON_HOLD_SECTION = 'panel:onhold';
+
+function panelRecentRows(state, counts, projects) {
+  if (projects.length < RECENT_MIN_PROJECTS) return '';
+  const byId = new Map(projects.map((project) => [project.id, project]));
+  const recent = (state.recentProjects || []).map((id) => byId.get(id)).filter(Boolean);
+  if (!recent.length) return '';
+  const rows = recent.map((project) => {
+    const active = isCurrentProject(state, project.id);
+    const openCount = counts?.projectOpen?.[project.id] || 0;
+    return `<button type="button" class="side-item side-item--recent${active ? ' is-active' : ''}" data-action="nav-project" data-project-id="${escapeHtml(project.id)}"${active ? ' aria-current="true"' : ''}>`
+      + `<span class="proj-dot${project.status === 'on-hold' ? ' is-onhold' : ''}" style="--dot: ${projectColor(project)}"></span>`
+      + `<span class="side-item__label">${escapeHtml(project.name)}</span>`
+      + (project.area ? `<span class="side-item__sub">${escapeHtml(project.area)}</span>` : '')
+      + `<span class="side-item__count">${openCount || ''}</span>`
+      + '</button>';
+  }).join('');
+  return `<div class="side-section"><span>Recent</span></div>${rows}<div class="panel__rest-gap"></div>`;
+}
+
 function panelProjectRows(state, counts, filter) {
+  const recent = filter ? '' : panelRecentRows(state, counts, sidebarProjects(state));
   const items = sidebarProjects(state)
     .filter((project) => panelMatches(filter, project.name))
     .map((project) => {
@@ -249,17 +385,32 @@ function panelProjectRows(state, counts, filter) {
         + '</button>'
         + pinButton('projects', project.id, project.name, state.pinned)
         + '</div>';
-      return { key: project.id, row, group: project.area || null };
+      return { key: project.id, row, group: project.area || null, status: project.status };
     });
   if (!items.length) return '<div class="panel__empty">No matches.</div>';
   const { pinned, rest } = splitPinned(items, state.pinned?.projects);
-  const grouped = groupedRowsHtml(rest, {
+  // On-hold projects leave the areas for one trailing section that starts
+  // folded (year-one shell spec, item 5): paused work should not sit between
+  // the projects you are actually in. The stored key means "expanded" here —
+  // the opposite of the default, as with the list's done groups. A typed
+  // filter and the section holding the CURRENT project always open it.
+  const active = rest.filter((item) => item.status !== 'on-hold');
+  const onHold = rest.filter((item) => item.status === 'on-hold');
+  const grouped = groupedRowsHtml(active, {
     prefix: 'area',
     otherLabel: 'Other',
     collapsedSections: state.collapsedSections,
     filterActive: Boolean(filter),
   });
-  return pinnedSectionHtml(pinned.map((item) => item.row), grouped ? [grouped] : []);
+  let onHoldHtml = '';
+  if (onHold.length) {
+    const holdsCurrent = onHold.some((item) => isCurrentProject(state, item.key));
+    const collapsed = !filter && !holdsCurrent && !isCollapsed(state.collapsedSections, ON_HOLD_SECTION);
+    onHoldHtml = sectionHeader(ON_HOLD_SECTION, 'On hold', onHold.length, collapsed)
+      + (collapsed ? '' : onHold.map((item) => item.row).join(''));
+  }
+  const restRows = [...(grouped ? [grouped] : []), ...(onHoldHtml ? [onHoldHtml] : [])];
+  return recent + pinnedSectionHtml(pinned.map((item) => item.row), restRows);
 }
 
 function panelViewRows(state, filter) {
@@ -382,15 +533,25 @@ function renderBrowserPanel(state, counts = {}) {
 // Statusbar
 // ---------------------------------------------------------------------------
 
-export function renderStatusbarHtml(state) { // eslint-disable-line no-unused-vars
+// One line of facts about the workspace and a way to the shortcut list
+// (year-one shell spec, item 5). The fixed hints that used to live here were
+// learned in week one and then permanent chrome; they are behind ⌘/ now.
+function plural(count, noun) {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`;
+}
+
+export function statusbarFacts(state) {
+  const projects = (state.projects || []).filter((project) => project?.status === 'active' || project?.status === 'on-hold').length;
+  const openTasks = (state.tasks || []).filter((task) => task && isOpen(task)).length;
+  const documents = (state.documents || []).filter((doc) => doc && !doc.archivedAt).length;
+  return [plural(projects, 'project'), plural(openTasks, 'open task'), plural(documents, 'document')];
+}
+
+export function renderStatusbarHtml(state) {
   return '<footer class="statusbar">'
-    + '<span class="statusbar__saved">All changes saved locally</span>'
-    + '<span class="statusbar__hints">'
-    + '<span><span class="kbd">⌘K</span> command</span>'
-    + '<span><span class="kbd">N</span> new task</span>'
-    + '<span><span class="kbd">↑↓</span> navigate · <span class="kbd">E</span> done</span>'
-    + '<span><span class="kbd">⌘J</span> theme</span>'
-    + '</span>'
+    + '<span class="statusbar__saved">Saved locally</span>'
+    + `<span class="statusbar__facts">${statusbarFacts(state).map((fact) => `<span>${escapeHtml(fact)}</span>`).join('<span class="statusbar__dot" aria-hidden="true">·</span>')}</span>`
+    + '<button type="button" class="statusbar__shortcuts" data-action="open-shortcuts" title="Keyboard shortcuts (⌘/)"><span class="kbd">⌘/</span> shortcuts</button>'
     + '</footer>';
 }
 
@@ -436,6 +597,14 @@ function renderTodayPanel(state, counts = {}) {
   const plannedRows = planned.slice(0, 8).map(panelTaskRow).join('')
     + (planned.length > 8 ? `<div class="panel__empty">＋${planned.length - 8} more on Today</div>` : '');
 
+  // The rituals, grouped (spec item 8): the weekly review with its due state,
+  // the brief, and library health — each already a data-action elsewhere.
+  const weekly = weeklyReviewStatus(state.documents, { now });
+  const weeklySub = weekly.due ? 'due' : (weekly.daysAgo === 0 ? 'today' : `${weekly.daysAgo}d ago`);
+  const rituals = '<div class="side-section"><span>Rituals</span></div>'
+    + `<button type="button" class="side-item" data-action="generate-weekly-review">${icon('month')}<span class="side-item__label">Weekly review</span><span class="side-item__count${weekly.due ? ' is-due' : ''}">${escapeHtml(weeklySub)}</span></button>`
+    + `<button type="button" class="side-item" data-action="open-daily-brief">${icon('spark')}<span class="side-item__label">Brief me</span></button>`
+    + `<button type="button" class="side-item" data-action="open-health">${icon('book')}<span class="side-item__label">Library health</span></button>`;
   return `<aside class="panel" aria-label="Today">`
     + panelBrand(state)
     + `<div class="side-section"><span>Today · ${escapeHtml(dateLabel)}</span></div>`
@@ -446,6 +615,7 @@ function renderTodayPanel(state, counts = {}) {
     + countRow('Next 7 days', built.weekCount)
     + countRow('Snoozed', built.snoozedCount)
     + stale
+    + rituals
     + (planned.length ? '<div class="side-section"><span>Planned</span></div>' : '')
     + `<div class="panel__scroll">${plannedRows}</div>`
     + '</aside>';
@@ -492,22 +662,88 @@ function renderCalendarPanel(state) {
     + '</aside>';
 }
 
-// Library — the document browser: types as one-click filters (the SAME
-// toggle-lib-type facets the main view uses), Library saved views, and the
-// most recently touched documents. No duplicate search box — the main view
-// owns search, and twin inputs would fight the focus-restore machinery.
+// Library — the facet panel (year-one shell spec, item 3): every filter axis
+// with live counts — Type, Project, Trust, Tags — plus saved views and the
+// most recently touched documents. The actions are the SAME toggle-lib-*
+// facets the main view's rows dispatch on narrow windows, so one handler
+// serves both surfaces. Facets apply while browsing only; in the archive and
+// semantic modes the panel says so instead of showing dead toggles. No
+// duplicate search box — the main view owns search; the tag box below is a
+// panel-local filter over the tag list, not a document search.
 function renderLibraryPanel(state) {
-  const documents = state.documents || [];
+  const documents = (state.documents || []).filter((doc) => !doc.archivedAt);
+  // Facets apply while browsing and inside the review queue, not in the
+  // archive or a semantic result list.
+  const browsing = state.libraryView !== 'archive' && !state.librarySemantic;
+  const counts = libraryFacetCounts(documents);
+  const facetRow = (action, key, label, count, active, extraClass = '') => (
+    `<button type="button" class="side-item${extraClass}${active ? ' is-active' : ''}" data-action="${action}" data-facet="${escapeHtml(key)}" aria-pressed="${active}">`
+    + `<span class="side-item__label">${escapeHtml(label)}</span>`
+    + `<span class="side-item__count">${count || ''}</span>`
+    + '</button>'
+  );
+
   const activeTypes = new Set(state.libraryTypes || []);
-  const typeRows = DOCUMENT_TYPES.map((type) => {
-    const count = documents.filter((doc) => !doc.archivedAt && (doc.documentType || 'note') === type.value).length;
-    const active = activeTypes.has(type.value);
-    return `<button type="button" class="side-item${active ? ' is-active' : ''}" data-action="toggle-lib-type" data-facet="${escapeHtml(type.value)}" aria-pressed="${active}">`
-      + icon('doc')
-      + `<span class="side-item__label">${escapeHtml(type.label)}</span>`
-      + `<span class="side-item__count">${count || ''}</span>`
-      + '</button>';
-  }).join('');
+  const typeRows = DOCUMENT_TYPES.map((type) => (
+    facetRow('toggle-lib-type', type.value, type.label, counts.type[type.value], activeTypes.has(type.value))
+  )).join('');
+
+  const activeProjects = new Set(state.libraryProjects || []);
+  const projects = [...(state.managedProjects || []), ...(state.projects || [])]
+    .filter((project, index, all) => project?.id && all.findIndex((item) => item?.id === project.id) === index)
+    .filter((project) => (counts.project[project.id] || 0) > 0 || activeProjects.has(project.id));
+  const projectRows = projects.map((project) => (
+    facetRow('toggle-lib-project', project.id, project.name, counts.project[project.id], activeProjects.has(project.id))
+  )).join('');
+
+  const activeTrust = new Set(state.libraryTrust || []);
+  const trustRows = TRUST_FACETS
+    .filter(([key]) => (counts.trust[key] || 0) > 0 || activeTrust.has(key))
+    .map(([key, label]) => facetRow('toggle-lib-trust', key, label, counts.trust[key], activeTrust.has(key)))
+    .join('');
+
+  // Tags: most-used first (tagsForDocuments sorts by count), folded past
+  // TAG_ROW_LIMIT unless expanded or narrowed by the panel-local tag box. An
+  // active tag always shows — a filter the user cannot see cannot be cleared.
+  const activeTags = new Set((state.activeLibraryTags || []).map((tag) => String(tag).trim().toLowerCase()).filter(Boolean));
+  const tagFilter = String(state.libraryTagFilter || '').trim().toLowerCase().replace(/^#/, '');
+  const allTags = tagsForDocuments(documents);
+  const matching = tagFilter ? allTags.filter(({ tag }) => tag.includes(tagFilter)) : allTags;
+  const expanded = Boolean(state.libraryTagsExpanded) || Boolean(tagFilter);
+  const shownTags = expanded ? matching : matching.filter(({ tag }, index) => index < TAG_ROW_LIMIT || activeTags.has(tag));
+  const hiddenTags = matching.length - shownTags.length;
+  const tagRows = shownTags.map(({ tag, count }) => (
+    `<button type="button" class="side-item side-item--tag${activeTags.has(tag) ? ' is-active' : ''}" data-action="toggle-lib-tag" data-tag="${escapeHtml(tag)}" aria-pressed="${activeTags.has(tag)}">`
+    + `<span class="side-item__label">#${escapeHtml(tag)}</span><span class="side-item__count">${count}</span></button>`
+  )).join('')
+    + (hiddenTags > 0
+      ? `<button type="button" class="side-item side-item--more" data-action="toggle-lib-tags" aria-expanded="false"><span class="side-item__label">${hiddenTags} more, by use</span></button>`
+      : (state.libraryTagsExpanded && !tagFilter && allTags.length > TAG_ROW_LIMIT
+        ? '<button type="button" class="side-item side-item--more" data-action="toggle-lib-tags" aria-expanded="true"><span class="side-item__label">Show fewer</span></button>'
+        : ''))
+    + (tagFilter && !matching.length ? '<div class="panel__empty">No matching tags.</div>' : '')
+    + (activeTags.size ? '<button type="button" class="side-item side-item--more" data-action="save-library-view"><span class="side-item__label">＋ Save view</span></button>' : '');
+  const tagBox = allTags.length > TAG_ROW_LIMIT
+    ? `<input class="panel__filter" type="text" data-library-tag-filter placeholder="Find a tag…" value="${escapeHtml(state.libraryTagFilter || '')}" autocomplete="off" aria-label="Find a tag">`
+    : '';
+
+  // The review queue leads the panel whenever there is one (or while it is
+  // open): a destination, not a facet — agent memory waiting for a human.
+  const queueCount = reviewQueue(documents).length;
+  const reviewActive = state.libraryView === 'review';
+  const reviewRow = queueCount || reviewActive
+    ? `<button type="button" class="side-item side-item--review${reviewActive ? ' is-active' : ''}" data-action="open-review-queue" aria-pressed="${reviewActive}">`
+      + icon('check')
+      + `<span class="side-item__label">Review queue</span>`
+      + `<span class="side-item__count">${queueCount || ''}</span>`
+      + '</button>'
+    : '';
+  const facets = browsing
+    ? '<div class="side-section"><span>Type</span></div>' + typeRows
+      + (projectRows ? '<div class="side-section"><span>Project</span></div>' + projectRows : '')
+      + (trustRows ? '<div class="side-section"><span>Trust</span></div>' + trustRows : '')
+      + (allTags.length ? `<div class="side-section"><span>Tags</span><span class="side-section__count">${allTags.length}</span></div>${tagBox}${tagRows}` : '')
+    : `<div class="panel__empty">${state.librarySemantic ? 'Semantic search ranks the whole library; facets apply while browsing.' : 'Facets apply to the browse view.'}</div>`;
 
   const savedViews = (state.librarySavedViews || []).map((view, index) => {
     const active = state.navType === 'library'
@@ -522,7 +758,6 @@ function renderLibraryPanel(state) {
   }).join('');
 
   const recent = [...documents]
-    .filter((doc) => !doc.archivedAt)
     .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))
     .slice(0, 5)
     .map((doc) => `<button type="button" class="side-item" data-action="open-linked-doc" data-document-id="${escapeHtml(doc.id)}">`
@@ -532,10 +767,12 @@ function renderLibraryPanel(state) {
 
   return `<aside class="panel" aria-label="Library">`
     + panelBrand(state)
-    + '<div class="side-section"><span>Types</span></div>'
-    + typeRows
+    + '<div class="panel__scroll">'
+    + reviewRow
+    + facets
     + (savedViews ? `<div class="side-section"><span>Saved views</span></div>${savedViews}` : '')
-    + `<div class="panel__scroll">${recent ? `<div class="side-section"><span>Recent</span></div>${recent}` : ''}</div>`
+    + (recent ? `<div class="side-section"><span>Recent</span></div>${recent}` : '')
+    + '</div>'
     + '</aside>';
 }
 
