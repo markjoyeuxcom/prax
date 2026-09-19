@@ -14,6 +14,14 @@ fresh empty `[Unreleased]` section is started.
 
 ### Changed
 
+- **List groups fold, and done work splits at a week.** Every group header in a project's
+  List tab is now a collapse toggle (remembered per device, like panel areas), so Upcoming and
+  No date can stay out of the way of the rows that need action today. The Completed group is
+  replaced by **Done this week** and **Done earlier** (split at seven days on `completedAt`,
+  else `updatedAt`, the same fallback the weekly review uses), both folded by default and each
+  with an **Archive all** on its header that goes through the undoable bulk-archive path. Folded
+  rows leave the keyboard order and the "Showing N of M" count. Second item of the year-one
+  shell spec.
 - **Project names no longer truncate behind the ops fields.** On-call, handoff, repo and area
   used to share the header row with the title and rendered even when empty, so a project called
   "Homelab" showed as "Homel…" at ordinary window widths. The header now keeps an **Ops**

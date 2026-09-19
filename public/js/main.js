@@ -92,6 +92,7 @@ import {
 } from './renderShell.js';
 import {
   TASK_RENDER_BATCH_SIZE, renderListHtml, renderBulkBarHtml, buildListGroups, limitTaskGroups,
+  applyCollapsedGroups,
 } from './renderList.js';
 import { renderTodayHtml, buildTodayGroups, TODAY_WEEK_SECTION } from './renderToday.js';
 import { renderPlanModeHtml } from './renderPlanMode.js';
@@ -3792,8 +3793,11 @@ function renderMainHtml() {
         body = renderArchiveHtml(state, collection.groups[0]?.tasks || [], { collection });
       } else {
         const built = buildListGroups(state, tasks, { now });
+        // Folded groups keep their header and count but leave the collection,
+        // so ↑↓ and the progress row only ever address rows on screen.
+        const folded = applyCollapsedGroups(built.groups, state.collapsedSections, state.navId);
         const collection = limitTaskGroups(
-          built.groups,
+          folded,
           taskCollectionLimit(`project|${state.navId}|list|${state.groupBy}`),
         );
         flatIds = collection.flatIds;
@@ -4410,6 +4414,14 @@ async function handleAction(action, el, event) {
     case 'bulk-complete': bulkSetStatus('completed', 'Completed'); break;
     case 'bulk-backlog': bulkSetStatus('backlog', 'Backlog'); break;
     case 'bulk-archive': bulkArchive(); break;
+    case 'archive-group': {
+      // "Archive all" on a done group header: every task the group holds right
+      // now, through the same undoable path as the bulk bar.
+      const group = buildListGroups(state, projectTasks(), { now: new Date() }).groups
+        .find((candidate) => candidate.key === el.dataset.groupKey);
+      if (group?.tasks.length) await archiveSelectedTasks(group.tasks.map((task) => task.id));
+      break;
+    }
     case 'clear-selection': setState({ multiSelectIds: [], selectedTaskId: null }); renderApp(); break;
 
     // ---- drawer ----

@@ -1,7 +1,7 @@
 # Year-One Shell Design
 
 **Date:** 2026-09-19
-**Status:** Approved (brainstorm); item 1 implemented in this change, items 2–3 pending
+**Status:** Approved (brainstorm); items 1–2 implemented, item 3 pending
 **Builds on:** v0.32.1
 **Scope:** The three lowest-cost structural fixes from the year-one UI audit. The full audit
 and the alternative mocks live on the design canvas
@@ -74,17 +74,41 @@ mode and review queue, and ⌘K scopes.
   name; a new project shows four `＋` buttons and no placeholders; collapse persists across
   reload; typing into On call then deleting it keeps the input until you navigate away.
 
-## 2. Collapsible list groups with a "Done this week" bucket — pending
+## 2. Collapsible list groups with a "Done this week" bucket — implemented
 
-- Every list group header becomes a `toggle-section` button (key `list:<projectId>:<group>`),
-  reusing `collapsedSections`. Collapsed groups render the label and count only. The Today view
-  already does this for the week-ahead section; the project list should match.
-- `buildListGroups` gains a trailing **Done this week** group (completed in the last 7 days,
-  not archived), collapsed by default, with an **Archive all** action on its header that calls
-  the existing bulk archive.
-- Keyboard: `flatIds` must exclude rows in collapsed groups (the Today view's precedent).
-- Tests: `renderList.test.js` for the header markup and the collapsed render; `taskModel` or
-  the list-group builder for the done-this-week bucket boundary (7 × 24 h from `now`).
+### Decisions
+
+- Every list group header is a `toggle-section` button (key `list:<projectId>:<group>`) in
+  the `collapsedSections` regime. Collapsed groups render the label and count only. The stored
+  key means "the opposite of the group's default": due, priority and status groups start open,
+  the done groups start folded (`isGroupCollapsed`).
+- The former **Completed** group becomes **Done this week** (`completed`) and **Done earlier**
+  (`completed-earlier`), split at 7 × 24 h before `now` on `completedAt`, else `updatedAt`
+  (the weekly review's fallback; a task with neither stays in "this week" because nothing can
+  age it). Both carry an **Archive all** button beside the toggle (a sibling, never nested)
+  that dispatches `archive-group`, which archives the group's current tasks through
+  `archiveSelectedTasks` — the same undoable path as the bulk bar.
+- `applyCollapsedGroups` empties a folded group's tasks and keeps `totalCount`;
+  `limitTaskGroups` keeps such groups in place, so `flatIds`, the batch limit and the
+  "Showing N of M" row only ever address rows on screen (the Today week-ahead precedent).
+- Today, Board, Backlog and Archive are unchanged: `renderTaskGroupsHtml` only emits toggles
+  for groups carrying a `sectionKey`.
+
+### Files
+
+- `public/js/renderList.js`: `DONE_WEEK_MS`, `groupSectionKey`, `isGroupCollapsed`,
+  `applyCollapsedGroups`, the done split in `buildListGroups`, the toggle header in
+  `renderTaskGroupsHtml`, `limitTaskGroups` keeping folded groups.
+- `public/js/main.js`: the List tab folds groups before limiting; `archive-group` action.
+- `public/prax.css`: `.group-label__toggle`, `.group-label__action`, `.group-label.is-collapsed`.
+
+### Testing
+
+- `tests/frontend/renderList.test.js`: the seven-day split (including `completedAt` winning
+  over a later `updatedAt`), default-vs-stored collapse semantics, folded groups leaving the
+  collection and the batch count, the toggle / Archive all markup, and Today's plain headers.
+- Manual: fold No date, reload, it stays folded; complete a task, it moves under a folded
+  "Done this week" whose count goes up; Archive all on it shows the undo toast.
 
 ## 3. Library facets move into the context panel — pending
 
