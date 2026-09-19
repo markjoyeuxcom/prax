@@ -127,7 +127,7 @@ function decorate(task, now) {
 // When a completed task was finished. Tasks carry no completion column; the
 // weekly review uses the same fallback (completedAt, else updatedAt), and a
 // task with neither is treated as recent because there is nothing to age it by.
-function doneWithinWeek(task, now) {
+export function doneWithinWeek(task, now) {
   const stamp = task.completedAt || task.updatedAt;
   if (!stamp) return true;
   const then = new Date(stamp).getTime();

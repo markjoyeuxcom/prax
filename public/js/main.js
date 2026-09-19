@@ -3982,7 +3982,7 @@ function renderMainHtml() {
         : '';
       let body = '';
       if (state.tab === 'board') {
-        const columns = buildBoardColumns(state, tasks);
+        const columns = buildBoardColumns(state, tasks, { now });
         const collection = limitBoardColumns(
           columns,
           taskCollectionLimit(`project|${state.navId}|board`),

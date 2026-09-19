@@ -452,11 +452,12 @@ export function buildListTaskBoardExtras(taskIds) {
         group by c.task_id
       ),
       activity as (
-        select task_id, message as latest_activity
+        select task_id, message as latest_activity, event_type as latest_activity_kind
         from (
           select
             task_id,
             message,
+            event_type,
             row_number() over (partition by task_id order by created_at desc, id desc) as rn
           from task_activity
           where task_id in (select value from json_each($1))
@@ -469,7 +470,8 @@ export function buildListTaskBoardExtras(taskIds) {
         coalesce(checklist.checklist_done, 0) as checklist_done,
         coalesce(checklist.checklist_total, 0) as checklist_total,
         coalesce(checklist.next_checklist_item, '') as next_checklist_item,
-        coalesce(activity.latest_activity, '') as latest_activity
+        coalesce(activity.latest_activity, '') as latest_activity,
+        coalesce(activity.latest_activity_kind, '') as latest_activity_kind
       from requested
       left join docs on docs.task_id = requested.task_id
       left join checklist on checklist.task_id = requested.task_id
@@ -488,6 +490,9 @@ export function normalizeTaskBoardExtraRow(row) {
     checklistTotal: Number(row.checklist_total || 0),
     nextChecklistItem: row.next_checklist_item || '',
     latestActivity: row.latest_activity || '',
+    // The event type behind latestActivity ('created', 'status', …) so a
+    // card can tell "nothing has happened yet" from a real latest event.
+    latestActivityKind: row.latest_activity_kind || '',
   };
 }
 
