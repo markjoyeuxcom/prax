@@ -107,13 +107,13 @@ function renderDocMenu(state, doc, { readOnly }) {
   const meta = `${doc.kind === 'synthesized' ? 'Synthesized' : 'Source'} · updated by ${escapeHtml(doc.updatedBy || 'user')} · ${verifiedText}`;
 
   const items = readOnly ? `
-        <button class="menu__item" type="button" data-action="restore-document">Restore</button>
-        <button class="menu__item menu__item--danger" type="button" data-action="delete-document">Delete permanently…</button>` : `
-        <button class="menu__item" type="button" data-action="edit-document-info">Document info…</button>
-        <button class="menu__item" type="button" data-action="toggle-verify">${doc.verified ? 'Unverify' : 'Verify'}</button>
-        ${doc.status === 'superseded' ? '' : '<button class="menu__item" type="button" data-action="supersede-document">Supersede…</button>'}
-        <button class="menu__item menu__item--danger" type="button" data-action="archive-document">Archive</button>
-        <button class="menu__item menu__item--danger" type="button" data-action="delete-document">Delete permanently…</button>`;
+        <button role="menuitem" class="menu__item" type="button" data-action="restore-document">Restore</button>
+        <button role="menuitem" class="menu__item menu__item--danger" type="button" data-action="delete-document">Delete permanently…</button>` : `
+        <button role="menuitem" class="menu__item" type="button" data-action="edit-document-info">Document info…</button>
+        <button role="menuitem" class="menu__item" type="button" data-action="toggle-verify">${doc.verified ? 'Unverify' : 'Verify'}</button>
+        ${doc.status === 'superseded' ? '' : '<button role="menuitem" class="menu__item" type="button" data-action="supersede-document">Supersede…</button>'}
+        <button role="menuitem" class="menu__item menu__item--danger" type="button" data-action="archive-document">Archive</button>
+        <button role="menuitem" class="menu__item menu__item--danger" type="button" data-action="delete-document">Delete permanently…</button>`;
 
   return `
       <div class="menu">
@@ -227,7 +227,7 @@ function renderToolbar(state) {
   const aiMenu = `<div class="menu toolbar__ai">
       <button class="btn-ghost toolbar__ai-btn" type="button" data-action="toggle-write-menu" aria-haspopup="true" aria-expanded="${Boolean(state.writeMenuOpen)}"${canWrite ? '' : ' disabled title="Set an AI model in Settings ▸ Intelligence"'}>✦ AI</button>
       ${state.writeMenuOpen && canWrite ? `<div class="menu__panel" role="menu">
-        ${WRITE_ACTIONS.map(([action, label]) => `<button class="menu__item" type="button" data-action="write-action" data-write="${action}">${label}</button>`).join('')}
+        ${WRITE_ACTIONS.map(([action, label]) => `<button role="menuitem" class="menu__item" type="button" data-action="write-action" data-write="${action}">${label}</button>`).join('')}
       </div>` : ''}
     </div>`;
   return `

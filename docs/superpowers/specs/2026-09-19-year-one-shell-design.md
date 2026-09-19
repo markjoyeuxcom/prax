@@ -370,3 +370,16 @@ Every finding of the audit, and the Today artboard, is now covered by this spec.
 - Tests: `renderShell.test.js` (split button, tiles: order, cap, none), `preferences.test.js`
   (density), `renderList.test.js` (the tail on section headers), `renderLibrary.test.js`
   (segment, group control), `renderPalette.test.js` (Today).
+
+## 10. Dark-mode and accessibility pass — implemented
+
+- `tests/e2e/accessibility.spec.js` gains a "year-one surfaces" audit: Today with a triage band,
+  the Library table, the review queue with its banner, ⌘K with scopes, the shortcuts overlay and
+  the New menu, each in light and dark. The open-menu state skips `target-size` only, because a
+  popover covers what sits beneath it by design; its own items are held to every other rule.
+- Findings fixed: alarm red as small text (`--hi-text`, used by the overdue chip, the Overdue
+  group label and the rail badge); the UNVERIFIED chip's undefined `--surface2` and translucent
+  ground; `role="cell"` / `columnheader` on every Library table cell; 24 px targets on the Today
+  card links; `role="menuitem"` on every `.menu__item`.
+- Visual check in Deep Fern: project list, Today, Library cards and table, review queue, ⌘K,
+  shortcuts overlay, New menu — all on tokens, nothing hard-coded.

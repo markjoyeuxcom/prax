@@ -14,7 +14,7 @@ import { isoDate, nextWeekday } from './dateHelpers.js';
 
 // Group tones map onto the .group-label --group-fg hook in prax.css.
 const TONES = {
-  hi: { cls: ' group-label--hi', style: ' style="--group-fg:var(--hi)"' },
+  hi: { cls: ' group-label--hi', style: ' style="--group-fg:var(--hi-text)"' },
   med: { cls: ' group-label--med', style: ' style="--group-fg:var(--med)"' },
   muted: { cls: '', style: '' },
 };

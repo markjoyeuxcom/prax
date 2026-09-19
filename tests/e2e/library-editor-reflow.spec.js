@@ -154,7 +154,7 @@ test('narrow editor stacks split panes, exposes controls and outline, and saves 
   await expectNoContentOverflow(page, 'editor with outline');
 
   await page.getByTitle('Document actions').tap();
-  await page.getByRole('button', { name: 'Document info…' }).tap();
+  await page.getByRole('menuitem', { name: 'Document info…' }).tap();
   await expect(page.locator('.editor-info')).toBeVisible();
   await expectNoContentOverflow(page, 'document info');
   await page.getByRole('button', { name: 'Cancel', exact: true }).tap();

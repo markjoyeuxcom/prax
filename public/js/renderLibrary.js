@@ -226,7 +226,7 @@ function renderNewDocMenu(state) {
         <button class="btn-primary" type="button" data-action="toggle-new-doc-menu" aria-haspopup="true" aria-expanded="${open}">＋ New doc</button>
         ${open ? `<div class="menu__panel" role="menu">
           ${DOCUMENT_TEMPLATES.map((template) => `
-          <button class="menu__item" type="button" data-action="new-document" data-template-id="${escapeHtml(template.id)}">
+          <button role="menuitem" class="menu__item" type="button" data-action="new-document" data-template-id="${escapeHtml(template.id)}">
             ${escapeHtml(template.label)}
             <span class="menu__item-sub">${escapeHtml(template.hint)}</span>
           </button>`).join('')}
@@ -240,7 +240,7 @@ function renderNewDocMenu(state) {
 function renderLibraryMenu(state, model) {
   const open = Boolean(state.libraryMenuOpen);
   const item = (action, label, hint, extra = '') => `
-          <button class="menu__item" type="button" data-action="${action}"${extra}>
+          <button role="menuitem" class="menu__item" type="button" data-action="${action}"${extra}>
             ${label}
             ${hint ? `<span class="menu__item-sub">${hint}</span>` : ''}
           </button>`;
@@ -625,9 +625,9 @@ export function renderDocTable(docs, state, { review = false } = {}) {
   const allSelected = docs.length > 0 && docs.every((doc) => selected.has(doc.id));
   const head = `
       <div class="doc-table__head" role="row">
-        <button type="button" class="doc-table__check${allSelected ? ' is-on' : ''}" data-action="select-visible-docs" aria-pressed="${allSelected}" aria-label="${allSelected ? 'Clear selection' : `Select all ${docs.length} shown`}">${allSelected ? '✓' : ''}</button>
+        <span role="columnheader"><button type="button" class="doc-table__check${allSelected ? ' is-on' : ''}" data-action="select-visible-docs" aria-pressed="${allSelected}" aria-label="${allSelected ? 'Clear selection' : `Select all ${docs.length} shown`}">${allSelected ? '✓' : ''}</button></span>
         <span role="columnheader">Title</span><span role="columnheader">Type</span><span role="columnheader">Project</span>
-        <span role="columnheader">Trust</span><span role="columnheader">Tags</span><span role="columnheader">By</span><span role="columnheader">Updated</span><span role="columnheader" class="doc-table__actions-head"></span>
+        <span role="columnheader">Trust</span><span role="columnheader">Tags</span><span role="columnheader">By</span><span role="columnheader">Updated</span><span role="columnheader" class="doc-table__actions-head"><span class="visually-hidden">Actions</span></span>
       </div>`;
   const rows = docs.map((doc) => {
     const isSelected = selected.has(doc.id);
@@ -637,15 +637,15 @@ export function renderDocTable(docs, state, { review = false } = {}) {
       : `<button type="button" class="btn-outline doc-table__review" data-action="review-doc" data-document-id="${escapeHtml(doc.id)}" title="Open in preview, then Verify">Review</button>`;
     return `
       <div class="doc-table__row${isSelected ? ' is-selected' : ''}" role="row" data-document-id="${escapeHtml(doc.id)}">
-        <button type="button" class="doc-table__check${isSelected ? ' is-on' : ''}" data-action="toggle-doc-selection" data-document-id="${escapeHtml(doc.id)}" aria-pressed="${isSelected}" aria-label="${isSelected ? 'Deselect' : 'Select'} ${escapeHtml(doc.title || 'Untitled')}">${isSelected ? '✓' : ''}</button>
-        <button type="button" class="doc-table__title" data-action="open-doc" data-document-id="${escapeHtml(doc.id)}">${escapeHtml(doc.title || 'Untitled')}</button>
-        <span>${typeChip(doc)}</span>
-        <span class="doc-table__dim">${escapeHtml(projectNameFor(doc, state))}</span>
-        <span class="doc-table__trust">${trustChips(doc, { showUnverified: true })}</span>
-        <span class="doc-table__dim doc-table__tags" title="${escapeHtml(tags)}">${escapeHtml(tags)}</span>
-        <span class="doc-table__by">${escapeHtml(docAuthorLabel(doc))}</span>
-        <span class="doc-table__dim">${escapeHtml(updatedLabel(doc.updatedAt))}</span>
-        <span class="doc-table__actions">${actions}</span>
+        <span role="cell"><button type="button" class="doc-table__check${isSelected ? ' is-on' : ''}" data-action="toggle-doc-selection" data-document-id="${escapeHtml(doc.id)}" aria-pressed="${isSelected}" aria-label="${isSelected ? 'Deselect' : 'Select'} ${escapeHtml(doc.title || 'Untitled')}">${isSelected ? '✓' : ''}</button></span>
+        <span role="cell" class="doc-table__title-cell"><button type="button" class="doc-table__title" data-action="open-doc" data-document-id="${escapeHtml(doc.id)}">${escapeHtml(doc.title || 'Untitled')}</button></span>
+        <span role="cell">${typeChip(doc)}</span>
+        <span role="cell" class="doc-table__dim">${escapeHtml(projectNameFor(doc, state))}</span>
+        <span role="cell" class="doc-table__trust">${trustChips(doc, { showUnverified: true })}</span>
+        <span role="cell" class="doc-table__dim doc-table__tags" title="${escapeHtml(tags)}">${escapeHtml(tags)}</span>
+        <span role="cell" class="doc-table__by">${escapeHtml(docAuthorLabel(doc))}</span>
+        <span role="cell" class="doc-table__dim">${escapeHtml(updatedLabel(doc.updatedAt))}</span>
+        <span role="cell" class="doc-table__actions">${actions}</span>
       </div>`;
   }).join('');
   return `<div class="doc-table${review ? ' doc-table--review' : ''}" role="table" aria-label="${review ? 'Review queue' : 'Documents'}">${head}${rows}</div>`;
