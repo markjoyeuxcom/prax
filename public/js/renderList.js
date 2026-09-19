@@ -219,7 +219,8 @@ export function renderTaskGroupsHtml(state, groups, { rowExtra } = {}) {
     // key the label is a collapse toggle, and archivable groups (done work)
     // carry an "Archive all" beside it — a sibling, never nested in the toggle.
     if (!group.sectionKey) {
-      return `<div class="group-label${tone.cls}"${tone.style}>${escapeHtml(group.label)} ${countHtml}</div>`
+      // `tailHtml` (Today's ritual buttons) rides along after the count.
+      return `<div class="group-label${tone.cls}"${tone.style}>${escapeHtml(group.label)} ${countHtml}${group.tailHtml || ''}</div>`
         + `<div class="rows" data-group="${escapeHtml(group.key)}">${rows}</div>`;
     }
     const collapsed = Boolean(group.collapsed);

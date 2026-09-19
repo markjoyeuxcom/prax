@@ -14,6 +14,17 @@ fresh empty `[Unreleased]` section is started.
 
 ### Changed
 
+- **Today, year one: overdue is a set to decide on, and the day has a second column.** Overdue
+  work moves out of a plain group into a **triage band**: the count, how many have slipped at
+  least twice, and three decisions for the whole set — reschedule everything to next Monday,
+  send everything to the backlog (both undoable), or review one by one in Plan mode. The band
+  previews the five oldest and unfolds on request; the selected row grows a Today / Monday /
+  Backlog strip. Planned gets an **Edit plan** tail, Due today an **Add all to plan** tail, and
+  the header a **Weekly review** button that says when one is due. A right-hand column shows
+  the week's load by day, what agents wrote since yesterday with a link into the review queue,
+  and any project carrying on-call or handoff notes; the Today panel groups the rituals
+  (weekly review, brief, library health). Everything derives from already-loaded state.
+  Eighth item of the year-one shell spec.
 - **Library table mode and a review queue for agent memory.** The Library gains a **table**
   layout beside cards (a per-device switch next to Sort): one row per document with type,
   project, trust, tags, who wrote it and when, a select box per row, and a sticky bulk bar

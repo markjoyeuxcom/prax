@@ -560,6 +560,13 @@ test('Today cockpit: score, ritual buttons, honest counts, planned rows via open
   assert.match(html, /Next 7 days<\/span><span class="side-item__count">1/);
   assert.match(html, /Snoozed<\/span><span class="side-item__count">1/);
   assert.match(html, /data-action="open-task" data-task-id="a"/);
+  // Rituals: weekly review with its due state, brief, library health.
+  assert.match(html, /<span>Rituals<\/span>/);
+  assert.match(html, /data-action="generate-weekly-review">[\s\S]*?Weekly review<\/span><span class="side-item__count is-due">due</);
+  assert.match(html, /data-action="open-daily-brief">[\s\S]*?Brief me/);
+  assert.match(html, /data-action="open-health">[\s\S]*?Library health/);
+  const reviewed = renderPanelHtml(makeState({ navType: 'today', tasks, projects: PROJECTS, documents: [{ id: 'w', title: 'Weekly review — 2026-W40', updatedAt: new Date(Date.now() - 2 * 86_400_000).toISOString() }] }), {});
+  assert.match(reviewed, /Weekly review<\/span><span class="side-item__count">2d ago</);
   // Without a plan: no score, no shutdown, planning still offered.
   const bare = renderPanelHtml(makeState({ navType: 'today', tasks: [], projects: [] }), {});
   assert.doesNotMatch(bare, /data-panel-plan-score/);

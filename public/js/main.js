@@ -94,7 +94,7 @@ import {
   TASK_RENDER_BATCH_SIZE, renderListHtml, renderBulkBarHtml, buildListGroups, limitTaskGroups,
   applyCollapsedGroups,
 } from './renderList.js';
-import { renderTodayHtml, buildTodayGroups, TODAY_WEEK_SECTION } from './renderToday.js';
+import { renderTodayHtml, buildTodayGroups, TODAY_WEEK_SECTION, TODAY_OVERDUE_ALL, OVERDUE_PREVIEW, nextMondayIso } from './renderToday.js';
 import { renderPlanModeHtml } from './renderPlanMode.js';
 import {
   createExternalRefresh, installExternalRefreshTriggers, collectionFingerprint,
@@ -1304,6 +1304,53 @@ async function toggleTaskDone(id) {
       }
     }, 5000, saved.recurrence ? 'Reopen' : 'Undo');
   }
+}
+
+// Today triage (spec item 8): one decision applied to a set of tasks — a new
+// due date (today / next Monday) or the backlog — through the same per-task
+// mutation queue as the bulk bar, with one undo that restores what each task
+// had before.
+function triagePatch(decision) {
+  if (decision === 'today') return { dueDate: todayISODate() };
+  if (decision === 'monday') return { dueDate: nextMondayIso(new Date()) };
+  if (decision === 'backlog') return { status: apiStatus('backlog') };
+  return null;
+}
+
+async function triageTasks(ids, decision, label) {
+  const patch = triagePatch(decision);
+  if (!patch || !ids.length) return;
+  const prior = ids.map((id) => {
+    const task = taskById(id);
+    return task ? { id, dueDate: task.dueDate ?? null, status: task.status } : null;
+  }).filter(Boolean);
+  setState({ selectedTaskId: null });
+  try {
+    await Promise.all(ids.map((id) => enqueueTaskMutation(id, () => updateTaskWithReadback(id, patch))));
+    await loadTasks();
+    showToast(`${ids.length === 1 ? '1 task' : `${ids.length} tasks`} → ${label}`, async () => {
+      dismissToast();
+      await Promise.all(prior.map((entry) => enqueueTaskMutation(entry.id, () => updateTaskWithReadback(entry.id,
+        decision === 'backlog' ? { status: entry.status } : { dueDate: entry.dueDate }))));
+      await loadTasks();
+      renderApp();
+    });
+  } catch {
+    alertError('apply the triage decision');
+    await loadTasks();
+  }
+  renderApp();
+}
+
+function overdueTaskIds() {
+  return (buildTodayGroups(state.tasks, state.projects, { now: new Date() }).groups
+    .find((group) => group.key === 'overdue')?.tasks || []).map((task) => task.id);
+}
+
+function triageLabel(decision) {
+  if (decision === 'monday') return new Date(`${nextMondayIso(new Date())}T00:00:00`).toLocaleDateString('en-US', { weekday: 'long' });
+  if (decision === 'today') return 'today';
+  return 'Backlog';
 }
 
 async function bulkSetStatus(designKey, label) {
@@ -3731,14 +3778,23 @@ function renderMainHtml() {
       // A collapsed week ahead leaves the collection so arrow keys and the
       // "load more" progress only ever address rows that are on screen.
       const weekCollapsed = isCollapsed(state.collapsedSections, TODAY_WEEK_SECTION);
-      const groups = weekCollapsed ? built.groups.filter((group) => !group.week) : built.groups;
-      const collection = limitTaskGroups(groups, taskCollectionLimit(`today|${weekCollapsed ? 'folded' : 'week'}`));
+      // The triage band previews the oldest OVERDUE_PREVIEW rows unless the
+      // user asked for all of them; hidden rows leave the collection so ↑↓
+      // only ever reach what is on screen.
+      const overdueExpanded = isCollapsed(state.collapsedSections, TODAY_OVERDUE_ALL);
+      const groups = (weekCollapsed ? built.groups.filter((group) => !group.week) : built.groups)
+        .map((group) => (group.key === 'overdue' && !overdueExpanded && group.tasks.length > OVERDUE_PREVIEW
+          ? { ...group, tasks: group.tasks.slice(0, OVERDUE_PREVIEW), totalCount: group.tasks.length }
+          : group));
+      const collection = limitTaskGroups(groups, taskCollectionLimit(`today|${weekCollapsed ? 'folded' : 'week'}|${overdueExpanded ? 'all' : 'preview'}`));
       flatIds = collection.flatIds;
       return renderTodayHtml(state, collection.groups, {
         now, snoozedCount: built.snoozedCount, collection,
         plannedCount: built.plannedCount, plannedDone: built.plannedDone,
         stalePlannedCount: built.stalePlannedCount,
         weekCount: built.weekCount, weekCollapsed,
+        overdueTotal: built.overdueCount, overdueExpanded, slippedCount: built.slippedCount,
+        queueCount: reviewQueue(state.documents).length,
       });
     }
     case 'all': {
@@ -4789,6 +4845,22 @@ _Task:_ ${task.title || 'Untitled task'}`
       } finally {
         delete el.dataset.busy;
       }
+      break;
+    }
+    case 'triage-all': await triageTasks(overdueTaskIds(), el.dataset.decision, triageLabel(el.dataset.decision)); break;
+    case 'triage-task': await triageTasks([el.dataset.taskId], el.dataset.decision, triageLabel(el.dataset.decision)); break;
+    case 'plan-add-today': {
+      // Every task due today that is not yet in the plan joins it.
+      const today = todayISODate();
+      const ids = (buildTodayGroups(state.tasks, state.projects, { now: new Date() }).groups
+        .find((group) => group.key === 'today')?.tasks || []).map((task) => task.id);
+      if (!ids.length) break;
+      try {
+        await Promise.all(ids.map((id) => enqueueTaskMutation(id, () => updateTaskWithReadback(id, { plannedFor: today }))));
+        await loadTasks();
+        showToast(`${ids.length === 1 ? '1 task' : `${ids.length} tasks`} added to today's plan`);
+      } catch { alertError('add those tasks to the plan'); await loadTasks(); }
+      renderApp();
       break;
     }
     case 'open-plan-mode': openPlanMode(); break;
