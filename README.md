@@ -45,13 +45,17 @@ it. See [docs/desktop/BUILD.md](docs/desktop/BUILD.md#menu-bar-quick-capture-and
 
 ## Screenshots
 
-![Task list with due-date groups, priority dots, and signals](docs/images/prax-tasks.png)
+![Today: the overdue triage band, today's plan, the week's load, and what agents wrote overnight](docs/images/prax-today.png)
+
+![Project list with the Ops row, folding due-date groups, and a project-scoped reschedule](docs/images/prax-tasks.png)
 
 ![Kanban board with drag-and-drop columns and card signals](docs/images/prax-board.png)
 
-![Markdown library with tags and trust chips](docs/images/prax-library.png)
+![Library with facets in the panel, the review queue, tags, and trust chips](docs/images/prax-library.png)
 
 ![Settings in the dark Deep Fern theme](docs/images/prax-settings.png)
+
+Regenerate these from a seeded demo server with `node scripts/capture-readme-screenshots.mjs`.
 
 ## Stack
 
