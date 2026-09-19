@@ -70,3 +70,10 @@ test('the project title owns the header row and the ops row wraps beneath it', (
   assert.match(css, /\.proj-ops__add\s*\{/);
   assert.match(css, /\.page-head__ops-toggle\s*\{/);
 });
+
+test('panel section labels are structural (stronger ink, more air) and the New chevron is the quiet half of one control', () => {
+  assert.match(css, /\.side-section\s*\{[^}]*color:\s*var\(--ink2\)/s);
+  assert.match(css, /\.side-section\s*\{[^}]*padding:\s*20px 8px 6px/s);
+  assert.match(css, /\.btn-primary--chev\s*\{[^}]*background:\s*var\(--accent-soft2\)/s);
+  assert.match(css, /\.btn-primary--chev\s*\{[^}]*color:\s*var\(--accent\)/s);
+});

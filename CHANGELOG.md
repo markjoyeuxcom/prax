@@ -12,6 +12,15 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Changed
+
+- **Panel section labels read as structure.** TYPE, PROJECT, TRUST, TAGS and every other panel
+  section label are one shade stronger and sit under more air, so the groups separate by
+  whitespace instead of blending into the rows beneath them.
+- **The New button reads as one control.** The chevron half is a light tint of the accent
+  rather than a second green block; the primary half is still quick capture in one click, and
+  the chevron still opens New document and New project.
+
 ## [0.33.0] - 2026-09-19
 
 ### Added
