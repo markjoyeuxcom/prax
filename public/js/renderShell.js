@@ -70,14 +70,77 @@ function isCurrentProject(state, projectId) {
 // Titlebar
 // ---------------------------------------------------------------------------
 
-function crumbContext(state) {
-  if (state.navType === 'project') return findProject(state, state.navId)?.name || '';
-  if (state.navType === 'editor') {
-    const doc = (state.documents || []).find((d) => d?.id === state.editorDocId);
-    return `Library / ${doc?.title || ''}`;
+const TAB_LABELS = { list: 'List', board: 'Board', backlog: 'Backlog', archive: 'Archive' };
+const SETTINGS_LABELS = { appearance: 'Appearance', intelligence: 'Intelligence', integrations: 'Integrations', data: 'Data & admin' };
+
+function documentTitle(state, documentId) {
+  return (state.documents || []).find((d) => d?.id === documentId)?.title || 'Untitled document';
+}
+
+// The titlebar breadcrumb is a PATH, not a caption (year-one shell spec, item
+// 4): every segment before the last one is a place you can go back to, and it
+// dispatches the same data-action the rail and panel use for that place.
+// Pure: [{ label, action?, data? }], last = current. Area names are context,
+// not a destination (there is no area view), so they render as plain text.
+export function buildBreadcrumb(state) {
+  switch (state.navType) {
+    case 'today': return [{ label: 'Today' }];
+    case 'calendar': return [{ label: 'Calendar' }];
+    case 'all': return [{ label: 'All projects' }];
+    case 'filter': {
+      const view = [...(state.taskSmartViews || []), ...BUILT_IN_SMART_VIEWS]
+        .find((candidate) => candidate?.id === state.activeSmartViewId);
+      return view ? [{ label: 'Filter', action: 'nav-filter' }, { label: view.label }] : [{ label: 'Filter' }];
+    }
+    case 'project': {
+      const project = findProject(state, state.navId);
+      if (!project) return [{ label: 'Tasks' }];
+      const tab = TAB_LABELS[state.tab] ? state.tab : 'list';
+      return [
+        ...(project.area && project.slug !== INBOX_SLUG ? [{ label: project.area }] : []),
+        { label: project.name, action: 'nav-project', data: { 'project-id': project.id } },
+        { label: TAB_LABELS[tab] },
+      ];
+    }
+    case 'library':
+      return state.libraryView === 'archive'
+        ? [{ label: 'Library', action: 'nav-library' }, { label: 'Archive' }]
+        : [{ label: 'Library' }];
+    case 'editor':
+      return [{ label: 'Library', action: 'nav-library' }, { label: documentTitle(state, state.editorDocId) }];
+    case 'run': {
+      const docId = state.runReturnDocId || state.activeRun?.documentId;
+      return [
+        { label: 'Library', action: 'nav-library' },
+        ...(docId ? [{ label: documentTitle(state, docId), action: 'open-linked-doc', data: { 'document-id': docId } }] : []),
+        { label: 'Run' },
+      ];
+    }
+    case 'settings': {
+      const tab = SETTINGS_LABELS[state.settingsTab] ? state.settingsTab : 'appearance';
+      return [{ label: 'Settings', action: 'nav-settings' }, { label: SETTINGS_LABELS[tab] }];
+    }
+    default: return [];
   }
-  const fixed = { today: 'Today', all: 'All projects', library: 'Library', settings: 'Settings' };
-  return fixed[state.navType] || '';
+}
+
+function renderBreadcrumbHtml(state) {
+  const segments = buildBreadcrumb(state);
+  return segments.map((segment, index) => {
+    const last = index === segments.length - 1;
+    const label = escapeHtml(segment.label);
+    let html;
+    if (last) {
+      html = `<span class="titlebar__crumb-current" aria-current="page">${label}</span>`;
+    } else if (segment.action) {
+      const data = Object.entries(segment.data || {})
+        .map(([key, value]) => ` data-${key}="${escapeHtml(value)}"`).join('');
+      html = `<button type="button" class="titlebar__crumb-link" data-action="${segment.action}"${data}>${label}</button>`;
+    } else {
+      html = `<span class="titlebar__crumb-text">${label}</span>`;
+    }
+    return (index ? '<span class="titlebar__crumb-sep" aria-hidden="true">›</span>' : '') + html;
+  }).join('');
 }
 
 const TRAFFIC_LIGHTS = '<div class="traffic" aria-hidden="true">'
@@ -114,7 +177,7 @@ export function renderTitlebarHtml(state) {
 
   return `<div class="titlebar"${drag}>`
     + left
-    + `<div class="titlebar__crumb-wrap"${drag}><div class="titlebar__crumb"${drag}>prax — ${escapeHtml(crumbContext(state))}</div></div>`
+    + `<div class="titlebar__crumb-wrap"${drag}><nav class="titlebar__crumb" aria-label="Breadcrumb"${drag}>${renderBreadcrumbHtml(state)}</nav></div>`
     + actions
     + '</div>';
 }
@@ -236,7 +299,32 @@ function groupedRowsHtml(items, { prefix, otherLabel, collapsedSections, filterA
   return parts.join('');
 }
 
+// "Recent" shows the last MAX_RECENT projects visited, but only once the
+// list is long enough to need a shortcut (below the threshold every project
+// is already in view) and never while a typed filter is narrowing the list.
+// Rows repeat below in their area: Recent is a jump list, not a partition.
+export const RECENT_MIN_PROJECTS = 6;
+
+function panelRecentRows(state, counts, projects) {
+  if (projects.length < RECENT_MIN_PROJECTS) return '';
+  const byId = new Map(projects.map((project) => [project.id, project]));
+  const recent = (state.recentProjects || []).map((id) => byId.get(id)).filter(Boolean);
+  if (!recent.length) return '';
+  const rows = recent.map((project) => {
+    const active = isCurrentProject(state, project.id);
+    const openCount = counts?.projectOpen?.[project.id] || 0;
+    return `<button type="button" class="side-item side-item--recent${active ? ' is-active' : ''}" data-action="nav-project" data-project-id="${escapeHtml(project.id)}"${active ? ' aria-current="true"' : ''}>`
+      + `<span class="proj-dot${project.status === 'on-hold' ? ' is-onhold' : ''}" style="--dot: ${projectColor(project)}"></span>`
+      + `<span class="side-item__label">${escapeHtml(project.name)}</span>`
+      + (project.area ? `<span class="side-item__sub">${escapeHtml(project.area)}</span>` : '')
+      + `<span class="side-item__count">${openCount || ''}</span>`
+      + '</button>';
+  }).join('');
+  return `<div class="side-section"><span>Recent</span></div>${rows}<div class="panel__rest-gap"></div>`;
+}
+
 function panelProjectRows(state, counts, filter) {
+  const recent = filter ? '' : panelRecentRows(state, counts, sidebarProjects(state));
   const items = sidebarProjects(state)
     .filter((project) => panelMatches(filter, project.name))
     .map((project) => {
@@ -261,7 +349,7 @@ function panelProjectRows(state, counts, filter) {
     collapsedSections: state.collapsedSections,
     filterActive: Boolean(filter),
   });
-  return pinnedSectionHtml(pinned.map((item) => item.row), grouped ? [grouped] : []);
+  return recent + pinnedSectionHtml(pinned.map((item) => item.row), grouped ? [grouped] : []);
 }
 
 function panelViewRows(state, filter) {

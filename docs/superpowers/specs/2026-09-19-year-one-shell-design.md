@@ -1,9 +1,10 @@
 # Year-One Shell Design
 
 **Date:** 2026-09-19
-**Status:** Approved (brainstorm); all three items implemented
+**Status:** Approved (brainstorm); items 1–4 implemented
 **Builds on:** v0.32.1
-**Scope:** The three lowest-cost structural fixes from the year-one UI audit. The full audit
+**Scope:** The lowest-cost structural fixes from the year-one UI audit (items 1–3), plus the
+navigation pair added on 2026-09-19 (item 4: breadcrumb and Recent projects). The full audit
 and the alternative mocks live on the design canvas
 [Prax UI Alternatives](https://claude.ai/artifact/DEPREJFVT1bmBLj4Edvjw7) (private; the audit
 summary is also a `reference` memory in Prax: "Prax UI audit at year-one scale").
@@ -28,9 +29,13 @@ Fern tokens, Instrument Sans, rail + panel + main frame all stay).
    beside it repeats the type facets and shows five recent documents. The header carries eight
    actions.
 
-Findings the audit raised but this spec leaves for later: a real breadcrumb in the titlebar,
-Recent + folded On-hold in the browser panel, the shortcut-hint statusbar, the Library table
-mode and review queue, and ⌘K scopes.
+4. **The titlebar crumb is a caption, not a path.** "prax — Homelab" repeats the page title
+   and cannot take you back to the area, the library from a document, or the document from a
+   run. Calendar and Filter render an empty crumb. And with 34 projects in the panel there is no
+   recency: the three projects you were just in are wherever their areas put them.
+
+Findings the audit raised but this spec leaves for later: folded On-hold in the browser panel,
+the shortcut-hint statusbar, the Library table mode and review queue, and ⌘K scopes.
 
 ## 1. Project header: Ops disclosure — implemented
 
@@ -157,3 +162,31 @@ mode and review queue, and ⌘K scopes.
 - Manual: at 1360 px the panel filters the grid with live counts and chips appear in the main
   view; at 900 px the rows return; ⋯ opens and closes on outside click; Import from ⋯ opens the
   destination dialog.
+
+## 4. Breadcrumb and Recent projects — implemented
+
+### Decisions
+
+- `buildBreadcrumb(state)` in `renderShell.js` returns `[{ label, action?, data? }]`, last =
+  current. Paths: Today · Calendar · All projects · Filter (› smart view) · Area › Project ›
+  Tab · Library (› Archive) · Library › document · Library › document › Run · Settings ›
+  section. A segment with an `action` renders as a button dispatching that existing action
+  (`nav-project`, `nav-library`, `open-linked-doc`, `nav-filter`, `nav-settings`); the area is
+  plain text because there is no area view. The `<nav>` keeps `data-tauri-drag-region`, so the
+  desktop titlebar still drags; the buttons inside it still click.
+- **Recent** in the browser panel: the last `MAX_RECENT` (3) project ids, most recent first,
+  stored per device (`prax.recentProjects.v1`, `public/js/recentProjects.js`) and pushed from
+  `goProject`. Rendered above Pinned only when the panel lists at least
+  `RECENT_MIN_PROJECTS` (6) projects, never while a filter is typed; ids that no longer render
+  are skipped; rows repeat in their area below and carry the area name as a sub-label and no
+  pin star (the area row has it).
+
+### Testing
+
+- `tests/frontend/recentProjects.test.js`: push/dedupe/cap, normalize, storage round-trip and
+  broken storage.
+- `tests/frontend/renderShell.test.js`: every navType's crumb, project link vs current, editor
+  / run / archive / settings paths, escaping, the drag region; the Recent section's order,
+  stale-id skipping, sub-labels, threshold and filter rules.
+- Manual: open Homelab › Board, click "Homelab" in the crumb to return to List; open a document
+  and click "Library"; with six projects, visit three and see them lead the panel.

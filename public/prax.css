@@ -220,6 +220,7 @@ a { color: var(--accent); }
   min-width: 0;
 }
 .titlebar__crumb {
+  display: flex; align-items: center; gap: 4px; min-width: 0;
   font-size: 12.5px;
   color: var(--ink3);
   font-weight: 500;
@@ -227,6 +228,18 @@ a { color: var(--accent); }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Breadcrumb segments: earlier places are buttons that go back there; the
+   current place is plain text in ink. The nav itself stays the drag region. */
+.titlebar__crumb-link {
+  padding: 2px 5px; border-radius: 5px; color: var(--ink3); font: inherit;
+  transition: color .12s, background .12s;
+}
+.titlebar__crumb-link:hover { color: var(--ink); background: var(--accent-soft); }
+.titlebar__crumb-text { padding: 2px 3px; }
+.titlebar__crumb-current { padding: 2px 3px; color: var(--ink); font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.titlebar__crumb-sep { color: var(--ink3); opacity: .6; }
+.side-item__sub { font-size: 11px; color: var(--ink3); flex: none; }
+.side-item--recent .side-item__label { flex: 1 1 auto; }
 
 .titlebar__actions { display: flex; align-items: center; gap: 8px; flex: none; }
 
