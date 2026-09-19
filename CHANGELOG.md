@@ -14,6 +14,17 @@ fresh empty `[Unreleased]` section is started.
 
 ### Changed
 
+- **Library table mode and a review queue for agent memory.** The Library gains a **table**
+  layout beside cards (a per-device switch next to Sort): one row per document with type,
+  project, trust, tags, who wrote it and when, a select box per row, and a sticky bulk bar
+  whose one action is Archive. The **Review queue** is a first-class destination — the panel's
+  first row, an amber badge on the rail's Library button, a ⋯ menu item, and Library › Review
+  queue in the breadcrumb — listing agent-written documents nobody has verified (superseded and
+  archived ones excluded) with a banner that counts them per agent. Facets and search apply
+  inside the queue. Each row's **Review** (and the banner's **Review next**) opens the document
+  in preview with Verify at hand; leaving the editor returns to the queue. Verification itself
+  stays a read-then-verify action in the editor, by design — nothing verifies blind. Seventh
+  and last item of the year-one shell spec.
 - **⌘K has scopes, deeper results, and an inline Done.** The palette gains a scope bar — All,
   Commands, Projects, Views, Tasks, Docs — with honest match counts; ⇥ / ⇧⇥ walk it and the
   input keeps focus. All keeps the mixed list with five per group and a "+N more in Tasks" row

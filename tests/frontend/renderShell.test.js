@@ -657,6 +657,33 @@ test('Library panel: tags by use with a fold, a tag box past the limit, active t
   assert.doesNotMatch(few, /data-library-tag-filter/, 'no tag box under the limit');
 });
 
+test('Library panel: the review queue leads the panel when agent memory waits, and marks active in the review view', () => {
+  const documents = [
+    { id: 'd1', title: 'Human note', documentType: 'note' },
+    { id: 'd2', title: 'Agent memory', documentType: 'note', updatedBy: 'agent', verified: false },
+    { id: 'd3', title: 'Verified agent memory', documentType: 'note', updatedBy: 'agent', verified: true },
+  ];
+  const html = renderPanelHtml(makeState({ navType: 'library', documents }), {});
+  assert.match(html, /class="side-item side-item--review" data-action="open-review-queue" aria-pressed="false">[\s\S]*?Review queue<\/span><span class="side-item__count">1</);
+  assert.ok(html.indexOf('open-review-queue') < html.indexOf('<span>Type</span>'), 'queue before the facets');
+  const active = renderPanelHtml(makeState({ navType: 'library', documents, libraryView: 'review' }), {});
+  assert.match(active, /class="side-item side-item--review is-active" data-action="open-review-queue" aria-pressed="true"/);
+  assert.match(active, /toggle-lib-type/, 'facets still apply inside the queue');
+  assert.doesNotMatch(renderPanelHtml(makeState({ navType: 'library', documents: [documents[0]] }), {}), /open-review-queue/, 'no row when nothing waits');
+});
+
+test('rail: the Library button carries an amber review badge and names the count', () => {
+  const html = renderRailHtml(makeState(), { reviewQueue: 7 });
+  assert.match(html, /title="Library · 7 to review" data-action="nav-library"[^>]*>[\s\S]*?<span class="rail__badge rail__badge--review">7</);
+  assert.doesNotMatch(renderRailHtml(makeState(), { reviewQueue: 0 }), /rail__badge--review/);
+});
+
+test('titlebar breadcrumb: Library › Review queue', () => {
+  const html = renderTitlebarHtml(makeState({ navType: 'library', libraryView: 'review' }));
+  assert.match(html, /data-action="nav-library">Library</);
+  assert.match(html, CURRENT('Review queue'));
+});
+
 test('Library panel: facets step aside in archive and semantic modes; saved views and recent stay', () => {
   const documents = [{ id: 'd1', title: 'Only', documentType: 'note', tags: ['x'], updatedAt: '2026-07-01T00:00:00Z' }];
   const archive = renderPanelHtml(makeState({ navType: 'library', documents, libraryView: 'archive', librarySavedViews: [{ label: 'Saved', tags: ['x'] }] }), {});
