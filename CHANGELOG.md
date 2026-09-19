@@ -17,6 +17,9 @@ fresh empty `[Unreleased]` section is started.
 - **Panel section labels read as structure.** TYPE, PROJECT, TRUST, TAGS and every other panel
   section label are one shade stronger and sit under more air, so the groups separate by
   whitespace instead of blending into the rows beneath them.
+- **Content group labels sit a half-step above the panel's.** Runbooks, Notes, Overdue, Today
+  and every other group label are slightly larger and heavier, in the same ink as the panel
+  section labels, with more room above each group, so the content outranks the sidebar.
 - **The Library search matches the design.** One full-width bar with the search icon and the
   Keyword | Semantic segment inside it; Sort, Group and the cards / table switch move to a
   toolbar row beneath, where the active-filter chips sit on the left. The header now says how
