@@ -1,11 +1,11 @@
 # Year-One Shell Design
 
 **Date:** 2026-09-19
-**Status:** Approved (brainstorm); items 1–5 implemented
+**Status:** Approved (brainstorm); items 1–6 implemented
 **Builds on:** v0.32.1
 **Scope:** The lowest-cost structural fixes from the year-one UI audit (items 1–3), the
-navigation pair (item 4: breadcrumb and Recent projects) and the chrome pair (item 5: folded
-On hold and the statusbar), all added on 2026-09-19. The full audit
+navigation pair (item 4: breadcrumb and Recent projects), the chrome pair (item 5: folded
+On hold and the statusbar) and the palette (item 6: ⌘K scopes), all added on 2026-09-19. The full audit
 and the alternative mocks live on the design canvas
 [Prax UI Alternatives](https://claude.ai/artifact/DEPREJFVT1bmBLj4Edvjw7) (private; the audit
 summary is also a `reference` memory in Prax: "Prax UI audit at year-one scale").
@@ -39,8 +39,12 @@ Fern tokens, Instrument Sans, rail + panel + main frame all stay).
    projects render inside their areas beside active ones, hollow dot or not. The statusbar
    spends its width on five shortcut hints that were learned in week one.
 
-Findings the audit raised but this spec leaves for later: the Library table mode and review
-queue, and ⌘K scopes.
+6. **⌘K caps every group at five and has no way in.** A query for "backup" over a year of
+   tasks shows five of forty with no count and no next step; nothing can be done to a result
+   without opening it.
+
+The one audit finding this spec leaves for later is the Library table mode with a review
+queue.
 
 ## 1. Project header: Ops disclosure — implemented
 
@@ -226,3 +230,29 @@ queue, and ⌘K scopes.
 - Manual: with an on-hold project the panel shows a folded On hold row that opens on click and
   stays open after reload; `⌘/` and the statusbar button open the overlay, Esc and a scrim
   click close it.
+
+## 6. ⌘K scopes — implemented
+
+### Decisions
+
+- `buildPaletteGroups` builds every group in full, returns `scopes` (`PALETTE_SCOPES` with a
+  match count each; All = the sum) and `scope`, then caps per scope: **All** keeps Commands
+  uncapped and the search groups at `MAX_SEARCH_ITEMS` (5) plus a `+N more in <Group>` item
+  (`action: 'palette-scope'`, selectable like any row) when a group overflows; a **single
+  scope** lists that group alone up to `MAX_SCOPED_ITEMS` (40) and carries `truncated` for the
+  rest. A scope with an empty query browses the whole group; All with no query stays the
+  command list.
+- `state.paletteScope` resets to `all` on open. ⇥ / ⇧⇥ in the input call `cyclePaletteScope`;
+  pills and the more-row dispatch `palette-scope`; `setPaletteScope` re-renders and returns
+  the caret to the end of the input.
+- The selected task row renders an inline **Done** (`palette-task-done`, a sibling of the run
+  button, never nested); ⌘↵ / Ctrl↵ on a selected task runs the same `toggleTaskDone` and
+  closes the palette.
+
+### Testing
+
+- `tests/frontend/renderPalette.test.js`: All-scope cap and more-row, single-scope depth and
+  browse, the `MAX_SCOPED_ITEMS` truncation and honest counts, scope helpers, the scope bar,
+  the inline Done on the selected task only, footer hints.
+- Manual: ⌘K, type a common word, see counts on the pills, ⇥ into Tasks, ⌘↵ on a task marks
+  it done with the undo toast.

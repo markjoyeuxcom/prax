@@ -125,7 +125,7 @@ import { assistantOutcomeNotice } from './assistantOutcome.js';
 import { renderWritingPreviewHtml } from './renderWritingPreview.js';
 import { renderSearchPanelHtml, searchCountLabel } from './renderSearchPanel.js';
 import { renderAllProjectsHtml, buildProjectGroups } from './renderAllProjects.js';
-import { renderPaletteHtml, buildPaletteGroups } from './renderPalette.js';
+import { renderPaletteHtml, buildPaletteGroups, cyclePaletteScope, normalizePaletteScope } from './renderPalette.js';
 import { renderCaptureHtml } from './renderCapture.js';
 import { renderToastHtml } from './renderToast.js';
 import { renderConfirmHtml } from './renderConfirm.js';
@@ -4109,8 +4109,22 @@ const paletteCommands = {
   'go-settings': async () => { setState({ paletteOpen: false }); await goSettings(); },
 };
 
-async function runPaletteItem(item) {
+// Switch the palette scope in place, keeping the caret in the search box.
+function setPaletteScope(scope) {
+  setState({ paletteScope: normalizePaletteScope(scope), paletteSelection: 0 });
+  renderApp();
+  const input = appRoot.querySelector('[data-palette-input]');
+  if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+}
+
+async function runPaletteItem(item, { done = false } = {}) {
   if (!item) return;
+  if (item.action === 'palette-scope') { setPaletteScope(item.scope); return; }
+  if (item.action === 'open-task' && done) {
+    setState({ paletteOpen: false });
+    await toggleTaskDone(item.id);
+    return;
+  }
   if (item.action === 'open-task') {
     const task = taskById(item.id);
     setState({ paletteOpen: false });
@@ -4362,7 +4376,7 @@ async function handleAction(action, el, event) {
     case 'open-palette':
       if (state.captureSubmitting) break;
       if (state.captureOpen) discardCapture();
-      setState({ paletteOpen: true, paletteQuery: '', paletteSelection: 0 });
+      setState({ paletteOpen: true, paletteQuery: '', paletteSelection: 0, paletteScope: 'all' });
       renderApp();
       break;
     case 'open-capture': openFreshCapture(); break;
@@ -5172,6 +5186,12 @@ _Task:_ ${task.title || 'Untitled task'}`
 
     // ---- palette / capture / toast ----
     case 'palette-run': await runPaletteItem(paletteFlat[Number(el.dataset.paletteIndex)]); break;
+    case 'palette-scope': setPaletteScope(el.dataset.scope); break;
+    case 'palette-task-done': {
+      setState({ paletteOpen: false });
+      await toggleTaskDone(el.dataset.taskId);
+      break;
+    }
     case 'close-palette': setState({ paletteOpen: false }); renderApp(); break;
     case 'close-capture': if (discardCapture()) renderCaptureOverlayLayer({ restoreFocus: true }); break;
     case 'submit-capture':
@@ -5968,7 +5988,12 @@ function bindEvents() {
         renderApp();
       } else if (event.key === 'Enter') {
         event.preventDefault();
-        await runPaletteItem(paletteFlat[Math.min(state.paletteSelection, Math.max(0, paletteFlat.length - 1))]);
+        const item = paletteFlat[Math.min(state.paletteSelection, Math.max(0, paletteFlat.length - 1))];
+        await runPaletteItem(item, { done: event.metaKey || event.ctrlKey });
+      } else if (event.key === 'Tab') {
+        // ⇥ / ⇧⇥ walk the scope bar; the input keeps focus.
+        event.preventDefault();
+        setPaletteScope(cyclePaletteScope(state.paletteScope, event.shiftKey ? -1 : 1));
       }
       return;
     }
@@ -6404,7 +6429,7 @@ function installShortcuts() {
       openPalette() {
         if (state.captureSubmitting) return;
         if (state.captureOpen) discardCapture();
-        setState({ paletteOpen: true, paletteQuery: '', paletteSelection: 0 });
+        setState({ paletteOpen: true, paletteQuery: '', paletteSelection: 0, paletteScope: 'all' });
         renderApp();
       },
       openAssistant,

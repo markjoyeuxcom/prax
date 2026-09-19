@@ -2109,6 +2109,25 @@ a { color: var(--accent); }
   transition: background .1s ease;
 }
 .palette__item.is-selected { background: var(--accent-soft); }
+/* Scopes + inline Done (year-one shell spec, item 6) */
+.palette__scopes { display: flex; align-items: center; gap: 4px; padding: 8px 12px 0; }
+.palette__scope {
+  font-size: 11.5px; font-weight: 500; padding: 3px 9px; border-radius: 99px; color: var(--ink2);
+  display: inline-flex; align-items: center; gap: 5px; transition: background .12s, color .12s;
+}
+.palette__scope:hover { color: var(--ink); background: var(--line); }
+.palette__scope.is-active { background: var(--accent-soft2); color: var(--accent); font-weight: 600; }
+.palette__scope-count { font-size: 10.5px; color: var(--ink3); font-variant-numeric: tabular-nums; }
+.palette__scope.is-active .palette__scope-count { color: var(--accent); }
+.palette__row { display: flex; align-items: center; gap: 4px; }
+.palette__row .palette__item { flex: 1; min-width: 0; }
+.palette__action {
+  flex: none; height: 26px; padding: 0 9px; border-radius: 6px; font-size: 11.5px; font-weight: 600;
+  background: var(--accent); color: var(--accent-ink); margin-right: 4px;
+}
+.palette__item--more { color: var(--accent); font-size: 12.5px; }
+.palette__item--more .palette__item-sub { color: var(--accent); }
+.palette__truncated { padding: 6px 10px 10px; font-size: 11.5px; color: var(--ink3); }
 .palette__item-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .palette__item-sub { font-size: 11px; color: var(--ink3); }
 .palette__empty { padding: 22px; text-align: center; font-size: 12.5px; color: var(--ink3); }
