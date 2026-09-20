@@ -12,6 +12,42 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.36.1] - 2026-09-20
+
+### Added
+
+- **Reusable templates.** Save a Library document as Template and use it to create an
+  independent, unverified copy in a chosen project. Choose the copy's title and type;
+  the original content, verification and history remain intact.
+- **Templates & guides for every installation.** The Library's New doc menu now includes
+  repository setup, project overview, repository onboarding task and shared agent-memory
+  starters. They work without AI and ship with desktop and container packages. Onboarding
+  creates a planned task with nine native unchecked acceptance items.
+- **Recoverable template creation.** Drafts and creation identities survive a tab reload.
+  Repeated clicks and lost-response retries cannot create duplicate copies. Durable document
+  receipts preserve later edits and permanent deletion; task and checklist creation is atomic.
+
+### Changed
+
+- **Shared agent guidance follows project ownership.** Project knowledge belongs in its
+  owning Library, reusable conventions in Memory, and unfinished work in task notes/checklists.
+  Repository setup covers new repositories, existing repositories and additional checkouts.
+- **The instruction installer updates existing installations.** Managed blocks refresh in
+  place while preserving custom text and symlinks, and malformed blocks are refused.
+  Antigravity global instructions are included alongside Claude, Codex and Copilot.
+- **Fresh installations receive generic starters, while upgrades preserve personal notes.**
+  Built-in guides are packaged files rather than database seeds. Repository startup guidance
+  no longer depends on this machine's overview ID. Container builds now include CLI and skills.
+
+### Fixed
+
+- **The bundled macOS installation command matches the actual app layout.** The shared
+  agent-memory guide now includes the nested `Resources/resources/app` directory, with a
+  regression check against the desktop resource configuration.
+
+Version 0.36.0 was withheld during package verification. This release includes its template
+and onboarding features with the corrected installation guide.
+
 ## [0.36.0] - 2026-09-20
 
 ### Added
@@ -1877,7 +1913,8 @@ fresh empty `[Unreleased]` section is started.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.36.0...HEAD
+[Unreleased]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.36.1...HEAD
+[0.36.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.36.0...v0.36.1
 [0.36.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.35.1...v0.36.0
 [0.35.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.35.0...v0.35.1
 [0.35.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.34.0...v0.35.0

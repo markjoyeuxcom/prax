@@ -16,7 +16,7 @@ runtime, so a separate Node installation or repository is unnecessary.
 The default macOS bundle location is:
 
 ```sh
-/bin/sh /Applications/Prax.app/Contents/Resources/app/skills/install.sh --instructions --cli
+/bin/sh /Applications/Prax.app/Contents/Resources/resources/app/skills/install.sh --instructions --cli
 ```
 
 For another install location/platform, locate the packaged `app/skills/install.sh` instead
