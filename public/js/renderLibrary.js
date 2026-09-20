@@ -320,22 +320,30 @@ export function renderActiveFilters(state, model) {
 // The search is one full-width bar — icon, input, and the Keyword | Semantic
 // segment inside it — as drawn on the canvas. Sort, Group and the layout
 // switch live on the toolbar row beneath, beside the active filters.
+export const SEMANTIC_UNAVAILABLE_HINT = 'Semantic search needs an embedding backend. Set one up under Intelligence in Settings.';
+
 function renderSearchBar(state, semanticVisible) {
   const isSemantic = Boolean(state.librarySemantic);
   const placeholder = isSemantic ? SEMANTIC_PLACEHOLDER : KEYWORD_PLACEHOLDER;
   // Keyword | Semantic as one segmented control (spec item 9): the mode
-  // reads as a choice, not a lit-up toggle.
+  // reads as a choice, not a lit-up toggle. The segment is always drawn, as
+  // designed; without an embedding backend the Semantic half is dimmed and
+  // leads to the Settings card that provides one, instead of vanishing and
+  // leaving the feature undiscoverable.
   const semanticButton = semanticVisible
-    ? '<div class="seg seg--in-bar" role="group" aria-label="Search mode">'
-      + `<button class="seg__btn${isSemantic ? '' : ' is-active'}" type="button" data-action="set-search-mode" data-mode="keyword" aria-pressed="${!isSemantic}">Keyword</button>`
-      + `<button class="seg__btn${isSemantic ? ' is-active' : ''}" type="button" data-action="set-search-mode" data-mode="semantic" aria-pressed="${isSemantic}">${icon('spark', 13)}<span>Semantic</span></button>`
-      + '</div>'
-    : '';
+    ? `<button class="seg__btn${isSemantic ? ' is-active' : ''}" type="button" data-action="set-search-mode" data-mode="semantic" aria-pressed="${isSemantic}">${icon('spark', 13)}<span>Semantic</span></button>`
+    : `<button class="seg__btn is-unavailable" type="button" data-action="set-search-mode" data-mode="semantic" aria-pressed="false" title="${SEMANTIC_UNAVAILABLE_HINT}">${icon('spark', 13)}<span>Semantic</span></button>`;
+  const segment = '<div class="seg seg--in-bar" role="group" aria-label="Search mode">'
+    + `<button class="seg__btn${isSemantic ? '' : ' is-active'}" type="button" data-action="set-search-mode" data-mode="keyword" aria-pressed="${!isSemantic}">Keyword</button>`
+    + semanticButton
+    + '</div>';
+  // The / key cap: pressing / on the Library focuses this bar.
   return `
     <label class="lib-search${isSemantic ? ' is-semantic' : ''}">
       <span class="lib-search__icon" aria-hidden="true">${icon('search', 14)}</span>
       <input class="lib-search__input" type="search" data-library-search placeholder="${escapeHtml(placeholder)}" value="${escapeHtml(state.libraryQuery || '')}" autocomplete="off" aria-label="Search library">
-      ${semanticButton}
+      <span class="kbd lib-search__kbd" aria-hidden="true" title="Press / to search">/</span>
+      ${segment}
     </label>`;
 }
 

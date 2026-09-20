@@ -62,6 +62,17 @@ test('the localhost desktop webview has an explicit grant for every exported Lib
   assert.ok(!localCapability.permissions.includes(SHORTCUT_PERMISSION));
 });
 
+test('the main window leaves drag and drop to the page, so board cards can be dropped into another lane', () => {
+  const rust = readFileSync(new URL('../../src-tauri/src/lib.rs', import.meta.url), 'utf8');
+  const start = rust.indexOf('WebviewWindowBuilder::new(&handle, "main"');
+  assert.ok(start > -1, 'the main window builder is present');
+  const mainBuilder = rust.slice(start, rust.indexOf('.build()', start));
+  // Tauri's drag-and-drop handler claims drops as file drops before the
+  // page's `drop` event fires (the board's lanes are HTML5 drag and drop).
+  assert.match(mainBuilder, /\.disable_drag_drop_handler\(\)/);
+  assert.doesNotMatch(rust, /on_drag_drop_event|DragDropEvent/, 'nothing in the shell takes file drops');
+});
+
 test('desktop sidecar owns its ephemeral bind and supports bounded graceful recovery', () => {
   const rust = readFileSync(new URL('../../src-tauri/src/lib.rs', import.meta.url), 'utf8');
   const server = readFileSync(new URL('../../server/index.js', import.meta.url), 'utf8');
