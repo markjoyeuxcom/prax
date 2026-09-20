@@ -24,7 +24,7 @@ test('other modified keys never trigger shortcuts', () => {
 test('plain keys map to the design actions', () => {
   assert.equal(matchShortcut({ key: 'n' }).action, 'capture');
   assert.equal(matchShortcut({ key: 'e' }).action, 'toggle-done');
-  assert.equal(matchShortcut({ key: '/' }).action, 'palette');
+  assert.equal(matchShortcut({ key: '/' }).action, 'search');
   assert.equal(matchShortcut({ key: 'Escape' }).action, 'escape');
   assert.equal(matchShortcut({ key: 'ArrowDown' }).action, 'nav-down');
   assert.equal(matchShortcut({ key: 'ArrowUp' }).action, 'nav-up');

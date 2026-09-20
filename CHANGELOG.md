@@ -12,6 +12,13 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Changed
+
+- **The Library search bar is complete as drawn.** A `/` key cap sits in the bar and pressing
+  `/` on the Library focuses it (anywhere else `/` still opens the palette). Keyword | Semantic
+  is always there: without an embedding backend the Semantic half is dimmed and leads to the
+  Intelligence card in Settings instead of vanishing.
+
 ## [0.34.0] - 2026-09-19
 
 ### Changed
