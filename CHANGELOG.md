@@ -21,6 +21,9 @@ fresh empty `[Unreleased]` section is started.
 
 ### Fixed
 
+- **The checkout binds to the `prax` project again.** `.prax/project.json` still carried the
+  pre-rebrand slug, so project-scoped CLI commands run from the repo (`prax context`, `prax search`,
+  `prax remember` without `--memory`) resolved to a project that no longer exists.
 - **Board cards can be dropped into another lane in the desktop app.** The desktop window
   handed every drop to Tauri's file drag-and-drop handler before the page's own `drop` event
   fired, so a dragged card sprang back to its lane. Nothing in Prax takes file drops, so that
