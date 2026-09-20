@@ -1245,6 +1245,12 @@ body[data-density="compact"] .group-label { margin-top: 12px; }
 .lib-search__input:focus { outline: none; }
 .seg--in-bar { border-color: var(--line); }
 .seg--in-bar .seg__btn { height: 24px; font-size: 11.5px; }
+/* The / key cap, as drawn; it steps aside while the bar is in use. */
+.lib-search__kbd { flex: none; margin-right: 2px; color: var(--ink3); }
+.lib-search:focus-within .lib-search__kbd { display: none; }
+/* Semantic without an embedding backend: present, dimmed, leads to Settings. */
+.seg__btn.is-unavailable { opacity: .55; }
+.seg__btn.is-unavailable:hover { opacity: 1; }
 /* The toolbar beneath: active filters left, Sort / Group / layout right. */
 .lib-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; }
 .lib-toolbar__filters { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: 1 1 200px; min-width: 0; }

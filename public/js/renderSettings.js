@@ -438,7 +438,7 @@ function renderIntelligenceCard(state) {
     </div>` : '';
 
   return `
-  <section class="settings-card">
+  <section class="settings-card" data-settings-card="intelligence">
     <h2 class="settings-card__title">Intelligence</h2>
     <p class="settings-card__sub">Search the library by meaning as well as keywords. Adds the Semantic toggle to the library search.</p>
 

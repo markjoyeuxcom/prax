@@ -334,7 +334,7 @@ test('semantic mode switches the placeholder and marks the search row', () => {
   assert.match(html, /placeholder="Ask in plain language — e\.g\. &quot;what do I do when the database dies&quot;"/);
 });
 
-test('the Keyword | Semantic segment renders only when semantic is available AND enabled, marking the active mode', () => {
+test('the Keyword | Semantic segment is always drawn, marking the active mode; without a backend the Semantic half is dimmed and still leads somewhere', () => {
   const on = render({ semanticStatus: { available: true, enabled: true }, librarySemantic: true });
   assert.match(on, /class="seg seg--in-bar" role="group" aria-label="Search mode"/);
   assert.match(on, /class="seg__btn" type="button" data-action="set-search-mode" data-mode="keyword" aria-pressed="false">Keyword</);
@@ -344,8 +344,18 @@ test('the Keyword | Semantic segment renders only when semantic is available AND
   assert.match(off, /class="seg__btn is-active"[^>]*data-mode="keyword" aria-pressed="true"/);
   assert.match(off, /class="seg__btn"[^>]*data-mode="semantic" aria-pressed="false"/);
 
-  assert.doesNotMatch(render({ semanticStatus: { available: false } }), /set-search-mode/);
-  assert.doesNotMatch(render({ semanticStatus: { available: true, enabled: false } }), /set-search-mode/);
+  for (const semanticStatus of [{ available: false }, { available: true, enabled: false }, undefined]) {
+    const html = render({ semanticStatus, librarySemantic: false });
+    assert.match(html, /class="seg seg--in-bar" role="group" aria-label="Search mode"/);
+    assert.match(html, /class="seg__btn is-active"[^>]*data-mode="keyword" aria-pressed="true"/);
+    assert.match(html, /class="seg__btn is-unavailable" type="button" data-action="set-search-mode" data-mode="semantic" aria-pressed="false" title="Semantic search needs an embedding backend\. Set one up under Intelligence in Settings\."/);
+    assert.doesNotMatch(html, /class="seg__btn is-active"[^>]*data-mode="semantic"/);
+  }
+});
+
+test('the bar carries the / key cap between the input and the segment, hidden from the accessibility tree', () => {
+  const html = render({});
+  assert.match(html, /data-library-search[^>]*>\s*<span class="kbd lib-search__kbd" aria-hidden="true" title="Press \/ to search">\/<\/span>\s*<div class="seg seg--in-bar"/);
 });
 
 test('Group: Type groups cards by type; Group: None is one flat run in sort order; hidden in archive and semantic', () => {
@@ -607,7 +617,9 @@ test('keyword no-results renders empty state with clear filters and semantic hin
   const withoutSemantic = render({ libraryQuery: 'zzz-no-match', semanticStatus: { available: false } });
   assert.match(withoutSemantic, /No documents match/);
   assert.match(withoutSemantic, /data-action="clear-lib-filters"/);
-  assert.doesNotMatch(withoutSemantic, /Semantic/);
+  // The segment is always drawn, so the word appears in the bar; the hint must not sell it.
+  assert.doesNotMatch(withoutSemantic, /flip on Semantic/);
+  assert.match(withoutSemantic, /Try fewer tags or a shorter search\./);
 });
 
 test('archive mode renders dim plain rows with restore and delete actions', () => {
