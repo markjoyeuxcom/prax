@@ -3,7 +3,8 @@
 // pending is the next chord-prefix state ('' or 'g').
 //
 // The Prax keymap: ⌘K palette · ⌘I assistant · ⌘J theme · ⌘/ shortcuts · N capture · E done ·
-// ↑↓/↵ list navigation · Esc close-cascade · '/' also opens the palette · plus
+// ↑↓/↵ list navigation · Esc close-cascade · '/' searches (the Library's bar there,
+// the palette elsewhere) · plus
 // the legacy g-chord view navigation (g t/b/k/a/l).
 export function matchShortcut({ key, metaOrCtrl = false, alt = false }, pending = '') {
   if (metaOrCtrl) {
@@ -24,7 +25,7 @@ export function matchShortcut({ key, metaOrCtrl = false, alt = false }, pending 
   if (key === 'g') return { action: null, view: null, pending: 'g' };
 
   const actions = {
-    '/': 'palette',
+    '/': 'search',
     n: 'capture',
     e: 'toggle-done',
     Escape: 'escape',
@@ -90,6 +91,7 @@ export function installKeyboardShortcuts({ handlers }) {
     event.preventDefault();
     switch (result.action) {
       case 'palette': handlers.openPalette(); break;
+      case 'search': if (handlers.search) handlers.search(); else handlers.openPalette(); break;
       case 'assistant': handlers.openAssistant?.(); break;
       case 'theme': handlers.toggleTheme(); break;
       case 'shortcuts': handlers.openShortcuts?.(); break;

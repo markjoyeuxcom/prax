@@ -11,7 +11,7 @@ export const SHORTCUT_GROUPS = Object.freeze([
     title: 'Everywhere',
     rows: [
       [['⌘K'], 'Search or jump to'],
-      [['/'], 'Search or jump to (outside a field)'],
+      [['/'], 'Search: the Library bar there, the palette elsewhere (outside a field)'],
       [['⌘I'], 'Assistant'],
       [['⌘J'], 'Toggle theme'],
       [['⌘/'], 'This list'],

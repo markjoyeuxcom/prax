@@ -112,7 +112,7 @@ import { renderBoardHtml, buildBoardColumns, limitBoardColumns } from './renderB
 import { renderBacklogHtml, renderArchiveHtml } from './renderBacklog.js';
 import { renderTaskDrawerHtml, renderMissingTaskDrawerHtml } from './renderTaskDetail.js';
 import { renderLinkPickerHtml } from './renderLinkPicker.js';
-import { LIBRARY_RENDER_BATCH_SIZE, renderLibraryHtml, buildLibraryModel, reviewQueue, isReviewQueueDoc } from './renderLibrary.js';
+import { LIBRARY_RENDER_BATCH_SIZE, renderLibraryHtml, buildLibraryModel, reviewQueue, isReviewQueueDoc, SEMANTIC_UNAVAILABLE_HINT } from './renderLibrary.js';
 import { templateById } from './documentTemplates.js';
 import { renderEditorHtml, buildOutline, buildBacklinks, WRITE_ACTIONS } from './renderEditor.js';
 import { renderRunHtml, buildChronicle } from './renderRun.js';
@@ -5035,6 +5035,18 @@ _Task:_ ${task.title || 'Untitled task'}`
     }
     case 'set-search-mode': {
       const semantic = el.dataset.mode === 'semantic';
+      if (semantic && !(state.semanticStatus?.available && state.semanticStatus?.enabled)) {
+        // The segment is always drawn; without an embedding backend the
+        // Semantic half leads to the Settings card that provides one.
+        if (await goSettings()) {
+          loadCaptureShortcut();
+          setState({ settingsTab: 'intelligence' });
+          showToast(SEMANTIC_UNAVAILABLE_HINT);
+          renderApp();
+          requestAnimationFrame(() => appRoot.querySelector('[data-settings-card="intelligence"]')?.scrollIntoView({ block: 'start' }));
+        }
+        break;
+      }
       if (semantic !== Boolean(state.librarySemantic)) setState({ librarySemantic: semantic, ...resetSemanticSearchPatch() });
       renderApp();
       break;
@@ -6705,6 +6717,12 @@ async function addQuickTask(rawTitle) {
 }
 
 function installShortcuts() {
+  function openPaletteShortcut() {
+    if (state.captureSubmitting) return;
+    if (state.captureOpen) discardCapture();
+    setState({ paletteOpen: true, paletteQuery: '', paletteSelection: 0, paletteScope: 'all' });
+    renderApp();
+  }
   installKeyboardShortcuts({
     handlers: {
       async switchView(view) {
@@ -6712,11 +6730,15 @@ function installShortcuts() {
         const projectId = state.navType === 'project' ? state.navId : (state.projects[0]?.id || null);
         if (projectId) await goProject(projectId, view);
       },
-      openPalette() {
-        if (state.captureSubmitting) return;
-        if (state.captureOpen) discardCapture();
-        setState({ paletteOpen: true, paletteQuery: '', paletteSelection: 0, paletteScope: 'all' });
-        renderApp();
+      openPalette: openPaletteShortcut,
+      // '/' is the key cap drawn in the Library's search bar: there it focuses
+      // the bar; anywhere else it is the palette, as before.
+      search() {
+        if (state.navType === 'library' && !state.paletteOpen && !state.captureOpen && !state.drawerTaskId) {
+          const input = appRoot.querySelector('[data-library-search]');
+          if (input) { input.focus(); input.select?.(); return; }
+        }
+        openPaletteShortcut();
       },
       openAssistant,
       toggleTheme,

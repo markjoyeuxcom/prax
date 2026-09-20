@@ -123,3 +123,25 @@ test('a slow semantic query cannot overwrite newer visible results', async ({ pa
   });
   expect(reset.ok()).toBe(true);
 });
+
+
+test('/ focuses the Library search bar, and Semantic without a backend leads to the Intelligence card', async ({ page, request }) => {
+  const off = await request.put('/api/settings/semantic-search', { data: { backend: 'none', enabled: false } });
+  expect(off.ok()).toBe(true);
+
+  await page.goto('/');
+  await page.locator('[data-action="nav-library"]').first().click();
+  await expect(page.locator('.lib-search__kbd')).toHaveText('/');
+
+  // The rail button keeps focus after the click; the key cap means "outside a field".
+  await page.locator('[data-action="nav-library"]').first().blur();
+  await page.keyboard.press('/');
+  await expect(page.locator('[data-library-search]')).toBeFocused();
+  await expect(page.locator('.palette')).toHaveCount(0);
+
+  const semantic = page.locator('[data-action="set-search-mode"][data-mode="semantic"]');
+  await expect(semantic).toHaveClass(/is-unavailable/);
+  await semantic.click();
+  await expect(page.locator('[data-settings-card="intelligence"] .settings-card__title')).toHaveText('Intelligence');
+  await expect(page.locator('.toast')).toContainText('Semantic search needs an embedding backend');
+});
