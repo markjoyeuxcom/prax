@@ -367,9 +367,9 @@ export function buildRevertSupersededIfOrphan(id) {
   };
 }
 
-export function buildListActiveDocumentsForExport({ projectId } = {}) {
+export function buildListActiveDocumentsForExport({ projectId, includeArchived = false } = {}) {
   const values = [];
-  let where = 'where d.archived_at is null';
+  let where = includeArchived ? 'where 1 = 1' : 'where d.archived_at is null';
   if (projectId) {
     values.push(projectId);
     where += ` and d.project_id = $${values.length}`;

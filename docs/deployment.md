@@ -76,7 +76,7 @@ Each overlay pins the image tag. Exposure is intentionally not part of the rende
 | staging | `prax-staging` |
 | prod | `prax-prod` |
 
-Overlays are currently pinned to `v0.36.1`. CI-driven `newTag` bumping on release is planned as
+Overlays are currently pinned to `v0.37.0`. CI-driven `newTag` bumping on release is planned as
 future work.
 
 ## Data Volume
@@ -192,7 +192,7 @@ kubectl kustomize deploy/overlays/prod
 
 The authoritative backup is a copy of the database file — see
 [backup-restore.md](backup-restore.md) for taking a validated online snapshot with the shipped
-`npm run backup` command (or a plain file copy while stopped), the Kubernetes
+`npm run backup` command or the Library dialog’s **Full workspace backup** ZIP (or a plain file copy while stopped), the Kubernetes
 `kubectl exec`/`kubectl cp` recipe, and the rehearsed restore procedure.
 
 For portability rather than backup, the Admin panel exports tasks as a `moomora.tasks` JSON

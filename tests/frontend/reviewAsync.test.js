@@ -125,7 +125,8 @@ test('R06/R07: focus refresh after leaving the editor renders verification chang
   let fetched = 0; let rendered = 0; let verified = true;
   const context = contextFor(state, { collectionFingerprint, loadTasks: async () => true,
     loadDocuments: async () => { fetched++; state.documents = [{ ...before, verified, verifiedAt: verified ? 'reviewed now' : null, verifiedBy: verified ? 'user' : null }]; },
-    renderApp: () => { rendered++; }, captureFocus: () => null, restoreFocus: () => {}, externalRefresh: { trigger: () => {} } });
+    renderApp: () => { rendered++; }, captureFocus: () => null, restoreFocus: () => {}, externalRefresh: { trigger: () => {} },
+    inboxController: { summary: async () => {} } });
   install(context, 'async function refreshFromOutside()', 'const externalRefresh =');
   assert.equal(await vm.runInContext('refreshFromOutside()', context), true);
   assert.equal(fetched, 1); assert.equal(rendered, 1);

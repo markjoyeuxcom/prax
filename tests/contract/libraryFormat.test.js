@@ -40,6 +40,18 @@ updated_at: 2026-05-20T08:11:09.000Z
 kind: source
 content_hash: 47421290090a9c1fbe1c5d3a7c2f9d8e4b1a6c3e8d5f2a9b7c4e1d8a5b2f9c6e3d
 updated_by: user
+prax_export_version: 3
+id: null
+status: "active"
+archived_at: null
+verified: false
+verified_at: null
+verified_by: null
+updated_by_agent: null
+source_filename: null
+external_refs: []
+code_refs: []
+task_ids: []
 links:
   derived-from: []
   supersedes: []

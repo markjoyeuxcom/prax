@@ -5,6 +5,19 @@ project's Library holds its architecture, decisions and runbooks; the memory pro
 holds reusable conventions across repositories. Every project participates in recall.
 Agent authorship and human verification are separate from where a document belongs.
 
+## Capture and review
+
+Inbox and Memory are default system projects. Put known work directly in its owning project;
+use Inbox when the owner is unclear. **Inbox → To process** lists pending tasks and notes,
+oldest first. **Process Inbox** offers filing, a task planning date, completion, keeping a
+linked reference, archive and skip, with guarded undo. Task reference creation preserves
+notes/checklists and archives the original; the generated reference stays unverified.
+
+Saved documents tagged `weekly-review` live in **Reviews** and do not count as unprocessed
+captures. New weekly reviews link to processing. Optional AI suggestions prepare a form for
+your review; they never file, merge, delete or verify automatically. Close keeps an unfinished
+decision in the same tab, and a lost response can be reconciled by retrying that decision.
+
 ## Install the commands and instructions
 
 With a source checkout, use `node cli/prax.js` directly or `npm link` to install `prax`.

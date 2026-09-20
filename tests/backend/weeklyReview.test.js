@@ -133,3 +133,13 @@ test('generate -> idempotent regenerate -> verified refusal, through the real ap
 
   await app.close();
 });
+
+test('Inbox aging includes loose notes, excludes reviews and links directly to processing', () => {
+  const fixture = fixtureWeek();
+  fixture.documents.push({ id: 'loose', title: 'Loose capture', body: '', projectId: 'inbox-1', createdAt: '2026-06-01T00:00:00Z' },
+    { id: 'review', title: 'Saved review', body: '', projectId: 'inbox-1', createdAt: '2026-06-01T00:00:00Z', tags: ['weekly-review'] });
+  const { markdown, stats } = compileWeeklyReview(fixture);
+  assert.equal(stats.inboxAging, 2);
+  assert.match(markdown, /Loose capture/); assert.doesNotMatch(markdown, /Saved review/);
+  assert.match(markdown, /\[Process Inbox\]\(#inbox-process\)/);
+});

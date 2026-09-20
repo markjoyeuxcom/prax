@@ -87,6 +87,10 @@ export function verifyDesktopRelease({ tag = null, requirePrepared = false } = {
     for (const [relative, description] of [
       ['server/index.js', 'staged Fastify entry point'],
       ['server/desktopLifecycle.js', 'staged desktop lifecycle'],
+      ['server/workspaceBackup.js', 'staged workspace backup endpoint'],
+      ['scripts/restore-database.js', 'staged checksum-guarded restore command'],
+      ['scripts/backup-database.js', 'staged online backup command'],
+      ['public/starter-content/workspace-restore.md', 'staged workspace restore guide'],
       ['public/index.html', 'staged frontend'],
       ['package.json', 'staged package manifest'],
       // A dmg-only machine gets its CLI, MCP server and agent skills from the

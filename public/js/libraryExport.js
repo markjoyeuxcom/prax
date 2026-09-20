@@ -1,63 +1,4 @@
-const YAML_QUOTE_TRIGGER = /[:"\\\n#]|^-|^\s|\s$/;
-
-function yamlString(value) {
-  const str = String(value ?? '');
-  if (str === '') return '""';
-  if (!YAML_QUOTE_TRIGGER.test(str)) return str;
-  return `"${str.replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/"/g, '\\"')}"`;
-}
-
-function renderLinksBlock(links) {
-  const groups = links || { 'derived-from': [], supersedes: [] };
-  const relationOrder = ['derived-from', 'supersedes'];
-  const lines = ['links:'];
-  for (const relation of relationOrder) {
-    const entries = Array.isArray(groups[relation]) ? groups[relation] : [];
-    if (entries.length === 0) {
-      lines.push(`  ${relation}: []`);
-      continue;
-    }
-    lines.push(`  ${relation}:`);
-    for (const entry of entries) {
-      lines.push(`    - id: ${entry.id}`);
-      lines.push(`      ref: ${yamlString(entry.ref || '')}`);
-    }
-  }
-  return lines.join('\n');
-}
-
-function formatFrontMatter(doc, projectSlug, links) {
-  const tags = Array.isArray(doc.tags) ? doc.tags : [];
-  const tagsBlock = tags.length === 0
-    ? 'tags: []'
-    : `tags:\n${tags.map(tag => `  - ${yamlString(tag)}`).join('\n')}`;
-  const slug = projectSlug && String(projectSlug).trim() ? String(projectSlug) : 'unknown';
-  const linksBlock = renderLinksBlock(links);
-
-  return [
-    '---',
-    `title: ${yamlString(doc.title || '')}`,
-    `type: ${yamlString(doc.documentType || 'note')}`,
-    `project: ${yamlString(slug)}`,
-    tagsBlock,
-    `created_at: ${doc.createdAt || ''}`,
-    `updated_at: ${doc.updatedAt || ''}`,
-    `kind: ${doc.kind || 'source'}`,
-    `content_hash: ${doc.contentHash || ''}`,
-    `updated_by: ${doc.updatedBy || 'user'}`,
-    linksBlock,
-    '---',
-    '',
-  ].join('\n');
-}
-
-export function buildExportedMarkdown(doc, projectSlug, links) {
-  const frontMatter = formatFrontMatter(doc, projectSlug, links);
-  const body = String(doc?.body ?? '');
-  if (body === '') return frontMatter;
-  const bodyWithNewline = body.endsWith('\n') ? body : `${body}\n`;
-  return `${frontMatter}\n${bodyWithNewline}`;
-}
+export { renderDocumentMarkdown as buildExportedMarkdown } from './documentMarkdownExport.js';
 
 function basename(value) {
   return String(value || '').split(/[\\/]/).pop() || '';
@@ -117,6 +58,15 @@ export function libraryArchiveFilename(scope = 'all', now = new Date()) {
   return `prax-library-${safeScope}-${day}.zip`;
 }
 
+export function workspaceArchiveFilename(now = new Date()) {
+  return `prax-workspace-${now.toISOString().slice(0, 10)}.zip`;
+}
+
+export function libraryArchiveUrl(scope = 'all', { format = 'markdown', includeArchived = false } = {}) {
+  if (format === 'workspace') return '/api/workspace/backup';
+  return `/api/library/export?project=${encodeURIComponent(scope || 'all')}${includeArchived ? '&includeArchived=true' : ''}`;
+}
+
 export function libraryExportDestinationMode(options = {}) {
   const globalRef = options.globalRef || globalThis;
   if (options.desktopShell && typeof globalRef.__TAURI__?.core?.invoke === 'function') return 'desktop';
@@ -140,7 +90,7 @@ async function archiveFetchError(response) {
 
 export async function fetchLibraryArchive(scope, options = {}) {
   const fetchImpl = options.fetchImpl || globalThis.fetch;
-  const response = await fetchImpl(`/api/library/export?project=${encodeURIComponent(scope || 'all')}`);
+  const response = await fetchImpl(libraryArchiveUrl(scope, options));
   if (!response.ok) throw new Error(await archiveFetchError(response));
   return response.blob();
 }
@@ -150,7 +100,7 @@ function pickerWasCancelled(error) {
 }
 
 /**
- * Save an active-library Markdown archive using the strongest destination API
+ * Save a Markdown archive or a complete workspace backup using the strongest destination API
  * available to the host. Returns a truthful outcome; picker cancellation is
  * deliberately neutral rather than an error.
  */
@@ -160,7 +110,7 @@ export async function saveLibraryArchive({ scope = 'all', filename, mode, ...opt
     desktopShell: options.desktopShell,
     globalRef,
   });
-  const suggestedName = filename || libraryArchiveFilename(scope);
+  const suggestedName = filename || (options.format === 'workspace' ? workspaceArchiveFilename() : libraryArchiveFilename(scope));
 
   if (destinationMode === 'browser-picker') {
     let handle;
@@ -201,7 +151,7 @@ export async function saveLibraryArchive({ scope = 'all', filename, mode, ...opt
 
   const documentRef = options.documentRef || globalRef.document;
   const anchor = documentRef.createElement('a');
-  anchor.href = `/api/library/export?project=${encodeURIComponent(scope || 'all')}`;
+  anchor.href = libraryArchiveUrl(scope, options);
   anchor.download = suggestedName;
   anchor.style.display = 'none';
   documentRef.body.appendChild(anchor);

@@ -5,6 +5,8 @@ import fastifyStatic from '@fastify/static';
 import { assertSafeNetworkBinding, isLoopbackHost, loadConfig } from './config.js';
 import { createDb } from './db.js';
 import { runMigrations } from './migrate.js';
+import { registerInboxRoutes } from './inboxRoutes.js';
+import { registerWorkspaceBackupRoutes } from './workspaceBackup.js';
 import { registerTasksRoutes } from './tasksRoutes.js';
 import { registerLibraryRoutes } from './libraryRoutes.js';
 import { registerStarterContentRoutes } from './starterContent.js';
@@ -112,6 +114,8 @@ export async function buildApp(options = {}) {
   await registerLibraryRoutes(app, options);
   registerStarterContentRoutes(app);
   await registerProjectsRoutes(app, options);
+  registerInboxRoutes(app, options);
+  registerWorkspaceBackupRoutes(app);
   await registerChecklistRoutes(app, options);
   await registerSettingsRoutes(app, { config, appSettingsRepository, embedder: options.embedder, embedderProvider, chat: options.chat, chatProvider, libraryRepository });
   await registerGoogleCalendarRoutes(app, { ...options, appSettingsRepository });

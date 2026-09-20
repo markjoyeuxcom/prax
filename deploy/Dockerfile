@@ -25,6 +25,7 @@ COPY --chown=node:node cli ./cli
 COPY --chown=node:node skills ./skills
 COPY --chown=node:node scripts/migrate.js ./scripts/migrate.js
 COPY --chown=node:node scripts/backup-database.js ./scripts/backup-database.js
+COPY --chown=node:node scripts/restore-database.js ./scripts/restore-database.js
 COPY --chown=node:node public ./public
 
 USER node

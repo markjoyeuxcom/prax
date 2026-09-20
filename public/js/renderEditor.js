@@ -167,7 +167,7 @@ function renderHead(state, doc, { mode, readOnly, project }) {
 
   return `
     <header class="editor-head">
-      <button class="editor-head__back" type="button" data-action="back-to-library" title="Back to library" aria-label="Back to library">←</button>
+      <button class="editor-head__back" type="button" data-action="back-to-library" title="Back to ${state.editorReturnView?.kind === 'inbox' ? 'Inbox' : 'library'}" aria-label="Back to ${state.editorReturnView?.kind === 'inbox' ? 'Inbox' : 'library'}">←</button>
       <input class="editor-head__title" type="text" data-doc-title value="${escapeHtml(title || '')}" aria-label="Document title" autocomplete="off" spellcheck="false"${readOnly ? ' readonly' : ''}>
       <div class="editor-head__tags">${projectChip(project?.name, project?.color)}${tags.map((tag) => chip(`#${tag}`, 'tag')).join('')}${trustChips(doc)}</div>
       <button class="btn-ghost btn-ghost--toggle${state.outlineOpen ? ' is-on' : ''}" type="button" data-action="toggle-outline" aria-pressed="${Boolean(state.outlineOpen)}">Outline</button>

@@ -1,4 +1,4 @@
-import { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync, backup } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
@@ -115,6 +115,13 @@ export function createDb(databaseFile) {
   return {
     query,
     connect,
+    async snapshot(destination) {
+      // Wait for a complete transaction and hold the same FIFO gate while
+      // SQLite copies this handle, including :memory: databases and WAL data.
+      const client = await connect();
+      try { return await backup(db, destination); }
+      finally { client.release(); }
+    },
     async checkReady() {
       db.prepare('select 1').get();
       return true;

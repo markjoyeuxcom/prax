@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { resolveProjectId } from './helpers/seed.js';
+import AxeBuilder from '@axe-core/playwright';
 
 test('Library export chooses scope and writes the ZIP through the browser Save dialog', async ({ page }) => {
   await page.addInitScript(() => {
@@ -107,3 +108,57 @@ test('Settings project and entire-Library actions use the same export dialog', a
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   await expect(allAction).toBeFocused();
 });
+
+test('Archive is optional for Markdown and complete workspace backup downloads actual SQLite ZIP bytes', async ({ page }) => {
+  await page.addInitScript(() => { window.showSaveFilePicker = undefined; });
+  await page.goto('/');
+  await page.locator('[data-action="nav-library"]').first().click();
+  await page.locator('[data-action="toggle-library-menu"]').click();
+  await page.locator('[data-action="export-library"]').first().click();
+  const dialog = page.getByRole('dialog', { name: 'Export Library' });
+  await dialog.locator('[data-library-export-scope]').selectOption('work');
+  await dialog.getByLabel('Include archived documents').check();
+  const markdownDownload = page.waitForEvent('download');
+  await dialog.getByRole('button', { name: 'Download ZIP' }).click();
+  expect((await markdownDownload).url()).toContain('project=work&includeArchived=true');
+  await page.locator('[data-action="toggle-library-menu"]').click();
+  await page.locator('[data-action="export-library"]').first().click();
+  await dialog.getByLabel('Export format').selectOption('workspace');
+  await expect(dialog.getByLabel('Export scope')).toBeDisabled();
+  await expect(dialog).toContainText('saved provider credentials');
+  const downloaded = page.waitForEvent('download');
+  await dialog.getByRole('button', { name: 'Download ZIP' }).click();
+  const download = await downloaded;
+  expect(download.suggestedFilename()).toMatch(/^prax-workspace-.*\.zip$/);
+  const stream = await download.createReadStream(); const chunks = [];
+  for await (const chunk of stream) chunks.push(chunk);
+  const bytes = Buffer.concat(chunks);
+  expect(bytes.readUInt32LE(0)).toBe(0x04034b50);
+  for (const name of ['prax.db', 'manifest.json', 'RESTORE.md']) expect(bytes.includes(Buffer.from(name))).toBe(true);
+  expect(await download.failure()).toBe(null);
+});
+
+for (const width of [1440, 360]) {
+  test(`both export formats stay accessible and usable at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/');
+    await page.locator('[data-action="nav-library"]').first().click();
+    await page.locator('[data-action="toggle-library-menu"]').click();
+    await page.locator('[data-action="export-library"]').first().click();
+    const dialog = page.getByRole('dialog', { name: 'Export Library' });
+    for (const format of ['markdown', 'workspace']) {
+      await dialog.getByLabel('Export format').selectOption(format);
+      for (const theme of ['light', 'dark']) {
+        await page.locator('body').evaluate((body, value) => body.setAttribute('data-theme', value), theme);
+        const audit = await new AxeBuilder({ page }).include('.library-export').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
+        expect(audit.violations).toEqual([]);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await dialog.locator('[data-action="submit-library-export"]').scrollIntoViewIfNeeded();
+        await expect(dialog.locator('[data-action="submit-library-export"]')).toBeInViewport();
+      }
+    }
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(dialog).toHaveCount(0);
+  });
+}

@@ -138,7 +138,7 @@ test('DELETE /permanent deletes a non-empty project and reports what went with i
   assert.equal((await app.inject({ method: 'DELETE', url: '/api/projects/not-a-uuid/permanent' })).statusCode, 400);
 });
 
-test('DELETE /permanent removes the project with its tasks and documents in one go; Inbox is deletable', async () => {
+test('DELETE /permanent removes an ordinary project with its tasks and documents in one go', async () => {
   const { buildApp } = await import('../../server/index.js');
   const { loadConfig } = await import('../../server/config.js');
   const app = await buildApp({ config: loadConfig({ PRAX_DB_FILE: ':memory:', EMBEDDING_BACKEND: 'none' }) });
@@ -157,12 +157,12 @@ test('DELETE /permanent removes the project with its tasks and documents in one 
   const { rows } = await app.db.query('select count(*) as n from task_checklist_items');
   assert.equal(Number(rows[0].n), 0, 'checklist items cascade with their task');
 
-  // Inbox is an ordinary project now: it can be renamed and deleted like any other.
+  // Both system projects survive ordinary project deletion.
   const inbox = (await app.inject({ method: 'GET', url: '/api/projects' })).json().find((p) => p.slug === 'inbox');
-  assert.equal((await app.inject({ method: 'PATCH', url: `/api/projects/${inbox.id}`, payload: { name: 'Triage' } })).statusCode, 200);
-  assert.equal((await app.inject({ method: 'DELETE', url: `/api/projects/${inbox.id}/permanent` })).statusCode, 200);
+  assert.equal((await app.inject({ method: 'PATCH', url: `/api/projects/${inbox.id}`, payload: { name: 'Triage' } })).statusCode, 403);
+  assert.equal((await app.inject({ method: 'DELETE', url: `/api/projects/${inbox.id}/permanent` })).statusCode, 403);
 
-  // The Memory project exists on a fresh database and is the one that stays.
+  // Memory keeps its existing protection.
   const memory = (await app.inject({ method: 'GET', url: '/api/projects' })).json().find((p) => p.slug === 'memory');
   assert.ok(memory, 'memory project is seeded');
   assert.equal((await app.inject({ method: 'DELETE', url: `/api/projects/${memory.id}/permanent` })).statusCode, 403);

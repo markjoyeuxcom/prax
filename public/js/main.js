@@ -6,6 +6,11 @@ import { documentDraftPatch, mergeDocumentDraft } from './documentDraftMerge.js'
 import { openDocumentInfoDraft, normalizeInfoFields, documentInfoPatch, mergeDocumentInfo, documentInfoCommitted, rebaseDocumentInfoDraft } from './documentInfoDraft.js';
 import { loadAssistantRecovery, saveAssistantRecovery } from './assistantRecovery.js';
 import { createProjectDrafts } from './projectDrafts.js';
+import { getSystemProject, isSystemProject } from './systemProject.js';
+import { captureLibraryReturn, libraryReturnPatch, libraryViewKey } from './libraryReturn.js';
+import { createInboxController } from './inboxController.js';
+import { renderInboxSummary, renderInboxView, renderInboxDialog } from './renderInbox.js';
+import { INBOX_LINK } from './inboxModel.js';
 // Prax — application orchestrator.
 // Render modules are pure state → HTML string functions; this file owns data
 // loading, event delegation (single delegated click/input/change listeners
@@ -76,7 +81,7 @@ import {
   storeTaskCaptureRecovery,
 } from './taskCaptureRecovery.js';
 import {
-  libraryArchiveFilename, libraryExportDestinationMode, libraryExportFailureMessage, saveLibraryArchive,
+  libraryArchiveFilename, workspaceArchiveFilename, libraryExportDestinationMode, libraryExportFailureMessage, saveLibraryArchive,
   triggerLibraryDocumentDownload,
 } from './libraryExport.js';
 import { tasksFromImportPayload, exportFilename, normalizeImportMode } from './importExport.js';
@@ -378,7 +383,12 @@ async function refreshFromOutside() {
   // once the write has settled (the refresher runs it after its interval).
   if (applied === 'stale') externalRefresh.trigger('stale');
   const after = `${collectionFingerprint(state.tasks)}#${collectionFingerprint(state.documents)}`;
-  const changed = after !== before;
+  const priorInbox = JSON.stringify(state.inbox?.summary);
+  await inboxController.summary();
+  const changed = after !== before || priorInbox !== JSON.stringify(state.inbox?.summary);
+  if (changed && state.navType === 'project' && state.navId === inboxProjectId() && ['inbox', 'reviews'].includes(state.tab)) {
+    await inboxController.load(state.tab === 'reviews' ? 'reviews' : 'pending');
+  }
   // A document open in the editor owns its surface: rebuilding the DOM would
   // re-mount CodeMirror under the caret. The state is installed; the next
   // navigation renders it.
@@ -390,6 +400,14 @@ async function refreshFromOutside() {
   return changed;
 }
 const externalRefresh = createExternalRefresh({ load: refreshFromOutside });
+const inboxController = createInboxController({
+  getState: () => state, setState,
+  render: () => { if ((state.navType === 'project' && state.navId === inboxProjectId()) || state.inbox?.processing) renderApp(); },
+  toast: showToast,
+  refresh: async () => { await Promise.all([loadTasks({ announceReminders: false }), loadDocuments()]); },
+  openDocument: openDocumentInEditor,
+  openTask: async id => { await loadTasks({ announceReminders: false }); await openTaskDrawer(id); },
+});
 
 async function loadDeploymentStatus() {
   setState({ deploymentStatus: { loading: true, error: '' } });
@@ -1189,6 +1207,7 @@ function applyProjectPatchLocal(id, patch) {
 // Inline project rename from the header title. The slug stays stable (name is a
 // display label); resolveProject matches the new name, so nothing breaks.
 function startRenameProject(id) {
+  if (isSystemProject(projectsById()[id])) return;
   setState({ renamingProjectId: id });
   renderApp();
 }
@@ -1198,7 +1217,7 @@ async function saveRenameProject(id, rawValue) {
   const value = (rawValue || '').trim();
   const project = projectsById()[id];
   setState({ renamingProjectId: null });
-  if (!value || !project || value === project.name) { renderApp(); return; }
+  if (!value || !project || isSystemProject(project) || value === project.name) { renderApp(); return; }
   applyProjectPatchLocal(id, { name: value }); // optimistic
   renderApp();
   try {
@@ -2660,6 +2679,11 @@ async function openDocumentInEditor(documentId, { isCurrent = () => true } = {})
   if (state.navType === 'editor' && state.editorDocId === documentId) return true;
   if (!(await prepareEditorNavigation(documentId))) return false;
   if (!isCurrent()) return false;
+  const returnView = state.navType === 'library'
+    ? { ...captureLibraryReturn(state, { documentId, scrollTop: appRoot.querySelector('.main__scroll')?.scrollTop }), collectionWindow: { ...libraryCollectionWindow }, documentsFingerprint: collectionFingerprint(state.documents) }
+    : (state.navType === 'editor' ? state.editorReturnView
+      : (state.navType === 'project' && state.navId === inboxProjectId()
+        ? { kind: 'inbox', projectId: state.navId, tab: state.tab } : null));
   destroyEditorController();
   let doc = state.documents.find(d => d.id === documentId);
   if (!doc) {
@@ -2672,7 +2696,7 @@ async function openDocumentInEditor(documentId, { isCurrent = () => true } = {})
   seedEditorDraft(doc);
   writeToken += 1; // drop any in-flight writing action from a previous doc
   setState({
-    navType: 'editor', editorFocus: false, writeMenuOpen: false, writeSelection: null, writeContext: null, writeResult: null, writeLoading: false, writeError: null,
+    navType: 'editor', editorReturnView: returnView, editorFocus: false, writeMenuOpen: false, writeSelection: null, writeContext: null, writeResult: null, writeLoading: false, writeError: null,
     recentDocuments: saveRecentDocuments(pushRecentDocument(state.recentDocuments, documentId)),
   });
   renderApp();
@@ -3279,6 +3303,8 @@ function openLibraryExport(scope = 'all', returnAction = 'export-library') {
   setState({
     libraryExportOpen: true,
     libraryExportScope: selectedScope,
+    libraryExportFormat: 'markdown',
+    libraryExportIncludeArchived: false,
     libraryExportFilename: libraryArchiveFilename(selectedScope),
     libraryExportPending: false,
     libraryExportError: '',
@@ -3316,6 +3342,8 @@ async function submitLibraryExport() {
       scope,
       filename,
       mode,
+      format: state.libraryExportFormat,
+      includeArchived: state.libraryExportIncludeArchived,
       desktopShell: state.desktopShell,
     });
     if (result.status === 'cancelled') {
@@ -3791,7 +3819,7 @@ async function advanceReviewWalk() {
   if (next >= walk.ids.length) {
     const verified = walk.verified;
     setState({ reviewWalk: null });
-    await goLibrary({ libraryView: 'review' });
+    await goLibrary({ libraryView: 'review' }, { restore: true });
     showToast(verified ? `Queue walked — ${verified === 1 ? '1 document' : `${verified} documents`} verified.` : 'Queue walked — nothing verified.');
     return;
   }
@@ -3875,19 +3903,40 @@ async function goProject(projectId, tab = 'list') {
     recentProjects: saveRecent(pushRecent(state.recentProjects, projectId)),
   });
   persistActiveProject(projectId);
+  if (projectId === inboxProjectId()) {
+    if (['inbox', 'reviews'].includes(tab)) void inboxController.load(tab === 'reviews' ? 'reviews' : 'pending');
+    else void inboxController.summary().then(() => { if (state.navType === 'project' && state.navId === projectId) renderApp(); });
+  }
   externalRefresh.trigger('navigate');
   if (tab === 'archive') loadArchivedTasks().then(renderApp);
   renderApp();
   return true;
 }
 
-async function goLibrary(extra = {}) {
+let pendingLibraryScroll = null;
+let lastLibraryRenderKey = null;
+
+async function goLibrary(extra = {}, { restore = false } = {}) {
   if (!(await prepareEditorNavigation())) return false;
   destroyEditorController();
-  setState({ navType: 'library', editorFocus: false, ...resetLibraryFilters(), ...extra });
+  const snapshot = restore && state.editorReturnView?.kind === 'library' ? state.editorReturnView : null;
+  setState({ navType: 'library', editorFocus: false, ...resetLibraryFilters(),
+    ...libraryReturnPatch(snapshot), ...extra, editorReturnView: null, reviewWalk: null });
+  if (snapshot?.collectionWindow) libraryCollectionWindow = { ...snapshot.collectionWindow };
+  if (snapshot) pendingLibraryScroll = { key: libraryViewKey(state), top: snapshot.scrollTop, documentId: snapshot.documentId };
   renderApp();
+  const semanticReturn = snapshot && state.librarySemantic && state.libraryQuery.trim();
+  let refreshedSearch = false;
+  function refreshChangedSearch() {
+    if (!semanticReturn || refreshedSearch || state.navType !== 'library' || libraryViewKey(state) !== snapshot.key) return;
+    if (snapshot.pendingSearch || snapshot.documentsFingerprint !== collectionFingerprint(state.documents)) {
+      refreshedSearch = true;
+      void runSemanticSearch();
+    }
+  }
+  refreshChangedSearch();
   loadDocuments()
-    .then((applied) => { if (applied && state.navType === 'library') renderApp(); })
+    .then((applied) => { if (applied && state.navType === 'library') { refreshChangedSearch(); renderApp(); } })
     .catch(() => { if (state.navType === 'library') alertError('load the library'); });
   return true;
 }
@@ -3987,6 +4036,7 @@ function sidebarCounts() {
   const { badge } = buildTodayGroups(state.tasks, state.projects, { now });
   // The archive collection swaps state.documents; no queue count from it.
   const reviewCount = state.libraryView === 'archive' ? 0 : reviewQueue(state.documents).length;
+  if (state.inbox?.summary && inboxProjectId()) projectOpen[inboxProjectId()] = state.inbox.summary.total;
   return { todayBadge: badge, projectOpen, reviewQueue: reviewCount };
 }
 
@@ -4113,10 +4163,12 @@ function renderMainHtml() {
     default: {
       const tasks = projectTasks();
       const project = projectsById()[state.navId];
+      const system = getSystemProject(project);
       const chipClass = `chip--state-${project?.status || 'active'}`;
       const backlogCount = tasks.filter(t => designStatus(t.status) === 'backlog' && !t.archivedAt).length;
       const archiveCount = state.tab === 'archive' ? state.archivedTasks.length : 0;
-      const tabs = [['list', 'List'], ['board', 'Board'], ['backlog', 'Backlog'], ['archive', 'Archive']]
+      const inboxView = project?.slug === 'inbox';
+      const tabs = [...(inboxView ? [['inbox', 'To process'], ['reviews', 'Reviews']] : []), ['list', 'List'], ['board', 'Board'], ['backlog', 'Backlog'], ['archive', 'Archive']]
         .map(([key, label]) => {
           const count = key === 'backlog' ? backlogCount : (key === 'archive' ? archiveCount : 0);
           const suffix = count ? ` · ${count}` : '';
@@ -4127,7 +4179,10 @@ function renderMainHtml() {
         ? `<div class="tabs__right"><button class="btn-ghost" type="button" data-action="cycle-group">Group: ${groupLabel}</button>${renderDensityToggle(state)}</div>`
         : '';
       let body = '';
-      if (state.tab === 'board') {
+      if (inboxView && ['inbox', 'reviews'].includes(state.tab)) {
+        body = renderInboxView(state.inbox);
+        flatIds = [];
+      } else if (state.tab === 'board') {
         const columns = buildBoardColumns(state, tasks, { now });
         const collection = limitBoardColumns(
           columns,
@@ -4162,10 +4217,10 @@ function renderMainHtml() {
         flatIds = collection.flatIds;
         body = renderListHtml(state, collection.groups, { collection }) + renderBulkBarHtml(state);
       }
-      const canRename = project && project.slug !== INBOX_SLUG;
+      const canRename = project && !system;
       // Ops metadata (on call / handoff / repo / area) sits on its own row under
       // an Ops disclosure; the title keeps the header row (year-one shell spec).
-      const hasOps = Boolean(project) && project.slug !== INBOX_SLUG;
+      const hasOps = Boolean(project) && !system;
       const opsCollapsed = hasOps && isCollapsed(state.collapsedSections, opsSectionKey(project.id));
       const titleHtml = (canRename && state.renamingProjectId === project.id)
         ? `<input class="page-head__rename" type="text" data-project-rename data-project-id="${escapeHtml(project.id)}" value="${escapeHtml(project.name)}" aria-label="Rename project" autocomplete="off" spellcheck="false">`
@@ -4175,9 +4230,11 @@ function renderMainHtml() {
         <header class="page-head">
           <span class="page-head__dot" style="--dot:${project ? projectColor(project) : 'var(--accent)'}"></span>
           ${titleHtml}
-          <span class="chip ${chipClass}">${escapeHtml((project?.status || 'active').replace('-', ' '))}</span>
+          <span class="chip ${system ? 'chip--system' : chipClass}">${escapeHtml(system ? `System · ${system.purpose}` : (project?.status || 'active').replace('-', ' '))}</span>
           ${hasOps ? renderOpsToggleHtml(project, { collapsed: opsCollapsed }) : ''}
         </header>
+        ${system ? `<p class="view-hint">${escapeHtml(system.description)}</p>` : ''}
+        ${inboxView ? renderInboxSummary(state.inbox) : ''}
         ${hasOps ? renderProjectOpsHtml(project, { collapsed: opsCollapsed, revealed: state.revealedOpsFields }) : ''}
         <nav class="tabs">${tabs}${right}</nav>
         ${body}
@@ -4188,6 +4245,7 @@ function renderMainHtml() {
 
 function renderOverlaysHtml() {
   let html = '';
+  html += renderInboxDialog(state.inbox);
   if (state.templateStudio) html += renderTemplateStudioHtml(state.templateStudio, templateStudioChoices, markdownImportProjects(), renderMarkdownHtml(state.templateStudio.source.body));
   if (state.drawerTaskId) {
     const task = taskById(state.drawerTaskId);
@@ -4291,6 +4349,11 @@ function renderCaptureOverlayLayer({ restoreFocus = false } = {}) {
 
 function renderApp() {
   if (!appRoot) return;
+  const currentLibraryKey = state.navType === 'library' ? libraryViewKey(state) : null;
+  const retainedLibraryScroll = currentLibraryKey && currentLibraryKey === lastLibraryRenderKey
+    ? appRoot.querySelector('.main__scroll')?.scrollTop : null;
+  const retainedLibraryFocus = retainedLibraryScroll != null && document.activeElement?.dataset.action === 'open-doc'
+    ? document.activeElement.dataset.documentId : null;
   // A render can land between the browser updating an input's DOM value and
   // dispatching its input event (notably when drawer context resolves). Only
   // the FOCUSED field can hold such an unflushed keystroke — an unfocused
@@ -4358,10 +4421,26 @@ function renderApp() {
     </div>
     <div data-overlay-root>${renderOverlaysHtml()}</div>`;
   afterRender();
+  const returning = pendingLibraryScroll?.key === currentLibraryKey ? pendingLibraryScroll : null;
+  if (returning?.documentId || retainedLibraryFocus) {
+    [...appRoot.querySelectorAll('[data-action="open-doc"], [data-action="open-library-doc"]')]
+      .find(el => (el.dataset.documentId || el.dataset.libraryDocumentId) === (returning?.documentId || retainedLibraryFocus))?.focus({ preventScroll: true });
+  }
+  const scroll = appRoot.querySelector('.main__scroll');
+  if (scroll && (returning || retainedLibraryScroll != null)) scroll.scrollTop = returning ? returning.top : retainedLibraryScroll;
+  pendingLibraryScroll = null;
+  lastLibraryRenderKey = currentLibraryKey;
 }
 
 function afterRender() {
   mountEditorIfNeeded();
+  if (state.inbox?.processing) {
+    const dialog = appRoot.querySelector('[data-inbox-dialog]');
+    if (dialog && !dialog.contains(document.activeElement)) {
+      (dialog.querySelector('[data-inbox-field]:not([disabled])') || dialog)?.focus({ preventScroll: true });
+    }
+    return;
+  }
   if (restoreTemplateStudioFocus && !state.templateStudio) {
     restoreTemplateStudioFocus = false;
     appRoot.querySelector(`[data-action="${templateStudioReturnAction}"]`)?.focus();
@@ -4418,7 +4497,7 @@ function afterRender() {
       ? appRoot.querySelector('[data-action="submit-markdown-import"]')
       : appRoot.querySelector('[data-markdown-import-project]'))?.focus();
   } else if (state.libraryExportOpen && !state.libraryExportPending) {
-    appRoot.querySelector('[data-library-export-scope]')?.focus();
+    appRoot.querySelector(state.libraryExportFormat === 'workspace' ? '[data-library-export-format]' : '[data-library-export-scope]')?.focus();
   } else if (state.confirm) {
     // Focus the text field when there is one; otherwise Cancel — never the
     // destructive action, so a stray Enter can't confirm a delete.
@@ -4586,6 +4665,27 @@ async function closeTaskDrawer() {
 // ---------------------------------------------------------------------------
 
 async function handleAction(action, el, event) {
+  if (action.startsWith('inbox-')) {
+    const handlers = {
+      'inbox-start': () => inboxController.start(el.dataset.kind, el.dataset.id),
+      'inbox-open': () => inboxController.openRecord(el.dataset.kind, el.dataset.id),
+      'inbox-close': () => inboxController.close(),
+      'inbox-skip': () => inboxController.skip(),
+      'inbox-item-reload': () => inboxController.reload(),
+      'inbox-reload': () => inboxController.load(),
+      'inbox-more': () => inboxController.load(undefined, { append: true }),
+      'inbox-file': () => inboxController.apply('file'),
+      'inbox-reference': () => inboxController.apply('reference'),
+      'inbox-complete': () => inboxController.apply('complete'),
+      'inbox-archive': () => inboxController.apply('archive'),
+      'inbox-retry': () => inboxController.apply(),
+      'inbox-undo': () => inboxController.undo(),
+      'inbox-suggest': () => inboxController.suggest(),
+      'inbox-use-suggestion': () => inboxController.useSuggestion(),
+    };
+    try { await handlers[action]?.(); } catch { showToast('Prax could not open this Inbox item. Your decision is retained.'); }
+    return;
+  }
   switch (action) {
     // ---- navigation ----
     case 'nav-today': await navigateTopLevel({ navType: 'today', selectedTaskId: null, multiSelectIds: [] }); break;
@@ -4727,6 +4827,9 @@ async function handleAction(action, el, event) {
     case 'set-tab': {
       const tab = el.dataset.tab;
       setState({ tab, selectedTaskId: null, multiSelectIds: [] });
+      if (state.navId === inboxProjectId() && ['inbox', 'reviews'].includes(tab)) {
+        await inboxController.load(tab === 'reviews' ? 'reviews' : 'pending');
+      }
       if (tab === 'archive') await loadArchivedTasks();
       renderApp();
       break;
@@ -5328,9 +5431,10 @@ _Task:_ ${task.title || 'Untitled task'}`
     // ---- editor ----
     // Leaving a document opened from the review queue returns to the queue.
     case 'back-to-library': {
-      const toQueue = state.libraryView === 'review';
-      if (state.reviewWalk) setState({ reviewWalk: null });
-      await goLibrary(toQueue ? { libraryView: 'review' } : {});
+      const origin = state.editorReturnView;
+      if (origin?.kind === 'inbox') {
+        if (await goProject(origin.projectId, origin.tab)) setState({ editorReturnView: null, reviewWalk: null });
+      } else await goLibrary({}, { restore: true });
       break;
     }
     // Explicit exit from a failed/recovered/conflict document draft: without
@@ -6104,6 +6208,9 @@ _Task:_ ${task.title || 'Untitled task'}`
 
 function bindEvents() {
   appRoot.addEventListener('click', (event) => {
+    if (event.target.closest?.(`a[href="${INBOX_LINK}"]`)) {
+      event.preventDefault(); void goProject(inboxProjectId(), 'inbox'); return;
+    }
     if ((state.docMenuOpen || state.newDocMenuOpen || state.libraryMenuOpen || state.newMenuOpen || state.captureMenuOpen || state.writeMenuOpen) && !event.target.closest?.('.menu')) {
       setState({ docMenuOpen: false, newDocMenuOpen: false, libraryMenuOpen: false, newMenuOpen: false, captureMenuOpen: false, writeMenuOpen: false, writeSelection: null });
       // A click on another control should both dismiss the open menu and
@@ -6146,6 +6253,7 @@ function bindEvents() {
 
   appRoot.addEventListener('input', (event) => {
     const target = event.target;
+    if (target.matches?.('[data-inbox-field]')) { inboxController.change(target.dataset.inboxField, target.value); return; }
     if (target.matches?.('[data-template-field="title"]')) { updateTemplateStudio('title', target.value); return; }
     if (target.matches?.('[data-search-find]')) {
       setState({ searchQuery: target.value });
@@ -6320,6 +6428,7 @@ function bindEvents() {
 
   appRoot.addEventListener('change', (event) => {
     const target = event.target;
+    if (target.matches?.('[data-inbox-field]')) { inboxController.change(target.dataset.inboxField, target.value); return; }
     if (target.matches?.('[data-template-field]')) { updateTemplateStudio(target.dataset.templateField, target.value); return; }
     if (mirrorDocumentInfoInput(target)) return;
     if (target.matches?.('[data-task-due]')) {
@@ -6359,6 +6468,17 @@ function bindEvents() {
       }
       return;
     }
+    if (target.matches?.('[data-library-export-format], [data-library-export-archived]')) {
+      if (!state.libraryExportPending) {
+        const format = target.matches('[data-library-export-format]') ? (target.value === 'workspace' ? 'workspace' : 'markdown') : state.libraryExportFormat;
+        setState({ libraryExportFormat: format,
+          libraryExportIncludeArchived: target.matches('[data-library-export-archived]') ? target.checked : state.libraryExportIncludeArchived,
+          libraryExportFilename: format === 'workspace' ? workspaceArchiveFilename() : libraryArchiveFilename(state.libraryExportScope), libraryExportError: '' });
+        renderApp();
+        appRoot.querySelector(target.matches('[data-library-export-format]') ? '[data-library-export-format]' : '[data-library-export-archived]')?.focus();
+      }
+      return;
+    }
     if (target.matches?.('[data-library-export-scope]')) {
       if (!state.libraryExportPending) {
         const projects = libraryExportProjects();
@@ -6393,6 +6513,7 @@ function bindEvents() {
   });
 
   appRoot.addEventListener('keydown', async (event) => {
+    if (inboxController.keydown(event)) { event.stopPropagation(); return; }
     const target = event.target;
     const modalOverlay = state.templateStudio ? 'template-studio' : state.libraryExportOpen
       ? 'library-export'
@@ -7040,6 +7161,8 @@ async function init() {
     // toast. Otherwise render once here. This avoids two consecutive full DOM
     // builds on every startup with due tasks.
     if (!checkDueReminders()) renderApp();
+    inboxController.summary().then(() => { if (state.navType !== 'editor') renderApp(); });
+    if (state.navId === inboxProjectId() && ['inbox', 'reviews'].includes(state.tab)) void inboxController.load(state.tab === 'reviews' ? 'reviews' : 'pending');
     documentsPromise.then((applied) => {
       if (applied && (state.navType === 'library' || state.navType === 'settings')) renderApp();
     });
