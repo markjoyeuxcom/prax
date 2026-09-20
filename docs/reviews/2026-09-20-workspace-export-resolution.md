@@ -1,4 +1,4 @@
-# Workspace export resolution — v0.37.0 candidate
+# Workspace export resolution — v0.37.1 candidate
 
 The export audit's lifecycle and metadata gaps are corrected. Library export now offers readable
 Markdown v3, with optional Archive, or a full workspace backup ZIP for authoritative recovery.
@@ -24,7 +24,7 @@ This candidate also includes the reviewed default Inbox, processing workflow and
 
 ## Validation
 
-- `npm test`: 2,224 passed with no failures or skips; `npm run check` and desktop v0.37.0 version
+- `npm test`: 2,225 passed with no failures or skips; `npm run check` and desktop v0.37.1 version
   agreement passed. Source diff has no whitespace errors.
 - `tests/backend/workspaceBackup.test.js` uses production SQLite and actual ZIP bytes. It checks
   Markdown metadata, archived inclusion and link evidence; checksum/restore; every table's rows;
@@ -44,6 +44,15 @@ This candidate also includes the reviewed default Inbox, processing workflow and
 - GitLab publication evidence is recorded with the release and Prax task
   `d033a1c8-7fd8-455d-b44a-96d20f3d935b`. Publication requires all five CI jobs, both native
   packaged-runtime checks, the complete browser suite and verified package checksums.
+
+## Packaged command regression
+
+The v0.37.0 tag pipeline was cancelled before release publication. Its packaged restore rehearsal
+through `/tmp` (a symlink to `/private/tmp`) found that Node canonicalized the module URL but kept
+the alias in argv; the command returned exit 0 without running. Both backup and restore now compare
+canonical file identities through `server/cliEntrypoint.js`. A regression invokes both commands
+through symlinks and verifies the restored document. v0.37.0 remains a withheld tag; v0.37.1 carries
+the complete change and correction. The new tag must pass all release gates again.
 
 ## Boundaries
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { isDirectInvocation } from '../server/cliEntrypoint.js';
 
 import { loadConfig } from '../server/config.js';
 import { createOnlineBackup, validateSqliteBackup } from '../server/sqliteBackup.js';
@@ -62,7 +62,7 @@ async function main() {
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isDirectInvocation(import.meta.url)) {
   main().catch((error) => {
     console.error(error.message);
     process.exitCode = 1;

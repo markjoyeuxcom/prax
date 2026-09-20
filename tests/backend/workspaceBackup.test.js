@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID, createHash } from 'node:crypto';
 import { inflateRawSync } from 'node:zlib';
-import { mkdtemp, writeFile, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile, rm, stat, symlink } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { EventEmitter } from 'node:events';
@@ -128,6 +130,22 @@ test('database snapshot waits for transaction completion and blocks interleaved 
   await client.query('commit'); client.release(); await snapshot;
   const db = new DatabaseSync(join(directory, 'coherent.db'));
   try { assert.equal(db.prepare("select name from projects where slug='work'").get().name, 'Committed together'); }
+  finally { db.close(); }
+});
+
+test('backup and restore CLIs invoked through symlinks perform the operation and report its result', async t => {
+  const { directory, sourceFile, create } = await setup(t);
+  const doc = await create('Symlink command sentinel');
+  const backupCli = join(directory, 'backup-alias.js'), restoreCli = join(directory, 'restore-alias.js');
+  await symlink(fileURLToPath(new URL('../../scripts/backup-database.js', import.meta.url)), backupCli);
+  await symlink(fileURLToPath(new URL('../../scripts/restore-database.js', import.meta.url)), restoreCli);
+  const backupFile = join(directory, 'command-backup.db'), target = join(directory, 'command-restored.db');
+  const report = JSON.parse(execFileSync(process.execPath, [backupCli, '--output', backupFile], { encoding: 'utf8', env: { ...process.env, PRAX_DB_FILE: sourceFile } }));
+  assert.equal(report.integrityCheck, 'ok');
+  const restored = JSON.parse(execFileSync(process.execPath, [restoreCli, '--from', backupFile, '--to', target, '--sha256', report.sha256], { encoding: 'utf8' }));
+  assert.equal(restored.integrityCheck, 'ok');
+  const db = new DatabaseSync(target);
+  try { assert.equal(db.prepare('select title from markdown_documents where id = ?').get(doc.id).title, doc.title); }
   finally { db.close(); }
 });
 

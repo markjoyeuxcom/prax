@@ -12,7 +12,7 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
-## [0.37.0] - 2026-09-20
+## [0.37.1] - 2026-09-20
 
 ### Added
 
@@ -33,6 +33,9 @@ fresh empty `[Unreleased]` section is started.
 
 ### Fixed
 
+- **Backup and restore commands work through symlinked paths.** They resolve their entry point
+  correctly and perform the operation instead of exiting silently. Regression checks invoke both
+  commands through aliases and verify the restored data.
 - **Library exports retain current document metadata.** Markdown v3 includes each document's
   ID, lifecycle and verification state, specific agent, original filename, code/external references,
   linked task IDs and dependency hashes. Retired guidance keeps its status label. Full backups
@@ -46,6 +49,11 @@ fresh empty `[Unreleased]` section is started.
   capture and weekly review available. Both system projects show their purpose and hide
   forbidden rename, lifecycle and metadata controls. Tasks and notes can still be moved
   into their owning projects normally.
+
+## [0.37.0] - 2026-09-20
+
+Withheld before publication after the packaged restore rehearsal found a silent no-op through
+a symlinked command path. The tag is retained; use v0.37.1, which includes these features and the fix.
 
 ## [0.36.1] - 2026-09-20
 
@@ -1948,7 +1956,8 @@ and onboarding features with the corrected installation guide.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.37.0...HEAD
+[Unreleased]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.37.1...HEAD
+[0.37.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.37.0...v0.37.1
 [0.37.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.36.1...v0.37.0
 [0.36.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.36.0...v0.36.1
 [0.36.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.35.1...v0.36.0

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { chmodSync, existsSync } from 'node:fs';
 import { restoreDatabaseFromBackup, validateSqliteBackup } from '../server/sqliteBackup.js';
+import { isDirectInvocation } from '../server/cliEntrypoint.js';
 
 export function restoreWorkspaceDatabase({ from, to, sha256 } = {}) {
   if (!from || !to || !/^[a-f0-9]{64}$/i.test(sha256 || '')) throw new Error('--from, --to and the manifest --sha256 are required');
@@ -23,7 +23,7 @@ export function parseRestoreArgs(args) {
   }
   return result;
 }
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isDirectInvocation(import.meta.url)) {
   try {
     const options = parseRestoreArgs(process.argv.slice(2));
     if (options.help) console.log('Stop Prax first. Extract a full workspace backup ZIP, then run:\n  npm run restore -- --from /backup/prax.db --to /restored/prax.db --sha256 <database.sha256 from manifest.json>\nThe target database and its WAL/SHM files must not exist. Only restore a backup you trust; it includes saved provider settings.');
