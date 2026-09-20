@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -28,6 +28,11 @@ test('starters exist on fresh install; restart never seeds or overwrites user co
     const staticDoc = await app.inject({ url: `/starter-content/${item.id}.md` });
     assert.equal(staticDoc.statusCode, 200); assert.equal(staticDoc.body, item.body);
   }
+  const bundle = JSON.parse(readFileSync(new URL('../../src-tauri/tauri.conf.json', import.meta.url), 'utf8')).bundle;
+  const payloadRoot = bundle.resources.find(path => path.endsWith('/app'));
+  assert.ok(payloadRoot, 'desktop payload location is declared');
+  const installPath = `/Applications/Prax.app/Contents/Resources/${payloadRoot}/skills/install.sh`;
+  assert.ok(catalogue.items.find(x => x.id === 'agent-memory').body.includes(installPath), 'the starter installation command matches the actual desktop resource layout');
   const source = catalogue.items.find(x => x.id === 'project-overview');
   const job = buildTemplateJob({ source, title: 'Local overview', project: 'homelab', documentType: 'template' }, randomUUID());
   const doc = await ok(app, 'POST', '/api/library/documents', job.payload);
