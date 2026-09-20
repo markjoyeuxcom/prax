@@ -87,6 +87,7 @@ export function verifyDesktopRelease({ tag = null, requirePrepared = false } = {
     for (const [relative, description] of [
       ['server/index.js', 'staged Fastify entry point'],
       ['server/desktopLifecycle.js', 'staged desktop lifecycle'],
+      ['server/cliEntrypoint.js', 'staged CLI entrypoint handling'],
       ['server/workspaceBackup.js', 'staged workspace backup endpoint'],
       ['scripts/restore-database.js', 'staged checksum-guarded restore command'],
       ['scripts/backup-database.js', 'staged online backup command'],
