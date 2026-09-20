@@ -96,6 +96,7 @@ export const state = {
   linkPickerQuery: '',
 
   // ---- library ----
+  editorReturnView: null,
   selectedDocumentId: null,
   libraryQuery: '',
   librarySemantic: false,       // semantic mode toggle (spark)
@@ -118,6 +119,8 @@ export const state = {
   libraryExportOpen: false,
   libraryExportScope: 'all',       // 'all' or one owning project slug
   libraryExportFilename: '',       // render-stable suggestion shown before native/browser save
+  libraryExportFormat: 'markdown',
+  libraryExportIncludeArchived: false,
   libraryExportPending: false,
   libraryExportError: '',
   deploymentStatus: { loading: false, error: '' },

@@ -38,9 +38,17 @@ it. See [docs/desktop/BUILD.md](docs/desktop/BUILD.md#menu-bar-quick-capture-and
 - Executes runbooks as durable, resumable operational records with snapshotted steps and an actor-attributed event chronicle that survives source deletion.
 - Includes an Obsidian-style editor workspace with edit, preview, split, focus mode, live preview updates, CodeMirror editing, and Markdown helper buttons.
 - Ships light ("Porcelain") and dark ("Deep Fern") themes with four accent colours and a reading-size control; fully keyboard-driven — **⌘K command palette**, **quick capture (N)**, list navigation, and undo toasts.
-- Moves content through Settings: JSON task import/export (append / skip duplicates / replace-project modes) and scoped Markdown library export. Desktop and supporting browsers let you choose the ZIP destination; full-fidelity recovery uses the SQLite backup runbook.
+- Moves content through Settings: JSON task import/export (append / skip duplicates / replace-project modes) and scoped Markdown library export. Desktop and supporting browsers let you choose the ZIP destination; full workspace recovery uses the validated backup ZIP and bundled restore command.
 - Exposes the API to Claude Code through an optional local MCP server for interactive, subscription-backed task and document workflows.
 - Acts as **shared long-term memory for AI agents**: the portable `prax-recall` / `prax-remember` skills (Claude Code, Codex, Copilot CLI and Antigravity) and the `prax` CLI recall prior findings by meaning and persist new ones with agent provenance — see [skills/README.md](skills/README.md) and [docs/agent-memory.md](docs/agent-memory.md).
+- Includes protected **Inbox** and **Memory** system projects. Inbox receives unassigned
+  captures and workspace weekly reviews; Memory holds shared guidance. Upgrades restore
+  a missing Inbox while preserving any existing Inbox contents.
+- Processes Inbox captures into owning projects with optional planning dates, completion,
+  linked reference creation, archive, skip and guarded undo. Pending tasks and notes are
+  separate from saved reviews; age indicators and weekly-review links support regular triage.
+  Optional AI suggestions fill a reviewable form, with possible duplicates and clear coverage.
+- Returns from a document to the same Library filters, search, layout and scroll position.
 - Runs locally with plain Node or Docker Compose, or deploys to Kubernetes — the embedded SQLite database needs no separate server.
 
 ## Screenshots
@@ -134,7 +142,7 @@ docker compose -f compose.yaml -f compose.image.yaml up
 The image override expects:
 
 ```text
-registry.gitlab.com/markjoyeuxcom/apps/prax:v0.36.1
+registry.gitlab.com/markjoyeuxcom/apps/prax:v0.37.0
 ```
 
 Use source-build Compose for development, and use the published image path when you want to test the same artifact Kubernetes will run.
@@ -168,8 +176,8 @@ requests whose `Host` header is not a loopback name (`403`) — the DNS-rebindin
 `SECURITY.md` — so a reverse proxy on the same machine that forwards the public host name needs the
 same `PRAX_ALLOW_UNAUTHENTICATED_NETWORK=true` acknowledgement.
 
-Use the validated SQLite snapshot command for an authoritative backup. JSON/Markdown exports in
-Settings are portable content formats, not a full database backup — see
+Choose **Full workspace backup** in the Library export dialog, or use the validated SQLite
+snapshot command, for an authoritative backup. JSON/Markdown exports are portable content formats — see
 [docs/backup-restore.md](docs/backup-restore.md).
 
 ## Semantic Search (optional)

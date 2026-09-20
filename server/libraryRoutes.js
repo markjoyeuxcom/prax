@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { ZipArchive } from 'archiver';
+import { decorateExportDocuments } from './libraryExportData.js';
 import {
   createLibraryRepository,
   documentMatchesCreateFields,
@@ -296,6 +297,9 @@ export async function registerLibraryRoutes(app, options = {}) {
   }
 
   app.get('/api/library/export', async (request, reply) => {
+    if (request.query.includeArchived !== undefined && !['true', 'false'].includes(request.query.includeArchived)) {
+      return reply.code(400).send({ message: 'includeArchived must be true or false' });
+    }
     const projectParam = request.query.project;
     let projectId;
     let scope = 'all';
@@ -310,7 +314,7 @@ export async function registerLibraryRoutes(app, options = {}) {
       scope = resolved.slug;
     }
 
-    const documents = await repository.listActiveDocumentsForExport({ projectId });
+    const documents = await decorateExportDocuments(app.db, await repository.listActiveDocumentsForExport({ projectId, includeArchived: request.query.includeArchived === 'true' }));
     const isAll = scope === 'all';
 
     const entries = documents.map((doc) => ({
@@ -335,6 +339,7 @@ export async function registerLibraryRoutes(app, options = {}) {
 
     const filename = libraryArchiveFilename(scope);
     reply.header('Content-Type', 'application/zip');
+    reply.header('Cache-Control', 'no-store');
     reply.header('Content-Disposition', `attachment; filename="${filename}"`);
 
     const archive = new ZipArchive({ zlib: { level: 6 } });
@@ -1088,7 +1093,8 @@ export async function registerLibraryRoutes(app, options = {}) {
     const groups = outboundByDocId.get(doc.id) || { 'derived-from': [], supersedes: [] };
     const links = buildLinksFromGroups(groups, { scope: 'single-project', currentDocProjectSlug: doc.projectSlug });
     const filename = documentFilename(doc);
-    const content = renderDocumentMarkdown(doc, doc.projectSlug, links);
+    const [decorated] = await decorateExportDocuments(app.db, [doc]);
+    const content = renderDocumentMarkdown(decorated, doc.projectSlug, links);
     reply.header('Content-Type', 'text/markdown; charset=utf-8');
     reply.header('Content-Disposition', `attachment; filename="${filename}"`);
     return content;

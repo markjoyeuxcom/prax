@@ -107,12 +107,13 @@ export function buildListOutboundLinksForDocuments(docIds) {
     text: `
       select dl.source_document_id,
              dl.relation,
+             dl.target_hash,
              t.id as target_id,
              p.slug as target_project_slug,
              t.source_filename as target_source_filename,
              t.title as target_title
       from document_links dl
-      join markdown_documents t on t.id = dl.target_document_id and t.archived_at is null
+      join markdown_documents t on t.id = dl.target_document_id
       join projects p on p.id = t.project_id
       where dl.source_document_id in (select value from json_each($1))
       order by dl.source_document_id, dl.relation, t.title
@@ -202,6 +203,7 @@ export function createDocumentLinksRepository(db) {
         const bucket = grouped.get(row.source_document_id);
         const entry = {
           targetId: row.target_id,
+          ...(row.target_hash !== undefined ? { targetHash: row.target_hash } : {}),
           targetProjectSlug: row.target_project_slug,
           targetSourceFilename: row.target_source_filename,
           targetTitle: row.target_title,

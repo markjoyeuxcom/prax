@@ -47,6 +47,10 @@ for (const dir of ['server', 'public', 'mcp', 'cli', 'skills']) {
 }
 copyFileSync(join(root, 'package.json'), join(staging, 'package.json'));
 copyFileSync(join(root, 'package-lock.json'), join(staging, 'package-lock.json'));
+mkdirSync(join(staging, 'scripts'), { recursive: true });
+for (const file of ['restore-database.js', 'backup-database.js']) {
+  copyFileSync(join(root, 'scripts', file), join(staging, 'scripts', file));
+}
 
 console.log('[prepare-sidecar] installing production dependencies…');
 execSync('npm ci --omit=dev --ignore-scripts --no-audit --no-fund', {

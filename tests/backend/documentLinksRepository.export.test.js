@@ -13,7 +13,8 @@ test('buildListOutboundLinksForDocuments selects target join columns', () => {
   assert.match(q.text, /p\.slug as target_project_slug/);
   assert.match(q.text, /t\.source_filename as target_source_filename/);
   assert.match(q.text, /t\.title as target_title/);
-  assert.match(q.text, /and t\.archived_at is null/);
+  assert.doesNotMatch(q.text, /t\.archived_at is null/, 'export graph retains archived targets with their identity');
+  assert.match(q.text, /dl\.target_hash/);
   // The id list binds as JSON text expanded via json_each (pg's = any(uuid[])).
   assert.match(q.text, /in \(select value from json_each\(\$1\)\)/);
   assert.deepEqual(q.values, ['["a","b"]']);

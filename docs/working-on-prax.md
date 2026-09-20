@@ -4,6 +4,34 @@ The **Prax** project in the app owns work and knowledge about developing and mai
 Prax. The **memory** project owns reusable guidance across projects. Both are available to
 every agent through recall; filing follows the subject, while provenance records the author.
 
+**Inbox** is the default system home for captures whose owner is not yet clear
+and for workspace weekly reviews. Inbox and Memory are protected from project
+rename, archive and deletion. File known work directly in its owning project;
+move unassigned Inbox tasks and notes there during triage. Saved weekly reviews
+can remain in Inbox. Clearing capture does not require deleting the project.
+
+Use **Inbox → To process** for oldest-first tasks and loose notes, or **Process Inbox**
+from any Inbox tab for a guided pass. Choose the owning project, optionally plan a task's
+work date, then file it. Complete finished tasks; keep useful capture text as a reference;
+archive unwanted captures; skip decisions that need more context. Task-to-reference keeps
+notes and checklists, links the new unverified document and archives the original task.
+**Undo last decision** restores only an unchanged result; generated copies stay in Archive.
+
+**Reviews** holds saved documents tagged `weekly-review` and does not inflate the pending
+count. New weekly reviews include a **Process Inbox** link. Age indicators use capture time;
+filing and planning do not reset that age. Known work should still go directly to its owner.
+
+**Suggest filing with AI** uses the configured answer model and reports the projects,
+possible matches and source text coverage it considered. Inspect its destination/type and
+possible duplicates; **Use suggestion in form** only prepares your choice. Apply an explicit
+filing action to make changes. Duplicate review never merges or deletes automatically.
+Manual processing works without AI. Close retains an unfinished decision in the same browser
+tab; after an interrupted request, retry that decision to check its receipt before proceeding.
+
+The editor's Back button and breadcrumb return to the originating Inbox tab or Library view.
+Library return keeps filters, query, layout, loaded results and scroll; content/trust changes
+refresh a semantic search. A failed save blocks navigation and retains the draft and origin.
+
 ## Begin and hand over work
 
 Find the project’s **Prax project overview** in its Library,

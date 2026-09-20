@@ -1,4 +1,5 @@
 import { createProjectsRepository } from './projectsRepository.js';
+import { getSystemProject } from '../public/js/systemProject.js';
 
 const STATUSES = new Set(['active', 'on-hold', 'completed', 'archived']);
 
@@ -11,23 +12,18 @@ function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-// The reserved system project (see migration 0030): the shared agent-memory
-// home every agent CLI writes to. It must not be renamed (its slug is the
-// marker), archived, or deleted. It is the ONLY protected project — Inbox is
-// an ordinary project the person may rename or delete like any other.
-const SYSTEM_PROJECT_SLUG = 'memory';
-
 export async function registerProjectsRoutes(app, options = {}) {
   const repository = options.projectsRepository || app.projectsRepository || createProjectsRepository(app.db);
 
-  // Refuse mutations to the reserved Memory project. Returns a response body
+  // Refuse mutations to the reserved system projects. Returns a response body
   // when blocked (caller returns it), or null when the id is a normal project.
   // A missing project falls through so the normal 404 path still applies.
   async function refuseSystemProject(id, reply, verb) {
     const project = await repository.resolveProject(id);
-    if (project && project.slug === SYSTEM_PROJECT_SLUG) {
+    const system = getSystemProject(project);
+    if (system) {
       reply.code(403);
-      return { message: `The Memory project is the shared agent-memory home and can’t be ${verb}.` };
+      return { message: `The ${system.name} project is reserved for ${system.purpose} and can’t be ${verb}.` };
     }
     return null;
   }
@@ -137,7 +133,7 @@ export async function registerProjectsRoutes(app, options = {}) {
 
   // Permanent delete removes the project AND everything filed under it (tasks,
   // documents, staged imports) in one transaction — any project except the
-  // system one can go. The response carries what was removed so the UI can
+  // system projects can go. The response carries what was removed so the UI can
   // report it; the UI gates the call behind a confirmation.
   app.delete('/api/projects/:id/permanent', async (request, reply) => {
     if (!isValidUuid(request.params.id)) {

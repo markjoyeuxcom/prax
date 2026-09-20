@@ -32,6 +32,63 @@ made deliberately rather than by accident — they are a safety net, **not a sta
 Importers and MCP clients should **ignore unknown fields** rather than hard-fail — the server
 may add fields over time.
 
+### System projects
+
+`inbox` and `memory` are reserved project slugs. Fresh databases include both.
+Migration 0032 restores a missing Inbox with a new ID, or reactivates the
+existing `inbox` row as Inbox without moving or modifying its contents.
+Clients must resolve projects by slug; IDs belong to the installed library.
+
+`PATCH /api/projects/:id`, `DELETE /api/projects/:id` (archive), and
+`DELETE /api/projects/:id/permanent` return `403` for either system project.
+This includes project metadata changes. Tasks and documents inside them retain
+their normal edit, move, archive and deletion behaviour. Inbox owns unassigned
+captures and new workspace weekly-review documents; Memory owns shared guidance.
+
+### Inbox processing
+
+Migration `0033_inbox_action_receipts.sql` adds durable decision receipts. Inbox IDs are
+resolved from the reserved slug. The processing routes require the persistent server;
+the nonpersistent demo returns `503` / `unavailable` while ordinary task views remain usable.
+
+| Endpoint | Contract |
+| --- | --- |
+| `GET /api/inbox?view=pending&offset=0&limit=50` | `view=pending|reviews`, nonnegative offset, limit 1–100. Returns `items`, exact `page` (`offset`, `limit`, `returned`, `total`, `hasMore`, `nextOffset`), `summary`, `reviewCount`, eligible destination `projects`, and `inboxId`. |
+| `GET /api/inbox/items/:kind/:id` | `kind=task|document`; returns canonical `record` and `fingerprint`. Tasks include checklist labels/completion. |
+| `POST /api/inbox/items/:kind/:id/actions` | Caller-stable UUID `operationId`, reviewed `fingerprint`, and `action=file|reference|complete|archive`. Filing/reference requires `projectId` outside Inbox; filed tasks optionally accept real `plannedFor` dates; filed documents optionally accept a registered `documentType`. |
+| `POST /api/inbox/actions/:operationId/undo` | Reconciles or reverses one unchanged decision. Source and generated-record changes/deletion refuse undo with `409` / `undo-conflict`. |
+| `POST /api/inbox/items/:kind/:id/suggest` | Takes the reviewed `fingerprint`. Returns `advisory`, destination/type/reason, validated possible duplicates, and explicit `coverage`. This endpoint makes no library/task writes. |
+
+Pending means nonarchived, incomplete tasks and active documents without `weekly-review`.
+Reviews means active, nonarchived documents with that tag. Pending pages sort oldest first;
+reviews sort newest first. Cards contain previews up to 240 characters. `summary` counts all
+pending tasks/notes and reports `olderThanWeek` (at least seven days) and `oldestDays`.
+Offset pages represent the current collection; concurrent writes can shift later pages.
+
+Actions and receipts commit in one transaction. A matching retry returns the current result
+with `replayed: true`, preserving later edits; changed intent returns `409` / `intent-mismatch`.
+A deleted source returns `410` / `result-gone` with `committed: true`, never resurrection.
+A changed reviewed item returns `409` / `item-changed`; items already processed return
+`409` / `not-pending`. Errors include `message` and `reason`. Successful actions return
+`committed`, `operationId`, `action`, `replayed`, `undone`, `kind`, `record`, and `created`.
+Post-commit embedding failure adds `indexingDegraded: true`; it is not a failed decision.
+
+Task completion uses the normal recurrence planner. Task reference creation copies description,
+notes and checklist into an unverified synthesized reference, links it to the archived task,
+and records provenance. Document filing only changes project/type metadata, retaining content
+and trust. Undo restores the changed source fields and archives generated references or recurring
+successors; it does not permanently delete them. Replaying an undone decision does not reapply it.
+Receipts survive SQLite backup/restore and server restart; they are not portable Markdown data.
+
+Suggestions use at most 100 eligible projects, 12 title-overlap-ranked task/document candidates,
+and 8,000 characters of source text. `coverage` reports `projectsShown`, `projectsTotal`,
+`candidatesShown`, `candidatesTotal`, and `sourceTruncated`. Up to three possible duplicates are
+validated against these candidates; their titles come from the database. Task type suggestions
+are limited to `reference`; document suggestions use the registered types. Unknown IDs/types
+or unreadable output return `502` / `invalid-suggestion`; unavailable/failed providers return
+`503` / `ai-unavailable|ai-failed`; source changes during generation return `409` / `item-changed`.
+Provider diagnostics are not returned. Suggestions neither verify records nor merge duplicates.
+
 ### Document update retries
 
 CLI/skills and MCP use `POST /api/library/documents/:id/update` with the ordinary
@@ -150,7 +207,10 @@ an unknown write outcome instead of automatically reapplying an older intent.
 ## Format 2 — Library `.md` front-matter
 
 Library export (`GET /api/library/export`) produces a ZIP of `.md` files. Each file is YAML
-front-matter followed by the Markdown body, in this key order:
+front-matter v3 followed by the Markdown body. `project=all` exports all projects; a slug
+selects one project. The default includes every nonarchived document, including superseded and
+deprecated records with explicit status. `includeArchived=true` also includes Archive;
+`false` is the default and other values return 400. The field order is:
 
 The Prax UI opens a scope/destination dialog before calling this route. Desktop Prax uses a native
 Save dialog, browsers with File System Access use their Save picker, and other browsers download to
@@ -169,6 +229,18 @@ updated_at: 2026-05-20T08:11:09.000Z
 kind: synthesized
 content_hash: 47421290090a9c1fbe1c5d3a7c2f9d8e4b1a6c3e8d5f2a9b7c4e1d8a5b2f9c6e3d
 updated_by: agent
+prax_export_version: 3
+id: "11111111-1111-4111-8111-111111111111"
+status: "active"
+archived_at: null
+verified: false
+verified_at: null
+verified_by: null
+updated_by_agent: "codex"
+source_filename: null
+external_refs: []
+code_refs: []
+task_ids: []
 links:
   derived-from:
     - id: c58d3108-4f93-4a50-ac42-0c1d61e61b08
@@ -199,13 +271,41 @@ Steps...
 - **ZIP layout:** `prax-library-<scope>-<YYYY-MM-DD>.zip`, with entries under
   `<project-slug>/<file>.md` for an all-projects export (flat for a single project).
 
+The v3 additions record the document UUID, lifecycle/archive and verification state, specific agent,
+original filename, external references, code citations and linked task IDs. Optional values are
+explicit JSON-quoted strings or `null`; relation arrays use JSON flow syntax (valid YAML). Titles,
+slugs and tags that resemble typed YAML values or begin with YAML punctuation are quoted. These
+fields describe saved evidence and do not authorize an importer to verify a document automatically.
+
+### Full workspace backup ZIP
+
+`GET /api/workspace/backup` creates a coherent snapshot through SQLite's online backup API,
+serialized behind the application's transaction gate. It includes **all committed SQLite tables**:
+projects, tasks/checklists/activity, documents/templates/archive, trust and attribution, links and
+citations, run history, settings, embeddings and Inbox action/undo receipts. It also packages the
+bundled starter guides and `RESTORE.md`. Both ZIP routes send `Cache-Control: no-store`.
+
+The ZIP contains `prax.db` and `manifest.json` with `format: "prax.workspace-backup"`, `version: 1`,
+`praxVersion`, `createdAt`, `database: {file, sha256, bytes, integrityCheck, foreignKeyViolations}`,
+and explicit `includes`/`excludes` lists. The snapshot must pass integrity and foreign-key checks
+before download. Only one full backup streams per app at a time (409 on overlap); unavailable
+storage returns 503 and a failed snapshot returns 500. Temporary files are removed on completion,
+failure or disconnect. There is no HTTP restore route that overwrites an open database.
+
+Backups contain saved provider credentials. Unsaved drafts, browser-only settings/pending
+choices, external files and environment configuration are excluded. With Prax stopped,
+`npm run restore -- --from extracted/prax.db --to /new/path/prax.db --sha256 <manifest digest>`
+validates the digest and database, rejects unexpected source WAL/SHM sidecars, and refuses an
+existing target or its sidecars. Restore with the same or a newer Prax version. See
+[the bundled restore guide](../public/starter-content/workspace-restore.md).
+
 ### `links:` block
 
 The `links:` block is always present, even when a document has no outbound edges — matching
 the `tags: []` convention. It captures outbound edges only; inbound edges are derivable from
 the rest of the export.
 
-Each entry is a `{ id, ref }` pair:
+Each entry carries `id`, `ref`, and (when recorded) `target_hash`, the dependency snapshot digest:
 
 - `id` — the target document UUID. **Authoritative.** Use this for any programmatic
   resolution (live API lookup, cross-export join).
@@ -213,12 +313,14 @@ Each entry is a `{ id, ref }` pair:
   lives in the zip when possible, so humans and diff tools can navigate the export without
   a database. `ref` computation rules, in priority order:
   1. **All-projects export** (any target project): `<targetProjectSlug>/<targetFilename>`.
-     Resolves to a file in the zip.
+     Resolves to a file in the zip when the target is included.
   2. **Single-project export, target in the same project**: bare `<targetFilename>`.
-     Resolves to a file in the zip (the single-project zip is flat, no project-slug folder).
+     Resolves when included (the single-project zip is flat, no project-slug folder).
   3. **Single-project export, target in a different project**: `<targetProjectSlug>/<targetFilename>`.
      This ref **dangles by design** — the target is not in the zip. The `id` remains
      authoritative and can resolve the target against the live API or a different export.
+
+  Archived targets retain their ID/ref even when Archive is excluded.
 
   `targetFilename` follows the same logic as the zip-entry filename: `sourceFilename`
   basename, else slugified title, else `untitled.md`.
@@ -229,7 +331,7 @@ block sequences with `id:` before `ref:` per entry.
 
 ### Single-doc export route
 
-`GET /api/library/documents/:id/export` returns a single document rendered as v2 markdown
+`GET /api/library/documents/:id/export` returns a single document rendered as v3 Markdown
 (`text/markdown; charset=utf-8`) with `Content-Disposition: attachment; filename="<documentFilename>"`.
 The server fetches the document's outbound links and computes refs in single-project scope
 before rendering. Returns 404 for a missing or archived document, 400 for an invalid UUID.
@@ -432,8 +534,7 @@ URLs are stored **as entered** (no format validation; caps: URL ≤ 2048 chars, 
 except that control whitespace is stripped — a newline inside a URL or label would corrupt
 the editor's line-per-ref round-trip. Display kind (GitHub / GitLab / Link) is derived from
 the host at render time and never stored; the UI only renders `http(s)`/`mailto` URLs as
-clickable links. Refs are runtime metadata, **not** part of the portable `.md` export
-(like the trust fields).
+clickable links. Markdown v3 includes these records in `external_refs`.
 
 Generated runbooks and post-mortems accept an optional result-document `id` over HTTP. Their result
 document stores an internal operation kind and SHA-256 hash of canonical caller intent. A retry
@@ -447,8 +548,8 @@ Document provenance: documents expose `contentHash` (SHA-256 of the body), `upda
 request header; the MCP client sends `"agent"` automatically. `updatedByAgent` is taken from the
 `x-prax-agent` header only on an agent write (`[a-z0-9][a-z0-9._-]{0,63}`, anything else is
 `null`) and is cleared by a human edit, so it always describes the current revision's author. It
-is an API field (migration 0026, column `updated_by_agent`); the portable Markdown export does
-not carry it.
+is an API field (migration 0026, column `updated_by_agent`) and appears in Markdown v3 as
+`updated_by_agent`.
 
 `POST /api/library/documents/upsert-by-title` is the atomic "remember": body `{ project, title,
 body, tags?, documentType?, kind?, id? }`. Inside one transaction it updates the **active**
@@ -488,10 +589,9 @@ MCP/legacy HTTP partial patches without `ifRevision` remain unconditional.
 
 ### Trust fields
 
-Documents carry four runtime trust/workflow fields. These are **not** part of the portable
-`.md` export front-matter — the export shape is unchanged (trust state is not carried in the
-export). If `.md` import is added in the future, an imported document would start unverified;
-trust state is managed via the `verify`/`supersede` endpoints below.
+Documents carry four trust/workflow fields. Markdown v3 records these as evidence; plain Markdown
+intake does not reconstruct them. Full workspace recovery retains the exact database trust state.
+Trust is managed via the `verify`/`supersede` endpoints below.
 
 | Field | Type | Description |
 |-------|------|-------------|

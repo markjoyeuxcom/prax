@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  fetchLibraryArchive, libraryArchiveFilename, libraryExportDestinationMode,
+  fetchLibraryArchive, libraryArchiveFilename, libraryArchiveUrl, libraryExportDestinationMode,
   libraryExportFailureMessage, saveLibraryArchive,
 } from '../../public/js/libraryExport.js';
 
@@ -9,6 +9,19 @@ test('archive filename is stable, scoped, UTC-dated, and filesystem safe', () =>
   const now = new Date('2026-07-13T23:59:59.000Z');
   assert.equal(libraryArchiveFilename('all', now), 'prax-library-all-2026-07-13.zip');
   assert.equal(libraryArchiveFilename('Work / Ops', now), 'prax-library-work-ops-2026-07-13.zip');
+});
+
+test('archive inclusion and full workspace format reach their intended endpoints through native saving', async () => {
+  assert.equal(libraryArchiveUrl('work', { includeArchived: true }), '/api/library/export?project=work&includeArchived=true');
+  let invoked = false;
+  const result = await saveLibraryArchive({ scope: 'work', format: 'workspace', mode: 'desktop',
+    globalRef: { __TAURI__: { core: { async invoke(command, args) {
+      invoked = true; assert.equal(command, 'save_library_export');
+      assert.match(args.fileName, /^prax-workspace-/); return '/chosen/full.zip';
+    } } } },
+    async fetchImpl(url) { assert.equal(url, '/api/workspace/backup'); return new Response(new Blob(['zip'])); },
+  });
+  assert.equal(invoked, true); assert.equal(result.status, 'saved');
 });
 
 test('destination mode prefers desktop invoke, then browser picker, then download', () => {

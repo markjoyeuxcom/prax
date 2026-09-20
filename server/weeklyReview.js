@@ -1,3 +1,5 @@
+import { ageInDays, isPendingInboxDocument, isPendingInboxTask, INBOX_LINK } from '../public/js/inboxModel.js';
+
 // Weekly review — the deterministic compiler. Pure (data in → Markdown +
 // stats out); the route feeds it from the repositories and writes the result
 // into the Library as a dated, idempotent-by-week document. An EMPTY week
@@ -137,10 +139,9 @@ export function compileWeeklyReview({
     .map(([taskId, count]) => ({ task: taskById.get(taskId) || null, count }));
 
   // Inbox aging: open inbox items older than 7 days.
-  const weekAgo = utcDateString(now.getTime() - 7 * DAY_MS);
   const inboxAging = inbox
-    ? tasks.filter((task) => task.projectId === inbox.id && task.status !== 'completed'
-      && !task.archivedAt && task.createdAt && utcDateString(task.createdAt) < weekAgo)
+    ? [...tasks.filter(isPendingInboxTask), ...documents.filter(isPendingInboxDocument)]
+      .filter(item => item.projectId === inbox.id && item.createdAt && ageInDays(item.createdAt, now) >= 7)
       .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
     : [];
 
@@ -211,6 +212,7 @@ export function compileWeeklyReview({
   } else {
     lines.push('No inbox items older than a week.');
   }
+  lines.push('', `[Process Inbox](${INBOX_LINK}) — file pending tasks and notes; saved weekly reviews stay separate.`);
   lines.push('');
 
   lines.push('## Silent projects');

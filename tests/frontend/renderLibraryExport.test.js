@@ -29,8 +29,9 @@ test('dialog exposes all and project scopes with a stable filename preview', () 
   assert.match(html, /<option value="all">Entire library<\/option>/);
   assert.match(html, /<option value="work" selected>Work &amp; Ops<\/option>/);
   assert.match(html, /data-library-export-filename>prax-library-work-2026-07-13\.zip<\/code>/);
-  assert.match(html, /active documents only/);
-  assert.match(html, /not a full database backup/);
+  assert.match(html, /nonarchived documents/);
+  assert.match(html, /superseded and deprecated records labeled with their status/);
+  assert.match(html, /Full workspace backup to restore exact workspace state/);
 });
 
 test('real picker modes promise a location chooser', () => {
@@ -74,4 +75,16 @@ test('invalid retained project scope falls back visibly to all', () => {
   const html = render({ libraryExportScope: 'removed' });
   assert.match(html, /<option value="all" selected>Entire library<\/option>/);
   assert.doesNotMatch(html, /value="work" selected/);
+});
+
+test('workspace backup forces complete scope and discloses credentials and restore boundaries', () => {
+  const html = render({ libraryExportFormat: 'workspace', libraryExportFilename: '' });
+  assert.match(html, /data-library-export-scope disabled/);
+  assert.match(html, /Entire workspace · all projects/);
+  assert.doesNotMatch(html, /value="work"/);
+  assert.doesNotMatch(html, /data-library-export-archived/);
+  assert.match(html, /prax-workspace-\d{4}-\d{2}-\d{2}\.zip/);
+  assert.match(html, /Contains saved provider credentials/);
+  assert.match(html, /Unsaved drafts and browser-only preferences or pending decisions are excluded/);
+  assert.match(html, /workspace-restore\.md/);
 });

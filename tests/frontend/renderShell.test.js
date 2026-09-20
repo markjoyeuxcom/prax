@@ -71,7 +71,9 @@ test('titlebar breadcrumb for a project is Area › Project › Tab, with the pr
 test('titlebar breadcrumb: Library › doc in the editor, Library › doc › Run in a run, Library › Archive', () => {
   const documents = [{ id: 'd1', title: 'Backup runbook' }];
   const editor = renderTitlebarHtml(makeState({ navType: 'editor', editorDocId: 'd1', documents }));
-  assert.match(editor, /<button type="button" class="titlebar__crumb-link" data-action="breadcrumb" data-target="nav-library">Library<\/button>/);
+  assert.match(editor, /<button type="button" class="titlebar__crumb-link" data-action="breadcrumb" data-target="back-to-library">Library<\/button>/);
+  const inboxEditor = renderTitlebarHtml(makeState({ navType: 'editor', editorDocId: 'd1', documents, editorReturnView: { kind: 'inbox' } }));
+  assert.match(inboxEditor, /data-target="back-to-library">Inbox<\/button>/);
   assert.match(editor, CURRENT('Backup runbook'));
   const run = renderTitlebarHtml(makeState({ navType: 'run', runReturnDocId: 'd1', documents }));
   assert.match(run, /data-target="nav-library">Library</);

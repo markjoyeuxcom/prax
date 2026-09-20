@@ -12,6 +12,41 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-09-20
+
+### Added
+
+- **Full workspace backup from the export dialog.** Download a validated SQLite snapshot ZIP
+  with a checksum manifest, starter guides and restore instructions. It preserves all saved
+  projects, tasks, archives, templates, trust, links, citations, run history, settings and Inbox
+  undo records. A bundled restore command verifies the checksum and refuses existing targets.
+- **Optional Archive inclusion in Markdown exports.** Select it for a project or the entire
+  Library. Export scope and the distinction between Markdown intake and full recovery are explicit.
+- **Process Inbox.** File tasks and notes into their owning projects, plan a task's work
+  date, complete it, keep it as a linked reference, archive it, or skip it. Decisions have
+  retry receipts and guarded undo; unfinished decisions survive reloads in the same tab.
+- **Inbox capture and review views.** Pending tasks and notes are counted separately from
+  saved weekly reviews, with age indicators and a direct processing link in new reviews.
+- **Reviewed AI filing suggestions.** The configured answer model can suggest an owning
+  project, document type and possible duplicates. Coverage is disclosed; using a suggestion
+  fills the form for review and never moves, merges, deletes or verifies an item itself.
+
+### Fixed
+
+- **Library exports retain current document metadata.** Markdown v3 includes each document's
+  ID, lifecycle and verification state, specific agent, original filename, code/external references,
+  linked task IDs and dependency hashes. Retired guidance keeps its status label. Full backups
+  disclose saved credentials and the exclusion of unsaved drafts and browser-only state.
+- **Library Back preserves the previous view.** The editor's Back button and breadcrumb
+  restore tags, projects, type and trust filters, search, grouping, sorting, layout, loaded
+  results and scroll position. Linked documents retain the original return view, and failed
+  saves keep both the draft and its origin. Changed semantic results are refreshed.
+- **Inbox is a default protected system project alongside Memory.** Upgrades restore a
+  missing Inbox or reactivate the existing one without changing its contents, keeping
+  capture and weekly review available. Both system projects show their purpose and hide
+  forbidden rename, lifecycle and metadata controls. Tasks and notes can still be moved
+  into their owning projects normally.
+
 ## [0.36.1] - 2026-09-20
 
 ### Added
@@ -1913,7 +1948,8 @@ and onboarding features with the corrected installation guide.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.36.1...HEAD
+[Unreleased]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.37.0...HEAD
+[0.37.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.36.1...v0.37.0
 [0.36.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.36.0...v0.36.1
 [0.36.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.35.1...v0.36.0
 [0.35.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.35.0...v0.35.1

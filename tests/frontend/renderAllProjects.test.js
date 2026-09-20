@@ -130,15 +130,18 @@ test('escapes project names', () => {
   assert.match(html, /&lt;script&gt;alert\(&quot;x&quot;\)&lt;\/script&gt;/);
 });
 
-test('the Memory system project shows a System chip instead of state chips and Delete', () => {
-  const projects = [{ id: 'mem', name: 'Memory', slug: 'memory', status: 'active' }, PROJECTS[0]];
+for (const [slug, purpose] of [['memory', 'shared guidance'], ['inbox', 'capture and review']]) {
+test(`the ${slug} system project shows its purpose instead of state chips and Delete`, () => {
+  const projects = [{ id: 'sys', name: slug, slug, status: 'active' }, PROJECTS[0]];
   const html = renderAllProjectsHtml({}, buildProjectGroups(projects, []));
-  const memoryCard = html.slice(html.indexOf('data-project-id="mem"'), html.indexOf('data-project-id="p1"'));
-  assert.match(memoryCard, /chip--system/);
-  assert.doesNotMatch(memoryCard, /data-action="delete-project"/);
-  assert.doesNotMatch(memoryCard, /data-action="set-project-state"/);
+  const systemCard = html.slice(html.indexOf('data-project-id="sys"'), html.indexOf('data-project-id="p1"'));
+  assert.match(systemCard, /chip--system/);
+  assert.ok(systemCard.includes(`System · ${purpose}`));
+  assert.doesNotMatch(systemCard, /data-action="delete-project"/);
+  assert.doesNotMatch(systemCard, /data-action="set-project-state"/);
   assert.match(html, /data-action="delete-project" data-project-id="p1"/, 'ordinary projects keep Delete');
 });
+}
 
 // ---- areas within a state group (spec item 15) --------------------------------
 

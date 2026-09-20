@@ -1,6 +1,6 @@
 {
   "name": "prax",
-  "version": "0.36.1",
+  "version": "0.37.0",
   "type": "module",
   "private": true,
   "engines": {
@@ -38,7 +38,8 @@
     "skills:build": "node scripts/build-skills.mjs",
     "skills:check": "node scripts/build-skills.mjs --check",
     "release:prepare": "node scripts/prepare-release.mjs",
-    "release:notes": "node scripts/release-notes.mjs"
+    "release:notes": "node scripts/release-notes.mjs",
+    "restore": "node scripts/restore-database.js"
   },
   "dependencies": {
     "@codemirror/search": "6.7.2",

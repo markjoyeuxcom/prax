@@ -71,7 +71,7 @@ function isCurrentProject(state, projectId) {
 // Titlebar
 // ---------------------------------------------------------------------------
 
-const TAB_LABELS = { list: 'List', board: 'Board', backlog: 'Backlog', archive: 'Archive' };
+const TAB_LABELS = { list: 'List', board: 'Board', backlog: 'Backlog', archive: 'Archive', inbox: 'To process', reviews: 'Reviews' };
 const SETTINGS_LABELS = { appearance: 'Appearance', intelligence: 'Intelligence', integrations: 'Integrations', data: 'Data & admin' };
 
 function documentTitle(state, documentId) {
@@ -108,7 +108,7 @@ export function buildBreadcrumb(state) {
       if (state.libraryView === 'review') return [{ label: 'Library', action: 'nav-library' }, { label: 'Review queue' }];
       return [{ label: 'Library' }];
     case 'editor':
-      return [{ label: 'Library', action: 'nav-library' }, { label: documentTitle(state, state.editorDocId) }];
+      return [{ label: state.editorReturnView?.kind === 'inbox' ? 'Inbox' : 'Library', action: 'back-to-library' }, { label: documentTitle(state, state.editorDocId) }];
     case 'run': {
       const docId = state.runReturnDocId || state.activeRun?.documentId;
       return [

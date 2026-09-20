@@ -19,23 +19,33 @@ with the desktop webview profile. An upgrade can recover the most recently logge
 stranded on older, unrecorded origins are not automatically merged. Quick-capture retry payloads,
 project-field drafts and pending assistant approvals also use local recovery storage.
 
-## 1. App-level export (portable, not a full backup)
+## 1. App-level export and workspace backup
 
 Settings ▸ Data & admin exports:
 
 - **Tasks** as a `moomora.tasks` JSON envelope (per-project or all projects).
-- **Library** documents as a ZIP of `.md` files (per-project or all projects).
+- **Markdown documents** as a ZIP of `.md` files (per-project or all projects, with optional Archive).
+- **Full workspace backup** as a validated SQLite snapshot ZIP, manifest and bundled restore guide.
 
 Library ▸ **Export…** and both Settings Library-export actions open the same scope and destination
 dialog. Desktop Prax opens the operating system Save dialog. Supporting browsers open their Save
 picker. Browsers without that API use their configured Downloads folder; enable the browser's
 “Ask where to save” preference when you need to choose a location for each download.
 
-These are good for moving content between instances or keeping human-readable
+The JSON and Markdown options are good for moving content between instances or keeping human-readable
 copies. Task JSON includes active/archived tasks, current task metadata, and checklist state.
 It does **not** capture task activity history, task↔document links, or project metadata. Library
-ZIP export contains active documents only and is not a full metadata round-trip. Treat these as
-portability/export, not as a complete backup.
+ZIP export includes nonarchived documents by default, including superseded/deprecated records
+labeled with their status. It can include Archive and carries v3 trust, provenance, links and
+citations. Plain Markdown import remains note intake rather than a metadata round-trip.
+
+Choose **Full workspace backup** in the same dialog for all committed SQLite data, including tasks,
+projects, archives, templates, trust, run history and Inbox undo records. It includes saved provider
+credentials, so keep it private. Unsaved drafts, browser preferences/pending decisions and external
+files are excluded. Follow the included `RESTORE.md` or the
+[bundled restore guide](../public/starter-content/workspace-restore.md) with Prax stopped. The
+shipped `npm run restore` command checks the manifest checksum and refuses to overwrite existing
+data. This is the authoritative recovery option accessible from the UI.
 
 The automated task portability drill is `npm run verify:portable`. It proves the documented task
 fields and checklist state against a fresh target instance; it does not change the exclusions

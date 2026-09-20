@@ -18,6 +18,10 @@ const PROJECT_ID_HOMELAB  = '33333333-3333-4333-8333-333333333333';
 
 const sharedProjects = [
   {
+    id: '00000000-0000-4000-8000-000000000001', name: 'Inbox', slug: 'inbox',
+    status: 'active', sortOrder: -1, createdAt: now, updatedAt: now,
+  },
+  {
     id: PROJECT_ID_PERSONAL,
     name: 'Personal',
     slug: 'personal',
@@ -45,6 +49,11 @@ const sharedProjects = [
     updatedAt: now,
   },
 ];
+
+sharedProjects.push({
+  id: '4d454d4f-5259-4000-8000-000000000001', name: 'Memory', slug: 'memory',
+  status: 'active', sortOrder: 3, createdAt: now, updatedAt: now,
+});
 
 function isUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
