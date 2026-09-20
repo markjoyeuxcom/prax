@@ -96,9 +96,11 @@ glab api "projects/markjoyeuxcom%2Fapps%2Fprax/repository/files/skills%2Finstall
 ### Standing instructions: `--instructions`
 
 Skills only fire when the model decides to use them. What makes memory reliable is a standing
-rule in each tool's **global** instructions — recall before a task, remember durable findings —
-and `--instructions` writes that rule for you, once, between `<!-- prax-memory:start/end -->`
-markers (a second run is a no-op; `--uninstall` removes exactly that block):
+rule in each tool's **global** instructions — read the project briefing, recall before a task,
+file durable findings with their project, and record progress on the task. `--instructions`
+adds or refreshes that rule between `<!-- prax-memory:start/end -->` markers. Unchanged blocks
+are left alone; unrelated text is preserved; malformed or ambiguous markers stop the update.
+`--uninstall` removes the marked block:
 
 ```bash
 glab api "projects/markjoyeuxcom%2Fapps%2Fprax/repository/files/skills%2Finstall.sh/raw?ref=main" | sh -s -- --instructions
@@ -106,17 +108,18 @@ glab api "projects/markjoyeuxcom%2Fapps%2Fprax/repository/files/skills%2Finstall
 
 | Tool | File written | Note |
 |---|---|---|
-| Claude Code | `~/.claude/CLAUDE.md` | appended; existing content kept |
-| Codex | `~/.codex/AGENTS.md` | appended; existing content kept |
+| Claude Code | `~/.claude/CLAUDE.md` | managed block refreshed; other content kept |
+| Codex | `~/.codex/AGENTS.md` | managed block refreshed; other content kept |
 | Copilot CLI | `~/.copilot/instructions/AGENTS.md` | Copilot reads it only when your shell exports `COPILOT_CUSTOM_INSTRUCTIONS_DIRS="$HOME/.copilot/instructions"` — the installer prints the line |
-| Antigravity | — | no global file; paste the block into each workspace's `AGENTS.md` or `GEMINI.md` (the installer says so) |
+| Antigravity | `~/.gemini/GEMINI.md` | global guidance; workspace `AGENTS.md`/`GEMINI.md` can add project details |
 
 The commands in the block follow what the machine can run. With `--cli` (and `PRAX_BIN_DIR` on
 your `PATH`) it teaches the short form — `prax recall "…"`, `prax remember "…" --body "…"
---memory` — and names the shim's absolute path as the fallback; otherwise it names the installed
+--project <slug>` for project knowledge and `--memory` for cross-project guidance — and names
+the shim's absolute path as the fallback; otherwise it names the installed
 script paths (`~/.agents/skills/…`). Either way it works from any directory. `--cli` is applied
-before `--instructions` for exactly this reason, and because the guard is the start marker,
-switching an existing block to the other form takes `--uninstall` first. Environment overrides:
+before `--instructions` for exactly this reason. Re-run `--instructions` to refresh an existing
+block or switch its command form; no uninstall is required. Environment overrides:
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -127,6 +130,7 @@ switching an existing block to the other form takes `--uninstall` first. Environ
 | `PRAX_GEMINI_SKILLS_DIR` | `~/.gemini/config/skills` | where the Antigravity symlinks are created |
 | `PRAX_CLAUDE_INSTRUCTIONS` | `~/.claude/CLAUDE.md` | `--instructions`: Claude Code's global instructions file |
 | `PRAX_CODEX_INSTRUCTIONS` | `~/.codex/AGENTS.md` | `--instructions`: Codex's global instructions file |
+| `PRAX_GEMINI_INSTRUCTIONS` | `~/.gemini/GEMINI.md` | `--instructions`: Antigravity's global instructions file |
 | `PRAX_COPILOT_INSTRUCTIONS_DIR` | `~/.copilot/instructions` | `--instructions`: the directory Copilot is pointed at via `COPILOT_CUSTOM_INSTRUCTIONS_DIRS` |
 | `PRAX_BIN_DIR` | `~/.local/bin` | `--cli`: where the `prax` shim is written (and what decides whether `--instructions` can use the `prax` form) |
 

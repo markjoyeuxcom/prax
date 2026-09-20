@@ -21,7 +21,11 @@ node <skill-dir>/scripts/recall.mjs --recent [n] [--project <slug>]
 script is one self-contained file: Node 20+, no packages, no repository checkout.
 
 - Searches **all projects** by default (agent memories and hand-authored notes).
-  `--project memory` scopes to the agent memory namespace; any project slug works.
+  Project knowledge belongs to its owning project; `--project memory` retrieves only
+  cross-project guidance and can miss the project's architecture and runbooks.
+- At task start, read the repository's startup guide and project overview when available,
+  then recall the actual task. Check the task's notes/checklist for unfinished work;
+  reusable memory is not the task's progress log.
 - Retrieval is by meaning, so a paraphrase finds the note. For "what did I note
   recently" (a chronological list, not a similarity search) use `--recent`.
 

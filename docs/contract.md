@@ -181,7 +181,7 @@ links:
 Steps...
 ```
 
-- `type` is one of `"note"`, `"runbook"`, `"decision"`, `"known-issue"`, `"reference"`, `"post-mortem"` (defaults to `"note"`; the registry lives in `public/js/documentTypes.js`).
+- `type` is one of `"note"`, `"runbook"`, `"decision"`, `"known-issue"`, `"reference"`, `"post-mortem"`, `"template"` (defaults to `"note"`; the registry lives in `public/js/documentTypes.js`).
 - `project` is the project slug, or `"unknown"`.
 - `tags` is `[]` when empty, otherwise a YAML block list.
 - `created_at` / `updated_at` are the raw timestamps (not quoted).
@@ -251,7 +251,7 @@ created/edited through the MCP `create_document` / `update_document` tools.
 The MCP server (`mcp/`) exposes these tools over stdio. Current tool names, input field names,
 required/optional status, and enum option sets. Shared enums: `STATUS`
 (`high-priority`, `in-progress`, `planned`, `completed`, `notes`), `PRIORITY` (`high`,
-`medium`, `low`), `DOCUMENT_TYPE` (`runbook`, `note`, `decision`, `known-issue`, `reference`, `post-mortem`),
+`medium`, `low`), `DOCUMENT_TYPE` (`runbook`, `note`, `decision`, `known-issue`, `template`, `reference`, `post-mortem`),
 `KIND` (`source`, `synthesized`).
 
 | Tool | Inputs | Read-only |
@@ -734,3 +734,26 @@ The browser retains uncertain approvals across reload and offers a safe retry of
 Weekly review counts Shipped from completion events in the selected UTC week (or an explicit completion timestamp). Reopening a task later does not erase its historical completion. Missing legacy completion dates are disclosed rather than inferred from creation or modification times. Creating a task already completed records a completion event.
 
 Assistant recovery keeps pending approvals when the selected model is absent or cannot resume tools. `approval-unavailable` explicitly means that request executed no action; it does not erase any earlier uncertain outcome. The standalone demo opts into in-memory receipts alongside its in-memory workspace; production never falls back to volatile receipts when durable storage is unavailable.
+
+
+## Bundled templates and guides
+
+See [Templates and starter guides](templates-and-starter-guides.md) for the complete read-only
+`GET /api/library/starters` catalogue contract and copy workflow. `template` is a first-class
+document type on HTTP, CLI, MCP, skills and Markdown export. Raw Markdown import
+continues to create notes without interpreting portable front matter. Starters never seed or
+update Library rows during startup. Task starters use the existing atomic, receipt-backed
+`POST /api/tasks/import` contract with one task and its checklist.
+
+`POST /api/library/documents` also honours optional `verified: false` to create an unverified
+human-origin draft (used by template copies). This flag only lowers initial trust.
+`verified: true` cannot grant verification to an agent-origin create; verification still
+requires the dedicated human review endpoint. Ordinary create defaults are unchanged.
+
+For receipt-backed document creation, also supply `operationId` (UUID) and `id` (UUID).
+The transaction records the normalised creation intent and result in the existing durable
+document operation ledger (`document_upsert_receipts`, using a create-specific hash domain).
+An identical retry returns the current document with `replayed: true`; changed intent returns
+409, and a permanently deleted result returns 410. Neither title lookup nor upsert is used:
+a fresh operation always creates an independent copy. The ledger outlives the result and
+no schema migration is required. Existing ID-only creation behaviour remains compatible.

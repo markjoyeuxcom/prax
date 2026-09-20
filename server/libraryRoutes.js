@@ -126,6 +126,7 @@ function cleanDocumentPayload(payload) {
     tags: cleanTags(payload.tags),
     sourceFilename: payload.sourceFilename ? payload.sourceFilename.trim() : null,
     ...(payload.kind !== undefined ? { kind: payload.kind } : {}),
+    ...(payload.verified === false ? { verified: false } : {}),
   };
 }
 
@@ -609,12 +610,27 @@ export async function registerLibraryRoutes(app, options = {}) {
       reply.code(400);
       return { message: validationError };
     }
+    const operationId = request.body.operationId;
+    if (operationId !== undefined && (!isValidUuid(operationId) || !request.body.id)) {
+      reply.code(400); return { message: 'operationId requires a valid operation UUID and document id' };
+    }
 
     const resolvedId = await resolveProjectId(request.body.project);
     if (resolvedId === null) { reply.code(400); return { message: 'project is invalid' }; }
     request.body.projectId = resolvedId;
 
     const candidate = { ...cleanDocumentPayload(request.body), updatedBy: originFrom(request), updatedByAgent: agentFrom(request) };
+    if (operationId) {
+      if (typeof repository.createDocumentExactlyOnce !== 'function') {
+        reply.code(503); return { message: 'receipt-backed document creation is unavailable' };
+      }
+      const result = await repository.createDocumentExactlyOnce(candidate, operationId);
+      if (result.conflict) { reply.code(409); return { message: 'creation identity was already used for different content' }; }
+      if (result.gone) { reply.code(410); return { message: 'this copy was already created and permanently deleted; discard the creation draft to start a new copy' }; }
+      reply.code(result.created ? 201 : 200);
+      if (result.created) await embedOnWrite(result.document.id);
+      return { ...result.document, ...(result.replayed ? { replayed: true } : {}) };
+    }
     if (candidate.id) {
       if (typeof repository.createDocumentIdempotent !== 'function') {
         reply.code(503);

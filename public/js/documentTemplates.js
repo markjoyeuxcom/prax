@@ -71,6 +71,14 @@ export const DOCUMENT_TEMPLATES = [
     ].join('\n'),
   },
   {
+    id: 'template',
+    label: 'Reusable template',
+    hint: 'Save a master to use across projects',
+    documentType: 'template',
+    title: 'Untitled template',
+    body: '# Untitled template\n\n',
+  },
+  {
     id: 'reference',
     label: 'Reference',
     hint: 'Links, tables, lookup material',

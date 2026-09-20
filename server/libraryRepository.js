@@ -106,7 +106,9 @@ export function normalizeDocumentRow(row) {
 }
 
 export function buildCreateDocument(document, { ignoreIdConflict = false } = {}) {
-  const verified = (document.updatedBy || 'user') !== 'agent';
+  // A human may create a template-derived draft without vouching for its content.
+  // Explicit false only lowers trust; it can never verify an agent-origin write.
+  const verified = (document.updatedBy || 'user') !== 'agent' && document.verified !== false;
   const idColumn = document.id ? 'id, ' : '';
   const internalColumns = document.creationOperation || document.creationIntentHash
     ? ', creation_operation, creation_intent_hash'
@@ -821,6 +823,45 @@ export function createLibraryRepository(db) {
         document: existing.rows[0] ? normalizeDocumentRow(existing.rows[0]) : null,
         created: false,
       };
+    },
+
+    // Reuse the durable document operation ledger, with a domain-separated
+    // intent hash. The receipt survives permanent deletion, unlike a row ID.
+    async createDocumentExactlyOnce(document, operationId) {
+      await ready();
+      const intentHash = createHash('sha256').update(JSON.stringify([
+        'create-document', document.id, ...CREATE_FIELDS.map(key => document[key] ?? null),
+        document.kind ?? 'source', document.verified === false,
+      ])).digest('hex');
+      const client = await db.connect();
+      try {
+        await client.query('begin immediate');
+        try {
+          const receipt = await client.query('select document_id, intent_hash from document_upsert_receipts where operation_id = $1', [operationId]);
+          let result;
+          if (receipt.rows[0]) {
+            const prior = receipt.rows[0];
+            if (prior.intent_hash !== intentHash) result = { conflict: true };
+            else {
+              const query = buildGetDocument(prior.document_id);
+              const rows = await client.query(query.text, query.values);
+              result = rows.rows[0]
+                ? { document: normalizeDocumentRow(rows.rows[0]), created: false, replayed: true }
+                : { gone: true };
+            }
+          } else {
+            const query = buildCreateDocument(document, { ignoreIdConflict: true });
+            const rows = await client.query(query.text, query.values);
+            if (!rows.rows[0]) result = { conflict: true };
+            else {
+              await client.query('insert into document_upsert_receipts (operation_id, document_id, intent_hash) values ($1, $2, $3)', [operationId, document.id, intentHash]);
+              result = { document: normalizeDocumentRow(rows.rows[0]), created: true };
+            }
+          }
+          await client.query('commit');
+          return result;
+        } catch (error) { await client.query('rollback').catch(() => {}); throw error; }
+      } finally { client.release(); }
     },
 
     // Atomic "remember": create-or-update by EXACT title within a project, in

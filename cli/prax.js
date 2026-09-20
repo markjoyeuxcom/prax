@@ -67,7 +67,7 @@ Usage:
   prax search <query> [--all] [--json]
   prax recall [query...] [--project <slug>] [--limit <n>] [--recent [n]] [--json]
   prax get <id> [--json]
-  prax remember <title> [--body <text>] [--memory] [--type note|runbook|decision|known-issue|reference|post-mortem] [--tag a,b] [--ref <url>]
+  prax remember <title> [--body <text>] [--memory] [--type note|runbook|decision|known-issue|reference|post-mortem|template] [--tag a,b] [--ref <url>]
   prax verify <id> --as <human-name>
   prax unverify <id>
   prax supersede <oldId> --with <newId>

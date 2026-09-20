@@ -7,6 +7,7 @@ import { createDb } from './db.js';
 import { runMigrations } from './migrate.js';
 import { registerTasksRoutes } from './tasksRoutes.js';
 import { registerLibraryRoutes } from './libraryRoutes.js';
+import { registerStarterContentRoutes } from './starterContent.js';
 import { registerProjectsRoutes } from './projectsRoutes.js';
 import { registerChecklistRoutes } from './checklistRoutes.js';
 import { createLibraryRepository } from './libraryRepository.js';
@@ -109,6 +110,7 @@ export async function buildApp(options = {}) {
   });
   await registerTasksRoutes(app, options);
   await registerLibraryRoutes(app, options);
+  registerStarterContentRoutes(app);
   await registerProjectsRoutes(app, options);
   await registerChecklistRoutes(app, options);
   await registerSettingsRoutes(app, { config, appSettingsRepository, embedder: options.embedder, embedderProvider, chat: options.chat, chatProvider, libraryRepository });

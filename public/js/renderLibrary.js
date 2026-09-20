@@ -234,6 +234,7 @@ function renderNewDocMenu(state) {
             ${escapeHtml(template.label)}
             <span class="menu__item-sub">${escapeHtml(template.hint)}</span>
           </button>`).join('')}
+          <button role="menuitem" class="menu__item" type="button" data-action="open-template-studio">Templates &amp; guides…<span class="menu__item-sub">Project setup, onboarding and your saved templates</span></button>
         </div>` : ''}
       </div>`;
 }

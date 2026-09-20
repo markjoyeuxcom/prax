@@ -172,6 +172,7 @@ function renderHead(state, doc, { mode, readOnly, project }) {
       <div class="editor-head__tags">${projectChip(project?.name, project?.color)}${tags.map((tag) => chip(`#${tag}`, 'tag')).join('')}${trustChips(doc)}</div>
       <button class="btn-ghost btn-ghost--toggle${state.outlineOpen ? ' is-on' : ''}" type="button" data-action="toggle-outline" aria-pressed="${Boolean(state.outlineOpen)}">Outline</button>
       ${!readOnly && doc.documentType === 'runbook' ? `<button class="btn-primary btn-primary--sm" type="button" data-action="start-run" title="Start a run — track each step with a timestamp"${state.runStartPending ? ' disabled' : ''}>${state.runStartPending ? 'Starting…' : '▶ Run'}</button>` : ''}
+      ${!readOnly && doc.documentType === 'template' && (doc.status || 'active') === 'active' ? '<button class="btn-primary btn-primary--sm" type="button" data-action="use-document-template">Use template</button>' : ''}
       <button class="btn-ghost" type="button" data-action="export-doc" title="Download this document as .md">Export</button>
       ${seg}
       <button class="btn-ghost${state.editorFocus ? ' is-on' : ''}" type="button" data-action="toggle-focus" title="Focus mode (Esc to exit)" aria-pressed="${Boolean(state.editorFocus)}">Focus</button>

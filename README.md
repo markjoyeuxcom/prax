@@ -134,7 +134,7 @@ docker compose -f compose.yaml -f compose.image.yaml up
 The image override expects:
 
 ```text
-registry.gitlab.com/markjoyeuxcom/apps/prax:v0.35.1
+registry.gitlab.com/markjoyeuxcom/apps/prax:v0.36.0
 ```
 
 Use source-build Compose for development, and use the published image path when you want to test the same artifact Kubernetes will run.
@@ -242,13 +242,16 @@ for the full guide.
 ```bash
 prax context "how do we restore postgres"          # this project's briefing
 prax recall "how do we restore postgres"           # cross-project distilled recall
-prax remember "Postgres restore drill" --body "…" --memory   # write to the shared memory namespace
+prax remember "Postgres restore drill" --body "…" --project homelab  # file with the owning project
+prax remember "Agent working conventions" --body "…" --memory       # reusable across projects
 ```
 
 Documents written by agents (via the CLI or MCP) are **unverified** by default. A human runs
 `prax verify <id> --as <name>` in an attended terminal (or uses the Library UI) to bless them.
 Retrieval is active-only and keeps unverified memory in a
 clearly-labelled section so AI tools can see it while treating it with appropriate caution.
+Project knowledge stays with its project; all projects participate in shared recall. For work
+on Prax itself, see [Working on Prax](docs/working-on-prax.md).
 
 ### Agent memory skills
 
@@ -374,3 +377,11 @@ GitLab (moved from GitHub on 2026-09-07; the GitHub copy is retained read-only):
 ```text
 https://gitlab.com/markjoyeuxcom/apps/prax
 ```
+
+### Templates and repository setup
+
+Library → New doc → Templates & guides includes repository setup, project overview,
+onboarding task and shared agent-memory starters. They ship with desktop and container
+packages and work without AI. Create a copy in its owning project; upgrades preserve your
+edits. Save your own masters with the Template document type. See
+[Templates and starter guides](docs/templates-and-starter-guides.md).
