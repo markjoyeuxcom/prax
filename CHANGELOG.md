@@ -12,6 +12,8 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-09-20
+
 ### Changed
 
 - **The Library search bar is complete as drawn.** A `/` key cap sits in the bar and pressing
@@ -1819,7 +1821,8 @@ fresh empty `[Unreleased]` section is started.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.34.0...HEAD
+[Unreleased]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.35.0...HEAD
+[0.35.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.34.0...v0.35.0
 [0.34.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.33.0...v0.34.0
 [0.33.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.32.1...v0.33.0
 [0.32.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.32.0...v0.32.1
