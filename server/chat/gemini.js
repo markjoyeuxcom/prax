@@ -41,9 +41,9 @@ export function createGeminiChat({ baseUrl, apiKey, model, fetch = globalThis.fe
       if (!res.ok) throw new Error(`gemini chat failed: ${res.status}`);
       const data = await res.json();
       if (tools) {
-        const { text, toolCalls } = parseGemini(data);
+        const { text, toolCalls, geminiParts } = parseGemini(data);
         if (!text && !toolCalls.length) throw new Error('gemini returned no content');
-        return { text, model: chatModel, toolCalls: toolCalls.length ? toolCalls : null, stopReason: data?.candidates?.[0]?.finishReason };
+        return { text, model: chatModel, toolCalls: toolCalls.length ? toolCalls : null, geminiParts, stopReason: data?.candidates?.[0]?.finishReason };
       }
       const parts = data?.candidates?.[0]?.content?.parts;
       const text = Array.isArray(parts) ? parts.map((p) => p?.text || '').join('') : undefined;

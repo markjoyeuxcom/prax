@@ -7,6 +7,7 @@
 import { readFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 var DEFAULT_BASE_URL = "http://127.0.0.1:3000";
 var SEMANTIC_PAGE_MAX = 50;
 var DESKTOP_IDENTIFIER = "com.moomora.prax";
@@ -108,9 +109,14 @@ function createClient({ baseUrl, token, agent, env = process.env, bases } = {}) 
         break;
       } catch (err) {
         lastError = err;
+        if (retryUnavailable === "connect-only" && !["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN"].includes(err?.cause?.code || err?.code)) break;
       }
     }
-    if (!res) throw unreachable(lastError);
+    if (!res) {
+      const error = unreachable(lastError);
+      if (!["GET", "HEAD"].includes(method)) error.message = `Write outcome unknown; reconcile before retrying. ${error.message}`;
+      throw error;
+    }
     const ct = res.headers.get("content-type") || "";
     const parsed = ct.includes("application/json") ? await res.json() : await res.text();
     if (!res.ok) {
@@ -190,24 +196,43 @@ function createClient({ baseUrl, token, agent, env = process.env, bases } = {}) 
         retryUnavailable: Boolean(doc?.id)
       });
     },
-    updateMemory(id, patch) {
-      return request("PATCH", `/api/library/documents/${encodeURIComponent(id)}`, {
-        body: patch,
-        agent: true,
-        retryUnavailable: true
-      });
+    async updateMemory(id, patch) {
+      const operationId = patch?.operationId || randomUUID();
+      const path = `/api/library/documents/${encodeURIComponent(id)}`;
+      try {
+        return await request("POST", `${path}/update`, {
+          body: { ...patch, operationId },
+          agent: true,
+          retryUnavailable: true
+        });
+      } catch (error) {
+        if (error.status !== 404) {
+          if (!error.status) {
+            error.message = `Update outcome unknown (operationId ${operationId}); reconcile before starting another update. ${error.message}`;
+            error.operationId = operationId;
+          }
+          throw error;
+        }
+      }
+      const { operationId: _operationId, ...legacyPatch } = patch;
+      try {
+        return await request("PATCH", path, { body: legacyPatch, agent: true });
+      } catch (error) {
+        if (!error.status) error.message = `Update outcome unknown on this older server; it was not re-sent. Check the document before retrying. ${error.message}`;
+        throw error;
+      }
     },
     verify(id, { verified, as, revision, contentHash } = {}) {
       return request("POST", `/api/library/documents/${encodeURIComponent(id)}/verify`, {
         body: { verified, as, ...revision ? { revision } : {}, ...contentHash ? { contentHash } : {} },
-        retryUnavailable: true
+        retryUnavailable: "connect-only"
       });
     },
     supersede(oldId, newId) {
       return request("POST", `/api/library/documents/${encodeURIComponent(oldId)}/supersede`, {
         body: { supersededBy: newId },
         agent: true,
-        retryUnavailable: true
+        retryUnavailable: "connect-only"
       });
     },
     listProjects() {
@@ -220,14 +245,14 @@ function createClient({ baseUrl, token, agent, env = process.env, bases } = {}) 
       return request("POST", `/api/library/documents/${encodeURIComponent(documentId)}/code-refs`, {
         body: citation,
         agent: true,
-        retryUnavailable: true
+        retryUnavailable: "connect-only"
       });
     },
     addExternalRef(documentId, { url, label } = {}) {
       return request("POST", `/api/library/documents/${encodeURIComponent(documentId)}/external-refs`, {
         body: { url, label },
         agent: true,
-        retryUnavailable: true
+        retryUnavailable: "connect-only"
       });
     },
     updateProject(id, patch) {

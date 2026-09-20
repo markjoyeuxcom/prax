@@ -244,7 +244,7 @@ function renderAgentsCard(documents, queueCount, now) {
   return `<section class="today-card" data-today-agents>
     <h3 class="today-card__title">Agents since yesterday${queue ? `<span class="today-card__meta">${queue}</span>` : ''}</h3>
     ${rows || '<p class="today-card__text">No agent writes in the last day.</p>'}
-    ${recent.length ? `<p class="today-card__text">${recent.length} ${recent.length === 1 ? 'memory' : 'memories'} written. Agents recall only what you verify.</p>` : ''}
+    ${recent.length ? `<p class="today-card__text">${recent.length} ${recent.length === 1 ? 'memory' : 'memories'} written. Verification adds a human trust signal; unverified memory can still be recalled.</p>` : ''}
   </section>`;
 }
 

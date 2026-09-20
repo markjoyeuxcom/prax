@@ -1,4 +1,5 @@
 import { PraxApiError, PraxUnavailableError } from './errors.js';
+import { randomUUID } from 'node:crypto';
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:3000';
 const DEFAULT_TIMEOUT_MS = 5000;
@@ -49,17 +50,17 @@ export function createPraxClient({
         });
         break;
       } catch (err) {
-        // A timeout is NOT "unreachable": the server may still be processing
-        // the request (e.g. a model generation in flight), so an automatic
-        // re-send runs the mutation twice. Only connection-level failures —
-        // where the request provably never started — are retried; timed-out
-        // callers keep their stable identity and can retry deliberately.
+        // A fetch rejection may follow a commit. Unreceipted writes retry only
+        // proven pre-connection failures; receipt-backed writes can replay the
+        // same operation. Timeouts retain the existing explicit-unknown path.
         const abortName = err?.name || err?.cause?.name;
         const timedOut = abortName === 'TimeoutError' || abortName === 'AbortError';
-        if (!timedOut && attempt + 1 < attempts) continue;
+        const safeToRetry = retryUnavailable !== 'connect-only'
+          || ['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN'].includes(err?.cause?.code || err?.code);
+        if (!timedOut && safeToRetry && attempt + 1 < attempts) continue;
         throw new PraxUnavailableError(timedOut
           ? `Prax API timed out after ${timeoutMs}ms — the request may still be processing; it was not re-sent. (${err.message})`
-          : `Prax API not reachable at ${root} — is the server running? (${err.message})`);
+          : `${['GET', 'HEAD'].includes(method) ? '' : 'Write outcome unknown; reconcile before retrying. '}Prax API not reachable at ${root} — is the server running? (${err.message})`);
       }
     }
 
@@ -149,8 +150,27 @@ export function createPraxClient({
         retryUnavailable: Boolean(payload?.id),
       }),
 
-    updateDocument: (id, patch) =>
-      patchOrNull(`/api/library/documents/${id}`, patch, { 'x-prax-origin': 'agent' }, true),
+    async updateDocument(id, patch) {
+      const operationId = patch?.operationId || randomUUID();
+      const path = `/api/library/documents/${id}`;
+      try {
+        return await request('POST', `${path}/update`, {
+          body: { ...patch, operationId }, headers: { 'x-prax-origin': 'agent' }, retryUnavailable: true,
+        });
+      } catch (error) {
+        if (!(error instanceof PraxApiError) || error.status !== 404) {
+          if (error instanceof PraxUnavailableError) error.message = `Update outcome unknown (operationId ${operationId}); reconcile before starting another update. ${error.message}`;
+          throw error;
+        }
+      }
+      const { operationId: _operationId, ...legacyPatch } = patch;
+      try {
+        return await patchOrNull(path, legacyPatch, { 'x-prax-origin': 'agent' });
+      } catch (error) {
+        if (error instanceof PraxUnavailableError) error.message = `Update outcome unknown on this older server; it was not re-sent. Check the document before retrying. ${error.message}`;
+        throw error;
+      }
+    },
 
     listTasks: ({ q, project, status } = {}) =>
       request('GET', '/api/tasks', { query: { q, project, status } }),
@@ -167,19 +187,19 @@ export function createPraxClient({
       }),
 
     updateTask: (id, patch) =>
-      patchOrNull(`/api/tasks/${id}`, patch, { 'x-prax-origin': 'agent' }, true),
+      patchOrNull(`/api/tasks/${id}`, patch, { 'x-prax-origin': 'agent' }, 'connect-only'),
 
     listTaskDocuments: (taskId) =>
       request('GET', `/api/tasks/${taskId}/documents`, {}),
 
     linkTaskDocument: (taskId, documentId) =>
       request('POST', `/api/tasks/${taskId}/documents`, {
-        body: { documentId }, headers: { 'x-prax-origin': 'agent' }, retryUnavailable: true,
+        body: { documentId }, headers: { 'x-prax-origin': 'agent' }, retryUnavailable: 'connect-only',
       }),
 
     unlinkTaskDocument: (taskId, documentId) =>
       request('DELETE', `/api/tasks/${taskId}/documents/${documentId}`, {
-        headers: { 'x-prax-origin': 'agent' }, retryUnavailable: true,
+        headers: { 'x-prax-origin': 'agent' }, retryUnavailable: 'connect-only',
       }),
 
     listDocumentLinks: (documentId, direction) =>
@@ -190,12 +210,12 @@ export function createPraxClient({
 
     linkDocuments: (sourceId, targetId, relation) =>
       request('POST', `/api/library/documents/${sourceId}/links`, {
-        body: { targetId, relation }, headers: { 'x-prax-origin': 'agent' }, retryUnavailable: true,
+        body: { targetId, relation }, headers: { 'x-prax-origin': 'agent' }, retryUnavailable: 'connect-only',
       }),
 
     unlinkDocuments: (sourceId, targetId, relation) =>
       request('DELETE', `/api/library/documents/${sourceId}/links/${targetId}`, {
-        query: { relation }, headers: { 'x-prax-origin': 'agent' }, retryUnavailable: true,
+        query: { relation }, headers: { 'x-prax-origin': 'agent' }, retryUnavailable: 'connect-only',
       }),
 
     listExternalRefs: (documentId) =>
@@ -205,19 +225,19 @@ export function createPraxClient({
       request('POST', `/api/library/documents/${documentId}/external-refs`, {
         body: { url, label },
         headers: { 'x-prax-origin': 'agent' },
-        retryUnavailable: true,
+        retryUnavailable: 'connect-only',
       }),
 
     removeExternalRef: (documentId, refId) =>
       request('DELETE', `/api/library/documents/${documentId}/external-refs/${refId}`, {
-        headers: { 'x-prax-origin': 'agent' }, retryUnavailable: true,
+        headers: { 'x-prax-origin': 'agent' }, retryUnavailable: 'connect-only',
       }),
 
     supersedeDocument: (id, supersededBy) =>
       request('POST', `/api/library/documents/${id}/supersede`, {
         body: { supersededBy },
         headers: { 'x-prax-origin': 'agent' },
-        retryUnavailable: true,
+        retryUnavailable: 'connect-only',
       }),
 
     listChecklist: (taskId) =>
@@ -232,12 +252,12 @@ export function createPraxClient({
 
     setChecklistItem: (taskId, itemId, completed) =>
       request('PATCH', `/api/tasks/${taskId}/checklist/${itemId}`, {
-        body: { completed }, headers: { 'x-prax-origin': 'agent' }, retryUnavailable: true,
+        body: { completed }, headers: { 'x-prax-origin': 'agent' }, retryUnavailable: 'connect-only',
       }),
 
     deleteChecklistItem: (taskId, itemId) =>
       request('DELETE', `/api/tasks/${taskId}/checklist/${itemId}`, {
-        headers: { 'x-prax-origin': 'agent' }, retryUnavailable: true,
+        headers: { 'x-prax-origin': 'agent' }, retryUnavailable: 'connect-only',
       }),
 
     listTaskActivity: (taskId) =>
@@ -258,9 +278,9 @@ export function createPraxClient({
     getRunbookRun: (runId) => getOrNull(`/api/library/runs/${runId}`),
 
     setRunStep: (runId, stepId, checked) =>
-      patchOrNull(`/api/library/runs/${runId}/steps/${stepId}`, { checked }, { 'x-prax-origin': 'agent' }, true),
+      patchOrNull(`/api/library/runs/${runId}/steps/${stepId}`, { checked }, { 'x-prax-origin': 'agent' }, 'connect-only'),
 
     setRunStatus: (runId, status) =>
-      patchOrNull(`/api/library/runs/${runId}`, { status }, { 'x-prax-origin': 'agent' }, true),
+      patchOrNull(`/api/library/runs/${runId}`, { status }, { 'x-prax-origin': 'agent' }, 'connect-only'),
   };
 }

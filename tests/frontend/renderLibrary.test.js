@@ -63,6 +63,13 @@ function build(overrides = {}) {
   return buildLibraryModel(makeState(overrides), { now: NOW });
 }
 
+test('R10: the review banner explicitly permits labelled unverified recall', () => {
+  const state = makeState({ libraryView: 'review', documents: [{ ...DOCS[0], updatedBy: 'agent', verified: false, status: 'active' }] });
+  const html = renderLibraryHtml(state, buildLibraryModel(state));
+  assert.match(html, /Agents can also recall unverified memory, labelled as unverified/);
+  assert.doesNotMatch(html, /Only verified memory is recalled/);
+});
+
 function render(overrides = {}) {
   const state = makeState(overrides);
   return renderLibraryHtml(state, buildLibraryModel(state, { now: NOW }));

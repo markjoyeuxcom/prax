@@ -258,16 +258,28 @@ test('crossProject: a retired same-title document elsewhere is not revived', asy
   assert.equal(sent.project, 'memory');
 });
 
-test('crossProject: an older server whose listing has no project slugs falls back to the project-scoped upsert', async () => {
+test('crossProject: an older listing resolves project IDs and updates the original instead of duplicating it', async () => {
   let sent; let updateCalled = false;
   const client = fakeClient({
     listDocuments: library({ id: 'h1', title: 'T', projectId: 'p-home', status: 'active' }), // no projectSlug
+    listProjects: async () => [{ id: 'p-home', slug: 'homelab' }],
     updateMemory: async () => { updateCalled = true; return {}; },
     upsertMemory: async (doc) => { sent = doc; return { document: { id: doc.id }, created: true }; },
   });
   await remember(client, { title: 'T', body: 'B', project: 'memory', tags: [], crossProject: true });
-  assert.equal(updateCalled, false, 'never guess which project a document is in');
-  assert.equal(sent.project, 'memory');
+  assert.equal(updateCalled, true);
+  assert.equal(sent, undefined, 'do not create a second title in memory');
+});
+
+test('crossProject: an unresolved owner is explicit and never creates a duplicate', async () => {
+  let created = false;
+  const client = fakeClient({
+    listDocuments: library({ id: 'h1', title: 'T', projectId: 'gone', status: 'active' }),
+    listProjects: async () => [],
+    upsertMemory: async () => { created = true; },
+  });
+  await assert.rejects(() => remember(client, { title: 'T', body: 'B', project: 'memory', crossProject: true }), /Cannot resolve the project/);
+  assert.equal(created, false);
 });
 
 test('without crossProject the library is never listed (a chosen project means a chosen project)', async () => {

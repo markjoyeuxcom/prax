@@ -36,6 +36,16 @@ export class DocumentRevisionConflictError extends Error {
   }
 }
 
+export class DocumentUpdateConflictError extends Error {
+  constructor(reason) {
+    super(reason === 'update-result-gone'
+      ? 'this update already committed, but its document has since been deleted'
+      : 'operationId was already used for a different document update');
+    this.name = 'DocumentUpdateConflictError';
+    this.reason = reason;
+  }
+}
+
 const CREATE_FIELDS = ['title', 'body', 'documentType', 'projectId', 'tags', 'sourceFilename'];
 const UPDATE_COLUMN_MAP = {
   title: 'title',
@@ -773,7 +783,7 @@ export function createLibraryRepository(db) {
       // stale: pg used a LEFT JOIN LATERAL (... limit 1); SQLite ports it to a
       // scalar EXISTS subquery in the select list (0/1, normalized to boolean).
       const result = await db.query(`
-        select d.*, exists (
+        select d.*, p.slug as project_slug, exists (
           select 1
           from document_links dl
           join markdown_documents tgt
@@ -784,6 +794,7 @@ export function createLibraryRepository(db) {
             and tgt.content_hash is distinct from dl.target_hash
         ) as stale
         from markdown_documents d
+        join projects p on p.id = d.project_id
         ${ftsJoin}
         ${where}
         order by d.project_id, d.document_type, d.updated_at desc, d.title
@@ -915,14 +926,43 @@ export function createLibraryRepository(db) {
     // archived document.
     async updateDocument(id, fields, options = {}) {
       await ready();
+      const { operationId } = options;
+      const intentHash = operationId ? createHash('sha256').update(JSON.stringify([
+        id,
+        // Baseline and actor are not new intent: an already committed update
+        // keeps its first attribution even if another client reconciles it.
+        Object.keys(fields).filter(key => Object.hasOwn(UPDATE_COLUMN_MAP, key)).sort().map(key => [key, fields[key]]),
+      ])).digest('hex') : null;
+      const run = async (queryable) => {
+        if (operationId) {
+          const receipt = await queryable.query(
+            'select document_id, intent_hash from document_update_receipts where operation_id = $1', [operationId],
+          );
+          if (receipt.rows[0]) {
+            if (receipt.rows[0].intent_hash !== intentHash) throw new DocumentUpdateConflictError('update-intent-mismatch');
+            const query = buildGetDocument(receipt.rows[0].document_id);
+            const current = await queryable.query(query.text, query.values);
+            if (!current.rows[0]) throw new DocumentUpdateConflictError('update-result-gone');
+            return { ...normalizeDocumentRow(current.rows[0]), replayed: true };
+          }
+        }
+        const document = await updateDocumentOn(queryable, id, fields, options);
+        if (document && operationId) {
+          await queryable.query(
+            'insert into document_update_receipts (operation_id, document_id, intent_hash) values ($1, $2, $3)',
+            [operationId, id, intentHash],
+          );
+        }
+        return document;
+      };
       if (typeof db.connect !== 'function') {
-        return updateDocumentOn(db, id, fields, options);
+        return run(db);
       }
       const client = await db.connect();
       try {
         await client.query('begin immediate');
         try {
-          const document = await updateDocumentOn(client, id, fields, options);
+          const document = await run(client);
           await client.query('commit');
           return document;
         } catch (err) {

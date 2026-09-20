@@ -130,13 +130,17 @@ function renderDocMenu(state, doc, { readOnly }) {
 // and offers the next step — verify (the same read-then-verify action as
 // the menu) and move on, skip, or go back. It shows only while the walk's
 // current id is THIS document, so opening something else simply hides it.
+export function renderReviewWalkLabel(walk) {
+  const verified = Number(walk.verified) || 0;
+  return `Review queue · <b>${walk.index + 1} of ${walk.ids.length}</b>${verified ? ` · ${verified} verified` : ''}`;
+}
+
 export function renderReviewWalkHtml(state, doc) {
   const walk = state.reviewWalk;
   if (!walk || !Array.isArray(walk.ids) || walk.ids[walk.index] !== doc?.id) return '';
   const position = walk.index + 1;
   const total = walk.ids.length;
   const last = position >= total;
-  const verified = Number(walk.verified) || 0;
   const primary = doc.verified === true
     ? `<button class="btn-primary btn-primary--sm" type="button" data-action="review-walk-skip">${last ? 'Finish' : 'Next'}</button>`
     : `<button class="btn-primary btn-primary--sm" type="button" data-action="review-walk-verify" title="Approve the saved content shown, then move on">${last ? 'Verify and finish' : 'Verify and next'}</button>`;
@@ -147,8 +151,8 @@ export function renderReviewWalkHtml(state, doc) {
     : `<button class="btn-ghost" type="button" data-action="review-walk-skip">${last ? 'Skip and finish' : 'Skip'}</button>`;
   return `
     <div class="review-walk" role="region" aria-label="Review queue walk">
-      <span class="review-walk__label">Review queue · <b>${position} of ${total}</b>${verified ? ` · ${verified} verified` : ''}</span>
-      <span class="review-walk__hint">Read it, then decide. Only verified memory is recalled by default.</span>
+      <span class="review-walk__label">${renderReviewWalkLabel(walk)}</span>
+      <span class="review-walk__hint">Read it, then decide. Verification adds a human trust signal; unverified memory can still be recalled.</span>
       <span class="review-walk__actions">${primary}${skip}<button class="btn-ghost" type="button" data-action="back-to-library">Back to queue</button></span>
     </div>`;
 }

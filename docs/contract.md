@@ -32,6 +32,35 @@ made deliberately rather than by accident — they are a safety net, **not a sta
 Importers and MCP clients should **ignore unknown fields** rather than hard-fail — the server
 may add fields over time.
 
+### Document update retries
+
+CLI/skills and MCP use `POST /api/library/documents/:id/update` with the ordinary
+document patch fields plus a caller-stable UUID `operationId`. Optional
+`ifRevision` guards the title/body baseline. The server commits the patch and
+receipt together. Replaying the same intent returns the current canonical
+document with `replayed: true`, without applying the old patch or embedding it
+again. Changed intent under the same ID returns `409` / `update-intent-mismatch`;
+if the result was permanently deleted it returns `409` / `update-result-gone`
+with `committed: true`. Receipts survive deletion and restart.
+
+This endpoint is separate from ordinary PATCH so older servers cannot silently
+ignore the operation ID. On a `404`, clients fall back to one legacy PATCH with
+no automatic transport retry. A lost legacy response is explicitly an unknown
+outcome; inspect the document before starting another update. Lost responses on
+the receipt endpoint retain their operation ID in the client error for safe
+reconciliation/replay. Document listings include both `projectId` and
+`projectSlug`; newer remember clients resolve older ID-only listings through
+the project list, and refuse ambiguous or unresolved ownership.
+
+Both supersession endpoints reject cyclic replacement chains with `409` /
+`supersession-cycle`. The database enforces the check atomically with insertion,
+including concurrent requests and edges that could become live after restore.
+
+Other CLI/MCP setters and link operations without durable receipts retry only
+proven pre-connection failures (connection refused or DNS resolution failure).
+A reset or generic transport rejection may follow a commit and is reported as
+an unknown write outcome instead of automatically reapplying an older intent.
+
 ## Format 1 — Task export/import (`moomora.tasks`)
 
 ### Export envelope (`GET /api/tasks/export`)

@@ -93,8 +93,8 @@ function matchesQuery(doc, query) {
 }
 
 // The review queue (year-one shell spec, item 7): agent-written documents
-// nobody has verified yet. Agents recall only verified memory by default, so
-// this is the pile that decides how useful the shared memory is. Superseded
+// nobody has verified yet. Recall labels unverified memory as unverified;
+// reviewing this queue adds a human trust signal. Superseded
 // and archived documents are out — they have been dealt with.
 export function isReviewQueueDoc(doc) {
   return Boolean(doc) && TRUST_PREDICATES.agent(doc) && doc.verified !== true
@@ -690,7 +690,7 @@ function renderReviewBanner(model) {
   return `
     <div class="review-banner" role="status">
       ${chip(`${summary.total} to review`, 'unverified')}
-      <span class="review-banner__text">Agent-written memory waits here until you verify it. Only verified memory is recalled by default.</span>
+      <span class="review-banner__text">Review agent-written memory to mark it verified. Agents can also recall unverified memory, labelled as unverified.</span>
       <span class="review-banner__agents">${agents}${summary.stale ? ` · ${summary.stale} stale` : ''}</span>
       <span class="review-banner__actions">
         <button class="btn-ghost" type="button" data-action="select-visible-docs">Select shown</button>

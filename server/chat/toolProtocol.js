@@ -202,7 +202,12 @@ function sanitizeGeminiSchema(schema) {
 }
 
 export function geminiContents(turns) {
+  const providerIds = new Set(turns.flatMap(m => (m.geminiParts || [])
+    .map(p => p.functionCall?.id).filter(Boolean)));
   return turns.map((m) => {
+    if (m.role === 'assistant' && Array.isArray(m.geminiParts) && m.geminiParts.length) {
+      return { role: 'model', parts: m.geminiParts };
+    }
     if (isToolCallTurn(m)) {
       const parts = [];
       if (typeof m.content === 'string' && m.content) parts.push({ text: m.content });
@@ -212,7 +217,9 @@ export function geminiContents(turns) {
     if (isToolResultTurn(m)) {
       return {
         role: 'user',
-        parts: m.results.map((r) => ({ functionResponse: { name: r.name, response: { content: String(r.content ?? '') } } })),
+        parts: m.results.map((r) => ({ functionResponse: {
+          name: r.name, ...(providerIds.has(r.id) ? { id: r.id } : {}), response: { content: String(r.content ?? '') },
+        } })),
       };
     }
     return { role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: String(m.content ?? '') }] };
@@ -226,9 +233,33 @@ export function geminiTools(tools) {
 export function parseGemini(data) {
   const parts = data?.candidates?.[0]?.content?.parts;
   const list = Array.isArray(parts) ? parts : [];
-  const text = list.map((p) => p?.text || '').join('');
+  const text = list.filter(p => p?.thought !== true).map((p) => p?.text || '').join('');
   const toolCalls = list
     .filter((p) => p?.functionCall?.name)
-    .map((p, i) => ({ id: `call_${p.functionCall.name}_${i}`, name: p.functionCall.name, input: p.functionCall.args ?? {} }));
-  return { text, toolCalls };
+    .map((p, i) => ({ id: p.functionCall.id || `call_${p.functionCall.name}_${i}`, name: p.functionCall.name, input: p.functionCall.args ?? {} }));
+  return { text, toolCalls, geminiParts: list };
+}
+
+// Approval history returns through an untrusted client. Preserve supported
+// provider parts verbatim and in order, bounded like OpenAI continuation data.
+// The replayed calls must match the calls the person was asked to approve.
+export function sanitizeGeminiParts(parts, toolCalls = []) {
+  if (!Array.isArray(parts) || !parts.length || parts.length > 64) return null;
+  try {
+    const encoded = JSON.stringify(parts);
+    if (encoded.length > 200_000) return null;
+    const copy = JSON.parse(encoded);
+    const keys = new Set(['text', 'functionCall', 'thought', 'thoughtSignature']);
+    if (!copy.every(p => p && typeof p === 'object' && !Array.isArray(p)
+      && Object.keys(p).every(k => keys.has(k))
+      && (typeof p.text === 'string' || (p.functionCall && typeof p.functionCall.name === 'string'))
+      && (p.thought === undefined || typeof p.thought === 'boolean')
+      && (p.thoughtSignature === undefined || typeof p.thoughtSignature === 'string'))) return null;
+    const calls = copy.filter(p => p.functionCall).map(p => p.functionCall);
+    if (calls.length !== toolCalls.length || calls.some((c, i) => c.name !== toolCalls[i].name
+      || (c.id !== undefined && c.id !== toolCalls[i].id)
+      || Object.keys(c).some(k => !['name', 'args', 'id'].includes(k))
+      || JSON.stringify(c.args ?? {}) !== JSON.stringify(toolCalls[i].input ?? {}))) return null;
+    return copy;
+  } catch { return null; }
 }

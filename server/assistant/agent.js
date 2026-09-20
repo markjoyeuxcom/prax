@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { sanitizeGeminiParts } from '../chat/toolProtocol.js';
 import { assistantIntentHash } from './writeReceipts.js';
 import { isToolCallTurn } from '../chat/messages.js';
 import { summarizeWrite } from './tools.js';
@@ -80,17 +81,20 @@ export function sanitizeMessages(input) {
               providerOutput = null;
             }
           }
+          const geminiParts = sanitizeGeminiParts(m.geminiParts, toolCalls);
           out.push({
             role: 'assistant',
             content: typeof m.content === 'string' ? m.content.slice(0, MAX_CONTENT) : '',
             toolCalls,
             ...(providerOutput ? { providerOutput } : {}),
+            ...(geminiParts ? { geminiParts } : {}),
           });
           continue;
         }
       }
       if (typeof m.content === 'string' && m.content.trim()) {
-        out.push({ role: m.role, content: m.content.slice(0, MAX_CONTENT) });
+        const geminiParts = m.role === 'assistant' ? sanitizeGeminiParts(m.geminiParts) : null;
+        out.push({ role: m.role, content: m.content.slice(0, MAX_CONTENT), ...(geminiParts ? { geminiParts } : {}) });
       }
     } else if (m.role === 'tool' && Array.isArray(m.results)) {
       const results = m.results
@@ -202,6 +206,7 @@ export async function runAssistant({ chat, tools, system, messages, decisions = 
         content: res.text || '',
         toolCalls: res.toolCalls,
         ...(Array.isArray(res.providerOutput) ? { providerOutput: res.providerOutput } : {}),
+        ...(Array.isArray(res.geminiParts) ? { geminiParts: res.geminiParts } : {}),
       });
       // Any write in the turn suspends the WHOLE turn for confirmation (a
       // provider requires every tool_use in a turn to be answered together).
@@ -213,7 +218,8 @@ export async function runAssistant({ chat, tools, system, messages, decisions = 
       continue;
     }
 
-    history.push({ role: 'assistant', content: res.text });
+    history.push({ role: 'assistant', content: res.text,
+      ...(Array.isArray(res.geminiParts) ? { geminiParts: res.geminiParts } : {}) });
     return { status: 'done', messages: history, answer: res.text, model, didWrite };
   }
 

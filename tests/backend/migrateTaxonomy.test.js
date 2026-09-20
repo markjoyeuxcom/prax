@@ -66,6 +66,7 @@ test('0010 rebuild preserves data, links, and FTS; retypes tagged post-mortems; 
     '0028_document_code_refs.sql',
     '0029_document_code_refs_null_safe_key.sql',
     '0030_add_memory_system_project.sql',
+    '0031_document_update_receipts.sql',
   ]);
 
   // Every row survived, fields intact.
