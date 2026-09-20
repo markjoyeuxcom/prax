@@ -1248,9 +1248,12 @@ body[data-density="compact"] .group-label { margin-top: 12px; }
 /* The / key cap, as drawn; it steps aside while the bar is in use. */
 .lib-search__kbd { flex: none; margin-right: 2px; color: var(--ink3); }
 .lib-search:focus-within .lib-search__kbd { display: none; }
-/* Semantic without an embedding backend: present, dimmed, leads to Settings. */
-.seg__btn.is-unavailable { opacity: .55; }
-.seg__btn.is-unavailable:hover { opacity: 1; }
+/* Semantic without an embedding backend: present, marked, leads to Settings.
+   The label keeps the inactive ink (opacity would sink it below 4.5:1); the
+   cue is the dotted underline and the faded spark. */
+.seg__btn.is-unavailable > span { text-decoration: underline dotted; text-underline-offset: 3px; text-decoration-color: var(--ink3); }
+.seg__btn.is-unavailable svg { opacity: .45; }
+.seg__btn.is-unavailable:hover svg { opacity: 1; }
 /* The toolbar beneath: active filters left, Sort / Group / layout right. */
 .lib-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; }
 .lib-toolbar__filters { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: 1 1 200px; min-width: 0; }

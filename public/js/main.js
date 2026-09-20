@@ -5040,6 +5040,7 @@ _Task:_ ${task.title || 'Untitled task'}`
         // Semantic half leads to the Settings card that provides one.
         if (await goSettings()) {
           loadCaptureShortcut();
+          setState({ settingsTab: 'intelligence' });
           showToast(SEMANTIC_UNAVAILABLE_HINT);
           renderApp();
           requestAnimationFrame(() => appRoot.querySelector('[data-settings-card="intelligence"]')?.scrollIntoView({ block: 'start' }));
