@@ -19,6 +19,14 @@ fresh empty `[Unreleased]` section is started.
   is always there: without an embedding backend the Semantic half is dimmed and leads to the
   Intelligence card in Settings instead of vanishing.
 
+### Fixed
+
+- **Board cards can be dropped into another lane in the desktop app.** The desktop window
+  handed every drop to Tauri's file drag-and-drop handler before the page's own `drop` event
+  fired, so a dragged card sprang back to its lane. Nothing in Prax takes file drops, so that
+  handler is off and the board's drag and drop is the page's again. A browser test now drags a
+  card between lanes and checks the task's status followed.
+
 ## [0.34.0] - 2026-09-19
 
 ### Changed

@@ -503,6 +503,12 @@ fn open_window(
             .inner_size(1280.0, 800.0)
             .min_inner_size(700.0, 520.0)
             .center()
+            // The board's lanes are HTML5 drag and drop. With Tauri's own
+            // drag-and-drop handler on, the webview claims every drop as a
+            // file drop before the page's `drop` event fires, so a dragged
+            // card sprang back to its lane. Nothing in Prax takes file drops,
+            // so the handler is off and the page owns drag and drop.
+            .disable_drag_drop_handler()
             .on_navigation(move |url| navigation_allowed(url, sidecar_port));
         // macOS: merge the native titlebar into the app's top bar — traffic
         // lights overlay the webview and the toolbar strip becomes draggable
