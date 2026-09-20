@@ -22,7 +22,7 @@ export function createDocumentTools(client) {
       inputSchema: {
         query: z.string().optional().describe('Search text matched against title, body, and tags. Omit to browse by project/tags alone.'),
         project: z.string().optional().describe('Limit to one project (slug or id); omit to search all.'),
-        documentType: DOCUMENT_TYPE.optional().describe('Limit to one document type (note, runbook, decision, known-issue, reference, post-mortem).'),
+        documentType: DOCUMENT_TYPE.optional().describe('Limit to one document type (note, runbook, decision, known-issue, reference, post-mortem, template).'),
         tags: z.array(z.string()).optional().describe('Require all of these tags.'),
         kind: DOCUMENT_KIND.optional().describe('Limit to hand-authored sources or agent-synthesized derivations.'),
         status: z.enum(['active', 'superseded', 'deprecated', 'all']).optional()
@@ -80,7 +80,7 @@ export function createDocumentTools(client) {
     {
       name: 'create_document',
       title: 'Create document',
-      description: 'Create a new library document (documentType: note, runbook, decision, known-issue, reference, or post-mortem). Pass kind: "synthesized" for agent-generated derivations. Reuse id with the same fields to retry safely.',
+      description: 'Create a new library document (documentType: note, runbook, decision, known-issue, reference, post-mortem, or template). Pass kind: "synthesized" for agent-generated derivations. Reuse id with the same fields to retry safely.',
       annotations: { idempotentHint: true, destructiveHint: false },
       inputSchema: {
         id: z.string().optional().describe('Optional caller-stable UUID. Reuse it with identical fields when retrying.'),

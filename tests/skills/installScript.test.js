@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -128,6 +128,7 @@ test('install.sh --instructions adds one marked block per tool, keeps existing c
       join(home, '.claude', 'CLAUDE.md'),
       join(home, '.codex', 'AGENTS.md'),
       join(home, '.copilot', 'instructions', 'AGENTS.md'),
+      join(home, '.gemini', 'GEMINI.md'),
     ];
     for (const file of files) {
       const text = readFileSync(file, 'utf8');
@@ -140,14 +141,13 @@ test('install.sh --instructions adds one marked block per tool, keeps existing c
     }
     assert.match(readFileSync(files[0], 'utf8'), /^# Mine\n\nKeep me\.\n/, 'existing content stays above the block');
     assert.match(first.stdout, /export COPILOT_CUSTOM_INSTRUCTIONS_DIRS="[^"]*\/\.copilot\/instructions"/, 'Copilot needs the env var; the installer prints the export');
-    assert.match(first.stdout, /Antigravity has no global instructions file/, 'Antigravity gets a workspace note, not a global write');
 
     const again = run(['--instructions'], env);
     assert.equal(again.status, 0, again.stderr);
     for (const file of files) {
       assert.equal((readFileSync(file, 'utf8').match(/prax-memory:start/g) || []).length, 1, `${file} gets no second block`);
     }
-    assert.match(again.stdout, /instructions already present/);
+    assert.match(again.stdout, /instructions already current/);
 
     // The env var already naming the directory changes the hint, not the file.
     const told = run(['--instructions'], { ...env, COPILOT_CUSTOM_INSTRUCTIONS_DIRS: `/elsewhere,${join(home, '.copilot', 'instructions')}` });
@@ -184,6 +184,75 @@ test('install.sh refuses a Node older than 20 with an actionable message and ins
     assert.equal(result.status, 1);
     assert.match(result.stderr, /Node 20 or newer is required .*found v18\.20\.0/);
     assert.equal(existsSync(dest), false);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('--instructions upgrades a legacy block through a symlink and preserves surrounding bytes and permissions', () => {
+  const base = mkdtempSync(join(tmpdir(), 'prax-instruction-upgrade-'));
+  try {
+    const home = isolatedHome(base);
+    const target = join(base, 'shared instructions.md');
+    const prefix = '# Personal rules\n\nPreserve `literal $HOME` and Unicode: café.\n\n';
+    const suffix = '\n\n## Private conventions\nKeep this too.';
+    writeFileSync(target, `${prefix}<!-- prax-memory:start -->\nOld memory-only guidance\n<!-- prax-memory:end -->${suffix}`);
+    chmodSync(target, 0o640);
+    const link = join(home, '.claude', 'CLAUDE.md');
+    mkdirSync(dirname(link), { recursive: true });
+    symlinkSync(target, link);
+    const env = { HOME: home };
+    const first = run(['--instructions'], env);
+    assert.equal(first.status, 0, first.stderr);
+    const updated = readFileSync(target, 'utf8');
+    assert.ok(updated.startsWith(prefix));
+    assert.ok(updated.endsWith(suffix));
+    assert.doesNotMatch(updated, /Old memory-only guidance/);
+    assert.equal(readlinkSync(link), target, 'the instruction symlink is retained');
+    assert.equal(statSync(target).mode & 0o777, 0o640, 'the target permissions are retained');
+    const priorMtime = statSync(target).mtimeMs;
+    const again = run(['--instructions'], env);
+    assert.equal(again.status, 0, again.stderr);
+    assert.equal(readFileSync(target, 'utf8'), updated);
+    assert.equal(statSync(target).mtimeMs, priorMtime, 'an unchanged block is not rewritten');
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('--instructions refuses malformed or ambiguous managed blocks without changing the file', () => {
+  const base = mkdtempSync(join(tmpdir(), 'prax-instruction-malformed-'));
+  try {
+    const home = isolatedHome(base);
+    const path = join(home, '.claude', 'CLAUDE.md');
+    mkdirSync(dirname(path), { recursive: true });
+    const start = '<!-- prax-memory:start -->';
+    const end = '<!-- prax-memory:end -->';
+    for (const body of [start, end, `${end}\n${start}`, `${start}\na\n${end}\n${start}\nb\n${end}`, `inline ${start}\na\n${end}`]) {
+      const original = `# Keep me\n${body}\nUnrelated instructions\n`;
+      writeFileSync(path, original);
+      const result = run(['--instructions'], { HOME: home });
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /Malformed Prax instruction markers/);
+      assert.equal(readFileSync(path, 'utf8'), original);
+    }
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('--instructions honours the Antigravity global instruction path override', () => {
+  const base = mkdtempSync(join(tmpdir(), 'prax-instruction-gemini-'));
+  try {
+    const home = isolatedHome(base);
+    const path = join(base, 'custom', 'GEMINI.md');
+    const env = { HOME: home, PRAX_GEMINI_INSTRUCTIONS: path };
+    const result = run(['--instructions'], env);
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(existsSync(path));
+    assert.equal(existsSync(join(home, '.gemini', 'GEMINI.md')), false);
+    assert.equal(run(['--uninstall'], env).status, 0);
+    assert.doesNotMatch(readFileSync(path, 'utf8'), /prax-memory/);
   } finally {
     rmSync(base, { recursive: true, force: true });
   }
@@ -390,13 +459,13 @@ test('--instructions teaches `prax` only when the shim is installed AND on PATH'
 
     // Same machine, shim on PATH: the block switches to the command form.
     const onPathEnv = { PATH: `${bin}:${dirname(process.execPath)}:${process.env.PATH}`, ...common };
-    assert.equal(spawnSync('sh', [script, '--uninstall'], { env: onPathEnv, encoding: 'utf8' }).status, 0);
     const onPath = spawnSync('sh', [script, '--instructions', '--cli'], { env: onPathEnv, encoding: 'utf8' });
     assert.equal(onPath.status, 0, onPath.stderr);
     text = readFileSync(claudeMd, 'utf8');
     assert.match(text, /^prax recall "<what I'm about to work on>"$/m);
     assert.match(text, /^prax recall --recent 5 /m);
     assert.match(text, /^prax remember "<title>" --body "<body>" --memory /m);
+    assert.match(text, /^prax remember "<title>" --body "<body>" --project <slug> /m);
     assert.ok(text.includes(`${bin}/prax`), 'the absolute shim path is offered as the fallback');
     assert.doesNotMatch(text, /recall\.mjs|remember\.mjs/, 'the CLI form carries no script paths');
     assert.doesNotMatch(text, /__SKILLS_DIR__|__BIN_DIR__/, 'both placeholders are substituted');

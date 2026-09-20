@@ -15,11 +15,18 @@ transient state (a half-finished edit, the current TODO), and never secrets.
 Prefer one memory per fact with a specific, stable title — the title is the
 de-duplication key.
 
+**File by subject.** Use `--project <slug>` for knowledge about one project, including
+agent-written architecture, decisions and runbooks. Reserve `--project memory` for
+preferences, conventions and procedures useful across projects. All project documents
+are available to shared recall; the author's identity does not determine the destination.
+Keep unfinished work, tests run and next actions in the task's notes/checklist or linked
+handoff, then close or retire that working context when complete.
+
 ## Run
 
 ```bash
 node <skill-dir>/scripts/remember.mjs "<title>" "<body>" \
-  [--type note|runbook|decision|known-issue|reference|post-mortem] \
+  [--type note|runbook|decision|known-issue|reference|post-mortem|template] \
   [--tags a,b] [--ref <url>] [--cite <path[:start[-end]]>] [--project <slug>] [--id <uuid>] [--agent <id>]
 ```
 
@@ -27,8 +34,8 @@ node <skill-dir>/scripts/remember.mjs "<title>" "<body>" \
 `${CLAUDE_SKILL_DIR}`; in Codex it is the path this skill was loaded from. The
 script is one self-contained file: Node 20+, no packages, no repository checkout.
 
-- Writes to the **`memory`** project (created on first use). `--project <slug>`
-  files it under a specific project instead.
+- With no project flag, new titles default to **`memory`**. Choose `--project <slug>`
+  explicitly for project knowledge; `--project memory` is for cross-project guidance.
 - `--type` says what the document *is*. Omit it on a re-remember to keep the stored
   type; pass it to retype (a note can graduate to a decision).
 - `--ref <url>` attaches an external reference (a PR, dashboard, issue) instead of

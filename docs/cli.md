@@ -150,12 +150,13 @@ the same implementation the `prax-recall` skill bundles.
 
 ```bash
 prax recall "how do we restore postgres"
-prax recall "how do we restore postgres" --project memory
+prax recall "how do we restore postgres" --project homelab
 prax recall --recent 5
 ```
 
 - Searches **all** projects by default (agent memories and hand-authored notes alike);
-  `--project <slug>` narrows it (`--project memory` for agent memory only).
+  `--project <slug>` narrows it (`--project memory` for cross-project guidance).
+  Project-specific knowledge belongs to its owning project, including agent-written notes.
 - Retrieval is by meaning when an embedding backend is configured; on a server that reports
   semantic search as not configured it falls back to keyword search and says so.
 - `--recent [n]` lists the newest **active** documents chronologically instead of searching —
@@ -184,7 +185,7 @@ prax get c58d3108-4f93-4a50-ac42-0c1d61e61b08
 prax get c58d3108-4f93-4a50-ac42-0c1d61e61b08 --json
 ```
 
-### `remember <title> [--body <text>] [--memory] [--type note|runbook|decision|known-issue|reference|post-mortem] [--tag a,b] [--ref <url>]`
+### `remember <title> [--body <text>] [--memory] [--type note|runbook|decision|known-issue|reference|post-mortem|template] [--tag a,b] [--ref <url>]`
 
 Write a document to project memory. If an **active** document with the same title already exists
 in the project it is updated in place; otherwise a new document is created. The write is one
@@ -200,6 +201,7 @@ which agent wrote them (`updatedByAgent`). The confirmation line names the insta
 ```bash
 prax remember "Postgres restore runbook" \
   --body "Steps: 1. Stop app. 2. pg_restore …" \
+  --project homelab \
   --type runbook \
   --tag postgres,homelab
 ```
@@ -207,8 +209,12 @@ prax remember "Postgres restore runbook" \
 Flags:
 
 - `--body <text>` — document body (Markdown); defaults to empty string
-- `--memory` — write to the cross-tool **`memory`** namespace (what the `prax-remember` skill does)
-  instead of the current project; the document is also tagged `memory`
+- `--project <slug>` — choose the project that owns this knowledge; all projects are available
+  to shared recall. Without it, ordinary remember resolves the current project.
+- `--memory` — select **`memory`** for guidance useful across projects; the document is also
+  tagged `memory`. Without an explicit project, an existing unique title in another project
+  is refined there. The remember skill defaults new titles to memory, so pass its `--project`
+  explicitly for project-specific findings.
 - `--type` — document type: `note` (default), `runbook`, `decision`, `known-issue`, `reference`, or `post-mortem`. On a re-remember (same title), omit it to keep the stored type; pass it to retype.
 - `--tag a,b` — a comma-separated tag list that **replaces** the document's tags. Repeating
   `--tag` does not accumulate: the last occurrence wins.

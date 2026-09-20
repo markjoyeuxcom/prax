@@ -211,6 +211,7 @@ export const state = {
   documentInfoError: '',
   docMenuOpen: false,           // editor ••• actions dropdown
   newDocMenuOpen: false,        // Library "＋ New doc" template chooser
+  templateStudio: null,         // reviewed source, destination and durable creation identity
   documentRuns: null,           // past runs of the open runbook (null = not fetched)
 
   // ---- runbook execution (run view) ----

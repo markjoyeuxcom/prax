@@ -19,8 +19,15 @@ by shape later: `note` (default), `runbook` (procedures), `decision` (a choice m
 `known-issue` (symptom + workaround), `reference` (lookup material), `post-mortem`. Re-remembering
 an existing title may retype it (a note can graduate to a decision).
 
-It is **not** for transient, session-only state (a half-finished edit, the current TODO) — that
-belongs in the working context, not the library — and never for secrets.
+File knowledge by its subject. Project-specific architecture, decisions, runbooks and findings
+belong in the owning project's Library, whether written by a person or an agent. Reserve the
+**memory** project for preferences, conventions and procedures useful across projects.
+Recall searches all projects by default, so project ownership does not restrict agent sharing.
+
+Transient state (a half-finished edit, tests just run, the next action) belongs in the relevant
+task's notes/checklist or linked handoff. Update it before handing over, close the task when
+acceptance checks pass, and retire temporary handoffs. Never persist secrets. For this
+repository's concrete workflow, see [Working on Prax](working-on-prax.md).
 
 ## The loop
 
@@ -28,14 +35,16 @@ belongs in the working context, not the library — and never for secrets.
 retrieve  →  work  →  persist  →  supersede
 ```
 
-1. **Retrieve-on-start** — before working a task, run the recall skill with "what I'm about to
+1. **Retrieve-on-start** — read the repository's startup guide and project overview when
+   available, then run the recall skill with "what I'm about to
    do". Retrieval is by meaning, so a paraphrase finds the right note even with different words;
    an honest "no relevant memory" means start fresh. For a "what did I note recently" intent (a
    list, not a similarity search) use `--recent`.
 2. **Work** — using the recalled context as grounding (your documented procedures, not guesses).
 3. **Persist-on-learn** — when something durable is learned or decided, run the remember skill
-   with a title and body. It writes to the `memory` project, stamped `updatedBy: agent`,
-   `kind: synthesized`, and the agent id. When the memory is *about* something that lives
+   with a title, body and `--project <slug>` for its owner (`--project prax` here). Use
+   `--project memory` for knowledge useful across projects. Skill writes are stamped
+   `updatedBy: agent`, `kind: synthesized`, and the agent id. When the memory is *about* something that lives
    elsewhere — a PR, a dashboard, an upstream issue — add `--ref <url>` to attach an external
    reference instead of copying the content in. When it is *about* specific code, add
    `--cite <path[:start[-end]]>` from inside the checkout: only a hash of those lines is stored,
@@ -79,12 +88,13 @@ and the confirmation line names the base URL it wrote to.
 
 ## Namespace & provenance
 
-- **`memory` project** — the namespace the agent writes to. It is Prax's one reserved system
+- **`memory` project** — the home for reusable cross-project knowledge. It is Prax's one reserved system
   project: seeded by migration, and the server refuses to rename, archive or delete it (the CLI
   still creates it on first remember for a database that predates the seed). Every other project,
   Inbox included, can be deleted from All projects — together with everything filed under it.
   Recall searches **all** projects by default, so it surfaces both agent memories and your
-  hand-authored runbooks/notes; scope with `--project memory` when you only want the former.
+  hand-authored runbooks/notes; scope with `--project memory` only for cross-project guidance,
+  or with another project slug for its knowledge. Agent-written project notes stay with that project.
 - **`updatedBy: agent`** — every skill write is stamped via the `x-prax-origin` header, so
   machine-written memory is always distinguishable from human-authored docs.
 - **`updatedByAgent`** — *which* agent wrote the current revision (`claude`, `codex`, `copilot`,
@@ -118,8 +128,10 @@ the tasks/checklist suite and `derived-from` document linking, which the CLI doe
   to scope). Hits carry a trust label, and an incomplete semantic index is disclosed inline
   (`index incomplete: N of M documents pending`) so an empty result is never mistaken for an
   honest miss while vectors are still pending.
-- `prax remember "<title>" --body "<text>"` — writes to the **current** project; add `--memory`
-  to write to the global `memory` namespace (what the `prax-remember` skill does).
+- `prax remember "<title>" --body "<text>" --project <slug>` — writes project knowledge to its
+  owner (the current project is resolved when the flag is omitted). Use `--memory` for reusable
+  cross-project knowledge. The skill defaults new titles to memory, so pass its `--project`
+  explicitly. These destinations do not change cross-project recall or agent attribution.
 
 ## Setup
 
@@ -154,15 +166,18 @@ the agents run the skill scripts with `node`.
   `claude plugin marketplace add git@gitlab.com:markjoyeuxcom/apps/prax.git` then
   `claude plugin install prax@prax`.
 
-On every route, `--instructions` also writes the standing "recall first / remember durable
-findings" rule into each tool's global instructions file, once, between markers. Paired with
+On every route, `--instructions` adds or refreshes the standing "recall first / file by project"
+rule in each tool's global instructions file, between markers. Paired with
 `--cli` it writes that rule in `prax …` form; on its own it names the installed skill scripts by
 absolute path, so the block never teaches a command the machine cannot run. The files:
-`~/.claude/CLAUDE.md` (Claude Code), `~/.codex/AGENTS.md` (Codex) and
+`~/.claude/CLAUDE.md` (Claude Code), `~/.codex/AGENTS.md` (Codex), `~/.gemini/GEMINI.md`
+(Antigravity) and
 `~/.copilot/instructions/AGENTS.md` (Copilot CLI, which reads it only when your shell exports
 `COPILOT_CUSTOM_INSTRUCTIONS_DIRS="$HOME/.copilot/instructions"` — the installer prints the
-line). Antigravity has no global file, so the installer tells you to paste the block into each
-workspace's `AGENTS.md`/`GEMINI.md`. `--uninstall` removes the skills, the links, the instruction
+line). Project-specific startup guidance belongs in the workspace's instruction file.
+Updating an existing block preserves surrounding text; malformed or ambiguous markers stop
+the update instead of guessing. Re-running switches command form without uninstalling first.
+`--uninstall` removes the skills, the links, the instruction
 blocks and the shim. See [`skills/README.md`](../skills/README.md).
 
 ### Finding the app

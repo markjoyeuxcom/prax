@@ -7,8 +7,8 @@
 // The DB no longer constrains document_type (migration 0010 dropped the
 // CHECK); this list IS the vocabulary. Order here is display order.
 //
-// Types say what a document IS (only 'runbook' carries extra behavior — the
-// Run button and run routes). The trust axes are separate and must not be
+// Types say what a document IS. Runbooks support execution; templates support
+// creating independent copies. The trust axes are separate and must not be
 // conflated: kind (source|synthesized provenance), updatedBy (user|agent),
 // verified, status (active|superseded|deprecated).
 export const DOCUMENT_TYPES = [
@@ -16,6 +16,7 @@ export const DOCUMENT_TYPES = [
   { value: 'note', label: 'Note', plural: 'Notes' },
   { value: 'decision', label: 'Decision', plural: 'Decisions' },
   { value: 'known-issue', label: 'Known issue', plural: 'Known issues' },
+  { value: 'template', label: 'Template', plural: 'Templates' },
   { value: 'reference', label: 'Reference', plural: 'References' },
   { value: 'post-mortem', label: 'Post-mortem', plural: 'Post-mortems' },
 ];

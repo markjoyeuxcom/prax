@@ -1,99 +1,56 @@
 # AGENTS.md — Prax
 
-Instructions for AI coding agents working in this repo — **Claude Code, Codex CLI, Antigravity (agy),
-Cursor, aider, and any shell-capable agent**. `CLAUDE.md` is a symlink to this file, so all tools read
-the same rules.
+Instructions for agents working in this repository. CLAUDE.md is a symlink to this file.
 
-## Shared agent memory
+## Start a task
 
-This project doubles as **shared, local-first long-term memory** for AI tools, backed by
-Prax's library + semantic search. Use it so durable knowledge carries across sessions
-*and across tools*: what one agent learns, another can recall. The memory lives in Prax
-(SQLite + embeddings), not in your context window.
+1. Read [Working on Prax](docs/working-on-prax.md) for project organisation and code entry points.
+2. Find the owning project’s overview with `prax search "Prax project overview" --project prax`,
+   then fetch the matching document with `prax get <id>`. If this is a fresh library, use the
+   repository guide and the bundled Project overview starter; do not assume another machine’s IDs.
+   If the app is unavailable, use the repository guide and report the missing memory access.
+3. Run `prax context "<task>" --project prax` for a bounded project briefing, then
+   `prax recall "Prax <task>"` for relevant knowledge across projects. Fetch a full note when
+   its details matter. Unverified notes are leads; check them against current code.
+4. Inspect the working tree and the relevant Prax task's notes, checklist and linked documents
+   before editing. Preserve unrelated work. Create a task for substantial new work when absent.
 
-The commands below are the `prax` CLI. Get it with `npm link` in a checkout, or with
-`skills/install.sh --cli` on a machine that installed the desktop app (that shim runs the
-bundled CLI on the app's own Node runtime). **Without a global `prax`, run every command as
-`node cli/prax.js …` from a checkout** — same binary, same behaviour.
+## Organise work and knowledge
 
-The same memory loop also ships as two skills, **prax-recall** and **prax-remember**, for tools
-that fire skills on their own. They live in [`skills/`](skills/) and are mirrored into
-`.claude/skills/` (Claude Code) and `.agents/skills/` (Codex), so in a checkout both tools
-already have them. Each is one self-contained Node script; outside a checkout install them with
-[`skills/install.sh`](skills/README.md) — no repository needed on that machine. The skills and
-the CLI share one engine (`cli/lib/`), so either surface does the same thing.
+- **Prax project → Tasks:** features, bugs, improvements, releases and acceptance checks.
+- **Prax project → Library:** Prax architecture, UI conventions, decisions, runbooks and
+  reusable findings. Agent-written documents belong here too; author provenance is separate.
+- **Task notes/checklist or linked handoff:** unfinished implementation state, branch/commit,
+  tests run and next action. Update before handing over. Close the task when its checks pass;
+  retire temporary handoffs when finished.
+- **Memory project:** preferences, conventions and procedures useful across projects.
+  All projects participate in shared recall; `memory` is not required for other agents to read a note.
 
-### 1. Recall first
-
-Before starting a task, retrieve what's already known:
-
-```bash
-prax recall "<what you're about to work on>"
-prax recall --recent 5      # chronological list instead
-```
-
-It searches **all projects** by meaning and returns a distilled summary (top hit + a short
-related list) — cheap on tokens. An honest `No relevant memory found` means start fresh.
-
-### 2. Remember durable findings
-
-When you learn something that outlives this session — how a system works, a decision or
-convention, a reusable runbook — persist it:
+Save durable project knowledge explicitly in Prax:
 
 ```bash
-prax remember "<title>" --body "<body>" --memory [--type note|runbook|decision|known-issue|reference|post-mortem] [--tag a,b] [--ref <url>] [--cite <path[:start[-end]]>]
+prax remember "<stable title>" --body "<useful guidance>" --project prax --type decision --tag architecture --cite path/to/file
 ```
 
-`--memory` is what makes this a *shared* memory write instead of a note on the current project.
-(The `prax-remember` skill takes the body as a second positional and spells the flag `--tags`;
-it defaults to `--memory` behaviour, so it needs no such flag.)
+For knowledge useful across projects, use `--memory` instead of `--project prax`.
+The remember skill uses `--project prax` for this repository and `--project memory` for
+cross-project knowledge. Keep one canonical entry per subject; reuse its title or ID when
+refining it. Retire replaced guidance with `prax supersede <oldId> --with <newId>`.
+Use document types (reference, decision, runbook, known-issue, post-mortem, template) and a small topic
+vocabulary: architecture, ui, release, ci, ai, desktop, agent-memory, quality.
 
-When the memory makes a claim about specific code, add `--cite server/config.js:12-36` (a
-repository-relative path, optionally a 1-based inclusive line range). Recall run from inside a
-checkout then re-hashes those lines and labels the hit `changed`, `moved to path:a-b`, or
-`is gone` when the ground under the claim has shifted — silence means the citation still holds.
+Agent-written revisions remain unverified until a person reviews them. Use `--cite` for code
+claims so later recall can flag changed, moved or missing source. Never store secrets or put
+session-only progress into reusable memory. A miss with incomplete index coverage needs a
+recent/keyword check, not an assumption that no knowledge exists.
 
-Writes to the dedicated **`memory`** project and **de-dups by exact title** in one server-side
-transaction (re-running refines the memory in place; two agents cannot create the same title
-twice). A superseded memory is never revived — a fresh memory under a retired title becomes a
-new document. Every write is stamped `updatedBy: agent`, `kind: synthesized`, plus **which
-agent** wrote it (`claude` / `codex` / `copilot` / `antigravity` detected automatically; `--agent <id>` or `PRAX_AGENT`
-overrides). Agent-written memory lands **unverified** until a human verifies it — treat
-unverified recalls as leads, not gospel. Do **not** persist transient/session-only state or
-secrets.
+## Memory tools
 
-### 3. Supersede, don't duplicate
-
-Re-remember an existing title to refine it. When one memory replaces a *different* one, run
-`prax supersede <oldId> --with <newId>`: the old document is retired from default retrieval and
-linked to its replacement.
-
-### Finding the app
-
-The skills and the CLI find Prax in this order: `PRAX_API_URL` → the desktop app's saved
-loopback port (`webview-port` under its app-data folder) → `http://127.0.0.1:3000`. Set
-`PRAX_API_URL` only when the app runs elsewhere. Semantic (meaning-based) recall needs an
-embedding backend configured in the app; without one recall says so and falls back to
-keyword matching.
-
-## Project context packs (optional)
-
-For a task-scoped briefing of *this project's* verified memory, the `prax` CLI assembles a
-bounded, trust-aware context pack (Markdown):
-
-```bash
-prax context "<task>"     # briefing for the current project (.prax/project.json)
-prax search "<query>"     # semantic search, scoped to the current project
-prax help                 # full surface: init/context/search/get/recall/remember/verify/unverify/supersede
-```
-
-The project-scoped commands (`context`, `search`, and `remember` without `--memory`) resolve the
-project from `--project` / `PRAX_PROJECT` / `.prax/project.json` / the git remote / the folder
-name, whereas `prax remember --memory` and the `prax-remember` skill **write** to the cross-tool
-**`memory`** namespace. Recall is cross-project on both surfaces: `prax recall` and the
-`prax-recall` skill search every project by default and take `--project memory` to narrow to
-agent memory. Use `--memory` for durable shared memory, the project-scoped commands for "what
-does *this project* know."
+Use `prax`, or `~/.local/bin/prax` when PATH does not find it. From a checkout,
+`node cli/prax.js` is equivalent. The portable prax-recall and prax-remember skills share the
+CLI engine; see [the memory convention](docs/agent-memory.md) and [skills](skills/README.md).
+Project commands resolve `--project`, PRAX_PROJECT, .prax/project.json, git remote or folder
+name; this checkout's marker selects prax. Recall searches all projects unless scoped.
 
 ## Configuration
 

@@ -28,11 +28,11 @@
 # Overrides: PRAX_SKILLS_REPO, PRAX_SKILLS_REF (branch/tag, default main),
 # PRAX_SKILLS_SOURCE (auto|clone), PRAX_SKILLS_DIR (real copies),
 # PRAX_CLAUDE_SKILLS_DIR (Claude Code links), PRAX_GEMINI_SKILLS_DIR
-# (Antigravity links), PRAX_BIN_DIR (--cli shim, default ~/.local/bin).
+# (Antigravity links), PRAX_GEMINI_INSTRUCTIONS (global rules),
+# PRAX_BIN_DIR (--cli shim, default ~/.local/bin).
 #
-# --instructions additionally appends the standing "recall first / remember
-# durable findings" rule — the thing that makes the skills fire reliably — to
-# each tool's global instructions file, once, between marker comments. The
+# --instructions adds or refreshes the standing "recall first / file by project"
+# rule in each tool's global instructions file, between marker comments. The
 # commands it writes are `prax …` when --cli has put the shim on PATH, and the
 # skill scripts' absolute paths otherwise, so the block never teaches a command
 # this machine cannot run:
@@ -41,8 +41,7 @@
 #   Copilot CLI  $PRAX_COPILOT_INSTRUCTIONS_DIR/AGENTS.md (default ~/.copilot/instructions),
 #                which Copilot reads only when COPILOT_CUSTOM_INSTRUCTIONS_DIRS names
 #                that directory — the installer prints the export line.
-# Antigravity has no global instructions file (it reads AGENTS.md / GEMINI.md at
-# the workspace root), so the installer prints what to paste there instead.
+#   Antigravity  $PRAX_GEMINI_INSTRUCTIONS      (default ~/.gemini/GEMINI.md)
 #
 # --cli writes a `prax` shim into $PRAX_BIN_DIR that runs the CLI shipped next
 # to the pack (the app bundle's cli/prax.js on the app's own Node runtime, so
@@ -69,6 +68,7 @@ MIN_NODE_MAJOR=20
 # Standing-instruction files (see --instructions in the header).
 CLAUDE_MD="${PRAX_CLAUDE_INSTRUCTIONS:-$HOME/.claude/CLAUDE.md}"
 CODEX_MD="${PRAX_CODEX_INSTRUCTIONS:-$HOME/.codex/AGENTS.md}"
+GEMINI_MD="${PRAX_GEMINI_INSTRUCTIONS:-$HOME/.gemini/GEMINI.md}"
 COPILOT_DIR="${PRAX_COPILOT_INSTRUCTIONS_DIR:-$HOME/.copilot/instructions}"
 COPILOT_MD="$COPILOT_DIR/AGENTS.md"
 BLOCK_START='<!-- prax-memory:start -->'
@@ -153,23 +153,26 @@ CMDS
 remember_commands() {
   if [ "$CLI_FORM" = 1 ]; then
     cat <<'CMDS'
-prax remember "<title>" --body "<body>" --memory [--type note|runbook|decision|known-issue|reference|post-mortem] [--tag a,b] [--ref <url>] [--cite <path[:start[-end]]>]
+# Knowledge about one project:
+prax remember "<title>" --body "<body>" --project <slug> [--type note|runbook|decision|known-issue|reference|post-mortem|template] [--tag a,b] [--ref <url>] [--cite <path[:start[-end]]>]
+# Knowledge useful across projects:
+prax remember "<title>" --body "<body>" --memory [--type note|runbook|decision|known-issue|reference|post-mortem|template] [--tag a,b] [--ref <url>]
 CMDS
   else
     cat <<'CMDS'
-node "__SKILLS_DIR__/prax-remember/scripts/remember.mjs" "<title>" "<body>" [--type note|runbook|decision|known-issue|reference|post-mortem] [--tags a,b] [--ref <url>] [--cite <path[:start[-end]]>]
+# Knowledge about one project:
+node "__SKILLS_DIR__/prax-remember/scripts/remember.mjs" "<title>" "<body>" --project <slug> [--type note|runbook|decision|known-issue|reference|post-mortem|template] [--tags a,b] [--ref <url>] [--cite <path[:start[-end]]>]
+# Knowledge useful across projects:
+node "__SKILLS_DIR__/prax-remember/scripts/remember.mjs" "<title>" "<body>" --project memory [--type note|runbook|decision|known-issue|reference|post-mortem|template] [--tags a,b] [--ref <url>]
 CMDS
   fi
 }
 
-# Only the CLI form needs explaining: --memory is what separates shared memory
-# from a note on the current project, and the shim has an absolute path when
-# PATH is not what the agent's shell ends up with.
+# The CLI shim has an absolute fallback when the shell's PATH differs.
 remember_note() {
   [ "$CLI_FORM" = 1 ] || return 0
   cat <<'NOTE'
-`--memory` is what makes this shared memory rather than a note on the current project. If `prax`
-is not found, run it as `__BIN_DIR__/prax`.
+If `prax` is not found, run it as `__BIN_DIR__/prax`.
 
 NOTE
 }
@@ -185,7 +188,8 @@ Prax is the shared, local-first long-term memory for every agent CLI on this mac
 (Claude Code, Codex, Copilot CLI and Antigravity all read and write the same library). Use it
 in every project.
 
-**Recall first.** Before starting a task, retrieve what is already known:
+**Recall first.** Read the repository's startup guide and its Prax project overview when
+available, then retrieve knowledge relevant to the task:
 
 ```bash
 BLOCK
@@ -195,8 +199,14 @@ BLOCK
 
 Every hit says which project it lives in (`in homelab`), its trust (`verified by …` or
 `unverified`), its age and who wrote it. Treat `unverified` hits as leads, not gospel; weigh a
-months-old agent note accordingly. `No relevant memory found` means start fresh. `Prax not
-reachable` means the app is not running — say so, never invent memory.
+months-old agent note accordingly. A miss with complete index coverage means start fresh;
+an incomplete-index or keyword-only result needs a recent/keyword check. If Prax is
+unreachable, report that and use repository documentation; never invent memory.
+
+**File by subject.** Project-specific architecture, decisions, runbooks and findings belong
+in that project's Library. Reserve the `memory` project for preferences, conventions and
+procedures useful across projects. Documents in every project are shared with all agents;
+the author's identity is recorded separately. Recall searches across projects by default.
 
 **Remember durable findings.** When you learn something that outlives this session — how a
 system works, a decision or convention, a reusable runbook — persist it:
@@ -212,24 +222,57 @@ BLOCK
     cat <<'BLOCK'
 Re-running with the same title refines the memory in place; without `--project`, a title that
 already lives in another project is refined there, never duplicated. Use `--cite` when the claim
-is about specific code (run it from inside the checkout). Never persist secrets or
-session-only state.
+is about specific code (run it from inside the checkout). Keep entries concise and supersede
+obsolete guidance. Agent-written revisions remain unverified until a person reviews them.
+
+**Track the work.** Put unfinished implementation state, branch/commit, test results and the
+next action in the relevant task's notes/checklist or linked handoff. Update it before handing
+over; close the task when its acceptance checks pass. Keep reusable findings in the Library,
+and retire temporary handoffs when finished. Never persist secrets.
 BLOCK
   } | subst_paths
 }
 
-# Append the block to one file, once. An existing file keeps everything it had;
-# a second run is a no-op (the start marker is the guard).
+# Refresh only our marked block. Preserve unrelated bytes, modes and symlinks;
+# refuse malformed/ambiguous markers rather than guessing which text to replace.
 write_instructions() {
   file="$1"
-  if [ -f "$file" ] && grep -qF "$BLOCK_START" "$file"; then
-    echo "instructions already present in $file"
-    return 0
-  fi
   mkdir -p "$(dirname "$file")"
-  if [ -s "$file" ]; then printf '\n' >> "$file"; fi
-  { echo "$BLOCK_START"; instruction_block; echo "$BLOCK_END"; } >> "$file"
-  echo "instructions added to $file"
+  node --input-type=module - "$file" "$(instruction_block)" <<'NODE'
+import { existsSync, readFileSync, realpathSync, statSync, writeFileSync, renameSync, unlinkSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+const [file, body] = process.argv.slice(2);
+const path = existsSync(file) ? realpathSync(file) : file;
+const before = existsSync(path) ? readFileSync(path, 'utf8') : '';
+const start = '<!-- prax-memory:start -->';
+const end = '<!-- prax-memory:end -->';
+const markers = [...before.matchAll(/<!-- prax-memory:(start|end) -->/g)];
+const block = `${start}\n${body}\n${end}`;
+let after;
+if (!markers.length) after = `${before}${before ? '\n' : ''}${block}\n`;
+else {
+  const [a, b] = markers;
+  if (markers.length !== 2 || a[1] !== 'start' || b[1] !== 'end'
+      || (a.index && before[a.index - 1] !== '\n') || before[a.index + start.length] !== '\n'
+      || before[b.index - 1] !== '\n'
+      || (b.index + end.length < before.length && before[b.index + end.length] !== '\n')) {
+    throw new Error(`Malformed Prax instruction markers in ${file}; file left unchanged`);
+  }
+  after = before.slice(0, a.index) + block + before.slice(b.index + end.length);
+}
+if (after === before) console.log(`instructions already current in ${file}`);
+else {
+  const temporary = `${path}.prax-tmp.${randomUUID()}`;
+  try {
+    writeFileSync(temporary, after, { flag: 'wx', mode: existsSync(path) ? statSync(path).mode & 0o777 : 0o600 });
+    if ((existsSync(path) ? readFileSync(path, 'utf8') : '') !== before) throw new Error(`Instructions changed during update: ${file}`);
+    renameSync(temporary, path);
+  } finally {
+    if (existsSync(temporary)) unlinkSync(temporary);
+  }
+  console.log(`instructions ${markers.length ? 'updated' : 'added'} in ${file}`);
+}
+NODE
 }
 
 # Remove exactly the marked block; the rest of the file is untouched.
@@ -258,7 +301,7 @@ if [ "$UNINSTALL" = 1 ]; then
     [ -L "$GEMINI_DIR/$s" ] && rm -f "$GEMINI_DIR/$s"
     echo "removed $s"
   done
-  for f in "$CLAUDE_MD" "$CODEX_MD" "$COPILOT_MD"; do remove_instructions "$f"; done
+  for f in "$CLAUDE_MD" "$CODEX_MD" "$COPILOT_MD" "$GEMINI_MD"; do remove_instructions "$f"; done
   remove_shim
   exit 0
 fi
@@ -395,7 +438,7 @@ if [ -f "$BIN_DIR/prax" ] && grep -qF "$SHIM_MARK" "$BIN_DIR/prax"; then
 fi
 
 if [ "$INSTRUCTIONS" = 1 ]; then
-  for f in "$CLAUDE_MD" "$CODEX_MD" "$COPILOT_MD"; do write_instructions "$f"; done
+  for f in "$CLAUDE_MD" "$CODEX_MD" "$COPILOT_MD" "$GEMINI_MD"; do write_instructions "$f"; done
   # Copilot only reads a custom-instructions directory it has been told about.
   case ",${COPILOT_CUSTOM_INSTRUCTIONS_DIRS:-}," in
     *",$COPILOT_DIR,"*) echo "Copilot CLI: COPILOT_CUSTOM_INSTRUCTIONS_DIRS already names $COPILOT_DIR" ;;
@@ -406,9 +449,9 @@ if [ "$INSTRUCTIONS" = 1 ]; then
     echo "instructions use the \`prax\` command (the shim in $BIN_DIR)."
   elif [ "$CLI" = 1 ]; then
     echo "instructions use the skill scripts: $BIN_DIR is not on PATH, so \`prax\` would not resolve there."
-    echo "  add $BIN_DIR to your PATH, then re-run with --uninstall followed by --instructions --cli to switch them."
+    echo "  add $BIN_DIR to your PATH, then re-run with --instructions to refresh the block."
   fi
-  echo "Antigravity has no global instructions file: paste the block from $CLAUDE_MD into each workspace's AGENTS.md or GEMINI.md."
+  echo "Antigravity: global instructions written to $GEMINI_MD; workspace AGENTS.md or GEMINI.md can add project guidance."
 fi
 
 if [ "$MCP" = 1 ]; then

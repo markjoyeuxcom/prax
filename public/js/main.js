@@ -1,3 +1,5 @@
+import { templateChoices, buildTemplateJob, executeTemplateJob, saveTemplateDraft, loadTemplateDraft, clearTemplateDraft } from './templateUse.js';
+import { renderTemplateStudioHtml } from './renderTemplateStudio.js';
 import { importRequestFor, completeImportRequest } from './importRecovery.js';
 import { reconcileTaskArchive } from './taskArchiveOutcome.js';
 import { documentDraftPatch, mergeDocumentDraft } from './documentDraftMerge.js';
@@ -3120,6 +3122,120 @@ function captureProjectChoices() {
   return (inbox ? [inbox, ...rest] : rest).map((p) => ({ ...p, color: projectColor(p) }));
 }
 
+let templateStudioChoices = [];
+let templateStudioOpening = false;
+let templateStudioReturnAction = 'toggle-new-doc-menu';
+let restoreTemplateStudioFocus = false;
+function templateStorage() {
+  try { return window.sessionStorage; } catch { return null; }
+}
+function persistTemplateStudio(draft) {
+  try { saveTemplateDraft(templateStorage(), draft); return true; }
+  catch {
+    draft.error = 'This tab cannot retain the creation draft. Allow browser storage before creating a copy.';
+    return false;
+  }
+}
+async function openTemplateStudio(sourceId = null) {
+  if (templateStudioOpening || state.templateStudio) return;
+  templateStudioOpening = true;
+  const navigation = [state.navType, state.editorDocId, state.navId];
+  const stillHere = () => navigation.every((value, index) => value === [state.navType, state.editorDocId, state.navId][index]);
+  try {
+    if (!(await prepareEditorNavigation())) return;
+    if (!stillHere()) return;
+    const response = await fetch('/api/library/starters');
+    if (!response.ok) throw new Error('Could not load templates and guides. Try again.');
+    const catalogue = await response.json();
+    let documents = await fetchDocuments();
+    if (sourceId) {
+      const current = await fetchDocument(sourceId);
+      documents = [...documents.filter(doc => doc.id !== sourceId), current];
+    }
+    if (!stillHere()) return;
+    templateStudioChoices = templateChoices(catalogue.items, documents);
+    const recovered = loadTemplateDraft(templateStorage());
+    const source = templateStudioChoices.find(item => item.sourceId === sourceId) || templateStudioChoices[0];
+    if (sourceId && !templateStudioChoices.some(item => item.sourceId === sourceId)) throw new Error('That template is no longer active.');
+    // A pending identity must be resolved before starting another copy in this tab.
+    const draft = recovered?.job || (!sourceId && recovered) ? recovered : {
+      source, title: source.title, project: defaultProjectId() || '', documentType: source.documentType || 'note',
+      job: null, pending: false, error: '',
+    };
+    if (!templateStudioChoices.some(item => item.id === draft.source.id)) templateStudioChoices.unshift(draft.source);
+    templateStudioReturnAction = sourceId ? 'use-document-template' : 'toggle-new-doc-menu';
+    persistTemplateStudio(draft);
+    setState({ templateStudio: draft, newDocMenuOpen: false, docMenuOpen: false });
+    renderApp();
+  } catch (error) { showToast(error.message); }
+  finally { templateStudioOpening = false; }
+}
+function closeTemplateStudio() {
+  if (state.templateStudio?.pending) return;
+  restoreTemplateStudioFocus = true;
+  setState({ templateStudio: null });
+  renderApp();
+}
+function updateTemplateStudio(field, value) {
+  if (!state.templateStudio || state.templateStudio.pending || state.templateStudio.job) return;
+  let draft = { ...state.templateStudio, error: '' };
+  if (field === 'source') {
+    const source = templateStudioChoices.find(item => item.id === value);
+    if (!source) return;
+    draft = { ...draft, source, title: source.title, documentType: source.documentType || 'note' };
+  } else if (['project', 'title', 'documentType'].includes(field)) draft[field] = value;
+  persistTemplateStudio(draft);
+  setState({ templateStudio: draft });
+  // Text input remains mounted while typing. Other fields change the preview.
+  if (field !== 'title') {
+    renderApp();
+    appRoot.querySelector(`[data-template-field="${field}"]`)?.focus();
+  }
+}
+async function submitTemplateStudio() {
+  const draft = state.templateStudio;
+  if (!draft || draft.pending) return;
+  draft.pending = true; draft.error = '';
+  renderApp();
+  let result;
+  try {
+    if (!draft.job) {
+      if (!markdownImportProjects().some(project => project.id === draft.project)) throw new Error('Choose an active destination project.');
+      if (draft.source.sourceId) {
+        const source = await fetchDocument(draft.source.sourceId);
+        if (source.archivedAt || source.status !== 'active' || source.documentType !== 'template') throw new Error('The original template is no longer active. Choose another starting point.');
+        if (source.revision !== draft.source.sourceRevision) throw new Error('The original template changed. Close and reopen it to review the current version.');
+      }
+      const job = buildTemplateJob(draft, crypto.randomUUID());
+      // Fail before writing if recovery storage is unavailable.
+      saveTemplateDraft(templateStorage(), { ...draft, job });
+      draft.job = job;
+    }
+    result = await executeTemplateJob(draft.job, { createDocument, fetchDocument, importTasks, fetchTask });
+  } catch (error) {
+    draft.pending = false;
+    draft.error = `${error.message}${draft.job ? ' Retry checks the same creation; it will not make another copy.' : ''}`;
+    renderApp();
+    return;
+  }
+  // Creation has committed. Refresh/open failures are a separate outcome.
+  try { clearTemplateDraft(templateStorage()); }
+  catch { /* retaining the receipt is safer than creating a new identity */ }
+  setState({ templateStudio: null });
+  let refreshFailed = false;
+  if (result.target === 'document') {
+    try { await loadDocuments(); } catch { refreshFailed = true; }
+    if (!state.documents.some(doc => doc.id === result.record.id)) setState({ documents: [...state.documents, result.record] });
+    await openDocumentInEditor(result.record.id).catch(() => { refreshFailed = true; });
+  } else {
+    try { await loadTasks(); } catch { refreshFailed = true; }
+    if (!state.tasks.some(task => task.id === result.record.id)) setState({ tasks: [...state.tasks, normalizeTask(result.record)] });
+    await openTaskDrawer(result.record.id).catch(() => { refreshFailed = true; });
+  }
+  renderApp();
+  showToast(`${result.target === 'task' ? 'Onboarding task' : 'Document copy'} created.${refreshFailed ? ' Some details could not refresh; reload to see them.' : ''}`);
+}
+
 async function createNewDocument(templateId) {
   if (!(await prepareEditorNavigation())) return false;
   setState({ newDocMenuOpen: false });
@@ -3809,6 +3925,7 @@ function escapeCascade() {
   if (state.genRbOpen) { setState({ genRbOpen: false }); renderApp(); return; }
   if (state.dailyBriefOpen) { setState({ dailyBriefOpen: false }); renderApp(); return; }
   if (state.planMode) { setState({ planMode: null }); renderApp(); return; }
+  if (state.templateStudio) { closeTemplateStudio(); return; }
   if (state.libraryExportOpen) { closeLibraryExport(); return; }
   if (state.markdownImportOpen) { closeMarkdownImport(); return; }
   if (state.confirm) { setState({ confirm: null }); renderApp(); return; }
@@ -4071,6 +4188,7 @@ function renderMainHtml() {
 
 function renderOverlaysHtml() {
   let html = '';
+  if (state.templateStudio) html += renderTemplateStudioHtml(state.templateStudio, templateStudioChoices, markdownImportProjects(), renderMarkdownHtml(state.templateStudio.source.body));
   if (state.drawerTaskId) {
     const task = taskById(state.drawerTaskId);
     if (task) {
@@ -4244,6 +4362,14 @@ function renderApp() {
 
 function afterRender() {
   mountEditorIfNeeded();
+  if (restoreTemplateStudioFocus && !state.templateStudio) {
+    restoreTemplateStudioFocus = false;
+    appRoot.querySelector(`[data-action="${templateStudioReturnAction}"]`)?.focus();
+  }
+  if (state.templateStudio) {
+    appRoot.querySelector('[data-template-field="source"]:not([disabled]), [data-action="submit-template-studio"]:not([disabled]), .template-studio__preview')?.focus();
+    return;
+  }
   // The Import / Export triggers live in the Library's ⋯ overflow, which is
   // closed by the time the dialog goes; focus then returns to the overflow
   // button rather than nowhere.
@@ -5082,6 +5208,27 @@ _Task:_ ${task.title || 'Untitled task'}`
       setState({ preferences: applyPreferences(savePreferences({ ...state.preferences, listDensity: el.dataset.density })) });
       renderApp();
       break;
+    }
+    case 'open-template-studio': await openTemplateStudio(); break;
+    case 'use-document-template': await openTemplateStudio(state.editorDocId); break;
+    case 'close-template-studio': closeTemplateStudio(); break;
+    case 'submit-template-studio': await submitTemplateStudio(); break;
+    case 'discard-template-studio': {
+      if (!state.templateStudio || state.templateStudio.pending) break;
+      const attempted = Boolean(state.templateStudio.job);
+      setState({ templateStudio: null });
+      openConfirm({
+        message: attempted
+          ? 'This copy may already exist. Discard only the saved creation draft? Check the Library or Tasks before creating another copy. This does not delete any created document or task.'
+          : 'Discard the saved template draft and its title and destination choices?',
+        okLabel: 'Discard draft', action: 'confirm-discard-template-studio',
+      });
+      break;
+    }
+    case 'confirm-discard-template-studio': {
+      try { clearTemplateDraft(templateStorage()); showToast('Template draft discarded.'); }
+      catch { showToast('Could not discard the saved draft. Browser storage is unavailable.'); }
+      setState({ confirm: null }); renderApp(); break;
     }
     case 'new-document': setState({ newMenuOpen: false }); createNewDocument(el.dataset.templateId); break;
     case 'import-documents': setState({ libraryMenuOpen: false }); openMarkdownImport(); break;
@@ -5999,6 +6146,7 @@ function bindEvents() {
 
   appRoot.addEventListener('input', (event) => {
     const target = event.target;
+    if (target.matches?.('[data-template-field="title"]')) { updateTemplateStudio('title', target.value); return; }
     if (target.matches?.('[data-search-find]')) {
       setState({ searchQuery: target.value });
       scheduleSearchApply();
@@ -6172,6 +6320,7 @@ function bindEvents() {
 
   appRoot.addEventListener('change', (event) => {
     const target = event.target;
+    if (target.matches?.('[data-template-field]')) { updateTemplateStudio(target.dataset.templateField, target.value); return; }
     if (mirrorDocumentInfoInput(target)) return;
     if (target.matches?.('[data-task-due]')) {
       // Clearing the date clears the time too (a time with no date is meaningless).
@@ -6245,12 +6394,12 @@ function bindEvents() {
 
   appRoot.addEventListener('keydown', async (event) => {
     const target = event.target;
-    const modalOverlay = state.libraryExportOpen
+    const modalOverlay = state.templateStudio ? 'template-studio' : state.libraryExportOpen
       ? 'library-export'
       : (state.markdownImportOpen ? 'markdown-import' : (state.shortcutsOpen ? 'shortcuts' : null));
     if (modalOverlay && event.key === 'Tab') {
       const dialog = appRoot.querySelector(`[data-overlay="${modalOverlay}"] [role="dialog"]`);
-      const focusable = [...(dialog?.querySelectorAll('button:not([disabled]), select:not([disabled]), input:not([disabled])') || [])];
+      const focusable = [...(dialog?.querySelectorAll('button:not([disabled]), select:not([disabled]), input:not([disabled]), [tabindex="0"], a[href]') || [])];
       if (focusable.length) {
         const first = focusable[0];
         const last = focusable[focusable.length - 1];
@@ -6265,6 +6414,11 @@ function bindEvents() {
           first.focus();
         }
       }
+      return;
+    }
+    if (state.templateStudio) {
+      event.stopPropagation();
+      if (event.key === 'Escape') { event.preventDefault(); closeTemplateStudio(); }
       return;
     }
     // Plan mode / shutdown: Enter = primary decision, S = skip. Inputs keep
@@ -6876,6 +7030,7 @@ async function init() {
       await externalRefresh.inFlight; // an early trigger's newer snapshot installs instead
     }
     restoreCaptureRecovery();
+    if (loadTemplateDraft(templateStorage())) showToast('An unfinished template copy is saved in this tab. Open Templates & guides to continue.', null, 8000);
     const assistantRecovery = loadAssistantRecovery(taskDraftStorage());
     if (assistantRecovery) {
       setState({ assistantMessages: assistantRecovery.messages, assistantPending: assistantRecovery.pending, assistantApprovalAttempted: assistantRecovery.attempted, assistantError: assistantRecovery.attempted ? 'Recovered an approval whose outcome was not confirmed. Retry safely to check the same action.' : null, assistantErrorKind: assistantRecovery.attempted ? 'partial' : null });

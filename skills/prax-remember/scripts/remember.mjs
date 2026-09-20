@@ -397,6 +397,7 @@ var DOCUMENT_TYPES = [
   { value: "note", label: "Note", plural: "Notes" },
   { value: "decision", label: "Decision", plural: "Decisions" },
   { value: "known-issue", label: "Known issue", plural: "Known issues" },
+  { value: "template", label: "Template", plural: "Templates" },
   { value: "reference", label: "Reference", plural: "References" },
   { value: "post-mortem", label: "Post-mortem", plural: "Post-mortems" }
 ];
