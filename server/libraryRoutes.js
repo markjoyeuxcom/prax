@@ -5,6 +5,7 @@ import {
   documentMatchesCreateFields,
   documentRevision,
   DocumentRevisionConflictError,
+  DocumentUpdateConflictError,
   REVISION_TOKEN_RE,
 } from './libraryRepository.js';
 import { createProjectsRepository } from './projectsRepository.js';
@@ -704,7 +705,7 @@ export async function registerLibraryRoutes(app, options = {}) {
     return document;
   });
 
-  app.patch('/api/library/documents/:id', async (request, reply) => {
+  async function updateDocument(request, reply) {
     if (!isValidUuid(request.params.id)) {
       reply.code(400);
       return { message: 'document id is invalid' };
@@ -725,6 +726,11 @@ export async function registerLibraryRoutes(app, options = {}) {
       reply.code(400);
       return { message: 'ifRevision is invalid' };
     }
+    const operationId = request.method === 'POST' ? request.body.operationId : undefined;
+    if (request.method === 'POST' && !isValidUuid(operationId)) {
+      reply.code(400);
+      return { message: 'operationId must be a UUID' };
+    }
 
     const fields = cleanDocumentPatchPayload(request.body);
     if (Object.prototype.hasOwnProperty.call(request.body, 'project')) {
@@ -738,8 +744,12 @@ export async function registerLibraryRoutes(app, options = {}) {
     let document;
     try {
       document = await repository.updateDocument(request.params.id, fields,
-        ifRevision === undefined ? {} : { ifRevision: ifRevision.toLowerCase() });
+        { ...(ifRevision === undefined ? {} : { ifRevision: ifRevision.toLowerCase() }), ...(operationId ? { operationId } : {}) });
     } catch (error) {
+      if (error instanceof DocumentUpdateConflictError) {
+        reply.code(409);
+        return { message: error.message, reason: error.reason, ...(error.reason === 'update-result-gone' ? { committed: true } : {}) };
+      }
       if (!(error instanceof DocumentRevisionConflictError)) throw error;
       reply.code(409);
       return { message: error.message, reason: error.reason, document: error.current };
@@ -748,11 +758,15 @@ export async function registerLibraryRoutes(app, options = {}) {
       reply.code(404);
       return { message: 'document not found' };
     }
-    if (Object.prototype.hasOwnProperty.call(request.body, 'title') || Object.prototype.hasOwnProperty.call(request.body, 'body')) {
+    if (!document.replayed && (Object.prototype.hasOwnProperty.call(request.body, 'title') || Object.prototype.hasOwnProperty.call(request.body, 'body'))) {
       await embedOnWrite(document.id); // gate awaited; the embed itself is not
     }
     return document;
-  });
+  }
+  app.patch('/api/library/documents/:id', updateDocument);
+  // Separate endpoint: old servers must reject this operation, never silently
+  // ignore its receipt ID and execute a retryable unconditional PATCH.
+  app.post('/api/library/documents/:id/update', updateDocument);
 
   app.delete('/api/library/documents/:id', async (request, reply) => {
     if (!isValidUuid(request.params.id)) {
@@ -1116,6 +1130,7 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (!isValidUuid(newId)) { reply.code(400); return { message: 'supersededBy is invalid' }; }
     if (oldId === newId) { reply.code(400); return { message: 'a document cannot supersede itself' }; }
     const link = await documentLinksRepository.linkDocuments(newId, oldId, 'supersedes');
+    if (link.cycle) { reply.code(409); return { message: 'supersession would create a cycle', reason: 'supersession-cycle' }; }
     if (!link.linked) { reply.code(404); return { message: 'document not found' }; }
     return repository.getDocument(oldId);
   });
@@ -1320,6 +1335,7 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (!DOCUMENT_LINK_RELATIONS.includes(relation)) { reply.code(400); return { message: 'relation is invalid' }; }
     if (sourceId === targetId) { reply.code(400); return { message: 'a document cannot link to itself' }; }
     const result = await documentLinksRepository.linkDocuments(sourceId, targetId, relation);
+    if (result.cycle) { reply.code(409); return { message: 'supersession would create a cycle', reason: 'supersession-cycle' }; }
     if (!result.linked) { reply.code(404); return { message: 'document not found' }; }
     reply.code(result.alreadyLinked ? 200 : 201);
     return documentLinksRepository.listDocumentLinks(sourceId, 'outbound');

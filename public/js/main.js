@@ -114,7 +114,7 @@ import { renderTaskDrawerHtml, renderMissingTaskDrawerHtml } from './renderTaskD
 import { renderLinkPickerHtml } from './renderLinkPicker.js';
 import { LIBRARY_RENDER_BATCH_SIZE, renderLibraryHtml, buildLibraryModel, reviewQueue, isReviewQueueDoc, SEMANTIC_UNAVAILABLE_HINT } from './renderLibrary.js';
 import { templateById } from './documentTemplates.js';
-import { renderEditorHtml, buildOutline, buildBacklinks, WRITE_ACTIONS } from './renderEditor.js';
+import { renderReviewWalkLabel, renderEditorHtml, buildOutline, buildBacklinks, WRITE_ACTIONS } from './renderEditor.js';
 import { renderRunHtml, buildChronicle } from './renderRun.js';
 import { renderAskPraxHtml } from './renderAskPrax.js';
 import { renderGenerateRunbookHtml } from './renderGenerateRunbook.js';
@@ -371,7 +371,7 @@ async function loadDocuments() {
 async function refreshFromOutside() {
   const before = `${collectionFingerprint(state.tasks)}#${collectionFingerprint(state.documents)}`;
   const applied = await loadTasks({ announceReminders: false, guardWrites: true });
-  if (!state.editorDocId) await loadDocuments().catch(() => false);
+  if (state.navType !== 'editor') await loadDocuments().catch(() => false);
   // A snapshot that spanned a local write was discarded; ask for a fresh one
   // once the write has settled (the refresher runs it after its interval).
   if (applied === 'stale') externalRefresh.trigger('stale');
@@ -849,16 +849,7 @@ function clearAssistant() {
 }
 
 async function verifyHealthDoc(id) {
-  if (!id || !(await prepareEditorNavigation(id))) return;
-  try {
-    const current = await fetchDocument(id);
-    cacheLifecycleDocument(current);
-    await openDocumentInEditor(id);
-    destroyEditorController();
-    setState({ editorMode: 'preview' });
-    renderApp();
-    showToast('Review this document, then use Verify to approve the content shown.', null, 7000);
-  } catch { showToast('Could not load this document for review.'); }
+  return openWalkDocument(id, { coach: true });
 }
 
 // Accept a suggested wiki-link: link the first plain mention, then reload so the
@@ -1911,6 +1902,9 @@ function reportUncommittedLifecycle(action, outcome, documentId) {
 }
 
 async function changeDocumentVerification(id, verified, { offerUndo = true } = {}) {
+  const editorVersion = state.editorContextVersion;
+  const editorUnchanged = () => state.editorContextVersion === editorVersion
+    && state.navType === 'editor' && state.editorDocId === id && state.documentDraftId === id;
   let reviewedRevision = null;
   if (verified) {
     if (state.navType !== 'editor' || state.documentDraftId !== id) { await verifyHealthDoc(id); return false; }
@@ -1930,14 +1924,18 @@ async function changeDocumentVerification(id, verified, { offerUndo = true } = {
   if (!result.committed) {
     if (verified && result.document && result.document.revision !== reviewedRevision) {
       cacheLifecycleDocument(result.document);
-      seedEditorDraft(result.document);
-      destroyEditorController(); renderApp();
-      showToast('The document changed. Review the current title and body before verifying again.', null, 7000);
+      if (editorUnchanged() && !state.isDocumentDirty && !documentSavePromise) {
+        seedEditorDraft(result.document);
+        destroyEditorController(); renderApp();
+        showToast('The document changed. Review the current title and body before verifying again.', null, 7000);
+      } else {
+        showToast('Verification was not applied because the document changed. Your current draft is kept; reopen the document to review it.', null, 7000);
+      }
     } else reportUncommittedLifecycle(verified ? 'Verify this document' : 'Unverify this document', result.outcome, id);
     return false;
   }
   cacheLifecycleDocument(result.document);
-  renderApp();
+  if (state.navType !== 'editor' || editorUnchanged()) renderApp();
   const undo = offerUndo ? async () => {
     dismissToast();
     await performDocumentLifecycleOnce(`document:${id}`, () => (
@@ -2655,14 +2653,17 @@ function toggleMarkdownCheck(line) {
   renderApp();
 }
 
-async function openDocumentInEditor(documentId) {
+async function openDocumentInEditor(documentId, { isCurrent = () => true } = {}) {
+  if (!isCurrent()) return false;
   if (state.navType === 'editor' && state.editorDocId === documentId) return true;
   if (!(await prepareEditorNavigation(documentId))) return false;
+  if (!isCurrent()) return false;
   destroyEditorController();
   let doc = state.documents.find(d => d.id === documentId);
   if (!doc) {
     setState({ libraryView: 'active' });
     await loadDocuments();
+    if (!isCurrent()) return false;
     doc = state.documents.find(d => d.id === documentId);
   }
   if (!doc) { alertError('open that document'); return false; }
@@ -3638,16 +3639,31 @@ function startReviewWalk(fromId) {
 
 // Open a queued document for review: the first one through the health-style
 // preview (with its coaching toast), later ones silently — the strip explains.
+function reviewWalkPositionIsCurrent(walk) {
+  return state.reviewWalk === walk || Boolean(walk && state.reviewWalk?.ids === walk.ids
+    && state.reviewWalk.index === walk.index);
+}
+
 async function openWalkDocument(id, { coach = false } = {}) {
-  if (coach) { await verifyHealthDoc(id); return; }
+  const walk = state.reviewWalk;
+  const originView = state.navType;
+  const originDocument = state.editorDocId;
   if (!id || !(await prepareEditorNavigation(id))) return;
+  if (state.navType !== originView || state.editorDocId !== originDocument) return;
+  const version = state.editorContextVersion;
+  const isCurrent = () => reviewWalkPositionIsCurrent(walk) && state.editorContextVersion === version;
+  if (!isCurrent()) return;
   try {
-    cacheLifecycleDocument(await fetchDocument(id));
-    await openDocumentInEditor(id);
+    const document = await fetchDocument(id);
+    if (!isCurrent()) return;
+    cacheLifecycleDocument(document);
+    if (!(await openDocumentInEditor(id, { isCurrent }))) return;
+    if (!reviewWalkPositionIsCurrent(walk) || state.navType !== 'editor' || state.editorDocId !== id) return;
     destroyEditorController();
     setState({ editorMode: 'preview' });
     renderApp();
-  } catch { showToast('Could not load the next document for review.'); }
+    if (coach) showToast('Review this document, then use Verify to approve the content shown.', null, 7000);
+  } catch { if (isCurrent()) showToast('Could not load the next document for review.'); }
 }
 
 async function advanceReviewWalk() {
@@ -3670,14 +3686,24 @@ async function advanceReviewWalk() {
 async function reviewWalkVerify() {
   const doc = currentDocument();
   const walk = state.reviewWalk;
+  const editorVersion = state.editorContextVersion;
   if (!doc || !walk || walk.ids[walk.index] !== doc.id) return;
   if (doc.verified !== true) {
-    await performDocumentLifecycleOnce(`document:${doc.id}`, () => changeDocumentVerification(doc.id, true));
+    const committed = await performDocumentLifecycleOnce(`document:${doc.id}`, () => changeDocumentVerification(doc.id, true));
     // Advance only on a committed verification; a refusal (dirty draft,
     // changed revision) leaves the strip in place with its toast explaining.
     const after = (state.documents || []).find((item) => item.id === doc.id);
-    if (after?.verified !== true) return;
+    if (!committed || after?.verified !== true || state.reviewWalk?.ids !== walk.ids) return;
+    const advance = reviewWalkPositionIsCurrent(walk) && state.navType === 'editor' && state.editorDocId === doc.id
+      && state.editorContextVersion === editorVersion;
+    // A verification that finished after Skip still counts in this walk, but
+    // must not advance its new position or alter another walk's summary.
     setState({ reviewWalk: { ...state.reviewWalk, verified: (state.reviewWalk?.verified || 0) + 1 } });
+    if (!advance) {
+      const label = appRoot?.querySelector('.review-walk__label');
+      if (label) label.innerHTML = renderReviewWalkLabel(state.reviewWalk);
+      return;
+    }
   }
   await advanceReviewWalk();
 }

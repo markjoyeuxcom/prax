@@ -18,6 +18,12 @@ const baseDoc = {
   updatedBy: 'user',
 };
 
+test('R10: the review strip describes verification as trust, not a recall gate', () => {
+  const html = renderReviewWalkHtml({ reviewWalk: { ids: [baseDoc.id], index: 0, verified: 0 } }, baseDoc);
+  assert.match(html, /unverified memory can still be recalled/);
+  assert.doesNotMatch(html, /Only verified memory is recalled/);
+});
+
 function makeState(overrides = {}) {
   return {
     editorMode: 'split',

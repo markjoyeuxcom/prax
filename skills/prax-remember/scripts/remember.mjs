@@ -7,6 +7,7 @@
 import { readFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 var DEFAULT_BASE_URL = "http://127.0.0.1:3000";
 var SEMANTIC_PAGE_MAX = 50;
 var DESKTOP_IDENTIFIER = "com.moomora.prax";
@@ -108,9 +109,14 @@ function createClient({ baseUrl, token, agent, env = process.env, bases } = {}) 
         break;
       } catch (err) {
         lastError = err;
+        if (retryUnavailable === "connect-only" && !["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN"].includes(err?.cause?.code || err?.code)) break;
       }
     }
-    if (!res) throw unreachable(lastError);
+    if (!res) {
+      const error = unreachable(lastError);
+      if (!["GET", "HEAD"].includes(method)) error.message = `Write outcome unknown; reconcile before retrying. ${error.message}`;
+      throw error;
+    }
     const ct = res.headers.get("content-type") || "";
     const parsed = ct.includes("application/json") ? await res.json() : await res.text();
     if (!res.ok) {
@@ -190,24 +196,43 @@ function createClient({ baseUrl, token, agent, env = process.env, bases } = {}) 
         retryUnavailable: Boolean(doc?.id)
       });
     },
-    updateMemory(id, patch) {
-      return request("PATCH", `/api/library/documents/${encodeURIComponent(id)}`, {
-        body: patch,
-        agent: true,
-        retryUnavailable: true
-      });
+    async updateMemory(id, patch) {
+      const operationId = patch?.operationId || randomUUID();
+      const path = `/api/library/documents/${encodeURIComponent(id)}`;
+      try {
+        return await request("POST", `${path}/update`, {
+          body: { ...patch, operationId },
+          agent: true,
+          retryUnavailable: true
+        });
+      } catch (error) {
+        if (error.status !== 404) {
+          if (!error.status) {
+            error.message = `Update outcome unknown (operationId ${operationId}); reconcile before starting another update. ${error.message}`;
+            error.operationId = operationId;
+          }
+          throw error;
+        }
+      }
+      const { operationId: _operationId, ...legacyPatch } = patch;
+      try {
+        return await request("PATCH", path, { body: legacyPatch, agent: true });
+      } catch (error) {
+        if (!error.status) error.message = `Update outcome unknown on this older server; it was not re-sent. Check the document before retrying. ${error.message}`;
+        throw error;
+      }
     },
     verify(id, { verified, as, revision, contentHash } = {}) {
       return request("POST", `/api/library/documents/${encodeURIComponent(id)}/verify`, {
         body: { verified, as, ...revision ? { revision } : {}, ...contentHash ? { contentHash } : {} },
-        retryUnavailable: true
+        retryUnavailable: "connect-only"
       });
     },
     supersede(oldId, newId) {
       return request("POST", `/api/library/documents/${encodeURIComponent(oldId)}/supersede`, {
         body: { supersededBy: newId },
         agent: true,
-        retryUnavailable: true
+        retryUnavailable: "connect-only"
       });
     },
     listProjects() {
@@ -220,14 +245,14 @@ function createClient({ baseUrl, token, agent, env = process.env, bases } = {}) 
       return request("POST", `/api/library/documents/${encodeURIComponent(documentId)}/code-refs`, {
         body: citation,
         agent: true,
-        retryUnavailable: true
+        retryUnavailable: "connect-only"
       });
     },
     addExternalRef(documentId, { url, label } = {}) {
       return request("POST", `/api/library/documents/${encodeURIComponent(documentId)}/external-refs`, {
         body: { url, label },
         agent: true,
-        retryUnavailable: true
+        retryUnavailable: "connect-only"
       });
     },
     updateProject(id, patch) {
@@ -265,7 +290,7 @@ function createClient({ baseUrl, token, agent, env = process.env, bases } = {}) 
 }
 
 // cli/lib/remember.js
-import { randomUUID } from "node:crypto";
+import { randomUUID as randomUUID2 } from "node:crypto";
 var AmbiguousTitleError = class extends Error {
   constructor(title, matches) {
     const where = matches.map((m) => `${m.projectSlug || m.projectId || "?"}:${m.id}`).join(", ");
@@ -285,18 +310,29 @@ async function remember(client, { title, body, project, type, tags = [], kind, i
   const typePatch = type ? { documentType: type } : {};
   if (id) {
     const existing = await client.getDocument(id);
-    const doc = await client.updateMemory(id, { title, body, tags: mergedTags(existing?.tags, allTags), ...typePatch });
+    const doc = await client.updateMemory(id, {
+      title,
+      body,
+      tags: mergedTags(existing?.tags, allTags),
+      ...typePatch,
+      ...existing?.revision ? { ifRevision: existing.revision } : {}
+    });
     return { doc, action: "updated", project: existing?.projectSlug ?? doc?.projectSlug ?? project ?? null, byId: true };
   }
   const slug = await client.ensureProject(project);
   if (crossProject) {
     const elsewhere = await findTitleElsewhere(client, title, slug);
     if (elsewhere) {
-      const doc = await client.updateMemory(elsewhere.id, { body, tags: mergedTags(elsewhere.tags, allTags), ...typePatch });
+      const doc = await client.updateMemory(elsewhere.id, {
+        body,
+        tags: mergedTags(elsewhere.tags, allTags),
+        ...typePatch,
+        ...elsewhere.revision ? { ifRevision: elsewhere.revision } : {}
+      });
       return { doc, action: "updated", project: elsewhere.projectSlug, crossProject: true };
     }
   }
-  const newId = randomUUID();
+  const newId = randomUUID2();
   if (typeof client.upsertMemory === "function") {
     try {
       const result = await client.upsertMemory({
@@ -317,9 +353,14 @@ async function remember(client, { title, body, project, type, tags = [], kind, i
 }
 async function findTitleElsewhere(client, title, slug) {
   const docs = await client.listDocuments(void 0, { status: "active" });
-  const matches = (Array.isArray(docs) ? docs : []).filter((d) => d && d.title === title && isActive(d));
+  let matches = (Array.isArray(docs) ? docs : []).filter((d) => d && d.title === title && isActive(d));
   if (!matches.length) return null;
-  if (matches.some((d) => !d.projectSlug)) return null;
+  if (matches.some((d) => !d.projectSlug)) {
+    const projects = await client.listProjects();
+    const byId = new Map(projects.map((p) => [p.id, p.slug]));
+    matches = matches.map((d) => ({ ...d, projectSlug: d.projectSlug || byId.get(d.projectId) }));
+    if (matches.some((d) => !d.projectSlug)) throw new Error("Cannot resolve the project of an existing same-title memory; pass --id to target it explicitly.");
+  }
   if (matches.some((d) => d.projectSlug === slug)) return null;
   if (matches.length > 1) throw new AmbiguousTitleError(title, matches);
   return matches[0];
@@ -332,6 +373,7 @@ async function legacyRemember(client, { id, title, body, slug, type, tags, kind 
       title,
       body,
       tags,
+      ...existing.revision ? { ifRevision: existing.revision } : {},
       ...type ? { documentType: type } : {}
       // retype only on an explicit --type
     });

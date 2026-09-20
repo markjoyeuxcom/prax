@@ -65,6 +65,14 @@ delayed retry can never revert a newer memory; reusing the id with different con
 a replay whose document has since been permanently deleted is `410` rather than a silent
 re-create.
 
+Direct `--id` updates and unique-title refinements in another project use the
+receipt-backed `POST /api/library/documents/:id/update` endpoint instead. They
+carry an `operationId` and the content revision read by remember. A lost response
+replays the committed operation without applying its body over a newer edit.
+On servers without that endpoint, the fallback PATCH is attempted once; an
+uncertain response is reported as an unknown outcome, requiring reconciliation.
+See [the update retry contract](contract.md#document-update-retries).
+
 The client binds to one Prax instance for the whole run: a write first probes `/readyz` to pin
 the instance and is then sent only there, never failed over to the other discovery candidate,
 and the confirmation line names the base URL it wrote to.

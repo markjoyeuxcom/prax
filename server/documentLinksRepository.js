@@ -162,7 +162,13 @@ export function createDocumentLinksRepository(db) {
         return alreadyLinked ? { linked: true, alreadyLinked: true } : { linked: true };
       }
       const query = buildLinkDocuments(sourceId, targetId, relation);
-      const result = await db.query(query.text, query.values);
+      let result;
+      try {
+        result = await db.query(query.text, query.values);
+      } catch (error) {
+        if (relation === 'supersedes' && error.message === 'supersession cycle') return { linked: false, cycle: true };
+        throw error;
+      }
       if (result.rows.length > 0) return { linked: true };
       const existsQuery = buildLinkExists(sourceId, targetId, relation);
       const existsResult = await db.query(existsQuery.text, existsQuery.values);

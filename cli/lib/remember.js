@@ -53,7 +53,8 @@ export async function remember(client, { title, body, project, type, tags = [], 
   // of the patch on purpose — pointing at an id is also how a memory is renamed.
   if (id) {
     const existing = await client.getDocument(id);
-    const doc = await client.updateMemory(id, { title, body, tags: mergedTags(existing?.tags, allTags), ...typePatch });
+    const doc = await client.updateMemory(id, { title, body, tags: mergedTags(existing?.tags, allTags), ...typePatch,
+      ...(existing?.revision ? { ifRevision: existing.revision } : {}) });
     return { doc, action: 'updated', project: existing?.projectSlug ?? doc?.projectSlug ?? project ?? null, byId: true };
   }
 
@@ -62,7 +63,8 @@ export async function remember(client, { title, body, project, type, tags = [], 
   if (crossProject) {
     const elsewhere = await findTitleElsewhere(client, title, slug);
     if (elsewhere) {
-      const doc = await client.updateMemory(elsewhere.id, { body, tags: mergedTags(elsewhere.tags, allTags), ...typePatch });
+      const doc = await client.updateMemory(elsewhere.id, { body, tags: mergedTags(elsewhere.tags, allTags), ...typePatch,
+        ...(elsewhere.revision ? { ifRevision: elsewhere.revision } : {}) });
       return { doc, action: 'updated', project: elsewhere.projectSlug, crossProject: true };
     }
   }
@@ -87,15 +89,19 @@ export async function remember(client, { title, body, project, type, tags = [], 
 
 // The active document with this exact title that lives in ANOTHER project, or
 // null when the target project has its own (the ordinary upsert handles that),
-// when nothing matches, or when the server cannot say where documents live
-// (no projectSlug on the listing: an older server — fall back to the
-// project-scoped behaviour rather than guess). More than one candidate is an
+// when nothing matches. Older listings may expose only projectId; resolve
+// those through the project list rather than creating a second copy. More than one candidate is an
 // error: picking silently would be the same split-brain in a new place.
 async function findTitleElsewhere(client, title, slug) {
   const docs = await client.listDocuments(undefined, { status: 'active' });
-  const matches = (Array.isArray(docs) ? docs : []).filter((d) => d && d.title === title && isActive(d));
+  let matches = (Array.isArray(docs) ? docs : []).filter((d) => d && d.title === title && isActive(d));
   if (!matches.length) return null;
-  if (matches.some((d) => !d.projectSlug)) return null;
+  if (matches.some((d) => !d.projectSlug)) {
+    const projects = await client.listProjects();
+    const byId = new Map(projects.map(p => [p.id, p.slug]));
+    matches = matches.map(d => ({ ...d, projectSlug: d.projectSlug || byId.get(d.projectId) }));
+    if (matches.some(d => !d.projectSlug)) throw new Error('Cannot resolve the project of an existing same-title memory; pass --id to target it explicitly.');
+  }
   if (matches.some((d) => d.projectSlug === slug)) return null;
   if (matches.length > 1) throw new AmbiguousTitleError(title, matches);
   return matches[0];
@@ -112,6 +118,7 @@ async function legacyRemember(client, { id, title, body, slug, type, tags, kind 
   if (existing) {
     const doc = await client.updateMemory(existing.id, {
       title, body, tags,
+      ...(existing.revision ? { ifRevision: existing.revision } : {}),
       ...(type ? { documentType: type } : {}), // retype only on an explicit --type
     });
     return { doc, action: 'updated', project: slug };

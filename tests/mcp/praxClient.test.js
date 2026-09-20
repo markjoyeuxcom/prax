@@ -270,3 +270,28 @@ test('retryUnavailable still retries once on a connection-level failure', async 
   assert.equal(doc.id, 'd1');
   assert.equal(calls.length, 2, 'a never-started request is safe to retry');
 });
+
+test('unreceipted setters retry a proven connection refusal but never an ambiguous transport failure', async () => {
+  const methods = [
+    client => client.updateTask('task', { title: 'new' }),
+    client => client.setChecklistItem('task', 'item', true),
+    client => client.setRunStep('run', 'step', true),
+    client => client.setRunStatus('run', 'completed'),
+  ];
+  for (const update of methods) {
+    for (const code of ['ECONNREFUSED', 'ECONNRESET']) {
+      let calls = 0;
+      const client = createPraxClient({ fetch: async () => {
+        if (++calls === 1) throw new TypeError('fetch failed', { cause: { code } });
+        return jsonResponse(200, { id: 'result' });
+      } });
+      if (code === 'ECONNREFUSED') {
+        assert.equal((await update(client)).id, 'result');
+        assert.equal(calls, 2);
+      } else {
+        await assert.rejects(() => update(client), /outcome unknown/i);
+        assert.equal(calls, 1);
+      }
+    }
+  }
+});

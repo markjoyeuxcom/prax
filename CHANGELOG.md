@@ -12,6 +12,35 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.35.1] - 2026-09-20
+
+### Fixed
+
+- **Memory retries preserve newer work.** Document updates now commit a durable operation
+  receipt alongside the change, so a lost response and retry cannot overwrite an intervening
+  edit. CLI, skills and MCP use the receipt endpoint, and remember carries the revision it
+  read. Older servers receive one update attempt with an explicit unknown outcome if its
+  response is lost. Other writes without receipts retry only failures known to precede connection.
+- **Late verification responses preserve the active draft.** A conflict can refresh only
+  the unchanged editor that requested verification, preserving subsequent typing and navigation.
+- **Remember updates the correct project.** Cross-project title matches retain their owner,
+  including on older servers; ambiguous owners are reported instead of creating duplicate memory.
+- **Supersession links cannot form new cycles.** An atomic database guard rejects circular
+  replacement chains through both link APIs, including concurrent requests and archived edges.
+- **Review actions stay with their queue position.** Delayed verification and document loads
+  respect Skip, Back and newer review sessions. Completed verification still updates its own
+  queue count without advancing or replacing a different document.
+- **External changes refresh after leaving the editor.** Today and other collection views
+  refresh on focus even when a previous editor document remains in navigation state.
+- **Verification changes refresh across clients.** Collection fingerprints include document
+  revision and trust fields, so verification and unverification appear without a content edit.
+- **Project deletion clears its calendar events.** Deleting a project with tasks queues a bulk
+  Google Calendar reconciliation after the database commit.
+- **Gemini tool conversations retain their signatures.** Original response parts and call IDs
+  survive tool continuations, saved approvals and recovery, with bounded validation on replay.
+- **Review guidance matches recall behavior.** Library, editor and Today explain that unverified
+  memory can still be recalled and verification records human review.
+
 ## [0.35.0] - 2026-09-20
 
 ### Changed
@@ -1821,7 +1850,8 @@ fresh empty `[Unreleased]` section is started.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.35.0...HEAD
+[Unreleased]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.35.1...HEAD
+[0.35.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.35.0...v0.35.1
 [0.35.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.34.0...v0.35.0
 [0.34.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.33.0...v0.34.0
 [0.33.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.32.1...v0.33.0

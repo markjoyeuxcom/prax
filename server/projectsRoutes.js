@@ -151,6 +151,7 @@ export async function registerProjectsRoutes(app, options = {}) {
       reply.code(404);
       return { message: 'project not found' };
     }
+    if (result.deleted.tasks > 0) app.calendarPusher?.notifyBulkChange();
     return { ...result.project, deleted: result.deleted };
   });
 }

@@ -163,6 +163,11 @@ async function runBrowserJourney(page, manifest) {
   const taskCompletion = performance.now() - started;
 
   const captureStarted = performance.now();
+  // Quick capture moved into New; keep the measurement usable with both
+  // the current menu and older shells that exposed the action directly.
+  if (!(await page.locator('[data-action="open-capture"]').first().isVisible())) {
+    await page.locator('[data-action="toggle-new-menu"]').click();
+  }
   await page.locator('[data-action="open-capture"]').first().click();
   await page.getByRole('dialog', { name: 'Quick capture' }).waitFor({ state: 'visible' });
   const captureFeedback = performance.now() - captureStarted;

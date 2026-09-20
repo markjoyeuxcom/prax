@@ -19,7 +19,8 @@ export const CHANGE_STORAGE_KEY = 'prax:last-external-change';
 export function collectionFingerprint(items) {
   if (!Array.isArray(items)) return '';
   return items
-    .map((item) => `${item?.id ?? ''}:${item?.updatedAt ?? ''}:${item?.archivedAt ?? ''}:${item?.status ?? ''}`)
+    .map((item) => JSON.stringify([item?.id, item?.updatedAt, item?.archivedAt, item?.status,
+      item?.revision, item?.verified, item?.verifiedAt, item?.verifiedBy]))
     .sort()
     .join('|');
 }

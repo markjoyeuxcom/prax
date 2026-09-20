@@ -8,6 +8,12 @@ import {
 // Fixed clock for deterministic buckets and the date line: Monday, July 6 2026.
 const NOW = new Date('2026-07-06T09:00:00');
 
+test('R10: Today describes verification as trust rather than permission to recall', () => {
+  const html = renderTodayHtml({ documents: [{ id: 'agent', title: 'Recent memory', updatedBy: 'agent', updatedAt: NOW.toISOString() }] }, [], { now: NOW });
+  assert.match(html, /unverified memory can still be recalled/);
+  assert.doesNotMatch(html, /Agents recall only what you verify/);
+});
+
 const PROJECTS = [
   { id: 'p1', name: 'Homelab', color: '#7c9885' },
   { id: 'p2', name: 'Reading & "Notes"', color: 'oklch(0.62 0.11 45)' },

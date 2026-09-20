@@ -4,6 +4,7 @@ import { DEFAULT_PREFERENCES } from './preferences.js';
 // caller re-renders. Navigation is in-memory only (no URL routing, matching the
 // previous app). View modules speak the design vocabulary (see statusMap.js).
 export const state = {
+  editorContextVersion: 0,      // invalidates delayed responses across navigation, reseeding and input
   // ---- data ----
   tasks: [],                    // all active tasks across projects (Today/sidebar need the full set)
   archivedTasks: [],            // archived tasks of the current project (Archive tab fetch)
@@ -249,6 +250,10 @@ export const state = {
 };
 
 export function setState(patch) {
+  if (['navType', 'editorDocId', 'documentDraftId', 'documentDraftBase', 'documentDraftTitle', 'documentDraftBody']
+    .some(key => Object.hasOwn(patch, key) && patch[key] !== state[key])) {
+    state.editorContextVersion += 1;
+  }
   Object.assign(state, patch);
 }
 
