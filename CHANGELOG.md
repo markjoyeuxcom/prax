@@ -12,6 +12,17 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Added
+
+- **`prax task` commands.** Create, list, show, update, complete and tick tasks from any
+  shell: `prax task add` with priority, dates, labels, notes and repeatable `--check`
+  acceptance items; `list`, `show`, `update` (including `--append-notes` for handoff notes),
+  `done`, `check` and `uncheck`. Creation commits the task and its checklist in one
+  transaction through the exact-once import route with a fresh request id, so a lost
+  response never produces a duplicate. Updates send one request and report an uncertain
+  transport outcome as unknown rather than retrying over a newer edit. Every write carries
+  agent provenance, and the project resolves as it does for `remember`.
+
 ## [0.37.1] - 2026-09-20
 
 ### Added
