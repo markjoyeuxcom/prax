@@ -25,7 +25,8 @@ belong in the owning project's Library, whether written by a person or an agent.
 Recall searches all projects by default, so project ownership does not restrict agent sharing.
 
 Transient state (a half-finished edit, tests just run, the next action) belongs in the relevant
-task's notes/checklist or linked handoff. Update it before handing over, close the task when
+task's notes/checklist or linked handoff (`prax task update <id> --append-notes "…"`,
+`prax task check <id> <n>`; see [the CLI guide](cli.md#task-addlistshowupdatedonecheckuncheck)). Update it before handing over, close the task when
 acceptance checks pass, and retire temporary handoffs. Never persist secrets. For this
 repository's concrete workflow, see [Working on Prax](working-on-prax.md).
 

@@ -12,6 +12,14 @@ import { confirmDocumentVerification } from './lib/verify.js';
 import { searchLibrary, describeRetrieval } from './lib/search.js';
 import { createRepoReader, headSha } from './lib/repoFiles.js';
 import { resolveCitation } from './lib/codeRefs.js';
+import {
+  buildTaskRecord, buildTaskPatch, createTask, updateTask, completeTask, setChecklistItem,
+  formatTask, formatTaskList, isTaskId, TASK_PRIORITIES, TASK_STATUSES,
+} from './lib/tasks.js';
+
+// Flags that accumulate when repeated (`--check a --check b`). Every other
+// flag keeps last-wins, which `--tag` documents.
+const REPEATABLE_FLAGS = new Set(['check']);
 
 function parseArgs(argv) {
   const positionals = [];
@@ -21,11 +29,17 @@ function parseArgs(argv) {
     if (arg.startsWith('--')) {
       const key = arg.slice(2);
       const next = argv[i + 1];
+      let value;
       if (next === undefined || next.startsWith('--')) {
-        flags[key] = true;
+        value = true;
       } else {
-        flags[key] = next;
+        value = next;
         i += 1;
+      }
+      if (REPEATABLE_FLAGS.has(key)) {
+        (flags[key] ||= []).push(value);
+      } else {
+        flags[key] = value;
       }
     } else {
       positionals.push(arg);
@@ -71,6 +85,12 @@ Usage:
   prax verify <id> --as <human-name>
   prax unverify <id>
   prax supersede <oldId> --with <newId>
+  prax task add <title> [--priority high|medium|low] [--status planned|in-progress|...] [--due YYYY-MM-DD] [--planned YYYY-MM-DD] [--label a,b] [--description <text>] [--notes <text>] [--check <item>]...
+  prax task list [--status <status>] [--all-projects] [--query <text>] [--json]
+  prax task show <id> [--json]
+  prax task update <id> [--title <t>] [--status <s>] [--priority <p>] [--due <d>] [--planned <d>] [--label a,b] [--description <text>] [--notes <text> | --append-notes <text>]
+  prax task done <id>
+  prax task check <id> <n|label>      prax task uncheck <id> <n|label>
 
 Global flags: --project <slug>  --url <baseUrl>  --agent <id>  --json
 Env: PRAX_API_URL  PRAX_PROJECT  PRAX_TOKEN  PRAX_AGENT
@@ -268,6 +288,75 @@ async function main(argv) {
     const doc = await client.supersede(oldId, String(newId));
     out(flags.json ? doc : `Superseded ${oldId} with ${newId}.`);
     return;
+  }
+
+  if (command === 'task') {
+    const sub = positionals[1];
+    const TASK_HELP = 'task subcommands: add, list, show, update, done, check, uncheck';
+    if (!sub || sub === 'help') { out(TASK_HELP); return; }
+
+    if (sub === 'add') {
+      const title = positionals.slice(2).join(' ');
+      const checks = Array.isArray(flags.check) ? flags.check.filter((c) => c !== true) : [];
+      const record = buildTaskRecord({ title, flags, checks });
+      const { project } = await resolveProjectName(flags, client);
+      const { task, replayed, project: slug } = await createTask(client, { project, record });
+      out(flags.json ? task : `${replayed ? 'Already added' : 'Added'} "${task.title}" (${task.id}) in ${slug}${record.checklist ? ` with ${record.checklist.length} checklist item${record.checklist.length === 1 ? '' : 's'}` : ''} — at ${client.base}.`);
+      return;
+    }
+
+    if (sub === 'list') {
+      const status = flags.status === undefined || flags.status === true ? undefined : String(flags.status);
+      if (status !== undefined && !TASK_STATUSES.includes(status)) {
+        throw new Error(`Unknown --status "${status}". Values: ${TASK_STATUSES.join(', ')}.`);
+      }
+      const q = flags.query === undefined || flags.query === true ? undefined : String(flags.query);
+      const allProjects = Boolean(flags['all-projects']);
+      const project = allProjects ? undefined : (await resolveProjectName(flags, client)).project;
+      const tasks = await client.listTasks({ project, status, q });
+      if (flags.json) { out(tasks); return; }
+      let projectNames;
+      if (allProjects) {
+        try { projectNames = new Map((await client.listProjects()).map((p) => [p.id, p.slug])); } catch { /* names are a nicety */ }
+      }
+      out(formatTaskList(tasks, { projectNames }));
+      return;
+    }
+
+    if (sub === 'show') {
+      const id = positionals[2];
+      if (!isTaskId(id)) throw new Error('task show requires a task uuid.');
+      const task = await client.getTask(id);
+      const checklist = await client.listChecklist(id);
+      out(flags.json ? { ...task, checklist } : formatTask(task, checklist));
+      return;
+    }
+
+    if (sub === 'update') {
+      const id = positionals[2];
+      const patch = buildTaskPatch(flags);
+      const addition = flags['append-notes'] === undefined || flags['append-notes'] === true ? undefined : String(flags['append-notes']);
+      const task = await updateTask(client, id, { patch, appendNotes: addition });
+      out(flags.json ? task : `Updated "${task.title}" (${task.id}) — status ${task.status}, at ${client.base}.`);
+      return;
+    }
+
+    if (sub === 'done') {
+      const id = positionals[2];
+      const task = await completeTask(client, id);
+      out(flags.json ? task : `Completed "${task.title}" (${task.id})${task.nextOccurrenceTaskId ? `; next occurrence ${task.nextOccurrenceTaskId}` : ''}.`);
+      return;
+    }
+
+    if (sub === 'check' || sub === 'uncheck') {
+      const id = positionals[2];
+      const selector = positionals.slice(3).join(' ');
+      const { item, index } = await setChecklistItem(client, id, selector, sub === 'check');
+      out(flags.json ? item : `${sub === 'check' ? 'Checked' : 'Unchecked'} ${index}. ${item.label}`);
+      return;
+    }
+
+    throw new Error(`Unknown task subcommand: ${sub}\n\n${TASK_HELP}\nPriorities: ${TASK_PRIORITIES.join(', ')}. Statuses: ${TASK_STATUSES.join(', ')}.`);
   }
 
   throw new Error(`Unknown command: ${command}\n\n${HELP}`);

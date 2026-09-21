@@ -303,3 +303,30 @@ test('a failed discovery is retried by the next request rather than cached forev
   assert.deepEqual(await client.getDocument('d'), { id: 'd' });
   assert.equal(client.base, 'http://desktop');
 });
+
+test('task writes are agent-stamped; add retries only with a requestId; patch reports an unknown outcome', async () => {
+  const seen = [];
+  globalThis.fetch = async (url, opts) => { seen.push({ url, opts }); return jsonRes(200, { tasks: [{ id: 't' }] }); };
+  const client = createClient({ baseUrl: 'http://x', env: { PRAX_AGENT: 'claude' } });
+  await client.importTasks({ project: 'p', tasks: [{ title: 'T' }], requestId: '12345678-1234-4234-8234-123456789012' });
+  assert.equal(seen[0].opts.method, 'POST');
+  assert.equal(seen[0].url, 'http://x/api/tasks/import');
+  assert.equal(seen[0].opts.headers['x-prax-origin'], 'agent');
+  assert.equal(seen[0].opts.headers['x-prax-agent'], 'claude');
+  await client.setChecklistItem('t', 'i', true);
+  assert.equal(seen[1].opts.method, 'PATCH');
+  assert.equal(seen[1].opts.headers['x-prax-origin'], 'agent');
+  assert.deepEqual(JSON.parse(seen[1].opts.body), { completed: true });
+  await client.listTasks({ project: 'p', status: 'planned', q: 'x y' });
+  assert.equal(seen[2].url, 'http://x/api/tasks?project=p&status=planned&q=x+y');
+  assert.equal(seen[2].opts.headers['x-prax-origin'], undefined);
+
+  let calls = 0;
+  globalThis.fetch = async () => { calls += 1; throw new Error('socket hang up'); };
+  const client2 = createClient({ baseUrl: 'http://x' });
+  await assert.rejects(client2.patchTask('t', { status: 'planned' }), /Task update outcome unknown; inspect the task before retrying/);
+  assert.equal(calls, 1);
+  calls = 0;
+  await assert.rejects(client2.importTasks({ tasks: [], requestId: 'r' }), /Write outcome unknown/);
+  assert.equal(calls, 2);
+});

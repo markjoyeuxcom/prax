@@ -307,6 +307,46 @@ export function createClient({ baseUrl, token, agent, env = process.env, bases }
         throw error;
       }
     },
+    // ---- tasks (prax task …) ----------------------------------------------
+    listTasks({ project, status, q } = {}) {
+      const params = new URLSearchParams();
+      if (project && project !== 'all') params.set('project', project);
+      if (status) params.set('status', status);
+      if (q) params.set('q', q);
+      const qs = params.toString();
+      return request('GET', `/api/tasks${qs ? `?${qs}` : ''}`);
+    },
+    getTask(id) {
+      return request('GET', `/api/tasks/${encodeURIComponent(id)}`);
+    },
+    // Exact-once when the payload carries a requestId: the server records the
+    // result under it and replays it, so one lost response is safe to retry.
+    importTasks(payload) {
+      return request('POST', '/api/tasks/import', {
+        body: payload, agent: true, retryUnavailable: Boolean(payload?.requestId),
+      });
+    },
+    // No receipt on this route: one attempt unless the caller says the value
+    // being set is idempotent ('connect-only' — a retry only when no request
+    // provably reached the server).
+    async patchTask(id, patch, { retryUnavailable = false } = {}) {
+      try {
+        return await request('PATCH', `/api/tasks/${encodeURIComponent(id)}`, {
+          body: patch, agent: true, retryUnavailable,
+        });
+      } catch (error) {
+        if (!error.status) error.message = `Task update outcome unknown; inspect the task before retrying. ${error.message}`;
+        throw error;
+      }
+    },
+    listChecklist(taskId) {
+      return request('GET', `/api/tasks/${encodeURIComponent(taskId)}/checklist`);
+    },
+    setChecklistItem(taskId, itemId, completed) {
+      return request('PATCH', `/api/tasks/${encodeURIComponent(taskId)}/checklist/${encodeURIComponent(itemId)}`, {
+        body: { completed: Boolean(completed) }, agent: true, retryUnavailable: 'connect-only',
+      });
+    },
     listDocuments(project, { status } = {}) {
       const params = new URLSearchParams();
       if (project && project !== 'all') params.set('project', project);

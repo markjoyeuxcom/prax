@@ -254,6 +254,48 @@ prax supersede c58d3108-4f93-4a50-ac42-0c1d61e61b08 \
   --with  d72e4219-5a04-4b61-bd53-1e2e72f7c219
 ```
 
+### `task <add|list|show|update|done|check|uncheck>`
+
+Tasks from any shell, for handoff notes, acceptance checklists and agent work orders. The
+project resolves exactly as it does for `remember`; every write is stamped as an agent write
+with the detected agent id, so the task chronicle says who changed it. The command binds to
+one instance before writing, like `remember`.
+
+```bash
+prax task add "Rotate the tunnel token" --priority high --due 2026-10-01 --label ops,homelab \
+  --description "Token expires on the 3rd." --check "New token issued" --check "Old token revoked"
+prax task list                       # open tasks in the current project
+prax task list --status in-progress --all-projects
+prax task show 2234a575-027e-4218-892a-b74d2b5c7f8c
+prax task update 2234a575-… --status in-progress --append-notes "Branch feat/x, tests green, next: docs"
+prax task check 2234a575-… 2         # tick the second checklist item (or name it by label)
+prax task done 2234a575-…
+```
+
+- `add <title>` — flags: `--priority high|medium|low` (default medium), `--status` (default
+  `planned`; values `high-priority`, `in-progress`, `planned`, `completed`, `notes`),
+  `--due YYYY-MM-DD`, `--planned YYYY-MM-DD`, `--label a,b`, `--description`, `--notes`, and a
+  repeatable `--check "<item>"` for acceptance items. The task and its checklist commit in one
+  transaction through the exact-once import route with a fresh request id, so a lost response
+  can be retried without creating a second task: the reply says `Already added` when the server
+  replayed a recorded result. Append mode is deliberate: an explicit add is never skipped because
+  an older task shares the title.
+- `list` — open tasks in the resolved project, one line each with status, priority, plan/due
+  dates, labels and id. `--status <s>` filters, `--query <text>` matches title or description,
+  `--all-projects` lists everything with a `#project` suffix. `--json` returns the raw array.
+- `show <id>` — the task, its numbered checklist and notes. `--json` adds a `checklist` array.
+- `update <id>` — patches `--title`, `--status`, `--priority`, `--due`, `--planned` (an empty
+  value clears a date), `--label`, `--description`, `--notes`, or `--append-notes <text>`, which
+  reads the current notes and appends a paragraph. The update route carries no operation
+  receipt, so the command sends **one** request and never retries on its own; an uncertain
+  transport outcome is reported as unknown and you should inspect the task before retrying.
+  `--append-notes` has a small read-then-write window; two agents appending at the same
+  moment can lose one paragraph.
+- `done <id>` — sets `completed`; a recurring task reports the next occurrence it spawned.
+- `check <id> <n|label>` / `uncheck <id> <n|label>` — set one checklist item by its 1-based
+  number or exact (case-insensitive) label. Setting a value is idempotent, so these and `done`
+  retry only when no request provably reached the server.
+
 ## Trust model
 
 Documents carry two trust/workflow fields:
