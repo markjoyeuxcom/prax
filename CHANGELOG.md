@@ -12,6 +12,8 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-09-21
+
 ### Added
 
 - **`prax task` commands.** Create, list, show, update, complete and tick tasks from any
@@ -1967,7 +1969,8 @@ and onboarding features with the corrected installation guide.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.37.1...HEAD
+[Unreleased]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.38.0...HEAD
+[0.38.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.37.1...v0.38.0
 [0.37.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.37.0...v0.37.1
 [0.37.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.36.1...v0.37.0
 [0.36.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.36.0...v0.36.1
