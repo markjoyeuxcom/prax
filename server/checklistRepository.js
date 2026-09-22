@@ -1,4 +1,5 @@
 import { toIso } from './columnTypes.js';
+import { createWithReceipt, creationIntentHash } from './creationReceipts.js';
 
 // One bound, enforced at BOTH creation and import: whatever the app lets a
 // task accumulate, the app must be able to restore. A creation-side cap that
@@ -87,18 +88,31 @@ export function createChecklistRepository(db) {
       const result = await db.query(q.text, q.values);
       return normalizeChecklistRow(result.rows[0]);
     },
-    async addChecklistItemIdempotent(taskId, label, id) {
-      const q = buildAddChecklistItemIdempotent(taskId, label, id);
-      const created = await db.query(q.text, q.values);
-      if (created.rows[0]) {
-        return { item: normalizeChecklistRow(created.rows[0]), created: true };
-      }
-      const get = buildGetChecklistItem(id);
-      const existing = await db.query(get.text, get.values);
-      return {
-        item: existing.rows[0] ? normalizeChecklistRow(existing.rows[0]) : null,
-        created: false,
-      };
+    // Receipt-backed like task creation (see creationReceipts.js): the
+    // outcome carries `replayed`, `gone` or `conflict`; `capped` means a new
+    // item would exceed `maxItems`. A replay outranks the cap.
+    async addChecklistItemIdempotent(taskId, label, id, { maxItems = null } = {}) {
+      const result = await createWithReceipt(db, {
+        kind: 'checklist-item',
+        id,
+        intentHash: creationIntentHash('checklist-item', id, [taskId, label]),
+        async load(client) {
+          const get = buildGetChecklistItem(id);
+          return (await client.query(get.text, get.values)).rows[0] || null;
+        },
+        async beforeInsert(client) {
+          if (maxItems === null) return null;
+          const count = await client.query('select count(*) as n from task_checklist_items where task_id = $1', [taskId]);
+          return Number(count.rows[0]?.n) >= maxItems ? { capped: true } : null;
+        },
+        async insert(client) {
+          const q = buildAddChecklistItemIdempotent(taskId, label, id);
+          return (await client.query(q.text, q.values)).rows[0] || null;
+        },
+      });
+      if (result.refused) return { capped: true, created: false };
+      const { row, ...outcome } = result;
+      return row === undefined ? outcome : { ...outcome, item: row ? normalizeChecklistRow(row) : null };
     },
     async setChecklistItemCompleted(taskId, itemId, completed) {
       const q = buildSetChecklistItemCompleted(taskId, itemId, completed);

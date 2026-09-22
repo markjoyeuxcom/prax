@@ -17,12 +17,14 @@ const DEFAULT_BURST_THRESHOLD = 25;
 const DEFAULT_SWEEP_INTERVAL_MS = 15 * 60 * 1000;
 
 // One full reconcile: push every eligible task, remove every stale event.
-// Shared by the Sync-now route, the burst path, and the periodic sweep.
+// Shared by the Sync-now route, the burst path, and the periodic sweep, all
+// of which run it inside the pusher's serial queue. A clean run clears any
+// earlier live-push error: everything is in step again.
 export async function runFullSync({ provider, tasksRepository }) {
   const client = await provider.client();
   const settings = await provider.getSettings();
   const calendarId = await client.ensurePraxCalendar(settings.calendarId || null);
-  if (calendarId !== settings.calendarId) await provider.putSettings({ calendarId });
+  if (calendarId !== settings.calendarId) await provider.putSettings({ calendarId }, { onlyIfConnected: true });
 
   const now = new Date();
   const tasks = (await tasksRepository.listTasks({})).filter((task) => isCalendarEligible(task, now));
@@ -52,7 +54,11 @@ export async function runFullSync({ provider, tasksRepository }) {
   const summary = failures.length
     ? `${pushed} pushed, ${removed} removed, ${failures.length} FAILED`
     : `${pushed} pushed, ${removed} removed`;
-  await provider.putSettings({ lastSyncAt: new Date().toISOString(), lastSyncSummary: summary });
+  await provider.putSettings({
+    lastSyncAt: new Date().toISOString(),
+    lastSyncSummary: summary,
+    ...(failures.length ? {} : { lastPushError: null }),
+  }, { onlyIfConnected: true });
   return { pushed, removed, failed: failures.length, failures, summary };
 }
 
@@ -69,6 +75,14 @@ export function createCalendarPusher({
   let sweepTimer = null;
   let draining = null;
   let stopped = false;
+  // Every Google write batch (incremental drain, burst/sweep reconcile, and
+  // the manual Sync now) runs through this queue, one at a time.
+  let queue = Promise.resolve();
+  function exclusive(work) {
+    const run = queue.then(work);
+    queue = run.catch(() => {});
+    return run;
+  }
 
   async function connectedOrNull() {
     try {
@@ -77,7 +91,7 @@ export function createCalendarPusher({
       // Not configured / not connected is normal — drop the queue silently.
       // Anything else (bad token) is worth surfacing as push status.
       if (err instanceof GoogleApiError && ['not-configured', 'not-connected'].includes(err.reason)) return null;
-      await provider.putSettings({ lastPushError: err.message }).catch(() => {});
+      await provider.putSettings({ lastPushError: err.message }, { onlyIfConnected: true }).catch(() => {});
       return null;
     }
   }
@@ -98,13 +112,13 @@ export function createCalendarPusher({
         await provider.putSettings({
           lastPushAt: new Date().toISOString(),
           lastPushError: result.failed ? result.summary : null,
-        });
+        }, { onlyIfConnected: true });
         return result;
       }
 
       const settings = await provider.getSettings();
       const calendarId = await client.ensurePraxCalendar(settings.calendarId || null);
-      if (calendarId !== settings.calendarId) await provider.putSettings({ calendarId });
+      if (calendarId !== settings.calendarId) await provider.putSettings({ calendarId }, { onlyIfConnected: true });
 
       const now = new Date();
       let pushed = 0;
@@ -127,12 +141,12 @@ export function createCalendarPusher({
       await provider.putSettings({
         lastPushAt: new Date().toISOString(),
         lastPushError: failures.length ? `${failures.length} push${failures.length === 1 ? '' : 'es'} failed: ${failures[0].message}` : null,
-      });
+      }, { onlyIfConnected: true });
       return { pushed, removed, failed: failures.length, failures };
     } catch (err) {
       // Queue-level failure (calendar lookup, settings write): record and let
       // the sweep repair; the mutation that queued us already succeeded.
-      await provider.putSettings({ lastPushError: err.message }).catch(() => {});
+      await provider.putSettings({ lastPushError: err.message }, { onlyIfConnected: true }).catch(() => {});
       return { pushed: 0, removed: 0, failed: 1, failures: [{ message: err.message }] };
     }
   }
@@ -144,7 +158,7 @@ export function createCalendarPusher({
       let executed = false;
       while (pending.size > 0 || bulkRequested) {
         executed = true;
-        const res = await drainNow();
+        const res = await exclusive(drainNow);
         if (res) {
           cumulative.pushed += res.pushed || 0;
           cumulative.removed += res.removed || 0;
@@ -154,7 +168,7 @@ export function createCalendarPusher({
         }
       }
       if (!executed) {
-        return drainNow();
+        return exclusive(drainNow);
       }
       return cumulative;
     })().finally(() => {
@@ -182,7 +196,13 @@ export function createCalendarPusher({
       timer = setTimeout(() => { drain().catch(() => {}); }, debounceMs);
       timer.unref?.();
     },
-    // Deterministic drain for tests and for the sync route's "flush first".
+    // Manual Sync now: one full reconcile in the serial queue. Changes queued
+    // meanwhile drain after it, so they win over the reconcile's snapshot.
+    // Errors propagate so the route can report a degraded reason.
+    syncNow() {
+      return exclusive(() => runFullSync({ provider, tasksRepository }));
+    },
+    // Deterministic drain for tests.
     async flush() {
       clearTimeout(timer);
       let lastResult = null;

@@ -233,32 +233,44 @@ BLOCK
   } | subst_paths
 }
 
-# Refresh only our marked block. Preserve unrelated bytes, modes and symlinks;
-# refuse malformed/ambiguous markers rather than guessing which text to replace.
-write_instructions() {
-  file="$1"
-  mkdir -p "$(dirname "$file")"
-  node --input-type=module - "$file" "$(instruction_block)" <<'NODE'
+# Add, refresh or remove only our marked block — one Node path for both
+# directions. Preserve unrelated bytes, modes and symlinks (a symlinked file is
+# edited at its target, the link stays a link); refuse malformed/ambiguous
+# markers rather than guessing which text to replace or delete (a start marker
+# with no end would otherwise take every line after it); write atomically.
+#   edit_instructions write <file> <body>     edit_instructions remove <file>
+edit_instructions() {
+  node --input-type=module - "$@" <<'NODE'
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync, renameSync, unlinkSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-const [file, body] = process.argv.slice(2);
+const [mode, file, body] = process.argv.slice(2);
+if (mode === 'remove' && !existsSync(file)) process.exit(0);
 const path = existsSync(file) ? realpathSync(file) : file;
 const before = existsSync(path) ? readFileSync(path, 'utf8') : '';
 const start = '<!-- prax-memory:start -->';
 const end = '<!-- prax-memory:end -->';
 const markers = [...before.matchAll(/<!-- prax-memory:(start|end) -->/g)];
-const block = `${start}\n${body}\n${end}`;
+if (mode === 'remove' && !markers.length) process.exit(0);
+const [a, b] = markers;
+if (markers.length && (markers.length !== 2 || a[1] !== 'start' || b[1] !== 'end'
+    || (a.index && before[a.index - 1] !== '\n') || before[a.index + start.length] !== '\n'
+    || before[b.index - 1] !== '\n'
+    || (b.index + end.length < before.length && before[b.index + end.length] !== '\n'))) {
+  console.error(`Malformed Prax instruction markers in ${file}; file left unchanged`);
+  process.exit(1);
+}
 let after;
-if (!markers.length) after = `${before}${before ? '\n' : ''}${block}\n`;
-else {
-  const [a, b] = markers;
-  if (markers.length !== 2 || a[1] !== 'start' || b[1] !== 'end'
-      || (a.index && before[a.index - 1] !== '\n') || before[a.index + start.length] !== '\n'
-      || before[b.index - 1] !== '\n'
-      || (b.index + end.length < before.length && before[b.index + end.length] !== '\n')) {
-    throw new Error(`Malformed Prax instruction markers in ${file}; file left unchanged`);
-  }
-  after = before.slice(0, a.index) + block + before.slice(b.index + end.length);
+if (mode === 'remove') {
+  // The block and its own line ending; when it closed the file, also the
+  // blank line the installer put before it.
+  const tail = b.index + end.length + (before[b.index + end.length] === '\n' ? 1 : 0);
+  after = before.slice(0, a.index) + before.slice(tail);
+  if (tail === before.length && after.endsWith('\n\n')) after = after.slice(0, -1);
+} else {
+  const block = `${start}\n${body}\n${end}`;
+  after = markers.length
+    ? before.slice(0, a.index) + block + before.slice(b.index + end.length)
+    : `${before}${before ? '\n' : ''}${block}\n`;
 }
 if (after === before) console.log(`instructions already current in ${file}`);
 else {
@@ -270,20 +282,31 @@ else {
   } finally {
     if (existsSync(temporary)) unlinkSync(temporary);
   }
-  console.log(`instructions ${markers.length ? 'updated' : 'added'} in ${file}`);
+  console.log(`instructions ${mode === 'remove' ? 'removed from' : markers.length ? 'updated in' : 'added in'} ${file}`);
 }
 NODE
 }
 
-# Remove exactly the marked block; the rest of the file is untouched.
+write_instructions() {
+  file="$1"
+  mkdir -p "$(dirname "$file")"
+  edit_instructions write "$file" "$(instruction_block)"
+}
+
+# Remove exactly the marked block; the rest of the file is untouched. Without
+# Node there is no safe edit, so a file that holds a block is left as it is.
+REMOVE_FAILED=0
 remove_instructions() {
   file="$1"
-  [ -f "$file" ] || return 0
-  grep -qF "$BLOCK_START" "$file" || return 0
-  tmp="$file.prax-tmp.$$"
-  awk -v s="$BLOCK_START" -v e="$BLOCK_END" '$0 == s { skip = 1; next } $0 == e { skip = 0; next } !skip' "$file" > "$tmp"
-  mv "$tmp" "$file"
-  echo "instructions removed from $file"
+  [ -e "$file" ] || return 0
+  if ! command -v node >/dev/null 2>&1; then
+    if grep -qF "$BLOCK_START" "$file"; then
+      echo "install.sh: node is needed to remove the Prax block from $file safely; left unchanged" >&2
+      REMOVE_FAILED=1
+    fi
+    return 0
+  fi
+  edit_instructions remove "$file" || REMOVE_FAILED=1
 }
 
 # The shim is ours only if it carries the marker; a foreign `prax` is never touched.
@@ -303,6 +326,11 @@ if [ "$UNINSTALL" = 1 ]; then
   done
   for f in "$CLAUDE_MD" "$CODEX_MD" "$COPILOT_MD" "$GEMINI_MD"; do remove_instructions "$f"; done
   remove_shim
+  # A block that could not be removed safely is reported, and the run fails.
+  if [ "$REMOVE_FAILED" = 1 ]; then
+    echo "install.sh: some instruction blocks were left in place; remove them by hand" >&2
+    exit 1
+  fi
   exit 0
 fi
 
@@ -460,6 +488,8 @@ if [ "$MCP" = 1 ]; then
   echo "  codex mcp add prax -- \"$RUNTIME\" \"$APP_DIR/mcp/server.js\""
   echo "  copilot mcp add prax -- \"$RUNTIME\" \"$APP_DIR/mcp/server.js\""
   echo "  agy mcp add prax \"$RUNTIME\" \"$APP_DIR/mcp/server.js\""
+  # No PRAX_API_URL is needed: the MCP server finds the app like the CLI does.
+  echo "  It finds the running app like the prax CLI: PRAX_API_URL if set, else the desktop app's saved port, else http://127.0.0.1:3000."
 fi
 
 if [ "$CLI_FORM" = 1 ]; then

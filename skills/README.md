@@ -35,7 +35,7 @@ there — no clone, and the skills always match the installed app. The extra fla
 |---|---|
 | `--instructions` | writes the standing recall/remember rule into each tool's global instructions file (below) |
 | `--cli` | writes a `prax` shim into `~/.local/bin` (`PRAX_BIN_DIR`) that runs the bundle's `cli/prax.js` on the app's **own** Node runtime — no Node install needed for it; from a checkout it runs `cli/prax.js` on `node`. Combined with `--instructions`, the standing rule is written in `prax …` form |
-| `--mcp` | prints the `mcp add prax …` command for Claude Code, Codex, Copilot CLI and Antigravity, pointing at the bundle's `mcp/server.js` on that same runtime (registration stays opt-in) |
+| `--mcp` | prints the `mcp add prax …` command for Claude Code, Codex, Copilot CLI and Antigravity, pointing at the bundle's `mcp/server.js` on that same runtime (registration stays opt-in). No `PRAX_API_URL` is needed: the MCP server finds the running app the way the CLI does |
 
 `--uninstall` removes the skills, the links, the instruction blocks and the shim (never a
 `prax` it did not write). The skills themselves still need Node 20+ on `PATH`, because the
@@ -100,7 +100,8 @@ rule in each tool's **global** instructions — read the project briefing, recal
 file durable findings with their project, and record progress on the task. `--instructions`
 adds or refreshes that rule between `<!-- prax-memory:start/end -->` markers. Unchanged blocks
 are left alone; unrelated text is preserved; malformed or ambiguous markers stop the update.
-`--uninstall` removes the marked block:
+`--uninstall` removes the marked block the same way: a symlinked file is edited at its target,
+its mode is kept, and a missing or duplicated marker leaves the file unchanged and fails the run:
 
 ```bash
 glab api "projects/markjoyeuxcom%2Fapps%2Fprax/repository/files/skills%2Finstall.sh/raw?ref=main" | sh -s -- --instructions

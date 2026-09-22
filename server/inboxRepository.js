@@ -98,7 +98,7 @@ export function createInboxRepository(db) {
         return { kind, id, record, fingerprint: await fingerprint(client, kind, row) };
       } finally { client.release(); }
     },
-    async apply(kind, id, input, actor = 'user') {
+    async apply(kind, id, input, actor = 'user', { today = null } = {}) {
       return transaction(async client => {
         const intent = hash({ kind, id, ...input, actor });
         const priorReceipt = (await client.query('select * from inbox_action_receipts where operation_id = $1', [input.operationId])).rows[0];
@@ -130,7 +130,7 @@ export function createInboxRepository(db) {
             if (input.plannedFor) fields.plannedFor = input.plannedFor;
             const planning = classifyPlanChange(record, fields);
             if (planning.kind === 'carried') fields.carryCount = record.carryCount + 1;
-            const transition = planTaskRecurrenceTransition(record, fields);
+            const transition = planTaskRecurrenceTransition(record, fields, { today });
             for (const [key, column] of [['projectId', 'project_id'], ['status', 'status'], ['plannedFor', 'planned_for'], ['carryCount', 'carry_count'], ['recurrence', 'recurrence']]) {
               if (key in transition.fields) before[column] = row[column];
             }

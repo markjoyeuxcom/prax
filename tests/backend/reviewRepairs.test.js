@@ -101,7 +101,7 @@ test('R01 audit: an uncertain MCP task PATCH is not replayed over a newer accept
     await ok(app, 'PATCH', url.pathname, { title: 'Newer human edit' });
     throw new TypeError('lost response');
   });
-  await assert.rejects(() => createPraxClient({ fetch }).updateTask(task.id, { title: 'Older operation' }), /outcome unknown/i);
+  await assert.rejects(() => createPraxClient({ baseUrl: 'http://127.0.0.1:3000', fetch }).updateTask(task.id, { title: 'Older operation' }), /outcome unknown/i);
   assert.equal(attempts, 1);
   assert.equal((await ok(app, 'GET', `/api/tasks/${task.id}`)).title, 'Newer human edit');
 });
@@ -185,7 +185,7 @@ for (const kind of ['CLI', 'MCP']) {
     if (kind === 'CLI') {
       t.mock.method(globalThis, 'fetch', fetch);
       update = () => createClient({ baseUrl: 'http://fixture.invalid' }).updateMemory('doc', { body: 'x' });
-    } else update = () => createPraxClient({ fetch }).updateDocument('doc', { body: 'x' });
+    } else update = () => createPraxClient({ baseUrl: 'http://127.0.0.1:3000', fetch }).updateDocument('doc', { body: 'x' });
     await assert.rejects(update, /outcome unknown.*not re-sent/i);
     assert.equal(patches, 1);
   });

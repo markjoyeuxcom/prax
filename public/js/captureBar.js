@@ -118,9 +118,11 @@ async function submit() {
       }
     } else {
       const body = await response.json().catch(() => ({}));
-      // Only deterministic validation rejections release the submitted intent.
-      // Server failures can occur after commit and must retain its identity.
-      if ([400, 422].includes(response.status) && saveBarPending(storage, null)) pending = null;
+      // Only deterministic rejections release the submitted intent: validation,
+      // or 410 (this capture was created and later permanently deleted, so its
+      // receipt refuses to recreate it). Server failures can occur after
+      // commit and must retain its identity.
+      if ([400, 410, 422].includes(response.status) && saveBarPending(storage, null)) pending = null;
       setHint(body.message || `Prax could not confirm the capture (${response.status}). Enter checks it again.`, 'error');
     }
   } catch { setHint('Prax is unreachable — your text and submitted capture are kept; Enter retries.', 'error'); }

@@ -2,7 +2,7 @@ import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
-import { assertSafeNetworkBinding, hostCheckEnabled, isAllowedHostHeader, isLoopbackHost, loadConfig } from './config.js';
+import { assertSafeNetworkBinding, hostCheckEnabled, isAllowedHostHeader, isCrossSiteRequest, isLoopbackHost, loadConfig } from './config.js';
 import { createDb } from './db.js';
 import { runMigrations } from './migrate.js';
 import { registerInboxRoutes } from './inboxRoutes.js';
@@ -62,6 +62,15 @@ export async function buildApp(options = {}) {
       }
     });
   }
+
+  // Cross-site request forgery (see isCrossSiteRequest): a page on another
+  // site may not change data here. Applies to every bind and survives
+  // PRAX_ALLOWED_HOSTS=* — it guards the user's browser, not the network.
+  app.addHook('onRequest', async (request, reply) => {
+    if (!reply.sent && isCrossSiteRequest(request, config)) {
+      return reply.code(403).send({ message: 'Cross-site requests cannot change Prax data; see SECURITY.md on cross-site requests' });
+    }
+  });
 
   if (db && !options.skipDb && !options.db) {
     await runMigrations(db, { logger: app.log });

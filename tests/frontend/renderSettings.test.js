@@ -408,10 +408,19 @@ test('connected: status line carries account, calendar-created, last sync time a
 test('connected but never synced says so instead of inventing a sync time', () => {
   const html = renderSettingsHtml(baseState({
     settingsTab: 'integrations',
-    googleCalendarStatus: gcalStatus({ configured: true, connected: true, hasClientSecret: true }),
+    googleCalendarStatus: gcalStatus({ configured: true, connected: true, calendarId: 'cal_1', hasClientSecret: true }),
   }), baseModel());
   assert.match(html, /Connected — calendar created; not synced yet\./);
   assert.doesNotMatch(html, /last sync:/);
+});
+
+test('connected without a calendar id does not claim the calendar was created', () => {
+  const html = renderSettingsHtml(baseState({
+    settingsTab: 'integrations',
+    googleCalendarStatus: gcalStatus({ configured: true, connected: true, calendarId: null, hasClientSecret: true }),
+  }), baseModel());
+  assert.doesNotMatch(html, /calendar created/);
+  assert.match(html, /Connected — the “Prax” calendar is not set up yet \(Sync now creates it\); not synced yet\./);
 });
 
 test('connected: live-push line shows heartbeat, error, or the default promise', () => {

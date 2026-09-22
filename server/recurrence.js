@@ -6,6 +6,7 @@
 export const RECURRENCES = ['daily', 'weekly', 'monthly'];
 
 const EVERY_RE = /^every:(\d+)([dw])$/;
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_EVERY_INTERVAL = 10_000;
 
 // null / '' / undefined all mean "no recurrence" (and are valid — clearing).
@@ -25,22 +26,19 @@ function addDays(date, n) {
   return d;
 }
 
-// Same day-of-month n months on, clamped to the target month's last day so
-// "monthly" on the 31st lands on Feb 28/29 rather than skipping into March.
-function addMonths(date, n) {
-  const target = new Date(date.getFullYear(), date.getMonth() + n, 1);
+// The anchor's day-of-month n months on, clamped to the target month's last
+// day so "monthly" on the 31st lands on Feb 28/29 rather than skipping into
+// March. Always counted from the anchor, never from a previous clamped step:
+// stepping Feb 28 → Mar 28 would lose the 31st for good.
+function addMonths(anchor, n) {
+  const target = new Date(anchor.getFullYear(), anchor.getMonth() + n, 1);
   const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
-  target.setDate(Math.min(date.getDate(), lastDay));
+  target.setDate(Math.min(anchor.getDate(), lastDay));
   return target;
 }
 
-function advanceOnce(date, recurrence) {
-  if (recurrence === 'daily') return addDays(date, 1);
-  if (recurrence === 'weekly') return addDays(date, 7);
-  if (recurrence === 'monthly') return addMonths(date, 1);
-  const m = EVERY_RE.exec(recurrence);
-  if (m) return addDays(date, Number(m[1]) * (m[2] === 'w' ? 7 : 1));
-  return null;
+function localDate(iso) {
+  return new Date(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10)));
 }
 
 function isoDate(date) {
@@ -57,40 +55,45 @@ function isoDate(date) {
 // then rolls forward until strictly after today — so completing an overdue
 // recurring task reschedules into the future rather than the past, without
 // materialising every skipped occurrence. Returns null for no/invalid recurrence.
-export function nextDueDate(recurrence, dueDate, now = new Date()) {
+// `today` is the person's calendar date ('YYYY-MM-DD', see server/localDay.js)
+// or a Date read through local getters: a UTC server's clock is not their day.
+// A monthly series is anchored on the due date's day-of-month. That due date is
+// the only anchor stored, so a series already on a clamped day (Feb 28 from a
+// Jan 31 start) continues from that day; carrying the 31st past one completion
+// would need the anchor stored with the series.
+export function nextDueDate(recurrence, dueDate, today = new Date()) {
   if (!recurrence || !isValidRecurrence(recurrence)) return null;
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  let base = /^\d{4}-\d{2}-\d{2}$/.test(dueDate || '')
-    ? new Date(Number(dueDate.slice(0, 4)), Number(dueDate.slice(5, 7)) - 1, Number(dueDate.slice(8, 10)))
-    : new Date(today);
+  const clock = today instanceof Date ? today : new Date();
+  const todayDate = typeof today === 'string' && ISO_DATE.test(today)
+    ? localDate(today)
+    : new Date(clock.getFullYear(), clock.getMonth(), clock.getDate());
+  const base = ISO_DATE.test(dueDate || '') ? localDate(dueDate) : new Date(todayDate);
+
+  if (recurrence === 'monthly') {
+    const monthsBehind = (todayDate.getFullYear() - base.getFullYear()) * 12 + todayDate.getMonth() - base.getMonth();
+    let n = Math.max(1, monthsBehind);
+    let next = addMonths(base, n);
+    while (next <= todayDate) next = addMonths(base, ++n);
+    return isoDate(next);
+  }
 
   const every = EVERY_RE.exec(recurrence);
   const intervalDays = recurrence === 'daily' ? 1
     : recurrence === 'weekly' ? 7
-      : every ? Number(every[1]) * (every[2] === 'w' ? 7 : 1) : null;
-  if (intervalDays && base <= today) {
-    const utc = (d) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
-    const elapsedDays = Math.floor((utc(today) - utc(base)) / 86_400_000);
-    base = addDays(base, (Math.floor(elapsedDays / intervalDays) + 1) * intervalDays);
-  } else {
-    let guard = 0;
-    do {
-      const next = advanceOnce(base, recurrence);
-      if (!next) return null;
-      base = next;
-      guard += 1;
-    } while (base <= today && guard < 120_000);
-    if (base <= today) return null;
-  }
-
-  return isoDate(base);
+      : Number(every[1]) * (every[2] === 'w' ? 7 : 1);
+  if (base > todayDate) return isoDate(addDays(base, intervalDays));
+  const utc = (d) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+  const elapsedDays = Math.floor((utc(todayDate) - utc(base)) / 86_400_000);
+  return isoDate(addDays(base, (Math.floor(elapsedDays / intervalDays) + 1) * intervalDays));
 }
 
 // Plans the authoritative side effects of one task update. The repository
 // executes this plan inside the same write transaction as the source update.
 // Reopening an old occurrence deliberately detaches that occurrence from the
 // series: the already-created future occurrence remains the series carrier.
-export function planTaskRecurrenceTransition(prior, patch, { now = new Date() } = {}) {
+// `today` is the requester's calendar date (server/localDay.js requestToday);
+// without it the server clock's local date is used.
+export function planTaskRecurrenceTransition(prior, patch, { now = new Date(), today = null } = {}) {
   const fields = { ...(patch || {}) };
   const proposed = { ...(prior || {}), ...fields };
   let reopenedAsOneOff = false;
@@ -108,7 +111,7 @@ export function planTaskRecurrenceTransition(prior, patch, { now = new Date() } 
 
   let nextTask = null;
   if (prior?.status !== 'completed' && proposed.status === 'completed' && proposed.recurrence) {
-    const dueDate = nextDueDate(proposed.recurrence, proposed.dueDate, now);
+    const dueDate = nextDueDate(proposed.recurrence, proposed.dueDate, today || now);
     if (dueDate) {
       nextTask = {
         title: proposed.title,

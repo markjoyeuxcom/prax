@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { sanitizeGeminiParts } from '../chat/toolProtocol.js';
 import { assistantIntentHash } from './writeReceipts.js';
 import { isToolCallTurn } from '../chat/messages.js';
-import { summarizeWrite } from './tools.js';
+import { validateToolInput } from './tools.js';
+import { buildWritePreview } from './writePreview.js';
+import { isIsoDate, localToday, weekdayOf } from '../localDay.js';
 
 // The in-app agent loop. It is STATELESS across HTTP requests: the client echoes
 // the full canonical conversation each turn, the server prepends its system
@@ -27,17 +29,15 @@ export const ASSISTANT_SYSTEM_PROMPT = [
   "  doesn't cover it, ask a short clarifying question rather than guessing.",
 ].join('\n');
 
-const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
 // The model has no clock — give it today's date (as the user's LOCAL date, the
 // same convention the desktop capture uses: getFullYear/Month/Date, not UTC) so
 // it can resolve "today"/"tomorrow"/"next Friday" into concrete YYYY-MM-DD due
-// dates. The server is the local sidecar, so its clock is the user's clock.
-export function currentDateContext(now = new Date()) {
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `The current date is ${WEEKDAYS[now.getDay()]}, ${y}-${m}-${d} (the user's local date). `
+// dates. `today` is the requester's 'YYYY-MM-DD' (server/localDay.js
+// requestToday) — a UTC container's clock is not the user's — or a Date read
+// through local getters when the caller has nothing better.
+export function currentDateContext(today = new Date()) {
+  const iso = isIsoDate(today) ? today : localToday(today instanceof Date ? today : new Date());
+  return `The current date is ${weekdayOf(iso)}, ${iso} (the user's local date). `
     + 'Resolve relative dates the user mentions ("today", "tomorrow", "next Friday", "in 3 days") '
     + 'against this date and pass a concrete YYYY-MM-DD dueDate to tools. A task can also carry a '
     + 'dueTime as "HH:MM" (24-hour, local) — convert a spoken time like "12pm" to "12:00", "9am" to '
@@ -64,7 +64,7 @@ export function sanitizeMessages(input) {
       if (isToolCallTurn(m)) {
         const toolCalls = m.toolCalls
           .filter((c) => c && typeof c.name === 'string' && typeof c.id === 'string')
-          .map((c) => ({ id: c.id, name: c.name, input: c.input && typeof c.input === 'object' ? c.input : {}, ...(typeof c.approvalId === 'string' && c.approvalId.length <= 100 ? { approvalId: c.approvalId } : {}) }));
+          .map((c) => ({ id: c.id, name: c.name, input: c.input && typeof c.input === 'object' ? c.input : {}, ...(typeof c.approvalId === 'string' && c.approvalId.length <= 100 ? { approvalId: c.approvalId } : {}), ...(c.malformed === true ? { malformed: true } : {}) }));
         if (toolCalls.length) {
           let providerOutput = null;
           if (Array.isArray(m.providerOutput) && m.providerOutput.length <= 64) {
@@ -106,15 +106,29 @@ export function sanitizeMessages(input) {
   return out;
 }
 
+// A proposed call's input, parsed by its tool's schema. Calls whose arguments
+// did not arrive as complete JSON (cut off by the token limit) are invalid
+// whatever they parse to. Returns { ok, input } or { ok:false, error }.
+function checkCall(call, byName) {
+  const tool = byName.get(call.name);
+  if (!tool) return { ok: false, error: `Unknown tool: ${call.name}` };
+  if (call.malformed) return { ok: false, error: `Invalid arguments for ${call.name}: they were not complete JSON. Nothing was run.` };
+  const checked = validateToolInput(tool, call.input ?? {});
+  return checked.ok ? checked : { ok: false, error: `Invalid arguments for ${call.name}: ${checked.error}. Nothing was run.` };
+}
+
 // Execute one assistant turn's tool calls into tool-result records. Read tools
 // always run; write tools run only when `decisions[id] === 'approve'`, otherwise
 // they record a "declined" result so the model can respond to the refusal.
+// Input is re-validated here: the history (and so the call) comes back
+// through the client, and only schema-valid input ever reaches a handler.
 async function executeToolCalls(toolCalls, byName, decisions, writeReceipts = null, legacyContext = null) {
   const results = [];
   for (const call of toolCalls) {
     const tool = byName.get(call.name);
-    if (!tool) {
-      results.push({ id: call.id, name: call.name, content: `Unknown tool: ${call.name}`, isError: true });
+    const checked = checkCall(call, byName);
+    if (!checked.ok) {
+      results.push({ id: call.id, name: call.name, content: checked.error, isError: true });
       continue;
     }
     if (!tool.readOnly && decisions[call.id] !== 'approve') {
@@ -123,7 +137,7 @@ async function executeToolCalls(toolCalls, byName, decisions, writeReceipts = nu
     }
     try {
       const execute = async () => {
-        const out = await tool.handler(call.input || {});
+        const out = await tool.handler(checked.input);
         const text = Array.isArray(out?.content) ? out.content.map((c) => c?.text ?? '').join('\n') : String(out ?? '');
         return { id: call.id, name: call.name, content: text, isError: Boolean(out?.isError) };
       };
@@ -138,18 +152,35 @@ async function executeToolCalls(toolCalls, byName, decisions, writeReceipts = nu
   return results;
 }
 
-function pendingFrom(toolCalls, byName) {
-  return toolCalls
-    .filter((c) => !byName.get(c.name)?.readOnly)
-    .map((c) => ({ id: c.id, name: c.name, input: c.input || {}, summary: summarizeWrite(c.name, c.input || {}) }));
+// The approval card's rows: every schema-valid write in the turn, each with
+// the exact input that will run and a preview of what it changes (targets by
+// title, per-field before/after). Invalid calls are never offered; they are
+// answered with an error result instead.
+async function pendingFrom(toolCalls, byName, describeWrite) {
+  const pending = [];
+  for (const call of toolCalls) {
+    const tool = byName.get(call.name);
+    const checked = checkCall(call, byName);
+    if (!tool || tool.readOnly || !checked.ok) continue;
+    let preview;
+    try {
+      preview = await describeWrite({ ...call, input: checked.input });
+    } catch {
+      preview = await buildWritePreview(null, call.name, checked.input);
+    }
+    pending.push({ id: call.id, name: call.name, input: checked.input, ...preview });
+  }
+  return pending;
 }
+
+const TRUNCATED_NOTE = '(This answer was cut off at the model’s length limit and is incomplete.)';
 
 // Run the loop for one request. `messages` is the sanitized history; `decisions`
 // (optional) resolves the writes proposed in a suspended tail turn.
 // Returns one of:
 //   { status:'done', messages, answer, model }
 //   { status:'awaiting_confirmation', messages, pending, model }
-export async function runAssistant({ chat, tools, system, messages, decisions = null, maxSteps = MAX_STEPS, now = new Date(), writeReceipts = null }) {
+export async function runAssistant({ chat, tools, system, messages, decisions = null, maxSteps = MAX_STEPS, now = new Date(), writeReceipts = null, describeWrite = (call) => buildWritePreview(null, call.name, call.input) }) {
   // The system prompt carries today's date so the model can resolve relative
   // due dates; recomputed per request so it never goes stale.
   const sys = system || buildAssistantSystemPrompt(now);
@@ -199,6 +230,22 @@ export async function runAssistant({ chat, tools, system, messages, decisions = 
     }
     model = res.model || model;
 
+    // Output cut off by the token limit is never presented as complete, and
+    // tool calls from it are never proposed or run: their arguments may be
+    // partial even when they parse.
+    if (res.truncated) {
+      if (res.toolCalls && res.toolCalls.length) {
+        return {
+          status: 'error', degraded: true, reason: 'truncated', truncated: true,
+          error: 'The model’s reply was cut off at its length limit while proposing an action, so nothing was proposed or run. Ask again, or ask for a smaller step.',
+          messages: history, model, didWrite,
+        };
+      }
+      const answer = `${res.text || ''}\n\n${TRUNCATED_NOTE}`.trim();
+      history.push({ role: 'assistant', content: answer });
+      return { status: 'done', degraded: true, reason: 'truncated', truncated: true, messages: history, answer, model, didWrite };
+    }
+
     if (res.toolCalls && res.toolCalls.length) {
       res.toolCalls = res.toolCalls.map(call => byName.get(call.name)?.readOnly ? call : { ...call, approvalId: randomUUID() });
       history.push({
@@ -208,10 +255,12 @@ export async function runAssistant({ chat, tools, system, messages, decisions = 
         ...(Array.isArray(res.providerOutput) ? { providerOutput: res.providerOutput } : {}),
         ...(Array.isArray(res.geminiParts) ? { geminiParts: res.geminiParts } : {}),
       });
-      // Any write in the turn suspends the WHOLE turn for confirmation (a
-      // provider requires every tool_use in a turn to be answered together).
-      if (res.toolCalls.some((c) => !byName.get(c.name)?.readOnly)) {
-        return { status: 'awaiting_confirmation', messages: history, pending: pendingFrom(res.toolCalls, byName), model, didWrite };
+      // Any valid write in the turn suspends the WHOLE turn for confirmation
+      // (a provider requires every tool_use in a turn to be answered
+      // together). Each write is approved or declined on its own.
+      const pending = await pendingFrom(res.toolCalls, byName, describeWrite);
+      if (pending.length) {
+        return { status: 'awaiting_confirmation', messages: history, pending, model, didWrite };
       }
       const results = await executeToolCalls(res.toolCalls, byName, {});
       history.push({ role: 'tool', results });

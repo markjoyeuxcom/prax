@@ -94,8 +94,11 @@ export function createDocumentTools(client) {
       handler: withErrorHandling(async (args) => {
         if (args.id !== undefined && !isValidUuid(args.id)) return errorResult('id must be a valid UUID when provided.');
         const id = stableMutationId(args.id);
+        // The id doubles as the operationId, so the server records a durable
+        // receipt: a retry after an edit replays the current document, and one
+        // after permanent delete is refused (410) instead of recreating it.
         const doc = await runStableMutation({ label: 'Document creation', id, inputName: 'id' }, () =>
-          client.createDocument({ ...args, id }));
+          client.createDocument({ ...args, id, operationId: id }));
         return okResult(doc);
       }),
     },

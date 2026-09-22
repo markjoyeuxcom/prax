@@ -69,6 +69,9 @@ test('0010 rebuild preserves data, links, and FTS; retypes tagged post-mortems; 
     '0031_document_update_receipts.sql',
     '0032_restore_inbox_system_project.sql',
     '0033_inbox_action_receipts.sql',
+    '0034_record_creation_receipts.sql',
+    '0035_single_line_document_titles.sql',
+    '0036_add_task_activity_agent.sql',
   ]);
 
   // Every row survived, fields intact.

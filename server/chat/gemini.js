@@ -1,10 +1,12 @@
 import { splitSystem, splitSystemRich } from './messages.js';
 import { geminiContents, geminiTools, parseGemini } from './toolProtocol.js';
+import { fetchWithTimeout, finish, resolveTimeout } from './request.js';
 
 // Google Gemini chat (Generative Language API, :generateContent). The key travels
 // in the x-goog-api-key header; the system prompt is a top-level systemInstruction
 // and assistant turns use the role 'model'. Mirrors the gemini embedder's shape.
-export function createGeminiChat({ baseUrl, apiKey, model, fetch = globalThis.fetch } = {}) {
+// finishReason 'MAX_TOKENS' marks the result truncated.
+export function createGeminiChat({ baseUrl, apiKey, model, fetch = globalThis.fetch, timeoutMs } = {}) {
   const base = String(baseUrl || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/+$/, '');
   const chatModel = model || 'gemini-2.5-flash';
   const key = String(apiKey || '');
@@ -33,22 +35,23 @@ export function createGeminiChat({ baseUrl, apiKey, model, fetch = globalThis.fe
       if (opts.temperature != null) generationConfig.temperature = opts.temperature;
       if (opts.maxTokens != null) generationConfig.maxOutputTokens = opts.maxTokens;
       if (Object.keys(generationConfig).length > 0) body.generationConfig = generationConfig;
-      const res = await fetch(`${base}/models/${chatModel}:generateContent`, {
+      const res = await fetchWithTimeout(fetch, `${base}/models/${chatModel}:generateContent`, {
         method: 'POST',
         headers: headers({ 'content-type': 'application/json' }),
         body: JSON.stringify(body),
-      });
+      }, { backend: 'gemini', timeoutMs: resolveTimeout(timeoutMs, opts) });
       if (!res.ok) throw new Error(`gemini chat failed: ${res.status}`);
       const data = await res.json();
+      const stop = finish(data?.candidates?.[0]?.finishReason);
       if (tools) {
         const { text, toolCalls, geminiParts } = parseGemini(data);
-        if (!text && !toolCalls.length) throw new Error('gemini returned no content');
-        return { text, model: chatModel, toolCalls: toolCalls.length ? toolCalls : null, geminiParts, stopReason: data?.candidates?.[0]?.finishReason };
+        if (!text && !toolCalls.length) throw new Error(stop.truncated ? 'gemini reply was cut off by the token limit before any content' : 'gemini returned no content');
+        return { text, model: chatModel, toolCalls: toolCalls.length ? toolCalls : null, geminiParts, stopReason: data?.candidates?.[0]?.finishReason, ...stop };
       }
       const parts = data?.candidates?.[0]?.content?.parts;
       const text = Array.isArray(parts) ? parts.map((p) => p?.text || '').join('') : undefined;
       if (typeof text !== 'string' || !text) throw new Error('gemini returned no text content');
-      return { text, model: chatModel };
+      return { text, model: chatModel, ...stop };
     },
     async isAvailable() {
       try {

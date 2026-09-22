@@ -4,12 +4,13 @@
 
 
 // cli/lib/apiClient.js
+import { randomUUID } from "node:crypto";
+
+// server/instanceDiscovery.js
 import { readFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
 var DEFAULT_BASE_URL = "http://127.0.0.1:3000";
-var SEMANTIC_PAGE_MAX = 50;
 var DESKTOP_IDENTIFIER = "com.moomora.prax";
 var AGENT_ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 function sanitizeAgentId(value) {
@@ -46,6 +47,9 @@ function resolveBaseUrls({ baseUrl, env = process.env, portFile, read } = {}) {
   urls.push(DEFAULT_BASE_URL);
   return urls;
 }
+
+// cli/lib/apiClient.js
+var SEMANTIC_PAGE_MAX = 50;
 function createClient({ baseUrl, token, agent, env = process.env, bases } = {}) {
   const candidates = bases || resolveBaseUrls({ baseUrl, env });
   let base = candidates[0];
@@ -350,7 +354,16 @@ function sliceLines(text, startLine, endLine) {
 function hashCitation(text) {
   return createHash("sha256").update(toLines(text).join("\n"), "utf8").digest("hex");
 }
-function checkCitation(ref, currentText) {
+var MOVED_SCAN_BUDGET_LINES = 1e6;
+function hashWindow(lines, from, span) {
+  const hash = createHash("sha256");
+  for (let i = from; i < from + span; i += 1) {
+    if (i > from) hash.update("\n", "utf8");
+    hash.update(lines[i], "utf8");
+  }
+  return hash.digest("hex");
+}
+function checkCitation(ref, currentText, { budgetLines = MOVED_SCAN_BUDGET_LINES } = {}) {
   const { startLine, endLine, contentHash } = ref;
   if (currentText === null || currentText === void 0) {
     return { status: "missing", startLine: startLine ?? null, endLine: endLine ?? null };
@@ -362,19 +375,28 @@ function checkCitation(ref, currentText) {
   if (!startLine) return { status: "changed", startLine: null, endLine: null };
   const span = endLine - startLine + 1;
   const lines = toLines(currentText);
-  for (let first = 1; first + span - 1 <= lines.length; first += 1) {
-    const window = lines.slice(first - 1, first + span - 1).join("\n");
-    if (hashCitation(window) === contentHash) {
-      return { status: "moved", startLine: first, endLine: first + span - 1 };
+  const lastFirst = lines.length - span;
+  if (lastFirst < 0) return { status: "changed", startLine, endLine };
+  const origin = Math.min(Math.max(startLine - 1, 0), lastFirst);
+  const windows = Math.max(1, Math.floor(budgetLines / span));
+  let tried = 0;
+  for (let distance = 0; tried < windows && (origin - distance >= 0 || origin + distance <= lastFirst); distance += 1) {
+    for (const from of distance === 0 ? [origin] : [origin - distance, origin + distance]) {
+      if (from < 0 || from > lastFirst || tried >= windows) continue;
+      tried += 1;
+      if (hashWindow(lines, from, span) === contentHash) {
+        return { status: "moved", startLine: from + 1, endLine: from + span };
+      }
     }
   }
-  return { status: "changed", startLine, endLine };
+  const complete = tried >= lastFirst + 1;
+  return complete ? { status: "changed", startLine, endLine } : { status: "changed", startLine, endLine, searched: "nearby" };
 }
 function describeCitationStatus(result, ref) {
   const path = ref?.path || "cited code";
   switch (result?.status) {
     case "changed":
-      return `${path} changed since this was written`;
+      return result.searched === "nearby" ? `${path} changed since this was written (a move far from the cited lines was not searched)` : `${path} changed since this was written`;
     case "missing":
       return `${path} is gone`;
     case "moved":
@@ -382,6 +404,38 @@ function describeCitationStatus(result, ref) {
     default:
       return "";
   }
+}
+
+// server/repoUrl.js
+var SCHEME = /^(?:https?|ssh|git|git\+ssh):\/\//i;
+var SCP_LIKE = /^([^/@]+)@([^/:]+):(.+)$/;
+function normalizeRepoUrl(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+  let host = null;
+  let path = null;
+  if (SCHEME.test(s)) {
+    try {
+      const url = new URL(s);
+      host = url.hostname;
+      path = url.pathname;
+      try {
+        path = decodeURIComponent(path);
+      } catch {
+      }
+    } catch {
+      return null;
+    }
+  } else {
+    const scp = s.match(SCP_LIKE);
+    if (!scp) return null;
+    host = scp[2];
+    path = scp[3];
+  }
+  path = String(path).replace(/\/+$/, "").replace(/^\/+/, "");
+  path = path.replace(/\.git$/i, "");
+  if (!host || !path) return null;
+  return `${host}/${path}`.toLowerCase();
 }
 
 // cli/lib/recall.js
@@ -466,29 +520,110 @@ async function collectSemantic(client, project, query, limit, mode = "hybrid") {
 function coverageNote(result) {
   if (!result) return "";
   if (result.reason === "coverage-unknown") return "index coverage unknown: this server predates coverage reporting";
-  if (!result.degraded) return "";
+  if (!result.degraded || result.reason === "semantic-not-configured") return "";
   const index = result.index || {};
   const pending = Number(index.pending ?? 0);
   const total = Number(index.total ?? 0);
   const scope = total ? `${pending} of ${total} documents` : `${pending} documents`;
   return `index incomplete: ${scope} have no current embedding`;
 }
-async function checkTopCitations(client, id, readFile) {
-  if (typeof readFile !== "function" || typeof client.listCodeRefs !== "function") return [];
-  const refs = await client.listCodeRefs(id).catch(() => []);
-  if (!Array.isArray(refs) || refs.length === 0) return [];
-  return refs.map((ref) => {
+function repositoryMismatch(checkout, ref, projectRepoUrl2) {
+  if (checkout.repoUrl === void 0 && checkout.hasCommit === void 0) return null;
+  const here = normalizeRepoUrl(checkout.repoUrl);
+  const there = normalizeRepoUrl(projectRepoUrl2);
+  if (here && there) return here === there ? null : "other-repository";
+  if (!ref.commitSha) return "unknown-repository";
+  return typeof checkout.hasCommit === "function" && checkout.hasCommit(ref.commitSha) ? null : "commit-not-found";
+}
+async function projectRepoUrl(client, projectId) {
+  if (!projectId || typeof client.listProjects !== "function") return null;
+  const projects = await client.listProjects().catch(() => null);
+  const project = Array.isArray(projects) ? projects.find((p) => p && p.id === projectId) : null;
+  return project?.repoUrl || null;
+}
+var UNCHECKED_REASONS = {
+  "no-checkout": "not run inside a checkout",
+  "other-repository": "cited in another repository",
+  "commit-not-found": "pinned at a commit this checkout does not have",
+  "unknown-repository": "the cited repository is not recorded",
+  unavailable: "the citations could not be read"
+};
+async function checkTopCitations(client, hit, checkout) {
+  const none = { citations: [], citationCheck: null };
+  if (typeof client.listCodeRefs !== "function") return none;
+  let refs;
+  try {
+    refs = await client.listCodeRefs(hit.id);
+  } catch (err) {
+    if (err && err.status === 404) return none;
+    return { citations: [], citationCheck: { checked: 0, unchecked: null, reason: "unavailable" } };
+  }
+  if (!Array.isArray(refs) || refs.length === 0) return none;
+  if (!checkout || typeof checkout.readFile !== "function") {
+    return { citations: [], citationCheck: { checked: 0, unchecked: refs.length, reason: "no-checkout" } };
+  }
+  const repoUrl = checkout.repoUrl === void 0 && checkout.hasCommit === void 0 ? null : await projectRepoUrl(client, hit.projectId);
+  const citations = [];
+  const reasons = [];
+  for (const ref of refs) {
+    const mismatch = repositoryMismatch(checkout, ref, repoUrl);
+    if (mismatch) {
+      reasons.push(mismatch);
+      continue;
+    }
     let text = null;
     try {
-      text = readFile(ref.path);
+      text = checkout.readFile(ref.path);
     } catch {
       text = null;
     }
     const result = checkCitation(ref, text);
-    return { ...result, path: ref.path, note: describeCitationStatus(result, ref) };
-  });
+    citations.push({ ...result, path: ref.path, note: describeCitationStatus(result, ref) });
+  }
+  const distinct = [...new Set(reasons)];
+  return {
+    citations,
+    citationCheck: {
+      checked: citations.length,
+      unchecked: reasons.length,
+      reason: distinct[0] ?? null,
+      reasons: distinct
+    }
+  };
 }
-async function recall(client, { query, project, limit = 5, recent = false, mode = "hybrid", readFile } = {}) {
+function citationCheckNote(check) {
+  if (!check || !check.reason) return "";
+  const why = (check.reasons?.length ? check.reasons : [check.reason]).map((reason) => UNCHECKED_REASONS[reason] || reason).join("; ");
+  if (check.unchecked === null || check.unchecked === void 0) return `citations not checked (${why})`;
+  if (!check.unchecked) return "";
+  return `${check.unchecked} citation${check.unchecked === 1 ? "" : "s"} not checked (${why})`;
+}
+function rankKeywordMatches(docs, query) {
+  const list = Array.isArray(docs) ? docs : [];
+  const terms = String(query || "").toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
+  if (!terms.length) return list.slice();
+  const count = (text, term) => {
+    let n = 0;
+    for (let at = text.indexOf(term); at !== -1; at = text.indexOf(term, at + term.length)) n += 1;
+    return n;
+  };
+  const score = (doc) => {
+    const title = String(doc?.title || "").toLowerCase();
+    const body = String(doc?.body || doc?.snippet || "").toLowerCase();
+    return terms.reduce((sum, term) => sum + 3 * count(title, term) + Math.min(count(body, term), 20), 0);
+  };
+  return list.map((doc, index) => ({ doc, index, score: score(doc) })).sort((a, b) => b.score - a.score || a.index - b.index).map((entry) => entry.doc);
+}
+async function recall(client, {
+  query,
+  project,
+  limit = 5,
+  recent = false,
+  mode = "hybrid",
+  readFile,
+  checkout: givenCheckout
+} = {}) {
+  const checkout = givenCheckout ?? (typeof readFile === "function" ? { readFile } : null);
   if (recent) {
     const docs = await client.listDocuments(project || void 0, { status: "active" });
     const items = (Array.isArray(docs) ? docs : []).filter((d) => (d.status ?? "active") === "active").slice().sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))).slice(0, limit).map((d) => ({
@@ -510,16 +645,21 @@ async function recall(client, { query, project, limit = 5, recent = false, mode 
     res = await collectSemantic(client, project || void 0, query, limit, mode);
   } catch (err) {
     if (err && err.status === 409) {
-      const docs = await client.keywordSearch(project || void 0, query, {});
-      const kept2 = await withProjectSlugs(client, (Array.isArray(docs) ? docs : []).slice(0, limit));
-      if (kept2.length === 0) return { kind: "empty", query, note: "keyword", degraded: false, reason: null, index: null };
+      const ranked = rankKeywordMatches(await client.keywordSearch(project || void 0, query, {}), query);
+      const kept2 = await withProjectSlugs(client, ranked.slice(0, limit));
+      const fallback = {
+        degraded: true,
+        reason: "semantic-not-configured",
+        index: null,
+        page: { returned: kept2.length, total: ranked.length, hasMore: ranked.length > kept2.length }
+      };
+      if (kept2.length === 0) return { kind: "empty", query, note: "keyword", ...fallback };
+      const { citations: citations2, citationCheck: citationCheck2 } = await checkTopCitations(client, kept2[0], checkout);
       return {
         kind: "hit",
         note: "semantic search disabled \u2014 keyword results",
-        degraded: false,
-        reason: null,
-        index: null,
-        top: kept2[0],
+        ...fallback,
+        top: { ...kept2[0], citations: citations2, citationCheck: citationCheck2 },
         related: kept2.slice(1)
       };
     }
@@ -539,12 +679,12 @@ async function recall(client, { query, project, limit = 5, recent = false, mode 
   if (list.length === 0) return { kind: "empty", query, note: null, ...coverage };
   const kept = await withProjectSlugs(client, list.slice(0, limit));
   const topDoc = await client.getDocument(kept[0].id).catch(() => null);
-  const citations = await checkTopCitations(client, kept[0].id, readFile);
+  const { citations, citationCheck } = await checkTopCitations(client, { ...kept[0], projectId: kept[0].projectId ?? topDoc?.projectId }, checkout);
   return {
     kind: "hit",
     note: null,
     ...coverage,
-    top: mergeDefined({ ...kept[0], citations }, topDoc, [
+    top: mergeDefined({ ...kept[0], citations, citationCheck }, topDoc, [
       "body",
       "verified",
       "verifiedBy",
@@ -584,7 +724,10 @@ function formatRecall(result, now = /* @__PURE__ */ new Date()) {
   const bound = boundNote(result);
   if (bound) lines.push(`(${bound})`);
   const top = result.top;
-  const citationNotes = (top.citations || []).map((c) => c.note).filter(Boolean);
+  const citationNotes = [
+    ...(top.citations || []).map((c) => c.note).filter(Boolean),
+    citationCheckNote(top.citationCheck)
+  ].filter(Boolean);
   const trust = [projectLabel(top), trustLabel(top, now), ...citationNotes].filter(Boolean).join(" \xB7 ");
   lines.push(`## ${top.title || "Untitled"}  (${top.documentType || "note"} \xB7 ${top.id}${trust ? ` \xB7 ${trust}` : ""})`);
   lines.push("");
@@ -666,13 +809,69 @@ function parseRecallArgs(argv) {
   }
   out.query = rest.join(" ").trim();
   if (!out.recent && !out.query) throw new UsageError("recall needs a query, or --recent for a chronological list", RECALL_USAGE);
+  if (out.recent && out.query) throw new UsageError(`--recent lists the newest documents and takes no query (got "${out.query}")`, RECALL_USAGE);
   return out;
 }
 
 // cli/lib/repoFiles.js
-import { readFileSync as readFileSync2 } from "node:fs";
+import { readFileSync as readFileSync3 } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { resolve, sep } from "node:path";
+import { resolve, sep as sep2 } from "node:path";
+
+// cli/lib/detectProject.js
+import { readFileSync as readFileSync2 } from "node:fs";
+import { dirname, basename, sep } from "node:path";
+function detectRepoUrl({ cwd = process.cwd(), readFile = (p) => readFileSync2(p, "utf8") } = {}) {
+  let dir = cwd;
+  while (true) {
+    const gitPath = `${dir}${dir.endsWith(sep) ? "" : sep}.git`;
+    try {
+      return parseOriginUrl(readFile(`${gitPath}${sep}config`));
+    } catch {
+    }
+    try {
+      const pointer = String(readFile(gitPath)).match(/^gitdir:\s*(.+?)\s*$/m);
+      if (pointer) {
+        let gitdir = pointer[1].replace(/\\/g, "/");
+        const absolute = /^([a-zA-Z]:)?\//.test(gitdir);
+        if (!absolute) gitdir = `${dir}/${gitdir}`;
+        try {
+          return parseOriginUrl(readFile(`${gitdir}/config`));
+        } catch {
+        }
+        const marker = "/.git/worktrees/";
+        const idx = gitdir.lastIndexOf(marker);
+        if (idx !== -1) {
+          try {
+            return parseOriginUrl(readFile(`${gitdir.slice(0, idx + "/.git".length)}/config`));
+          } catch {
+          }
+        }
+        return null;
+      }
+    } catch {
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+function parseOriginUrl(configText) {
+  let inOrigin = false;
+  for (const line of String(configText).split("\n")) {
+    const section = line.match(/^\s*\[(.+?)\]\s*$/);
+    if (section) {
+      inOrigin = /^remote\s+"origin"$/.test(section[1].trim());
+      continue;
+    }
+    if (!inOrigin) continue;
+    const url = line.match(/^\s*url\s*=\s*(.+?)\s*$/);
+    if (url) return url[1];
+  }
+  return null;
+}
+
+// cli/lib/repoFiles.js
 function repoRoot(cwd = process.cwd()) {
   try {
     return execFileSync("git", ["rev-parse", "--show-toplevel"], {
@@ -689,12 +888,33 @@ function createRepoReader(root = repoRoot()) {
   const base = resolve(root);
   return function readRepoFile(path) {
     const full = resolve(base, path);
-    if (full !== base && !full.startsWith(base + sep)) return null;
+    if (full !== base && !full.startsWith(base + sep2)) return null;
     try {
-      return readFileSync2(full, "utf8");
+      return readFileSync3(full, "utf8");
     } catch {
       return null;
     }
+  };
+}
+function hasCommit(sha, root = repoRoot()) {
+  if (!root || !/^[0-9a-f]{7,64}$/i.test(String(sha || ""))) return false;
+  try {
+    execFileSync("git", ["cat-file", "-e", `${sha}^{commit}`], {
+      cwd: root,
+      stdio: ["ignore", "ignore", "ignore"]
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+function createCheckout(root = repoRoot()) {
+  if (!root) return null;
+  return {
+    root,
+    readFile: createRepoReader(root),
+    repoUrl: detectRepoUrl({ cwd: root }),
+    hasCommit: (sha) => hasCommit(sha, root)
   };
 }
 
@@ -702,7 +922,7 @@ function createRepoReader(root = repoRoot()) {
 async function main() {
   const { query, project, limit, recent, agent } = parseRecallArgs(process.argv.slice(2));
   const client = createClient({ agent });
-  const result = await recall(client, { query, project, limit, recent, readFile: createRepoReader() });
+  const result = await recall(client, { query, project, limit, recent, checkout: createCheckout() });
   console.log(formatRecall(result));
 }
 main().catch((err) => {

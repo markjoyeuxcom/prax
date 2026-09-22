@@ -1,7 +1,7 @@
-const NULLABLE_FIELDS = new Set(['dueDate', 'dueTime', 'deferredUntil', 'recurrence']);
+const NULLABLE_FIELDS = new Set(['dueDate', 'dueTime', 'deferredUntil', 'recurrence', 'plannedFor']);
 const OBSERVABLE_FIELDS = new Set([
   'title', 'description', 'notes', 'priority', 'status', 'dueDate', 'dueTime',
-  'deferredUntil', 'recurrence', 'labels', 'sortOrder', 'project',
+  'deferredUntil', 'recurrence', 'labels', 'sortOrder', 'project', 'plannedFor',
 ]);
 
 function equivalent(field, observed, requested) {

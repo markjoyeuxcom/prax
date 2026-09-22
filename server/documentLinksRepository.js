@@ -44,6 +44,18 @@ export function buildLinkExists(sourceId, targetId, relation) {
   };
 }
 
+// Who retired a document. document_links has no actor column, so a new
+// supersedes edge stamps the retired document's own provenance fields (the
+// trigger has already changed its status in the same request). Title/body and
+// the revision token are untouched, so verification is not affected.
+export function buildRecordSupersedeActor(documentId, { updatedBy = 'user', updatedByAgent = null } = {}) {
+  const agent = updatedBy === 'agent';
+  return {
+    text: `update markdown_documents set updated_by = $2, updated_by_agent = $3 where id = $1 and status = 'superseded'`,
+    values: [documentId, agent ? 'agent' : 'user', agent && typeof updatedByAgent === 'string' && updatedByAgent ? updatedByAgent : null],
+  };
+}
+
 export function buildUnlinkDocuments(sourceId, targetId, relation) {
   return {
     text: `delete from document_links where source_document_id = $1 and target_document_id = $2 and relation = $3 returning source_document_id`,
@@ -149,7 +161,9 @@ export function normalizeStaleRow(row) {
 
 export function createDocumentLinksRepository(db) {
   return {
-    async linkDocuments(sourceId, targetId, relation) {
+    // `actor` ({ updatedBy, updatedByAgent }) is recorded on the retired
+    // document when a NEW supersedes edge is created.
+    async linkDocuments(sourceId, targetId, relation, actor = null) {
       if (relation === 'derived-from') {
         // Probe before the upsert: no xmax in SQLite, so inserted-vs-refreshed
         // comes from whether a live link already existed. (Single-writer
@@ -170,7 +184,13 @@ export function createDocumentLinksRepository(db) {
         if (relation === 'supersedes' && error.message === 'supersession cycle') return { linked: false, cycle: true };
         throw error;
       }
-      if (result.rows.length > 0) return { linked: true };
+      if (result.rows.length > 0) {
+        if (relation === 'supersedes' && actor) {
+          const stamp = buildRecordSupersedeActor(targetId, actor);
+          await db.query(stamp.text, stamp.values);
+        }
+        return { linked: true };
+      }
       const existsQuery = buildLinkExists(sourceId, targetId, relation);
       const existsResult = await db.query(existsQuery.text, existsQuery.values);
       if (existsResult.rows.length > 0) return { linked: true, alreadyLinked: true };

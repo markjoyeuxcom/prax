@@ -56,6 +56,8 @@ export function parseRecallArgs(argv) {
   }
   out.query = rest.join(' ').trim();
   if (!out.recent && !out.query) throw new UsageError('recall needs a query, or --recent for a chronological list', RECALL_USAGE);
+  // --recent is chronological; a query next to it would be silently ignored.
+  if (out.recent && out.query) throw new UsageError(`--recent lists the newest documents and takes no query (got "${out.query}")`, RECALL_USAGE);
   return out;
 }
 
@@ -65,9 +67,14 @@ export function parseRememberArgs(argv) {
   // that lives in another project instead of duplicating it into memory.
   const out = { title: '', body: '', tags: [], type: undefined, project: 'memory', projectExplicit: false, id: undefined, ref: undefined, cite: undefined, agent: undefined };
   const rest = [];
+  let tagSpelling = null;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === '--tags') {
+    if (arg === '--tags' || arg === '--tag') {
+      // `prax remember` spells it --tag; an agent that learned that syntax
+      // keeps its tags here too. Both spellings in one call are refused.
+      if (tagSpelling && tagSpelling !== arg) throw new UsageError(`${tagSpelling} and ${arg} are the same option; give it once`, REMEMBER_USAGE);
+      tagSpelling = arg;
       out.tags = takeValue(argv, i, REMEMBER_USAGE).split(',').map((t) => t.trim()).filter(Boolean); i += 1;
     } else if (arg === '--type') {
       const type = takeValue(argv, i, REMEMBER_USAGE); i += 1;

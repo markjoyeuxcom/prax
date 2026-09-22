@@ -32,13 +32,22 @@ export function computeLinkRef({ scope, currentDocProjectSlug, targetProjectSlug
   return `${targetProjectSlug || 'unknown'}/${filename}`
 }
 
+// The key two archive names collide under once extracted. macOS (APFS/HFS+)
+// and Windows file systems are case-insensitive and treat NFC/NFD spellings as
+// one name, so `Setup.md` and `setup.md` (or composed and decomposed `café.md`)
+// would overwrite each other. Names keep their spelling; only the key folds.
+function collisionKey(name) {
+  return String(name).normalize('NFC').toLowerCase().normalize('NFC')
+}
+
 export function dedupeFilenames(entries) {
-  const seen = new Map() // path -> Set of claimed filenames
+  const seen = new Map() // folded path -> Set of folded claimed filenames
   for (const entry of entries) {
-    const claimed = seen.get(entry.path) || new Set()
-    seen.set(entry.path, claimed)
-    if (!claimed.has(entry.filename)) {
-      claimed.add(entry.filename)
+    const pathKey = collisionKey(entry.path)
+    const claimed = seen.get(pathKey) || new Set()
+    seen.set(pathKey, claimed)
+    if (!claimed.has(collisionKey(entry.filename))) {
+      claimed.add(collisionKey(entry.filename))
       continue
     }
     const ext = entry.filename.match(/\.md$/i)?.[0] || ''
@@ -48,9 +57,9 @@ export function dedupeFilenames(entries) {
     do {
       candidate = `${stem}-${n}${ext}`
       n += 1
-    } while (claimed.has(candidate))
+    } while (claimed.has(collisionKey(candidate)))
     entry.filename = candidate
-    claimed.add(candidate)
+    claimed.add(collisionKey(candidate))
   }
 }
 
@@ -79,4 +88,18 @@ export function libraryArchiveFilename(scope, date = new Date()) {
     .replace(/^-+|-+$/g, '') || 'all'
   const day = date.toISOString().slice(0, 10)
   return `prax-library-${safe}-${day}.zip`
+}
+
+// A Content-Disposition value for a download. Node rejects header characters
+// above 0xFF (a CJK or emoji filename was a 500), and a raw quote or backslash
+// breaks the quoted-string. So `filename` carries an ASCII fallback with every
+// other character replaced, and a name that needed that also gets the exact
+// UTF-8 name as RFC 5987 `filename*`, which every current browser prefers.
+export function attachmentDisposition(filename) {
+  const name = String(filename || '').toWellFormed() || 'download'
+  const fallback = name.replace(/[^\x20-\x7e]+|["\\%]/g, '_')
+  if (fallback === name) return `attachment; filename="${name}"`
+  const encoded = encodeURIComponent(name)
+    .replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`
 }

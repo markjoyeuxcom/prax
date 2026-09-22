@@ -47,6 +47,10 @@ you create your own (free, ~5 minutes), exactly like other self-hosted tools:
 7. After consenting you land on a local confirmation page; back in Prax the
    status flips to connected and the dedicated "Prax" calendar exists in
    your Google account (add it to your phone's calendar app from there).
+   Prax records the connection only once that calendar is found or created,
+   so if the confirmation page reports a failure (for example, the Calendar
+   API is not enabled in your Cloud project), Settings stays not connected
+   too. A failed reconnect keeps the connection you already had.
 
 ## Sync
 
@@ -64,9 +68,16 @@ removed counts, and any per-task failures — a partial failure is shown as
 degraded, never as clean success. Google being unreachable degrades the
 integration status; it never breaks or slows task operations.
 
-**Disconnect** revokes the token at Google and clears the connection locally.
-The "Prax" calendar is deliberately left in your Google account (delete it
-there if you want it gone); reconnecting reuses it.
+**Disconnect** revokes the token at Google and clears the connection and its
+sync and push status locally. The "Prax" calendar is deliberately left in
+your Google account (delete it there if you want it gone). Prax remembers its
+ID, so reconnecting reuses it rather than creating a second "Prax" calendar.
+If that calendar was deleted in Google, or you connect a different Google
+account or OAuth client that cannot see it, Prax creates a new one.
+
+A live-push error stays visible until something proves it is resolved: a
+clean **Sync now** or background reconcile, a successful reconnect, or a
+disconnect clears it.
 
 ## Notes
 
@@ -76,3 +87,19 @@ there if you want it gone); reconnecting reuses it.
 - The OAuth callback is served on whatever host/port Prax runs on. The
   desktop app persists its loopback port across launches, and the redirect
   is negotiated per connect anyway, so no fixed port has to be registered.
+
+### Network deployments
+
+Connect builds its redirect from the address your browser used to reach Prax,
+always over plain `http://`. A Desktop-type OAuth client accepts only
+loopback redirects (`127.0.0.1` or `localhost`), so **Connect does not work
+when you open Prax through a LAN hostname, a public domain or an HTTPS
+reverse proxy**: Google refuses the redirect. The desktop app and a server
+opened at `http://127.0.0.1:<port>` are unaffected.
+
+For a server install, connect once through a loopback tunnel. For example,
+run `ssh -L 3000:127.0.0.1:<prax-port> <server>`, open
+`http://127.0.0.1:3000` in your browser, and click **Connect** there. The
+saved connection lives on the server, so live push and Sync now then work
+from any address you use afterwards. Repeat the tunnel whenever you need to
+reconnect (for example, weekly in Google's Testing mode).

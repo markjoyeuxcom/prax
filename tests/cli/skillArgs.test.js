@@ -66,3 +66,13 @@ test('remember: title and body are required and a third positional is an error',
   assert.throws(() => parseRememberArgs(['T']), /title and a body/);
   assert.throws(() => parseRememberArgs(['T', 'B', 'stray']), /Unexpected argument "stray"/);
 });
+
+test('remember: the CLI spelling --tag is accepted, and both spellings at once are refused', () => {
+  assert.deepEqual(parseRememberArgs(['T', 'B', '--tag', 'a,b']).tags, ['a', 'b']);
+  assert.throws(() => parseRememberArgs(['T', 'B', '--tags', 'a', '--tag', 'b']), /--tags and --tag are the same option/);
+});
+
+test('recall: --recent with a query is refused rather than ignoring the query', () => {
+  assert.throws(() => parseRecallArgs(['--recent', '3', 'postgres']), /takes no query/);
+  assert.throws(() => parseRecallArgs(['postgres', '--recent']), UsageError);
+});

@@ -129,4 +129,37 @@ test('only a real divergence is worded as a warning', () => {
   assert.match(describeCitationStatus({ status: 'missing' }, { path: 'a.js' }), /a\.js is gone/);
   // A move is not rot: say where it went, without the alarm.
   assert.match(describeCitationStatus({ status: 'moved', startLine: 9, endLine: 10 }, { path: 'a.js' }), /moved to a\.js:9-10/);
+  assert.match(describeCitationStatus({ status: 'changed', searched: 'nearby' }, { path: 'a.js' }), /a move far from the cited lines was not searched/);
+});
+
+// --- the moved scan is bounded -------------------------------------------------------
+
+test('the moved scan is bounded on large files and says when it searched only nearby', () => {
+  // A 4000-line citation in a 40k-line file: the unbounded scan hashed ~150M
+  // lines (5.5 s). The budget keeps it to about a million.
+  const lines = Array.from({ length: 40000 }, (_, i) => `line ${i}`);
+  const cited = lines.slice(99, 4099).join('\n');
+  const edited = lines.slice();
+  edited[100] = 'EDITED';
+  const started = Date.now();
+  const result = checkCitation({ path: 'big.js', startLine: 100, endLine: 4099, contentHash: hashCitation(cited) }, edited.join('\n'));
+  assert.ok(Date.now() - started < 2000, `took ${Date.now() - started} ms`);
+  assert.deepEqual(result, { status: 'changed', startLine: 100, endLine: 4099, searched: 'nearby' });
+});
+
+test('a nearby move is still found in a large file', () => {
+  const lines = Array.from({ length: 40000 }, (_, i) => `line ${i}`);
+  const cited = lines.slice(99, 4099).join('\n');
+  const shifted = ['// new import', '// another', ...lines].join('\n');
+  const result = checkCitation({ path: 'big.js', startLine: 100, endLine: 4099, contentHash: hashCitation(cited) }, shifted);
+  assert.deepEqual(result, { status: 'moved', startLine: 102, endLine: 4101 });
+});
+
+test('the scan tries the windows nearest the cited lines first', () => {
+  // 'b' was cited at line 2 and now sits at line 5: a two-window budget tries
+  // lines 2 and 1 and stops; the full scan finds it.
+  const edited = ['a', 'x', 'c', 'd', 'b', 'f'].join('\n');
+  const cite = { path: 'f', startLine: 2, endLine: 2, contentHash: hashCitation('b') };
+  assert.equal(checkCitation(cite, edited, { budgetLines: 2 }).searched, 'nearby');
+  assert.deepEqual(checkCitation(cite, edited), { status: 'moved', startLine: 5, endLine: 5 });
 });

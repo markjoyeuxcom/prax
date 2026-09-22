@@ -33,6 +33,22 @@ let wikiResolver = null;
 // with no click, so a prompt-injected answer could carry workspace data out
 // in the image URL.
 let remoteImages = false;
+// Set per-render like wikiResolver. Task items toggle their source line only
+// in a person's own editable document: model output shares this renderer, and
+// there a data-line would rewrite whichever document happens to be open.
+let taskToggles = false;
+
+// Bold, italic and strikethrough over already-escaped text whose generated
+// HTML (links, images, code, wiki-links) is held in tokens.
+function renderEmphasis(text) {
+  let html = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
+  // Underscore emphasis, with word-boundary guards so snake_case identifiers and
+  // file/paths with underscores are never turned into emphasis. Double first.
+  html = html.replace(/(^|[^\w])__(\S(?:[^_]*\S)?)__(?=[^\w]|$)/g, '$1<strong>$2</strong>');
+  html = html.replace(/(^|[^\w])_(\S(?:[^_]*\S)?)_(?=[^\w]|$)/g, '$1<em>$2</em>');
+  return html.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+}
 
 function renderInline(value) {
   const codeSpans = [];
@@ -60,6 +76,16 @@ function renderInline(value) {
   });
 
   text = escapeHtml(text);
+  // Generated links and images are protected by tokens (like code spans)
+  // before the emphasis rules run: those rules would otherwise rewrite the
+  // URL itself, e.g. `pkg/__init__.py` → `pkg/<strong>init</strong>.py`.
+  // A link's visible text still gets emphasis, rendered on its own.
+  const htmlSpans = [];
+  const protect = (html) => {
+    const token = `\u0000HTML${htmlSpans.length}\u0000`;
+    htmlSpans.push(html);
+    return token;
+  };
   // Images ![alt](src) — before links, so the link rule doesn't eat the [..](..)
   // and strand the leading "!". src is restricted to http(s)/relative (no
   // javascript:) and alt is already escaped by escapeHtml above.
@@ -67,21 +93,22 @@ function renderInline(value) {
     // Same-origin only for a single leading slash: a browser resolves `//host`
     // and `/\host` (backslash counts as a slash) to another origin.
     const samePage = /^\/(?![/\\])/.test(src);
-    if (remoteImages || samePage) return `<img src="${src}" alt="${alt}" loading="lazy">`;
+    if (remoteImages || samePage) return protect(`<img src="${src}" alt="${alt}" loading="lazy">`);
     const host = src.replace(/^(?:https?:)?[/\\]{2}/, '').split(/[/\\?#]/)[0];
-    return `<span class="md-image-blocked" title="Remote image not loaded">[image${alt ? `: ${alt}` : ''} — ${host}, not loaded]</span>`;
+    return protect(`<span class="md-image-blocked" title="Remote image not loaded">[image${alt ? `: ${alt}` : ''} — ${host}, not loaded]</span>`);
   });
-  text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+|\/[^)\s]+|#[^)\s]+)\)/g, '<a href="$2" rel="noreferrer">$1</a>');
-  text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  text = text.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
-  // Underscore emphasis, with word-boundary guards so snake_case identifiers and
-  // file/paths with underscores are never turned into emphasis. Double first.
-  text = text.replace(/(^|[^\w])__(\S(?:[^_]*\S)?)__(?=[^\w]|$)/g, '$1<strong>$2</strong>');
-  text = text.replace(/(^|[^\w])_(\S(?:[^_]*\S)?)_(?=[^\w]|$)/g, '$1<em>$2</em>');
-  text = text.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+  text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+|\/[^)\s]+|#[^)\s]+)\)/g, (_match, label, href) => (
+    protect(`<a href="${href}" rel="noreferrer">${renderEmphasis(label)}</a>`)
+  ));
+  text = renderEmphasis(text);
   // Function replacers: a string replacement arg would treat `$&`, `` $` ``,
   // `$'`, `$$` in the HTML (reachable from user content with `$`) as
   // replacement patterns and corrupt output; a function inserts it verbatim.
+  // Links first, newest first: a link's text may hold an image, code-span or
+  // wiki token.
+  for (let index = htmlSpans.length - 1; index >= 0; index -= 1) {
+    text = text.replace(`\u0000HTML${index}\u0000`, () => htmlSpans[index]);
+  }
   codeSpans.forEach((code, index) => {
     text = text.replace(`\u0000CODE${index}\u0000`, () => code);
   });
@@ -99,11 +126,16 @@ function flushParagraph(output, paragraph) {
 
 function renderListItem(item, childHtml) {
   if (item.type === 'task') {
-    // Task items are clickable in Prax: main.js listens on [data-md-check]
-    // and rewrites `- [ ]`/`- [x]` at data-line in the markdown source.
-    return `<li class="task-item${item.checked ? ' is-done' : ''}" data-md-check data-line="${item.line}" title="Click to toggle">`
-      + `<span class="task-item__box">${item.checked ? '✓' : ''}</span> `
-      + `<span class="task-item__label">${renderInline(item.text)}</span>${childHtml}</li>`;
+    // With options.taskToggles, a task item holds a checkbox (its box and
+    // label; the <li> keeps list semantics): main.js dispatches
+    // toggle-md-check (click, Space or Enter) and rewrites `- [ ]`/`- [x]` at
+    // data-line in the markdown source. Otherwise it is inert.
+    const content = `<span class="task-item__box">${item.checked ? '✓' : ''}</span> `
+      + `<span class="task-item__label">${renderInline(item.text)}</span>`;
+    const body = taskToggles
+      ? `<span class="task-item__toggle" data-action="toggle-md-check" data-line="${item.line}" role="checkbox" tabindex="0" aria-checked="${item.checked ? 'true' : 'false'}" title="Toggle this item">${content}</span>`
+      : content;
+    return `<li class="task-item${item.checked ? ' is-done' : ''}" data-md-check data-line="${item.line}">${body}${childHtml}</li>`;
   }
   return `<li>${renderInline(item.text)}${childHtml}</li>`;
 }
@@ -172,14 +204,18 @@ function flushTable(output, tableRows) {
 
 // options.remoteImages: true only for a person's own document (editor preview);
 // every other caller gets inert placeholders for remote images.
+// options.taskToggles: true only for that preview while the document is
+// editable; every other caller renders task items inert.
 export function renderMarkdownHtml(markdown = '', options = {}) {
   wikiResolver = typeof options.resolveWikiLink === 'function' ? options.resolveWikiLink : null;
   remoteImages = options.remoteImages === true;
+  taskToggles = options.taskToggles === true;
   try {
     return renderMarkdownBody(markdown);
   } finally {
     wikiResolver = null;
     remoteImages = false;
+    taskToggles = false;
   }
 }
 

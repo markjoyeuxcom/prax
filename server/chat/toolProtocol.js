@@ -10,14 +10,24 @@ import { isToolCallTurn, isToolResultTurn } from './messages.js';
 // Neutral tool call:        { id, name, input }
 // Neutral tool result turn: { role:'tool', results:[{ id, name, content, isError? }] }
 
-function safeParseJson(text) {
-  if (typeof text !== 'string' || !text.trim()) return {};
+// Function-call arguments arrive as a JSON string. Arguments that do not parse
+// to an object (typically cut off mid-JSON by the token limit) must never
+// become an empty `{}` call that looks valid: the call is flagged malformed so
+// the agent reports it instead of proposing it for approval.
+function parseArguments(text) {
+  if (text === undefined || text === null || (typeof text === 'string' && !text.trim())) return { input: {} };
+  if (typeof text !== 'string') return { input: {}, malformed: true };
   try {
     const value = JSON.parse(text);
-    return value && typeof value === 'object' ? value : {};
+    return value && typeof value === 'object' && !Array.isArray(value) ? { input: value } : { input: {}, malformed: true };
   } catch {
-    return {};
+    return { input: {}, malformed: true };
   }
+}
+
+function toCall(id, name, args) {
+  const { input, malformed } = parseArguments(args);
+  return { id, name, input, ...(malformed ? { malformed: true } : {}) };
 }
 
 const EMPTY_SCHEMA = { type: 'object', properties: {} };
@@ -99,8 +109,40 @@ export function parseOpenai(message) {
   const calls = Array.isArray(message?.tool_calls) ? message.tool_calls : [];
   const toolCalls = calls
     .filter((c) => c?.function?.name)
-    .map((c) => ({ id: c.id, name: c.function.name, input: safeParseJson(c.function.arguments) }));
+    .map((c) => toCall(c.id, c.function.name, c.function.arguments));
   return { text, toolCalls };
+}
+
+// With store:false nothing is persisted server-side, so a reasoning item can
+// only be replayed with its encrypted_content. One without it (the endpoint
+// ignored the include, or history from before it was requested) is dropped,
+// and the items it produced lose their server ids so none of them refers to a
+// reasoning item the API cannot resolve. Content and call ids are unchanged.
+export function replayableResponseOutput(items) {
+  const unresolvable = items.some((item) => item?.type === 'reasoning'
+    && (typeof item.encrypted_content !== 'string' || !item.encrypted_content));
+  if (!unresolvable) return items;
+  const out = [];
+  for (const item of items) {
+    if (item?.type === 'reasoning') {
+      if (typeof item.encrypted_content === 'string' && item.encrypted_content) out.push(item);
+      continue;
+    }
+    if (item?.type === 'function_call') {
+      const { id: _serverId, status: _status, ...call } = item;
+      out.push(call);
+      continue;
+    }
+    if (item?.type === 'message') {
+      const text = Array.isArray(item.content)
+        ? item.content.filter((part) => part?.type === 'output_text' && typeof part.text === 'string').map((part) => part.text).join('')
+        : '';
+      if (text) out.push({ role: 'assistant', content: text });
+      continue;
+    }
+    out.push(item);
+  }
+  return out;
 }
 
 export function openaiResponseInput(turns) {
@@ -108,7 +150,7 @@ export function openaiResponseInput(turns) {
   for (const m of turns) {
     if (isToolCallTurn(m)) {
       if (Array.isArray(m.providerOutput) && m.providerOutput.length) {
-        out.push(...m.providerOutput);
+        out.push(...replayableResponseOutput(m.providerOutput));
         continue;
       }
       if (typeof m.content === 'string' && m.content) {
@@ -152,11 +194,11 @@ export function parseOpenaiResponse(data) {
     .join('');
   const toolCalls = output
     .filter((item) => item?.type === 'function_call' && item.name && (item.call_id || item.id))
-    .map((item) => ({
-      id: item.call_id || item.id,
-      name: item.name,
-      input: safeParseJson(item.arguments),
-    }));
+    .map((item) => {
+      const call = toCall(item.call_id || item.id, item.name, item.arguments);
+      // An item the API itself marks incomplete was cut off, whatever it parses to.
+      return item.status === 'incomplete' ? { ...call, malformed: true } : call;
+    });
   return {
     text,
     toolCalls,

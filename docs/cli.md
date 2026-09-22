@@ -58,8 +58,16 @@ prax init --project homelab
 
 `--flag value` and `--flag=value` are equivalent. Use the `=` form for a value that itself
 begins with `--` (for example a checklist item `--check="--json output documented"`); with
-the spaced form such a value would be read as the next flag, and `task add` refuses a bare
-`--check` rather than silently dropping the item.
+the spaced form such a value would be read as the next flag, and a value-taking flag given no
+value is refused rather than silently dropped. A lone `--` ends the flags: every later word is
+an argument.
+
+Every command declares its flags, and nothing typed is silently discarded: an unknown or
+mistyped flag (`--tpye` suggests `--type`), a flag that belongs to another command, a boolean
+flag given a value (`--json=yes`), and surplus words (an unquoted `remember` title) all exit
+non-zero with the command's usage line. Boolean flags (`--json`, `--all`, `--all-projects`,
+`--memory`) never take the next word, so `prax search --json postgres backup` searches for both
+words. An invalid `--agent` is refused rather than turned into an anonymous write.
 
 Every command accepts:
 
@@ -174,6 +182,21 @@ prax recall --recent 5
   prints `No relevant memory found for: "…" (index incomplete: N of M documents pending — this
   may not be a true miss)`. Only a plain `No relevant memory found` is an honest miss. A server
   that predates coverage reporting is labelled `index coverage unknown`, never assumed complete.
+- `--limit <n>` must be a positive integer; `--recent` takes an optional count and no query
+  (a query next to it is refused, not ignored).
+- On a server with semantic search not configured, recall falls back to keyword search, says so,
+  and returns the same envelope as `prax search` in that state (`degraded: true`,
+  `reason: "semantic-not-configured"`, and `page: { returned, total, hasMore }`). Keyword matches
+  are ranked by how often the query's words occur (a title match weighs more) rather than listed
+  in project order, and the top hit's citations are checked as on the semantic path.
+- When the top hit pins code (`remember --cite`), its citations are checked against the current
+  checkout only when it holds the cited repository: the hit's project's registered repo URL
+  matches this checkout's `origin`, or (for a project without one, such as `memory`) the commit
+  the citation was pinned at exists here. Otherwise the hit says `N citations not checked (…)` —
+  outside a checkout, in another repository, at a commit this checkout does not have, with no
+  recorded repository, or when the citations could not be read — rather than calling the code
+  gone or changed. In a very large file only the lines near the citation
+  are searched for a move, and a `changed` note says so.
 - `--limit <n>` bounds the matches kept in the structured result (default 5). The server answers
   in pages of at most 50 and `recall` pages up to the bound; when matches remain beyond it the
   block starts with `(N of M matches shown — raise --limit for the rest)`. The rendered
@@ -190,7 +213,7 @@ prax get c58d3108-4f93-4a50-ac42-0c1d61e61b08
 prax get c58d3108-4f93-4a50-ac42-0c1d61e61b08 --json
 ```
 
-### `remember <title> [--body <text>] [--memory] [--type note|runbook|decision|known-issue|reference|post-mortem|template] [--tag a,b] [--ref <url>]`
+### `remember "<title>" --body <text> [--memory] [--type note|runbook|decision|known-issue|reference|post-mortem|template] [--tag a,b] [--ref <url>] [--cite <path[:start[-end]]>] [--id <uuid>]`
 
 Write a document to project memory. If an **active** document with the same title already exists
 in the project it is updated in place; otherwise a new document is created. The write is one
@@ -213,6 +236,8 @@ prax remember "Postgres restore runbook" \
 
 Flags:
 
+- `<title>` — one argument: quote a title that contains spaces. Extra words are refused (an
+  unquoted `prax remember Postgres restore runbook` would otherwise have stored "Postgres").
 - `--body <text>` — document body (Markdown); required and non-blank, because a same-title
   update replaces the stored body. For text that begins with `--`, write `--body="<text>"`.
   A value-taking flag given without a value (`--tag`, `--type`, `--ref`, `--cite`, `--id`) is
@@ -227,6 +252,8 @@ Flags:
 - `--tag a,b` — a comma-separated tag list that **replaces** the tags of a same-title document in
   the project (with `--id` or a cross-project refine it is merged into them). Without `--tag`, an
   update keeps the stored tags. Repeating `--tag` does not accumulate: the last occurrence wins.
+  `--tags` (the prax-remember skill's spelling) is accepted as the same flag; giving both is
+  refused.
 - `--ref <url>` — attach an external reference (a PR, dashboard, or issue URL) to the memory. Best-effort: a rejected URL warns on stderr but never fails the remember.
 
 ### `verify <id> --as <human-name>`
@@ -267,13 +294,16 @@ prax supersede c58d3108-4f93-4a50-ac42-0c1d61e61b08 \
 
 Tasks from any shell, for handoff notes, acceptance checklists and agent work orders. The
 project resolves exactly as it does for `remember`; every write is stamped as an agent write
-with the detected agent id, so the task chronicle says who changed it. The command binds to
-one instance before writing, like `remember`.
+with the detected agent id, so the task chronicle says who changed it: each activity event
+carries `actor: "agent"` and `actorAgent` (for example `codex`). `add` records `Task created`;
+title, description, notes and priority edits, status changes and checklist items checked,
+unchecked, added or removed are recorded too (content is never copied into the chronicle). The
+command binds to one instance before writing, like `remember`.
 
 ```bash
 prax task add "Rotate the tunnel token" --priority high --due 2026-10-01 --label ops,homelab \
   --description "Token expires on the 3rd." --check "New token issued" --check "Old token revoked"
-prax task list                       # open tasks in the current project
+prax task list                       # open tasks in the current project (--all adds completed)
 prax task list --status in-progress --all-projects
 prax task show 2234a575-027e-4218-892a-b74d2b5c7f8c
 prax task update 2234a575-… --status in-progress --append-notes "Branch feat/x, tests green, next: docs"
@@ -289,9 +319,11 @@ prax task done 2234a575-…
   can be retried without creating a second task: the reply says `Already added` when the server
   replayed a recorded result. Append mode is deliberate: an explicit add is never skipped because
   an older task shares the title.
-- `list` — open tasks in the resolved project, one line each with status, priority, plan/due
-  dates, labels and id. `--status <s>` filters, `--query <text>` matches title or description,
-  `--all-projects` lists everything with a `#project` suffix. `--json` returns the raw array.
+- `list` — open (not completed) tasks in the resolved project, one line each with status,
+  priority, plan/due dates, labels and id. `--all` includes completed tasks, `--status <s>`
+  filters to one status (`--status completed` lists the completed ones), `--query <text>` matches
+  title or description, `--all-projects` lists every project with a `#project` suffix. `--json`
+  returns the same selection as an array. Archived tasks are never listed.
 - `show <id>` — the task, its numbered checklist and notes. `--json` adds a `checklist` array.
 - `update <id>` — patches `--title`, `--status`, `--priority`, `--due`, `--planned` (an empty
   value clears a date), `--label`, `--description`, `--notes`, or `--append-notes <text>`, which

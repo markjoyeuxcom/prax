@@ -1,3 +1,5 @@
+import { localDayHeaders } from './dateHelpers.js';
+
 export async function fetchDocuments(filters = {}) {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {
@@ -470,8 +472,9 @@ export async function fetchAssistantStatus() {
 export async function assistantChat(messages, decisions = null) {
   const body = { messages };
   if (decisions) body.decisions = decisions;
+  // The local day grounds "today"/"tomorrow" and approved recurring completions.
   const res = await fetch('/api/assistant/chat', {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    method: 'POST', headers: { 'content-type': 'application/json', ...localDayHeaders() }, body: JSON.stringify(body),
   });
   if (!res.ok) {
     const payload = await res.json().catch(() => null);

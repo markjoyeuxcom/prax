@@ -49,7 +49,9 @@ retrieve  →  work  →  persist  →  supersede
    elsewhere — a PR, a dashboard, an upstream issue — add `--ref <url>` to attach an external
    reference instead of copying the content in. When it is *about* specific code, add
    `--cite <path[:start[-end]]>` from inside the checkout: only a hash of those lines is stored,
-   and a later recall from a checkout says whether they changed, moved, or vanished.
+   and a later recall from a checkout of the same repository says whether they changed, moved,
+   or vanished. A recall anywhere else — outside a checkout, in another repository, or when the
+   citations cannot be read — says `not checked` rather than implying the lines still match.
    Recall is cross-project and says where each hit lives (`in homelab`). A remember run
    without `--project` follows that: a same-title document that exists only in another
    project is refined there, never copied into `memory`; several candidates are refused by
@@ -179,11 +181,13 @@ line). Project-specific startup guidance belongs in the workspace's instruction 
 Updating an existing block preserves surrounding text; malformed or ambiguous markers stop
 the update instead of guessing. Re-running switches command form without uninstalling first.
 `--uninstall` removes the skills, the links, the instruction
-blocks and the shim. See [`skills/README.md`](../skills/README.md).
+blocks and the shim; it edits a symlinked instruction file at its target (the link stays a link,
+the mode is kept) and leaves a file with malformed markers unchanged, failing the run. See
+[`skills/README.md`](../skills/README.md).
 
 ### Finding the app
 
-The skills and CLI find the HTTP API in this order: `PRAX_API_URL` → the desktop app's saved
+The skills, the CLI and the MCP server find the HTTP API in this order: `PRAX_API_URL` → the desktop app's saved
 loopback port (the `webview-port` file under its app-data folder: `~/Library/Application
 Support/com.moomora.prax` on macOS, `~/.local/share/com.moomora.prax` on Linux) →
 `http://127.0.0.1:3000`. Discovery pins one instance for the run — a read may probe both

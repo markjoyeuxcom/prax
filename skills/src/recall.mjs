@@ -5,14 +5,15 @@
 import { createClient } from '../../cli/lib/apiClient.js';
 import { recall, formatRecall } from '../../cli/lib/recall.js';
 import { parseRecallArgs, UsageError } from '../../cli/lib/skillArgs.js';
-import { createRepoReader } from '../../cli/lib/repoFiles.js';
+import { createCheckout } from '../../cli/lib/repoFiles.js';
 
 async function main() {
   const { query, project, limit, recent, agent } = parseRecallArgs(process.argv.slice(2));
   const client = createClient({ agent });
-  // A reader only when this runs inside a checkout: staleness is checked where
-  // the working tree is, and outside one recall claims nothing either way.
-  const result = await recall(client, { query, project, limit, recent, readFile: createRepoReader() });
+  // A checkout only when this runs inside one: staleness is checked where the
+  // working tree is, and only for citations taken in this same repository.
+  // Anything not checked is said, never implied to still hold.
+  const result = await recall(client, { query, project, limit, recent, checkout: createCheckout() });
   console.log(formatRecall(result));
 }
 

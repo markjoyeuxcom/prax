@@ -18,10 +18,10 @@ export function createTaskTools(client) {
       name: 'search_tasks',
       title: 'Search tasks',
       description:
-        'Search active Prax tasks. Returns a paginated collection of summaries (id, title, status, priority, projectId, dueDate, labels). Call get_task for the full record. Pass `filter` for a cross-project query in the same language as the desktop smart views.',
+        'Search non-archived Prax tasks, completed ones included (pass status, or a filter such as "open", to narrow). Returns a paginated collection of summaries (id, title, status, priority, projectId, dueDate, labels). Call get_task for the full record. Pass `filter` for a cross-project query in the same language as the desktop smart views.',
       annotations: { readOnlyHint: true },
       inputSchema: {
-        query: z.string().optional().describe('Text matched against task title.'),
+        query: z.string().optional().describe('Case-insensitive text matched against the task title or description.'),
         project: z.string().optional().describe('Limit to one project (name, slug, or id); omit for all.'),
         status: STATUS.optional().describe('Limit to one status.'),
         filter: z.string().optional().describe('Prax filter expression, e.g. "p1 & overdue", "@waiting & #homelab", "due:today", "is:recurring". Atoms: @label, #project, p1-3/priority:, status:, done/open, overdue, due:today|tomorrow|soon|week|none|YYYY-MM-DD, is:snoozed, is:recurring, bareword=title; operators & | - ( ).'),

@@ -1,5 +1,6 @@
 import { escapeHtml } from './renderHelpers.js';
 import { DOCUMENT_TYPES } from './documentTypes.js';
+import { localDateOf } from './dateHelpers.js';
 
 const esc = escapeHtml;
 export function renderInboxSummary(inbox = {}) {
@@ -51,7 +52,7 @@ export function renderInboxDialog(inbox = {}) {
       ${p.storageWarning ? `<p role="alert">${esc(p.storageWarning)}</p>` : ''}
       ${p.error ? `<p role="alert">${esc(p.error)}</p>` : ''}
       ${p.loading ? '<p role="status">Loading item…</p>' : ''}
-      ${record ? `<h3>${esc(record.title)}</h3><p>${p.kind === 'task' ? 'Task' : esc(record.documentType)} · captured ${esc(String(record.createdAt).slice(0, 10))}</p>
+      ${record ? `<h3>${esc(record.title)}</h3><p>${p.kind === 'task' ? 'Task' : esc(record.documentType)} · captured ${esc(localDateOf(record.createdAt))}</p>
         <pre class="inbox-source" tabindex="0" aria-label="Captured content">${esc(sourceText || record.title)}</pre>
         <div class="inbox-fields"><label>Owning project<select data-inbox-field="projectId"${disabled}><option value="">Choose a project</option>${projects.map(project => `<option value="${esc(project.id)}"${p.draft.projectId === project.id ? ' selected' : ''}>${esc(project.name)}</option>`).join('')}</select></label>
         ${p.kind === 'task' ? `<label>Plan for (optional)<input type="date" data-inbox-field="plannedFor" value="${esc(p.draft.plannedFor || '')}"${disabled}></label>`

@@ -54,6 +54,42 @@ export function isAllowedHostHeader(hostname, config) {
   return isIP(host) !== 0 || config.allowedHosts.includes(host);
 }
 
+// Cross-site request forgery: a page on any site can send a POST to the
+// loopback port, and its Host header is honest, so the Host check above lets
+// it through. It cannot read the answer, but a bodiless route still acts.
+// Browsers label every request: Sec-Fetch-Site (which a page cannot forge)
+// says whether it came from this origin, and Origin names the page. Refuse a
+// state-changing request that a browser marks as coming from another site, or
+// whose Origin is not this server's own origin; CLI, MCP and the desktop
+// shell's own probes send neither header and are unaffected. `same-site` is
+// refused too: another port on localhost is a different application.
+// Sec-Fetch-Site `same-origin` is trusted over Origin, so a reverse proxy that
+// rewrites Host still works in current browsers; for browsers without
+// Sec-Fetch-Site, Origin must match the Host header or a PRAX_ALLOWED_HOSTS name.
+const SAFE_METHODS = new Set(['GET', 'HEAD']);
+
+function isOwnOrigin(origin, hostHeader, config) {
+  let url;
+  try { url = new URL(origin); } catch { return false; }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+  if (hostHeader) {
+    try {
+      if (new URL(`${url.protocol}//${hostHeader}`).host === url.host) return true;
+    } catch { /* malformed Host: fall through to the configured names */ }
+  }
+  return Array.isArray(config.allowedHosts) && config.allowedHosts.includes(normalizeHostName(url.hostname));
+}
+
+export function isCrossSiteRequest({ method, headers = {} }, config) {
+  if (SAFE_METHODS.has(String(method).toUpperCase())) return false;
+  const site = headers['sec-fetch-site'];
+  if (site === 'same-origin' || site === 'none') return false;
+  if (site === 'cross-site' || site === 'same-site') return true;
+  const origin = headers.origin;
+  if (origin === undefined) return false;
+  return !isOwnOrigin(origin, headers.host, config);
+}
+
 // Must run immediately before every listen call — never inside loadConfig.
 // Non-listening CLIs (backup, migrate) load the same env-derived config, and a
 // listener-only safety check must not cost a HOST=0.0.0.0 deployment its

@@ -147,6 +147,25 @@ test('dedupeFilenames probes past pre-existing suffixed entries', () => {
   ])
 })
 
+test('dedupeFilenames treats case-only and Unicode-normalisation-only spellings as collisions', () => {
+  const composed = 'caf\u00e9.md'
+  const decomposed = 'cafe\u0301.md'
+  const entries = [
+    { path: 'proj/', filename: 'Setup.md' },
+    { path: 'proj/', filename: 'setup.md' },
+    { path: 'proj/', filename: 'SETUP-2.md' },
+    { path: 'proj/', filename: composed },
+    { path: 'proj/', filename: decomposed },
+    { path: 'other/', filename: 'setup.md' },
+  ]
+  dedupeFilenames(entries)
+  assert.deepEqual(entries.map(e => `${e.path}${e.filename}`), [
+    'proj/Setup.md', 'proj/setup-2.md', 'proj/SETUP-2-2.md', `proj/${composed}`, 'proj/cafe\u0301-2.md', 'other/setup.md',
+  ])
+  const folded = entries.map(e => `${e.path}${e.filename}`.normalize('NFC').toLowerCase())
+  assert.equal(new Set(folded).size, folded.length, 'no two entries extract to the same file on a case-insensitive file system')
+})
+
 test('libraryArchiveFilename emits per-project name with date', () => {
   const date = new Date('2026-05-28T12:00:00.000Z')
   assert.equal(libraryArchiveFilename('homelab', date), 'prax-library-homelab-2026-05-28.zip')

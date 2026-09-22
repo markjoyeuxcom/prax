@@ -111,7 +111,7 @@ test('create_document forwards args to the client', async () => {
   const tool = byName(createDocumentTools(client), 'create_document');
   const payload = { id: SAMPLE_DOC.id, title: 'New', body: 'b', documentType: 'note', project: 'work', tags: ['x'] };
   const res = await tool.handler(payload);
-  assert.deepEqual(received, payload);
+  assert.deepEqual(received, { ...payload, operationId: SAMPLE_DOC.id });
   assert.equal(JSON.parse(res.content[0].text).id, SAMPLE_DOC.id);
 });
 

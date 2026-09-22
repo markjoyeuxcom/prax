@@ -62,14 +62,34 @@ export function hashCitation(text) {
   return createHash('sha256').update(toLines(text).join('\n'), 'utf8').digest('hex');
 }
 
+// The moved scan's budget, in lines hashed. Every candidate window costs its
+// span, so an unbounded scan is quadratic: a 4000-line citation in a 40k-line
+// file hashed ~150M lines (5.5 s) on every recall. Windows are tried nearest
+// the recorded location first (line drift is usually small), and the scan
+// stops when the budget is spent.
+export const MOVED_SCAN_BUDGET_LINES = 1_000_000;
+
+// sha256 of lines[from..from+span) joined by '\n' — hashCitation's value for
+// that window without building the joined string.
+function hashWindow(lines, from, span) {
+  const hash = createHash('sha256');
+  for (let i = from; i < from + span; i += 1) {
+    if (i > from) hash.update('\n', 'utf8');
+    hash.update(lines[i], 'utf8');
+  }
+  return hash.digest('hex');
+}
+
 // current | moved | changed | missing.
 //
 // `moved` exists because line numbers drift: inserting two imports at the top
 // of a file would otherwise report every citation below them as stale, and a
 // staleness signal that cries wolf is one people learn to ignore. Equal-length
 // windows are re-hashed to re-find the cited content, so a pure relocation is
-// reported as exactly that.
-export function checkCitation(ref, currentText) {
+// reported as exactly that. When the budget ran out before every window was
+// tried, a `changed` result says so (`searched: 'nearby'`): the code may have
+// moved further away than was looked.
+export function checkCitation(ref, currentText, { budgetLines = MOVED_SCAN_BUDGET_LINES } = {}) {
   const { startLine, endLine, contentHash } = ref;
   if (currentText === null || currentText === undefined) {
     return { status: 'missing', startLine: startLine ?? null, endLine: endLine ?? null };
@@ -85,13 +105,25 @@ export function checkCitation(ref, currentText) {
 
   const span = endLine - startLine + 1;
   const lines = toLines(currentText);
-  for (let first = 1; first + span - 1 <= lines.length; first += 1) {
-    const window = lines.slice(first - 1, first + span - 1).join('\n');
-    if (hashCitation(window) === contentHash) {
-      return { status: 'moved', startLine: first, endLine: first + span - 1 };
+  const lastFirst = lines.length - span; // 0-based index of the last possible window
+  if (lastFirst < 0) return { status: 'changed', startLine, endLine };
+  const origin = Math.min(Math.max(startLine - 1, 0), lastFirst);
+  const windows = Math.max(1, Math.floor(budgetLines / span));
+  let tried = 0;
+  // origin, origin-1, origin+1, origin-2, … within [0, lastFirst].
+  for (let distance = 0; tried < windows && (origin - distance >= 0 || origin + distance <= lastFirst); distance += 1) {
+    for (const from of distance === 0 ? [origin] : [origin - distance, origin + distance]) {
+      if (from < 0 || from > lastFirst || tried >= windows) continue;
+      tried += 1;
+      if (hashWindow(lines, from, span) === contentHash) {
+        return { status: 'moved', startLine: from + 1, endLine: from + span };
+      }
     }
   }
-  return { status: 'changed', startLine, endLine };
+  const complete = tried >= lastFirst + 1;
+  return complete
+    ? { status: 'changed', startLine, endLine }
+    : { status: 'changed', startLine, endLine, searched: 'nearby' };
 }
 
 // Pin a citation against the working tree: read the cited lines, hash them, and
@@ -117,7 +149,9 @@ export function describeCitationStatus(result, ref) {
   const path = ref?.path || 'cited code';
   switch (result?.status) {
     case 'changed':
-      return `${path} changed since this was written`;
+      return result.searched === 'nearby'
+        ? `${path} changed since this was written (a move far from the cited lines was not searched)`
+        : `${path} changed since this was written`;
     case 'missing':
       return `${path} is gone`;
     case 'moved':

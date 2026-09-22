@@ -23,33 +23,59 @@ export function buildAgentTools(client) {
     name: tool.name,
     description: tool.description,
     parameters: normalizeSchema(z.toJSONSchema(z.object(tool.inputSchema || {}))),
+    // Model output is untrusted input (a fetched document can inject calls):
+    // it is parsed with the tool's own schema, and unknown keys are rejected
+    // rather than spread into the API payload.
+    inputSchema: z.object(tool.inputSchema || {}).strict(),
     readOnly: tool.annotations?.readOnlyHint === true,
     handler: tool.handler,
   }));
 }
 
-// A short, human-facing summary of a proposed write, shown in the confirmation
-// card. Falls back to the tool name for tools without a bespoke phrasing.
-export function summarizeWrite(name, input = {}) {
-  const q = (s) => (s ? `“${String(s).slice(0, 80)}”` : '');
+// Parse a model-proposed call's input. Returns { ok, input } with the parsed
+// value (defaults applied, nothing extra) or { ok:false, error } naming every
+// problem. A tool without a schema (test doubles) passes objects through.
+export function validateToolInput(tool, input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return { ok: false, error: 'arguments must be a JSON object' };
+  }
+  if (!tool?.inputSchema || typeof tool.inputSchema.safeParse !== 'function') return { ok: true, input };
+  const parsed = tool.inputSchema.safeParse(input);
+  if (parsed.success) return { ok: true, input: parsed.data };
+  return { ok: false, error: z.prettifyError(parsed.error).replace(/\s*\n\s*/g, ' ') };
+}
+
+// A short, human-facing summary of a proposed write, shown as the headline of
+// its confirmation row. Resolved target titles (see writePreview.js) name the
+// records; without them the full id is shown, never a truncated one.
+export function summarizeWrite(name, input = {}, targets = []) {
+  const q = (s) => (s ? `“${String(s)}”` : '');
+  const named = (role) => {
+    const t = targets.find((x) => x.role === role);
+    if (t?.title) return q(t.title);
+    return t?.id ? String(t.id) : '';
+  };
+  const str = (v) => (typeof v === 'string' ? v : '');
   switch (name) {
-    case 'create_task': return `Create task ${q(input.title)}`.trim();
-    case 'update_task': return `Update task ${input.id ? input.id.slice(0, 8) : ''}`.trim();
-    case 'create_document': return `Create ${input.documentType || 'document'} ${q(input.title)}`.trim();
-    case 'update_document': return `Update document ${input.id ? input.id.slice(0, 8) : ''}`.trim();
-    case 'supersede_document': return `Supersede a document`;
-    case 'generate_runbook': return `Generate a runbook from ${q(input.description)}`.trim();
-    case 'generate_post_mortem': return `Generate a post-mortem for a run`;
-    case 'link_documents': return `Link two documents`;
-    case 'unlink_documents': return `Unlink two documents`;
-    case 'link_task_document': return `Link a document to a task`;
-    case 'unlink_task_document': return `Unlink a document from a task`;
-    case 'add_checklist_item': return `Add a checklist item ${q(input.label)}`.trim();
-    case 'set_checklist_item': return `Toggle a checklist item`;
-    case 'delete_checklist_item': return `Delete a checklist item`;
-    case 'start_runbook_run': return `Start a runbook run`;
-    case 'set_run_step': return `Check/uncheck a run step`;
-    case 'set_run_status': return `Set a run's status to ${input.status || '—'}`;
+    case 'create_task': return `Create task ${q(str(input.title))}`.trim();
+    case 'update_task': return `Update task ${named('Task') || str(input.id)}`.trim();
+    case 'create_document': return `Create ${str(input.documentType) || 'document'} ${q(str(input.title))}`.trim();
+    case 'update_document': return `Update document ${named('Document') || str(input.id)}`.trim();
+    case 'supersede_document': return `Retire ${named('Retires') || 'a document'} in favour of ${named('Replaced by') || 'another document'}`;
+    case 'generate_runbook': return `Generate a runbook from ${q(str(input.description))}`.trim();
+    case 'generate_post_mortem': return `Generate a post-mortem for run ${named('Run')}`.trim();
+    case 'link_documents': return `Link ${named('From') || 'a document'} to ${named('To') || 'a document'} (${str(input.relation) || 'link'})`;
+    case 'unlink_documents': return `Unlink ${named('From') || 'a document'} from ${named('To') || 'a document'} (${str(input.relation) || 'link'})`;
+    case 'link_task_document': return `Link ${named('Document') || 'a document'} to task ${named('Task')}`.trim();
+    case 'unlink_task_document': return `Unlink ${named('Document') || 'a document'} from task ${named('Task')}`.trim();
+    case 'add_checklist_item': return `Add checklist item ${q(str(input.label))} to ${named('Task') || 'a task'}`;
+    case 'set_checklist_item': return `Mark checklist item ${named('Checklist item') || ''} ${input.completed ? 'done' : 'not done'}`.replace(/\s+/g, ' ');
+    case 'delete_checklist_item': return `Delete checklist item ${named('Checklist item') || ''} from ${named('Task') || 'a task'}`.replace(/\s+/g, ' ');
+    case 'start_runbook_run': return `Start a run of ${named('Runbook') || 'a runbook'}`;
+    case 'set_run_step': return `Mark step ${named('Step') || ''} ${input.checked ? 'done' : 'not done'}`.replace(/\s+/g, ' ');
+    case 'set_run_status': return `Set run ${named('Run') || ''} to ${str(input.status) || '—'}`.replace(/\s+/g, ' ');
+    case 'add_external_ref': return `Add reference ${str(input.url)} to ${named('Document') || 'a document'}`;
+    case 'remove_external_ref': return `Remove reference ${named('Reference') || ''} from ${named('Document') || 'a document'}`.replace(/\s+/g, ' ');
     default: return `Run ${name}`;
   }
 }

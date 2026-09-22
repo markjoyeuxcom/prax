@@ -13,8 +13,14 @@ import { splitSystem } from './messages.js';
 // tool is denied. Deny rules take precedence, leaving no callable tools. The
 // process also runs in an empty directory with custom instructions, remote
 // control, auto-update, and MCP servers disabled.
+//
+// The prompt (system instructions, conversation, Library bodies) is piped over
+// stdin, never passed in argv where other local users can read it through ps
+// and a long one hits the per-argument limit (E2BIG). --prompt carries only a
+// constant pointer to that input so the run stays non-interactive.
 
 const NO_TOOLS_PROMPT = 'Answer directly as plain text. Do not use any tools.';
+const STDIN_PROMPT = 'The complete request is the text provided on standard input. Follow it. Answer directly as plain text. Do not use any tools.';
 const FENCE_TOOL = 'fetch_copilot_cli_documentation';
 
 function defaultCandidates(env = process.env) {
@@ -61,9 +67,9 @@ export function serializeCopilotPrompt(messages) {
   return parts.join('\n\n');
 }
 
-export function buildCopilotArgs({ model, prompt }) {
+export function buildCopilotArgs({ model }) {
   return [
-    '--prompt', prompt,
+    '--prompt', STDIN_PROMPT,
     '--silent',
     '--output-format', 'text',
     '--stream', 'off',
@@ -116,7 +122,7 @@ export function createCopilotCliChat({
     return scratch;
   }
 
-  function run(args, timeout) {
+  function run(args, input, timeout) {
     const binary = resolveCopilotBinary({ binaryPath, env, exists });
     if (!binary) {
       const tried = String(binaryPath || '').trim() || 'PATH and the usual install locations';
@@ -142,6 +148,14 @@ export function createCopilotCliChat({
       child.stderr?.on('data', (chunk) => { stderr += chunk; });
       child.on('error', (err) => finish(reject, new Error(`copilot CLI could not start: ${err.message}`)));
       child.on('close', (code) => finish(resolve, { stdout, stderr, code: code ?? -1 }));
+      // A CLI that exits before reading the prompt turns this write into
+      // EPIPE; unhandled, that crashes the server. 'close' reports the exit.
+      child.stdin?.on?.('error', (err) => {
+        if (err?.code === 'EPIPE' || err?.code === 'ERR_STREAM_DESTROYED') return;
+        try { child.kill('SIGKILL'); } catch { /* already gone */ }
+        finish(reject, new Error(`copilot CLI could not read the prompt: ${err?.message || err}`));
+      });
+      if (input != null) child.stdin?.write(input);
       child.stdin?.end();
     });
   }
@@ -165,14 +179,15 @@ export function createCopilotCliChat({
       const { turns } = splitSystem(messages);
       if (!turns.length) throw new Error('copilot CLI received an empty prompt');
       const prompt = serializeCopilotPrompt(messages);
-      const { stdout, stderr, code } = await enqueue(() => run(buildCopilotArgs({ model: chatModel, prompt }), timeoutMs));
+      const { stdout, stderr, code } = await enqueue(() => run(buildCopilotArgs({ model: chatModel }), prompt, timeoutMs));
       const parsed = parseCopilotResult(stdout, stderr, code);
-      return { text: parsed.text, model: chatModel };
+      // Text output carries no stop signal; truncation cannot be detected here.
+      return { text: parsed.text, model: chatModel, finishReason: null, truncated: false };
     },
 
     async isAvailable() {
       try {
-        const { stdout, code } = await enqueue(() => run(['--version'], 3_000));
+        const { stdout, code } = await enqueue(() => run(['--version'], null, 3_000));
         return code === 0 && Boolean(stdout.trim());
       } catch {
         return false;

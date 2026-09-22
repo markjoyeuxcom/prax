@@ -1,5 +1,6 @@
 import { isOpen } from './statusMap.js';
 import { dueBucket } from './dueFlags.js';
+import { isoDate } from './dateHelpers.js';
 
 // Build a copyable daily brief / on-call handoff from already-loaded state —
 // overdue / due-today / due-soon tasks, who's on call with handoff notes, and
@@ -31,7 +32,8 @@ export function buildDailyBrief(state, now = new Date()) {
     .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
     .slice(0, 8);
 
-  const lines = [`# Daily brief — ${now.toISOString().slice(0, 10)}`, ''];
+  // The viewer's calendar date — the same day dueBucket calls "today".
+  const lines = [`# Daily brief — ${isoDate(now)}`, ''];
   lines.push(`**${overdue.length} overdue · ${today.length} due today · ${soon.length} due soon**`, '');
 
   if (overdue.length) lines.push('## ⚠ Overdue', '', taskLines(overdue, projName), '');

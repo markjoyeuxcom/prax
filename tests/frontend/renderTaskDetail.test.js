@@ -294,9 +294,11 @@ test('linked documents shows an empty state and the link-picker opener', () => {
 // ---- activity ------------------------------------------------------------------
 
 test('activity renders a timeline with YYYY-MM-DD HH:MM timestamps', () => {
+  // Stored as UTC instants; built from local wall-clock times so the local
+  // rendering reads the same under any host timezone.
   const html = render({ context: makeContext({ activity: [
-    { id: 'a2', message: 'Status → in-progress', createdAt: '2026-05-20T10:00:00.000Z' },
-    { id: 'a1', message: 'Task created', createdAt: '2026-05-19T09:00:00.000Z' },
+    { id: 'a2', message: 'Status → in-progress', createdAt: new Date(2026, 4, 20, 10, 0).toISOString() },
+    { id: 'a1', message: 'Task created', createdAt: new Date(2026, 4, 19, 9, 0).toISOString() },
   ] }) });
   assert.match(html, /class="timeline"/);
   assert.match(html, /Status → in-progress/);

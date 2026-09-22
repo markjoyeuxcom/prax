@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { renderRunHtml, buildChronicle } from '../../public/js/renderRun.js';
 
-const NOW = new Date('2026-07-08T10:20:00.000Z');
+// Fixture instants are built from LOCAL wall-clock times, so the rendered
+// HH:MM (local getters) reads the same under any host timezone.
+const at = (h, m) => new Date(2026, 6, 8, h, m).toISOString();
+const NOW = new Date(2026, 6, 8, 10, 20);
 
 function makeRun(overrides = {}) {
   return {
@@ -12,16 +15,16 @@ function makeRun(overrides = {}) {
     title: 'DR drill',
     status: 'running',
     startedBy: 'user',
-    startedAt: '2026-07-08T10:00:00.000Z',
+    startedAt: at(10, 0),
     finishedAt: null,
     finishedBy: null,
     steps: [
-      { id: 's1', position: 0, text: 'Stop writes', checkedAt: '2026-07-08T10:05:00.000Z', checkedBy: 'user' },
+      { id: 's1', position: 0, text: 'Stop writes', checkedAt: at(10, 5), checkedBy: 'user' },
       { id: 's2', position: 1, text: 'Promote replica', checkedAt: null, checkedBy: null },
     ],
     events: [
-      { id: 'e1', sequence: 0, type: 'started', actor: 'user', createdAt: '2026-07-08T10:00:00.000Z' },
-      { id: 'e2', sequence: 1, type: 'step-checked', stepText: 'Stop writes', actor: 'user', createdAt: '2026-07-08T10:05:00.000Z' },
+      { id: 'e1', sequence: 0, type: 'started', actor: 'user', createdAt: at(10, 0) },
+      { id: 'e2', sequence: 1, type: 'step-checked', stepText: 'Stop writes', actor: 'user', createdAt: at(10, 5) },
     ],
     ...overrides,
   };
@@ -47,7 +50,7 @@ test('renderRunHtml shows progress, per-step timestamps, and finish/abort while 
 });
 
 test('renderRunHtml locks the steps and hides finish/abort once the run is finished', () => {
-  const html = renderRunHtml({}, makeRun({ status: 'completed', finishedAt: '2026-07-08T10:12:00.000Z' }), { docTitle: 'Failover', now: NOW });
+  const html = renderRunHtml({}, makeRun({ status: 'completed', finishedAt: at(10, 12) }), { docTitle: 'Failover', now: NOW });
   assert.match(html, /chip--run-completed/);
   assert.match(html, /data-action="toggle-run-step"[^>]*disabled/); // steps not clickable
   assert.doesNotMatch(html, /data-action="finish-run"/);
@@ -61,7 +64,7 @@ test('renderRunHtml locks the steps and hides finish/abort once the run is finis
 test('renderRunHtml offers Resume only for aborted runs and locks every mutation while pending', () => {
   const aborted = renderRunHtml(
     {},
-    makeRun({ status: 'aborted', finishedAt: '2026-07-08T10:08:00.000Z', finishedBy: 'user' }),
+    makeRun({ status: 'aborted', finishedAt: at(10, 8), finishedBy: 'user' }),
     { now: NOW },
   );
   assert.match(aborted, /data-action="resume-run"/);
@@ -87,8 +90,14 @@ test('renderRunHtml escapes step text and titles', () => {
 });
 
 test('buildChronicle renders a Markdown record with status, times, and per-step stamps', () => {
+  // The exported chronicle keeps the unambiguous UTC ISO stamps.
   const md = buildChronicle(makeRun({
     status: 'completed',
+    startedAt: '2026-07-08T10:00:00.000Z',
+    steps: [
+      { id: 's1', position: 0, text: 'Stop writes', checkedAt: '2026-07-08T10:05:00.000Z', checkedBy: 'user' },
+      { id: 's2', position: 1, text: 'Promote replica', checkedAt: null, checkedBy: null },
+    ],
     finishedAt: '2026-07-08T10:12:00.000Z',
     finishedBy: 'agent',
     events: [

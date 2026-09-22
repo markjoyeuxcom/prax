@@ -26,6 +26,55 @@ test('nextDueDate advances one interval from the due date', () => {
 test('nextDueDate clamps a monthly on the 31st to the short month', () => {
   // Jan 31 + 1 month → Feb 28 (2026 is not a leap year)
   assert.equal(nextDueDate('monthly', '2026-01-31', new Date(2026, 0, 31)), '2026-02-28');
+  assert.equal(nextDueDate('monthly', '2028-01-31', '2028-01-31'), '2028-02-29', 'leap year');
+});
+
+// Regression (review 2026-09-22): every monthly step was computed from the
+// previous CLAMPED step, so Jan 31 → Feb 28 → Mar 28 → Apr 28 for good.
+test('a monthly series anchored on the 31st keeps its day across short months', () => {
+  // The Jan 31 occurrence completed on successive days walks the anchored
+  // series: Feb 28, then Mar 31, then Apr 30 — never Mar 28 / Apr 28.
+  assert.equal(nextDueDate('monthly', '2026-01-31', '2026-02-27'), '2026-02-28');
+  assert.equal(nextDueDate('monthly', '2026-01-31', '2026-02-28'), '2026-03-31');
+  assert.equal(nextDueDate('monthly', '2026-01-31', '2026-03-31'), '2026-04-30');
+  assert.equal(nextDueDate('monthly', '2026-01-31', '2026-04-30'), '2026-05-31');
+  // A 30th anchor is not pulled to the 28th after February either.
+  assert.equal(nextDueDate('monthly', '2026-01-30', '2026-03-01'), '2026-03-30');
+  // Across a year boundary.
+  assert.equal(nextDueDate('monthly', '2025-12-31', '2026-02-10'), '2026-02-28');
+});
+
+test('a late completion lands on the anchored day, not a clamped one', () => {
+  // The review's reproduction: the Jan 31 task completed on Apr 15.
+  assert.equal(nextDueDate('monthly', '2026-01-31', '2026-04-15'), '2026-04-30');
+  assert.equal(nextDueDate('monthly', '2026-01-31', new Date(2026, 3, 15)), '2026-04-30');
+  // Years late still lands on the anchor (clamped only by the target month).
+  assert.equal(nextDueDate('monthly', '2020-08-31', '2026-09-22'), '2026-09-30');
+  assert.equal(nextDueDate('monthly', '2020-08-31', '2026-09-30'), '2026-10-31');
+});
+
+test('existing monthly tasks keep their anchor: it is the stored due date\'s day', () => {
+  // No new storage: the task being completed carries the anchor.
+  const plan = planTaskRecurrenceTransition(
+    { ...RECURRING_TASK, recurrence: 'monthly', dueDate: '2026-01-31' },
+    { status: 'completed' },
+    { today: '2026-04-15' },
+  );
+  assert.equal(plan.nextTask.dueDate, '2026-04-30');
+});
+
+test('the requester\'s today overrides the server clock', () => {
+  // At 20:00 in Los Angeles a UTC server's clock already reads tomorrow; the
+  // client's date keeps a daily task from skipping a day.
+  const utcTomorrow = new Date(2026, 8, 23, 3, 0);
+  assert.equal(nextDueDate('daily', '2026-09-22', utcTomorrow), '2026-09-24', 'server clock alone skips a day');
+  assert.equal(nextDueDate('daily', '2026-09-22', '2026-09-22'), '2026-09-23');
+  const plan = planTaskRecurrenceTransition(
+    { ...RECURRING_TASK, recurrence: 'daily', dueDate: '2026-09-22' },
+    { status: 'completed' },
+    { now: utcTomorrow, today: '2026-09-22' },
+  );
+  assert.equal(plan.nextTask.dueDate, '2026-09-23');
 });
 
 test('nextDueDate rolls forward past today when the task is completed late', () => {

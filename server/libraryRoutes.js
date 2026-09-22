@@ -27,10 +27,11 @@ import {
   dedupeFilenames,
   libraryArchiveFilename,
   buildLinksFromGroups,
+  attachmentDisposition,
 } from './libraryExport.js';
 import { createEmbeddingService } from './embeddingService.js';
 import { buildContextPack, renderContextPackMarkdown, contentLength, isSubstantive } from './contextPack.js';
-import { buildAskMessages, buildAnswerContext, collectSources, validateAnswerCitations } from './askLibrary.js';
+import { ANSWER_DOC_LIMIT, answerSources, buildAskMessages, selectAnswerContext, validateAnswerCitations } from './askLibrary.js';
 import { buildRunSummary, buildPostMortemMessages, fallbackPostMortem, postMortemTitle } from './postMortem.js';
 import { buildRunbookMessages, parseGeneratedRunbook } from './generateRunbook.js';
 import { suggestWikiLinks, applyWikiLink } from './wikiLinkSuggest.js';
@@ -41,6 +42,7 @@ import {
 } from './kbHealthReview.js';
 import { isWritingAction, buildWritingMessages, stripCodeFence, WRITING_ACTIONS } from './writingActions.js';
 import { DOCUMENT_TYPE_VALUES } from '../public/js/documentTypes.js';
+import { normalizeTitle } from './documentTitle.js';
 
 // The taxonomy lives in the shared registry (public/js/documentTypes.js) —
 // the DB CHECK was dropped in migration 0010; this is the enforcement point.
@@ -90,7 +92,7 @@ function validateDocumentPayload(payload, { partial = false } = {}) {
   if (!isPlainObject(payload)) return 'document payload is invalid';
   if (!partial && payload.id !== undefined && !isValidUuid(payload.id)) return 'id is invalid';
   if (!partial || payload.title !== undefined) {
-    if (typeof payload.title !== 'string' || payload.title.trim().length === 0) return 'title is required';
+    if (typeof payload.title !== 'string' || normalizeTitle(payload.title).length === 0) return 'title is required';
   }
   if (!partial || payload.body !== undefined) {
     if (typeof payload.body !== 'string') return 'body is required';
@@ -120,7 +122,7 @@ function cleanTags(tags) {
 function cleanDocumentPayload(payload) {
   return {
     ...(payload.id ? { id: payload.id } : {}),
-    title: payload.title.trim(),
+    title: normalizeTitle(payload.title),
     body: payload.body,
     documentType: payload.documentType,
     projectId: payload.projectId,
@@ -135,7 +137,7 @@ function cleanDocumentPatchPayload(payload) {
   return PATCH_FIELDS.reduce((patch, field) => {
     if (field === 'project') return patch; // slug only — projectId is resolved separately
     if (payload[field] === undefined) return patch;
-    if (field === 'title') patch.title = payload.title.trim();
+    if (field === 'title') patch.title = normalizeTitle(payload.title);
     else if (field === 'tags') patch.tags = cleanTags(payload.tags);
     else if (field === 'sourceFilename') patch.sourceFilename = payload.sourceFilename ? payload.sourceFilename.trim() : null;
     else patch[field] = payload[field];
@@ -219,6 +221,19 @@ export async function registerLibraryRoutes(app, options = {}) {
     }
   }
 
+  // The relevance cutoff for the ACTIVE embedder, shared by every retrieval
+  // route so recall, context packs, Ask, similar and related documents agree.
+  // An operator's explicit floor wins; otherwise the backend's own floor wins
+  // over the global default, because the right cutoff is a property of the
+  // model that produced the vectors.
+  function relevanceCutoff(embedder) {
+    const search = app.embeddingSearch || {};
+    const minSimilarity = search.minSimilarityExplicit
+      ? search.minSimilarity
+      : (Number.isFinite(embedder?.minSimilarity) ? embedder.minSimilarity : search.minSimilarity);
+    return { minSimilarity, topDrop: search.topDrop };
+  }
+
   // Fires the fire-and-forget embed for a written document when semantic
   // search is configured + enabled. Deliberately not awaited by callers.
   async function embedOnWrite(documentId) {
@@ -257,6 +272,52 @@ export async function registerLibraryRoutes(app, options = {}) {
     const receipt = await repository.getDocumentCreationReceipt(id);
     if (receipt?.operation === operation && receipt.intentHash === intentHash) return result;
     return { conflict: true };
+  }
+
+  // In-flight receipts for caller-stable generations. The durable receipt is
+  // written only when the document commits, and a generation can take a
+  // provider minutes; a replay arriving meanwhile (an agent whose client timed
+  // out and retried with the same id) must wait for THAT generation instead
+  // of finding no receipt and generating a second document. Per process,
+  // which is the whole server: SQLite is embedded and one process owns it.
+  // The claim is taken synchronously, before any await, so two arrivals can
+  // never both become the generator.
+  const generationsInFlight = new Map();
+  const GENERATION_CONFLICT = { message: 'document id was already used for a different generation intent' };
+
+  function claimGeneration(id, intentHash) {
+    if (!id) return null;
+    const existing = generationsInFlight.get(id);
+    if (existing) return { follower: existing };
+    let settle;
+    const entry = { intentHash, outcome: new Promise((resolve) => { settle = resolve; }) };
+    generationsInFlight.set(id, entry);
+    return {
+      finish(outcome) {
+        generationsInFlight.delete(id);
+        settle(outcome);
+      },
+    };
+  }
+
+  // Run one generation as the claim's leader (or unclaimed, with no id), or
+  // wait for the leader's outcome and answer as a replay of it.
+  async function generateOnce(reply, { id, intentHash, replayOf }, generate) {
+    const claim = claimGeneration(id, intentHash);
+    if (claim?.follower) {
+      if (claim.follower.intentHash !== intentHash) { reply.code(409); return GENERATION_CONFLICT; }
+      const outcome = await claim.follower.outcome;
+      reply.code(outcome.code >= 400 ? outcome.code : 200);
+      return outcome.code >= 400 ? outcome.body : replayOf(outcome.body);
+    }
+    let outcome = { code: 500, body: { message: 'generation failed' } };
+    try {
+      outcome = await generate();
+    } finally {
+      claim?.finish(outcome);
+    }
+    reply.code(outcome.code);
+    return outcome.body;
   }
 
   function toRef(doc) {
@@ -340,7 +401,7 @@ export async function registerLibraryRoutes(app, options = {}) {
     const filename = libraryArchiveFilename(scope);
     reply.header('Content-Type', 'application/zip');
     reply.header('Cache-Control', 'no-store');
-    reply.header('Content-Disposition', `attachment; filename="${filename}"`);
+    reply.header('Content-Disposition', attachmentDisposition(filename));
 
     const archive = new ZipArchive({ zlib: { level: 6 } });
     archive.on('error', (err) => {
@@ -423,21 +484,13 @@ export async function registerLibraryRoutes(app, options = {}) {
     let docs;
     try {
       const { vector } = await embedder.embed(String(q), { query: true });
-      const search = app.embeddingSearch || {};
-      // An operator's explicit floor wins; otherwise the active backend's own
-      // floor wins over the global default, because the right cutoff is a
-      // property of the model that produced the vectors.
-      const minSimilarity = search.minSimilarityExplicit
-        ? search.minSimilarity
-        : (Number.isFinite(embedder.minSimilarity) ? embedder.minSimilarity : search.minSimilarity);
       const searchOpts = {
         projectId,
         limit,
         offset,
         page: paged,
         model: embedder.model,
-        minSimilarity,
-        topDrop: search.topDrop,
+        ...relevanceCutoff(embedder),
         includeRetired,
       };
       // An injected or extension repository predating hybrid retrieval must
@@ -506,7 +559,7 @@ export async function registerLibraryRoutes(app, options = {}) {
       if (!query) return { suggestions: [] };
       const linked = new Set((await tasksRepository.listTaskDocuments(task.id)).map((doc) => doc.id));
       const { vector } = await embedder.embed(query, { query: true });
-      const docs = await repository.searchDocumentsSemantic(vector, embedder.backend, { limit: 12, model: embedder.model });
+      const docs = await repository.searchDocumentsSemantic(vector, embedder.backend, { limit: 12, model: embedder.model, ...relevanceCutoff(embedder) });
       const suggestions = docs
         .filter((doc) => !linked.has(doc.id))
         .slice(0, 5)
@@ -676,8 +729,12 @@ export async function registerLibraryRoutes(app, options = {}) {
         reply.code(503);
         return { message: 'idempotent document creation is unavailable' };
       }
-      const result = await repository.createDocumentIdempotent(candidate);
-      if (!result.document || (!result.created && !documentMatchesCreateFields(result.document, candidate))) {
+      const result = await repository.createDocumentIdempotent(candidate, { receipt: true });
+      if (result.gone) { reply.code(410); return { message: 'this copy was already created and permanently deleted; discard the creation draft to start a new copy' }; }
+      // A receipt-backed replay is judged by the original intent, so later
+      // edits never make it a conflict; rows without a receipt compare content.
+      if (result.conflict || !result.document
+        || (!result.created && !result.replayed && !documentMatchesCreateFields(result.document, candidate))) {
         reply.code(409);
         return { message: 'document id was already used for different content' };
       }
@@ -977,52 +1034,61 @@ export async function registerLibraryRoutes(app, options = {}) {
 
     const operation = 'generate-post-mortem';
     const intentHash = generationIntentHash(operation, { runId: run.id, projectId: project.id });
-    const prior = await generatedDocumentReplay(resultId, operation, intentHash);
-    if (prior.state === 'unavailable') {
-      reply.code(503); return { message: 'idempotent document generation is unavailable' };
-    }
-    if (prior.state === 'conflict') {
-      reply.code(409); return { message: 'document id was already used for a different generation intent' };
-    }
-    if (prior.state === 'replay') {
-      return { document: prior.document, generated: null, model: null, replayed: true };
-    }
-
-    const summary = buildRunSummary(run, documentTitle);
-    let body = fallbackPostMortem(run, summary, documentTitle);
-    let generated = false;
-    let model = null;
-    const chat = await resolveChat();
-    if (chat) {
-      try {
-        const res = await chat.complete(buildPostMortemMessages(run, summary, documentTitle), { temperature: 0.3, maxTokens: 1500 });
-        if (res && typeof res.text === 'string' && res.text.trim()) { body = res.text; generated = true; model = res.model || chat.model || null; }
-      } catch (err) {
-        request.log.error({ err }, 'post-mortem generation failed');
+    return generateOnce(reply, {
+      id: resultId,
+      intentHash,
+      replayOf: (body) => ({ document: body.document, generated: null, model: null, replayed: true }),
+    }, async () => {
+      const prior = await generatedDocumentReplay(resultId, operation, intentHash);
+      if (prior.state === 'unavailable') {
+        return { code: 503, body: { message: 'idempotent document generation is unavailable' } };
       }
-    }
+      if (prior.state === 'conflict') return { code: 409, body: GENERATION_CONFLICT };
+      if (prior.state === 'replay') {
+        return { code: 200, body: { document: prior.document, generated: null, model: null, replayed: true } };
+      }
 
-    const committed = await commitGeneratedDocument({
-      title: postMortemTitle(run, documentTitle),
-      body,
-      // First-class type since migration 0010; the tag stays for continuity.
-      documentType: 'post-mortem',
-      projectId: project.id,
-      tags: ['post-mortem'],
-      kind: 'synthesized',
-      updatedBy: 'agent', // AI-authored → lands agent-written, needs human verify
-    }, { id: resultId, operation, intentHash });
-    if (committed.conflict) {
-      reply.code(409); return { message: 'document id was already used for a different generation intent' };
-    }
-    reply.code(committed.created ? 201 : 200);
-    if (committed.created) await embedOnWrite(committed.document.id);
-    return {
-      document: committed.document,
-      generated: committed.created ? generated : null,
-      model: committed.created ? model : null,
-      replayed: !committed.created,
-    };
+      const summary = buildRunSummary(run, documentTitle);
+      let body = fallbackPostMortem(run, summary, documentTitle);
+      let generated = false;
+      let model = null;
+      let truncated = false;
+      const chat = await resolveChat();
+      if (chat) {
+        try {
+          const res = await chat.complete(buildPostMortemMessages(run, summary, documentTitle), { temperature: 0.3, maxTokens: 1500 });
+          // A narrative cut off at the length limit is never committed as the
+          // post-mortem; the deterministic chronicle template is used instead.
+          if (res?.truncated) truncated = true;
+          else if (res && typeof res.text === 'string' && res.text.trim()) { body = res.text; generated = true; model = res.model || chat.model || null; }
+        } catch (err) {
+          request.log.error({ err }, 'post-mortem generation failed');
+        }
+      }
+
+      const committed = await commitGeneratedDocument({
+        title: postMortemTitle(run, documentTitle),
+        body,
+        // First-class type since migration 0010; the tag stays for continuity.
+        documentType: 'post-mortem',
+        projectId: project.id,
+        tags: ['post-mortem'],
+        kind: 'synthesized',
+        updatedBy: 'agent', // AI-authored → lands agent-written, needs human verify
+      }, { id: resultId, operation, intentHash });
+      if (committed.conflict) return { code: 409, body: GENERATION_CONFLICT };
+      if (committed.created) await embedOnWrite(committed.document.id);
+      return {
+        code: committed.created ? 201 : 200,
+        body: {
+          document: committed.document,
+          generated: committed.created ? generated : null,
+          model: committed.created ? model : null,
+          replayed: !committed.created,
+          ...(committed.created && truncated ? { degraded: true, reason: 'truncated' } : {}),
+        },
+      };
+    });
   });
 
   // Generate a runbook from an alert/incident description. Unlike ask/post-mortem
@@ -1044,47 +1110,56 @@ export async function registerLibraryRoutes(app, options = {}) {
 
     const operation = 'generate-runbook';
     const intentHash = generationIntentHash(operation, { description, projectId });
-    const prior = await generatedDocumentReplay(resultId, operation, intentHash);
-    if (prior.state === 'unavailable') {
-      reply.code(503); return { message: 'idempotent document generation is unavailable' };
-    }
-    if (prior.state === 'conflict') {
-      reply.code(409); return { message: 'document id was already used for a different generation intent' };
-    }
-    if (prior.state === 'replay') {
-      return { document: prior.document, model: null, replayed: true };
-    }
+    return generateOnce(reply, {
+      id: resultId,
+      intentHash,
+      replayOf: (res) => ({ document: res.document, model: null, replayed: true }),
+    }, async () => {
+      const prior = await generatedDocumentReplay(resultId, operation, intentHash);
+      if (prior.state === 'unavailable') {
+        return { code: 503, body: { message: 'idempotent document generation is unavailable' } };
+      }
+      if (prior.state === 'conflict') return { code: 409, body: GENERATION_CONFLICT };
+      if (prior.state === 'replay') {
+        return { code: 200, body: { document: prior.document, model: null, replayed: true } };
+      }
 
-    const chat = await resolveChat();
-    if (!chat) { reply.code(409); return { message: 'no AI model is configured — set one in Settings ▸ Intelligence' }; }
-    let generated;
-    try {
-      generated = await chat.complete(buildRunbookMessages(description), { temperature: 0.3, maxTokens: 1500 });
-    } catch (err) {
-      request.log.error({ err }, 'runbook generation failed');
-      reply.code(502); return { message: `generation failed: ${err?.message || 'unknown error'}` };
-    }
-    const { title, body: docBody } = parseGeneratedRunbook(generated?.text, description);
+      const chat = await resolveChat();
+      if (!chat) return { code: 409, body: { message: 'no AI model is configured — set one in Settings ▸ Intelligence' } };
+      let generated;
+      try {
+        generated = await chat.complete(buildRunbookMessages(description), { temperature: 0.3, maxTokens: 1500 });
+      } catch (err) {
+        request.log.error({ err }, 'runbook generation failed');
+        return { code: 502, body: { message: `generation failed: ${err?.message || 'unknown error'}` } };
+      }
+      // A runbook cut off at the length limit would be committed missing steps
+      // (or mid-command); refuse it rather than save an incomplete procedure.
+      if (generated?.truncated) {
+        return { code: 502, body: { message: 'generation was cut off at the model’s length limit, so nothing was saved; try a narrower description', reason: 'truncated' } };
+      }
+      const { title, body: docBody } = parseGeneratedRunbook(generated?.text, description);
 
-    const committed = await commitGeneratedDocument({
-      title,
-      body: docBody,
-      documentType: 'runbook',
-      projectId,
-      tags: ['draft'],
-      kind: 'synthesized',
-      updatedBy: 'agent', // AI-authored → agent-written, needs human verify
-    }, { id: resultId, operation, intentHash });
-    if (committed.conflict) {
-      reply.code(409); return { message: 'document id was already used for a different generation intent' };
-    }
-    reply.code(committed.created ? 201 : 200);
-    if (committed.created) await embedOnWrite(committed.document.id);
-    return {
-      document: committed.document,
-      model: committed.created ? (generated?.model || chat.model || null) : null,
-      replayed: !committed.created,
-    };
+      const committed = await commitGeneratedDocument({
+        title,
+        body: docBody,
+        documentType: 'runbook',
+        projectId,
+        tags: ['draft'],
+        kind: 'synthesized',
+        updatedBy: 'agent', // AI-authored → agent-written, needs human verify
+      }, { id: resultId, operation, intentHash });
+      if (committed.conflict) return { code: 409, body: GENERATION_CONFLICT };
+      if (committed.created) await embedOnWrite(committed.document.id);
+      return {
+        code: committed.created ? 201 : 200,
+        body: {
+          document: committed.document,
+          model: committed.created ? (generated?.model || chat.model || null) : null,
+          replayed: !committed.created,
+        },
+      };
+    });
   });
 
   // "More like this" — documents most similar to this one by embedding. Reuses
@@ -1103,12 +1178,10 @@ export async function registerLibraryRoutes(app, options = {}) {
       && !(await repository.hasCurrentEmbedding(request.params.id, embedder.backend, embedder.model))) {
       return { items: [], degraded: true, reason: 'not-indexed' };
     }
-    const search = app.embeddingSearch || {};
     const docs = await repository.findSimilarDocuments(request.params.id, embedder.backend, {
       limit: 5,
       model: embedder.model,
-      minSimilarity: search.minSimilarity,
-      topDrop: search.topDrop,
+      ...relevanceCutoff(embedder),
     });
     return { items: docs.map(toRef), degraded: false };
   });
@@ -1132,7 +1205,7 @@ export async function registerLibraryRoutes(app, options = {}) {
     const [decorated] = await decorateExportDocuments(app.db, [doc]);
     const content = renderDocumentMarkdown(decorated, doc.projectSlug, links);
     reply.header('Content-Type', 'text/markdown; charset=utf-8');
-    reply.header('Content-Disposition', `attachment; filename="${filename}"`);
+    reply.header('Content-Disposition', attachmentDisposition(filename));
     return content;
   });
 
@@ -1187,7 +1260,7 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (!isValidUuid(oldId)) { reply.code(400); return { message: 'document id is invalid' }; }
     if (!isValidUuid(newId)) { reply.code(400); return { message: 'supersededBy is invalid' }; }
     if (oldId === newId) { reply.code(400); return { message: 'a document cannot supersede itself' }; }
-    const link = await documentLinksRepository.linkDocuments(newId, oldId, 'supersedes');
+    const link = await documentLinksRepository.linkDocuments(newId, oldId, 'supersedes', { updatedBy: originFrom(request), updatedByAgent: agentFrom(request) });
     if (link.cycle) { reply.code(409); return { message: 'supersession would create a cycle', reason: 'supersession-cycle' }; }
     if (!link.linked) { reply.code(404); return { message: 'document not found' }; }
     return repository.getDocument(oldId);
@@ -1214,13 +1287,11 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (semanticReady) {
       try {
         const { vector } = await embedder.embed(query, { query: true });
-        const search = app.embeddingSearch || {};
         docs = await repository.searchDocumentsSemantic(vector, embedder.backend, {
           projectId: project.id,
           limit: 50,
           model: embedder.model,
-          minSimilarity: search.minSimilarity,
-          topDrop: search.topDrop,
+          ...relevanceCutoff(embedder),
         });
         if (docs.length > 0) retrieval = { mode: 'semantic', fallback: false, reason: null };
         const index = await indexCoverage(embedder);
@@ -1270,9 +1341,8 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (semanticReady) {
       try {
         const { vector } = await embedder.embed(query, { query: true });
-        const search = app.embeddingSearch || {};
         docs = await repository.searchDocumentsSemantic(vector, embedder.backend, {
-          projectId, limit: 50, model: embedder.model, minSimilarity: search.minSimilarity, topDrop: search.topDrop,
+          projectId, limit: 50, model: embedder.model, ...relevanceCutoff(embedder),
         });
         if (docs.length > 0) retrieval = { mode: 'semantic', fallback: false, reason: null };
         else retrieval = { mode: 'keyword', fallback: true, reason: 'semantic-no-match' };
@@ -1322,9 +1392,8 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (embedder && await semanticEnabled()) {
       try {
         const { vector } = await embedder.embed(query, { query: true });
-        const search = app.embeddingSearch || {};
         docs = await repository.searchDocumentsSemantic(vector, embedder.backend, {
-          projectId, limit: 50, model: embedder.model, minSimilarity: search.minSimilarity, topDrop: search.topDrop,
+          projectId, limit: 50, model: embedder.model, ...relevanceCutoff(embedder),
         });
         if (docs.length > 0) retrieval = { mode: 'semantic', fallback: false, reason: null };
         else retrieval = { mode: 'keyword', fallback: true, reason: 'semantic-no-match' };
@@ -1342,17 +1411,20 @@ export async function registerLibraryRoutes(app, options = {}) {
 
     const pack = buildContextPack(docs, { project, query, limit, retrieval });
     const markdown = renderContextPackMarkdown(pack);
-    const sources = collectSources(pack);
+    // Generate from the FULL bodies of the top docs (not the snippet pack), so
+    // the answer is grounded in complete content — runbook steps, commands, etc.
+    // The documents placed in that context are the answer's sources: citations
+    // are validated against exactly them and they are what Sources lists. The
+    // caller's limit bounds this set as well as the pack.
+    const answerContext = selectAnswerContext(docs, { limit: Math.min(ANSWER_DOC_LIMIT, limit) });
+    const sources = answerSources(answerContext.documents);
 
     const chat = await resolveChat();
     if (!chat) {
       return { query, answer: null, degraded: true, reason: 'no-chat-model', markdown, sources, retrieval, model: null };
     }
     try {
-      // Generate from the FULL bodies of the top docs (not the snippet pack), so
-      // the answer is grounded in complete content — runbook steps, commands, etc.
-      const context = buildAnswerContext(docs);
-      const { text, model } = await chat.complete(buildAskMessages(query, context), { temperature: 0.2, maxTokens: 1024 });
+      const { text, model } = await chat.complete(buildAskMessages(query, answerContext.context), { temperature: 0.2, maxTokens: 1024 });
       const citation = validateAnswerCitations(text, sources);
       if (!citation.valid) {
         return { query, answer: null, degraded: true, reason: 'citation-validation-failed', markdown, sources, retrieval, model };
@@ -1392,7 +1464,7 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (!isValidUuid(targetId)) { reply.code(400); return { message: 'targetId is invalid' }; }
     if (!DOCUMENT_LINK_RELATIONS.includes(relation)) { reply.code(400); return { message: 'relation is invalid' }; }
     if (sourceId === targetId) { reply.code(400); return { message: 'a document cannot link to itself' }; }
-    const result = await documentLinksRepository.linkDocuments(sourceId, targetId, relation);
+    const result = await documentLinksRepository.linkDocuments(sourceId, targetId, relation, { updatedBy: originFrom(request), updatedByAgent: agentFrom(request) });
     if (result.cycle) { reply.code(409); return { message: 'supersession would create a cycle', reason: 'supersession-cycle' }; }
     if (!result.linked) { reply.code(404); return { message: 'document not found' }; }
     reply.code(result.alreadyLinked ? 200 : 201);
@@ -1575,15 +1647,30 @@ export async function registerLibraryRoutes(app, options = {}) {
 
   // Accept one suggestion: rewrite the first eligible plain-text mention of
   // `title` in this doc's body to a [[wiki-link]]. A user edit (verified stays).
+  // The rewrite is computed from the body just read, so the write is pinned to
+  // that revision: an editor save committed in between is a 409, never lost.
+  // Like every other body write it refreshes the document's vector.
   app.post('/api/library/documents/:id/wiki-link', async (request, reply) => {
     if (!isValidUuid(request.params.id)) { reply.code(400); return { message: 'document id is invalid' }; }
     const title = request.body && typeof request.body.title === 'string' ? request.body.title.trim() : '';
     if (!title) { reply.code(400); return { message: 'title is required' }; }
     const doc = await repository.getDocument(request.params.id);
-    if (!doc) { reply.code(404); return { message: 'document not found' }; }
+    if (!doc || doc.archivedAt) { reply.code(404); return { message: 'document not found' }; }
     const body = applyWikiLink(doc.body, title);
     if (body === null) { reply.code(409); return { message: 'no unlinked mention of that title remains' }; }
-    return repository.updateDocument(request.params.id, { body, updatedBy: originFrom(request) });
+    let document;
+    try {
+      document = await repository.updateDocument(request.params.id,
+        { body, updatedBy: originFrom(request), updatedByAgent: agentFrom(request) },
+        { ifRevision: doc.revision });
+    } catch (error) {
+      if (!(error instanceof DocumentRevisionConflictError)) throw error;
+      reply.code(409);
+      return { message: 'the document changed while the link was being added; try again', reason: error.reason, document: error.current };
+    }
+    if (!document) { reply.code(404); return { message: 'document not found' }; }
+    await embedOnWrite(document.id); // gate awaited; the embed itself is not
+    return document;
   });
 
   // Editor writing actions (Tier-3 #7): draft / summarize / rewrite / checklist.
@@ -1605,7 +1692,10 @@ export async function registerLibraryRoutes(app, options = {}) {
       const messages = buildWritingMessages(action, { text, title, documentType: typeof b.documentType === 'string' ? b.documentType : '' });
       // 4096 keeps whole-document rewrites/drafts from truncating mid-doc; the
       // human reviews the full output in the preview before applying either way.
-      const { text: out, model } = await chat.complete(messages, { temperature: action === 'rewrite' ? 0.3 : 0.4, maxTokens: 4096 });
+      const { text: out, model, truncated } = await chat.complete(messages, { temperature: action === 'rewrite' ? 0.3 : 0.4, maxTokens: 4096 });
+      // Output cut off at the length limit is never offered as a preview:
+      // applying it would silently drop the missing tail of the document.
+      if (truncated) return { text: null, degraded: true, reason: 'truncated', model: model || chat.model || null };
       const clean = stripCodeFence(out);
       if (!clean) return { text: null, degraded: true, reason: 'generation-failed', model: model || chat.model || null };
       return { text: clean, degraded: false, model: model || chat.model || null };
@@ -1655,11 +1745,11 @@ export async function registerLibraryRoutes(app, options = {}) {
         contradictionScan = { ran: false, degraded: true, reason: 'no-embedder' };
       } else {
         try {
-          const search = app.embeddingSearch || {};
+          const cutoff = relevanceCutoff(embedder);
           const rawPairs = [];
           for (const seed of docs.slice(0, MAX_SEED_DOCS)) {
             const neighbors = await repository.findSimilarDocuments(seed.id, embedder.backend, {
-              limit: NEIGHBORS_PER_SEED, projectId, model: embedder.model, minSimilarity: search.minSimilarity, topDrop: search.topDrop,
+              limit: NEIGHBORS_PER_SEED, projectId, model: embedder.model, ...cutoff,
             });
             for (const n of neighbors || []) rawPairs.push({ aId: seed.id, bId: n.id, similarity: n.similarity });
           }

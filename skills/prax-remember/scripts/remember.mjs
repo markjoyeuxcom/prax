@@ -4,12 +4,13 @@
 
 
 // cli/lib/apiClient.js
+import { randomUUID } from "node:crypto";
+
+// server/instanceDiscovery.js
 import { readFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
 var DEFAULT_BASE_URL = "http://127.0.0.1:3000";
-var SEMANTIC_PAGE_MAX = 50;
 var DESKTOP_IDENTIFIER = "com.moomora.prax";
 var AGENT_ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 function sanitizeAgentId(value) {
@@ -46,6 +47,9 @@ function resolveBaseUrls({ baseUrl, env = process.env, portFile, read } = {}) {
   urls.push(DEFAULT_BASE_URL);
   return urls;
 }
+
+// cli/lib/apiClient.js
+var SEMANTIC_PAGE_MAX = 50;
 function createClient({ baseUrl, token, agent, env = process.env, bases } = {}) {
   const candidates = bases || resolveBaseUrls({ baseUrl, env });
   let base = candidates[0];
@@ -478,9 +482,12 @@ function parseAgent(value, usage) {
 function parseRememberArgs(argv) {
   const out = { title: "", body: "", tags: [], type: void 0, project: "memory", projectExplicit: false, id: void 0, ref: void 0, cite: void 0, agent: void 0 };
   const rest = [];
+  let tagSpelling = null;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === "--tags") {
+    if (arg === "--tags" || arg === "--tag") {
+      if (tagSpelling && tagSpelling !== arg) throw new UsageError(`${tagSpelling} and ${arg} are the same option; give it once`, REMEMBER_USAGE);
+      tagSpelling = arg;
       out.tags = takeValue(argv, i, REMEMBER_USAGE).split(",").map((t) => t.trim()).filter(Boolean);
       i += 1;
     } else if (arg === "--type") {

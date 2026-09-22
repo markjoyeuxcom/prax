@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildApp } from '../../server/index.js';
+import { createAnthropicChat } from '../../server/chat/anthropic.js';
 import { isWritingAction, buildWritingMessages, stripCodeFence, WRITING_ACTIONS } from '../../server/writingActions.js';
 
 // ---- pure ----
@@ -100,5 +101,18 @@ test('POST writing-action validates action + required input', async () => {
   assert.equal((await post(app, { action: 'nope', text: 'x' })).statusCode, 400);
   assert.equal((await post(app, { action: 'draft' })).statusCode, 400);       // no title
   assert.equal((await post(app, { action: 'rewrite', text: '  ' })).statusCode, 400); // blank text
+  await app.close();
+});
+
+// Regression (2026-09-22 review, bbaf70f1): "Rewrite for clarity" on a long
+// document returned a preview missing its tail as degraded:false, and
+// applying it dropped content. A truncated result is never offered.
+test('POST writing-action never offers output cut off by the token limit', async () => {
+  const fetch = async () => ({ ok: true, json: async () => ({ stop_reason: 'max_tokens', content: [{ type: 'text', text: '# Runbook\n\n1. Drain the node\n2. Run `kubectl cordon' }] }) });
+  const app = await makeApp({ chat: createAnthropicChat({ apiKey: 'k', model: 'claude-x', fetch }) });
+  const b = (await post(app, { action: 'rewrite', text: 'a long document' })).json();
+  assert.equal(b.degraded, true);
+  assert.equal(b.reason, 'truncated');
+  assert.equal(b.text, null);
   await app.close();
 });

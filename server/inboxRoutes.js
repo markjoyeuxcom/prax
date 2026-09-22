@@ -1,4 +1,5 @@
 import { createInboxRepository } from './inboxRepository.js';
+import { requestToday } from './localDay.js';
 import { DOCUMENT_TYPE_VALUES } from '../public/js/documentTypes.js';
 import { stripCodeFence } from './writingActions.js';
 import { createEmbeddingService } from './embeddingService.js';
@@ -63,7 +64,8 @@ export function registerInboxRoutes(app, options = {}) {
     if (body.documentType !== undefined && (kind !== 'document' || body.action !== 'file' || !TYPES.has(body.documentType))) fault(400, 'invalid-type', 'Choose a valid document type for filing.');
     // Normalize key ordering so JSON serialization order is not part of intent.
     const input = Object.fromEntries(['operationId', 'fingerprint', 'action', 'projectId', 'plannedFor', 'documentType'].filter(key => body[key] !== undefined).map(key => [key, body[key]]));
-    return notify(await repository.apply(kind, id, input, actorOf(request)));
+    // today stays outside `input`: the receipt's intent hash covers the decision only.
+    return notify(await repository.apply(kind, id, input, actorOf(request), { today: requestToday(request) }));
   }));
   app.post('/api/inbox/actions/:operationId/undo', route(async request => {
     if (!UUID.test(request.params.operationId)) fault(400, 'invalid-operation', 'Operation ID is invalid.');

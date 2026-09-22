@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { rmSync, statSync } from 'node:fs';
+import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -50,20 +50,26 @@ test('serializeTurns: single user turn passes through; conversations become a la
   );
 });
 
-test('buildCliArgs pins the safety fence: json output, denied built-ins, turn ceiling, no-tools prompt', () => {
+test('buildCliArgs pins the safety fence: json output, no tools, no user settings, turn ceiling, no-tools prompt', () => {
   const bare = buildCliArgs({ model: 'haiku' });
-  assert.deepEqual(bare.slice(0, 10), ['-p', '--output-format', 'json', '--model', 'haiku', '--max-turns', '4', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}']);
-  // The primary fence is the deny-list — with tools available, the model's
-  // first message can be a tool call, which burns the turn budget and ends
-  // the run as error_max_turns with no text (field-observed under a cap of 1).
+  assert.deepEqual(bare.slice(0, 7), ['-p', '--output-format', 'json', '--model', 'haiku', '--max-turns', '4']);
+  // The primary fence: every built-in tool disabled, whatever this CLI version
+  // ships (a deny-list of names always misses newly added tools).
+  assert.equal(bare[bare.indexOf('--tools') + 1], '');
+  // The user's own settings (default mode, allow rules, hooks) never apply to
+  // a run that carries untrusted Library text; nothing prompts or auto-approves.
+  assert.equal(bare[bare.indexOf('--setting-sources') + 1], '');
+  assert.equal(bare[bare.indexOf('--permission-mode') + 1], 'dontAsk');
+  const mcp = bare.indexOf('--strict-mcp-config');
+  assert.deepEqual(bare.slice(mcp, mcp + 3), ['--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}']);
+  // The deny-list stays as a second fence for CLIs that predate --tools.
   const denied = bare[bare.indexOf('--disallowedTools') + 1];
-  for (const tool of ['Task', 'Bash', 'Read', 'Write', 'WebSearch', 'TodoWrite', 'Skill']) {
+  for (const tool of ['Task', 'Agent', 'Bash', 'PowerShell', 'REPL', 'Monitor', 'LSP', 'Read', 'Write', 'WebSearch', 'TodoWrite', 'Skill', 'ToolSearch', 'CronCreate', 'SendMessage', 'EnterWorktree']) {
     assert.ok(denied.split(',').includes(tool), `${tool} must be denied`);
   }
   assert.deepEqual(bare.slice(-2), ['--append-system-prompt', 'Answer directly as plain text. Do not use any tools.']);
-  // A caller system prompt keeps the no-tools instruction appended after it.
-  const withSystem = buildCliArgs({ model: 'sonnet', system: 'Be terse.' });
-  assert.equal(withSystem[withSystem.length - 1], 'Be terse.\n\nAnswer directly as plain text. Do not use any tools.');
+  // Nothing caller-supplied reaches argv: a system prompt is not an argument.
+  assert.deepEqual(buildCliArgs({ model: 'haiku', system: 'Be terse. SNAPSHOT' }), bare);
 });
 
 test('parseCliResult: success text, CLI errors verbatim, garbage flagged with a hint', () => {
@@ -111,9 +117,57 @@ test('complete: spawns with the fence, feeds the prompt over stdin, returns the 
   assert.equal(call.binary, '/bin/claude');
   assert.ok(call.args.includes('--max-turns'), 'agentic turns are fenced off');
   assert.ok(call.args.includes('--disallowedTools'), 'built-in tools are denied');
-  assert.deepEqual(call.args.slice(-2), ['--append-system-prompt', 'Be terse.\n\nAnswer directly as plain text. Do not use any tools.']);
-  assert.equal(call.child.stdin.written, 'Summarize the week');
+  assert.deepEqual(call.args.slice(-2), ['--append-system-prompt', 'Answer directly as plain text. Do not use any tools.']);
+  // The system prompt (which can carry a workspace snapshot) rides on stdin.
+  assert.equal(call.child.stdin.written, 'System instructions:\nBe terse.\n\nConversation:\nSummarize the week');
+  assert.ok(!call.args.some((arg) => arg.includes('Be terse') || arg.includes('Summarize the week')), 'no prompt text in argv');
   assert.equal(call.options.cwd, '/tmp', 'runs in the empty scratch dir, never the user data dir');
+});
+
+test('complete: a system prompt with a workspace snapshot never appears in child argv', async () => {
+  const spawn = fakeSpawn((child) => {
+    child.stdout.emit('data', RESULT_OK);
+    child.emit('close', 0);
+  });
+  const chat = createClaudeCliChat({ binaryPath: '/bin/claude', exists: () => true, spawn, scratchDir: '/tmp' });
+  const snapshot = `Workspace snapshot:\n${'- Secret runbook step\n'.repeat(2000)}`;
+  await chat.complete([{ role: 'system', content: snapshot }, { role: 'user', content: 'What is due?' }]);
+  const call = spawn.calls[0];
+  assert.ok(!call.args.some((arg) => arg.includes('Secret runbook step')), 'the snapshot is not in argv');
+  assert.ok(call.args.every((arg) => arg.length < 1000), 'every argument is a short constant');
+  assert.match(call.child.stdin.written, /Secret runbook step/);
+  assert.match(call.child.stdin.written, /Conversation:\nWhat is due\?$/);
+});
+
+test('complete: an envelope that reports stop_reason max_tokens is marked truncated', async () => {
+  const spawn = fakeSpawn((child) => {
+    child.stdout.emit('data', JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'Partial answ', stop_reason: 'max_tokens' }));
+    child.emit('close', 0);
+  });
+  const chat = createClaudeCliChat({ binaryPath: '/bin/claude', exists: () => true, spawn, scratchDir: '/tmp' });
+  const out = await chat.complete('hello');
+  assert.equal(out.truncated, true);
+  assert.equal(out.finishReason, 'max_tokens');
+  const okSpawn = fakeSpawn((child) => { child.stdout.emit('data', RESULT_OK); child.emit('close', 0); });
+  const complete = await createClaudeCliChat({ binaryPath: '/bin/claude', exists: () => true, spawn: okSpawn, scratchDir: '/tmp' }).complete('hello');
+  assert.equal(complete.truncated, false);
+});
+
+// Regression: a real child that exits before reading a prompt larger than the
+// pipe buffer made the stdin write fail with EPIPE; with no 'error' listener
+// that crashed the whole server (and the desktop sidecar).
+test('complete: a 70 KB prompt to a CLI that exits immediately is a clean error, not a crash', { skip: process.platform === 'win32' }, async () => {
+  const falseBinary = ['/usr/bin/false', '/bin/false'].find((path) => { try { return statSync(path).isFile(); } catch { return false; } });
+  if (!falseBinary) return;
+  const scratch = mkdtempSync(join(tmpdir(), 'prax-epipe-'));
+  try {
+    const chat = createClaudeCliChat({ binaryPath: falseBinary, scratchDir: scratch, timeoutMs: 10_000 });
+    await assert.rejects(chat.complete('x'.repeat(70 * 1024)), /exited with code 1/);
+    // The process is still alive and the provider still usable afterwards.
+    await assert.rejects(chat.complete([{ role: 'system', content: 'y'.repeat(70 * 1024) }, { role: 'user', content: 'again' }]), /exited with code 1/);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 });
 
 test('without an injected scratch dir, the CLI runs in a fresh private temp directory', async () => {
