@@ -12,6 +12,12 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Fixed
+
+- **CLI flag values that begin with `--`.** `--flag=value` is now accepted everywhere, and
+  `prax task add` refuses a bare `--check` instead of silently dropping the checklist item
+  whose text started with `--`.
+
 ## [0.38.0] - 2026-09-21
 
 ### Added

@@ -12,41 +12,15 @@ import { confirmDocumentVerification } from './lib/verify.js';
 import { searchLibrary, describeRetrieval } from './lib/search.js';
 import { createRepoReader, headSha } from './lib/repoFiles.js';
 import { resolveCitation } from './lib/codeRefs.js';
+import { parseArgs, repeatedValues } from './lib/cliArgs.js';
 import {
   buildTaskRecord, buildTaskPatch, createTask, updateTask, completeTask, setChecklistItem,
   formatTask, formatTaskList, isTaskId, TASK_PRIORITIES, TASK_STATUSES,
 } from './lib/tasks.js';
 
-// Flags that accumulate when repeated (`--check a --check b`). Every other
-// flag keeps last-wins, which `--tag` documents.
-const REPEATABLE_FLAGS = new Set(['check']);
-
-function parseArgs(argv) {
-  const positionals = [];
-  const flags = {};
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-    if (arg.startsWith('--')) {
-      const key = arg.slice(2);
-      const next = argv[i + 1];
-      let value;
-      if (next === undefined || next.startsWith('--')) {
-        value = true;
-      } else {
-        value = next;
-        i += 1;
-      }
-      if (REPEATABLE_FLAGS.has(key)) {
-        (flags[key] ||= []).push(value);
-      } else {
-        flags[key] = value;
-      }
-    } else {
-      positionals.push(arg);
-    }
-  }
-  return { positionals, flags };
-}
+// Flags that accumulate when repeated (`--check a --check b`); everything
+// else is last-wins. See cli/lib/cliArgs.js for the `--flag=value` form.
+const REPEATABLE_FLAGS = ['check'];
 
 async function resolveProjectName(flags, client) {
   // MOOMORA_PROJECT is the pre-rename env var; still honoured so existing setups keep working.
@@ -99,7 +73,7 @@ Project detection: --project > PRAX_PROJECT > .prax/project.json > git remote ma
 Provenance: writes are stamped updatedBy=agent plus the agent id (--agent, PRAX_AGENT, or auto: claude / codex / copilot / antigravity); --memory writes also carry kind=synthesized`;
 
 async function main(argv) {
-  const { positionals, flags } = parseArgs(argv);
+  const { positionals, flags } = parseArgs(argv, { repeatable: REPEATABLE_FLAGS });
   const command = positionals[0];
   const agent = flags.agent === undefined || flags.agent === true ? undefined : String(flags.agent);
   const client = createClient({ baseUrl: flags.url, token: process.env.PRAX_TOKEN, agent });
@@ -297,7 +271,7 @@ async function main(argv) {
 
     if (sub === 'add') {
       const title = positionals.slice(2).join(' ');
-      const checks = Array.isArray(flags.check) ? flags.check.filter((c) => c !== true) : [];
+      const checks = repeatedValues(flags, 'check');
       const record = buildTaskRecord({ title, flags, checks });
       const { project } = await resolveProjectName(flags, client);
       const { task, replayed, project: slug } = await createTask(client, { project, record });
