@@ -577,8 +577,10 @@ export async function registerLibraryRoutes(app, options = {}) {
       }
 
       // Re-read the stored review: narration can take minutes, and the listing
-      // above predates it, so a verification or edit made meanwhile must count.
-      const listed = documents.find((doc) => doc.title === title && !doc.archivedAt) || null;
+      // above predates it, so a verification, an edit or a review created by
+      // another request meanwhile must count (else this one adds a duplicate).
+      const latest = body.narrate === true ? await repository.listDocuments({}) : documents;
+      const listed = latest.find((doc) => doc.title === title && !doc.archivedAt) || null;
       const current = listed ? await repository.getDocument(listed.id) : null;
       const existing = current && !current.archivedAt ? current : null;
       if (existing?.verified) {
