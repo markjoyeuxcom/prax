@@ -56,6 +56,11 @@ prax init --project homelab
 
 ## Global flags
 
+`--flag value` and `--flag=value` are equivalent. Use the `=` form for a value that itself
+begins with `--` (for example a checklist item `--check="--json output documented"`); with
+the spaced form such a value would be read as the next flag, and `task add` refuses a bare
+`--check` rather than silently dropping the item.
+
 Every command accepts:
 
 - `--project <slug>` — the project to operate on (see [Project detection](#project-detection))
