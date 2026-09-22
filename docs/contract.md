@@ -553,8 +553,9 @@ is an API field (migration 0026, column `updated_by_agent`) and appears in Markd
 
 `POST /api/library/documents/upsert-by-title` is the atomic "remember": body `{ project, title,
 body, tags?, documentType?, kind?, id? }`. Inside one transaction it updates the **active**
-document with that exact title in the project (replacing body and tags, retyping only when
-`documentType` is given) or creates one (`documentType` defaults to `note`). Superseded and
+document with that exact title in the project (replacing the body, replacing tags only when
+`tags` is given — an omitted `tags` keeps the stored ones, `[]` clears them — and retyping only
+when `documentType` is given) or creates one (`documentType` defaults to `note`). Superseded and
 deprecated documents never match. Returns `{ document, created }` — `201` for a new document,
 `200` for an update. A caller `id` is an **operation id**, not only a create id: inside the same
 transaction the server first looks the id up in its receipts, and only when none exists does it

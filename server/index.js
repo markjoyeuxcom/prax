@@ -2,7 +2,7 @@ import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
-import { assertSafeNetworkBinding, isLoopbackHost, loadConfig } from './config.js';
+import { assertSafeNetworkBinding, hostCheckEnabled, isAllowedHostHeader, isLoopbackHost, loadConfig } from './config.js';
 import { createDb } from './db.js';
 import { runMigrations } from './migrate.js';
 import { registerInboxRoutes } from './inboxRoutes.js';
@@ -53,10 +53,12 @@ export async function buildApp(options = {}) {
   // before routing. A loopback bind behind a local reverse proxy sees the
   // public name instead; that deployment acknowledges its exposure with
   // PRAX_ALLOW_UNAUTHENTICATED_NETWORK=true, which also lifts this check.
-  if (isLoopbackHost(config.host) && config.allowUnauthenticatedNetwork !== true) {
+  // PRAX_ALLOWED_HOSTS turns the check on for any bind (the container image
+  // listens on 0.0.0.0 but is published on loopback) and lists extra names.
+  if (hostCheckEnabled(config)) {
     app.addHook('onRequest', async (request, reply) => {
-      if (request.hostname && !isLoopbackHost(request.hostname)) {
-        reply.code(403).send({ message: 'Host header must name this machine (loopback); see SECURITY.md on DNS rebinding' });
+      if (request.hostname && !isAllowedHostHeader(request.hostname, config)) {
+        reply.code(403).send({ message: 'Host header must name this machine (loopback) or a name in PRAX_ALLOWED_HOSTS; see SECURITY.md on DNS rebinding' });
       }
     });
   }

@@ -64,7 +64,7 @@ test('the localhost desktop webview has an explicit grant for every exported Lib
 
 test('the main window leaves drag and drop to the page, so board cards can be dropped into another lane', () => {
   const rust = readFileSync(new URL('../../src-tauri/src/lib.rs', import.meta.url), 'utf8');
-  const start = rust.indexOf('WebviewWindowBuilder::new(&handle, "main"');
+  const start = rust.indexOf('WebviewWindowBuilder::new(handle, "main"');
   assert.ok(start > -1, 'the main window builder is present');
   const mainBuilder = rust.slice(start, rust.indexOf('.build()', start));
   // Tauri's drag-and-drop handler claims drops as file drops before the

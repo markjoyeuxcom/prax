@@ -51,3 +51,37 @@ test('an acknowledged network deployment sees the Host names its proxy or client
   assert.equal(await status(proxied, 'prax.example.com'), 200);
   await proxied.close();
 });
+
+// The container image listens on 0.0.0.0 (a loopback bind inside a container
+// black-holes published ports) but Compose publishes it on 127.0.0.1 only. The
+// bind acknowledgement must not also switch off the rebinding guard there.
+const COMPOSE_ENV = { HOST: '0.0.0.0', PRAX_ALLOW_UNAUTHENTICATED_NETWORK: 'true', PORT: '3000', PRAX_ALLOWED_HOSTS: 'localhost' };
+
+test('the Compose environment refuses a rebound hostname and accepts loopback names and IP literals', async () => {
+  const app = await buildApp({ skipDb: true, config: loadConfig(COMPOSE_ENV) });
+  assert.equal(await status(app, 'attacker.example:3100'), 403);
+  assert.equal(await status(app, 'attacker.example.'), 403);
+  for (const host of ['127.0.0.1:3100', 'localhost:3100', '[::1]:3100', '172.18.0.2:3000', '[fd00::2]:3000']) {
+    assert.equal(await status(app, host), 200, host);
+  }
+  await app.close();
+});
+
+test('PRAX_ALLOWED_HOSTS lists a proxy name, case- and trailing-dot-insensitively, and * turns the check off', async () => {
+  const proxied = await buildApp({ skipDb: true, config: loadConfig({ ...COMPOSE_ENV, PRAX_ALLOWED_HOSTS: 'Prax.Home.Lan:443, other.example' }) });
+  assert.equal(await status(proxied, 'prax.home.lan'), 200);
+  assert.equal(await status(proxied, 'PRAX.HOME.LAN.:8443'), 200);
+  assert.equal(await status(proxied, 'other.example'), 200);
+  assert.equal(await status(proxied, 'attacker.example'), 403);
+  await proxied.close();
+  const open = await buildApp({ skipDb: true, config: loadConfig({ ...COMPOSE_ENV, PRAX_ALLOWED_HOSTS: '*' }) });
+  assert.equal(await status(open, 'anything.example'), 200);
+  await open.close();
+});
+
+test('PRAX_ALLOWED_HOSTS also narrows an acknowledged loopback bind behind a local proxy', async () => {
+  const app = await buildApp({ skipDb: true, config: loadConfig({ HOST: '127.0.0.1', PRAX_ALLOW_UNAUTHENTICATED_NETWORK: 'true', PRAX_ALLOWED_HOSTS: 'prax.example.com' }) });
+  assert.equal(await status(app, 'prax.example.com'), 200);
+  assert.equal(await status(app, 'attacker.example'), 403);
+  await app.close();
+});

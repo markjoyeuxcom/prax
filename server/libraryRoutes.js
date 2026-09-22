@@ -526,9 +526,11 @@ export async function registerLibraryRoutes(app, options = {}) {
   // Weekly review (2026-07-18 plan): one click compiles an honest
   // week-in-review and writes it into the Library, idempotent by ISO week —
   // regenerating updates the same document in place. Advisory regime: every
-  // failure is a 200 { degraded, reason }, and a review the human VERIFIED is
-  // refused rather than overwritten (the agent-edit trust rules would revoke
-  // that blessing silently otherwise).
+  // failure is a 200 { degraded, reason }. A review is Prax's own output only
+  // until someone else writes to it: a VERIFIED review (the agent-edit trust
+  // rules would revoke that blessing silently) or an EDITED one (the person's
+  // notes would be overwritten, with no history to undo) is refused, never
+  // regenerated.
   app.post('/api/library/weekly-review', async (request) => {
     try {
       const body = request.body && typeof request.body === 'object' && !Array.isArray(request.body) ? request.body : {};
@@ -553,9 +555,11 @@ export async function registerLibraryRoutes(app, options = {}) {
 
       let markdown = compiled.markdown;
       let narrated = false;
+      let narrationReason = null;
       if (body.narrate === true) {
         const chat = await resolveChat();
-        if (chat) {
+        if (!chat) narrationReason = 'no-chat-model';
+        else {
           try {
             const { text } = await chat.complete([
               { role: 'system', content: 'You write short, honest weekly-review narratives. No cheerleading, no invented facts — only what the data below says. 4-7 sentences, first person.' },
@@ -564,12 +568,19 @@ export async function registerLibraryRoutes(app, options = {}) {
             if (text && text.trim()) {
               markdown += `\n\n## Narrative\n\n${text.trim()}\n\n*AI-narrated from the sections above.*`;
               narrated = true;
-            }
-          } catch { /* narration is optional; the deterministic review stands alone */ }
+            } else narrationReason = 'empty-narration';
+          } catch {
+            // Narration is optional; the deterministic review stands alone.
+            narrationReason = 'generation-failed';
+          }
         }
       }
 
-      const existing = documents.find((doc) => doc.title === title && !doc.archivedAt) || null;
+      // Re-read the stored review: narration can take minutes, and the listing
+      // above predates it, so a verification or edit made meanwhile must count.
+      const listed = documents.find((doc) => doc.title === title && !doc.archivedAt) || null;
+      const current = listed ? await repository.getDocument(listed.id) : null;
+      const existing = current && !current.archivedAt ? current : null;
       if (existing?.verified) {
         return {
           degraded: true,
@@ -578,11 +589,33 @@ export async function registerLibraryRoutes(app, options = {}) {
           documentId: existing.id,
         };
       }
+      // Regeneration writes as an anonymous agent, so a last write by a person
+      // (updatedBy user) or by an identified agent is someone else's edit.
+      if (existing && (existing.updatedBy !== 'agent' || existing.updatedByAgent)) {
+        return {
+          degraded: true,
+          reason: 'edited-review',
+          message: 'This week\'s review has edits — regenerating would overwrite them. Archive or rename it to compile a fresh one.',
+          documentId: existing.id,
+        };
+      }
+      const changedMeanwhile = {
+        degraded: true,
+        reason: 'review-changed',
+        message: 'This week\'s review changed while it was being compiled, so nothing was overwritten. Try again.',
+        documentId: existing?.id,
+      };
       let document;
       if (existing) {
-        document = await repository.updateDocument(existing.id, {
-          body: markdown, tags: ['weekly-review'], updatedBy: 'agent',
-        });
+        try {
+          document = await repository.updateDocument(existing.id, {
+            body: markdown, tags: ['weekly-review'], updatedBy: 'agent', updatedByAgent: null,
+          }, { ifRevision: existing.revision });
+        } catch (error) {
+          if (error instanceof DocumentRevisionConflictError) return changedMeanwhile;
+          throw error;
+        }
+        if (!document) return changedMeanwhile; // archived since the re-read
       } else {
         // Documents are project-owned; the cross-project review lives in the
         // system Inbox (always present, guarded server-side).
@@ -601,7 +634,7 @@ export async function registerLibraryRoutes(app, options = {}) {
         weekId,
         stats: compiled.stats,
         narrated,
-        ...(body.narrate === true && !narrated ? { narrationDegraded: true, narrationReason: 'no-chat-model' } : {}),
+        ...(body.narrate === true && !narrated ? { narrationDegraded: true, narrationReason } : {}),
       };
     } catch (err) {
       request.log?.error?.({ err }, 'weekly-review failed');
@@ -676,6 +709,7 @@ export async function registerLibraryRoutes(app, options = {}) {
     const candidate = {
       ...cleaned,
       documentType: payload.documentType, // undefined = keep the stored type on update
+      tags: payload.tags === undefined ? undefined : cleaned.tags, // undefined = keep the stored tags on update
       updatedBy: originFrom(request),
       updatedByAgent: agentFrom(request),
     };

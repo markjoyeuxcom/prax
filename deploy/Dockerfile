@@ -16,6 +16,14 @@ ENV PORT=3000
 # The secure loopback default still governs bare-metal `node server/index.js`.
 ENV HOST=0.0.0.0
 ENV PRAX_ALLOW_UNAUTHENTICATED_NETWORK=true
+# Listening on 0.0.0.0 must not also switch off the DNS-rebinding guard: a
+# port published on 127.0.0.1 is still reachable from any web page whose name
+# rebinds to loopback. Only loopback names and IP literals are accepted as the
+# Host by default; a proxy or cluster lists its hostnames here (or `*`).
+ENV PRAX_ALLOWED_HOSTS=localhost
+# The database lives on the /data volume. A fresh named volume copies this
+# directory's ownership, so the non-root user can create prax.db there.
+ENV PRAX_DB_FILE=/data/prax.db
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY --chown=node:node package.json ./
@@ -27,6 +35,8 @@ COPY --chown=node:node scripts/migrate.js ./scripts/migrate.js
 COPY --chown=node:node scripts/backup-database.js ./scripts/backup-database.js
 COPY --chown=node:node scripts/restore-database.js ./scripts/restore-database.js
 COPY --chown=node:node public ./public
+
+RUN mkdir -p /data && chown node:node /data
 
 USER node
 

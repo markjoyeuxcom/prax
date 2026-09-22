@@ -70,7 +70,10 @@ host loss.
 
 If the app is fully stopped, copying `prax.db` also works. Do not copy only the main file while the
 app is running: committed data may still be in `prax.db-wal`. When using a raw stopped copy, keep
-the main file together with any `-wal` and `-shm` siblings.
+the main file together with any `-wal` and `-shm` siblings. A normal desktop quit (menu-bar
+**Quit Prax**, ⌘Q, the Dock's Quit, logout) closes the database and folds the WAL back into
+`prax.db`, but a crash, a force quit or a server that misses the five-second shutdown bound leaves
+committed data in `prax.db-wal` until the next launch — so copy the siblings whenever they exist.
 
 **Docker Compose:** the file lives in the `prax-data` volume at `/data/prax.db`:
 

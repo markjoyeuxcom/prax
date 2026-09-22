@@ -6,10 +6,12 @@
 // under the OS app-data dir. The sidecar starts *before* any webview work so
 // data-layer liveness never depends on the platform webview initializing.
 // Single-instance locking keeps two windows from opening the same database;
-// ordinary exit asks Node to close Fastify/SQLite over stdin and uses a
-// bounded force-kill only if the child cannot shut down.
+// every quit path (tray, app menu, Dock, logout) asks Node to close
+// Fastify/SQLite over stdin and uses a bounded force-kill only if the child
+// cannot shut down.
 
 use std::collections::HashMap;
+use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
@@ -17,12 +19,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 
+#[cfg(target_os = "macos")]
+use tauri::menu::{AboutMetadata, PredefinedMenuItem, Submenu, HELP_SUBMENU_ID, WINDOW_SUBMENU_ID};
 #[cfg(desktop)]
 use tauri::menu::{Menu, MenuItem};
 use tauri::path::BaseDirectory;
 #[cfg(desktop)]
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
 #[cfg(desktop)]
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
@@ -42,6 +46,21 @@ struct CaptureShortcut(Mutex<Option<String>>);
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_SERVER_LOG_BYTES: u64 = 5 * 1024 * 1024;
+
+// The bundled startup/recovery page (src-tauri/splash) as Tauri's custom
+// protocol serves it; `use_https_scheme` stays off, so Windows uses http.
+#[cfg(windows)]
+const BUNDLED_ORIGIN: &str = "http://tauri.localhost/";
+#[cfg(not(windows))]
+const BUNDLED_ORIGIN: &str = "tauri://localhost/";
+
+// The app menu's Quit item (macOS). Tray items share the global menu-event
+// listeners, so this id must not collide with theirs.
+const APP_MENU_QUIT: &str = "app-quit";
+
+// Diagnostic log for shell-side failures: the sidecar's server.log, so one
+// file tells the whole story of a failed launch or crash.
+struct ShellLog(PathBuf);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ServerPhase {
@@ -279,6 +298,41 @@ fn navigation_allowed(url: &tauri::Url, sidecar_port: Option<u16>) -> bool {
     })
 }
 
+// The recovery screen is the bundled page with its reason in the query
+// string. splash.js renders both fields as text, so nothing in a server
+// message or log path is ever evaluated as script.
+fn recovery_url(heading: &str, detail: &str) -> tauri::Url {
+    let mut url: tauri::Url = BUNDLED_ORIGIN
+        .parse()
+        .expect("bundled origin always parses");
+    url.set_path("/index.html");
+    url.query_pairs_mut()
+        .append_pair("state", "error")
+        .append_pair("heading", heading)
+        .append_pair("detail", detail);
+    url
+}
+
+fn is_recovery_url(url: &tauri::Url) -> bool {
+    app_origin(url)
+        && url.path() == "/index.html"
+        && url
+            .query_pairs()
+            .any(|(key, value)| key == "state" && value == "error")
+}
+
+fn log_shell_event(app: &AppHandle, message: &str) {
+    let line = format!("[prax] {message}\n");
+    eprint!("{line}");
+    let Some(log) = app.try_state::<ShellLog>() else {
+        return;
+    };
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&log.0) {
+        let _ = set_owner_only(&log.0, 0o600);
+        let _ = file.write_all(line.as_bytes());
+    }
+}
+
 #[cfg(unix)]
 fn set_owner_only(path: &Path, mode: u32) -> std::io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
@@ -334,12 +388,28 @@ fn show_recovery(app: &AppHandle, heading: &str, detail: String) {
     if process.recovery_shown.swap(true, Ordering::SeqCst) {
         return;
     }
-    open_window(
-        app,
-        WebviewUrl::App("index.html".into()),
-        None,
-        Some((heading.to_string(), detail)),
-    );
+    let url = recovery_url(heading, &detail);
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        // The capture bar posts to the dead server. Once it is hidden, the
+        // next summon finds no sidecar port and surfaces the recovery screen.
+        if let Some(capture) = handle.get_webview_window("capture") {
+            let _ = capture.hide();
+        }
+        // A crash after startup reuses the open main window. destroy() only
+        // takes effect on a later event-loop turn, so building a replacement
+        // "main" here fails with WindowLabelAlreadyExists and leaves no window.
+        if let Some(window) = handle.get_webview_window("main") {
+            if let Err(error) = window.navigate(url) {
+                log_shell_event(&handle, &format!("recovery-navigate-failed {error}"));
+            }
+            let _ = window.show();
+            let _ = window.unminimize();
+            let _ = window.set_focus();
+        } else {
+            build_main_window(&handle, WebviewUrl::CustomProtocol(url), None);
+        }
+    });
 }
 
 fn spawn_server(app: &AppHandle, data_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
@@ -389,7 +459,6 @@ fn spawn_server(app: &AppHandle, data_dir: &Path) -> Result<(), Box<dyn std::err
     let handle = app.clone();
     let data_dir = data_dir.to_path_buf();
     tauri::async_runtime::spawn(async move {
-        use std::fs::OpenOptions;
         let mut file = OpenOptions::new()
             .create(true)
             .append(true)
@@ -487,56 +556,209 @@ fn begin_server_shutdown(app: AppHandle, after: AfterShutdown) {
     });
 }
 
-fn open_window(
+// RunEvent::Exit is the one point every quit passes through. macOS
+// terminate: (the Dock's Quit, logout, system shutdown) reaches it without
+// ExitRequested, so the child may still hold the database open. Ask it to
+// close and wait, bounded, on the main thread: the process ends when this
+// returns. The child's exit is observed on the sidecar pump task, never the
+// main thread, and the child mutex is only held for a pipe write or a kill.
+fn finish_server_before_exit(app: &AppHandle) {
+    let process = app.state::<ServerProcess>();
+    process.expected_stop.store(true, Ordering::SeqCst);
+    // A shutdown already begun (tray Quit, ExitRequested) wrote its own
+    // request; this barrier then only waits for the same bounded outcome.
+    let request_here = !process.shutdown_started.swap(true, Ordering::SeqCst);
+    let running = match process.child.lock().unwrap().as_mut() {
+        Some(child) => {
+            if request_here {
+                let _ = child.write(b"shutdown\n");
+            }
+            true
+        }
+        None => false,
+    };
+    if running && !process.wait_for_termination(SHUTDOWN_TIMEOUT) {
+        force_kill_server(app);
+    }
+}
+
+fn on_app_menu_event(app: &AppHandle, id: &str) {
+    if id == APP_MENU_QUIT {
+        begin_server_shutdown(app.clone(), AfterShutdown::Exit(0));
+    }
+}
+
+// Tauri's default macOS menu with one change. Its predefined Quit sends NSApp
+// terminate:, which skips ExitRequested; this Quit (same ⌘Q) runs the tray's
+// graceful shutdown instead. The Edit items must stay: the webview's text
+// fields get undo, cut, copy, paste and select-all only through them.
+#[cfg(target_os = "macos")]
+fn app_menu(handle: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let package = handle.package_info();
+    let config = handle.config();
+    let about = AboutMetadata {
+        name: Some(package.name.clone()),
+        version: Some(package.version.to_string()),
+        copyright: config.bundle.copyright.clone(),
+        authors: config
+            .bundle
+            .publisher
+            .clone()
+            .map(|publisher| vec![publisher]),
+        ..Default::default()
+    };
+    let quit = MenuItem::with_id(
+        handle,
+        APP_MENU_QUIT,
+        format!("Quit {}", package.name),
+        true,
+        Some("CmdOrCtrl+Q"),
+    )?;
+    let window_menu = Submenu::with_id_and_items(
+        handle,
+        WINDOW_SUBMENU_ID,
+        "Window",
+        true,
+        &[
+            &PredefinedMenuItem::minimize(handle, None)?,
+            &PredefinedMenuItem::maximize(handle, None)?,
+            &PredefinedMenuItem::separator(handle)?,
+            &PredefinedMenuItem::close_window(handle, None)?,
+        ],
+    )?;
+    let help_menu = Submenu::with_id_and_items(handle, HELP_SUBMENU_ID, "Help", true, &[])?;
+    Menu::with_items(
+        handle,
+        &[
+            &Submenu::with_items(
+                handle,
+                &package.name,
+                true,
+                &[
+                    &PredefinedMenuItem::about(handle, None, Some(about))?,
+                    &PredefinedMenuItem::separator(handle)?,
+                    &PredefinedMenuItem::services(handle, None)?,
+                    &PredefinedMenuItem::separator(handle)?,
+                    &PredefinedMenuItem::hide(handle, None)?,
+                    &PredefinedMenuItem::hide_others(handle, None)?,
+                    &PredefinedMenuItem::separator(handle)?,
+                    &quit,
+                ],
+            )?,
+            &Submenu::with_items(
+                handle,
+                "File",
+                true,
+                &[&PredefinedMenuItem::close_window(handle, None)?],
+            )?,
+            &Submenu::with_items(
+                handle,
+                "Edit",
+                true,
+                &[
+                    &PredefinedMenuItem::undo(handle, None)?,
+                    &PredefinedMenuItem::redo(handle, None)?,
+                    &PredefinedMenuItem::separator(handle)?,
+                    &PredefinedMenuItem::cut(handle, None)?,
+                    &PredefinedMenuItem::copy(handle, None)?,
+                    &PredefinedMenuItem::paste(handle, None)?,
+                    &PredefinedMenuItem::select_all(handle, None)?,
+                ],
+            )?,
+            &Submenu::with_items(
+                handle,
+                "View",
+                true,
+                &[&PredefinedMenuItem::fullscreen(handle, None)?],
+            )?,
+            &window_menu,
+            &help_menu,
+        ],
+    )
+}
+
+// Build the one "main" window, either on the sidecar origin or on the
+// bundled recovery page. Callers run on the main thread.
+fn build_main_window(
     handle: &AppHandle,
     url: WebviewUrl,
     sidecar_port: Option<u16>,
-    recovery: Option<(String, String)>,
-) {
-    let handle = handle.clone();
-    let _ = handle.clone().run_on_main_thread(move || {
-        if let Some(existing) = handle.get_webview_window("main") {
-            let _ = existing.destroy();
+) -> Option<WebviewWindow> {
+    let builder = WebviewWindowBuilder::new(handle, "main", url)
+        .title("Prax")
+        .inner_size(1280.0, 800.0)
+        .min_inner_size(700.0, 520.0)
+        .center()
+        // The board's lanes are HTML5 drag and drop. With Tauri's own
+        // drag-and-drop handler on, the webview claims every drop as a
+        // file drop before the page's `drop` event fires, so a dragged
+        // card sprang back to its lane. Nothing in Prax takes file drops,
+        // so the handler is off and the page owns drag and drop.
+        .disable_drag_drop_handler()
+        .on_navigation(move |url| navigation_allowed(url, sidecar_port));
+    // macOS: merge the native titlebar into the app's top bar — traffic
+    // lights overlay the webview and the toolbar strip becomes draggable
+    // (data-tauri-drag-region in the frontend).
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true);
+    let window = match builder.build() {
+        Ok(window) => window,
+        Err(error) => {
+            log_shell_event(handle, &format!("main-window-build-failed {error}"));
+            return None;
         }
-        let builder = WebviewWindowBuilder::new(&handle, "main", url)
-            .title("Prax")
-            .inner_size(1280.0, 800.0)
-            .min_inner_size(700.0, 520.0)
-            .center()
-            // The board's lanes are HTML5 drag and drop. With Tauri's own
-            // drag-and-drop handler on, the webview claims every drop as a
-            // file drop before the page's `drop` event fires, so a dragged
-            // card sprang back to its lane. Nothing in Prax takes file drops,
-            // so the handler is off and the page owns drag and drop.
-            .disable_drag_drop_handler()
-            .on_navigation(move |url| navigation_allowed(url, sidecar_port));
-        // macOS: merge the native titlebar into the app's top bar — traffic
-        // lights overlay the webview and the toolbar strip becomes draggable
-        // (data-tauri-drag-region in the frontend).
-        #[cfg(target_os = "macos")]
-        let builder = builder
-            .title_bar_style(tauri::TitleBarStyle::Overlay)
-            .hidden_title(true);
-        let window = builder.build();
-        // The sidecar-served app window closes to the tray (capture and quick
-        // reopen stay alive); recovery windows keep close-to-exit so a failed
-        // startup cannot leave a hidden zombie process.
-        if let Ok(window) = &window {
-            if sidecar_port.is_some() {
-                let hidden = window.clone();
-                window.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        api.prevent_close();
-                        let _ = hidden.hide();
-                    }
-                });
+    };
+    // The live app window closes to the tray (capture and quick reopen stay
+    // alive). Once the recovery screen is up — a failed start, or this same
+    // window after a sidecar crash — close quits instead, so a dead server
+    // cannot leave a hidden zombie process. Exit takes the graceful path if
+    // a hung child is still running.
+    let app = handle.clone();
+    let hidden = window.clone();
+    window.on_window_event(move |event| {
+        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            if app
+                .state::<ServerProcess>()
+                .recovery_shown
+                .load(Ordering::SeqCst)
+            {
+                app.exit(0);
+            } else {
+                api.prevent_close();
+                let _ = hidden.hide();
             }
         }
-        if let (Ok(window), Some((heading, detail))) = (window, recovery) {
-            let _ = window.eval(&format!(
-                "addEventListener('DOMContentLoaded',()=>{{document.body.dataset.state='error';document.getElementById('heading').textContent={heading:?};document.getElementById('detail').textContent={detail:?};document.getElementById('restart').hidden=false;}});"
-            ));
+    });
+    Some(window)
+}
+
+// Open the app on the sidecar origin, or surface it if it is already open.
+fn open_app_window(handle: &AppHandle, port: u16) {
+    let url: tauri::Url = format!(
+        "http://127.0.0.1:{port}/?shell=desktop&platform={}",
+        platform_name()
+    )
+    .parse()
+    .expect("port url always parses");
+    let handle = handle.clone();
+    let _ = handle.clone().run_on_main_thread(move || {
+        // A crash between readiness and this turn has already put the
+        // recovery screen up; the dead origin must not replace it.
+        if handle
+            .state::<ServerProcess>()
+            .recovery_shown
+            .load(Ordering::SeqCst)
+        {
+            return;
         }
+        if let Some(window) = handle.get_webview_window("main") {
+            let _ = window.show();
+            let _ = window.set_focus();
+            return;
+        }
+        build_main_window(&handle, WebviewUrl::External(url), Some(port));
     });
 }
 
@@ -579,13 +801,7 @@ fn show_main_window(handle: &AppHandle) {
         let _ = window.unminimize();
         let _ = window.set_focus();
     } else if let Some(port) = current_sidecar_port(handle) {
-        let url = format!(
-            "http://127.0.0.1:{port}/?shell=desktop&platform={}",
-            platform_name()
-        )
-        .parse()
-        .expect("port url always parses");
-        open_window(handle, WebviewUrl::External(url), Some(port), None);
+        open_app_window(handle, port);
     }
 }
 
@@ -788,6 +1004,110 @@ where
     Ok(None)
 }
 
+// How a smoke launch ends (scripts/verify-desktop-runtime.mjs). Each drives
+// a real quit or crash path and leaves its evidence in server.log/stdout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SmokeExit {
+    // The app menu's Quit handler: the graceful shutdown ⌘Q and tray Quit use.
+    MenuQuit,
+    // NSApp terminate: (Dock Quit, logout): the RunEvent::Exit barrier alone.
+    Terminate,
+    // SIGKILL the sidecar after the main window opened; expect recovery.
+    Crash,
+}
+
+fn smoke_exit_from_args<I>(args: I) -> Result<SmokeExit, String>
+where
+    I: IntoIterator<Item = String>,
+{
+    let mut args = args.into_iter();
+    while let Some(arg) = args.next() {
+        if arg == "--desktop-smoke-exit" {
+            return match args.next().as_deref() {
+                Some("menu-quit") => Ok(SmokeExit::MenuQuit),
+                Some("terminate") if cfg!(target_os = "macos") => Ok(SmokeExit::Terminate),
+                Some("crash") => Ok(SmokeExit::Crash),
+                _ => Err(
+                    "--desktop-smoke-exit takes menu-quit, crash or (macOS only) terminate"
+                        .to_string(),
+                ),
+            };
+        }
+    }
+    Ok(SmokeExit::MenuQuit)
+}
+
+// Stop the sidecar the way a crash or `kill -9` does, leaving its lifecycle
+// state untouched so the Terminated event decides what the user sees.
+fn kill_sidecar_like_a_crash(pid: u32) -> bool {
+    let pid = pid.to_string();
+    let mut command = if cfg!(windows) {
+        let mut command = std::process::Command::new("taskkill");
+        command.args(["/F", "/PID", &pid]);
+        command
+    } else {
+        let mut command = std::process::Command::new("kill");
+        command.args(["-KILL", &pid]);
+        command
+    };
+    command.status().is_ok_and(|status| status.success())
+}
+
+fn run_smoke_exit(app: AppHandle, exit: SmokeExit) {
+    match exit {
+        SmokeExit::MenuQuit => on_app_menu_event(&app, APP_MENU_QUIT),
+        SmokeExit::Terminate => {
+            // Deliver terminate: the way the Dock and logout do: from AppKit's
+            // run loop, outside tao's event callback. Called directly inside
+            // run_on_main_thread it re-enters tao's handler lock through the
+            // will-terminate notification and deadlocks (sampled on macOS),
+            // which no real quit does.
+            #[cfg(target_os = "macos")]
+            let _ = app.run_on_main_thread(|| {
+                use objc2::sel;
+                use objc2_app_kit::NSApplication;
+                use objc2_foundation::{MainThreadMarker, NSObjectNSDelayedPerforming};
+                let main_thread =
+                    MainThreadMarker::new().expect("run_on_main_thread runs on the main thread");
+                let ns_app = NSApplication::sharedApplication(main_thread);
+                // SAFETY: terminate: is NSApplication's own selector and takes
+                // an optional sender, for which nil is valid.
+                unsafe {
+                    ns_app.performSelector_withObject_afterDelay(sel!(terminate:), None, 0.0)
+                };
+            });
+            #[cfg(not(target_os = "macos"))]
+            unreachable!("terminate smoke is refused on this platform");
+        }
+        SmokeExit::Crash => {
+            let pid = app
+                .state::<ServerProcess>()
+                .child
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(CommandChild::pid);
+            let killed = pid.is_some_and(kill_sidecar_like_a_crash);
+            let deadline = Instant::now() + Duration::from_secs(15);
+            let mut shown = false;
+            while killed && !shown && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(200));
+                shown = app.get_webview_window("main").is_some_and(|window| {
+                    window.is_visible().unwrap_or(false)
+                        && window.url().is_ok_and(|url| is_recovery_url(&url))
+                });
+            }
+            if shown {
+                println!("PRAX_DESKTOP_SMOKE recovery-shown");
+                on_app_menu_event(&app, APP_MENU_QUIT);
+            } else {
+                eprintln!("PRAX_DESKTOP_SMOKE recovery-missing");
+                app.exit(1);
+            }
+        }
+    }
+}
+
 // Holding a letter key on macOS opens the accent picker instead of
 // repeating the character — wrong for a Markdown editor. Opting this app's
 // defaults domain out restores key repeat inside Prax without touching the
@@ -806,6 +1126,8 @@ pub fn run() {
 
     let smoke_data_dir = smoke_data_dir_from_args(std::env::args())
         .expect("invalid Prax desktop smoke-test arguments");
+    let smoke_exit =
+        smoke_exit_from_args(std::env::args()).expect("invalid Prax desktop smoke-test arguments");
 
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -829,6 +1151,10 @@ pub fn run() {
     };
     #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .menu(app_menu)
+        .on_menu_event(|app, event| on_app_menu_event(app, event.id().as_ref()));
 
     builder
         .invoke_handler(tauri::generate_handler![
@@ -842,6 +1168,7 @@ pub fn run() {
         .setup(move |app| {
             let handle = app.handle().clone();
             let data_dir = prepare_data_dir(&handle, smoke_data_dir.clone())?;
+            app.manage(ShellLog(data_dir.join("logs").join("server.log")));
 
             // The tray exists before (and regardless of) server startup, so
             // Quit and Open Prax always work — even during a failed launch.
@@ -881,11 +1208,7 @@ pub fn run() {
                     });
 
                 if let Ok(port) = ready {
-                    let platform = platform_name();
-                    let url = format!("http://127.0.0.1:{port}/?shell=desktop&platform={platform}")
-                        .parse()
-                        .expect("port url always parses");
-                    open_window(&handle, WebviewUrl::External(url), Some(port), None);
+                    open_app_window(&handle, port);
 
                     // The summon chord only means something once there is a
                     // server to capture into; the stored chord wins, the
@@ -899,7 +1222,7 @@ pub fn run() {
 
                     if smoke_data_dir.is_some() {
                         std::thread::sleep(Duration::from_secs(1));
-                        begin_server_shutdown(handle, AfterShutdown::Exit(0));
+                        run_smoke_exit(handle, smoke_exit);
                     }
                 } else {
                     let reason = ready.err().unwrap_or_else(|| "Unknown startup failure.".into());
@@ -926,7 +1249,7 @@ pub fn run() {
                     begin_server_shutdown(app.clone(), AfterShutdown::Exit(code.unwrap_or(0)));
                 }
             }
-            RunEvent::Exit => force_kill_server(app),
+            RunEvent::Exit => finish_server_before_exit(app),
             // macOS dock icon click while every window is hidden in the tray.
             #[cfg(target_os = "macos")]
             RunEvent::Reopen { .. } => show_main_window(app),
@@ -940,8 +1263,9 @@ mod tests {
     use std::io::Write;
 
     use super::{
-        navigation_allowed, normalize_export_filename, parse_ready_line, parse_shortcut_response,
-        rotate_log, smoke_data_dir_from_args,
+        is_recovery_url, navigation_allowed, normalize_export_filename, parse_ready_line,
+        parse_shortcut_response, recovery_url, rotate_log, smoke_data_dir_from_args,
+        smoke_exit_from_args, SmokeExit,
     };
 
     #[cfg(target_os = "macos")]
@@ -1017,6 +1341,77 @@ mod tests {
         assert!(!navigation_allowed(&remote, Some(43127)));
         assert!(navigation_allowed(&bundled, Some(43127)));
         assert!(navigation_allowed(&windows_bundled, None));
+    }
+
+    #[test]
+    fn recovery_screen_carries_its_reason_as_inert_query_text() {
+        let heading = "Prax's local server stopped";
+        let detail = "The local server exited (code none, signal 9). Restart Prax to recover. \
+                      Diagnostic log: /Users/a b/Library/Application Support/com.moomora.prax/logs/server.log \
+                      & \"quotes\" </script><script>alert(1)</script> ?#=%\n";
+        let url = recovery_url(heading, detail);
+
+        assert!(is_recovery_url(&url));
+        assert_eq!(url.path(), "/index.html");
+        assert_eq!(
+            url.fragment(),
+            None,
+            "a # in the detail must stay inside the query"
+        );
+        let pairs: Vec<(String, String)> = url.query_pairs().into_owned().collect();
+        assert_eq!(
+            pairs,
+            vec![
+                ("state".to_string(), "error".to_string()),
+                ("heading".to_string(), heading.to_string()),
+                ("detail".to_string(), detail.to_string()),
+            ]
+        );
+        assert!(!url.as_str().contains('<') && !url.as_str().contains('"'));
+    }
+
+    #[test]
+    fn an_open_sidecar_window_may_navigate_to_the_recovery_screen() {
+        let url = recovery_url("Prax could not start", "detail");
+        // The live window's navigation policy is pinned to its sidecar port;
+        // the bundled recovery origin must stay reachable from it.
+        assert!(navigation_allowed(&url, Some(43127)));
+        assert!(navigation_allowed(&url, None));
+
+        let live: tauri::Url = "http://127.0.0.1:43127/?shell=desktop&state=error"
+            .parse()
+            .unwrap();
+        let splash: tauri::Url = "tauri://localhost/index.html".parse().unwrap();
+        assert!(!is_recovery_url(&live));
+        assert!(!is_recovery_url(&splash));
+    }
+
+    #[test]
+    fn smoke_exit_defaults_to_the_menu_quit_and_rejects_unknown_modes() {
+        assert_eq!(
+            smoke_exit_from_args(["prax".into(), "--desktop-smoke".into(), "/tmp/x".into()]),
+            Ok(SmokeExit::MenuQuit)
+        );
+        assert_eq!(
+            smoke_exit_from_args(["prax".into(), "--desktop-smoke-exit".into(), "crash".into()]),
+            Ok(SmokeExit::Crash)
+        );
+        assert_eq!(
+            smoke_exit_from_args([
+                "prax".into(),
+                "--desktop-smoke-exit".into(),
+                "terminate".into()
+            ])
+            .is_ok(),
+            cfg!(target_os = "macos")
+        );
+        assert!(smoke_exit_from_args(["prax".into(), "--desktop-smoke-exit".into()]).is_err());
+        assert!(smoke_exit_from_args([
+            "prax".into(),
+            "--desktop-smoke-exit".into(),
+            "sigterm".into()
+        ])
+        .is_err());
     }
 
     #[test]

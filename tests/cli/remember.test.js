@@ -323,3 +323,35 @@ test('id: a missing document surfaces the server error rather than creating anyt
   await assert.rejects(remember(client, { title: 'T', body: 'B', project: 'memory', id: 'gone' }), /document not found/);
   assert.equal(created, false);
 });
+
+test('remember sends no tags when the caller gave none, so an update keeps the stored tags', async () => {
+  let sent;
+  const client = fakeClient({ upsertMemory: async (doc) => { sent = doc; return { document: { id: 'existing' }, created: false }; } });
+  await remember(client, { title: 'T', body: 'B', project: 'homelab' });
+  assert.equal('tags' in sent, false);
+  await remember(client, { title: 'T', body: 'B', project: 'homelab', tags: [] });
+  assert.deepEqual(sent.tags, []);
+});
+
+test('remember by --id without tags keeps the stored tags', async () => {
+  let patch;
+  const client = fakeClient({
+    getDocument: async () => ({ id: 'd1', tags: ['ops'], revision: 'r1' }),
+    updateMemory: async (id, p) => { patch = p; return { id, ...p }; },
+  });
+  await remember(client, { title: 'T', body: 'B', id: 'd1' });
+  assert.deepEqual(patch.tags, ['ops']);
+});
+
+test('the legacy read-then-write path leaves tags out of an update the caller gave none for', async () => {
+  let patch; let created;
+  const client = fakeClient({
+    listDocuments: async () => [{ id: 'dup', title: 'T' }],
+    updateMemory: async (id, p) => { patch = p; return { id, ...p }; },
+  });
+  await remember(client, { title: 'T', body: 'B', project: 'memory' });
+  assert.equal('tags' in patch, false);
+  const fresh = fakeClient({ createMemory: async (doc) => { created = doc; return { id: 'new', ...doc }; } });
+  await remember(fresh, { title: 'New', body: 'B', project: 'memory' });
+  assert.deepEqual(created.tags, []);
+});

@@ -12,7 +12,7 @@ import { confirmDocumentVerification } from './lib/verify.js';
 import { searchLibrary, describeRetrieval } from './lib/search.js';
 import { createRepoReader, headSha } from './lib/repoFiles.js';
 import { resolveCitation } from './lib/codeRefs.js';
-import { parseArgs, repeatedValues } from './lib/cliArgs.js';
+import { flagValue, parseArgs, repeatedValues } from './lib/cliArgs.js';
 import {
   buildTaskRecord, buildTaskPatch, createTask, updateTask, completeTask, setChecklistItem,
   formatTask, formatTaskList, isTaskId, TASK_PRIORITIES, TASK_STATUSES,
@@ -174,25 +174,36 @@ async function main(argv) {
   if (command === 'remember') {
     const title = positionals[1];
     if (!title) throw new Error('remember requires a title.');
-    const body = flags.body !== undefined && flags.body !== true ? String(flags.body) : '';
+    // A remember always carries a body: an update writes it over the stored
+    // document, so a missing or blank one would erase the memory (QINV-01).
+    const body = flagValue(flags, 'body');
+    if (body === undefined || !body.trim()) {
+      throw new Error('remember needs a non-empty --body; it replaces the stored body of a same-title document.');
+    }
     // undefined = --type not given (create defaults to note; update keeps the
     // stored type). A given value is validated against the shared registry.
-    const type = flags.type === undefined || flags.type === true ? undefined : String(flags.type);
+    const type = flagValue(flags, 'type');
     if (type !== undefined && !isDocumentType(type)) {
       throw new Error(`Unknown --type "${type}". Types: ${DOCUMENT_TYPE_VALUES.join(', ')}.`);
     }
-    const project = flags.memory ? 'memory' : (await resolveProjectName(flags, client)).project;
-    const userTags = flags.tag ? String(flags.tag).split(',').map((t) => t.trim()).filter(Boolean) : [];
-    const tags = [...userTags, ...(flags.memory ? ['memory'] : [])];
+    // No --tag = keep the stored tags on update (every path); --tag replaces
+    // them on a same-title update and is merged on --id / cross-project.
+    const tagFlag = flagValue(flags, 'tag');
+    const userTags = tagFlag === undefined ? [] : tagFlag.split(',').map((t) => t.trim()).filter(Boolean);
+    const tags = tagFlag === undefined && !flags.memory ? undefined : [...userTags, ...(flags.memory ? ['memory'] : [])];
     // --id targets one document wherever it lives; --memory without --project
     // refines a same-title document in its own project instead of duplicating
     // it into memory (the project-scoped `prax remember` is left alone: there
     // the project was chosen, by flag or by the checkout).
-    const id = flags.id !== undefined && flags.id !== true ? String(flags.id) : undefined;
+    const id = flagValue(flags, 'id');
     if (id !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
       throw new Error(`--id must be a document uuid (got "${id}").`);
     }
+    const ref = flagValue(flags, 'ref');
+    const cite = flagValue(flags, 'cite');
     const crossProject = Boolean(flags.memory) && !flags.project && !id;
+    // Every flag is validated before this first network call.
+    const project = flags.memory ? 'memory' : (await resolveProjectName(flags, client)).project;
     // A --memory write is agent memory, so it carries the same provenance the
     // prax-remember skill stamps (kind: synthesized). A project-scoped write is
     // left alone: it is a note about this project, not synthesized memory.
@@ -201,18 +212,18 @@ async function main(argv) {
     const { doc, action } = result;
     // Optional --ref <url> attaches an external reference to the memory. Best-
     // effort: a bad URL doesn't fail the remember (the doc is already saved).
-    if (flags.ref && flags.ref !== true) {
-      try { await client.addExternalRef(doc.id, { url: String(flags.ref) }); }
+    if (ref !== undefined) {
+      try { await client.addExternalRef(doc.id, { url: ref }); }
       catch (err) { process.stderr.write(`prax: could not attach --ref: ${err.message}\n`); }
     }
     // Optional --cite <path[:start[-end]]> pins the code this memory makes a
     // claim about, so a later recall can say the claim's ground has moved.
     // Best-effort for the same reason as --ref: the memory is already saved.
-    if (flags.cite && flags.cite !== true) {
+    if (cite !== undefined) {
       try {
         const read = createRepoReader();
         if (!read) throw new Error('not inside a git repository');
-        const citation = resolveCitation(String(flags.cite), { readFile: read, headSha: headSha() });
+        const citation = resolveCitation(cite, { readFile: read, headSha: headSha() });
         await client.addCodeRef(doc.id, citation);
       } catch (err) { process.stderr.write(`prax: could not attach --cite: ${err.message}\n`); }
     }

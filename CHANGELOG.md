@@ -12,8 +12,49 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Security
+
+- **AI answers no longer load remote images.** Assistant answers, Ask Prax, AI narratives and
+  writing previews render a remote Markdown image as an inert "not loaded" label instead of an
+  `<img>`. A browser fetches an image as soon as it renders, so a prompt-injected answer could
+  otherwise have carried Library or task text out in the image URL with no click. Only the
+  editor preview of a document still loads its remote images.
+- **The container keeps its DNS-rebinding defence.** The image listens on `0.0.0.0`, which used to
+  switch the `Host` header check off even though Compose publishes the port on `127.0.0.1` only,
+  so any web page whose name rebound to loopback could use the API. The new `PRAX_ALLOWED_HOSTS`
+  setting turns the check on for any bind (loopback names and IP literals are always accepted;
+  `*` turns it off). The image sets it to `localhost`; the Kubernetes base sets `"*"` to keep its
+  previous behaviour. **Behaviour change:** a Docker or Compose install reached through a proxy
+  hostname must add that name to `PRAX_ALLOWED_HOSTS`.
+
 ### Fixed
 
+- **`prax remember` could erase a document.** A missing `--body`, or one whose text began with
+  `--`, was sent as an empty body over a same-title document while the command reported success.
+  `remember` now requires a non-blank `--body` and refuses any value flag given without a value
+  (write `--body="--text"` for text that starts with `--`). Re-remembering without `--tag` now
+  keeps the stored tags on every path; `upsert-by-title` keeps them when `tags` is omitted.
+- **Weekly review regeneration overwrote your edits.** Regenerating now refuses a review that a
+  person or an identified agent edited since it was compiled (`reason: "edited-review"`), re-reads
+  the review after the narrative is generated so a verification or edit made meanwhile counts,
+  and writes with a revision check. Narration now reports why it degraded
+  (`no-chat-model`, `generation-failed` or `empty-narration`).
+- **Typing was lost when a toast expired or background data arrived.** Toast expiry now
+  updates only the toast, and a render in the same view puts back the focused field, its caret
+  and any text that lived only in the page: a new document's title, checklist items, dialog
+  names, project renames, Settings fields and the editor's caret and scroll. Links and related
+  notes that arrive in plain Edit mode no longer remount the editor. A background render during
+  an inline project rename neither saves nor discards the half-typed name.
+- **The desktop app vanished instead of showing recovery after a server crash.** A crash with
+  the window open rebuilt the window under a label that was still registered, so no window
+  remained. The open window now navigates to the recovery screen, which closes the app when
+  closed, and window failures are written to `server.log`.
+- **⌘Q, Dock Quit and logout killed the local server.** The macOS app menu's Quit now runs the
+  same graceful shutdown as the tray, and every other quit path waits (bounded) for the server
+  to close the database, so the WAL is checkpointed. The desktop smoke test now covers menu
+  Quit, `terminate:` and a crash with the window open.
+- **A fresh Compose volume could not hold the database.** The image creates `/data` for the
+  non-root user and defaults `PRAX_DB_FILE` to `/data/prax.db`.
 - **CLI flag values that begin with `--`.** `--flag=value` is now accepted everywhere, and
   `prax task add` refuses a bare `--check` instead of silently dropping the checklist item
   whose text started with `--`.

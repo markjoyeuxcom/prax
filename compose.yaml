@@ -10,6 +10,9 @@ services:
       # Required for every non-loopback process bind. This acknowledges that
       # Prax itself has no auth; the host publication below remains loopback-only.
       PRAX_ALLOW_UNAUTHENTICATED_NETWORK: "true"
+      # Keep the DNS-rebinding guard on: accept only loopback names and IP
+      # literals as the Host. Add a proxy's hostname here if you put one in front.
+      PRAX_ALLOWED_HOSTS: localhost
       PORT: 3000
       PRAX_DB_FILE: /data/prax.db
     ports:

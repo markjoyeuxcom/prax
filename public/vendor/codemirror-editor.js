@@ -28406,6 +28406,29 @@ function mountCodeMirrorEditor({
       const sel = view.state.selection.main;
       return sel.empty ? "" : view.state.sliceDoc(sel.from, sel.to);
     },
+    // Primary selection as document offsets ({from, to}; equal for a bare
+    // caret), and whether the editor holds keyboard focus — so a host re-render
+    // that has to remount the editor can put the person back where they were.
+    getSelectionRange() {
+      const sel = view.state.selection.main;
+      return { from: sel.from, to: sel.to };
+    },
+    setSelectionRange(from, to = from) {
+      const len = view.state.doc.length;
+      const clamp = (pos) => Math.max(0, Math.min(len, Number(pos) || 0));
+      view.dispatch({ selection: { anchor: clamp(from), head: clamp(to) } });
+    },
+    hasFocus() {
+      return view.hasFocus;
+    },
+    // An opaque scroll position (CodeMirror's own scrollSnapshot effect) that
+    // restoreScroll re-applies to a freshly mounted editor on the same text.
+    scrollSnapshot() {
+      return view.scrollSnapshot();
+    },
+    restoreScroll(snapshot) {
+      if (snapshot) view.dispatch({ effects: snapshot });
+    },
     scrollToLine(lineNumber) {
       const line = view.state.doc.line(
         Math.max(1, Math.min(view.state.doc.lines, Number(lineNumber) + 1))

@@ -1,5 +1,15 @@
 const restart = document.getElementById('restart');
 
+// The shell opens this page as the recovery screen with its reason in the
+// query string (src-tauri/src/lib.rs recovery_url). Text only, never markup.
+const recovery = new URLSearchParams(location.search);
+if (recovery.get('state') === 'error') {
+  document.body.dataset.state = 'error';
+  document.getElementById('heading').textContent = recovery.get('heading') || 'Prax needs to restart';
+  document.getElementById('detail').textContent = recovery.get('detail') || 'Restart Prax to recover.';
+  if (restart) restart.hidden = false;
+}
+
 restart?.addEventListener('click', async () => {
   restart.disabled = true;
   restart.textContent = 'Restarting…';
