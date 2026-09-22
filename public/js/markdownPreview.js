@@ -64,8 +64,11 @@ function renderInline(value) {
   // and strand the leading "!". src is restricted to http(s)/relative (no
   // javascript:) and alt is already escaped by escapeHtml above.
   text = text.replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+|\/[^)\s]+)\)/g, (_match, alt, src) => {
-    if (remoteImages || src.startsWith('/')) return `<img src="${src}" alt="${alt}" loading="lazy">`;
-    const host = src.replace(/^https?:\/\//, '').split(/[/?#]/)[0];
+    // Same-origin only for a single leading slash: a browser resolves `//host`
+    // and `/\host` (backslash counts as a slash) to another origin.
+    const samePage = /^\/(?![/\\])/.test(src);
+    if (remoteImages || samePage) return `<img src="${src}" alt="${alt}" loading="lazy">`;
+    const host = src.replace(/^(?:https?:)?[/\\]{2}/, '').split(/[/\\?#]/)[0];
     return `<span class="md-image-blocked" title="Remote image not loaded">[image${alt ? `: ${alt}` : ''} — ${host}, not loaded]</span>`;
   });
   text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+|\/[^)\s]+|#[^)\s]+)\)/g, '<a href="$2" rel="noreferrer">$1</a>');

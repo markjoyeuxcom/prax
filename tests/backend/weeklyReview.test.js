@@ -192,6 +192,26 @@ test('an edit or verification made while the narrative is generated is not overw
   await app.close();
 });
 
+test('a review created by another request during narration is not duplicated', async () => {
+  let app; let during = null;
+  const chat = { async complete() { if (during) await during(); return { text: 'A calm week.' }; } };
+  const { loadConfig } = await import('../../server/config.js');
+  app = await buildApp({ config: loadConfig({ PRAX_DB_FILE: ':memory:', EMBEDDING_BACKEND: 'none' }), chat });
+  const anchor = { date: new Date().toISOString().slice(0, 10) };
+  let quick;
+  during = async () => {
+    during = null;
+    quick = (await app.inject({ method: 'POST', url: '/api/library/weekly-review', payload: anchor })).json();
+  };
+  const slow = (await app.inject({ method: 'POST', url: '/api/library/weekly-review', payload: { ...anchor, narrate: true } })).json();
+  assert.equal(quick.created, true);
+  assert.equal(slow.documentId, quick.documentId, 'the narrated run updates the review the quick run created');
+  const all = (await app.inject({ method: 'GET', url: '/api/library/documents' })).json();
+  const docs = Array.isArray(all) ? all : all.documents || [];
+  assert.equal(docs.filter((d) => d.tags?.includes('weekly-review') && !d.archivedAt).length, 1);
+  await app.close();
+});
+
 test('narration reports why it degraded: no model versus a failed generation', async () => {
   const { loadConfig } = await import('../../server/config.js');
   const config = loadConfig({ PRAX_DB_FILE: ':memory:', EMBEDDING_BACKEND: 'none' });

