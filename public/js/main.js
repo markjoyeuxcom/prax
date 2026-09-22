@@ -155,7 +155,8 @@ let appRoot = null;
 let flatIds = [];                 // keyboard-navigation order of the visible list
 let paletteFlat = [];             // flattened palette items for Enter/arrows
 let documentEditorController = null;
-let pendingEditorSelection = null; // {from,to} to restore after a renderApp re-mount (see renderApp)
+let pendingEditorSelection = null; // {from,to,focused,scroll,docId} to restore after a renderApp re-mount (see renderApp)
+let mountedEditorDocId = null;     // the document the mounted editor was created for
 let documentAutosaveTimer = null;
 let documentSavePromise = null;     // coalesces navigation flushes with an in-flight autosave
 let taskDraftSaveTimer = null;
@@ -1101,7 +1102,12 @@ async function loadDocumentContext(doc) {
     else if (keys[index] === 'documentSimilar') patch.documentSimilar = { items: [], degraded: true, reason: 'unavailable' };
   });
   setState(patch);
-  if (!state.isDocumentInfoEditorOpen) renderApp();
+  // Links, related notes, backlinks and runs show only beside a preview. In
+  // plain Edit mode nothing visible changed, so do not remount the editor
+  // under the person's caret; the next render shows the installed context.
+  const current = state.documents.find(d => d.id === documentId) || doc;
+  const previewShown = Boolean(current.archivedAt) || state.editorMode !== 'edit';
+  if (!state.isDocumentInfoEditorOpen && previewShown) renderApp();
   return true;
 }
 
@@ -1143,12 +1149,15 @@ async function ensureBoardExtras(tasks) {
 // Toasts & undo
 // ---------------------------------------------------------------------------
 
+// Showing a toast still renders the app: many callers change state and rely
+// on this render to show it. Expiry is background work that lands while the
+// person types, so it swaps only the toast layer and leaves the shell alone.
 function showToast(message, undo = null, duration = undo ? 5000 : 2400, undoLabel = 'Undo') {
   clearTimeout(toastTimer);
   setState({ toast: { message, undo, undoLabel } });
   toastTimer = setTimeout(() => {
     setState({ toast: null });
-    renderApp();
+    renderToastLayer();
   }, duration);
   renderApp();
 }
@@ -1156,6 +1165,16 @@ function showToast(message, undo = null, duration = undo ? 5000 : 2400, undoLabe
 function dismissToast() {
   clearTimeout(toastTimer);
   setState({ toast: null });
+}
+
+function renderToastLayer() {
+  const host = appRoot?.querySelector('[data-toast-root]');
+  if (!host) { renderApp(); return; }
+  const hadFocus = host.contains(document.activeElement);
+  host.innerHTML = renderToastHtml(state);
+  // Focus on an expiring Undo button would otherwise fall to <body>, where
+  // plain letters reach the global shortcuts.
+  if (hadFocus && state.navType === 'editor' && !host.contains(document.activeElement)) focusEditor();
 }
 
 // Copy text to the clipboard, resolving true/false. Prefers the async Clipboard
@@ -2194,7 +2213,7 @@ function updateSearchCountDom() {
 
 // Reconcile the panel DOM with state.editorSearchOpen. Called from afterRender
 // (a full render wipes the panel) and from open/close — never triggers renderApp.
-function syncSearchPanelDom() {
+function syncSearchPanelDom({ fromRender = false } = {}) {
   if (!appRoot) return;
   const existing = appRoot.querySelector('[data-editor-search]');
   const body = appRoot.querySelector('.editor-body');
@@ -2206,6 +2225,15 @@ function syncSearchPanelDom() {
   if (existing) return;
   body.insertAdjacentHTML('afterbegin', renderSearchPanelHtml(state));
   applyCurrentSearch();
+  if (fromRender) {
+    // Re-attached under a full render: put back a find/replace field the
+    // person was typing in, and never take focus from the document itself.
+    const missing = renderMissingField;
+    renderMissingField = null;
+    if (missing && restoreRenderField(missing)) return;
+    const active = document.activeElement;
+    if (active && active !== document.body && active !== appRoot) return;
+  }
   const find = appRoot.querySelector('[data-search-find]');
   find?.focus();
   find?.select();
@@ -2295,7 +2323,7 @@ function handleDocumentDraftBodyChange(value) {
     const words = value.split(/\s+/).filter(Boolean).length;
     counts.textContent = `${words} words · ${value.length} characters · ${Math.max(1, Math.round(words / 200))} min read`;
   }
-  updateDocumentLivePreview(appRoot, value, { resolveWikiLink });
+  updateDocumentLivePreview(appRoot, value, { resolveWikiLink, remoteImages: true });
 }
 
 function handleDocumentDraftTitleChange(value) {
@@ -2355,7 +2383,7 @@ function applyDocumentDraftSave(saved, { draftId, sentDraft }) {
       mountEditorIfNeeded();
       if (focused) documentEditorController?.focus();
     }
-    updateDocumentLivePreview(appRoot, patch.documentDraftBody, { resolveWikiLink });
+    updateDocumentLivePreview(appRoot, patch.documentDraftBody, { resolveWikiLink, remoteImages: true });
   }
   // The fallback textarea preserves the caret exactly like CodeMirror does —
   // either way, re-rendering mid-typing would destroy the edit surface and
@@ -2486,6 +2514,7 @@ function mountEditorIfNeeded() {
   if (!host) { destroyEditorController(); return; }
   if (documentEditorController) return;
   try {
+    mountedEditorDocId = state.editorDocId;
     documentEditorController = mountCodeMirrorEditor({
       host,
       value: state.documentDraftBody,
@@ -2507,13 +2536,16 @@ function mountEditorIfNeeded() {
   if (documentEditorController) {
     host.hidden = false;
     if (fallback) fallback.hidden = true;
-    // Restore a selection carried over the re-mount (keeps the ✦ AI menu's target
-    // highlighted and live-readable). Guard the offsets against a shorter buffer.
-    if (pendingEditorSelection && documentEditorController.setSelectionRange) {
+    // Restore the caret or selection carried over a re-mount of the same
+    // document (keeps the ✦ AI menu's target highlighted and live-readable, and
+    // mid-document typing where it was), plus scroll and keyboard focus. Guard
+    // the offsets against a shorter buffer.
+    const carried = pendingEditorSelection;
+    if (carried && carried.docId === state.editorDocId && documentEditorController.setSelectionRange) {
       const len = (state.documentDraftBody || '').length;
-      const from = Math.min(pendingEditorSelection.from, len);
-      const to = Math.min(pendingEditorSelection.to, len);
-      if (to > from) documentEditorController.setSelectionRange(from, to);
+      documentEditorController.setSelectionRange(Math.min(carried.from, len), Math.min(carried.to, len));
+      documentEditorController.restoreScroll?.(carried.scroll);
+      if (carried.focused) documentEditorController.focus();
     }
   } else if (fallback) {
     fallback.hidden = false;
@@ -4118,7 +4150,7 @@ function renderMainHtml() {
       const model = {
         outline: buildOutline(text),
         backlinks: buildBacklinks(backlinkTasks, coloredProjects, doc.id),
-        previewHtml: renderMarkdownHtml(text, { resolveWikiLink }),
+        previewHtml: renderMarkdownHtml(text, { resolveWikiLink, remoteImages: true }),
         project: owner ? { ...owner, color: projectColor(owner) } : null,
         projects: infoProjects,
       };
@@ -4322,7 +4354,7 @@ function renderOverlaysHtml() {
   if (state.planMode) html += renderPlanModeHtml(state);
   if (state.shortcutsOpen) html += renderShortcutsHtml(state);
   if (state.confirm) html += renderConfirmHtml(state.confirm);
-  html += renderToastHtml(state);
+  html += `<div data-toast-root>${renderToastHtml(state)}</div>`;
   return html;
 }
 
@@ -4345,6 +4377,116 @@ function renderCaptureOverlayLayer({ restoreFocus = false } = {}) {
     captureReturnElement.focus();
     captureReturnElement = null;
   }
+}
+
+// ---- render continuity -------------------------------------------------------
+// renderApp rebuilds the shell with innerHTML, and background work — context
+// and enrichment loads, reminders, external refresh, a toast shown by a
+// finished request — renders while the person types. A same-view render puts
+// back what they were typing into: the focused field and its caret, text that
+// lives only in the DOM (below), and the editor's caret and scroll (see
+// mountEditorIfNeeded). A navigation starts fresh.
+
+// Fields whose text lives only in the DOM until an explicit submit — nothing
+// mirrors it into state, so a render would reset it to its last rendered value.
+const DOM_ONLY_FIELDS = [
+  '[data-checklist-new]', '[data-confirm-input]', '[data-new-project-name]', '[data-project-rename]',
+  '[data-plan-time]', '[data-shutdown-date]', '[data-replace-confirm]',
+].join(', ');
+// Forms saved as a whole: an edited field keeps its text after focus moves on.
+const DOM_ONLY_FORM_FIELDS = [
+  '[data-capture-shortcut]', '[data-ai-chat-binary]', '[data-ai-chat-model]', '[data-ai-chat-base-url]',
+  '[data-ai-chat-key]', '[data-ai-base-url]', '[data-ai-model]', '[data-ai-key]',
+  '[data-genrb-input]', '[data-genrb-project]',
+].join(', ');
+const TEXT_ENTRY_FIELDS = 'textarea, select, input:not([type="checkbox"]):not([type="radio"]):not([type="file"])'
+  + ':not([type="range"]):not([type="button"]):not([type="submit"]):not([type="reset"])';
+let renderingApp = false;        // focusout while the old DOM is torn down is not the person leaving a field
+let renderContinuity = null;     // captured by renderApp, consumed by afterRender
+let renderRestoredField = null;  // the field put back this render: its caret is the person's
+let renderMissingField = null;   // a focused field the render has not re-inserted yet (find/replace panel)
+
+function renderedFieldValue(el) {
+  if (el.tagName !== 'SELECT') return el.defaultValue;
+  const options = [...el.options];
+  return (options.find(option => option.defaultSelected) || options[0])?.value ?? '';
+}
+
+// A field's identity across renders: its tag, id/name and data-* attributes,
+// plus its position among identical matches. Unidentifiable fields are skipped.
+function renderFieldKey(el) {
+  const attrs = [...el.attributes].filter(attr => attr.name === 'id' || attr.name === 'name' || attr.name.startsWith('data-'));
+  if (!attrs.length) return null;
+  const selector = el.tagName.toLowerCase() + attrs.map(attr => `[${attr.name}="${CSS.escape(attr.value)}"]`).join('');
+  return { selector, index: [...appRoot.querySelectorAll(selector)].indexOf(el) };
+}
+
+function findRenderField(key) {
+  return key ? appRoot.querySelectorAll(key.selector)[key.index] || null : null;
+}
+
+function captureRenderContinuity() {
+  const active = document.activeElement;
+  const focused = active instanceof HTMLElement && appRoot.contains(active) && active.matches(TEXT_ENTRY_FIELDS)
+    ? active : null;
+  const edits = [];
+  for (const el of appRoot.querySelectorAll(`${DOM_ONLY_FIELDS}, ${DOM_ONLY_FORM_FIELDS}`)) {
+    const rendered = renderedFieldValue(el);
+    if (el.value === rendered || (el !== focused && !el.matches(DOM_ONLY_FORM_FIELDS))) continue;
+    const key = renderFieldKey(el);
+    if (key) edits.push({ key, value: el.value, rendered });
+  }
+  const key = focused && renderFieldKey(focused);
+  const field = key ? {
+    key,
+    value: focused.value,
+    selection: typeof focused.selectionStart === 'number'
+      ? [focused.selectionStart, focused.selectionEnd, focused.selectionDirection || 'none'] : null,
+    scrollTop: focused.scrollTop,
+    pageScrollTop: appRoot.querySelector('.main__scroll')?.scrollTop ?? null,
+  } : null;
+  return { edits, field };
+}
+
+// Runs inside afterRender, before its per-surface focus policy: a dialog the
+// render just opened still takes focus from the field restored here.
+function restoreRenderContinuity() {
+  const snapshot = renderContinuity;
+  renderContinuity = null;
+  renderRestoredField = null;
+  renderMissingField = null;
+  if (!snapshot) return;
+  for (const edit of snapshot.edits) {
+    const el = findRenderField(edit.key);
+    // Only where the render reset the field; a value state changed on purpose
+    // (a save that re-rendered it, a reconcile) stands.
+    if (el && renderedFieldValue(el) === edit.rendered && el.value === edit.rendered) el.value = edit.value;
+  }
+  if (snapshot.field && !restoreRenderField(snapshot.field)) renderMissingField = snapshot.field;
+}
+
+function restoreRenderField(field) {
+  const el = findRenderField(field.key);
+  if (!el || el.disabled) return false;
+  const scroll = appRoot.querySelector('.main__scroll');
+  if (scroll && field.pageScrollTop != null) scroll.scrollTop = field.pageScrollTop;
+  el.focus();
+  if (document.activeElement !== el) return false;
+  try {
+    if (el.value === field.value && field.selection) el.setSelectionRange(...field.selection);
+    else if (typeof el.selectionStart === 'number') el.setSelectionRange(el.value.length, el.value.length);
+  } catch { /* not a text control (date, time, select) */ }
+  if (el.value === field.value) el.scrollTop = field.scrollTop;
+  renderRestoredField = el;
+  return true;
+}
+
+// Focus a surface's text input with the caret at the end — unless this render
+// just gave the person back that field, caret and all.
+function focusInputAtEnd(input) {
+  if (!input || input === renderRestoredField) return;
+  input.focus();
+  input.setSelectionRange?.(input.value.length, input.value.length);
 }
 
 function renderApp() {
@@ -4380,11 +4522,18 @@ function renderApp() {
   // controller so afterRender mounts a fresh instance instead of skipping on
   // a stale handle. (Saves that should keep the caret avoid renderApp
   // entirely via canPreserveEditorAfterDraftSave.)
-  // Preserve a non-empty editor selection across the re-mount below (a collapsed
-  // caret stays null → cursorToEnd, unchanged). Without this, opening the ✦ AI
-  // menu — which re-renders — would drop the selection a writing action needs.
+  // Carry the editor's selection, focus and scroll across the re-mount below
+  // when it stays on the same document. Without this, opening the ✦ AI menu
+  // would drop the selection a writing action needs, and a background render
+  // moved later keystrokes to the end of the document. A fresh open (the
+  // caller destroyed the controller first) still starts at the end.
   pendingEditorSelection = state.navType === 'editor' && documentEditorController?.getSelectionRange
-    ? documentEditorController.getSelectionRange()
+    ? {
+      ...documentEditorController.getSelectionRange(),
+      focused: Boolean(appRoot.querySelector('[data-code-editor]')?.contains(document.activeElement)),
+      scroll: documentEditorController.scrollSnapshot?.() || null,
+      docId: mountedEditorDocId,
+    }
     : null;
   destroyEditorController();
   // The ✦ AI menu/overlay are editor-only; never let leaked write state (e.g. an
@@ -4408,7 +4557,10 @@ function renderApp() {
   const viewKey = `${state.navType}|${state.navId}|${state.tab}|${state.libraryView}|${state.editorDocId}|${state.settingsTab}`;
   const flatMain = viewKey === prevViewKey;
   prevViewKey = viewKey;
-  appRoot.innerHTML = `
+  renderContinuity = flatMain ? captureRenderContinuity() : null;
+  renderingApp = true;
+  try {
+    appRoot.innerHTML = `
     <div class="desk">
       <div class="window">
         ${chrome ? renderTitlebarHtml(state) : ''}
@@ -4420,6 +4572,9 @@ function renderApp() {
       </div>
     </div>
     <div data-overlay-root>${renderOverlaysHtml()}</div>`;
+  } finally {
+    renderingApp = false;
+  }
   afterRender();
   const returning = pendingLibraryScroll?.key === currentLibraryKey ? pendingLibraryScroll : null;
   if (returning?.documentId || retainedLibraryFocus) {
@@ -4434,6 +4589,7 @@ function renderApp() {
 
 function afterRender() {
   mountEditorIfNeeded();
+  restoreRenderContinuity();
   if (state.inbox?.processing) {
     const dialog = appRoot.querySelector('[data-inbox-dialog]');
     if (dialog && !dialog.contains(document.activeElement)) {
@@ -4446,7 +4602,9 @@ function afterRender() {
     appRoot.querySelector(`[data-action="${templateStudioReturnAction}"]`)?.focus();
   }
   if (state.templateStudio) {
-    appRoot.querySelector('[data-template-field="source"]:not([disabled]), [data-action="submit-template-studio"]:not([disabled]), .template-studio__preview')?.focus();
+    if (!renderRestoredField?.matches('[data-template-field]')) {
+      appRoot.querySelector('[data-template-field="source"]:not([disabled]), [data-action="submit-template-studio"]:not([disabled]), .template-studio__preview')?.focus();
+    }
     return;
   }
   // The Import / Export triggers live in the Library's ⋯ overflow, which is
@@ -4465,39 +4623,36 @@ function afterRender() {
     if (input && document.activeElement !== input) { input.focus(); input.select(); }
   }
   if (state.paletteOpen) {
-    const input = appRoot.querySelector('[data-palette-input]');
-    input?.focus();
-    input?.setSelectionRange?.(input.value.length, input.value.length);
+    focusInputAtEnd(appRoot.querySelector('[data-palette-input]'));
   } else if (state.captureOpen) {
     // The DOM is fresh after every render — put the caret at the end so typing
-    // continues the title (matters after the parse swaps the input's value).
-    const input = appRoot.querySelector('[data-capture-input]');
-    input?.focus();
-    input?.setSelectionRange?.(input.value.length, input.value.length);
+    // continues the title (matters after the parse swaps the input's value;
+    // a swapped value is not restored as the person's, so it still gets here).
+    focusInputAtEnd(appRoot.querySelector('[data-capture-input]'));
   } else if (state.assistantOpen) {
     // Keep the transcript pinned to the latest turn, and (when idle) the caret
     // in the composer.
     const scroll = appRoot.querySelector('[data-assistant-scroll]');
     if (scroll) scroll.scrollTop = scroll.scrollHeight;
     if (!state.assistantLoading && !(state.assistantPending && state.assistantPending.length)) {
-      const input = appRoot.querySelector('[data-assistant-input]');
-      input?.focus();
-      input?.setSelectionRange?.(input.value.length, input.value.length);
+      focusInputAtEnd(appRoot.querySelector('[data-assistant-input]'));
     }
   } else if (state.askPraxOpen && !state.askPraxLoading) {
-    const input = appRoot.querySelector('[data-ask-prax-input]');
-    input?.focus();
-    input?.setSelectionRange?.(input.value.length, input.value.length);
+    focusInputAtEnd(appRoot.querySelector('[data-ask-prax-input]'));
   } else if (state.genRbOpen && !state.genRbLoading) {
     const input = appRoot.querySelector('[data-genrb-input]');
-    input?.focus();
-    input?.setSelectionRange?.(input.value.length, input.value.length);
+    // The project picker keeps its focus too; only a fresh dialog starts in the text.
+    if (!renderRestoredField?.matches('[data-genrb-project]')) focusInputAtEnd(input);
   } else if (state.markdownImportOpen && !state.markdownImportPending) {
-    (state.markdownImportFiles.length
-      ? appRoot.querySelector('[data-action="submit-markdown-import"]')
-      : appRoot.querySelector('[data-markdown-import-project]'))?.focus();
+    if (!renderRestoredField?.closest('[data-overlay-root]')) {
+      (state.markdownImportFiles.length
+        ? appRoot.querySelector('[data-action="submit-markdown-import"]')
+        : appRoot.querySelector('[data-markdown-import-project]'))?.focus();
+    }
   } else if (state.libraryExportOpen && !state.libraryExportPending) {
-    appRoot.querySelector(state.libraryExportFormat === 'workspace' ? '[data-library-export-format]' : '[data-library-export-scope]')?.focus();
+    if (!renderRestoredField?.closest('[data-overlay-root]')) {
+      appRoot.querySelector(state.libraryExportFormat === 'workspace' ? '[data-library-export-format]' : '[data-library-export-scope]')?.focus();
+    }
   } else if (state.confirm) {
     // Focus the text field when there is one; otherwise Cancel — never the
     // destructive action, so a stray Enter can't confirm a delete.
@@ -4512,7 +4667,7 @@ function afterRender() {
   }
   // Re-attach the find/replace panel if a full render wiped it (it lives
   // outside renderApp so CodeMirror is never remounted mid-search).
-  syncSearchPanelDom();
+  syncSearchPanelDom({ fromRender: true });
   if (state.navType === 'project' && (state.tab === 'board' || state.tab === 'list')) {
     const visibleIds = new Set(flatIds);
     ensureBoardExtras(projectTasks().filter(t => !t.archivedAt && visibleIds.has(t.id)));
@@ -5022,6 +5177,10 @@ async function handleAction(action, el, event) {
       if (!label) break;
       try {
         await addChecklistItem(state.drawerTaskId, label);
+        // The field's text lives only in the DOM; clear the added item so the
+        // render does not carry it into the next one.
+        const current = appRoot.querySelector('[data-checklist-new]');
+        if (current && current.value.trim() === label) current.value = '';
         setState({
           taskChecklist: await fetchTaskChecklist(state.drawerTaskId),
           ...clearTaskBoardExtra(state, state.drawerTaskId),
@@ -6245,10 +6404,13 @@ function bindEvents() {
   });
 
   // Commit an inline project rename when its input loses focus (Enter blurs it;
-  // Esc clears renamingProjectId first, so the commit below no-ops).
+  // Esc clears renamingProjectId first, so the commit below no-ops). A render
+  // removing the focused input is not the person leaving it: the draft carries
+  // into the rebuilt field (render continuity) and stays uncommitted.
   appRoot.addEventListener('focusout', (event) => {
     const t = event.target;
-    if (t?.matches?.('[data-project-rename]')) saveRenameProject(t.dataset.projectId, t.value);
+    if (renderingApp || !t?.isConnected) return;
+    if (t.matches?.('[data-project-rename]')) saveRenameProject(t.dataset.projectId, t.value);
   });
 
   appRoot.addEventListener('input', (event) => {

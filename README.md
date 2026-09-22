@@ -174,7 +174,8 @@ only on a deliberately trusted network or behind an authenticated TLS proxy. The
 desktop paths need no acknowledgement because they listen on loopback. A loopback bind also refuses
 requests whose `Host` header is not a loopback name (`403`) — the DNS-rebinding defence described in
 `SECURITY.md` — so a reverse proxy on the same machine that forwards the public host name needs the
-same `PRAX_ALLOW_UNAUTHENTICATED_NETWORK=true` acknowledgement.
+same `PRAX_ALLOW_UNAUTHENTICATED_NETWORK=true` acknowledgement, or that name in
+`PRAX_ALLOWED_HOSTS` to keep the check for every other name (see `docs/deployment.md`).
 
 Choose **Full workspace backup** in the Library export dialog, or use the validated SQLite
 snapshot command, for an authoritative backup. JSON/Markdown exports are portable content formats — see

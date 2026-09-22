@@ -52,7 +52,11 @@ Understand the trust boundary before exposing Prax to a network:
   loopback it answers `403` to any request whose `Host` header is not a loopback name
   (`127.0.0.0/8`, `localhost`, `::1`). The check is lifted by `PRAX_ALLOW_UNAUTHENTICATED_NETWORK=true`,
   which a loopback bind behind a local reverse proxy must set anyway to acknowledge that the
-  proxy is the exposure boundary. `tests/backend/hostHeader.test.js` pins this.
+  proxy is the exposure boundary. `PRAX_ALLOWED_HOSTS` keeps the check on for any bind and lists
+  the extra names to accept (loopback names and IP literals are always accepted; `*` disables
+  it). The container image sets it to `localhost`, so a Compose install that listens on
+  `0.0.0.0` behind a loopback-only port keeps this defence. `tests/backend/hostHeader.test.js`
+  pins this.
 - **Settings access includes host process execution.** The Claude and Copilot CLI backends run
   the selected executable as the Prax process user, in a fresh private scratch directory
   (`mkdtemp`, mode `0700`) per provider instance — never a fixed path under the shared temp
@@ -61,6 +65,12 @@ Understand the trust boundary before exposing Prax to a network:
   URLs and credentials are also operator-controlled. Protect the entire HTTP surface, including
   Settings, with the same trusted-operator boundary; workspace access must not be granted to
   less-trusted automation or network clients.
+- **Model output never loads remote content on render.** Library documents and tasks are often
+  written by agents, so text that reaches a model can carry prompt injection. Assistant answers,
+  Ask Prax, AI narratives and writing previews render remote Markdown images as inert
+  "not loaded" labels, never as `<img>`: a browser fetches an image with no click, so an
+  injected answer could otherwise put workspace data into an image URL. Only the editor preview
+  of a document loads its remote images, and the CSP still allows `https:` images for that.
 - **Desktop localhost is process-bound, not broadly trusted.** The Node child binds its own
   loopback port and announces it over its parent-owned stdout. Its first OS-selected port is saved
   under the app-data directory and reused on relaunch so browser drafts/preferences keep their

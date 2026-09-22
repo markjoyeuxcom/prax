@@ -33,7 +33,7 @@ function isActive(doc) {
 // Merge rather than replace: the document being refined belongs to another
 // project and may carry tags the caller never saw. Order keeps the stored tags
 // first so nothing the human typed moves.
-function mergedTags(existing, incoming) {
+function mergedTags(existing, incoming = []) {
   return Array.from(new Set([...(Array.isArray(existing) ? existing : []), ...incoming]));
 }
 
@@ -42,11 +42,16 @@ function mergedTags(existing, incoming) {
 // explicit — a plain re-remember to refresh a body must never demote a
 // decision/runbook back to note. Callers validate the value before passing it.
 //
+// `tags` undefined = the caller gave none: an update keeps the stored tags on
+// every path (a create starts with none). An array replaces them on a
+// same-title update and is merged into them on --id / cross-project.
+//
 // Returns { doc, action, project } — `project` is the slug the write landed in,
 // which under crossProject may differ from the one passed. `crossProject: true`
 // on the result says the document was updated where it already lived.
-export async function remember(client, { title, body, project, type, tags = [], kind, id, crossProject = false } = {}) {
-  const allTags = Array.from(new Set(tags));
+export async function remember(client, { title, body, project, type, tags, kind, id, crossProject = false } = {}) {
+  const allTags = Array.isArray(tags) ? Array.from(new Set(tags)) : undefined;
+  const tagsPatch = allTags ? { tags: allTags } : {};
   const typePatch = type ? { documentType: type } : {};
 
   // A direct target: no title lookup, no project resolution. The title is part
@@ -75,7 +80,8 @@ export async function remember(client, { title, body, project, type, tags = [], 
   if (typeof client.upsertMemory === 'function') {
     try {
       const result = await client.upsertMemory({
-        id: newId, title, body, project: slug, tags: allTags,
+        id: newId, title, body, project: slug,
+        ...tagsPatch,
         ...typePatch,
         ...(kind ? { kind } : {}),
       });
@@ -117,14 +123,15 @@ async function legacyRemember(client, { id, title, body, slug, type, tags, kind 
     .find((d) => d.title === title && isActive(d));
   if (existing) {
     const doc = await client.updateMemory(existing.id, {
-      title, body, tags,
+      title, body,
+      ...(tags ? { tags } : {}),
       ...(existing.revision ? { ifRevision: existing.revision } : {}),
       ...(type ? { documentType: type } : {}), // retype only on an explicit --type
     });
     return { doc, action: 'updated', project: slug };
   }
   const doc = await client.createMemory({
-    id, title, body, documentType: type || 'note', project: slug, tags,
+    id, title, body, documentType: type || 'note', project: slug, tags: tags || [],
     ...(kind ? { kind } : {}),
   });
   return { doc, action: 'created', project: slug };

@@ -134,6 +134,80 @@ test('generate -> idempotent regenerate -> verified refusal, through the real ap
   await app.close();
 });
 
+test('regenerating refuses a review the person edited, keeps their words, and a fresh one follows archiving', async () => {
+  const app = await reviewApp();
+  const anchor = { date: new Date().toISOString().slice(0, 10) };
+  const first = (await app.inject({ method: 'POST', url: '/api/library/weekly-review', payload: anchor })).json();
+  const doc = (await app.inject({ method: 'GET', url: `/api/library/documents/${first.documentId}` })).json();
+  const notes = `${doc.body}\n\n## My reflections\n\nShip smaller batches next week.`;
+  const edit = await app.inject({ method: 'PATCH', url: `/api/library/documents/${doc.id}`, payload: { body: notes, ifRevision: doc.revision } });
+  assert.equal(edit.statusCode, 200);
+
+  const refused = (await app.inject({ method: 'POST', url: '/api/library/weekly-review', payload: anchor })).json();
+  assert.equal(refused.degraded, true);
+  assert.equal(refused.reason, 'edited-review');
+  assert.equal(refused.documentId, doc.id);
+  const kept = (await app.inject({ method: 'GET', url: `/api/library/documents/${doc.id}` })).json();
+  assert.equal(kept.body, notes, 'the person\'s reflections survive');
+  assert.equal(kept.updatedBy, 'user');
+
+  // An identified agent's edit is someone else's writing too.
+  const agentEdit = await app.inject({
+    method: 'PATCH', url: `/api/library/documents/${doc.id}`,
+    headers: { 'x-prax-origin': 'agent', 'x-prax-agent': 'codex' },
+    payload: { body: `${notes}\n\nAgent follow-up.`, ifRevision: kept.revision },
+  });
+  assert.equal(agentEdit.statusCode, 200);
+  const stillRefused = (await app.inject({ method: 'POST', url: '/api/library/weekly-review', payload: anchor })).json();
+  assert.equal(stillRefused.reason, 'edited-review');
+
+  // Archiving the edited review is the documented way to compile a fresh one.
+  const archived = await app.inject({ method: 'DELETE', url: `/api/library/documents/${doc.id}` });
+  assert.equal(archived.statusCode, 200);
+  const fresh = (await app.inject({ method: 'POST', url: '/api/library/weekly-review', payload: anchor })).json();
+  assert.equal(fresh.created, true);
+  assert.notEqual(fresh.documentId, doc.id);
+  await app.close();
+});
+
+test('an edit or verification made while the narrative is generated is not overwritten', async () => {
+  let app; let during = null;
+  const chat = { async complete() { if (during) await during(); return { text: 'A calm week.' }; } };
+  const { loadConfig } = await import('../../server/config.js');
+  app = await buildApp({ config: loadConfig({ PRAX_DB_FILE: ':memory:', EMBEDDING_BACKEND: 'none' }), chat });
+  const anchor = { date: new Date().toISOString().slice(0, 10) };
+  const first = (await app.inject({ method: 'POST', url: '/api/library/weekly-review', payload: { ...anchor, narrate: true } })).json();
+  assert.equal(first.narrated, true);
+
+  during = async () => {
+    during = null;
+    const doc = (await app.inject({ method: 'GET', url: `/api/library/documents/${first.documentId}` })).json();
+    await app.inject({ method: 'PATCH', url: `/api/library/documents/${doc.id}`, payload: { body: 'Edited mid-narration', ifRevision: doc.revision } });
+  };
+  const racing = (await app.inject({ method: 'POST', url: '/api/library/weekly-review', payload: { ...anchor, narrate: true } })).json();
+  assert.equal(racing.degraded, true);
+  assert.equal(racing.reason, 'edited-review');
+  const doc = (await app.inject({ method: 'GET', url: `/api/library/documents/${first.documentId}` })).json();
+  assert.equal(doc.body, 'Edited mid-narration');
+  await app.close();
+});
+
+test('narration reports why it degraded: no model versus a failed generation', async () => {
+  const { loadConfig } = await import('../../server/config.js');
+  const config = loadConfig({ PRAX_DB_FILE: ':memory:', EMBEDDING_BACKEND: 'none' });
+  const anchor = { date: new Date().toISOString().slice(0, 10), narrate: true };
+  const none = await reviewApp();
+  const noModel = (await none.inject({ method: 'POST', url: '/api/library/weekly-review', payload: anchor })).json();
+  assert.equal(noModel.narrationReason, 'no-chat-model');
+  await none.close();
+  const failing = await buildApp({ config, chat: { async complete() { throw new Error('rate limited'); } } });
+  const failed = (await failing.inject({ method: 'POST', url: '/api/library/weekly-review', payload: anchor })).json();
+  assert.equal(failed.narrationDegraded, true);
+  assert.equal(failed.narrationReason, 'generation-failed');
+  assert.equal(failed.created, true, 'the deterministic review still stands');
+  await failing.close();
+});
+
 test('Inbox aging includes loose notes, excludes reviews and links directly to processing', () => {
   const fixture = fixtureWeek();
   fixture.documents.push({ id: 'loose', title: 'Loose capture', body: '', projectId: 'inbox-1', createdAt: '2026-06-01T00:00:00Z' },

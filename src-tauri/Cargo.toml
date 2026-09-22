@@ -22,7 +22,10 @@ tempfile = "3"
 # macOS: disable the press-and-hold accent picker for this app so held keys
 # repeat in the editor (same version the tauri tree already pins).
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2-foundation = { version = "0.3", features = ["NSUserDefaults", "NSString"] }
+objc2-foundation = { version = "0.3", features = ["NSUserDefaults", "NSString", "NSRunLoop", "NSDate"] }
+# Desktop smoke only: drive NSApp terminate: (the Dock Quit / logout path).
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSResponder"] }
 
 [lib]
 name = "prax_lib"

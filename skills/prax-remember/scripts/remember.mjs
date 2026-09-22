@@ -348,11 +348,12 @@ var AmbiguousTitleError = class extends Error {
 function isActive(doc) {
   return (doc?.status ?? "active") === "active";
 }
-function mergedTags(existing, incoming) {
+function mergedTags(existing, incoming = []) {
   return Array.from(/* @__PURE__ */ new Set([...Array.isArray(existing) ? existing : [], ...incoming]));
 }
-async function remember(client, { title, body, project, type, tags = [], kind, id, crossProject = false } = {}) {
-  const allTags = Array.from(new Set(tags));
+async function remember(client, { title, body, project, type, tags, kind, id, crossProject = false } = {}) {
+  const allTags = Array.isArray(tags) ? Array.from(new Set(tags)) : void 0;
+  const tagsPatch = allTags ? { tags: allTags } : {};
   const typePatch = type ? { documentType: type } : {};
   if (id) {
     const existing = await client.getDocument(id);
@@ -386,7 +387,7 @@ async function remember(client, { title, body, project, type, tags = [], kind, i
         title,
         body,
         project: slug,
-        tags: allTags,
+        ...tagsPatch,
         ...typePatch,
         ...kind ? { kind } : {}
       });
@@ -418,7 +419,7 @@ async function legacyRemember(client, { id, title, body, slug, type, tags, kind 
     const doc2 = await client.updateMemory(existing.id, {
       title,
       body,
-      tags,
+      ...tags ? { tags } : {},
       ...existing.revision ? { ifRevision: existing.revision } : {},
       ...type ? { documentType: type } : {}
       // retype only on an explicit --type
@@ -431,7 +432,7 @@ async function legacyRemember(client, { id, title, body, slug, type, tags, kind 
     body,
     documentType: type || "note",
     project: slug,
-    tags,
+    tags: tags || [],
     ...kind ? { kind } : {}
   });
   return { doc, action: "created", project: slug };

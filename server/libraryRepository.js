@@ -912,7 +912,9 @@ export function createLibraryRepository(db) {
         if (row) {
           const fields = {
             body: document.body,
-            tags: Array.isArray(document.tags) ? document.tags : [],
+            // Tags left out of the request keep the stored ones; an explicit
+            // array (even empty) replaces them.
+            ...(Array.isArray(document.tags) ? { tags: document.tags } : {}),
             updatedBy: document.updatedBy || 'user',
             updatedByAgent: document.updatedByAgent ?? null,
             ...(document.documentType ? { documentType: document.documentType } : {}),

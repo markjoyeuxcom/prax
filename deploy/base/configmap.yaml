@@ -9,6 +9,10 @@ data:
   # The pod must listen on its network interface. This is an explicit
   # acknowledgement, not a claim that Prax provides authentication.
   PRAX_ALLOW_UNAUTHENTICATED_NETWORK: "true"
+  # The image defaults to loopback-only Host names. Pods are reached by
+  # Service DNS and gateway hostnames, so the check is off here; list those
+  # names instead (comma-separated) to keep DNS-rebinding protection.
+  PRAX_ALLOWED_HOSTS: "*"
   PORT: "3000"
   PUBLIC_DIR: "/app/public"
   # External semantic processing remains opt-in.

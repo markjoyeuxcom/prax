@@ -31,6 +31,20 @@ export function parseArgs(argv, { repeatable = [] } = {}) {
   return { positionals, flags };
 }
 
+// A value-taking flag's text, or undefined when it was not given. A bare
+// occurrence (no value, or a value beginning with `--` that was read as the
+// next flag) is refused: turning it into '' or dropping it would silently
+// discard what the caller typed — for `remember --body`, an empty body
+// written over a stored document.
+export function flagValue(flags, key) {
+  const value = flags[key];
+  if (value === undefined) return undefined;
+  if (value === true) {
+    throw new Error(`--${key} needs a value; for text that starts with "--" write --${key}="<text>".`);
+  }
+  return String(value);
+}
+
 // A repeatable text flag's values, refusing a bare occurrence instead of
 // silently dropping it (a checklist item that was never created is a lost
 // acceptance check, not a harmless omission).

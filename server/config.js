@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import { fileURLToPath } from 'node:url';
 
 // Parse a numeric env var, falling back to the default for anything that isn't a
@@ -25,6 +26,34 @@ export function isLoopbackHost(value) {
   return false;
 }
 
+// DNS rebinding needs a hostname the attacker controls, so a Host header that
+// is a loopback name or an IP literal is never one. PRAX_ALLOWED_HOSTS names
+// the other hostnames clients legitimately use (a proxy's public name); setting
+// it turns the Host check on for ANY bind, including a container that must
+// listen on 0.0.0.0 behind a loopback-only port publication. `*` turns it off.
+// Unset keeps the original rule: check only an unacknowledged loopback bind.
+function normalizeHostName(value) {
+  return String(value || '').trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+}
+
+export function parseAllowedHosts(value) {
+  if (value === undefined || value === null || String(value).trim() === '') return null;
+  const names = String(value).split(',').map((name) => normalizeHostName(name.replace(/:\d+$/, ''))).filter(Boolean);
+  return names.includes('*') ? ['*'] : Array.from(new Set(names));
+}
+
+export function hostCheckEnabled(config) {
+  if (Array.isArray(config.allowedHosts)) return !config.allowedHosts.includes('*');
+  return isLoopbackHost(config.host) && config.allowUnauthenticatedNetwork !== true;
+}
+
+export function isAllowedHostHeader(hostname, config) {
+  if (isLoopbackHost(hostname)) return true;
+  if (!Array.isArray(config.allowedHosts)) return false;
+  const host = normalizeHostName(hostname);
+  return isIP(host) !== 0 || config.allowedHosts.includes(host);
+}
+
 // Must run immediately before every listen call — never inside loadConfig.
 // Non-listening CLIs (backup, migrate) load the same env-derived config, and a
 // listener-only safety check must not cost a HOST=0.0.0.0 deployment its
@@ -47,6 +76,8 @@ export function loadConfig(env = process.env) {
     host: env.HOST || '127.0.0.1',
     port: Number(env.PORT || 3000),
     allowUnauthenticatedNetwork: env.PRAX_ALLOW_UNAUTHENTICATED_NETWORK === 'true',
+    // null = unset (see hostCheckEnabled); ['*'] = Host check off.
+    allowedHosts: parseAllowedHosts(env.PRAX_ALLOWED_HOSTS),
     // Embedded SQLite file. PRAX_DB_FILE is canonical; DATABASE_URL is still
     // read as a plain file path so pre-rename setups keep working. The
     // desktop wrapper points this at the OS app-data directory.

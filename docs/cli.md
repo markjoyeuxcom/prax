@@ -213,7 +213,10 @@ prax remember "Postgres restore runbook" \
 
 Flags:
 
-- `--body <text>` — document body (Markdown); defaults to empty string
+- `--body <text>` — document body (Markdown); required and non-blank, because a same-title
+  update replaces the stored body. For text that begins with `--`, write `--body="<text>"`.
+  A value-taking flag given without a value (`--tag`, `--type`, `--ref`, `--cite`, `--id`) is
+  refused rather than ignored.
 - `--project <slug>` — choose the project that owns this knowledge; all projects are available
   to shared recall. Without it, ordinary remember resolves the current project.
 - `--memory` — select **`memory`** for guidance useful across projects; the document is also
@@ -221,8 +224,9 @@ Flags:
   is refined there. The remember skill defaults new titles to memory, so pass its `--project`
   explicitly for project-specific findings.
 - `--type` — document type: `note` (default), `runbook`, `decision`, `known-issue`, `reference`, or `post-mortem`. On a re-remember (same title), omit it to keep the stored type; pass it to retype.
-- `--tag a,b` — a comma-separated tag list that **replaces** the document's tags. Repeating
-  `--tag` does not accumulate: the last occurrence wins.
+- `--tag a,b` — a comma-separated tag list that **replaces** the tags of a same-title document in
+  the project (with `--id` or a cross-project refine it is merged into them). Without `--tag`, an
+  update keeps the stored tags. Repeating `--tag` does not accumulate: the last occurrence wins.
 - `--ref <url>` — attach an external reference (a PR, dashboard, or issue URL) to the memory. Best-effort: a rejected URL warns on stderr but never fails the remember.
 
 ### `verify <id> --as <human-name>`

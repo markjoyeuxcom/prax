@@ -115,8 +115,9 @@ shasum -a 256 src-tauri/target/release/bundle/dmg/Prax_0.21.0_aarch64.dmg
 | Linux | `~/.local/share/com.moomora.prax/` |
 
 Contents: `prax.db` (plus `-wal`/`-shm` WAL siblings) and `logs/server.log`
-(the sidecar's output). Back up by copying the database file or via the
-JSON/Markdown exports — see [../backup-restore.md](../backup-restore.md).
+(the sidecar's output, plus the shell's own `[prax]` lifecycle and window-error lines). Back up
+with the online backup command, by copying the database after quitting Prax (keep any `-wal`/`-shm`
+siblings with it), or via the JSON/Markdown exports — see [../backup-restore.md](../backup-restore.md).
 On macOS/Linux the app-data and log directories are owner-only. The log is rotated to
 `server.log.1` when it exceeds 5 MiB; Prax keeps one previous log.
 
@@ -145,7 +146,15 @@ wait cursor; the desktop contract test explicitly forbids that combination.
 The main window **closes to the menu bar**: the red close button hides it and the sidecar keeps
 running, so the capture shortcut and the memory skills keep working. Reopen it from the Dock or
 the menu-bar icon (**Open Prax**); quit from the menu-bar icon (**Quit Prax**) or ⌘Q, which runs
-the graceful shutdown above. The recovery window shown after a failed start keeps close-to-exit.
+the graceful shutdown below. Once the recovery screen is showing (after a failed start or a later
+sidecar crash) the close button quits instead, so a dead server cannot leave a hidden process behind.
+
+On macOS the shell installs its own app menu instead of Tauri's default. It has the same items —
+About, Services, Hide, Hide Others, File › Close Window, the Edit items (Undo, Redo, Cut, Copy,
+Paste, Select All, which the webview's text fields rely on), View › Enter Full Screen, and the
+Window and Help menus — except **Quit Prax** (⌘Q). The default Quit sends `terminate:`, which ends
+the app without the graceful-shutdown request; this item runs the same shutdown as the menu-bar
+**Quit Prax**.
 
 **Capture task** in the menu bar (or ⌘⇧Space, changeable in Settings) summons a small always-on-top
 bar served by the sidecar at `/capture.html`. Enter saves the text as a task in **Inbox**
@@ -173,11 +182,19 @@ are untouched; restore the picker for Prax with
   is no released-port interval for another process to win.
 - **Single instance**: `tauri-plugin-single-instance` focuses the existing
   window instead of letting a second process open the same database.
-- **Shutdown**: ordinary desktop quit writes a private `shutdown` command to the child stdin and
-  waits up to five seconds for Fastify and SQLite to close. A force-kill is only the bounded fallback.
-  Plain-server deployments retain their `SIGTERM`/`SIGINT` path.
+- **Shutdown**: every desktop quit writes a private `shutdown` command to the child stdin and
+  waits up to five seconds for Fastify and SQLite to close; SQLite then folds `prax.db-wal` back
+  into `prax.db`. A force-kill is only the bounded fallback. The menu-bar **Quit Prax**, ⌘Q and
+  Restart do this in the background before exiting. Quit paths that end the app directly — the
+  Dock's **Quit**, logout, restart or shutdown of the Mac — pass the same barrier as the app's
+  final step, holding the process for at most five seconds. A force quit (Activity Monitor,
+  `kill -9` of the app) cannot run it; the orphaned server then shuts itself down when its stdin
+  closes. Plain-server deployments retain their `SIGTERM`/`SIGINT` path.
 - **Recovery**: startup timeout, malformed readiness, early exit, and a later sidecar crash all show
-  the bundled recovery screen with the exact log path and **Restart Prax**. Restart uses the same
+  the bundled recovery screen with the exact log path and **Restart Prax**. After a crash the open
+  main window navigates to that screen (a hidden window is shown again) and the capture bar is
+  hidden; **Open Prax**, the capture shortcut and a second launch all bring the screen forward.
+  Window creation or navigation failures are recorded in `logs/server.log`. Restart uses the same
   graceful barrier if the child is still alive.
 - **Draft truth**: WAL protects committed database work after a crash. It does not make an unsaved
   in-memory edit durable; editor/task draft recovery remains the last-mile protection for that state.
@@ -211,8 +228,12 @@ npm run desktop:smoke
 The harness creates an isolated temporary app-data directory and launches the release binary under
 DBus/Xvfb when necessary. It requires all migrations plus seed projects, inserts a persistence
 sentinel, launches the package a second time against the same app data, and succeeds only when the
-sentinel remains and both sidecars report application-controlled zero-code exits. The temporary
-directory is removed on success and retained in the error message on failure. A smoke launch skips
+sentinel remains and both sidecars report application-controlled zero-code exits. Those two launches
+end through the app menu's Quit handler and must leave no un-checkpointed `prax.db-wal`. On macOS a
+third launch ends with `NSApp terminate:` (what the Dock's Quit and logout send) and must meet the
+same bar. A final launch (`--desktop-smoke-exit crash`) SIGKILLs the sidecar after the main window
+opened and passes only if that window is visible on the bundled recovery screen before the app quits.
+The temporary directory is removed on success and retained in the error message on failure. A smoke launch skips
 the single-instance plugin (its socket is keyed on the app identifier, not the data directory), so
 the smoke also passes on a machine where an installed Prax is running, such as the macOS runner.
 The launched app does open a window briefly on that machine's desktop.

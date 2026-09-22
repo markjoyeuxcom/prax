@@ -26,6 +26,13 @@ function renderCodeBlock(code, language) {
 // threading the document list through every call. Safe because rendering is
 // synchronous and single-threaded.
 let wikiResolver = null;
+// Set per-render like wikiResolver. Remote (http/https) images load only when
+// the caller opts in for a person's own document. Model output (assistant,
+// Ask Prax, narratives, writing previews) and anything else built from
+// agent-written text never load one: the browser fetches an <img> on render
+// with no click, so a prompt-injected answer could carry workspace data out
+// in the image URL.
+let remoteImages = false;
 
 function renderInline(value) {
   const codeSpans = [];
@@ -56,7 +63,11 @@ function renderInline(value) {
   // Images ![alt](src) — before links, so the link rule doesn't eat the [..](..)
   // and strand the leading "!". src is restricted to http(s)/relative (no
   // javascript:) and alt is already escaped by escapeHtml above.
-  text = text.replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+|\/[^)\s]+)\)/g, '<img src="$2" alt="$1" loading="lazy">');
+  text = text.replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+|\/[^)\s]+)\)/g, (_match, alt, src) => {
+    if (remoteImages || src.startsWith('/')) return `<img src="${src}" alt="${alt}" loading="lazy">`;
+    const host = src.replace(/^https?:\/\//, '').split(/[/?#]/)[0];
+    return `<span class="md-image-blocked" title="Remote image not loaded">[image${alt ? `: ${alt}` : ''} — ${host}, not loaded]</span>`;
+  });
   text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+|\/[^)\s]+|#[^)\s]+)\)/g, '<a href="$2" rel="noreferrer">$1</a>');
   text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   text = text.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
@@ -156,12 +167,16 @@ function flushTable(output, tableRows) {
   return true;
 }
 
+// options.remoteImages: true only for a person's own document (editor preview);
+// every other caller gets inert placeholders for remote images.
 export function renderMarkdownHtml(markdown = '', options = {}) {
   wikiResolver = typeof options.resolveWikiLink === 'function' ? options.resolveWikiLink : null;
+  remoteImages = options.remoteImages === true;
   try {
     return renderMarkdownBody(markdown);
   } finally {
     wikiResolver = null;
+    remoteImages = false;
   }
 }
 

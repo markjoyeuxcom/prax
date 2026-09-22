@@ -53,6 +53,18 @@ the Kubernetes base exposes only a ClusterIP Service. The flag adds no authentic
 evidence that a reverse proxy is safe; it only makes network reachability a deliberate decision
 instead of an accidental `HOST` change.
 
+### Host names (DNS rebinding)
+
+`PRAX_ALLOWED_HOSTS` turns the `Host` header check on for any bind. When it is set, Prax accepts
+loopback names, IP literals (DNS rebinding always needs a hostname) and the comma-separated names
+listed, and answers `403` to anything else; `*` turns the check off. Unset, only an unacknowledged
+loopback bind is checked. The container image sets `PRAX_ALLOWED_HOSTS=localhost`, so the Compose
+install keeps the DNS-rebinding defence even though the process listens on `0.0.0.0`; add a
+reverse proxy's public hostname to the list when you put one in front. The Kubernetes base sets
+`"*"` because pods are reached by Service DNS and gateway names; replace it with those names to keep
+the check. The image also stores its database at `/data/prax.db`, a directory owned by the non-root
+`node` user, so a fresh Compose volume is writable.
+
 Settings → Data & admin reports whether the running process is local-only or network-reachable and
 always reports the application's authentication mode as `none`.
 

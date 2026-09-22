@@ -48,6 +48,16 @@ test('upsert updates in place on the same title, keeps the stored type unless re
   assert.equal((await memoryDocs()).filter((d) => d.title === 'Restore runbook').length, 1);
 });
 
+test('upsert keeps the stored tags when the request leaves them out, and an explicit empty list clears them', async () => {
+  await upsert({ id: uuid(940), title: 'Tagged memory', body: 'v1', project: 'homelab', tags: ['ops', 'deploy'] });
+  const kept = await upsert({ id: uuid(941), title: 'Tagged memory', body: 'v2', project: 'homelab' });
+  assert.equal(kept.code, 200);
+  assert.equal(kept.body.document.body, 'v2');
+  assert.deepEqual(kept.body.document.tags, ['ops', 'deploy'], 'omitted tags must not wipe the stored ones');
+  const cleared = await upsert({ id: uuid(942), title: 'Tagged memory', body: 'v3', project: 'homelab', tags: [] });
+  assert.deepEqual(cleared.body.document.tags, []);
+});
+
 test('upsert never revives a superseded title: the memory becomes a new active document', async () => {
   const oldDoc = (await upsert({ id: uuid(3), title: 'Old approach', body: 'old', project: 'homelab' })).body.document;
   const replacement = (await upsert({ id: uuid(4), title: 'New approach', body: 'new', project: 'homelab' })).body.document;
