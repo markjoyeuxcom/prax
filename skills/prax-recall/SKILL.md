@@ -52,10 +52,16 @@ In order: `PRAX_API_URL` if set → the desktop app's saved loopback port
 - Retrieval is hybrid: the ranking fuses meaning (cosine) with exact terms (BM25) and nudges
   by trust — a verified memory a few places up, an unverified one a few places down as it
   ages. Trust never outranks relevance; age is disclosed so you can discount further.
-- When the top hit pins code (`--cite`) and you are inside the checkout, the trust line also
-  says `path changed since this was written`, `moved to path:a-b`, or `path is gone`. No
-  such note means the cited lines still match. Outside a checkout nothing is claimed either
-  way.
+- When the top hit pins code (`--cite`) and you run recall inside the repository it was cited
+  in, the trust line also says `path changed since this was written`, `moved to path:a-b`, or
+  `path is gone`; a checked citation with no such note still matches. Citations that could not
+  be checked are said too: `N citations not checked (not run inside a checkout)`,
+  `(cited in another repository)`, `(pinned at a commit this checkout does not have)`,
+  `(the cited repository is not recorded)` or `(the citations could not be read)` — that is no
+  claim either way, so check the code yourself before relying on the memory. The repository is the
+  hit's project's registered repo URL when both it and this checkout's origin are known,
+  otherwise the commit the citation was pinned at must exist in this checkout. In a very
+  large file only the lines near the citation are searched for a move, and the note says so.
 - `No relevant memory found for: "…"` with no qualifier is an honest miss (the server
   applies a relevance cutoff). Treat it as "no prior memory" and start fresh.
 - `(index incomplete: N of M documents have no current embedding — …)` means some
@@ -69,7 +75,10 @@ In order: `PRAX_API_URL` if set → the desktop app's saved loopback port
 - `(N of M matches shown — raise --limit for the rest)` means more matches exist beyond
   the requested bound; the block is complete up to `--limit`, not beyond it.
 - `(semantic search disabled — keyword results)` means the app has no embedding
-  backend; the hits are keyword matches, so paraphrases may miss.
+  backend; the hits are keyword matches ranked by how often the query's words occur, so
+  paraphrases may miss. `--limit` and the `N of M matches shown` note apply as usual.
+- `--recent` takes no query; `--limit` must be a positive integer. Both are refused
+  otherwise, never silently ignored.
 - `--recent` lists **active** documents only; superseded and deprecated memory never
   appears there, so it cannot be replayed as current.
 - `Prax not reachable …` means the app is not running. Say so; never invent memory.

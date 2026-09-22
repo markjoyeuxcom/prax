@@ -551,7 +551,7 @@ function createMemoryDocumentLinksRepository(documentsRef) {
     return { documentId: d.id, title: d.title, documentType: d.documentType, projectId: d.projectId, relation, direction };
   };
   return {
-    async linkDocuments(sourceId, targetId, relation) {
+    async linkDocuments(sourceId, targetId, relation, actor = null) {
       if (!isLive(sourceId) || !isLive(targetId)) return { linked: false };
       const existing = links.find((l) => l.sourceId === sourceId && l.targetId === targetId && l.relation === relation);
       if (existing) {
@@ -565,6 +565,13 @@ function createMemoryDocumentLinksRepository(documentsRef) {
         link.targetHash = documentsRef.find((d) => d.id === targetId)?.contentHash;
       }
       links.push(link);
+      // Mirrors the SQLite repository: a new supersedes edge records who
+      // retired the target on the target's provenance fields.
+      const retired = relation === 'supersedes' && actor ? documentsRef.find((d) => d.id === targetId) : null;
+      if (retired) {
+        retired.updatedBy = actor.updatedBy === 'agent' ? 'agent' : 'user';
+        retired.updatedByAgent = actor.updatedBy === 'agent' ? (actor.updatedByAgent || null) : null;
+      }
       return { linked: true };
     },
     async unlinkDocuments(sourceId, targetId, relation) {

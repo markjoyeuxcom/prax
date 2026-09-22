@@ -1,3 +1,5 @@
+import { localDayHeaders } from './dateHelpers.js';
+
 export async function fetchTasks(filters = {}) {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {
@@ -115,10 +117,12 @@ export async function importTasks({ project, mode = 'skip', tasks, format, versi
   return send(root + '/commit','POST',{chunkCount:chunks.length});
 }
 
+// Completing a recurring task schedules the next one from the viewer's today,
+// so status-changing requests carry the local day (dateHelpers.localDayHeaders).
 export async function updateTask(id, patch) {
   const response = await fetch(`/api/tasks/${id}`, {
     method: 'PATCH',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...localDayHeaders() },
     body: JSON.stringify(patch),
   });
   if (!response.ok) throw new Error('Failed to update task');
@@ -128,7 +132,7 @@ export async function updateTask(id, patch) {
 export async function reorderTasks(tasks) {
   const response = await fetch('/api/tasks/reorder', {
     method: 'PATCH',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...localDayHeaders() },
     body: JSON.stringify({ tasks }),
   });
   if (!response.ok) throw new Error('Failed to reorder tasks');

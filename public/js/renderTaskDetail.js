@@ -8,6 +8,7 @@ import {
 } from './statusMap.js';
 import { dueFlag } from './dueFlags.js';
 import { icon } from './icons.js';
+import { localDateTimeOf } from './dateHelpers.js';
 
 // Task drawer (right-side overlay panel) — pure state → HTML string, no DOM.
 // Tasks arrive with API field names (status 'high-priority', priority 'medium',
@@ -33,11 +34,10 @@ const PRIORITY_PILLS = [
   ['low', 'Low'],
 ];
 
-// "YYYY-MM-DD HH:MM" from an ISO timestamp; date-only strings stay date-only.
+// "YYYY-MM-DD HH:MM" in local time from an ISO timestamp (the same clock the
+// Snooze row uses); date-only strings stay date-only.
 function formatWhen(createdAt) {
-  const value = String(createdAt ?? '');
-  if (value.length >= 16 && value.includes('T')) return value.slice(0, 16).replace('T', ' ');
-  return value.slice(0, 10);
+  return localDateTimeOf(createdAt);
 }
 
 function formatDeferredUntil(value) {

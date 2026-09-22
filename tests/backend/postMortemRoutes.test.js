@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildApp } from '../../server/index.js';
+import { createGeminiChat } from '../../server/chat/gemini.js';
 import { buildRunSummary, postMortemTitle, fallbackPostMortem, buildPostMortemMessages, elapsed } from '../../server/postMortem.js';
 
 const PROJECT_ID = '00000000-0000-4000-8000-000000000001';
@@ -166,4 +167,20 @@ test('POST post-mortem: 404 on unknown run, source-independent creation, 409 wit
   const { app: app4 } = await makeApp({ chat: null });
   assert.equal((await app4.inject({ method: 'POST', url: '/api/library/runs/not-a-uuid/post-mortem' })).statusCode, 400);
   await app4.close();
+});
+
+// Regression (2026-09-22 review, bbaf70f1): a narrative cut off by the token
+// limit was committed as the post-mortem. The chronicle template is used.
+test('POST post-mortem never commits a narrative cut off by the token limit', async () => {
+  const fetch = async () => ({ ok: true, json: async () => ({ candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: '## Summary\nThe failover took 12 minutes because the stand' }] } }] }) });
+  const { app } = await makeApp({ chat: createGeminiChat({ apiKey: 'k', model: 'gemini-x', fetch }) });
+  const res = await app.inject({ method: 'POST', url: `/api/library/runs/${RUN_ID}/post-mortem` });
+  assert.equal(res.statusCode, 201);
+  const body = res.json();
+  assert.equal(body.generated, false);
+  assert.equal(body.degraded, true);
+  assert.equal(body.reason, 'truncated');
+  assert.doesNotMatch(body.document.body, /because the stand/);
+  assert.match(body.document.body, /## Follow-ups/);
+  await app.close();
 });

@@ -2,6 +2,7 @@ import { DOCUMENT_TYPES, isDocumentType } from './documentTypes.js';
 import { externalRefKind, EXTERNAL_REF_KIND_LABELS, isSafeHttpUrl, refsToLines } from './externalRefKind.js';
 import { escapeHtml, chip, prioDotClass } from './renderHelpers.js';
 import { DOCUMENT_INFO_FIELD_LABELS } from './documentInfoDraft.js';
+import { localDateOf } from './dateHelpers.js';
 
 // Prax document editor — pure render module (docs/desktop/phase1-actions.md).
 // `renderEditorHtml(state, doc, model)` returns an HTML string; no DOM access.
@@ -406,7 +407,7 @@ function renderRunsSection(state, doc) {
           ${runs.map((run) => `
             <button class="run-row" type="button" data-action="open-run" data-run-id="${escapeHtml(run.id)}" data-document-id="${escapeHtml(doc.id)}">
               <span class="chip chip--run-${escapeHtml(run.status)}">${escapeHtml(run.status)}</span>
-              <span class="run-row__title">${escapeHtml(run.title || String(run.startedAt || '').slice(0, 10))}</span>
+              <span class="run-row__title">${escapeHtml(run.title || localDateOf(run.startedAt))}</span>
               <span class="run-row__meta">${Number(run.doneCount) || 0}/${Number(run.stepCount) || 0}</span>
             </button>`).join('')}
           </div>

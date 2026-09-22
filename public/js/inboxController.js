@@ -1,7 +1,10 @@
+import { localDayHeaders } from './dateHelpers.js';
+
 const STORAGE_KEY = 'prax.inboxProcessing.v1';
 export async function inboxRequest(path, body) {
+  // The local day: completing a recurring capture schedules its successor from it.
   const response = await fetch(`/api/inbox${path}`, body === undefined ? {} : {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...localDayHeaders() }, body: JSON.stringify(body),
   });
   const result = await response.json();
   if (!response.ok) throw Object.assign(new Error(result.message || 'Inbox request failed.'), { status: response.status, reason: result.reason });

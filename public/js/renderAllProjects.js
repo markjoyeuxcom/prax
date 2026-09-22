@@ -2,6 +2,7 @@ import { escapeHtml, chip } from './renderHelpers.js';
 import { designStatus } from './statusMap.js';
 import { logo } from './icons.js';
 import { getSystemProject } from './systemProject.js';
+import { localDateOf } from './dateHelpers.js';
 
 // All-projects screen (design-handoff §6) — state-grouped project cards with
 // progress bars + state-change chip actions. Replaces the old project
@@ -48,7 +49,7 @@ export function buildProjectGroups(projects = [], tasks = []) {
           open,
           done,
           pct: total ? Math.round((done / total) * 100) : 0,
-          updated: project.updatedAt ? String(project.updatedAt).slice(0, 10) : '',
+          updated: localDateOf(project.updatedAt),
         };
       });
     return { state, label: groupLabel, projects: entries, areas: areasOf(entries) };

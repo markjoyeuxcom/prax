@@ -20,6 +20,17 @@ test('exposes the four task tools', () => {
   assert.deepEqual(names, ['create_task', 'get_task', 'search_tasks', 'update_task']);
 });
 
+test('search_tasks describes what it returns: completed tasks included, query over title and description', async () => {
+  const tool = byName(createTaskTools({}), 'search_tasks');
+  assert.doesNotMatch(tool.description, /Search active/);
+  assert.match(tool.description, /completed ones included/);
+  assert.match(tool.inputSchema.query.description, /title or description/);
+  // And it does: a completed task whose description matches is returned.
+  const done = { ...SAMPLE_TASK, status: 'completed', title: 'Other', description: 'backup details' };
+  const res = await byName(createTaskTools({ listTasks: async () => [done] }), 'search_tasks').handler({ query: 'backup' });
+  assert.equal(JSON.parse(res.content[0].text).items[0].status, 'completed');
+});
+
 test('search_tasks maps args and returns task summaries', async () => {
   let received;
   const client = { listTasks: async (f) => { received = f; return [SAMPLE_TASK]; } };

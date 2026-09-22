@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import { toIso } from './columnTypes.js';
 import { fuseHybrid } from './hybridRanking.js';
+import { normalizeTitle } from './documentTitle.js';
+import { createWithReceipt, creationIntentHash } from './creationReceipts.js';
 
 const DEFAULT_MIN_SIMILARITY = 0.45;
 const DEFAULT_TOP_DROP = 0.20;
@@ -106,6 +108,9 @@ export function normalizeDocumentRow(row) {
 }
 
 export function buildCreateDocument(document, { ignoreIdConflict = false } = {}) {
+  // Every write path (routes, Inbox filing, generated drafts) stores a
+  // single-line title; the revision is computed over the stored value.
+  if (typeof document.title === 'string') document = { ...document, title: normalizeTitle(document.title) };
   // A human may create a template-derived draft without vouching for its content.
   // Explicit false only lowers trust; it can never verify an agent-origin write.
   const verified = (document.updatedBy || 'user') !== 'agent' && document.verified !== false;
@@ -673,6 +678,7 @@ export function createLibraryRepository(db) {
   // Merged title/body → next revision, guarded by the token read in the same
   // session. `ifRevision` is the caller's baseline (undefined = unconditional).
   async function updateDocumentOn(queryable, id, fields, { ifRevision } = {}) {
+    if (typeof fields.title === 'string') fields = { ...fields, title: normalizeTitle(fields.title) };
     const currentRes = await queryable.query('select * from markdown_documents where id = $1 limit 1', [id]);
     const currentRow = currentRes.rows[0];
     if (!currentRow || currentRow.archived_at) return null;
@@ -811,9 +817,34 @@ export function createLibraryRepository(db) {
       return normalizeDocumentRow(result.rows[0]);
     },
 
-    async createDocumentIdempotent(document) {
+    // `receipt: true` (ID-only HTTP creates) judges a retry by the durable
+    // creation receipt, as task creates do: `replayed` returns the current
+    // document after edits, `gone` refuses to recreate a deleted one. Without
+    // it (generated documents, which carry their own row receipt) and for rows
+    // created before 0034, the caller compares content.
+    async createDocumentIdempotent(document, { receipt = false } = {}) {
       if (!document?.id) throw new Error('Idempotent document creation requires an id');
       await ready();
+      if (receipt) {
+        const result = await createWithReceipt(db, {
+          kind: 'document',
+          id: document.id,
+          intentHash: creationIntentHash('document', document.id, [
+            ...CREATE_FIELDS.map(key => document[key] ?? null), document.kind ?? 'source', document.verified === false,
+            document.updatedBy ?? 'user', document.updatedByAgent ?? null,
+          ]),
+          async load(client) {
+            const query = buildGetDocument(document.id);
+            return (await client.query(query.text, query.values)).rows[0] || null;
+          },
+          async insert(client) {
+            const query = buildCreateDocument(document, { ignoreIdConflict: true });
+            return (await client.query(query.text, query.values)).rows[0] || null;
+          },
+        });
+        const { row, ...outcome } = result;
+        return row === undefined ? outcome : { ...outcome, document: row ? normalizeDocumentRow(row) : null };
+      }
       const createQuery = buildCreateDocument(document, { ignoreIdConflict: true });
       const created = await db.query(createQuery.text, createQuery.values);
       if (created.rows[0]) return { document: normalizeDocumentRow(created.rows[0]), created: true };

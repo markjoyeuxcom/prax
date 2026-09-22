@@ -14,6 +14,7 @@ import {
 } from './libraryFilters.js';
 import { DOCUMENT_TYPES, documentTypeLabel } from './documentTypes.js';
 import { normalizeLayout } from './libraryLayout.js';
+import { localDateOf } from './dateHelpers.js';
 
 // Library page (Prax design): header actions, keyword/semantic search row,
 // tag-pill filters, Runbooks/Notes card grid, semantic idle/result states and
@@ -79,10 +80,9 @@ function excerptFor(body) {
   return '';
 }
 
-// Short date label (YYYY-MM-DD) from an ISO timestamp.
+// Short local date label (YYYY-MM-DD) from an ISO timestamp.
 function updatedLabel(updatedAt) {
-  const value = String(updatedAt || '');
-  return /^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10) : '';
+  return localDateOf(updatedAt);
 }
 
 function matchesQuery(doc, query) {

@@ -157,29 +157,91 @@ test('openai adapter sends Responses tools and parses a function call', async ()
   assert.deepEqual(out.providerOutput, providerOutput);
 });
 
-test('openai adapter replays encrypted reasoning for a stateless tool continuation', async () => {
-  let sent;
+// A stub that behaves like the documented stateless Responses contract: with
+// store:false a reasoning item carries encrypted_content ONLY when the request
+// asked for include:['reasoning.encrypted_content'], and a replayed reasoning
+// item without it cannot be resolved ("Items are not persisted when store is
+// false"). The earlier fixture invented encrypted_content production never
+// requested (2026-09-22 review, 893007dc).
+function statelessResponsesApi() {
+  const sent = [];
   const fetch = async (_url, init) => {
-    sent = JSON.parse(init.body);
-    return { ok: true, json: async () => ({ id: 'resp_2', output: [{ type: 'message', content: [{ type: 'output_text', text: 'done' }] }] }) };
+    const body = JSON.parse(init.body);
+    sent.push(body);
+    const replayed = (body.input || []).filter((item) => item?.type === 'reasoning');
+    if (replayed.some((item) => !item.encrypted_content)) {
+      return { ok: false, status: 404, text: async () => JSON.stringify({ error: { message: `Item with id '${replayed[0].id}' not found. Items are not persisted when \`store\` is set to false.` } }) };
+    }
+    const turn = sent.length;
+    if ((body.input || []).some((item) => item?.type === 'function_call_output')) {
+      return { ok: true, json: async () => ({ id: `resp_${turn}`, status: 'completed', output: [{ type: 'message', id: 'msg_2', role: 'assistant', content: [{ type: 'output_text', text: 'done' }] }] }) };
+    }
+    const reasoning = { type: 'reasoning', id: 'rs_1', summary: [] };
+    if (body.store === false && body.include?.includes('reasoning.encrypted_content')) reasoning.encrypted_content = 'gAAAAopaque';
+    return { ok: true, json: async () => ({ id: `resp_${turn}`, status: 'completed', output: [
+      reasoning,
+      { type: 'function_call', id: 'fc_1', call_id: 'call_1', name: 'search_tasks', arguments: '{}', status: 'completed' },
+    ] }) };
   };
-  const providerOutput = [
-    { type: 'reasoning', id: 'rs_1', encrypted_content: 'opaque' },
-    { type: 'function_call', call_id: 'call_1', name: 'search_tasks', arguments: '{}' },
-  ];
-  const chat = createOpenAiChat({ apiKey: 'k', model: 'gpt-x', fetch });
+  return { fetch, sent };
+}
+
+test('openai adapter requests encrypted reasoning and replays it for a stateless tool continuation', async () => {
+  const api = statelessResponsesApi();
+  const chat = createOpenAiChat({ apiKey: 'k', model: 'gpt-x', fetch: api.fetch });
+  const first = await chat.complete([{ role: 'system', content: 'sys' }, { role: 'user', content: 'find it' }], { tools: TOOLS });
+  assert.equal(api.sent[0].store, false);
+  assert.deepEqual(api.sent[0].include, ['reasoning.encrypted_content']);
+  assert.equal(first.providerOutput[0].encrypted_content, 'gAAAAopaque');
+
   const out = await chat.complete([
     { role: 'system', content: 'sys' },
     { role: 'user', content: 'find it' },
-    { role: 'assistant', toolCalls: [{ id: 'call_1', name: 'search_tasks', input: {} }], providerOutput },
+    { role: 'assistant', toolCalls: first.toolCalls, providerOutput: first.providerOutput },
     { role: 'tool', results: [{ id: 'call_1', name: 'search_tasks', content: 'found it' }] },
   ], { tools: TOOLS });
-  assert.equal(sent.store, false);
-  assert.deepEqual(sent.input.slice(-3), [
-    ...providerOutput,
+  assert.deepEqual(api.sent[1].input.slice(-3), [
+    ...first.providerOutput,
     { type: 'function_call_output', call_id: 'call_1', output: 'found it' },
   ]);
   assert.equal(out.text, 'done');
+});
+
+test('openai replay drops reasoning items that lack encrypted_content (and the server ids that point at them)', async () => {
+  const api = statelessResponsesApi();
+  const chat = createOpenAiChat({ apiKey: 'k', model: 'gpt-x', fetch: api.fetch });
+  // History saved before the include was requested (e.g. a recovered approval).
+  const legacyOutput = [
+    { type: 'reasoning', id: 'rs_1', summary: [] },
+    { type: 'function_call', id: 'fc_1', call_id: 'call_1', name: 'search_tasks', arguments: '{"q":"late"}', status: 'completed' },
+  ];
+  const out = await chat.complete([
+    { role: 'user', content: 'find it' },
+    { role: 'assistant', toolCalls: [{ id: 'call_1', name: 'search_tasks', input: { q: 'late' } }], providerOutput: legacyOutput },
+    { role: 'tool', results: [{ id: 'call_1', name: 'search_tasks', content: 'found it' }] },
+  ], { tools: TOOLS });
+  assert.equal(out.text, 'done');
+  assert.deepEqual(api.sent[0].input.slice(-2), [
+    { type: 'function_call', call_id: 'call_1', name: 'search_tasks', arguments: '{"q":"late"}' },
+    { type: 'function_call_output', call_id: 'call_1', output: 'found it' },
+  ]);
+});
+
+test('openai adapter stops requesting encrypted reasoning when a compatible endpoint rejects the include', async () => {
+  const sent = [];
+  const fetch = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    sent.push(body);
+    if (body.include) return { ok: false, status: 400, text: async () => JSON.stringify({ error: { message: "Unsupported parameter: 'include'." } }) };
+    return { ok: true, json: async () => ({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: 'ok' }] }] }) };
+  };
+  const chat = createOpenAiChat({ apiKey: 'k', model: 'gpt-x', fetch });
+  assert.equal((await chat.complete('one')).text, 'ok');
+  assert.equal((await chat.complete('two')).text, 'ok');
+  assert.deepEqual(sent.map((b) => Boolean(b.include)), [true, false, false]);
+  // Any other 400 is a real failure, surfaced as before.
+  const other = createOpenAiChat({ apiKey: 'k', fetch: async () => ({ ok: false, status: 400, text: async () => JSON.stringify({ error: { message: 'Invalid model' } }) }) });
+  await assert.rejects(other.complete('x'), /openai chat failed: 400 \(Invalid model\)/);
 });
 
 test('gemini adapter sends tools + parses functionCall response', async () => {

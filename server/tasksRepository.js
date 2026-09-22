@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { toIso } from './columnTypes.js';
+import { createWithReceipt, creationIntentHash } from './creationReceipts.js';
 
 const ALLOWED_CREATE_FIELDS = ['title', 'description', 'priority', 'status', 'projectId', 'dueDate', 'dueTime', 'sortOrder', 'notes', 'recurrence', 'labels', 'plannedFor'];
 const CREATE_COLUMN_MAP = {
@@ -402,20 +403,30 @@ export function normalizeActivityRow(row) {
     eventType: row.event_type,
     message: row.message,
     actor: row.actor || 'user',
+    // Which agent CLI (x-prax-agent), when an agent identified itself.
+    actorAgent: row.actor_agent ?? null,
     createdAt: toIso(row.created_at),
   };
 }
 
-export function buildRecordActivity(taskId, eventType, message, actor = 'user') {
+const ACTIVITY_AGENT_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+
+// The agent id is kept only for an agent actor and only in the shape the
+// routes accept, so a person's event can never carry an agent label.
+export function buildRecordActivity(taskId, eventType, message, actor = 'user', actorAgent = null) {
+  const isAgent = actor === 'agent';
+  const agent = isAgent && typeof actorAgent === 'string' && ACTIVITY_AGENT_RE.test(actorAgent) ? actorAgent : null;
   return {
-    text: `insert into task_activity (task_id, event_type, message, actor) values ($1, $2, $3, $4) returning *`,
-    values: [taskId, eventType, message, actor === 'agent' ? 'agent' : 'user'],
+    text: `insert into task_activity (task_id, event_type, message, actor, actor_agent) values ($1, $2, $3, $4, $5) returning *`,
+    values: [taskId, eventType, message, isAgent ? 'agent' : 'user', agent],
   };
 }
 
 export function buildListTaskActivity(taskId) {
   return {
-    text: `select * from task_activity where task_id = $1 order by created_at desc, id desc`,
+    // Ties within a millisecond (several events written in one request) keep
+    // insertion order via rowid; the random id would shuffle them.
+    text: `select * from task_activity where task_id = $1 order by created_at desc, rowid desc`,
     values: [taskId],
   };
 }
@@ -458,7 +469,7 @@ export function buildListTaskBoardExtras(taskIds) {
             task_id,
             message,
             event_type,
-            row_number() over (partition by task_id order by created_at desc, id desc) as rn
+            row_number() over (partition by task_id order by created_at desc, rowid desc) as rn
           from task_activity
           where task_id in (select value from json_each($1))
         )
@@ -542,20 +553,29 @@ export function createTasksRepository(db) {
       return normalizeTaskRow(result.rows[0]);
     },
 
-    // A caller-supplied UUID is also the creation retry identity. The first
-    // insert wins; an exact replay reads the existing row instead of adding a
-    // second task. The route checks that the existing content still matches.
+    // A caller-supplied UUID is also the creation retry identity. Its durable
+    // receipt (record_creation_receipts) decides a replay: an identical retry
+    // returns the current task even after edits (`replayed`), and one after
+    // permanent delete reports `gone` instead of recreating it. A row without
+    // a receipt (created before 0034) comes back unflagged and the route
+    // compares its content, as it always did.
     async createTaskIdempotent(task) {
       if (!task?.id) throw new Error('Idempotent task creation requires an id');
-      const createQuery = buildCreateTask(task, { ignoreIdConflict: true });
-      const created = await db.query(createQuery.text, createQuery.values);
-      if (created.rows[0]) return { task: normalizeTaskRow(created.rows[0]), created: true };
-      const getQuery = buildGetTask(task.id);
-      const existing = await db.query(getQuery.text, getQuery.values);
-      return {
-        task: existing.rows[0] ? normalizeTaskRow(existing.rows[0]) : null,
-        created: false,
-      };
+      const result = await createWithReceipt(db, {
+        kind: 'task',
+        id: task.id,
+        intentHash: creationIntentHash('task', task.id, ALLOWED_CREATE_FIELDS.map(field => task[field] ?? null)),
+        async load(client) {
+          const query = buildGetTask(task.id);
+          return (await client.query(query.text, query.values)).rows[0] || null;
+        },
+        async insert(client) {
+          const query = buildCreateTask(task, { ignoreIdConflict: true });
+          return (await client.query(query.text, query.values)).rows[0] || null;
+        },
+      });
+      const { row, ...outcome } = result;
+      return row === undefined ? outcome : { ...outcome, task: row ? normalizeTaskRow(row) : null };
     },
 
     async importTasks(tasks) {
@@ -847,8 +867,8 @@ export function createTasksRepository(db) {
       return result.rows[0] ? normalizeTaskRow(result.rows[0]) : null;
     },
 
-    async recordActivity(taskId, eventType, message, actor = 'user') {
-      const q = buildRecordActivity(taskId, eventType, message, actor);
+    async recordActivity(taskId, eventType, message, actor = 'user', actorAgent = null) {
+      const q = buildRecordActivity(taskId, eventType, message, actor, actorAgent);
       const result = await db.query(q.text, q.values);
       return normalizeActivityRow(result.rows[0]);
     },
@@ -863,7 +883,7 @@ export function createTasksRepository(db) {
     // (a one-click weekly query — a full-table date scan is fine locally).
     async listActivityInRange(fromIso, toIsoExclusive) {
       const result = await db.query(
-        'select * from task_activity where created_at >= $1 and created_at < $2 order by created_at asc',
+        'select * from task_activity where created_at >= $1 and created_at < $2 order by created_at asc, rowid asc',
         [fromIso, toIsoExclusive],
       );
       return result.rows.map(normalizeActivityRow);

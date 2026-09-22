@@ -27,6 +27,24 @@ fresh empty `[Unreleased]` section is started.
   previous behaviour. **Behaviour change:** a Docker or Compose install reached through a proxy
   hostname must add that name to `PRAX_ALLOWED_HOSTS`.
 
+- **Other sites can no longer change your data.** Browsers send requests from any page to
+  Prax's loopback port. State-changing requests are now refused (`403`) when `Sec-Fetch-Site`
+  says they came from another site, or when a present `Origin` is not Prax's own origin.
+  Command-line, MCP and other non-browser clients are unaffected.
+- **The assistant shows exactly what it will change before you approve.** Each proposed write
+  shows the target's title and every changed field, with a full body diff, and each write is
+  approved or declined on its own. Tool input is validated against the tool's schema, and an
+  agent's supersede records who did it.
+- **Claude and Copilot CLI answers run without tools and without your CLI settings.** The
+  Claude CLI now runs with all tools disabled and user settings ignored, and neither CLI receives
+  Library text on its command line any more (it goes through stdin). A CLI that exits before
+  reading a large prompt no longer crashes the server.
+- **A document title can no longer fake a trust label.** Titles are single-line: line breaks and
+  control characters collapse to a space on every write, migration 0035 repairs stored titles,
+  and context packs, Ask context and the assistant snapshot render titles on one line.
+- **Every account on the machine is trusted.** SECURITY.md now states this deliberate
+  single-user decision: the loopback API has no credential, so other local accounts can use it.
+
 ### Fixed
 
 - **`prax remember` could erase a document.** A missing `--body`, or one whose text began with
@@ -55,6 +73,54 @@ fresh empty `[Unreleased]` section is started.
   Quit, `terminate:` and a crash with the window open.
 - **A fresh Compose volume could not hold the database.** The image creates `/data` for the
   non-root user and defaults `PRAX_DB_FILE` to `/data/prax.db`.
+- **Truncated AI output is no longer presented as complete.** Every provider now reports when
+  a reply hit its length limit. A cut-off writing action or runbook is refused, a cut-off
+  post-mortem falls back to the chronicle template, a cut-off assistant answer says so, and a
+  truncated tool call is never proposed. HTTP chat providers now time out (180 s; 300 s for
+  Ollama).
+- **OpenAI reasoning models work after a tool call.** Responses requests now ask for encrypted
+  reasoning, and reasoning items that cannot be replayed are dropped.
+- **Ask Prax cites what the model actually saw.** Citations are checked against, and Sources show,
+  the documents placed in the answer context, bounded by `limit`.
+- **The local embedder's relevance floor applies everywhere.** Context packs, Ask, similar and
+  related documents use the active embedder's floor, as semantic search already did.
+- **Accepting a wiki-link suggestion** re-embeds the document, refuses to overwrite a concurrent
+  edit (`409`) and returns `404` for an archived document.
+- **Document downloads with non-Latin names work**, using an ASCII `filename` plus RFC 5987
+  `filename*`; the ZIP export also no longer holds two names that differ only by case.
+- **Retried creates are exact once.** Tasks, checklist items and documents created with a caller
+  id keep a receipt (migration 0034): an identical retry after an edit returns the record, and one
+  after a permanent delete returns `410` instead of recreating it. MCP `create_document` now
+  sends an operation id.
+- **Google Calendar reconnects reuse the Prax calendar**, the OAuth callback and Settings agree,
+  stale push errors clear, settings writes are serialised, and Sync now runs through the pusher.
+- **Monthly recurrence keeps its day.** A late completion lands on the anchored day (Jan 31 → Apr
+  30, not Apr 28). A series already stored on a clamped day cannot recover its original day.
+- **Dates follow your timezone.** The web app sends its local date and timezone, so recurrence,
+  planning and the assistant's "today" match yours on a UTC server, and run, activity, brief,
+  Library, Inbox and editor timestamps display in local time.
+- **The CLI refuses input it cannot use.** Unknown flags, surplus words, flags from other
+  commands and invalid `--limit` / `--recent` values exit with usage; boolean flags never
+  swallow the next word; `--tags` is an alias of `--tag`.
+- **`prax recall` is honest about citations and keyword fallback.** Citations are only checked
+  in a checkout of the same repository (otherwise the hit says why they were not checked); the
+  keyword fallback reports `degraded`, pagination and relevance order, and checks citations;
+  the moved-code scan is bounded.
+- **The MCP server finds the desktop app** through the same discovery as the CLI, waits up to
+  180 s for generation and Ask tools (`PRAX_MCP_TIMEOUT_MS`), says "may still be processing"
+  rather than "unreachable" on a timeout, and a replay waits for a generation already running.
+- **`install.sh --uninstall` no longer deletes instructions or breaks symlinks.**
+- **Task changes say who made them.** Agent-created tasks, renames, description, notes, priority
+  and checklist changes are logged with the agent id (migration 0036); `prax task list` shows open
+  tasks by default. Activity recorded in the same millisecond keeps its order.
+- **Frontend writes report what happened.** Promote and working-note failures are reported
+  accurately; bulk, triage and plan-add report partial results; a task reload that started before
+  a newer write no longer overwrites it; repeated Enter or double clicks no longer create twice.
+- **Plan and shutdown keys act on the focused decision**, and a double activation no longer skips
+  an item.
+- **Preview checkboxes toggle** (click, Space or Enter) in an editable document, and link and image
+  URLs containing `_` or `__` are no longer corrupted by emphasis. The title autosave keeps a
+  trailing space while you type.
 - **CLI flag values that begin with `--`.** `--flag=value` is now accepted everywhere, and
   `prax task add` refuses a bare `--check` instead of silently dropping the checklist item
   whose text started with `--`.

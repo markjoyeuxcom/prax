@@ -3,17 +3,25 @@ import { accessSync, constants, mkdtempSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join, delimiter } from 'node:path';
 import { splitSystem } from './messages.js';
+import { finish as stopSignal } from './request.js';
 
 // Claude Code CLI as a chat backend: `claude -p` headless completions that
 // authenticate through the user's existing `claude` login — the Pro/Max
 // subscription powers Prax with NO API key stored anywhere.
 //
 // Safety fencing, non-negotiable: a summarization call must never become an
-// agent run. Every spawn denies the CLI's built-in tools wholesale, appends a
-// no-tools instruction, runs in an EMPTY scratch working directory (nothing
-// sensitive to read), loads an explicitly empty MCP config (no servers), and
-// caps --max-turns as a ceiling. supportsTools is false — the in-app
-// assistant degrades honestly instead of pretending.
+// agent run. Every spawn disables the CLI's built-in tools wholesale (--tools
+// "", plus a deny-list for CLIs that predate it), ignores the user's own
+// settings files (their default mode, allow rules and hooks must not apply to
+// a run that carries untrusted Library text), uses a non-interactive
+// permission mode, appends a no-tools instruction, runs in an EMPTY scratch
+// working directory (nothing sensitive to read), loads an explicitly empty MCP
+// config (no servers), and caps --max-turns as a ceiling. supportsTools is
+// false — the in-app assistant degrades honestly instead of pretending.
+//
+// Nothing caller-supplied travels in argv, where other local users can read it
+// through ps and a long snapshot hits the per-argument limit: the system
+// prompt and conversation go to the CLI over stdin.
 //
 // Spawns are serialized through a single queue: CLI processes are heavy, and
 // concurrent advisory calls (NL parse + narration) must not stampede.
@@ -65,27 +73,39 @@ export function serializeTurns(turns) {
     .join('\n\n');
 }
 
-// The CLI's built-in tools, denied by NAME so a completion stays a
-// completion. This is the primary fence: a "turn" is one assistant message,
-// so with tools available the model's first message can be a tool call —
-// which consumes the whole budget under a tight --max-turns and ends the run
-// as error_max_turns with no text at all (field-observed). Names span CLI
+// The caller's system prompt (which can carry a workspace snapshot) rides on
+// stdin ahead of the conversation instead of in --append-system-prompt.
+export function serializeCliPrompt(system, turns) {
+  const transcript = serializeTurns(turns);
+  if (!system) return transcript;
+  return transcript ? `System instructions:\n${system}\n\nConversation:\n${transcript}` : '';
+}
+
+// The CLI's built-in tools, denied by NAME as a second fence behind
+// --tools "". A "turn" is one assistant message, so with tools available the
+// model's first message can be a tool call — which consumes the whole budget
+// under a tight --max-turns and ends the run as error_max_turns with no text
+// at all (field-observed). A deny-list can never be complete (new CLI releases
+// add tools), which is why it is not the primary fence. Names span CLI
 // versions deliberately; unknown ones are harmless.
 const DENIED_TOOLS = [
-  'Task', 'Bash', 'BashOutput', 'KillBash', 'KillShell',
-  'Read', 'Glob', 'Grep', 'LS',
+  'Task', 'Agent', 'Bash', 'BashOutput', 'KillBash', 'KillShell', 'PowerShell', 'REPL', 'Monitor',
+  'Read', 'Glob', 'Grep', 'LS', 'LSP',
   'Edit', 'MultiEdit', 'Write', 'NotebookRead', 'NotebookEdit',
   'WebFetch', 'WebSearch',
-  'TodoRead', 'TodoWrite',
-  'EnterPlanMode', 'ExitPlanMode', 'SlashCommand', 'Skill', 'AskUserQuestion',
-  'ListMcpResources', 'ReadMcpResource',
+  'TodoRead', 'TodoWrite', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'TaskOutput', 'TaskStop',
+  'EnterPlanMode', 'ExitPlanMode', 'EnterWorktree', 'ExitWorktree',
+  'SlashCommand', 'Skill', 'AskUserQuestion', 'ToolSearch', 'SendMessage',
+  'CronCreate', 'CronDelete', 'CronList',
+  'ListMcpResources', 'ReadMcpResource', 'ListMcpResourcesTool', 'ReadMcpResourceTool',
 ].join(',');
 
 // Belt to the deny-list's braces: the model is told not to attempt tools, so
 // no turn is wasted on a call that would only come back denied.
 const NO_TOOLS_PROMPT = 'Answer directly as plain text. Do not use any tools.';
 
-export function buildCliArgs({ model, system }) {
+// Every value here is a constant: the prompt itself is written to stdin.
+export function buildCliArgs({ model }) {
   return [
     '-p',
     '--output-format', 'json',
@@ -94,10 +114,18 @@ export function buildCliArgs({ model, system }) {
     // one turn, and the headroom absorbs a stray attempted-then-denied call
     // instead of dying text-less the way --max-turns 1 did.
     '--max-turns', '4',
+    // The primary fence: no built-in tools at all, whatever this CLI version
+    // ships. "" is the CLI's documented "disable all tools" value.
+    '--tools', '',
+    // Load no settings files (user, project or local): the user's default
+    // permission mode, allow rules and hooks do not apply to these runs.
+    '--setting-sources', '',
+    // Never prompt and never auto-approve: anything not pre-allowed is denied.
+    '--permission-mode', 'dontAsk',
     '--strict-mcp-config',
     '--mcp-config', '{"mcpServers":{}}',
     '--disallowedTools', DENIED_TOOLS,
-    '--append-system-prompt', system ? `${system}\n\n${NO_TOOLS_PROMPT}` : NO_TOOLS_PROMPT,
+    '--append-system-prompt', NO_TOOLS_PROMPT,
   ];
 }
 
@@ -126,7 +154,12 @@ export function parseCliResult(stdout, stderr = '', exitCode = 0) {
   if (typeof data?.result !== 'string' || !data.result) {
     throw new Error('claude CLI returned no text');
   }
-  return { text: data.result, model: data?.modelUsage ? Object.keys(data.modelUsage)[0] : null };
+  return {
+    text: data.result,
+    model: data?.modelUsage ? Object.keys(data.modelUsage)[0] : null,
+    // Envelopes that report the final stop reason can mark a truncated answer.
+    ...stopSignal(data?.stop_reason),
+  };
 }
 
 export function createClaudeCliChat({
@@ -186,6 +219,16 @@ export function createClaudeCliChat({
       // caller must parse the envelope — rejecting here would leak raw JSON
       // as the error message instead of the CLI's own words.
       child.on('close', (code) => finish(resolve, { stdout, stderr, code: code ?? -1 }));
+      // A CLI that exits before reading a prompt larger than the pipe buffer
+      // (a wrong binary, an unknown flag after an update) makes this write
+      // fail with EPIPE. Unhandled, that 'error' event takes the whole server
+      // down. A closed pipe is reported through 'close' (exit code, stderr);
+      // any other stdin failure rejects this run.
+      child.stdin?.on?.('error', (err) => {
+        if (err?.code === 'EPIPE' || err?.code === 'ERR_STREAM_DESTROYED') return;
+        try { child.kill('SIGKILL'); } catch { /* already gone */ }
+        finish(reject, new Error(`claude CLI could not read the prompt: ${err?.message || err}`));
+      });
       if (input != null) {
         child.stdin?.write(input);
       }
@@ -211,11 +254,11 @@ export function createClaudeCliChat({
         throw new Error('the Claude CLI backend does not support tool calling — the assistant needs an API backend');
       }
       const { system, turns } = splitSystem(messages);
-      const prompt = serializeTurns(turns);
+      const prompt = serializeCliPrompt(system, turns);
       if (!prompt) throw new Error('claude CLI received an empty prompt');
-      const { stdout, stderr, code } = await enqueue(() => run(buildCliArgs({ model: chatModel, system }), prompt, timeoutMs));
+      const { stdout, stderr, code } = await enqueue(() => run(buildCliArgs({ model: chatModel }), prompt, timeoutMs));
       const parsed = parseCliResult(stdout, stderr, code);
-      return { text: parsed.text, model: parsed.model || chatModel };
+      return { text: parsed.text, model: parsed.model || chatModel, finishReason: parsed.finishReason, truncated: parsed.truncated };
     },
 
     // Cheap, offline, quota-free: the binary resolves and answers --version.

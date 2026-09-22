@@ -21,6 +21,16 @@ import {
   fetchTaskActivity,
 } from '../../public/js/taskApi.js';
 
+// Status-changing task requests carry the viewer's calendar day and IANA zone:
+// completing a recurring task schedules its successor from the viewer's today,
+// not from a UTC server clock (server/localDay.js).
+function assertJsonWithLocalDay(headers) {
+  assert.deepEqual(Object.keys(headers).sort(), ['content-type', 'x-prax-local-date', 'x-prax-time-zone']);
+  assert.equal(headers['content-type'], 'application/json');
+  assert.match(headers['x-prax-local-date'], /^\d{4}-\d{2}-\d{2}$/);
+  assert.equal(headers['x-prax-time-zone'], Intl.DateTimeFormat().resolvedOptions().timeZone);
+}
+
 function jsonResponse(body, ok = true, status = ok ? 200 : 400) {
   return {
     ok,
@@ -72,7 +82,7 @@ test('updateTask sends a PATCH request with JSON payload', async () => {
   assert.deepEqual(task, { id: 'task-1', title: 'Updated task' });
   assert.equal(calls[0][0], '/api/tasks/task-1');
   assert.equal(calls[0][1].method, 'PATCH');
-  assert.deepEqual(calls[0][1].headers, { 'content-type': 'application/json' });
+  assertJsonWithLocalDay(calls[0][1].headers);
   assert.equal(calls[0][1].body, JSON.stringify({ title: 'Updated task' }));
 });
 
@@ -215,7 +225,7 @@ test('reorderTasks sends a PATCH request with ordered task updates', async () =>
   assert.deepEqual(tasks, [{ id: 'task-1', status: 'in-progress', sortOrder: 0 }]);
   assert.equal(calls[0][0], '/api/tasks/reorder');
   assert.equal(calls[0][1].method, 'PATCH');
-  assert.deepEqual(calls[0][1].headers, { 'content-type': 'application/json' });
+  assertJsonWithLocalDay(calls[0][1].headers);
   assert.equal(calls[0][1].body, JSON.stringify({
     tasks: [{ id: 'task-1', status: 'in-progress', sortOrder: 0 }],
   }));

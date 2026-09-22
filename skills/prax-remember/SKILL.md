@@ -28,6 +28,7 @@ handoff, then close or retire that working context when complete.
 node <skill-dir>/scripts/remember.mjs "<title>" "<body>" \
   [--type note|runbook|decision|known-issue|reference|post-mortem|template] \
   [--tags a,b] [--ref <url>] [--cite <path[:start[-end]]>] [--project <slug>] [--id <uuid>] [--agent <id>]
+# --tag is accepted as well (the `prax remember` spelling); give one of them.
 ```
 
 `<skill-dir>` is the folder that holds this SKILL.md. In Claude Code it is
@@ -43,9 +44,11 @@ script is one self-contained file: Node 20+, no packages, no repository checkout
 - `--cite <path[:start[-end]]>` pins the memory to the code it makes a claim about
   (`server/config.js:12-36`: repository-relative, 1-based inclusive lines, or the whole
   file with no range). Only a sha256 of the cited lines is stored, never the source. Run
-  it from inside the checkout; a later recall from a checkout reports when those lines
-  changed, moved, or vanished. Best-effort: a bad citation warns and the memory is still
-  saved (`code NOT pinned`).
+  it from inside the checkout; a later recall from a checkout of the same repository
+  reports when those lines changed, moved, or vanished, and says `not checked` anywhere
+  else. File the memory in the project whose registered repo it cites (or keep the
+  commit reachable) so recall can tell the repository apart. Best-effort: a bad citation
+  warns and the memory is still saved (`code NOT pinned`).
 - Quote the title and the body; unknown options are errors, not ignored.
 
 ## Behaviour

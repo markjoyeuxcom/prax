@@ -1,8 +1,10 @@
 import { createAssistantWriteReceipts } from './assistant/writeReceipts.js';
-import { createInjectClient } from './assistant/injectClient.js';
+import { createInjectClient, withForwardedHeaders } from './assistant/injectClient.js';
 import { buildAgentTools } from './assistant/tools.js';
+import { buildWritePreview } from './assistant/writePreview.js';
 import { runAssistant, sanitizeMessages, buildAssistantSystemPrompt } from './assistant/agent.js';
-import { buildWorkspaceSnapshot, buildReadOnlyRules, localToday } from './assistant/snapshot.js';
+import { buildWorkspaceSnapshot, buildReadOnlyRules } from './assistant/snapshot.js';
+import { LOCAL_DATE_HEADER, requestToday } from './localDay.js';
 import { isToolCallTurn } from './chat/messages.js';
 
 function isPlainObject(value) {
@@ -47,6 +49,8 @@ export function registerAssistantRoutes(app, options = {}) {
     const messages = sanitizeMessages(body.messages);
     const decisions = isPlainObject(body.decisions) ? body.decisions : null;
     if (!messages.length) { reply.code(400); return { message: 'messages is required' }; }
+    // The requester's calendar day, not the server clock's (server/localDay.js).
+    const today = requestToday(request);
 
     const chat = await resolveChat();
     if (!chat) return { status: 'no_model', degraded: true, reason: 'no-chat-model', messages };
@@ -86,19 +90,27 @@ export function registerAssistantRoutes(app, options = {}) {
           // failure must not blind the task snapshot — degrade to tasks-only.
           client.listDocuments({}).catch(() => []),
         ]);
-        snapshot = buildWorkspaceSnapshot({ tasks, projects, documents, today: localToday() });
+        snapshot = buildWorkspaceSnapshot({ tasks, projects, documents, today });
       } catch (err) {
         request.log.error({ err }, 'assistant snapshot failed');
       }
       try {
         const note = [
-          buildAssistantSystemPrompt(),
+          buildAssistantSystemPrompt(today),
           '',
           buildReadOnlyRules(Boolean(snapshot)),
           ...(snapshot ? ['', snapshot] : []),
         ].join('\n');
-        const { text, model } = await chat.complete([{ role: 'system', content: note }, ...messages], { temperature: 0.3, maxTokens: 1200 });
-        return { status: 'done', degraded: true, reason: 'no-tools', answer: text, model, messages: [...messages, { role: 'assistant', content: text }] };
+        const res = await chat.complete([{ role: 'system', content: note }, ...messages], { temperature: 0.3, maxTokens: 1200 });
+        // A reply cut off at the length limit says so in the answer itself.
+        const answer = res.truncated
+          ? `${res.text}\n\n(This answer was cut off at the model’s length limit and is incomplete.)`
+          : res.text;
+        return {
+          status: 'done', degraded: true, reason: res.truncated ? 'truncated' : 'no-tools',
+          ...(res.truncated ? { truncated: true } : {}),
+          answer, model: res.model, messages: [...messages, { role: 'assistant', content: answer }],
+        };
       } catch (err) {
         request.log.error({ err }, 'assistant (no-tools) failed');
         return { status: 'error', degraded: true, reason: 'generation-failed', error: err?.message || 'failed', messages };
@@ -106,7 +118,14 @@ export function registerAssistantRoutes(app, options = {}) {
     }
 
     try {
-      return await runAssistant({ chat, tools, messages, decisions, writeReceipts });
+      // Approved writes run in-process and inherit the same day, so completing
+      // a recurring task rolls forward from the user's today.
+      return await withForwardedHeaders({ [LOCAL_DATE_HEADER]: today }, () => runAssistant({
+        chat, tools, messages, decisions, writeReceipts, system: buildAssistantSystemPrompt(today),
+        // The approval card names targets by title and shows current values,
+        // read through the same in-process client the tools use.
+        describeWrite: (call) => buildWritePreview(client, call.name, call.input),
+      }));
     } catch (err) {
       request.log.error({ err }, 'assistant turn failed');
       return { status: 'error', degraded: true, reason: 'agent-failed', error: err?.message || 'failed', messages };

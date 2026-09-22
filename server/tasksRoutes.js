@@ -3,6 +3,7 @@ import { createTasksRepository, taskMatchesCreateFields } from './tasksRepositor
 import { createProjectsRepository } from './projectsRepository.js';
 import { createChecklistRepository, MAX_CHECKLIST_ITEMS_PER_TASK } from './checklistRepository.js';
 import { isValidRecurrence, planTaskRecurrenceTransition } from './recurrence.js';
+import { requestToday } from './localDay.js';
 import { classifySlip } from './slippage.js';
 import { classifyPlanChange } from './planning.js';
 import { tasksToIcs, isCalendarEligible } from './icsFeed.js';
@@ -97,10 +98,46 @@ function isValidUuid(value) {
   );
 }
 
-function originFrom(request) {
+export function originFrom(request) {
   const origin = request.headers['x-prax-origin'] ?? request.headers['x-moomora-origin'];
   return origin === 'agent' ? 'agent' : 'user';
 }
+
+// WHICH agent changed the task: `x-prax-agent: claude|codex|…`, honoured only
+// alongside an agent origin and only as a short lowercase id (the same rule
+// the library routes apply to documents). Anything else is null.
+const AGENT_ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+export function agentFrom(request) {
+  if (originFrom(request) !== 'agent') return null;
+  const raw = request.headers['x-prax-agent'];
+  const value = String(Array.isArray(raw) ? raw[0] : raw ?? '').trim().toLowerCase();
+  return AGENT_ID_RE.test(value) ? value : null;
+}
+
+// Who a chronicle event is attributed to: the actor kind plus the agent id.
+function actorOf(request) {
+  return { actor: originFrom(request), agent: agentFrom(request) };
+}
+
+// Chronicle events for edits to a task's text and priority, which the status,
+// slip and plan events do not cover. Only what changed, never the content of
+// notes or a description (the chronicle is a history of who did what).
+function describeFieldEdits(prior, task) {
+  if (!prior || !task) return [];
+  const events = [];
+  if (prior.title !== task.title) events.push(['title', `Renamed to "${task.title}"`]);
+  if ((prior.description || '') !== (task.description || '')) {
+    events.push(['description', task.description ? 'Description updated' : 'Description cleared']);
+  }
+  if ((prior.notes || '') !== (task.notes || '')) events.push(['notes', task.notes ? 'Notes updated' : 'Notes cleared']);
+  if (prior.priority !== task.priority) events.push(['priority', `Priority → ${task.priority}`]);
+  return events;
+}
+
+// A text edit repeated by the same author within this window is covered by the
+// last event instead of adding another: the task drawer autosaves after every
+// pause in typing, and one "Notes updated" per pause would bury the history.
+const FIELD_EDIT_COALESCE_MS = 15 * 60 * 1000;
 
 function isValidSortOrder(value) {
   return (
@@ -453,10 +490,41 @@ export async function registerTasksRoutes(app, options = {}) {
   const notifyCalendar = (ids) => { try { app.calendarPusher?.notifyTaskChanged(ids); } catch { /* push is best-effort */ } };
   const notifyCalendarBulk = () => { try { app.calendarPusher?.notifyBulkChange(); } catch { /* push is best-effort */ } };
 
-  const logActivity = async (taskId, eventType, message, actor = 'user') => {
-    try { if (repository.recordActivity) await repository.recordActivity(taskId, eventType, message, actor); }
+  // `who` is actorOf(request) (or a bare actor kind): the event records the
+  // actor and, for an agent that identified itself, which agent it was.
+  const logActivity = async (taskId, eventType, message, who = 'user') => {
+    const { actor, agent } = typeof who === 'string' ? { actor: who, agent: null } : who;
+    try { if (repository.recordActivity) await repository.recordActivity(taskId, eventType, message, actor, agent); }
     catch { /* activity logging is best-effort; never fail the mutation */ }
   };
+
+  const logFieldEdits = async (prior, task, who) => {
+    const edits = describeFieldEdits(prior, task);
+    if (!edits.length) return;
+    let latest = null;
+    try {
+      if (repository.listTaskActivity) latest = (await repository.listTaskActivity(task.id))?.[0] || null;
+    } catch { /* coalescing is a nicety */ }
+    for (const [eventType, message] of edits) {
+      const recent = latest && latest.eventType === eventType && latest.actor === who.actor
+        && (latest.actorAgent ?? null) === who.agent
+        && Date.now() - Date.parse(latest.createdAt) < FIELD_EDIT_COALESCE_MS;
+      if (!recent) await logActivity(task.id, eventType, message, who);
+    }
+  };
+
+  // An agent's import is how `prax task add` creates a task, so it gets the
+  // same chronicle as a create: who created it, and a completed status. A
+  // person's import (a restore, a migration) stays silent as before.
+  async function logAgentImport(request, tasks) {
+    if (originFrom(request) !== 'agent' || !Array.isArray(tasks)) return;
+    const who = actorOf(request);
+    for (const task of tasks) {
+      if (!task?.id) continue;
+      await logActivity(task.id, 'created', 'Task created', who);
+      if (task.status === 'completed') await logActivity(task.id, 'status', 'Status → completed', who);
+    }
+  }
 
   async function resolveProjectId(value) {
     if (value === undefined || value === null || value === '') return undefined;
@@ -464,7 +532,12 @@ export async function registerTasksRoutes(app, options = {}) {
     return project ? project.id : null; // null signals "given but not found"
   }
 
-  const planLifecycle = (prior, fields) => planTaskRecurrenceTransition(prior, fields);
+  // Recurrence rolls forward past the REQUESTER's today (server/localDay.js):
+  // a UTC container at 20:00 in Los Angeles would otherwise skip a day.
+  const planLifecycle = (request) => {
+    const today = requestToday(request);
+    return (prior, fields) => planTaskRecurrenceTransition(prior, fields, { today });
+  };
 
   app.get('/api/tasks/export', async (request, reply) => {
     const exportProject = request.query.project;
@@ -585,6 +658,7 @@ export async function registerTasksRoutes(app, options = {}) {
       if (!result.replayed && (result.imported || mode === 'replace')) {
         notifyCalendarBulk();
       }
+      if (!result.replayed) await logAgentImport(request, result.tasks);
       reply.code(result.replayed ? 200 : (result.imported ? 201 : 200));
       return result;
     }
@@ -614,6 +688,7 @@ export async function registerTasksRoutes(app, options = {}) {
       : [];
     if (!hasAtomicImport) await restoreImportedChecklists(tasks, candidates);
     if (tasks.length || mode === 'replace') notifyCalendarBulk();
+    await logAgentImport(request, tasks);
     reply.code(tasks.length ? 201 : 200);
     return {
       mode,
@@ -822,20 +897,29 @@ export async function registerTasksRoutes(app, options = {}) {
         return { message: 'idempotent task creation is unavailable' };
       }
       const result = await repository.createTaskIdempotent(candidate);
-      if (!result.task || (!result.created && !taskMatchesCreateFields(result.task, candidate))) {
+      // A receipt-backed replay (`replayed`) is judged by the original intent,
+      // so later edits never turn it into a conflict. Rows without a receipt
+      // fall back to comparing content.
+      if (result.gone) {
+        reply.code(410);
+        return { message: 'this task was already created and has since been permanently deleted' };
+      }
+      // A replay that finds an ARCHIVED row must not report success for a
+      // task no view shows — but it deserves a truthful, distinct message.
+      if (!result.conflict && !result.created && result.task?.archivedAt) {
         reply.code(409);
-        // A replay that matches an ARCHIVED row must not report success for a
-        // task no view shows — but it deserves a truthful, distinct message.
-        if (result.task?.archivedAt) {
-          return { message: 'this capture was already created and has since been archived' };
-        }
+        return { message: 'this capture was already created and has since been archived' };
+      }
+      if (result.conflict || !result.task
+        || (!result.created && !result.replayed && !taskMatchesCreateFields(result.task, candidate))) {
+        reply.code(409);
         return { message: 'task id was already used for different content' };
       }
       reply.code(result.created ? 201 : 200);
       if (result.created) {
-        await logActivity(result.task.id, 'created', 'Task created', originFrom(request));
+        await logActivity(result.task.id, 'created', 'Task created', actorOf(request));
         if (result.task.status === 'completed') {
-          await logActivity(result.task.id, 'status', 'Status → completed', originFrom(request));
+          await logActivity(result.task.id, 'status', 'Status → completed', actorOf(request));
         }
         notifyCalendar([result.task.id]);
       }
@@ -843,9 +927,9 @@ export async function registerTasksRoutes(app, options = {}) {
     }
     const created = await repository.createTask(candidate);
     reply.code(201);
-    await logActivity(created.id, 'created', 'Task created', originFrom(request));
+    await logActivity(created.id, 'created', 'Task created', actorOf(request));
     if (created.status === 'completed') {
-      await logActivity(created.id, 'status', 'Status → completed', originFrom(request));
+      await logActivity(created.id, 'status', 'Status → completed', actorOf(request));
     }
     notifyCalendar([created.id]);
     return created;
@@ -870,13 +954,13 @@ export async function registerTasksRoutes(app, options = {}) {
     let lifecycleResults = null;
     let reordered;
     if (repository.reorderTasksWithLifecycle) {
-      lifecycleResults = await repository.reorderTasksWithLifecycle(updates, planLifecycle);
+      lifecycleResults = await repository.reorderTasksWithLifecycle(updates, planLifecycle(request));
       reordered = lifecycleResults.map(result => result.task);
     } else {
       const requiresLifecycle = updates.some((update) => {
         const prior = priors.get(update.id);
         if (!prior) return false;
-        const transition = planLifecycle(prior, { status: update.status, sortOrder: update.sortOrder });
+        const transition = planLifecycle(request)(prior, { status: update.status, sortOrder: update.sortOrder });
         return Boolean(transition.nextTask || transition.reopenedAsOneOff);
       });
       if (requiresLifecycle) {
@@ -891,12 +975,12 @@ export async function registerTasksRoutes(app, options = {}) {
       if (!task) continue;
       const priorStatus = (lifecycleResults?.find(result => result.task.id === task.id)?.prior || priors.get(task.id))?.status;
       if (priorStatus !== undefined && priorStatus !== task.status) {
-        await logActivity(task.id, 'status', `Status → ${task.status}`, originFrom(request));
+        await logActivity(task.id, 'status', `Status → ${task.status}`, actorOf(request));
         calendarChanged.push(task.id);
       }
       const nextTask = lifecycleResults?.find(result => result.task.id === task.id)?.nextTask;
       if (nextTask) {
-        await logActivity(nextTask.id, 'created', 'Recurring task created', originFrom(request));
+        await logActivity(nextTask.id, 'created', 'Recurring task created', actorOf(request));
         calendarChanged.push(nextTask.id);
       }
     }
@@ -980,7 +1064,7 @@ export async function registerTasksRoutes(app, options = {}) {
       reply.code(404);
       return { message: 'task not found' };
     }
-    await logActivity(task.id, 'restored', 'Task restored', originFrom(request));
+    await logActivity(task.id, 'restored', 'Task restored', actorOf(request));
     notifyCalendar([task.id]);
     return task;
   });
@@ -1039,10 +1123,10 @@ export async function registerTasksRoutes(app, options = {}) {
     let result = null;
     let task;
     if (repository.updateTaskLifecycle) {
-      result = await repository.updateTaskLifecycle(request.params.id, fields, planLifecycle);
+      result = await repository.updateTaskLifecycle(request.params.id, fields, planLifecycle(request));
       task = result.task;
     } else {
-      const transition = planLifecycle(prior, fields);
+      const transition = planLifecycle(request)(prior, fields);
       if (transition.nextTask || transition.reopenedAsOneOff) {
         reply.code(503);
         return { message: 'atomic recurring task transition is unavailable' };
@@ -1056,16 +1140,17 @@ export async function registerTasksRoutes(app, options = {}) {
     notifyCalendar([task.id, result?.nextTask?.id].filter(Boolean));
     const authoritativePrior = result?.prior || prior;
     if (authoritativePrior && authoritativePrior.status !== task.status) {
-      await logActivity(task.id, 'status', `Status → ${task.status}`, originFrom(request));
+      await logActivity(task.id, 'status', `Status → ${task.status}`, actorOf(request));
     }
+    await logFieldEdits(authoritativePrior, task, actorOf(request));
     if (slip.kind !== 'none') {
-      await logActivity(task.id, slip.kind, slip.message, originFrom(request));
+      await logActivity(task.id, slip.kind, slip.message, actorOf(request));
     }
     if (plan.kind !== 'none') {
-      await logActivity(task.id, plan.kind, plan.message, originFrom(request));
+      await logActivity(task.id, plan.kind, plan.message, actorOf(request));
     }
     if (result?.nextTask) {
-      await logActivity(result.nextTask.id, 'created', 'Recurring task created', originFrom(request));
+      await logActivity(result.nextTask.id, 'created', 'Recurring task created', actorOf(request));
       // Additive: lets the client derive the "next occurrence scheduled"
       // toast from the OUTCOME instead of inferring it from the recurrence
       // token being truthy (which lied whenever no successor was spawned).
@@ -1085,7 +1170,7 @@ export async function registerTasksRoutes(app, options = {}) {
       reply.code(404);
       return { message: 'task not found' };
     }
-    await logActivity(task.id, 'archived', 'Task archived', originFrom(request));
+    await logActivity(task.id, 'archived', 'Task archived', actorOf(request));
     notifyCalendar([task.id]);
     return task;
   });

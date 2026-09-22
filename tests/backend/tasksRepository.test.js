@@ -572,8 +572,14 @@ test('unlinkTaskDocument returns false when link does not exist', async () => {
 test('buildRecordActivity inserts an event', () => {
   const q = buildRecordActivity(PROJECT_ID, 'status', 'Status → in-progress', 'agent');
   assert.match(q.text, /insert into task_activity/);
-  assert.match(q.text, /\(task_id, event_type, message, actor\)/);
-  assert.deepEqual(q.values, [PROJECT_ID, 'status', 'Status → in-progress', 'agent']);
+  assert.match(q.text, /\(task_id, event_type, message, actor, actor_agent\)/);
+  assert.deepEqual(q.values, [PROJECT_ID, 'status', 'Status → in-progress', 'agent', null]);
+});
+
+test('buildRecordActivity keeps the agent id only for an agent actor and a valid id', () => {
+  assert.equal(buildRecordActivity(PROJECT_ID, 'created', 'Task created', 'agent', 'codex').values[4], 'codex');
+  assert.equal(buildRecordActivity(PROJECT_ID, 'created', 'Task created', 'user', 'codex').values[4], null);
+  assert.equal(buildRecordActivity(PROJECT_ID, 'created', 'Task created', 'agent', 'Not An Id').values[4], null);
 });
 
 test('buildListTaskActivity orders newest first', () => {
@@ -638,8 +644,9 @@ test('listTaskBoardExtras normalizes aggregate rows for board cards', async () =
 test('normalizeActivityRow maps columns', () => {
   assert.deepEqual(
     normalizeActivityRow({ id: 'a', task_id: PROJECT_ID, event_type: 'created', message: 'Task created', created_at: 'c' }),
-    { id: 'a', taskId: PROJECT_ID, eventType: 'created', message: 'Task created', actor: 'user', createdAt: 'c' },
+    { id: 'a', taskId: PROJECT_ID, eventType: 'created', message: 'Task created', actor: 'user', actorAgent: null, createdAt: 'c' },
   );
+  assert.equal(normalizeActivityRow({ id: 'b', actor: 'agent', actor_agent: 'codex' }).actorAgent, 'codex');
 });
 
 test('buildGetTask selects one task by id', () => {

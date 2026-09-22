@@ -22,6 +22,12 @@ test('labels require the exact normalized ordered array', () => {
   assert.equal(taskMatchesPatch(task, { labels: ['maintenance', 'waiting'] }), false);
 });
 
+test('a plan-add readback confirms plannedFor after a lost response', () => {
+  assert.equal(taskMatchesPatch({ plannedFor: '2026-09-22' }, { plannedFor: '2026-09-22' }), true);
+  assert.equal(taskMatchesPatch({ plannedFor: null }, { plannedFor: '2026-09-22' }), false);
+  assert.equal(taskMatchesPatch({ plannedFor: null }, { plannedFor: null }), true, 'dropping from the plan clears it');
+});
+
 test('project reassignment reconciles through the returned projectId', () => {
   assert.equal(taskMatchesPatch({ projectId: 'project-2' }, { project: 'project-2' }), true);
   assert.equal(taskMatchesPatch({ projectId: 'project-1' }, { project: 'project-2' }), false);

@@ -9,9 +9,10 @@ import {
   buildPkcePair,
   createGoogleCalendarProvider,
 } from './googleCalendar.js';
-import { createCalendarPusher, runFullSync } from './googleCalendarSync.js';
+import { createCalendarPusher } from './googleCalendarSync.js';
 
 const CONNECT_STATE_TTL_MS = 10 * 60 * 1000;
+const MAX_PENDING_STATES = 16;
 
 function degradedFrom(err) {
   if (err instanceof GoogleApiError) return { degraded: true, reason: err.reason, message: err.message };
@@ -67,10 +68,15 @@ export async function registerGoogleCalendarRoutes(app, options = {}) {
       return { message: 'Set the Google OAuth client id and secret first.' };
     }
     prunePendingStates();
+    // Bounded: repeated Connect clicks evict the oldest consent (Map order is insertion order).
+    while (pendingStates.size >= MAX_PENDING_STATES) pendingStates.delete(pendingStates.keys().next().value);
     const state = randomBytes(24).toString('base64url');
     const { verifier, challenge } = buildPkcePair();
     // The redirect must come back to THIS server instance — build it from the
     // request's own host (Desktop-type OAuth clients accept any loopback port).
+    // Google only accepts http redirects to a loopback address for this
+    // client type, so Connect works when the browser reaches Prax on
+    // 127.0.0.1/localhost (see docs/google-calendar.md for network installs).
     const redirectUri = `http://${request.headers.host}/api/integrations/google-calendar/callback`;
     pendingStates.set(state, { verifier, redirectUri, createdAt: Date.now() });
     return {
@@ -103,27 +109,34 @@ export async function registerGoogleCalendarRoutes(app, options = {}) {
       const { refreshToken } = await provider.exchangeCode({
         code: String(code), redirectUri: pending.redirectUri, codeVerifier: pending.verifier,
       });
-      await provider.putSettings({ refreshToken });
-      // Create (or re-find) the dedicated calendar now, while the user is
-      // watching — a connect that cannot reach the Calendar API should say so
-      // here, not fail silently on the first sync.
-      const client = await provider.client();
+      // Find (or create) the dedicated calendar with the NEW token before
+      // saving it, while the user is watching: a connect that cannot reach
+      // the Calendar API says so here, and Settings does not claim a
+      // connection this page reports as failed. A calendar kept from an
+      // earlier connection is probed and reused, never duplicated.
+      const client = await provider.client({ refreshToken });
       const settings = await provider.getSettings();
       const calendarId = await client.ensurePraxCalendar(settings.calendarId || null);
-      await provider.putSettings({ calendarId });
-      return page('Google Calendar connected', 'Prax created (or found) its dedicated "Prax" calendar. Close this tab and return to Prax — Settings now offers Sync now.');
+      // A fresh connection starts with a clean push status.
+      await provider.putSettings({ refreshToken, calendarId, lastPushAt: null, lastPushError: null });
+      return page('Google Calendar connected', 'Prax is using its dedicated "Prax" calendar. Close this tab and return to Prax — Settings now offers Sync now.');
     } catch (err) {
       reply.code(502);
-      return page('Google Calendar not connected', `${degradedFrom(err).message}. Close this tab and try again from Prax Settings.`);
+      // The new token was not saved. A connection made earlier stays as it
+      // was (revoking the new token would revoke that grant too).
+      const stillConnected = Boolean((await provider.getSettings()).refreshToken);
+      return stillConnected
+        ? page('Google Calendar not reconnected', `${degradedFrom(err).message}. Prax kept its existing connection. Close this tab and try again from Prax Settings.`)
+        : page('Google Calendar not connected', `${degradedFrom(err).message}. Close this tab and try again from Prax Settings.`);
     }
   });
 
   app.post('/api/integrations/google-calendar/sync', async () => {
     try {
-      // Flush any queued incremental pushes first so the reconcile sees the
-      // final state, then run the full sync (now also the sweep's engine).
-      await pusher.flush();
-      const result = await runFullSync({ provider, tasksRepository });
+      // The full sync runs inside the pusher's serial queue, never beside an
+      // incremental push: a task changed mid-sync is pushed after it, so the
+      // sync's older snapshot cannot re-create a just-removed event.
+      const result = await pusher.syncNow();
       // Partial failure is reported as such — never as clean success.
       return {
         pushed: result.pushed,

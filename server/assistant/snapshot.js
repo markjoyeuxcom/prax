@@ -4,17 +4,15 @@
 // of fabricating ("you have no tasks") to fill the vacuum. Pure — callers
 // fetch tasks/projects; this only shapes them.
 
+import { normalizeTitle } from '../documentTitle.js';
+import { localToday } from '../localDay.js';
+
 const LIST_CAP = 12;
 
-// Server-local calendar date. Prax is local-first: the server runs on the
-// user's machine, so server-local IS the user's "today" (the same convention
-// the client applies to plannedFor/dueDate).
-export function localToday(now = new Date()) {
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
+// Server-local calendar date: only the fallback. The route passes the
+// requester's own date (server/localDay.js requestToday), because a container
+// on a UTC clock is not the user's day.
+export { localToday };
 
 function taskLine(task, projectNames) {
   const bits = [
@@ -23,7 +21,8 @@ function taskLine(task, projectNames) {
     task.status === 'in-progress' ? 'in progress' : null,
     projectNames.get(task.projectId) || null,
   ].filter(Boolean);
-  return `- ${task.title}${bits.length ? ` (${bits.join(' · ')})` : ''}`;
+  // One line per item: a multi-line title must not forge a line of its own.
+  return `- ${normalizeTitle(task.title) || 'Untitled'}${bits.length ? ` (${bits.join(' · ')})` : ''}`;
 }
 
 // Every section header carries the TRUE total; the list body is capped and
@@ -59,19 +58,22 @@ function libraryBlock(documents, projectNames) {
         projectNames.get(doc.projectId) || null,
         doc.updatedBy === 'agent' ? 'agent-written' : null,
       ].filter(Boolean);
-      lines.push(`- ${doc.title} (${bits.join(' · ')})`);
+      lines.push(`- ${normalizeTitle(doc.title) || 'Untitled'} (${bits.join(' · ')})`);
     }
     if (unverified.length > shown.length) lines.push(`- …and ${unverified.length - shown.length} more`);
   }
   return lines.join('\n');
 }
 
-export function buildWorkspaceSnapshot({ tasks = [], projects = [], documents = [], today = localToday() } = {}) {
+export function buildWorkspaceSnapshot({ tasks = [], projects = [], documents = [], today = localToday(), now = new Date() } = {}) {
   const projectNames = new Map(projects.map((p) => [p.id, p.name]));
   const live = tasks.filter((t) => !t.archivedAt);
   const open = live.filter((t) => t.status !== 'completed');
   const completed = live.length - open.length;
-  const snoozed = open.filter((t) => t.deferredUntil && t.deferredUntil > today).length;
+  // deferredUntil is an instant, not a calendar date: compare instants (as the
+  // client's is:snoozed does). A string compare with 'YYYY-MM-DD' counted a
+  // snooze that ended earlier today as still snoozed.
+  const snoozed = open.filter((t) => t.deferredUntil && Date.parse(t.deferredUntil) > now.getTime()).length;
 
   const overdue = open
     .filter((t) => t.dueDate && t.dueDate < today)

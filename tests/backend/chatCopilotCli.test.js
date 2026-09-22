@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { mkdtempSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   buildCopilotArgs,
   createCopilotCliChat,
@@ -15,6 +18,7 @@ function fakeChild() {
   const child = new EventEmitter();
   child.stdout = new EventEmitter();
   child.stderr = new EventEmitter();
+  child.stdin = { written: '', write(chunk) { this.written += chunk; }, end() { child.stdinEnded = true; } };
   child.kill = () => { child.killed = true; };
   return child;
 }
@@ -45,9 +49,12 @@ test('serializeCopilotPrompt preserves the system prompt and conversation labels
 
 test('buildCopilotArgs pins answer-only mode and the deny-over-allow tool fence', () => {
   const args = buildCopilotArgs({ model: 'auto', prompt: 'hello' });
+  // The prompt itself goes to stdin; --prompt carries only a constant pointer.
   assert.deepEqual(args.slice(0, 9), [
-    '--prompt', 'hello', '--silent', '--output-format', 'text', '--stream', 'off', '--model', 'auto',
+    '--prompt', 'The complete request is the text provided on standard input. Follow it. Answer directly as plain text. Do not use any tools.',
+    '--silent', '--output-format', 'text', '--stream', 'off', '--model', 'auto',
   ]);
+  assert.ok(!args.includes('hello'), 'no caller text in argv');
   assert.ok(args.includes('--available-tools=fetch_copilot_cli_documentation'));
   assert.ok(args.includes('--deny-tool=fetch_copilot_cli_documentation'));
   for (const flag of [
@@ -91,8 +98,24 @@ test('complete runs a fenced completion in the empty scratch directory', async (
   assert.equal(call.binary, '/bin/copilot');
   assert.ok(call.args.includes('--available-tools=fetch_copilot_cli_documentation'));
   assert.ok(call.args.includes('--deny-tool=fetch_copilot_cli_documentation'));
-  assert.match(call.args[1], /System instructions:\nBe terse\./);
+  // Prompts (with Library bodies) are piped over stdin, never visible in ps.
+  assert.match(call.child.stdin.written, /System instructions:\nBe terse\./);
+  assert.match(call.child.stdin.written, /Summarize the week/);
+  assert.ok(!call.args.some((arg) => arg.includes('Be terse') || arg.includes('Summarize the week')), 'no prompt text in argv');
   assert.equal(call.options.cwd, '/tmp/empty');
+  assert.equal(out.truncated, false);
+});
+
+test('complete: a 70 KB prompt to a CLI that exits immediately is a clean error, not a crash', { skip: process.platform === 'win32' }, async () => {
+  const falseBinary = ['/usr/bin/false', '/bin/false'].find((path) => { try { return statSync(path).isFile(); } catch { return false; } });
+  if (!falseBinary) return;
+  const scratch = mkdtempSync(join(tmpdir(), 'prax-epipe-'));
+  try {
+    const chat = createCopilotCliChat({ binaryPath: falseBinary, scratchDir: scratch, timeoutMs: 10_000 });
+    await assert.rejects(chat.complete('x'.repeat(70 * 1024)), /exited with code 1/);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 });
 
 test('complete surfaces failures, times out, refuses tools, and serializes spawns', async () => {

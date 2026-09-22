@@ -53,7 +53,7 @@ import { normalizeTask } from './taskModel.js';
 import { apiStatus, designStatus, isOpen } from './statusMap.js';
 import { moveTaskOnBoard } from './boardWorkflow.js';
 import { pendingExtraIds, batchIds, clearTaskBoardExtra } from './boardExtras.js';
-import { installKeyboardShortcuts } from './keyboardShortcuts.js';
+import { installKeyboardShortcuts, isInteractiveShortcutTarget } from './keyboardShortcuts.js';
 import { settingsPatchMatchesStatus } from './settingsOutcome.js';
 import { applyMarkdownFormat } from './markdownEditor.js';
 import { renderMarkdownHtml, titleFromMarkdown } from './markdownPreview.js';
@@ -128,7 +128,7 @@ import { renderGenerateRunbookHtml } from './renderGenerateRunbook.js';
 import { renderHealthHtml } from './renderHealth.js';
 import { renderDailyBriefHtml } from './renderDailyBrief.js';
 import { buildDailyBrief } from './brief.js';
-import { renderAssistantHtml } from './renderAssistant.js';
+import { renderAssistantHtml, assistantDecisions, withCallDecision } from './renderAssistant.js';
 import { assistantOutcomeNotice } from './assistantOutcome.js';
 import { renderWritingPreviewHtml } from './renderWritingPreview.js';
 import { renderSearchPanelHtml, searchCountLabel } from './renderSearchPanel.js';
@@ -246,19 +246,31 @@ async function loadProjects() {
 }
 
 // Returns true when the collection was installed, 'superseded' when a newer
-// request started meanwhile (its result wins), or 'stale' when `guardWrites`
-// is set and a local write started or settled while this snapshot was in
-// flight — an older snapshot must never overwrite a newer accepted save.
+// request started meanwhile (its result wins), or 'stale' when a local write
+// started or settled while every snapshot was in flight. An older snapshot
+// must never overwrite a newer accepted save: complete task A (a recurring
+// reload starts), complete task B (its PATCH commits), and the reload read
+// before B's write would show B open again. So every load compares the write
+// epoch across its fetch and reads again when it moved. `guardWrites`
+// (refreshFromOutside) drops such a snapshot at once and lets its refresher
+// ask again; a load that runs out of attempts asks the refresher too.
+const TASK_LOAD_ATTEMPTS = 3;
 async function loadTasks({ announceReminders = true, guardWrites = false } = {}) {
   const token = (tasksLoadToken += 1);
-  const epoch = writeEpoch();
-  const tasks = await fetchTasks({});
-  if (token !== tasksLoadToken) return 'superseded';
-  if (guardWrites && writeEpoch() !== epoch) return 'stale';
-  setState({ tasks: tasks.map(normalizeTask), apiStatus: 'connected' });
-  reconcileTaskDrawerAfterRefresh();
-  if (announceReminders) checkDueReminders();
-  return true;
+  for (let attempt = 1; ; attempt += 1) {
+    const epoch = writeEpoch();
+    const tasks = await fetchTasks({});
+    if (token !== tasksLoadToken) return 'superseded';
+    if (writeEpoch() !== epoch) {
+      if (guardWrites) return 'stale';
+      if (attempt >= TASK_LOAD_ATTEMPTS) { externalRefresh.trigger('stale'); return 'stale'; }
+      continue;
+    }
+    setState({ tasks: tasks.map(normalizeTask), apiStatus: 'connected' });
+    reconcileTaskDrawerAfterRefresh();
+    if (announceReminders) checkDueReminders();
+    return true;
+  }
 }
 
 // After a refresh installs newer server state, fold it into the open drawer's
@@ -681,37 +693,93 @@ function mergePlanTask(updated) {
   setState({ tasks: state.tasks.map((task) => (task.id === updated.id ? normalizeTask(updated) : task)) });
 }
 
+// One decision at a time: a second activation (double click, Enter pressed
+// twice) while the first PATCH is in flight is ignored, instead of acting on
+// the same item and advancing twice past the next one unseen.
+let planModeDecisionPending = false;
+
 async function planModeAct(action) {
   const planMode = state.planMode;
-  if (!planMode) return;
-  const entry = planMode.queue[planMode.index];
+  if (!planMode || planModeDecisionPending) return;
+  const index = planMode.index;
+  const entry = planMode.queue[index];
+  // Advance only the walk and position this decision was made on: closing or
+  // reopening the walk mid-flight keeps the newer walk as it is.
   const advance = (patch = {}) => {
-    setState({ planMode: { ...state.planMode, ...patch, index: state.planMode.index + 1 } });
+    if (state.planMode !== planMode || state.planMode.index !== index) return;
+    setState({ planMode: { ...planMode, ...patch, index: index + 1 } });
     renderApp();
   };
   if (!entry || action === 'skip') { advance(); return; }
   const today = todayISODate();
+  let request;
+  let counted;
+  if (action === 'add' || action === 'today') {
+    const time = document.querySelector('[data-plan-time]')?.value || '';
+    const fields = { plannedFor: today, ...(time ? { dueTime: time, ...(state.tasks.find(t => t.id === entry.id)?.dueDate ? {} : { dueDate: today }) } : {}) };
+    request = () => updateTask(entry.id, fields);
+    counted = { added: planMode.added + 1 };
+  } else if (action === 'carry') {
+    const tomorrow = todayISODate(new Date(Date.now() + 86_400_000));
+    request = () => updateTask(entry.id, { plannedFor: tomorrow });
+    counted = { carried: planMode.carried + 1 };
+  } else if (action === 'reschedule') {
+    const date = document.querySelector('[data-shutdown-date]')?.value || '';
+    if (!date) { showToast('Pick a reschedule date first'); return; }
+    request = () => updateTask(entry.id, { dueDate: date, plannedFor: null });
+    counted = { rescheduled: planMode.rescheduled + 1 };
+  } else if (action === 'drop') {
+    request = () => updateTask(entry.id, { plannedFor: null });
+    counted = { dropped: planMode.dropped + 1 };
+  } else {
+    return;
+  }
+  planModeDecisionPending = true;
+  let updated;
   try {
-    if (action === 'add' || action === 'today') {
-      const time = document.querySelector('[data-plan-time]')?.value || '';
-      const fields = { plannedFor: today, ...(time ? { dueTime: time, ...(state.tasks.find(t => t.id === entry.id)?.dueDate ? {} : { dueDate: today }) } : {}) };
-      mergePlanTask(await updateTask(entry.id, fields));
-      advance({ added: planMode.added + 1 });
-    } else if (action === 'carry') {
-      const tomorrow = todayISODate(new Date(Date.now() + 86_400_000));
-      mergePlanTask(await updateTask(entry.id, { plannedFor: tomorrow }));
-      advance({ carried: planMode.carried + 1 });
-    } else if (action === 'reschedule') {
-      const date = document.querySelector('[data-shutdown-date]')?.value || '';
-      if (!date) { showToast('Pick a reschedule date first'); return; }
-      mergePlanTask(await updateTask(entry.id, { dueDate: date, plannedFor: null }));
-      advance({ rescheduled: planMode.rescheduled + 1 });
-    } else if (action === 'drop') {
-      mergePlanTask(await updateTask(entry.id, { plannedFor: null }));
-      advance({ dropped: planMode.dropped + 1 });
-    }
+    updated = await request();
   } catch {
     showToast('Could not save that decision — Prax may be unreachable. The item stays here.');
+    return;
+  } finally {
+    planModeDecisionPending = false;
+  }
+  // The write committed: its result is installed even when the walk moved on.
+  mergePlanTask(updated);
+  advance(counted);
+}
+
+function planModePrimaryAction() {
+  const planMode = state.planMode;
+  const entry = planMode?.queue[planMode.index];
+  if (!entry || !taskById(entry.id)) return null; // the summary: Enter closes
+  if (planMode.mode !== 'plan') return 'carry';
+  return entry.bucket === 'stale' ? 'today' : 'add';
+}
+
+// Plan mode / shutdown keys: Enter = primary decision, S = skip. Bound on the
+// document in the capture phase: after a render, focus sits on <body>, whose
+// keys never pass through #app, and the document-level shortcuts (Enter opens
+// the selected task) must not also act behind the overlay. A focused control
+// keeps its own keys: Enter on a button runs that button (Skip, Drop,
+// Reschedule), and a time/date field accepts typing and its Enter.
+function handlePlanModeKeydown(event) {
+  if (!state.planMode || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+  const target = event.target;
+  if (target?.matches?.('input, select, textarea') || target?.isContentEditable) return;
+  const key = String(event.key || '');
+  if (key === 'Enter') {
+    if (event.repeat) { event.preventDefault(); event.stopPropagation(); return; } // a held Enter must not walk the queue
+    if (isInteractiveShortcutTarget(target)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const action = planModePrimaryAction();
+    if (action) void planModeAct(action);
+    else { setState({ planMode: null }); renderApp(); }
+  } else if (key.toLowerCase() === 's') {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!event.repeat) void planModeAct('skip');
   }
 }
 
@@ -842,16 +910,18 @@ async function sendAssistant(rawText) {
 }
 
 async function resolveAssistantWrites(decision) {
-  const pending = state.assistantPending;
-  if (!pending || !pending.length || state.assistantLoading) return;
-  const decisions = {};
-  for (const p of pending) decisions[p.id] = decision; // batch approve/decline
+  if (!state.assistantPending?.length || state.assistantLoading) return;
   if (state.assistantApprovalAttempted && decision !== 'approve') return;
-  if (!saveAssistantRecovery(taskDraftStorage(), { messages: state.assistantMessages, pending, attempted: decision === 'approve' })) {
+  // Per-call decisions (a retry resends the recorded ones unchanged).
+  const decisions = assistantDecisions(state.assistantPending, decision);
+  if (!decisions) { showToast('Approve or decline each change first.'); return; }
+  const pending = state.assistantPending.map((p) => ({ ...p, decision: decisions[p.id] }));
+  const attempted = Object.values(decisions).includes('approve');
+  if (!saveAssistantRecovery(taskDraftStorage(), { messages: state.assistantMessages, pending, attempted })) {
     showToast('The approval could not be saved for recovery. Keep this window open and try again.');
     return;
   }
-  setState({ assistantApprovalAttempted: decision === 'approve', assistantLoading: true, assistantError: null, assistantErrorKind: null });
+  setState({ assistantPending: pending, assistantApprovalAttempted: attempted, assistantLoading: true, assistantError: null, assistantErrorKind: null });
   renderApp();
   try {
     const res = await assistantChat(state.assistantMessages, decisions);
@@ -1373,6 +1443,46 @@ function triagePatch(decision) {
   return null;
 }
 
+// One patch per task through the per-task queue (with lost-response
+// readback). Every task settles on its own, so a partial failure reports the
+// tasks that did commit — and offers their undo — instead of a single
+// "could not apply" over writes that happened.
+async function applyTaskPatches(ids, patchFor) {
+  const results = await Promise.allSettled(ids.map((id) => enqueueTaskMutation(id, () => updateTaskWithReadback(id, patchFor(id)))));
+  const committed = ids.filter((_id, index) => results[index].status === 'fulfilled');
+  return { committed, failed: ids.filter((id) => !committed.includes(id)) };
+}
+
+async function refreshTasksAfterWrites() {
+  try { await loadTasks(); return true; } catch { return false; }
+}
+
+function taskCountLabel(count) {
+  return count === 1 ? '1 task' : `${count} tasks`;
+}
+
+// "3 tasks → Backlog; 1 could not be changed." plus a refresh note. `failedNote`
+// describes where the unconfirmed tasks are left.
+function partialTaskOutcome(success, failed, refreshed, failedNote = 'could not be changed') {
+  let message = success;
+  if (failed.length) message += `; ${failed.length} ${failedNote}.`;
+  if (!refreshed) message += `${failed.length ? '' : '.'} The list could not refresh; reload to reconcile it.`;
+  return message;
+}
+
+async function undoTaskPatches(entries, patchFor, restoredLabel) {
+  dismissToast();
+  const { committed, failed } = await applyTaskPatches(entries.map((entry) => entry.id),
+    (id) => patchFor(entries.find((entry) => entry.id === id)));
+  const refreshed = await refreshTasksAfterWrites();
+  if (failed.length || !refreshed) {
+    showToast(committed.length
+      ? partialTaskOutcome(`${taskCountLabel(committed.length)} ${restoredLabel}`, failed, refreshed, 'could not be restored')
+      : 'Prax could not undo that change.', null, 7000);
+  }
+  renderApp();
+}
+
 async function triageTasks(ids, decision, label) {
   const patch = triagePatch(decision);
   if (!patch || !ids.length) return;
@@ -1381,19 +1491,15 @@ async function triageTasks(ids, decision, label) {
     return task ? { id, dueDate: task.dueDate ?? null, status: task.status } : null;
   }).filter(Boolean);
   setState({ selectedTaskId: null });
-  try {
-    await Promise.all(ids.map((id) => enqueueTaskMutation(id, () => updateTaskWithReadback(id, patch))));
-    await loadTasks();
-    showToast(`${ids.length === 1 ? '1 task' : `${ids.length} tasks`} → ${label}`, async () => {
-      dismissToast();
-      await Promise.all(prior.map((entry) => enqueueTaskMutation(entry.id, () => updateTaskWithReadback(entry.id,
-        decision === 'backlog' ? { status: entry.status } : { dueDate: entry.dueDate }))));
-      await loadTasks();
-      renderApp();
-    });
-  } catch {
+  const { committed, failed } = await applyTaskPatches(ids, () => patch);
+  const refreshed = await refreshTasksAfterWrites();
+  if (!committed.length) {
     alertError('apply the triage decision');
-    await loadTasks();
+  } else {
+    const undoable = prior.filter((entry) => committed.includes(entry.id));
+    showToast(partialTaskOutcome(`${taskCountLabel(committed.length)} → ${label}`, failed, refreshed),
+      () => undoTaskPatches(undoable, (entry) => (decision === 'backlog' ? { status: entry.status } : { dueDate: entry.dueDate }), 'restored'),
+      failed.length || !refreshed ? 7000 : undefined);
   }
   renderApp();
 }
@@ -1414,24 +1520,17 @@ async function bulkSetStatus(designKey, label) {
   if (!ids.length) return;
   const prior = ids.map(id => ({ id, status: taskById(id)?.status }));
   setState({ multiSelectIds: [] });
-  try {
-    await Promise.all(ids.map(id => enqueueTaskMutation(
-      id,
-      () => updateTaskWithReadback(id, { status: apiStatus(designKey) }),
-    )));
-    await loadTasks();
-    showToast(`${ids.length} task${ids.length > 1 ? 's' : ''} → ${label}`, async () => {
-      dismissToast();
-      await Promise.all(prior.filter(p => p.status).map(p => enqueueTaskMutation(
-        p.id,
-        () => updateTaskWithReadback(p.id, { status: p.status }),
-      )));
-      await loadTasks();
-      renderApp();
-    });
-  } catch {
+  const { committed, failed } = await applyTaskPatches(ids, () => ({ status: apiStatus(designKey) }));
+  // Tasks whose change could not be confirmed stay selected for a retry.
+  setState({ multiSelectIds: failed });
+  const refreshed = await refreshTasksAfterWrites();
+  if (!committed.length) {
     alertError('apply the bulk change');
-    await loadTasks();
+  } else {
+    const undoable = prior.filter(p => p.status && committed.includes(p.id));
+    showToast(partialTaskOutcome(`${taskCountLabel(committed.length)} → ${label}`, failed, refreshed, 'could not be changed and remain selected'),
+      () => undoTaskPatches(undoable, p => ({ status: p.status }), 'restored'),
+      failed.length || !refreshed ? 7000 : undefined);
   }
   renderApp();
 }
@@ -2323,7 +2422,7 @@ function handleDocumentDraftBodyChange(value) {
     const words = value.split(/\s+/).filter(Boolean).length;
     counts.textContent = `${words} words · ${value.length} characters · ${Math.max(1, Math.round(words / 200))} min read`;
   }
-  updateDocumentLivePreview(appRoot, value, { resolveWikiLink, remoteImages: true });
+  updateDocumentLivePreview(appRoot, value, { resolveWikiLink, remoteImages: true, taskToggles: editorTaskToggles() });
 }
 
 function handleDocumentDraftTitleChange(value) {
@@ -2368,11 +2467,19 @@ function applyDocumentDraftSave(saved, { draftId, sentDraft }) {
   } else {
     clearDocumentDraftRecovery(documentDraftStorage(), draftId, sentDraft);
   }
+  // The server stores the trimmed title. A live title that normalises to the
+  // saved one (a trailing space typed before the pause) is kept verbatim:
+  // writing the trimmed value back would delete the space under the caret.
+  if (stillActive && normalizeDocumentDraftTitle(state.documentDraftTitle) === normalizeDocumentDraftTitle(patch.documentDraftTitle)) {
+    patch.documentDraftTitle = state.documentDraftTitle;
+  }
   setState(patch);
   if (stillActive) {
     setSaveStatusInPlace(patch.documentSaveStatus);
     const title = appRoot?.querySelector('[data-doc-title]');
-    if (title && title.value !== patch.documentDraftTitle) title.value = patch.documentDraftTitle;
+    if (title && normalizeDocumentDraftTitle(title.value) !== normalizeDocumentDraftTitle(patch.documentDraftTitle)) {
+      title.value = patch.documentDraftTitle;
+    }
     // A safe merge can bring in a remote body while only the title was edited.
     // Refresh that editor alone, leaving a live title input and its caret intact.
     if (documentEditorController && documentEditorController.getValue() !== patch.documentDraftBody) {
@@ -2383,7 +2490,7 @@ function applyDocumentDraftSave(saved, { draftId, sentDraft }) {
       mountEditorIfNeeded();
       if (focused) documentEditorController?.focus();
     }
-    updateDocumentLivePreview(appRoot, patch.documentDraftBody, { resolveWikiLink, remoteImages: true });
+    updateDocumentLivePreview(appRoot, patch.documentDraftBody, { resolveWikiLink, remoteImages: true, taskToggles: editorTaskToggles() });
   }
   // The fallback textarea preserves the caret exactly like CodeMirror does —
   // either way, re-rendering mid-typing would destroy the edit surface and
@@ -2639,7 +2746,7 @@ async function runWrite(action) {
     const res = await runWritingAction(payload);
     if (token !== writeToken) return; // cancelled or superseded
     if (res.degraded) {
-      setState({ writeLoading: false, writeError: res.reason === 'no-chat-model' ? 'No AI model configured — set one in Settings ▸ Intelligence.' : 'The model could not complete this. Try again.' });
+      setState({ writeLoading: false, writeError: res.reason === 'no-chat-model' ? 'No AI model configured — set one in Settings ▸ Intelligence.' : res.reason === 'truncated' ? 'The model’s output was cut off at its length limit, so there is no complete result to apply. Try a shorter selection.' : 'The model could not complete this. Try again.' });
     } else {
       setState({ writeLoading: false, writeResult: res.text, writeContext: { ...state.writeContext, model: res.model } });
     }
@@ -2694,7 +2801,14 @@ async function copyWrite() {
   showToast(ok ? 'Copied' : 'Could not copy');
 }
 
+// Preview task items are checkboxes only in the open, editable document.
+function editorTaskToggles() {
+  const doc = currentDocument();
+  return Boolean(doc) && !doc.archivedAt;
+}
+
 function toggleMarkdownCheck(line) {
+  if (state.navType !== 'editor' || !editorTaskToggles() || !Number.isInteger(line) || line < 0) return;
   const lines = state.documentDraftBody.split('\n');
   const current = lines[line] || '';
   if (/^(\s*[-*]\s+)\[ \]/.test(current)) lines[line] = current.replace('[ ]', '[x]');
@@ -2782,28 +2896,46 @@ async function copyAskPrax() {
   showToast(ok ? 'Answer copied' : 'Could not copy');
 }
 
+// A generation keeps running after Esc (the server finishes it either way), so
+// reopening the dialog shows that request instead of offering a second one.
+let genRbInFlight = false;
+
 function openGenerateRunbook() {
+  if (genRbInFlight) {
+    setState({ genRbOpen: true, genRbLoading: true, genRbError: false, paletteOpen: false });
+    renderApp();
+    return;
+  }
   const projects = captureProjectChoices().filter((p) => p.slug !== INBOX_SLUG);
   setState({ genRbOpen: true, genRbLoading: false, genRbError: false, genRbDescription: '', genRbProject: projects[0]?.id || null, paletteOpen: false });
   renderApp();
 }
 
 async function runGenerateRunbook() {
+  if (genRbInFlight) return;
   const description = String(appRoot.querySelector('[data-genrb-input]')?.value || '').trim();
   const project = appRoot.querySelector('[data-genrb-project]')?.value || '';
   if (!description) { setState({ genRbError: 'Describe the alert or incident first.' }); renderApp(); return; }
   if (!project) { setState({ genRbError: 'Pick a project for the runbook.' }); renderApp(); return; }
+  genRbInFlight = true;
   setState({ genRbLoading: true, genRbError: false, genRbDescription: description, genRbProject: project });
   renderApp();
+  let res;
   try {
-    const res = await generateRunbook(description, project);
-    setState({ genRbOpen: false, genRbLoading: false });
-    showToast('Runbook drafted — review, edit, and verify');
-    await openDocumentInEditor(res.document.id); // open the agent-written draft for review
+    res = await generateRunbook(description, project);
   } catch (err) {
+    genRbInFlight = false;
     setState({ genRbLoading: false, genRbError: err?.message || 'Could not generate the runbook.' });
     renderApp();
+    return;
   }
+  genRbInFlight = false;
+  setState({ genRbOpen: false, genRbLoading: false });
+  showToast('Runbook drafted — review, edit, and verify');
+  // The draft exists; failing to open it is not a failed generation.
+  try {
+    if (!(await openDocumentInEditor(res.document.id))) showToast('Runbook drafted — find it in the Library to review it.', null, 7000);
+  } catch { showToast('Runbook drafted — find it in the Library to review it.', null, 7000); }
 }
 
 // ---------------------------------------------------------------------------
@@ -3292,27 +3424,40 @@ async function submitTemplateStudio() {
   showToast(`${result.target === 'task' ? 'Onboarding task' : 'Document copy'} created.${refreshFailed ? ' Some details could not refresh; reload to see them.' : ''}`);
 }
 
+// One new document at a time: a double click on New document (or a repeated
+// palette command) while the first create is in flight creates one.
+let documentCreatePending = false;
 async function createNewDocument(templateId) {
-  if (!(await prepareEditorNavigation())) return false;
-  setState({ newDocMenuOpen: false });
-  destroyEditorController(); // fresh mount (cursorToEnd), no selection carried in
-  const project = defaultProjectId();
-  if (!project) { showToast('Create a project first.'); renderApp(); return; }
-  const template = templateById(templateId);
+  if (documentCreatePending) return false;
+  documentCreatePending = true;
   try {
-    const doc = await createDocument({
-      title: template.title, body: template.body, documentType: template.documentType, project, tags: [],
-    });
-    await loadDocuments();
+    if (!(await prepareEditorNavigation())) return false;
+    setState({ newDocMenuOpen: false });
+    destroyEditorController(); // fresh mount (cursorToEnd), no selection carried in
+    const project = defaultProjectId();
+    if (!project) { showToast('Create a project first.'); renderApp(); return false; }
+    const template = templateById(templateId);
+    let doc;
+    try {
+      doc = await createDocument({
+        title: template.title, body: template.body, documentType: template.documentType, project, tags: [],
+      });
+    } catch {
+      alertError('create a document');
+      return false;
+    }
+    // The document exists: a failed Library refresh still opens it, rather
+    // than reporting a failed create that invites a second one.
+    try { await loadDocuments(); } catch { /* the created record below stands in */ }
+    if (!state.documents.some(d => d.id === doc.id)) setState({ documents: [doc, ...state.documents] });
     seedEditorDraft(state.documents.find(d => d.id === doc.id) || doc);
     writeToken += 1; // drop any writing state carried from the previous doc
     setState({ navType: 'editor', editorMode: 'edit', editorFocus: false, writeMenuOpen: false, writeSelection: null, writeContext: null, writeResult: null, writeLoading: false, writeError: null });
     renderApp();
     showToast('New document — rename it in the title bar');
     return true;
-  } catch {
-    alertError('create a document');
-    return false;
+  } finally {
+    documentCreatePending = false;
   }
 }
 
@@ -4150,7 +4295,7 @@ function renderMainHtml() {
       const model = {
         outline: buildOutline(text),
         backlinks: buildBacklinks(backlinkTasks, coloredProjects, doc.id),
-        previewHtml: renderMarkdownHtml(text, { resolveWikiLink, remoteImages: true }),
+        previewHtml: renderMarkdownHtml(text, { resolveWikiLink, remoteImages: true, taskToggles: !doc.archivedAt }),
         project: owner ? { ...owner, color: projectColor(owner) } : null,
         projects: infoProjects,
       };
@@ -4405,6 +4550,8 @@ let renderingApp = false;        // focusout while the old DOM is torn down is n
 let renderContinuity = null;     // captured by renderApp, consumed by afterRender
 let renderRestoredField = null;  // the field put back this render: its caret is the person's
 let renderMissingField = null;   // a focused field the render has not re-inserted yet (find/replace panel)
+let renderedPlanMode = null;       // the plan-walk step (state.planMode object) the DOM shows
+let retainedPlanModeFocus = null; // the plan-walk button focused before a render: { planMode, action }
 
 function renderedFieldValue(el) {
   if (el.tagName !== 'SELECT') return el.defaultValue;
@@ -4496,6 +4643,8 @@ function renderApp() {
     ? appRoot.querySelector('.main__scroll')?.scrollTop : null;
   const retainedLibraryFocus = retainedLibraryScroll != null && document.activeElement?.dataset.action === 'open-doc'
     ? document.activeElement.dataset.documentId : null;
+  const planModeButton = state.planMode ? document.activeElement?.closest?.('[data-overlay="planmode"] button[data-action]') : null;
+  retainedPlanModeFocus = planModeButton ? { planMode: renderedPlanMode, action: planModeButton.dataset.action } : null;
   // A render can land between the browser updating an input's DOM value and
   // dispatching its input event (notably when drawer context resolves). Only
   // the FOCUSED field can hold such an unflushed keystroke — an unfocused
@@ -4590,6 +4739,7 @@ function renderApp() {
 function afterRender() {
   mountEditorIfNeeded();
   restoreRenderContinuity();
+  renderedPlanMode = state.planMode;
   if (state.inbox?.processing) {
     const dialog = appRoot.querySelector('[data-inbox-dialog]');
     if (dialog && !dialog.contains(document.activeElement)) {
@@ -4658,6 +4808,16 @@ function afterRender() {
     // destructive action, so a stray Enter can't confirm a delete.
     (appRoot.querySelector('[data-confirm-input]')
       || appRoot.querySelector('.confirm button[data-action="confirm-cancel"]'))?.focus();
+  } else if (state.planMode) {
+    // Each item starts on its primary decision, so Enter runs it and Tab
+    // reaches the others; a field the person was using keeps its focus.
+    // A background render on the same item keeps the button they tabbed to.
+    const dialog = appRoot.querySelector('[data-overlay="planmode"] [role="dialog"]');
+    const kept = retainedPlanModeFocus?.planMode === state.planMode ? retainedPlanModeFocus.action : null;
+    if (dialog && !dialog.contains(document.activeElement)) {
+      ((kept && dialog.querySelector(`.planmode__actions button[data-action="${kept}"]`))
+        || dialog.querySelector('.planmode__actions .btn-primary'))?.focus({ preventScroll: true });
+    }
   } else if (state.navType === 'editor' && !state.drawerTaskId
     && !state.isDocumentInfoEditorOpen && !state.editorSearchOpen) {
     // Keep the caret in the document: an unfocused editor screen would let
@@ -4818,6 +4978,58 @@ async function closeTaskDrawer() {
 // ---------------------------------------------------------------------------
 // Actions
 // ---------------------------------------------------------------------------
+
+// A working note for the open task: create, link, open. The create is the
+// commitment: once it succeeds, a failed link or open is reported as such —
+// never as a failed create, which would invite a retry and a second note.
+// One create per task at a time (a double click creates one note).
+const workingNotePending = new Set();
+// In-flight creates, so a repeated Enter or a double click creates one item.
+const checklistAddPending = new Set(); // task ids
+let projectCreatePending = false;
+async function startWorkingNote(taskId) {
+  const task = state.tasks.find((candidate) => candidate.id === taskId);
+  if (!task || workingNotePending.has(taskId)) return;
+  const project = projectsById()[task.projectId];
+  workingNotePending.add(taskId);
+  try {
+    let doc;
+    try {
+      doc = await createDocument({
+        title: `Working note — ${task.title || 'Untitled task'}`,
+        project: project?.slug || project?.id || 'inbox',
+        documentType: 'note',
+        body: `# Working note — ${task.title || 'Untitled task'}
+
+_Task:_ ${task.title || 'Untitled task'}`
+          + `${project ? ` _(${project.name})_` : ''}
+
+## Context
+
+
+## Findings
+
+`,
+      });
+    } catch (err) {
+      showToast(err?.message || 'Could not create the working note.');
+      return;
+    }
+    let linked = true;
+    try { await linkTaskDocument(taskId, doc.id); } catch { linked = false; }
+    let opened = false;
+    try {
+      await loadDocuments();
+      opened = await openDocumentInEditor(doc.id);
+    } catch { opened = false; }
+    if (linked && opened) { showToast('Working note created and linked.'); return; }
+    const problem = !linked && !opened ? 'could not link it to the task or open it'
+      : (!linked ? 'could not link it to the task' : 'could not open it');
+    showToast(`Working note created, but Prax ${problem}. It is in the Library as “${doc.title || 'Working note'}”.`, null, 8000);
+  } finally {
+    workingNotePending.delete(taskId);
+  }
+}
 
 async function handleAction(action, el, event) {
   if (action.startsWith('inbox-')) {
@@ -5031,8 +5243,8 @@ async function handleAction(action, el, event) {
     case 'toggle-task-done': event.stopPropagation(); toggleTaskDone(el.dataset.taskId); break;
     case 'promote-task':
       event.stopPropagation();
-      await patchTask(el.dataset.taskId, { status: apiStatus('planned') });
-      showToast('Promoted to board');
+      // patchTask has already reported a failed write; never replace that.
+      if (await patchTask(el.dataset.taskId, { status: apiStatus('planned') }, { failure: 'promote this task' })) showToast('Promoted to board');
       break;
     case 'restore-task': {
       event.stopPropagation();
@@ -5174,19 +5386,29 @@ async function handleAction(action, el, event) {
     case 'add-checklist-item': {
       const input = appRoot.querySelector('[data-checklist-new]');
       const label = (input?.value || '').trim();
-      if (!label) break;
+      const taskId = state.drawerTaskId;
+      // One add per task at a time: a second Enter or click while the first
+      // POST is in flight would otherwise create the same item twice.
+      if (!label || !taskId || checklistAddPending.has(taskId)) break;
+      checklistAddPending.add(taskId);
       try {
-        await addChecklistItem(state.drawerTaskId, label);
+        try {
+          await addChecklistItem(taskId, label);
+        } catch { alertError('add the checklist item'); renderApp(); break; }
         // The field's text lives only in the DOM; clear the added item so the
         // render does not carry it into the next one.
         const current = appRoot.querySelector('[data-checklist-new]');
         if (current && current.value.trim() === label) current.value = '';
-        setState({
-          taskChecklist: await fetchTaskChecklist(state.drawerTaskId),
-          ...clearTaskBoardExtra(state, state.drawerTaskId),
-        });
-      } catch { alertError('add the checklist item'); }
-      renderApp();
+        // The item is saved; a failed refetch is not a failed add.
+        try {
+          const checklist = await fetchTaskChecklist(taskId);
+          if (state.drawerTaskId === taskId) setState({ taskChecklist: checklist });
+          setState(clearTaskBoardExtra(state, taskId));
+        } catch { showToast('Checklist item added, but the checklist could not refresh. Reopen the task to see it.', null, 7000); }
+        renderApp();
+      } finally {
+        checklistAddPending.delete(taskId);
+      }
       break;
     }
     case 'toggle-checklist-item': {
@@ -5293,37 +5515,7 @@ async function handleAction(action, el, event) {
       renderApp();
       break;
     }
-    case 'start-working-note': {
-      const taskId = state.drawerTaskId;
-      const task = state.tasks.find((candidate) => candidate.id === taskId);
-      if (!task) break;
-      const project = projectsById()[task.projectId];
-      try {
-        const doc = await createDocument({
-          title: `Working note — ${task.title || 'Untitled task'}`,
-          project: project?.slug || project?.id || 'inbox',
-          documentType: 'note',
-          body: `# Working note — ${task.title || 'Untitled task'}
-
-_Task:_ ${task.title || 'Untitled task'}`
-            + `${project ? ` _(${project.name})_` : ''}
-
-## Context
-
-
-## Findings
-
-`,
-        });
-        await linkTaskDocument(taskId, doc.id).catch(() => {});
-        await loadDocuments();
-        await openDocumentInEditor(doc.id);
-        showToast('Working note created and linked.');
-      } catch (err) {
-        showToast(err?.message || 'Could not create the working note.');
-      }
-      break;
-    }
+    case 'start-working-note': await startWorkingNote(state.drawerTaskId); break;
     case 'apply-capture-shortcut': {
       const input = appRoot.querySelector('[data-capture-shortcut]');
       if (!input) break;
@@ -5367,11 +5559,13 @@ _Task:_ ${task.title || 'Untitled task'}`
       const ids = (buildTodayGroups(state.tasks, state.projects, { now: new Date() }).groups
         .find((group) => group.key === 'today')?.tasks || []).map((task) => task.id);
       if (!ids.length) break;
-      try {
-        await Promise.all(ids.map((id) => enqueueTaskMutation(id, () => updateTaskWithReadback(id, { plannedFor: today }))));
-        await loadTasks();
-        showToast(`${ids.length === 1 ? '1 task' : `${ids.length} tasks`} added to today's plan`);
-      } catch { alertError('add those tasks to the plan'); await loadTasks(); }
+      const { committed, failed } = await applyTaskPatches(ids, () => ({ plannedFor: today }));
+      const refreshed = await refreshTasksAfterWrites();
+      if (!committed.length) alertError('add those tasks to the plan');
+      else {
+        showToast(partialTaskOutcome(`${taskCountLabel(committed.length)} added to today's plan`, failed, refreshed, 'could not be added'),
+          null, failed.length || !refreshed ? 7000 : undefined);
+      }
       renderApp();
       break;
     }
@@ -5396,6 +5590,9 @@ _Task:_ ${task.title || 'Untitled task'}`
     case 'assistant-suggest': sendAssistant(el.dataset.suggest); break;
     case 'assistant-approve': resolveAssistantWrites('approve'); break;
     case 'assistant-decline': resolveAssistantWrites('deny'); break;
+    case 'assistant-call-decision':
+      if (!state.assistantLoading && !state.assistantApprovalAttempted) { setState({ assistantPending: withCallDecision(state.assistantPending, el.dataset.callId, el.dataset.decision) }); renderApp(); }
+      break;
     case 'assistant-clear': clearAssistant(); break;
     case 'toggle-semantic': setState({ librarySemantic: !state.librarySemantic, ...resetSemanticSearchPatch() }); renderApp(); break;
     case 'load-more-semantic': runSemanticSearch({ append: true }); break;
@@ -5691,7 +5888,10 @@ _Task:_ ${task.title || 'Untitled task'}`
       }
       break;
     }
-    case 'toggle-md-check': toggleMarkdownCheck(Number(el.dataset.line)); break;
+    case 'toggle-md-check':
+      // A link inside the item's text follows the link; it is not a toggle.
+      if (!event?.target?.closest?.('a[href]')) toggleMarkdownCheck(Number(el.dataset.line));
+      break;
     case 'toggle-doc-menu': setState({ docMenuOpen: !state.docMenuOpen }); renderApp(); break;
     case 'edit-document-info': {
       if (state.isDocumentDirty) {
@@ -5879,12 +6079,25 @@ _Task:_ ${task.title || 'Untitled task'}`
         openConfirm(newProjectDialog());
         break;
       }
+      // One create at a time: a repeated Enter or a double click while the
+      // first POST is in flight would otherwise create two projects.
+      if (projectCreatePending) break;
+      projectCreatePending = true;
       try {
-        const project = await createProject(name);
-        await loadProjects();
-        await goProject(project.id);
-        showToast(`Project "${name}" created`);
-      } catch { alertError('create that project'); }
+        let project;
+        try { project = await createProject(name); } catch { alertError('create that project'); renderApp(); break; }
+        // The project exists; a failed refresh or navigation is not a failed
+        // create (a retry would make a second one).
+        try {
+          await loadProjects();
+          await goProject(project.id);
+          showToast(`Project "${name}" created`);
+        } catch {
+          showToast(`Project "${name}" created, but the project list could not refresh. Reload to see it.`, null, 7000);
+        }
+      } finally {
+        projectCreatePending = false;
+      }
       break;
     }
     case 'delete-project': {
@@ -6389,6 +6602,16 @@ function bindEvents() {
       // Overlay scrims (data-overlay) close only on direct clicks — clicks
       // inside the dialog bubble up here but must not dismiss it.
       if (el.dataset.overlay !== undefined && event.target !== el) return;
+      // A confirm dialog's OK runs once: it stays on screen until its action
+      // renders, and a second Enter or click there would repeat the action (a
+      // second project). Disabled, it ignores both; re-enabled if it survives.
+      if (el.matches('[data-confirm-ok]')) {
+        if (el.disabled) return;
+        el.disabled = true;
+        Promise.resolve(handleAction(el.dataset.action, el, event))
+          .finally(() => { if (el.isConnected) el.disabled = false; });
+        return;
+      }
       handleAction(el.dataset.action, el, event);
       return;
     }
@@ -6704,22 +6927,7 @@ function bindEvents() {
       if (event.key === 'Escape') { event.preventDefault(); closeTemplateStudio(); }
       return;
     }
-    // Plan mode / shutdown: Enter = primary decision, S = skip. Inputs keep
-    // their own keys (a time/date field must accept typing and its Enter).
-    if (state.planMode && !target.matches?.('input, select, textarea')) {
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        await planModeAct(state.planMode.mode === 'plan'
-          ? (state.planMode.queue[state.planMode.index]?.bucket === 'stale' ? 'today' : 'add')
-          : 'carry');
-        return;
-      }
-      if (event.key.toLowerCase() === 's' && !event.metaKey && !event.ctrlKey) {
-        event.preventDefault();
-        await planModeAct('skip');
-        return;
-      }
-    }
+    // Plan mode / shutdown keys are bound on the document (handlePlanModeKeydown).
     // ⌘F / Ctrl+F opens the editor find panel from anywhere in the editor view
     // (document, panel inputs, preview) — never the browser's find-in-page.
     if (state.navType === 'editor' && (event.metaKey || event.ctrlKey)
@@ -6758,14 +6966,15 @@ function bindEvents() {
       }
       return;
     }
+    // A held-down Enter must not repeat a create (see the pending locks too).
     if (target.matches?.('[data-new-project-name]') && event.key === 'Enter') {
       event.preventDefault();
-      handleAction('create-project', target, event);
+      if (!event.repeat && !event.isComposing) handleAction('create-project', target, event);
       return;
     }
     if (target.matches?.('[data-confirm-input]') && event.key === 'Enter') {
       event.preventDefault();
-      appRoot.querySelector('[data-confirm-ok]')?.click();
+      if (!event.repeat && !event.isComposing) appRoot.querySelector('[data-confirm-ok]')?.click();
       return;
     }
     if (target.matches?.('[data-capture-input]') && event.key === 'Enter' && !event.isComposing) {
@@ -6800,9 +7009,20 @@ function bindEvents() {
       if (event.key === 'Escape') { event.preventDefault(); setState({ renamingProjectId: null }); renderApp(); return; }
       return;
     }
+    // A preview checkbox (role=checkbox) toggles with Space, like a native one,
+    // and with Enter; neither reaches the document-level shortcuts.
+    if (target.matches?.('[data-action="toggle-md-check"]') && (event.key === ' ' || event.key === 'Enter')) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.repeat) return;
+      const line = Number(target.dataset.line);
+      toggleMarkdownCheck(line);
+      appRoot.querySelector(`[data-action="toggle-md-check"][data-line="${line}"]`)?.focus();
+      return;
+    }
     if (target.matches?.('[data-checklist-new]') && event.key === 'Enter') {
       event.preventDefault();
-      handleAction('add-checklist-item', target, event);
+      if (!event.repeat && !event.isComposing) handleAction('add-checklist-item', target, event);
       return;
     }
     if (target.matches?.('[data-task-label-input]') && event.key === 'Enter') {
@@ -6823,6 +7043,8 @@ function bindEvents() {
       else if (key === 'e') { event.preventDefault(); applyEditorFormat('code'); }
     }
   });
+
+  document.addEventListener('keydown', handlePlanModeKeydown, true);
 
   bindDragEvents();
 
@@ -7309,8 +7531,9 @@ async function init() {
     // not. Load the Library in parallel and let the task collection become
     // interactive as soon as its own request completes.
     const documentsPromise = loadDocuments().catch(() => false);
-    if ((await loadTasks({ announceReminders: false })) === 'superseded' && externalRefresh.inFlight) {
-      await externalRefresh.inFlight; // an early trigger's newer snapshot installs instead
+    const initialTasks = await loadTasks({ announceReminders: false });
+    if ((initialTasks === 'superseded' || initialTasks === 'stale') && externalRefresh.inFlight) {
+      await externalRefresh.inFlight; // an early trigger's (or the retry's) newer snapshot installs instead
     }
     restoreCaptureRecovery();
     if (loadTemplateDraft(templateStorage())) showToast('An unfinished template copy is saved in this tab. Open Templates & guides to continue.', null, 8000);

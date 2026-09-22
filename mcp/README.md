@@ -21,19 +21,24 @@ under `tests/contract/` locks the current shapes so changes are made deliberatel
 
 ## Configuration
 
-The server reads two environment variables:
+With no configuration the server finds the app the way the `prax` CLI does: the desktop
+app's saved loopback port (`webview-port` under its app-data folder), then
+`http://127.0.0.1:3000`. The first that answers a read-only `/readyz` probe is used for the life
+of the server, and every write goes only there — it never fails over to another instance.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `PRAX_API_URL` | `http://127.0.0.1:3000` | Base URL of the Prax API. Use `http://127.0.0.1:3100` for the demo server. |
-| `PRAX_API_TOKEN` | _(unset)_ | If set, sent as `Authorization: Bearer <token>` (for a future authenticated ingress). |
+| `PRAX_API_URL` | discovery (above) | Base URL of the Prax API; disables discovery. Use `http://127.0.0.1:3100` for the demo server. |
+| `PRAX_API_TOKEN` (or `PRAX_TOKEN`) | _(unset)_ | If set, sent as `Authorization: Bearer <token>` (for a future authenticated ingress). |
+| `PRAX_AGENT` | auto | Which agent CLI is writing (`claude`, `codex`, …), sent as `x-prax-agent` on agent writes so documents and the task chronicle name it. Detected from the Claude Code / Codex / Copilot / Antigravity environments when unset. |
+| `PRAX_MCP_TIMEOUT_MS` | `180000` | How long `ask_prax`, `generate_runbook` and `generate_post_mortem` wait for an answer (they wait on a chat model). Other requests time out after 5 s. |
 
 ## Register with Claude Code
 
 ```bash
-claude mcp add prax \
-  --env PRAX_API_URL=http://127.0.0.1:3100 \
-  -- node /ABSOLUTE/PATH/TO/repo/mcp/server.js
+claude mcp add prax -- node /ABSOLUTE/PATH/TO/repo/mcp/server.js
+# against the demo server instead of the desktop app:
+claude mcp add prax --env PRAX_API_URL=http://127.0.0.1:3100 -- node /ABSOLUTE/PATH/TO/repo/mcp/server.js
 ```
 
 Replace `/ABSOLUTE/PATH/TO/repo` with the absolute path to this repository. Verify the
@@ -60,8 +65,11 @@ a complete inventory from a partial page.
 Machine creates allocate a caller-stable UUID. `create_task` / `create_document` accept `id`,
 `add_checklist_item` accepts `itemId`, and run/generation tools accept their documented result ID.
 The client retries one lost transport response and exact replays return the original record;
-conflicting reuse returns an error. If Prax remains unreachable, the tool reports that the outcome
-is unknown and includes the ID needed to retry the same intent. Child collection reads return an
+conflicting reuse returns an error. If Prax cannot be reached, the tool reports that the outcome
+is unknown; if it did not answer in time, the tool says the operation may still be processing.
+Both include the ID needed to retry the same intent. A generation retried with its ID while the
+first attempt is still running waits for that attempt and returns its document (`replayed:
+true`) instead of generating a second one. Child collection reads return an
 error for a missing owner rather than silently returning an empty collection.
 
 Document graph tools:

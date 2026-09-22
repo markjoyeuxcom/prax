@@ -241,6 +241,57 @@ test('--instructions refuses malformed or ambiguous managed blocks without chang
   }
 });
 
+test('--uninstall edits a symlinked instruction file at its target and keeps the link and its mode', () => {
+  const base = mkdtempSync(join(tmpdir(), 'prax-uninstall-symlink-'));
+  try {
+    const home = isolatedHome(base);
+    const dotfiles = join(base, 'dotfiles');
+    mkdirSync(dotfiles);
+    const target = join(dotfiles, 'CLAUDE.md');
+    writeFileSync(target, '# My rules\n\nKeep me.\n');
+    chmodSync(target, 0o640);
+    const link = join(home, '.claude', 'CLAUDE.md');
+    mkdirSync(dirname(link), { recursive: true });
+    symlinkSync('../../dotfiles/CLAUDE.md', link);
+    assert.equal(run(['--instructions'], { HOME: home }).status, 0);
+    assert.match(readFileSync(target, 'utf8'), /prax-memory:start/);
+
+    const uninstall = run(['--uninstall'], { HOME: home });
+    assert.equal(uninstall.status, 0, uninstall.stderr);
+    assert.ok(lstatSync(link).isSymbolicLink(), 'the instruction file is still a symlink');
+    assert.equal(readlinkSync(link), '../../dotfiles/CLAUDE.md');
+    assert.equal(readFileSync(target, 'utf8'), '# My rules\n\nKeep me.\n', 'the block is gone from the target, byte for byte');
+    assert.equal(statSync(target).mode & 0o777, 0o640, 'the target permissions are retained');
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('--uninstall refuses a missing or duplicated end marker without changing the file', () => {
+  const base = mkdtempSync(join(tmpdir(), 'prax-uninstall-malformed-'));
+  try {
+    const home = isolatedHome(base);
+    const path = join(home, '.codex', 'AGENTS.md');
+    mkdirSync(dirname(path), { recursive: true });
+    const start = '<!-- prax-memory:start -->';
+    const end = '<!-- prax-memory:end -->';
+    const cases = [
+      `# Mine\n${start}\nPrax block\n\n## My rules after the block\nNever delete me.\n`, // end marker missing
+      `# Mine\n${start}\nPrax block\n${end}\n${end}\nNever delete me.\n`, // end marker duplicated
+      `# Mine\n${start}\na\n${start}\nb\n${end}\nNever delete me.\n`, // start marker duplicated
+    ];
+    for (const original of cases) {
+      writeFileSync(path, original);
+      const result = run(['--uninstall'], { HOME: home });
+      assert.notEqual(result.status, 0, 'a refused removal fails the run');
+      assert.match(result.stderr, /Malformed Prax instruction markers/);
+      assert.equal(readFileSync(path, 'utf8'), original, 'the user instructions are untouched');
+    }
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test('--instructions honours the Antigravity global instruction path override', () => {
   const base = mkdtempSync(join(tmpdir(), 'prax-instruction-gemini-'));
   try {
@@ -347,6 +398,7 @@ function fakeAppBundle(base) {
   cpSync(join(root, 'public', 'js', 'documentTypes.js'), join(app, 'public', 'js', 'documentTypes.js'));
   mkdirSync(join(app, 'server'), { recursive: true });
   cpSync(join(root, 'server', 'repoUrl.js'), join(app, 'server', 'repoUrl.js'));
+  cpSync(join(root, 'server', 'instanceDiscovery.js'), join(app, 'server', 'instanceDiscovery.js'));
   writeFileSync(join(app, 'package.json'), JSON.stringify({ name: 'prax', version: '9.9.9', type: 'module' }));
   // The bundled runtime: the sidecar convention is a renamed Node binary.
   const macos = join(base, 'Prax.app', 'Contents', 'MacOS');

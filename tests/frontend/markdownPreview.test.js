@@ -319,3 +319,45 @@ test('PRESERVE: a task ending in a colon or code span (no pipe) is still a task'
   assert.match(code, /Then <code>npm run build<\/code>/);
   assert.ok(!code.includes('<p>'));
 });
+
+// ---- 2026-09-22 review: link/image URLs and preview checkboxes ----
+
+test('emphasis rules never rewrite a link href or an image src', () => {
+  const link = renderMarkdownHtml('See [init](https://github.com/org/repo/blob/main/pkg/__init__.py) now');
+  assert.match(link, /<a href="https:\/\/github\.com\/org\/repo\/blob\/main\/pkg\/__init__\.py" rel="noreferrer">init<\/a>/);
+  const underscored = renderMarkdownHtml('[node](/d/_abc_/node) and [tests](https://x.dev/__tests__/a*b*c)');
+  assert.match(underscored, /href="\/d\/_abc_\/node"/);
+  assert.match(underscored, /href="https:\/\/x\.dev\/__tests__\/a\*b\*c"/);
+  assert.doesNotMatch(underscored, /<em>|<strong>/);
+  const image = renderMarkdownHtml('![shot](/img/__init__/_x_.png)');
+  assert.match(image, /<img src="\/img\/__init__\/_x_\.png" alt="shot"/);
+  const remote = renderMarkdownHtml('![shot](https://cdn.example/__a__/b.png)', { remoteImages: true });
+  assert.match(remote, /src="https:\/\/cdn\.example\/__a__\/b\.png"/);
+});
+
+test('link text keeps its emphasis and emphasis around a link still renders', () => {
+  const html = renderMarkdownHtml('**see** [the **docs**](https://ex.com/a__b__c) and _this_');
+  assert.match(html, /<strong>see<\/strong> <a href="https:\/\/ex\.com\/a__b__c" rel="noreferrer">the <strong>docs<\/strong><\/a> and <em>this<\/em>/);
+  const nested = renderMarkdownHtml('[![logo](/img/_l_.png)](https://ex.com/__x__)');
+  assert.match(nested, /<a href="https:\/\/ex\.com\/__x__" rel="noreferrer"><img src="\/img\/_l_\.png" alt="logo" loading="lazy"><\/a>/);
+  assert.match(renderMarkdownHtml('[`a__b__`](/p/__q__)'), /<a href="\/p\/__q__" rel="noreferrer"><code>a__b__<\/code><\/a>/);
+});
+
+test('task items are inert unless the caller opts in to taskToggles', () => {
+  const inert = renderMarkdownHtml('- [ ] Renew cert');
+  assert.doesNotMatch(inert, /data-action|role="checkbox"|tabindex/);
+  const live = renderMarkdownHtml('Intro\n\n- [ ] Renew cert\n- [x] Rotate keys', { taskToggles: true });
+  // The checkbox is a span inside the <li>, which keeps plain list semantics.
+  assert.match(live, /<li class="task-item" data-md-check data-line="2"><span class="task-item__toggle" data-action="toggle-md-check" data-line="2" role="checkbox" tabindex="0" aria-checked="false"/);
+  assert.match(live, /<li class="task-item is-done" data-md-check data-line="3"><span class="task-item__toggle" data-action="toggle-md-check" data-line="3" role="checkbox" tabindex="0" aria-checked="true"/);
+  assert.match(live, /aria-checked="false" title="Toggle this item"><span class="task-item__box"><\/span> <span class="task-item__label">Renew cert<\/span><\/span><\/li>/);
+  assert.doesNotMatch(renderMarkdownHtml('- [ ] again'), /data-action/, 'the opt-in lasts for one render only');
+});
+
+test('only the editable document preview opts in to task toggles', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../../public/js/main.js', import.meta.url), 'utf8');
+  const optedIn = source.split('\n').filter((line) => line.includes('taskToggles:'));
+  assert.equal(optedIn.length, 3, optedIn.join('\n'));
+  for (const line of optedIn) assert.match(line, /remoteImages: true, taskToggles: (!doc\.archivedAt|editorTaskToggles\(\))/);
+});

@@ -215,14 +215,27 @@ export function createGoogleCalendarProvider({ appSettingsRepository, fetch = gl
     return stored && typeof stored === 'object' ? stored : {};
   }
 
-  async function putSettings(patch) {
-    const current = await getSettings();
-    const next = { ...current, ...patch };
-    for (const key of Object.keys(next)) {
-      if (next[key] === null || next[key] === '') delete next[key];
-    }
-    await appSettingsRepository.putSetting(GOOGLE_CALENDAR_SETTINGS_KEY, next);
-    return next;
+  // Every settings merge is a read-modify-write of one JSON value. Run them
+  // one at a time so a slow writer (a push recording its status) can never
+  // write back a snapshot taken before a concurrent disconnect and bring the
+  // revoked token back. The read here is strict: a failed read must not turn
+  // into a write that drops every other field.
+  let settingsQueue = Promise.resolve();
+  function putSettings(patch, { onlyIfConnected = false } = {}) {
+    const run = settingsQueue.then(async () => {
+      const stored = appSettingsRepository ? await appSettingsRepository.getSetting(GOOGLE_CALENDAR_SETTINGS_KEY, null) : null;
+      const current = stored && typeof stored === 'object' ? stored : {};
+      // Push status belongs to a live connection; once disconnected it is dropped.
+      if (onlyIfConnected && !current.refreshToken) return current;
+      const next = { ...current, ...patch };
+      for (const key of Object.keys(next)) {
+        if (next[key] === null || next[key] === '') delete next[key];
+      }
+      await appSettingsRepository.putSetting(GOOGLE_CALENDAR_SETTINGS_KEY, next);
+      return next;
+    });
+    settingsQueue = run.catch(() => {});
+    return run;
   }
 
   return {
@@ -243,19 +256,22 @@ export function createGoogleCalendarProvider({ appSettingsRepository, fetch = gl
         hasClientSecret: Boolean(settings.clientSecret),
       };
     },
-    async client() {
+    // `refreshToken` lets the OAuth callback use a freshly exchanged token
+    // before it is saved, so a connection is only recorded once it works.
+    async client({ refreshToken } = {}) {
       const settings = await getSettings();
       if (!settings.clientId || !settings.clientSecret) {
         throw new GoogleApiError('Google Calendar is not configured', { reason: 'not-configured' });
       }
-      if (!settings.refreshToken) {
+      const token = refreshToken || settings.refreshToken;
+      if (!token) {
         throw new GoogleApiError('Google Calendar is not connected', { reason: 'not-connected' });
       }
       return createGoogleCalendarClient({
         fetch,
         clientId: settings.clientId,
         clientSecret: settings.clientSecret,
-        refreshToken: settings.refreshToken,
+        refreshToken: token,
       });
     },
     async exchangeCode({ code, redirectUri, codeVerifier }) {
@@ -297,7 +313,11 @@ export function createGoogleCalendarProvider({ appSettingsRepository, fetch = gl
           });
         } catch { /* offline revoke — the local state still disconnects */ }
       }
-      await putSettings({ refreshToken: null, calendarId: null, accountEmail: null, lastSyncAt: null, lastSyncSummary: null });
+      // calendarId is kept: the next connect probes it and reuses the same
+      // "Prax" calendar instead of creating a second one beside it.
+      await putSettings({
+        refreshToken: null, accountEmail: null, lastSyncAt: null, lastSyncSummary: null, lastPushAt: null, lastPushError: null,
+      });
     },
     secretFields: SECRET_FIELDS,
   };

@@ -486,7 +486,9 @@ function renderIntegrationsCard(state) {
     : status.loadError
       ? `<span role="alert" style="color:var(--danger);">${escapeHtml(status.loadError)}</span> <button class="settings-link" type="button" data-action="retry-google-calendar-status">Retry status</button>`
       : connected
-        ? `Connected${status.accountEmail ? ` as ${escapeHtml(status.accountEmail)}` : ''} — calendar created${status.lastSyncAt
+        ? `Connected${status.accountEmail ? ` as ${escapeHtml(status.accountEmail)}` : ''} — ${status.calendarId
+          ? 'calendar created'
+          : 'the “Prax” calendar is not set up yet (Sync now creates it)'}${status.lastSyncAt
           ? `; last sync: ${escapeHtml(formatSyncTime(status.lastSyncAt))} — ${escapeHtml(status.lastSyncSummary || '')}`
           : '; not synced yet'}.`
         : configured

@@ -1,4 +1,5 @@
 import { isSubstantive } from './contextPack.js';
+import { normalizeTitle } from './documentTitle.js';
 
 // Pure helpers for the "Ask Prax" grounded answer: turn a retrieved context pack
 // into an LLM prompt, and extract the cited source list. Kept pure and testable —
@@ -38,7 +39,12 @@ export const ANSWER_DOC_LIMIT = 6;
 // unverified clearly marked, bounded by a total + per-doc char budget. Empty
 // docs are skipped. Pure. This is what makes runbook / how-to answers correct:
 // the model sees the actual steps, not just a title.
-export function buildAnswerContext(docs, { limit = ANSWER_DOC_LIMIT, totalChars = ANSWER_CONTEXT_CHARS, docChars = ANSWER_DOC_CHARS } = {}) {
+//
+// Returns the documents it actually placed alongside the text: they are the
+// only titles the model can cite, so they are the set citations are validated
+// against and the Sources a person is shown (a pack built under a different
+// budget would reject grounded answers and list documents the answer never saw).
+export function selectAnswerContext(docs, { limit = ANSWER_DOC_LIMIT, totalChars = ANSWER_CONTEXT_CHARS, docChars = ANSWER_DOC_CHARS } = {}) {
   const active = (Array.isArray(docs) ? docs : [])
     .filter((d) => d && (d.status || 'active') === 'active')
     .filter(isSubstantive); // same scratch/empty-doc filter as the context pack
@@ -46,24 +52,47 @@ export function buildAnswerContext(docs, { limit = ANSWER_DOC_LIMIT, totalChars 
   const ordered = [...active.filter((d) => d.verified), ...active.filter((d) => !d.verified)].slice(0, limit);
   let remaining = totalChars;
   const blocks = [];
+  const documents = [];
   for (const doc of ordered) {
     if (remaining <= 200) break;
     const bodyText = String(doc.body ?? '').trim();
     if (!bodyText) continue; // skip empty docs — nothing to answer from
-    const title = String(doc.title || 'Untitled').trim();
+    // One line, so a title cannot open a heading of its own under a trust label.
+    const title = normalizeTitle(doc.title) || 'Untitled';
     const trust = doc.verified ? 'verified' : 'UNVERIFIED — pending human review';
     const header = `## ${title} (${doc.documentType || 'note'} · ${trust})`;
     const cap = Math.min(docChars, remaining - header.length - 8);
     const text = bodyText.length > cap ? `${bodyText.slice(0, Math.max(0, cap))}\n…(truncated)` : bodyText;
     const block = `${header}\n\n${text}`;
     blocks.push(block);
+    documents.push({ ...doc, title });
     remaining -= block.length + 5; // account for the joiner
   }
-  return blocks.join('\n\n---\n\n');
+  return { context: blocks.join('\n\n---\n\n'), documents };
 }
 
-// The de-duplicated documents behind a pack, in section order — what the UI lists
-// under "Sources" and the trust badge reads from.
+export function buildAnswerContext(docs, options) {
+  return selectAnswerContext(docs, options).context;
+}
+
+function toSource(item) {
+  return {
+    id: item.id,
+    title: item.title,
+    documentType: item.documentType,
+    verified: Boolean(item.verified),
+    verifiedAt: item.verifiedAt || null,
+    verifiedBy: item.verifiedBy || null,
+    status: item.status || 'active',
+    updatedBy: item.updatedBy || null,
+    kind: item.kind || 'source',
+    stale: Boolean(item.stale),
+  };
+}
+
+// The de-duplicated documents behind a pack (or an answer context's placed
+// documents), in order — what the UI lists under "Sources" and the trust badge
+// reads from.
 export function collectSources(pack) {
   const seen = new Set();
   const out = [];
@@ -71,21 +100,14 @@ export function collectSources(pack) {
     for (const item of section.items ?? []) {
       if (!item || seen.has(item.id)) continue;
       seen.add(item.id);
-      out.push({
-        id: item.id,
-        title: item.title,
-        documentType: item.documentType,
-        verified: Boolean(item.verified),
-        verifiedAt: item.verifiedAt || null,
-        verifiedBy: item.verifiedBy || null,
-        status: item.status || 'active',
-        updatedBy: item.updatedBy || null,
-        kind: item.kind || 'source',
-        stale: Boolean(item.stale),
-      });
+      out.push(toSource(item));
     }
   }
   return out;
+}
+
+export function answerSources(documents) {
+  return collectSources({ sections: [{ items: Array.isArray(documents) ? documents : [] }] });
 }
 
 // Generated answers must cite the exact retrieved titles promised by the

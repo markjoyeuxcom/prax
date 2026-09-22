@@ -2,7 +2,10 @@ import { escapeHtml } from './renderHelpers.js';
 import { icon } from './icons.js';
 
 // The built-in AI assistant panel — an agentic, multi-turn chat over the whole
-// Prax tool tree. Reads run automatically; writes surface a confirmation card.
+// Prax tool tree. Reads run automatically; writes surface a confirmation card
+// that names each target by title and shows every field the write sets
+// (before → after, with a line diff for bodies); several writes are approved
+// or declined one by one.
 // Pure state->HTML; the caller passes `renderMarkdown` (closing over the app's
 // wiki-link resolver) to render assistant answers. The composer value is mirrored
 // in state.assistantInput so it survives re-renders.
@@ -80,16 +83,128 @@ function renderItem(item, renderMarkdown) {
   return renderTools(item.calls);
 }
 
+// Line-level difference between a document's current body and a proposed
+// one: the unchanged leading/trailing lines are counted, and every line in
+// between is listed as removed or added. Conservative (one hunk) but exact:
+// nothing that changes is hidden. Exported for tests.
+export function lineDiff(before, after) {
+  const a = String(before ?? '').split('\n');
+  const b = String(after ?? '').split('\n');
+  let prefix = 0;
+  while (prefix < a.length && prefix < b.length && a[prefix] === b[prefix]) prefix++;
+  let suffix = 0;
+  while (suffix < a.length - prefix && suffix < b.length - prefix
+    && a[a.length - 1 - suffix] === b[b.length - 1 - suffix]) suffix++;
+  return {
+    prefix,
+    removed: a.slice(prefix, a.length - suffix),
+    added: b.slice(prefix, b.length - suffix),
+    suffix,
+  };
+}
+
+function unchangedLines(n) {
+  return n ? `<div class="asst__diff-ctx">${n} unchanged line${n === 1 ? '' : 's'}</div>` : '';
+}
+
+function renderBody(change) {
+  if (change.before === undefined) {
+    return `<pre class="asst__diff">${escapeHtml(change.after ?? '')}</pre>`;
+  }
+  if (change.unchanged) return '<span class="asst__confirm-muted">unchanged</span>';
+  const d = lineDiff(change.before ?? '', change.after ?? '');
+  const removed = d.removed.map((line) => `<del class="asst__diff-del">${escapeHtml(line) || ' '}</del>`).join('');
+  const added = d.added.map((line) => `<ins class="asst__diff-add">${escapeHtml(line) || ' '}</ins>`).join('');
+  return `<div class="asst__diff" role="group" aria-label="Body changes">${unchangedLines(d.prefix)}${removed}${added}${unchangedLines(d.suffix)}</div>`;
+}
+
+function valueHtml(value) {
+  return value === null || value === undefined
+    ? '<span class="asst__confirm-muted">(empty)</span>'
+    : escapeHtml(value);
+}
+
+function renderChange(change) {
+  const label = escapeHtml(change.label || change.field);
+  if (change.format === 'body') {
+    return `<div class="asst__change asst__change--body"><span class="asst__change-label">${label}</span>${renderBody(change)}</div>`;
+  }
+  let value;
+  if (change.before === undefined) {
+    value = `${valueHtml(change.after)}${change.defaulted ? ' <span class="asst__confirm-muted">(default)</span>' : ''}`;
+  } else if (change.unchanged) {
+    value = `${valueHtml(change.after)} <span class="asst__confirm-muted">(unchanged)</span>`;
+  } else {
+    value = `<del class="asst__change-before">${valueHtml(change.before)}</del> <span aria-hidden="true">→</span> <ins class="asst__change-after">${valueHtml(change.after)}</ins>`;
+  }
+  return `<div class="asst__change"><span class="asst__change-label">${label}</span><span class="asst__change-value">${value}</span></div>`;
+}
+
+function renderTarget(target) {
+  const name = target.title
+    ? `“${escapeHtml(target.title)}”`
+    : `<code>${escapeHtml(target.id || '')}</code>`;
+  const state = target.missing
+    ? ' <span class="asst__confirm-warn">not found</span>'
+    : (target.detail ? ` <span class="asst__confirm-muted">${escapeHtml(target.detail)}</span>` : '');
+  return `<div class="asst__change"><span class="asst__change-label">${escapeHtml(target.role || 'Target')}</span><span class="asst__change-value">${name}${state}</span></div>`;
+}
+
+// Record one call's decision on the pending list (pure; the caller stores it).
+export function withCallDecision(pending, id, decision) {
+  if (!Array.isArray(pending) || (decision !== 'approve' && decision !== 'deny')) return pending;
+  return pending.map((p) => (p.id === id ? { ...p, decision } : p));
+}
+
+// The decisions map sent to the server. 'deny' declines every call. With one
+// call, approving means approving that call. With several, each call carries
+// its own recorded decision, and nothing is sent until every call has one —
+// one click never approves a batch the person has not looked at call by call.
+export function assistantDecisions(pending, action) {
+  const list = Array.isArray(pending) ? pending : [];
+  if (!list.length) return null;
+  if (action === 'deny') return Object.fromEntries(list.map((p) => [p.id, 'deny']));
+  if (list.length === 1) return { [list[0].id]: list[0].decision === 'deny' ? 'deny' : 'approve' };
+  if (!list.every((p) => p.decision === 'approve' || p.decision === 'deny')) return null;
+  return Object.fromEntries(list.map((p) => [p.id, p.decision]));
+}
+
+function renderPendingCall(p, { multi, locked }) {
+  const changes = Array.isArray(p.changes) ? p.changes : [];
+  const targets = Array.isArray(p.targets) ? p.targets : [];
+  const notes = Array.isArray(p.notes) ? p.notes : [];
+  const choice = (decision, text) => `<button type="button" class="btn-ghost btn-ghost--sm${p.decision === decision ? ' is-selected' : ''}" data-action="assistant-call-decision" data-call-id="${escapeHtml(p.id)}" data-decision="${decision}" aria-pressed="${p.decision === decision}" ${locked ? 'disabled' : ''}>${text}</button>`;
+  const decide = multi
+    ? `<div class="asst__confirm-decide" role="group" aria-label="Decision for ${escapeHtml(p.summary || p.name)}">${choice('approve', 'Approve')}${choice('deny', 'Decline')}</div>`
+    : '';
+  const details = [...targets.map(renderTarget), ...changes.map(renderChange)].join('');
+  return `<li class="asst__confirm-item" data-call-id="${escapeHtml(p.id)}">
+      <div class="asst__confirm-row"><span class="asst__confirm-sum">${escapeHtml(p.summary || p.name)}</span> <code>${escapeHtml(p.name)}</code></div>
+      ${details ? `<div class="asst__changes">${details}</div>` : ''}
+      ${notes.length ? `<ul class="asst__confirm-notes">${notes.map((n) => `<li>${escapeHtml(n)}</li>`).join('')}</ul>` : ''}
+      ${decide}
+    </li>`;
+}
+
 function renderConfirm(pending, attempted = false, loading = false) {
   const n = pending.length;
-  const rows = pending.map((p) => `<li><span class="asst__confirm-sum">${escapeHtml(p.summary || p.name)}</span> <code>${escapeHtml(p.name)}</code></li>`).join('');
+  const multi = n > 1;
+  const rows = pending.map((p) => renderPendingCall(p, { multi, locked: loading || attempted })).join('');
+  const ready = Boolean(assistantDecisions(pending, 'approve'));
+  const approved = pending.filter((p) => p.decision === 'approve').length;
+  const primary = attempted
+    ? 'Retry safely'
+    : (multi ? `Submit decisions${ready ? ` (${approved} of ${n} approved)` : ''}` : 'Approve &amp; run');
+  const head = multi
+    ? `Prax wants to make ${n} changes — approve or decline each one:`
+    : 'Prax wants to make 1 change — review it, then approve to run:';
   return `<div class="asst__turn asst__turn--ai">
     <div class="asst__confirm">
-      <div class="asst__confirm-head">${icon('spark')} Prax wants to make ${n} change${n === 1 ? '' : 's'} — approve to run:</div>
+      <div class="asst__confirm-head">${icon('spark')} ${head}</div>
       <ul class="asst__confirm-list">${rows}</ul>
       <div class="asst__confirm-actions">
-        <button type="button" class="btn-primary btn-primary--sm" data-action="assistant-approve" ${loading ? 'disabled' : ''}>${attempted ? 'Retry safely' : 'Approve &amp; run'}</button>
-        ${!attempted ? `<button type="button" class="btn-ghost btn-ghost--sm" data-action="assistant-decline" ${loading ? 'disabled' : ''}>Decline</button>` : ''}
+        <button type="button" class="btn-primary btn-primary--sm" data-action="assistant-approve" ${loading || (!attempted && !ready) ? 'disabled' : ''}>${primary}</button>
+        ${!attempted ? `<button type="button" class="btn-ghost btn-ghost--sm" data-action="assistant-decline" ${loading ? 'disabled' : ''}>${multi ? 'Decline all' : 'Decline'}</button>` : ''}
       </div>
     </div>
   </div>`;

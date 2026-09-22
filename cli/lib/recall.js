@@ -10,6 +10,7 @@
 // as current; every hit carries its trust label.
 
 import { checkCitation, describeCitationStatus } from './codeRefs.js';
+import { normalizeRepoUrl } from '../../server/repoUrl.js';
 
 const BODY_CHARS = 800;
 const RELATED_MAX = 5;
@@ -145,7 +146,9 @@ export async function collectSemantic(client, project, query, limit, mode = 'hyb
 export function coverageNote(result) {
   if (!result) return '';
   if (result.reason === 'coverage-unknown') return 'index coverage unknown: this server predates coverage reporting';
-  if (!result.degraded) return '';
+  // A keyword fallback is degraded too, but that is said by its own note;
+  // there is no semantic index whose coverage could be reported.
+  if (!result.degraded || result.reason === 'semantic-not-configured') return '';
   const index = result.index || {};
   const pending = Number(index.pending ?? 0);
   const total = Number(index.total ?? 0);
@@ -153,26 +156,130 @@ export function coverageNote(result) {
   return `index incomplete: ${scope} have no current embedding`;
 }
 
-// Check the top hit's code citations against the working tree this recall is
-// running in. Only the top hit: it is the one whose body is actually rendered,
-// and a per-hit round trip for every related title would cost more than it says.
+// Does this checkout hold the repository a citation was taken in? Citations
+// are repository-relative and recall is cross-project, so a hit about another
+// repository must not have its paths read here: `src/x.js` from repo A would
+// be reported "gone" or "changed" from repo B.
 //
-// No reader (recalling from outside a checkout) means no claim in EITHER
-// direction — silence must not read as "still true", and absence of the file
-// must not read as "deleted".
-async function checkTopCitations(client, id, readFile) {
-  if (typeof readFile !== 'function' || typeof client.listCodeRefs !== 'function') return [];
-  const refs = await client.listCodeRefs(id).catch(() => []);
-  if (!Array.isArray(refs) || refs.length === 0) return [];
-  return refs.map((ref) => {
-    let text = null;
-    try { text = readFile(ref.path); } catch { text = null; }
-    const result = checkCitation(ref, text);
-    return { ...result, path: ref.path, note: describeCitationStatus(result, ref) };
-  });
+// The hit's project, when it has a registered repo URL and this checkout has
+// an origin, decides. Otherwise the commit the citation was pinned at must
+// exist here (a `memory` note has no repo URL; a clone without an origin has
+// none either). Neither answer = not checked, never a guess. An injected
+// checkout that declares no identity at all (tests, embedders) vouches for
+// itself. Returns null when the citation belongs here, else why it is not
+// checked.
+function repositoryMismatch(checkout, ref, projectRepoUrl) {
+  if (checkout.repoUrl === undefined && checkout.hasCommit === undefined) return null;
+  const here = normalizeRepoUrl(checkout.repoUrl);
+  const there = normalizeRepoUrl(projectRepoUrl);
+  if (here && there) return here === there ? null : 'other-repository';
+  if (!ref.commitSha) return 'unknown-repository';
+  return typeof checkout.hasCommit === 'function' && checkout.hasCommit(ref.commitSha) ? null : 'commit-not-found';
 }
 
-export async function recall(client, { query, project, limit = 5, recent = false, mode = 'hybrid', readFile } = {}) {
+async function projectRepoUrl(client, projectId) {
+  if (!projectId || typeof client.listProjects !== 'function') return null;
+  const projects = await client.listProjects().catch(() => null);
+  const project = Array.isArray(projects) ? projects.find((p) => p && p.id === projectId) : null;
+  return project?.repoUrl || null;
+}
+
+const UNCHECKED_REASONS = {
+  'no-checkout': 'not run inside a checkout',
+  'other-repository': 'cited in another repository',
+  'commit-not-found': 'pinned at a commit this checkout does not have',
+  'unknown-repository': 'the cited repository is not recorded',
+  unavailable: 'the citations could not be read',
+};
+
+// Check the top hit's code citations against the checkout this recall runs
+// in. Only the top hit: it is the one whose body is actually rendered, and a
+// per-hit round trip for every related title would cost more than it says.
+//
+// Returns the checked results plus how many citations were NOT checked and
+// why: silence must not read as "still true" (outside a checkout, in another
+// repository, or when the citations could not be read), and a file absent
+// from the wrong checkout must not read as "deleted".
+async function checkTopCitations(client, hit, checkout) {
+  const none = { citations: [], citationCheck: null };
+  if (typeof client.listCodeRefs !== 'function') return none;
+  let refs;
+  try {
+    refs = await client.listCodeRefs(hit.id);
+  } catch (err) {
+    // A server without citation support (404) has nothing to check; any
+    // other failure means there may be citations nobody looked at.
+    if (err && err.status === 404) return none;
+    return { citations: [], citationCheck: { checked: 0, unchecked: null, reason: 'unavailable' } };
+  }
+  if (!Array.isArray(refs) || refs.length === 0) return none;
+  if (!checkout || typeof checkout.readFile !== 'function') {
+    return { citations: [], citationCheck: { checked: 0, unchecked: refs.length, reason: 'no-checkout' } };
+  }
+  const repoUrl = checkout.repoUrl === undefined && checkout.hasCommit === undefined
+    ? null
+    : await projectRepoUrl(client, hit.projectId);
+  const citations = [];
+  const reasons = [];
+  for (const ref of refs) {
+    const mismatch = repositoryMismatch(checkout, ref, repoUrl);
+    if (mismatch) { reasons.push(mismatch); continue; }
+    let text = null;
+    try { text = checkout.readFile(ref.path); } catch { text = null; }
+    const result = checkCitation(ref, text);
+    citations.push({ ...result, path: ref.path, note: describeCitationStatus(result, ref) });
+  }
+  // `reason` names the (first) cause; `reasons` lists every distinct one.
+  const distinct = [...new Set(reasons)];
+  return {
+    citations,
+    citationCheck: {
+      checked: citations.length, unchecked: reasons.length, reason: distinct[0] ?? null, reasons: distinct,
+    },
+  };
+}
+
+// One clause for citations that were not checked, or ''.
+export function citationCheckNote(check) {
+  if (!check || !check.reason) return '';
+  const why = (check.reasons?.length ? check.reasons : [check.reason])
+    .map((reason) => UNCHECKED_REASONS[reason] || reason).join('; ');
+  if (check.unchecked === null || check.unchecked === undefined) return `citations not checked (${why})`;
+  if (!check.unchecked) return '';
+  return `${check.unchecked} citation${check.unchecked === 1 ? '' : 's'} not checked (${why})`;
+}
+
+// Keyword matches arrive in listing order (project, type, date), not by
+// relevance. Rank them by how often the query's terms occur, a title match
+// weighing more than a body match, so the rendered "top hit" is the best
+// keyword match rather than the first row. Ties keep the listing order.
+export function rankKeywordMatches(docs, query) {
+  const list = Array.isArray(docs) ? docs : [];
+  const terms = String(query || '').toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
+  if (!terms.length) return list.slice();
+  const count = (text, term) => {
+    let n = 0;
+    for (let at = text.indexOf(term); at !== -1; at = text.indexOf(term, at + term.length)) n += 1;
+    return n;
+  };
+  const score = (doc) => {
+    const title = String(doc?.title || '').toLowerCase();
+    const body = String(doc?.body || doc?.snippet || '').toLowerCase();
+    return terms.reduce((sum, term) => sum + 3 * count(title, term) + Math.min(count(body, term), 20), 0);
+  };
+  return list
+    .map((doc, index) => ({ doc, index, score: score(doc) }))
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map((entry) => entry.doc);
+}
+
+// `checkout` ({ readFile, repoUrl, hasCommit } from repoFiles.createCheckout)
+// is where citations are checked; a bare `readFile` is accepted as a checkout
+// that vouches for its own identity.
+export async function recall(client, {
+  query, project, limit = 5, recent = false, mode = 'hybrid', readFile, checkout: givenCheckout,
+} = {}) {
+  const checkout = givenCheckout ?? (typeof readFile === 'function' ? { readFile } : null);
   if (recent) {
     const docs = await client.listDocuments(project || undefined, { status: 'active' });
     const items = (Array.isArray(docs) ? docs : [])
@@ -200,12 +307,21 @@ export async function recall(client, { query, project, limit = 5, recent = false
     res = await collectSemantic(client, project || undefined, query, limit, mode);
   } catch (err) {
     if (err && err.status === 409) {
-      const docs = await client.keywordSearch(project || undefined, query, {});
-      const kept = await withProjectSlugs(client, (Array.isArray(docs) ? docs : []).slice(0, limit));
-      if (kept.length === 0) return { kind: 'empty', query, note: 'keyword', degraded: false, reason: null, index: null };
+      // The same envelope `prax search` gives this state: degraded, with the
+      // reason, and a page that says how many matches the bound held back.
+      const ranked = rankKeywordMatches(await client.keywordSearch(project || undefined, query, {}), query);
+      const kept = await withProjectSlugs(client, ranked.slice(0, limit));
+      const fallback = {
+        degraded: true,
+        reason: 'semantic-not-configured',
+        index: null,
+        page: { returned: kept.length, total: ranked.length, hasMore: ranked.length > kept.length },
+      };
+      if (kept.length === 0) return { kind: 'empty', query, note: 'keyword', ...fallback };
+      const { citations, citationCheck } = await checkTopCitations(client, kept[0], checkout);
       return {
-        kind: 'hit', note: 'semantic search disabled — keyword results', degraded: false, reason: null, index: null,
-        top: kept[0], related: kept.slice(1),
+        kind: 'hit', note: 'semantic search disabled — keyword results', ...fallback,
+        top: { ...kept[0], citations, citationCheck }, related: kept.slice(1),
       };
     }
     throw err;
@@ -228,12 +344,12 @@ export async function recall(client, { query, project, limit = 5, recent = false
   if (list.length === 0) return { kind: 'empty', query, note: null, ...coverage };
   const kept = await withProjectSlugs(client, list.slice(0, limit));
   const topDoc = await client.getDocument(kept[0].id).catch(() => null);
-  const citations = await checkTopCitations(client, kept[0].id, readFile);
+  const { citations, citationCheck } = await checkTopCitations(client, { ...kept[0], projectId: kept[0].projectId ?? topDoc?.projectId }, checkout);
   return {
     kind: 'hit',
     note: null,
     ...coverage,
-    top: mergeDefined({ ...kept[0], citations }, topDoc, [
+    top: mergeDefined({ ...kept[0], citations, citationCheck }, topDoc, [
       'body', 'verified', 'verifiedBy', 'status', 'updatedAt', 'updatedBy', 'updatedByAgent', 'projectSlug',
     ]),
     related: kept.slice(1),
@@ -268,7 +384,10 @@ export function formatRecall(result, now = new Date()) {
   const bound = boundNote(result);
   if (bound) lines.push(`(${bound})`);
   const top = result.top;
-  const citationNotes = (top.citations || []).map((c) => c.note).filter(Boolean);
+  const citationNotes = [
+    ...(top.citations || []).map((c) => c.note).filter(Boolean),
+    citationCheckNote(top.citationCheck),
+  ].filter(Boolean);
   // Project first, then trust: "where it lives" is what a re-remember needs to
   // avoid duplicating it, so it must not be buried behind the trust words.
   const trust = [projectLabel(top), trustLabel(top, now), ...citationNotes].filter(Boolean).join(' · ');

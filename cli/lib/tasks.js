@@ -173,6 +173,16 @@ export async function setChecklistItem(client, taskId, selector, completed) {
   return { item: updated, index: items.indexOf(item) + 1 };
 }
 
+// `task list` shows open tasks unless asked otherwise: the server's list is
+// every non-archived task, completed ones included. An explicit --status is
+// taken as asked (--status completed lists the completed ones), and --all
+// keeps everything.
+export function selectListedTasks(tasks, { status, all = false } = {}) {
+  const list = Array.isArray(tasks) ? tasks : [];
+  if (all || status) return list;
+  return list.filter((task) => task.status !== 'completed');
+}
+
 // ---- output ---------------------------------------------------------------
 
 function due(task) {

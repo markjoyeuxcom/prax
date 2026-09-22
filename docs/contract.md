@@ -163,6 +163,14 @@ an unknown write outcome instead of automatically reapplying an older intent.
 | `updatedAt` | ISO-8601 timestamp |
 | `archivedAt` | ISO-8601 timestamp \| `null` |
 
+Completing a recurring task creates its successor, due one interval after `dueDate` and strictly
+after the requester's today. A `monthly` successor keeps the completed task's day-of-month,
+clamped to shorter months (the Jan 31 task completed on Apr 15 gives Apr 30, not Apr 28). The
+anchor is not stored separately, so a clamped successor (Feb 28) continues from its own day. "Today" comes from
+the optional `x-prax-local-date: YYYY-MM-DD` header, else `x-prax-time-zone: <IANA zone>` applied
+to the server clock, else the server's local date. The web app sends both on task PATCH, reorder,
+Inbox actions and assistant chat; the assistant's date context uses the same day.
+
 ### Import (`POST /api/tasks/import`)
 
 ```json
@@ -333,6 +341,9 @@ block sequences with `id:` before `ref:` per entry.
 
 `GET /api/library/documents/:id/export` returns a single document rendered as v3 Markdown
 (`text/markdown; charset=utf-8`) with `Content-Disposition: attachment; filename="<documentFilename>"`.
+A filename outside printable ASCII (CJK, emoji) or containing `"`, `\` or `%` gets an ASCII
+fallback in `filename` (each such run replaced by `_`) plus the exact name as RFC 5987
+`filename*=UTF-8''<percent-encoded>`; the library ZIP route uses the same rule.
 The server fetches the document's outbound links and computes refs in single-project scope
 before rendering. Returns 404 for a missing or archived document, 400 for an invalid UUID.
 
@@ -347,6 +358,13 @@ reports committed and remaining counts separately, and offers an exact-once-safe
 with `200`; reusing the UUID for different title/body/type/project/tags/source/provenance intent
 returns `409`. Without `id`, ordinary server-identified creation is unchanged. Documents are also
 created/edited through the MCP `create_document` / `update_document` tools.
+
+Document titles are a single line. Every write (create, PATCH, upsert-by-title and server-generated
+documents) collapses each whitespace run containing a line break or other control character
+(including U+2028/U+2029) to one space and trims; ordinary spaces are kept, so exact-title
+matching is unchanged. A title that is empty after this is `400 title is required`. Migration
+`0035` applies the same rule to stored titles (clearing `revision` for the repository to
+recompute, which leaves those documents pending a reindex); verification is kept.
 
 ## Format 3 — MCP tools
 
@@ -401,7 +419,13 @@ MCP-owned output shapes:
 - `unlink_task_document` → `{ unlinked: true, taskId, documentId }`.
 - `delete_checklist_item` → `{ deleted: true, taskId, itemId }`.
 - Task activity items include `actor: "user"|"agent"`; MCP task writes stamp `agent` through
-  `x-prax-origin`, while pre-migration history defaults to `user`.
+  `x-prax-origin`, while pre-migration history defaults to `user`. `actorAgent` (migration
+  `0036_add_task_activity_agent.sql`) names the agent CLI from `x-prax-agent` when an agent
+  identified itself, else `null`. Events cover creation (including an agent's
+  `POST /api/tasks/import`, which is how `prax task add` creates), status, slip/plan changes,
+  title, description, notes and priority edits (a repeat of the same edit by the same author
+  within 15 minutes is covered by the earlier event), and checklist items added, checked,
+  unchecked and removed. A person's import stays unlogged.
 
 Collection tools return a versioned pagination envelope rather than a bare array:
 
@@ -472,9 +496,21 @@ remain HTTP-only.
 Machine creation identity is caller-stable and exact-once. `create_task` and `create_document`
 accept optional `id`; `add_checklist_item` accepts optional `itemId`; `start_runbook_run` accepts
 `runId`; and generated-document tools accept optional `documentId`. MCP allocates one when omitted.
-An exact retry returns the original record, conflicting identity reuse returns 409, and a transport
-failure that remains unresolved reports an **unknown outcome plus the retry ID** rather than claiming
-the write failed. The MCP client retries these and other declared-idempotent writes once after a
+An exact retry returns the record's current state (including edits made since), conflicting identity
+reuse returns 409, and a transport failure that remains unresolved reports an **unknown outcome plus
+the retry ID** rather than claiming the write failed. `create_document` sends its `id` as the
+`operationId` too, so it uses the receipt-backed document creation described under Bundled templates
+and guides.
+
+Caller-identified creates over HTTP (`POST /api/tasks` with `id`, `POST /api/tasks/:id/checklist`
+with `id`, and `POST /api/library/documents` with `id` but no `operationId`) record a durable
+creation receipt (migration `0034_record_creation_receipts.sql`) in the same transaction as the
+insert. The receipt, not the row's current content, decides a retry: the same intent returns `200`
+with the current record even after it was edited (a task that has since been archived still returns
+`409` with its distinct archived message), a different intent returns `409`, and a retry after the
+record was permanently deleted returns `410` instead of recreating it. Receipts outlive the record
+and are runtime metadata, not portable export. Rows created before `0034` have no receipt and keep
+the older content comparison. The MCP client retries these and other declared-idempotent writes once after a
 transport failure. Mutation annotations expose `idempotentHint`; overwrite/removal/lifecycle tools
 also expose `destructiveHint`.
 
@@ -661,7 +697,11 @@ bounded, trust-aware context briefing for the project: verified documents by sec
 unverified documents quarantined in a `⚠ Unverified — pending human review` section. When
 `format=md` the response is `text/markdown`; when `format=json` it is a JSON object with a
 `sections` array. Semantic ranking is used when a `query` is given and embeddings are on;
-falls back to recency otherwise.
+falls back to recency otherwise. The JSON pack also carries `omitted: { total, unverified }`,
+the substantive active candidates the `limit` left out; the Markdown pack states that count
+when it is non-zero. Each Markdown entry is one heading line carrying its title and its
+labels (`— _unverified_`, `— _stale_`); titles are rendered on one line, so they cannot add
+headings. The library-wide `GET /api/library/context-pack?q=` follows the same rules.
 
 Semantic search ranks documents by embedding similarity (meaning), not keywords, so a
 paraphrased query can find topically-relevant docs that share no words with it. It is
@@ -746,13 +786,18 @@ Results are filtered by a gap-based relevance cutoff: only documents scoring wit
 `EMBEDDING_SEARCH_TOP_DROP` (default 0.20) of the best match and at least
 `EMBEDDING_SEARCH_MIN_SIMILARITY` (default 0.45) cosine similarity are returned, so an unrelated
 query can return few or no results rather than the whole ranked library. Both thresholds are
-env-tunable (defaults calibrated for `qwen3-embedding:0.6b`).
+env-tunable (defaults calibrated for `qwen3-embedding:0.6b`). The same per-backend floor (above)
+applies to every retrieval route: semantic search, both context packs, Ask, similar documents,
+task related documents and the AI health review's neighbour search.
 
 `POST /api/library/ask` accepts `{ q, project?, limit? }` and returns a grounded answer or the
 retrieved context pack. Its response includes `sources` with trust fields and
 `retrieval: { mode: "semantic"|"keyword", fallback, reason }`. Semantic failure or no-match
-keyword fallback is explicit. Generated answers over a non-empty source set must cite an exact
-retrieved title; otherwise the route returns `degraded: true`,
+keyword fallback is explicit. The answer is generated from the full bodies of at most
+`min(6, limit)` retrieved documents (verified first, bounded by a character budget); `sources`
+lists exactly the documents placed in that answer context, in every response (with or without a
+chat model), while `markdown` is the separate `limit`-bounded context pack. Generated answers over
+a non-empty source set must cite an exact title from `sources`; otherwise the route returns `degraded: true`,
 `reason: "citation-validation-failed"`, and the context pack instead. Provider exceptions are
 logged server-side and are never returned verbatim.
 
@@ -817,6 +862,11 @@ search reports `index:{total,embedded,pending}`; pending vectors produce
 `degraded:true,reason:"index-incomplete"`. Semantic context-pack/Ask retrieval metadata carries
 index coverage too. No stale vector is presented as a current semantic match.
 
+`POST /api/library/documents/:id/wiki-link` (`{ title }`) links the first plain mention of `title`
+in the body. The write is conditional on the revision it read: a concurrent change is `409`
+`{message,reason:"revision-mismatch",document}`; no remaining mention is `409` without a reason; a
+missing or archived document is `404`. Like every body write it refreshes the document's vector.
+
 `GET /api/library/documents/:id/similar` now returns
 `{items:[...],degraded:false}`, or `{items:[],degraded:true,reason}` where the reason includes
 `semantic-off`, `not-indexed`, or `unavailable` for a repository without that capability. Missing owners return 404 for this route and the document's
@@ -831,6 +881,24 @@ changed intent under the same identity is rejected. If a process stops between e
 receipt completion, the result is explicitly unknown and the old approval is never blindly
 re-executed. The person must inspect canonical workspace state before proposing a replacement.
 The browser retains uncertain approvals across reload and offers a safe retry of the same action.
+
+Model-proposed tool input is parsed with the tool's own schema (unknown keys rejected) before it
+is proposed and again before it runs; invalid calls are answered with an error result and never
+offered for approval. Each `pending` entry carries `summary`, `targets` (role, id, resolved title,
+`missing` when absent), `changes` (every field the call sets, with `before` for updates and
+`format: 'body'` for Markdown bodies) and `notes`. `decisions` maps each call id to `approve` or
+`deny`; with several pending writes the browser sends nothing until every call has a decision,
+and a safe retry resends the recorded decisions. A new supersedes edge (the supersede route or a
+`supersedes` link) records the actor on the retired document's `updatedBy`/`updatedByAgent`.
+
+Chat adapters return `finishReason` and `truncated`. Output cut off at the token limit is never
+presented as complete: the assistant does not propose tool calls from it (`status:'error'`,
+`reason:'truncated'`) and marks a truncated answer as incomplete; writing actions return
+`{text:null, degraded:true, reason:'truncated'}`; runbook generation returns 502 with
+`reason:'truncated'` and saves nothing; post-mortems fall back to the chronicle template with
+`degraded:true, reason:'truncated'`. HTTP adapters apply a request timeout (180 s; 300 s for
+Ollama). OpenAI Responses requests ask for `reasoning.encrypted_content` so stateless tool
+continuations can replay reasoning; reasoning items without it are dropped on replay.
 
 Weekly review counts Shipped from completion events in the selected UTC week (or an explicit completion timestamp). Reopening a task later does not erase its historical completion. Missing legacy completion dates are disclosed rather than inferred from creation or modification times. Creating a task already completed records a completion event.
 
@@ -856,5 +924,6 @@ The transaction records the normalised creation intent and result in the existin
 document operation ledger (`document_upsert_receipts`, using a create-specific hash domain).
 An identical retry returns the current document with `replayed: true`; changed intent returns
 409, and a permanently deleted result returns 410. Neither title lookup nor upsert is used:
-a fresh operation always creates an independent copy. The ledger outlives the result and
-no schema migration is required. Existing ID-only creation behaviour remains compatible.
+a fresh operation always creates an independent copy. The ledger outlives the result.
+ID-only creation (no `operationId`) uses the creation receipts described under Format 3 (machine
+creation identity), with the same replay, 409 and 410 outcomes.

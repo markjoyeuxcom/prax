@@ -1,13 +1,11 @@
 import { escapeHtml } from './renderHelpers.js';
+import { localTimeOf } from './dateHelpers.js';
 
 // A bare checkmark (no surrounding box — the box is drawn by .run-step__box).
 const CHECK = '<svg width="11" height="11" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8 L6.3 10.8 L11.5 4.5"/></svg>';
 
-// HH:MM from an ISO timestamp — a deterministic slice, no locale conversion.
-function hm(iso) {
-  const m = String(iso || '').match(/T(\d{2}:\d{2})/);
-  return m ? m[1] : '';
-}
+// HH:MM in the viewer's local time from an ISO (UTC) timestamp.
+const hm = localTimeOf;
 
 // Elapsed between two ISO timestamps as "Xm" / "Xh Ym"; '' if unparseable.
 function elapsed(startIso, endIso) {

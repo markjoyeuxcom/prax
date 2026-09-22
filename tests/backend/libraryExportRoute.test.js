@@ -285,3 +285,44 @@ test('C16: link refs resolve to the final (collision-suffixed) zip entry names',
   const thirdAll = allEntries.find((e) => e.name === 'homelab/third.md');
   assert.match(thirdAll.body, new RegExp(`- id: ${B}\\n      ref: homelab/same-2\\.md`));
 });
+
+test('case-only filename collisions get distinct entries and refs follow the deduped names', async () => {
+  const IMPORTED = 'f1111111-1111-4111-8111-111111111111';
+  const TITLED = 'f2222222-2222-4222-8222-222222222222';
+  const LINKER = 'f3333333-3333-4333-8333-333333333333';
+  const mk = (id, title, sourceFilename) => ({
+    id, title, body: `# ${title} body\n`, documentType: 'note', projectId: PROJECT_HOMELAB, projectSlug: 'homelab',
+    tags: [], sourceFilename, archivedAt: null, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-02T00:00:00.000Z',
+    kind: 'source', contentHash: 'a'.repeat(64), updatedBy: 'user',
+  });
+  // Sorted by title: 'Imported setup' (Setup.md) is claimed before 'Setup' (setup.md).
+  const docs = [mk(IMPORTED, 'Imported setup', 'Setup.md'), mk(TITLED, 'Setup', null), mk(LINKER, 'Zed', null)];
+  const outboundMap = new Map([
+    [LINKER, {
+      'derived-from': [
+        { targetId: IMPORTED, targetProjectSlug: 'homelab', targetSourceFilename: 'Setup.md', targetTitle: 'Imported setup' },
+        { targetId: TITLED, targetProjectSlug: 'homelab', targetSourceFilename: null, targetTitle: 'Setup' },
+      ],
+      supersedes: [],
+    }],
+  ]);
+  const app = await buildTestApp(docs, outboundMap);
+  const single = await app.inject({ method: 'GET', url: '/api/library/export?project=homelab' });
+  const all = await app.inject({ method: 'GET', url: '/api/library/export?project=all' });
+  await app.close();
+
+  const entries = readZipEntries(single.rawPayload);
+  const names = entries.map((e) => e.name).sort();
+  assert.deepEqual(names, ['Setup.md', 'setup-2.md', 'zed.md']);
+  assert.equal(new Set(names.map((n) => n.toLowerCase())).size, names.length, 'names stay distinct on a case-insensitive file system');
+  assert.match(entries.find((e) => e.name === 'Setup.md').body, /# Imported setup body/);
+  assert.match(entries.find((e) => e.name === 'setup-2.md').body, /# Setup body/);
+  const linker = entries.find((e) => e.name === 'zed.md');
+  assert.match(linker.body, new RegExp(`- id: ${IMPORTED}\\n      ref: Setup\\.md`));
+  assert.match(linker.body, new RegExp(`- id: ${TITLED}\\n      ref: setup-2\\.md`));
+
+  const allEntries = readZipEntries(all.rawPayload);
+  assert.deepEqual(allEntries.map((e) => e.name).sort(), ['homelab/Setup.md', 'homelab/setup-2.md', 'homelab/zed.md']);
+  const linkerAll = allEntries.find((e) => e.name === 'homelab/zed.md');
+  assert.match(linkerAll.body, new RegExp(`- id: ${TITLED}\\n      ref: homelab/setup-2\\.md`));
+});

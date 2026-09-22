@@ -36,6 +36,13 @@ Understand the trust boundary before exposing Prax to a network:
   container, pod, or trusted-network reachability was deliberate.
 - **No multi-tenant isolation.** The database holds a single logical workspace; there are no
   per-user boundaries.
+- **Every account on the machine is trusted.** The loopback API has no credential, so any process
+  on the same computer, including one run by another user account, can use it: read the whole
+  workspace (a workspace backup includes stored provider keys and the Google refresh token),
+  change Settings, and choose the local CLI that Prax runs. Run Prax only on a computer whose
+  accounts you trust with that access. Loopback binding protects against other machines, not
+  other users of this one. This is a deliberate decision (2026-09-22) for a single-user desktop;
+  a per-launch token for the desktop app remains an option if that assumption changes.
 - **Secrets come from the environment or the local settings database.** The SQLite path
   (`PRAX_DB_FILE`) and environment-provided provider keys are never committed. Provider keys
   configured in the local UI are stored in the single-user SQLite database, so protect backups
@@ -57,12 +64,29 @@ Understand the trust boundary before exposing Prax to a network:
   it). The container image sets it to `localhost`, so a Compose install that listens on
   `0.0.0.0` behind a loopback-only port keeps this defence. `tests/backend/hostHeader.test.js`
   pins this.
+- **Other sites cannot change data (cross-site requests).** The `Host` check cannot stop a page
+  on `evil.example` from sending a `POST` to `http://127.0.0.1:<port>`: that `Host` is honest.
+  The page cannot read the answer, but a route that acts without a body (disconnecting Google
+  Calendar, a weekly review, a paid re-embed or AI review) would still run. Every request other
+  than `GET`/`HEAD` is therefore refused with `403` before routing when the browser marks it
+  `Sec-Fetch-Site: cross-site` or `same-site` (another port on localhost is another
+  application), or, for browsers that send no `Sec-Fetch-Site`, when its `Origin` is not this
+  server's own origin (the `Host` header, or a name in `PRAX_ALLOWED_HOSTS` for a proxy that
+  rewrites `Host`). `Sec-Fetch-Site: same-origin` is trusted: a page cannot forge it. The CLI,
+  the MCP server and other non-browser clients send neither header and are unaffected. The gate
+  applies to every bind and is not lifted by `PRAX_ALLOWED_HOSTS=*` or
+  `PRAX_ALLOW_UNAUTHENTICATED_NETWORK`. Pending Google OAuth consents are capped, so repeated
+  Connect requests cannot grow server memory. `tests/backend/crossSiteRequests.test.js` pins this.
 - **Settings access includes host process execution.** The Claude and Copilot CLI backends run
   the selected executable as the Prax process user, in a fresh private scratch directory
   (`mkdtemp`, mode `0700`) per provider instance — never a fixed path under the shared temp
   directory, because those CLIs read project settings and hooks from their working directory
   and a predictable path on a multi-user host would let another local user plant one. Provider
-  URLs and credentials are also operator-controlled. Protect the entire HTTP surface, including
+  URLs and credentials are also operator-controlled. The Claude CLI runs with every built-in
+  tool disabled (`--tools ""`), no settings files loaded (`--setting-sources ""`, so the user's
+  own default mode, allow rules and hooks do not apply) and the `dontAsk` permission mode. Both
+  CLIs receive the prompt, system instructions and any workspace snapshot over stdin, never in
+  argv where other local users could read them through `ps`. Protect the entire HTTP surface, including
   Settings, with the same trusted-operator boundary; workspace access must not be granted to
   less-trusted automation or network clients.
 - **Model output never loads remote content on render.** Library documents and tasks are often

@@ -1,3 +1,5 @@
+import { normalizeTitle } from './documentTitle.js';
+
 const DEFAULT_LIMIT = 12;
 const SNIPPET_LEN = 200;
 const OVERVIEW_LEN = 600;
@@ -29,7 +31,7 @@ function toItem(doc, { full = false } = {}) {
   const body = String(doc.body || '');
   return {
     id: doc.id,
-    title: doc.title,
+    title: normalizeTitle(doc.title),
     documentType: doc.documentType,
     verified: Boolean(doc.verified),
     verifiedAt: doc.verifiedAt || null,
@@ -74,11 +76,18 @@ export function buildContextPack(docs, {
     { kind: 'unverified', title: '⚠ Unverified — pending human review', items: take(unverified).map((d) => toItem(d)) },
   ].filter((s) => s.items.length > 0);
 
+  // What the budget left out, so a verified-first pack cannot silently drop
+  // newer unverified corrections: a reader is told they exist.
+  const included = sections.reduce((sum, s) => sum + s.items.length, 0);
+  const includedUnverified = sections.find((s) => s.kind === 'unverified')?.items.length ?? 0;
+  const omitted = { total: active.length - included, unverified: unverified.length - includedUnverified };
+
   return {
     project: project ? { id: project.id, slug: project.slug, name: project.name, status: project.status } : null,
     query: query || null,
     retrieval,
     sections,
+    omitted,
   };
 }
 
@@ -86,7 +95,7 @@ export function renderContextPackMarkdown(pack) {
   const lines = [];
   const p = pack.project;
   lines.push(`# Context: ${p ? p.name : 'Library'}${p && p.status ? ` (${p.status})` : ''}`);
-  if (pack.query) lines.push(`\n_Query: ${pack.query}_`);
+  if (pack.query) lines.push(`\n_Query: ${normalizeTitle(pack.query)}_`);
   if (pack.retrieval) {
     const suffix = pack.retrieval.fallback
       ? ` fallback (${pack.retrieval.reason || 'unspecified'})`
@@ -96,10 +105,18 @@ export function renderContextPackMarkdown(pack) {
   for (const section of pack.sections) {
     lines.push(`\n## ${section.title}`);
     for (const it of section.items) {
-      lines.push(`\n### ${it.title}${it.verified ? '' : ' — _unverified_'}`);
+      // The title is rendered on ONE line with its trust labels, so it can
+      // never open a heading of its own and sit under someone else's label.
+      const labels = `${it.verified ? '' : ' — _unverified_'}${it.stale ? ' — _stale_' : ''}`;
+      lines.push(`\n### ${normalizeTitle(it.title) || 'Untitled'}${labels}`);
       if (section.kind === 'runbooks') lines.push(`(runbook · ${it.id})`);
       else if (it.text) lines.push(it.text);
     }
+  }
+  const omitted = pack.omitted;
+  if (omitted && omitted.total > 0) {
+    const unverifiedNote = omitted.unverified > 0 ? ` (${omitted.unverified} unverified)` : '';
+    lines.push(`\n_${omitted.total} more document${omitted.total === 1 ? '' : 's'}${unverifiedNote} left out by the document limit._`);
   }
   return `${lines.join('\n')}\n`;
 }

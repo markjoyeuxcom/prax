@@ -10,17 +10,107 @@ import { recall, formatRecall } from './lib/recall.js';
 import { remember } from './lib/remember.js';
 import { confirmDocumentVerification } from './lib/verify.js';
 import { searchLibrary, describeRetrieval } from './lib/search.js';
-import { createRepoReader, headSha } from './lib/repoFiles.js';
+import { createCheckout, createRepoReader, headSha } from './lib/repoFiles.js';
 import { resolveCitation } from './lib/codeRefs.js';
-import { flagValue, parseArgs, repeatedValues } from './lib/cliArgs.js';
+import {
+  CliUsageError, checkCommandArgs, flagValue, parseArgs, positiveIntFlag, repeatedValues,
+} from './lib/cliArgs.js';
+import { sanitizeAgentId } from './lib/apiClient.js';
 import {
   buildTaskRecord, buildTaskPatch, createTask, updateTask, completeTask, setChecklistItem,
-  formatTask, formatTaskList, isTaskId, TASK_PRIORITIES, TASK_STATUSES,
+  formatTask, formatTaskList, isTaskId, selectListedTasks, TASK_PRIORITIES, TASK_STATUSES,
 } from './lib/tasks.js';
 
-// Flags that accumulate when repeated (`--check a --check b`); everything
-// else is last-wins. See cli/lib/cliArgs.js for the `--flag=value` form.
+// The declared flag grammar (cli/lib/cliArgs.js). Every flag any command
+// takes is named here with its kind, so an unknown or mistyped flag is refused
+// instead of stored and ignored, and a boolean flag never swallows the next
+// word (`search --json postgres backup` searches for both words). Flags that
+// accumulate when repeated (`--check a --check b`) are `repeatable`; every
+// other flag is last-wins.
 const REPEATABLE_FLAGS = ['check'];
+const BOOLEAN_FLAGS = ['json', 'help', 'all', 'all-projects', 'memory'];
+// `--recent` takes a count only when the next word is one.
+const OPTIONAL_FLAGS = { recent: (next) => /^\d+$/.test(next) };
+const VALUE_FLAGS = [
+  'project', 'url', 'agent', 'limit', 'body', 'type', 'tag', 'ref', 'cite', 'id', 'as', 'with',
+  'priority', 'status', 'due', 'planned', 'label', 'description', 'notes', 'query', 'title', 'append-notes',
+];
+// The prax-remember skill spells the tag flag --tags; an agent that learned
+// that syntax keeps its tags here too (both spellings at once are refused).
+const FLAG_ALIASES = { tags: 'tag' };
+
+const GLOBAL_FLAGS = ['project', 'url', 'agent', 'json', 'help'];
+const TASK_FIELD_FLAGS = ['priority', 'status', 'due', 'planned', 'label', 'description', 'notes'];
+// Per command: the flags it takes beyond the global ones, and how many words
+// may follow the command (`max: 1` = exactly one value, which must be quoted
+// when it contains spaces).
+const COMMANDS = {
+  help: { flags: [], max: Infinity, usage: 'prax help' },
+  init: { flags: [], max: 0, usage: 'prax init [--project <slug>]' },
+  context: { flags: ['limit'], usage: 'prax context [query...] [--json] [--limit <n>]' },
+  search: { flags: ['all'], usage: 'prax search <query> [--all] [--json]' },
+  recall: { flags: ['limit', 'recent'], usage: 'prax recall [query...] [--project <slug>] [--limit <n>] [--recent [n]] [--json]' },
+  get: { flags: [], max: 1, usage: 'prax get <id> [--json]' },
+  remember: {
+    flags: ['body', 'memory', 'type', 'tag', 'ref', 'cite', 'id'],
+    max: 1,
+    usage: 'prax remember "<title>" --body <text> [--memory] [--type <type>] [--tag a,b] [--ref <url>] [--cite <path[:start[-end]]>] [--id <uuid>]',
+  },
+  verify: { flags: ['as'], max: 1, usage: 'prax verify <id> --as <human-name>' },
+  unverify: { flags: [], max: 1, usage: 'prax unverify <id>' },
+  supersede: { flags: ['with'], max: 1, usage: 'prax supersede <oldId> --with <newId>' },
+  task: { flags: [], max: Infinity, usage: 'prax task <add|list|show|update|done|check|uncheck> …' },
+};
+const TASK_COMMANDS = {
+  add: { flags: [...TASK_FIELD_FLAGS, 'check'], usage: 'prax task add <title> [--priority p] [--status s] [--due d] [--planned d] [--label a,b] [--description t] [--notes t] [--check <item>]...' },
+  list: { flags: ['status', 'all-projects', 'query', 'all'], max: 0, usage: 'prax task list [--status <s>] [--all] [--all-projects] [--query <text>] [--json]' },
+  show: { flags: [], max: 1, usage: 'prax task show <id> [--json]' },
+  update: { flags: [...TASK_FIELD_FLAGS, 'title', 'append-notes'], max: 1, usage: 'prax task update <id> [--title t] [--status s] [--priority p] [--due d] [--planned d] [--label a,b] [--description t] [--notes t | --append-notes t]' },
+  done: { flags: [], max: 1, usage: 'prax task done <id>' },
+  check: { flags: [], usage: 'prax task check <id> <n|label>' },
+  uncheck: { flags: [], usage: 'prax task uncheck <id> <n|label>' },
+};
+
+// The usage line for whatever command argv names, for a refusal message.
+function usageFor(argv) {
+  const words = argv.filter((a) => !a.startsWith('--'));
+  const command = COMMANDS[words[0]];
+  if (!command) return 'Run `prax help` for usage.';
+  if (words[0] === 'task' && TASK_COMMANDS[words[1]]) return `Usage: ${TASK_COMMANDS[words[1]].usage}`;
+  return `Usage: ${command.usage}`;
+}
+
+function parseCommandLine(argv) {
+  let parsed;
+  try {
+    parsed = parseArgs(argv, {
+      repeatable: REPEATABLE_FLAGS,
+      boolean: BOOLEAN_FLAGS,
+      optional: OPTIONAL_FLAGS,
+      known: VALUE_FLAGS,
+      aliases: FLAG_ALIASES,
+    });
+  } catch (err) {
+    if (err instanceof CliUsageError) err.message = `${err.message}\n${usageFor(argv)}`;
+    throw err;
+  }
+  const { positionals, flags } = parsed;
+  const command = positionals[0];
+  if (!command || flags.help) return parsed;
+  const spec = COMMANDS[command];
+  if (!spec) return parsed; // reported as an unknown command by main
+  if (command === 'task' && TASK_COMMANDS[positionals[1]]) {
+    const sub = TASK_COMMANDS[positionals[1]];
+    checkCommandArgs(`task ${positionals[1]}`, { flags, positionals: positionals.slice(2) }, {
+      allowed: [...GLOBAL_FLAGS, ...sub.flags], max: sub.max, usage: sub.usage,
+    });
+    return parsed;
+  }
+  checkCommandArgs(command, { flags, positionals: positionals.slice(1) }, {
+    allowed: [...GLOBAL_FLAGS, ...spec.flags], max: spec.max, usage: spec.usage,
+  });
+  return parsed;
+}
 
 async function resolveProjectName(flags, client) {
   // MOOMORA_PROJECT is the pre-rename env var; still honoured so existing setups keep working.
@@ -55,12 +145,12 @@ Usage:
   prax search <query> [--all] [--json]
   prax recall [query...] [--project <slug>] [--limit <n>] [--recent [n]] [--json]
   prax get <id> [--json]
-  prax remember <title> [--body <text>] [--memory] [--type note|runbook|decision|known-issue|reference|post-mortem|template] [--tag a,b] [--ref <url>]
+  prax remember "<title>" --body <text> [--memory] [--type note|runbook|decision|known-issue|reference|post-mortem|template] [--tag a,b] [--ref <url>] [--cite <path[:start[-end]]>] [--id <uuid>]
   prax verify <id> --as <human-name>
   prax unverify <id>
   prax supersede <oldId> --with <newId>
   prax task add <title> [--priority high|medium|low] [--status planned|in-progress|...] [--due YYYY-MM-DD] [--planned YYYY-MM-DD] [--label a,b] [--description <text>] [--notes <text>] [--check <item>]...
-  prax task list [--status <status>] [--all-projects] [--query <text>] [--json]
+  prax task list [--status <status>] [--all] [--all-projects] [--query <text>] [--json]
   prax task show <id> [--json]
   prax task update <id> [--title <t>] [--status <s>] [--priority <p>] [--due <d>] [--planned <d>] [--label a,b] [--description <text>] [--notes <text> | --append-notes <text>]
   prax task done <id>
@@ -73,9 +163,15 @@ Project detection: --project > PRAX_PROJECT > .prax/project.json > git remote ma
 Provenance: writes are stamped updatedBy=agent plus the agent id (--agent, PRAX_AGENT, or auto: claude / codex / copilot / antigravity); --memory writes also carry kind=synthesized`;
 
 async function main(argv) {
-  const { positionals, flags } = parseArgs(argv, { repeatable: REPEATABLE_FLAGS });
+  const { positionals, flags } = parseCommandLine(argv);
   const command = positionals[0];
-  const agent = flags.agent === undefined || flags.agent === true ? undefined : String(flags.agent);
+  // An invalid --agent is refused: turning it into "no agent" would also
+  // switch off the auto-detected id and write the memory anonymously.
+  const agentFlag = flagValue(flags, 'agent');
+  const agent = agentFlag === undefined ? undefined : sanitizeAgentId(agentFlag);
+  if (agentFlag !== undefined && !agent) {
+    throw new CliUsageError(`--agent must be a short id like "claude" or "codex" (got "${agentFlag}").`);
+  }
   const client = createClient({ baseUrl: flags.url, token: process.env.PRAX_TOKEN, agent });
   const out = (text) => process.stdout.write(`${typeof text === 'string' ? text : JSON.stringify(text, null, 2)}\n`);
 
@@ -130,7 +226,8 @@ async function main(argv) {
     const { project } = await resolveProjectName(flags, client);
     const query = positionals.slice(1).join(' ');
     const format = flags.json ? 'json' : 'md';
-    const pack = await client.contextPack(project, { query, format, limit: flags.limit });
+    const limit = positiveIntFlag(flags, 'limit');
+    const pack = await client.contextPack(project, { query, format, limit });
     out(pack);
     return;
   }
@@ -149,16 +246,19 @@ async function main(argv) {
   }
 
   if (command === 'recall') {
-    const project = flags.project;
-    const recent = flags.recent !== undefined && flags.recent !== false;
-    let limit = flags.limit ? Number(flags.limit) : 5;
-    if (recent && typeof flags.recent === 'string') {
-      const n = Number(flags.recent);
-      if (Number.isFinite(n) && n > 0) limit = n;
+    const project = flagValue(flags, 'project');
+    const recent = flags.recent !== undefined;
+    const recentCount = positiveIntFlag(flags, 'recent');
+    const limitFlag = positiveIntFlag(flags, 'limit');
+    if (recentCount !== undefined && limitFlag !== undefined) {
+      throw new CliUsageError('give the count once: --recent <n> or --limit <n>.');
     }
+    const limit = recentCount ?? limitFlag ?? 5;
     const query = positionals.slice(1).join(' ');
-    if (!recent && !query) throw new Error('recall requires a query (or use --recent).');
-    const result = await recall(client, { query, project, limit, recent, readFile: createRepoReader() });
+    if (!recent && !query) throw new CliUsageError('recall requires a query (or use --recent).');
+    // --recent is a chronological list; a query would be silently ignored.
+    if (recent && query) throw new CliUsageError(`recall --recent lists the newest documents and takes no query (got "${query}").`);
+    const result = await recall(client, { query, project, limit, recent, checkout: createCheckout() });
     out(flags.json ? result : formatRecall(result));
     return;
   }
@@ -236,7 +336,7 @@ async function main(argv) {
     const id = positionals[1];
     if (!id) throw new Error('verify requires a document id.');
     if (flags.json) throw new Error('verify is interactive and does not support --json.');
-    const actor = flags.as === undefined || flags.as === true ? '' : String(flags.as).trim();
+    const actor = (flagValue(flags, 'as') ?? '').trim();
     if (!actor) throw new Error('verify requires --as <human-name> for attribution.');
     const current = await client.getDocument(id);
     // The reviewed revision covers the title AND body the person is shown; an
@@ -268,9 +368,9 @@ async function main(argv) {
 
   if (command === 'supersede') {
     const oldId = positionals[1];
-    const newId = flags.with;
-    if (!oldId || !newId || newId === true) throw new Error('supersede requires <oldId> --with <newId>.');
-    const doc = await client.supersede(oldId, String(newId));
+    const newId = flagValue(flags, 'with');
+    if (!oldId || !newId) throw new Error('supersede requires <oldId> --with <newId>.');
+    const doc = await client.supersede(oldId, newId);
     out(flags.json ? doc : `Superseded ${oldId} with ${newId}.`);
     return;
   }
@@ -291,14 +391,18 @@ async function main(argv) {
     }
 
     if (sub === 'list') {
-      const status = flags.status === undefined || flags.status === true ? undefined : String(flags.status);
+      const status = flagValue(flags, 'status');
       if (status !== undefined && !TASK_STATUSES.includes(status)) {
         throw new Error(`Unknown --status "${status}". Values: ${TASK_STATUSES.join(', ')}.`);
       }
-      const q = flags.query === undefined || flags.query === true ? undefined : String(flags.query);
+      const q = flagValue(flags, 'query');
       const allProjects = Boolean(flags['all-projects']);
       const project = allProjects ? undefined : (await resolveProjectName(flags, client)).project;
-      const tasks = await client.listTasks({ project, status, q });
+      // Open tasks by default, as documented; --all (or an explicit --status)
+      // includes completed ones.
+      const tasks = selectListedTasks(await client.listTasks({ project, status, q }), {
+        status, all: Boolean(flags.all),
+      });
       if (flags.json) { out(tasks); return; }
       let projectNames;
       if (allProjects) {
@@ -320,7 +424,7 @@ async function main(argv) {
     if (sub === 'update') {
       const id = positionals[2];
       const patch = buildTaskPatch(flags);
-      const addition = flags['append-notes'] === undefined || flags['append-notes'] === true ? undefined : String(flags['append-notes']);
+      const addition = flagValue(flags, 'append-notes');
       const task = await updateTask(client, id, { patch, appendNotes: addition });
       out(flags.json ? task : `Updated "${task.title}" (${task.id}) — status ${task.status}, at ${client.base}.`);
       return;

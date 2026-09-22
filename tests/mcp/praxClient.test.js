@@ -281,7 +281,7 @@ test('unreceipted setters retry a proven connection refusal but never an ambiguo
   for (const update of methods) {
     for (const code of ['ECONNREFUSED', 'ECONNRESET']) {
       let calls = 0;
-      const client = createPraxClient({ fetch: async () => {
+      const client = createPraxClient({ baseUrl: BASE, fetch: async () => {
         if (++calls === 1) throw new TypeError('fetch failed', { cause: { code } });
         return jsonResponse(200, { id: 'result' });
       } });
