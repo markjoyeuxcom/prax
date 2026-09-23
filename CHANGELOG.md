@@ -12,6 +12,8 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-09-23
+
 ### Added
 
 - **`prax triage`** walks the review queue in a terminal, in the Library review walk's order:
@@ -87,39 +89,6 @@ fresh empty `[Unreleased]` section is started.
 - **`desktop:verify` checks what ships.** It inspects the built payload and bundles after
   `tauri build` (files, version, production dependencies, sidecar Node) and runs in both desktop
   CI jobs; staging now clears Tauri's copied resources so a deleted file is never shipped.
-
-### Security
-
-- **AI answers no longer load remote images.** Assistant answers, Ask Prax, AI narratives and
-  writing previews render a remote Markdown image as an inert "not loaded" label instead of an
-  `<img>`. A browser fetches an image as soon as it renders, so a prompt-injected answer could
-  otherwise have carried Library or task text out in the image URL with no click. Only the
-  editor preview of a document still loads its remote images.
-- **The container keeps its DNS-rebinding defence.** The image listens on `0.0.0.0`, which used to
-  switch the `Host` header check off even though Compose publishes the port on `127.0.0.1` only,
-  so any web page whose name rebound to loopback could use the API. The new `PRAX_ALLOWED_HOSTS`
-  setting turns the check on for any bind (loopback names and IP literals are always accepted;
-  `*` turns it off). The image sets it to `localhost`; the Kubernetes base sets `"*"` to keep its
-  previous behaviour. **Behaviour change:** a Docker or Compose install reached through a proxy
-  hostname must add that name to `PRAX_ALLOWED_HOSTS`.
-
-- **Other sites can no longer change your data.** Browsers send requests from any page to
-  Prax's loopback port. State-changing requests are now refused (`403`) when `Sec-Fetch-Site`
-  says they came from another site, or when a present `Origin` is not Prax's own origin.
-  Command-line, MCP and other non-browser clients are unaffected.
-- **The assistant shows exactly what it will change before you approve.** Each proposed write
-  shows the target's title and every changed field, with a full body diff, and each write is
-  approved or declined on its own. Tool input is validated against the tool's schema, and an
-  agent's supersede records who did it.
-- **Claude and Copilot CLI answers run without tools and without your CLI settings.** The
-  Claude CLI now runs with all tools disabled and user settings ignored, and neither CLI receives
-  Library text on its command line any more (it goes through stdin). A CLI that exits before
-  reading a large prompt no longer crashes the server.
-- **A document title can no longer fake a trust label.** Titles are single-line: line breaks and
-  control characters collapse to a space on every write, migration 0035 repairs stored titles,
-  and context packs, Ask context and the assistant snapshot render titles on one line.
-- **Every account on the machine is trusted.** SECURITY.md now states this deliberate
-  single-user decision: the loopback API has no credential, so other local accounts can use it.
 
 ### Fixed
 
@@ -235,6 +204,39 @@ fresh empty `[Unreleased]` section is started.
 - **CLI flag values that begin with `--`.** `--flag=value` is now accepted everywhere, and
   `prax task add` refuses a bare `--check` instead of silently dropping the checklist item
   whose text started with `--`.
+
+### Security
+
+- **AI answers no longer load remote images.** Assistant answers, Ask Prax, AI narratives and
+  writing previews render a remote Markdown image as an inert "not loaded" label instead of an
+  `<img>`. A browser fetches an image as soon as it renders, so a prompt-injected answer could
+  otherwise have carried Library or task text out in the image URL with no click. Only the
+  editor preview of a document still loads its remote images.
+- **The container keeps its DNS-rebinding defence.** The image listens on `0.0.0.0`, which used to
+  switch the `Host` header check off even though Compose publishes the port on `127.0.0.1` only,
+  so any web page whose name rebound to loopback could use the API. The new `PRAX_ALLOWED_HOSTS`
+  setting turns the check on for any bind (loopback names and IP literals are always accepted;
+  `*` turns it off). The image sets it to `localhost`; the Kubernetes base sets `"*"` to keep its
+  previous behaviour. **Behaviour change:** a Docker or Compose install reached through a proxy
+  hostname must add that name to `PRAX_ALLOWED_HOSTS`.
+
+- **Other sites can no longer change your data.** Browsers send requests from any page to
+  Prax's loopback port. State-changing requests are now refused (`403`) when `Sec-Fetch-Site`
+  says they came from another site, or when a present `Origin` is not Prax's own origin.
+  Command-line, MCP and other non-browser clients are unaffected.
+- **The assistant shows exactly what it will change before you approve.** Each proposed write
+  shows the target's title and every changed field, with a full body diff, and each write is
+  approved or declined on its own. Tool input is validated against the tool's schema, and an
+  agent's supersede records who did it.
+- **Claude and Copilot CLI answers run without tools and without your CLI settings.** The
+  Claude CLI now runs with all tools disabled and user settings ignored, and neither CLI receives
+  Library text on its command line any more (it goes through stdin). A CLI that exits before
+  reading a large prompt no longer crashes the server.
+- **A document title can no longer fake a trust label.** Titles are single-line: line breaks and
+  control characters collapse to a space on every write, migration 0035 repairs stored titles,
+  and context packs, Ask context and the assistant snapshot render titles on one line.
+- **Every account on the machine is trusted.** SECURITY.md now states this deliberate
+  single-user decision: the loopback API has no credential, so other local accounts can use it.
 
 ## [0.38.0] - 2026-09-21
 
@@ -2193,7 +2195,8 @@ and onboarding features with the corrected installation guide.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.38.0...HEAD
+[Unreleased]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.39.0...HEAD
+[0.39.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.38.0...v0.39.0
 [0.38.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.37.1...v0.38.0
 [0.37.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.37.0...v0.37.1
 [0.37.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.36.1...v0.37.0
