@@ -1,6 +1,7 @@
 import { PraxApiError, PraxUnavailableError } from './errors.js';
 import { randomUUID } from 'node:crypto';
 import { detectAgent, resolveBaseUrls, sanitizeAgentId } from '../server/instanceDiscovery.js';
+import { localDayHeaders } from '../server/localDay.js';
 
 const DEFAULT_TIMEOUT_MS = 5000;
 // Generation and ask tools wait on a chat provider, which the server allows
@@ -45,6 +46,11 @@ export function createPraxClient({
   agent,
   portFile,
   readPortFile,
+  // Send this process's calendar day (x-prax-local-date / x-prax-time-zone).
+  // Off for the in-app assistant (server/assistant/injectClient.js): it runs
+  // in the server, whose clock is not the user's, and forwards the
+  // requester's own day instead.
+  sendLocalDay = true,
 } = {}) {
   // AbortSignal.timeout throws a synchronous TypeError for invalid delays
   // (negative/NaN/Infinity/out-of-range). Fail loudly as a config error here
@@ -102,7 +108,10 @@ export function createPraxClient({
       }
     }
 
-    const headers = {};
+    // The caller's calendar day (server/localDay.js): this process runs on the
+    // person's machine, so completing a recurring task rolls forward from
+    // their today even when Prax is a UTC container.
+    const headers = sendLocalDay ? localDayHeaders() : {};
     if (token) headers.authorization = `Bearer ${token}`;
     if (body !== undefined) headers['content-type'] = 'application/json';
     if (extraHeaders) Object.assign(headers, extraHeaders);

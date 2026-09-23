@@ -399,6 +399,7 @@ function fakeAppBundle(base) {
   mkdirSync(join(app, 'server'), { recursive: true });
   cpSync(join(root, 'server', 'repoUrl.js'), join(app, 'server', 'repoUrl.js'));
   cpSync(join(root, 'server', 'instanceDiscovery.js'), join(app, 'server', 'instanceDiscovery.js'));
+  cpSync(join(root, 'server', 'localDay.js'), join(app, 'server', 'localDay.js'));
   writeFileSync(join(app, 'package.json'), JSON.stringify({ name: 'prax', version: '9.9.9', type: 'module' }));
   // The bundled runtime: the sidecar convention is a renamed Node binary.
   const macos = join(base, 'Prax.app', 'Contents', 'MacOS');

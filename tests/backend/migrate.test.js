@@ -111,6 +111,42 @@ test('runMigrations stops at the declared boundary and a later run resumes norma
   assert.deepEqual(upgraded.applied, ['0003_latest.sql']);
 });
 
+test('runMigrations reports each migration before it runs and stops at a boundary when asked', async () => {
+  const dir = tmpMigrations({
+    '0001_init.sql': 'create table a(x);',
+    '0002_more.sql': 'create table b(x);',
+    '0003_latest.sql': 'create table c(x);',
+  });
+  const db = makeFakeDb();
+  const events = [];
+  const all = await runMigrations(db, { dir, logger: SILENT, onProgress: async (event) => { events.push(event); } });
+  assert.deepEqual(all.applied, ['0001_init.sql', '0002_more.sql', '0003_latest.sql']);
+  assert.deepEqual(events, [
+    { phase: 'migrating', version: '0001_init.sql', index: 1, total: 3 },
+    { phase: 'migrating', version: '0002_more.sql', index: 2, total: 3 },
+    { phase: 'migrating', version: '0003_latest.sql', index: 3, total: 3 },
+    { phase: 'migrated', total: 3 },
+  ]);
+
+  // A shutdown that arrives while 0001 runs (seen at the next boundary)
+  // leaves 0001 committed and the rest for the next start.
+  const stopping = makeFakeDb();
+  const controller = new AbortController();
+  const stopped = await runMigrations(stopping, {
+    dir,
+    logger: SILENT,
+    signal: controller.signal,
+    onProgress: async ({ index }) => { if (index === 2) controller.abort(); },
+  });
+  assert.deepEqual(stopped, { applied: ['0001_init.sql'], stopped: true });
+  assert.deepEqual(stopping._appliedVersions, ['0001_init.sql']);
+  assert.equal(stopping._executed.length, 1);
+  assert.equal(stopping._calls.filter(c => c.head === 'begin immediate').length, 1);
+  assert.equal(stopping._state.released, true);
+  const resumed = await runMigrations(stopping, { dir, logger: SILENT });
+  assert.deepEqual(resumed.applied, ['0002_more.sql', '0003_latest.sql']);
+});
+
 test('runMigrations is a no-op when everything is already applied', async () => {
   const dir = tmpMigrations({ '0001_init.sql': 'create table a(x);' });
   const db = makeFakeDb();
@@ -138,7 +174,7 @@ test('runMigrations applies the real consolidated schema against real SQLite', a
   const { createDb } = await import('../../server/db.js');
   const db = createDb(':memory:');
   const result = await runMigrations(db, { logger: SILENT });
-  assert.deepEqual(result.applied, ['0001_init.sql', '0002_add_inbox_project.sql', '0003_add_task_deferred_until.sql', '0004_add_project_oncall.sql', '0005_add_runbook_runs.sql', '0006_add_task_recurrence.sql', '0007_add_task_labels.sql', '0008_add_task_due_time.sql', '0009_add_project_repo_url.sql', '0010_document_type_taxonomy.sql', '0011_add_document_external_refs.sql', '0012_enforce_supersession_lifecycle.sql', '0013_add_durable_run_chronicle.sql', '0014_add_task_import_operations.sql', '0015_add_document_creation_receipts.sql', '0016_add_task_activity_actor.sql', '0017_clamp_task_recurrence_intervals.sql', '0018_reconcile_restored_supersession.sql', '0019_resequence_chronicle_by_time.sql', '0020_add_task_deferral_count.sql', '0021_add_task_planning.sql', '0022_add_project_area.sql', '0023_add_document_revision.sql', '0024_add_task_import_sessions.sql', '0025_assistant_write_receipts.sql', '0026_add_document_updated_by_agent.sql', '0027_document_upsert_receipts.sql', '0028_document_code_refs.sql', '0029_document_code_refs_null_safe_key.sql', '0030_add_memory_system_project.sql', '0031_document_update_receipts.sql', '0032_restore_inbox_system_project.sql', '0033_inbox_action_receipts.sql', '0034_record_creation_receipts.sql', '0035_single_line_document_titles.sql', '0036_add_task_activity_agent.sql']);
+  assert.deepEqual(result.applied, ['0001_init.sql', '0002_add_inbox_project.sql', '0003_add_task_deferred_until.sql', '0004_add_project_oncall.sql', '0005_add_runbook_runs.sql', '0006_add_task_recurrence.sql', '0007_add_task_labels.sql', '0008_add_task_due_time.sql', '0009_add_project_repo_url.sql', '0010_document_type_taxonomy.sql', '0011_add_document_external_refs.sql', '0012_enforce_supersession_lifecycle.sql', '0013_add_durable_run_chronicle.sql', '0014_add_task_import_operations.sql', '0015_add_document_creation_receipts.sql', '0016_add_task_activity_actor.sql', '0017_clamp_task_recurrence_intervals.sql', '0018_reconcile_restored_supersession.sql', '0019_resequence_chronicle_by_time.sql', '0020_add_task_deferral_count.sql', '0021_add_task_planning.sql', '0022_add_project_area.sql', '0023_add_document_revision.sql', '0024_add_task_import_sessions.sql', '0025_assistant_write_receipts.sql', '0026_add_document_updated_by_agent.sql', '0027_document_upsert_receipts.sql', '0028_document_code_refs.sql', '0029_document_code_refs_null_safe_key.sql', '0030_add_memory_system_project.sql', '0031_document_update_receipts.sql', '0032_restore_inbox_system_project.sql', '0033_inbox_action_receipts.sql', '0034_record_creation_receipts.sql', '0035_single_line_document_titles.sql', '0036_add_task_activity_agent.sql', '0037_add_task_recurrence_anchor_day.sql', '0038_repair_legacy_cycles_and_receipts.sql']);
   const { rows } = await db.query('select slug from projects order by sort_order');
   assert.deepEqual(rows.map(r => r.slug), ['inbox', 'personal', 'work', 'homelab', 'memory']);
   // idempotent second run

@@ -5,6 +5,19 @@ function canonical(value) {
   return value;
 }
 export function assistantIntentHash(value) { return createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex'); }
+// What a completed receipt keeps: the outcome, never the tool's output. The
+// output can carry a document body or task text, and a receipt outlives a
+// permanent delete of that record. The first run still returns the full
+// result; a replay of the same approval returns this note instead. Migration
+// 0038 compacts receipts written before this rule with the same notes.
+export const RECEIPT_NOTES = Object.freeze({
+  completed: 'This approved action already ran and completed. Its original output is not kept; read the affected records for their current state.',
+  failed: 'This approved action already ran and reported an error. Its original output is not kept; check the affected records before trying again.',
+});
+export function compactReceiptResult(result) {
+  const isError = Boolean(result?.isError);
+  return { id: result?.id, name: result?.name, content: isError ? RECEIPT_NOTES.failed : RECEIPT_NOTES.completed, isError };
+}
 function conflict() { return new Error('This approval identity belongs to a different action. Review a new proposal.'); }
 function unknown() {
   const error = new Error('This approved action may already have completed before an interruption. Check the workspace before proposing another action; this approval will not run twice.');
@@ -36,7 +49,7 @@ export function createAssistantWriteReceipts(db) {
         let result;
         try { result = await work(); } catch { throw unknown(); }
         try {
-          await db.query("update assistant_write_receipts set status='completed', result=$2 where operation_id=$1",[id,JSON.stringify(result)]);
+          await db.query("update assistant_write_receipts set status='completed', result=$2 where operation_id=$1",[id,JSON.stringify(compactReceiptResult(result))]);
         } catch { throw unknown(); }
         return result;
       })();

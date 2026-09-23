@@ -144,6 +144,7 @@ function createTask(seed) {
     dueTime: seed.dueTime || null,
     deferredUntil: seed.deferredUntil || null,
     recurrence: seed.recurrence || null,
+    recurrenceAnchorDay: seed.recurrenceAnchorDay ?? null,
     labels: Array.isArray(seed.labels) ? [...seed.labels] : [],
     sortOrder: seed.sortOrder || 0,
     createdAt: seed.createdAt || now,

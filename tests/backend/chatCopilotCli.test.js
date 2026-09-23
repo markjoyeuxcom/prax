@@ -49,9 +49,10 @@ test('serializeCopilotPrompt preserves the system prompt and conversation labels
 
 test('buildCopilotArgs pins answer-only mode and the deny-over-allow tool fence', () => {
   const args = buildCopilotArgs({ model: 'auto', prompt: 'hello' });
-  // The prompt itself goes to stdin; --prompt carries only a constant pointer.
-  assert.deepEqual(args.slice(0, 9), [
-    '--prompt', 'The complete request is the text provided on standard input. Follow it. Answer directly as plain text. Do not use any tools.',
+  // The whole prompt goes to stdin. --prompt must not be sent: with it set,
+  // Copilot ignores stdin and answers that it saw no request (found live).
+  assert.ok(!args.includes('--prompt') && !args.includes('-p'), 'no --prompt, or stdin is ignored');
+  assert.deepEqual(args.slice(0, 7), [
     '--silent', '--output-format', 'text', '--stream', 'off', '--model', 'auto',
   ]);
   assert.ok(!args.includes('hello'), 'no caller text in argv');

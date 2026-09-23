@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { createTasksRepository, taskMatchesCreateFields } from './tasksRepository.js';
 import { createProjectsRepository } from './projectsRepository.js';
 import { createChecklistRepository, MAX_CHECKLIST_ITEMS_PER_TASK } from './checklistRepository.js';
-import { isValidRecurrence, planTaskRecurrenceTransition } from './recurrence.js';
+import { isValidRecurrence, isValidRecurrenceAnchorDay, planTaskRecurrenceTransition, recurrenceAnchorDayFor } from './recurrence.js';
 import { requestToday } from './localDay.js';
 import { classifySlip } from './slippage.js';
 import { classifyPlanChange } from './planning.js';
@@ -189,6 +189,7 @@ function validateTaskImportItem(task) {
   if (task.carryCount !== undefined && task.carryCount !== null
     && (!Number.isInteger(task.carryCount) || task.carryCount < 0)) return 'carryCount is invalid';
   if (task.recurrence !== undefined && !isValidRecurrence(task.recurrence)) return 'recurrence is invalid';
+  if (!isValidRecurrenceAnchorDay(task.recurrenceAnchorDay)) return 'recurrenceAnchorDay is invalid';
   if (!isValidLabels(task.labels)) return 'labels is invalid';
   if (task.description !== undefined && typeof task.description !== 'string') return 'description is invalid';
   if (task.notes !== undefined && typeof task.notes !== 'string') return 'notes is invalid';
@@ -238,6 +239,18 @@ function cleanImportMode(payload) {
   return payload.mode || 'skip';
 }
 
+// A monthly anchor is kept as exported. An export without one (or from before
+// 0037) stays unanchored rather than guessing it from a possibly clamped due
+// date. The key is only present when there is an anchor, so the normalized
+// payload (and its retry hash) of an unanchored task is what it was before.
+function importedAnchorDay(task) {
+  const anchor = recurrenceAnchorDayFor({
+    recurrence: task.recurrence || null,
+    recurrenceAnchorDay: task.recurrenceAnchorDay ?? null,
+  });
+  return anchor === null ? {} : { recurrenceAnchorDay: anchor };
+}
+
 function cleanTaskImportPayload(payload) {
   return importTasksFromPayload(payload).map((task, index) => ({
     title: task.title.trim(),
@@ -250,6 +263,7 @@ function cleanTaskImportPayload(payload) {
     dueTime: task.dueTime || null,
     deferredUntil: normalizeIsoTimestamp(task.deferredUntil),
     recurrence: task.recurrence || null,
+    ...importedAnchorDay(task),
     labels: normalizeLabels(task.labels),
     sortOrder: Number.isInteger(task.sortOrder) ? task.sortOrder : index,
     archivedAt: normalizeIsoTimestamp(task.archivedAt),
@@ -782,7 +796,7 @@ export async function registerTasksRoutes(app, options = {}) {
     }
     if (session.status === 'cancelled') {
       reply.code(409);
-      return { message: 'import session is cancelled' };
+      return { message: 'import session was cancelled or has expired' };
     }
     const rawTasks = importTasksFromPayload(request.body);
     if (!Array.isArray(rawTasks)) {

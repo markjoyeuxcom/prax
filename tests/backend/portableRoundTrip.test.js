@@ -38,11 +38,23 @@ test('portable canonical form keeps every accepted semantic and excludes runtime
     dueTime: '09:30',
     deferredUntil: '2026-07-14T12:00:00.000Z',
     recurrence: 'every:3d',
+    recurrenceAnchorDay: null,
     labels: ['waiting'],
     sortOrder: 7,
     archivedAt: null,
     checklist: [{ label: 'Verify', completed: true }],
   });
+});
+
+// The monthly anchor day (0037) is a portable semantic: a Feb 28 task anchored
+// on the 31st must come back anchored on the 31st.
+test('portable canonical form keeps a monthly anchor day and detects its loss', () => {
+  const anchored = { title: 'Rent', recurrence: 'monthly', dueDate: '2026-02-28', recurrenceAnchorDay: 31 };
+  assert.equal(canonicalPortableTask(anchored).recurrenceAnchorDay, 31);
+  assert.throws(
+    () => comparePortableTaskSets([anchored], [{ ...anchored, recurrenceAnchorDay: null }]),
+    /Portable round-trip mismatch/,
+  );
 });
 
 test('portable comparison is order-independent and diagnoses semantic drift', () => {
@@ -74,7 +86,7 @@ test('current CI mature workspace round-trips every declared task and checklist 
     targetProjectRemapped: true,
     taskIdsRegenerated: true,
     checklistIdsRegenerated: true,
-    portableDigest: '976ca0346602fecbb1f6f23c00266dd9e5ad2a40a85051800ae605dfa8e92f5d',
+    portableDigest: 'b0be390126e64e48f7f756c1392e3a12f5102304dc2b599ecec3b2ac813d125d',
   });
 });
 

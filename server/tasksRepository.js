@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import { toIso } from './columnTypes.js';
 import { createWithReceipt, creationIntentHash } from './creationReceipts.js';
+import { recurrenceAnchorDayFor } from './recurrence.js';
+import { foldCase } from './db.js';
 
 const ALLOWED_CREATE_FIELDS = ['title', 'description', 'priority', 'status', 'projectId', 'dueDate', 'dueTime', 'sortOrder', 'notes', 'recurrence', 'labels', 'plannedFor'];
 const CREATE_COLUMN_MAP = {
@@ -40,6 +42,9 @@ const UPDATE_COLUMN_MAP = {
   labels: 'labels',
   sortOrder: 'sort_order',
   notes: 'notes',
+  // Server-computed only (recurrence.js planTaskRecurrenceTransition) and
+  // never accepted from client patch payloads.
+  recurrenceAnchorDay: 'recurrence_anchor_day',
   // Server-computed only (slippage.js / planning.js via the PATCH route) —
   // never accepted from client patch payloads; imports restore them through
   // IMPORT_FIELDS. plannedFor IS client-writable (it is the planning feature).
@@ -114,6 +119,7 @@ export function normalizeTaskRow(row) {
     dueTime: row.due_time ?? null,
     deferredUntil: toIso(row.deferred_until) ?? null,
     recurrence: row.recurrence ?? null,
+    recurrenceAnchorDay: row.recurrence_anchor_day ?? null,
     labels: parseJsonArray(row.labels),
     sortOrder: row.sort_order,
     archivedAt: toIso(row.archived_at),
@@ -125,9 +131,16 @@ export function normalizeTaskRow(row) {
   };
 }
 
+// The monthly anchor day (migration 0037) is derived here rather than listed in
+// ALLOWED_CREATE_FIELDS, so every creation path (route, Inbox, a recurring
+// successor) stores it and the creation-receipt intent hash is unchanged. Only
+// an anchored task carries the column: every other insert keeps its SQL shape.
 export function buildCreateTask(task, { ignoreIdConflict = false } = {}) {
-  const fields = task.id ? ['id', ...ALLOWED_CREATE_FIELDS] : ALLOWED_CREATE_FIELDS;
-  const columns = fields.map(field => (field === 'id' ? 'id' : CREATE_COLUMN_MAP[field]));
+  const anchorDay = recurrenceAnchorDayFor(task);
+  const baseFields = task.id ? ['id', ...ALLOWED_CREATE_FIELDS] : ALLOWED_CREATE_FIELDS;
+  const fields = anchorDay === null ? baseFields : [...baseFields, 'recurrenceAnchorDay'];
+  const columns = fields.map(field => (field === 'id' ? 'id'
+    : field === 'recurrenceAnchorDay' ? 'recurrence_anchor_day' : CREATE_COLUMN_MAP[field]));
   return {
     text: `
       insert into tasks (${columns.join(', ')})
@@ -137,11 +150,20 @@ export function buildCreateTask(task, { ignoreIdConflict = false } = {}) {
     `,
     values: fields.map(field =>
       field === 'labels' ? serializeLabels(task.labels)
-        : field === 'deferralCount' || field === 'carryCount'
-          ? (Number.isInteger(task[field]) && task[field] > 0 ? task[field] : 0)
-          : (task[field] ?? null),
+        : field === 'recurrenceAnchorDay' ? anchorDay
+          : field === 'deferralCount' || field === 'carryCount'
+            ? (Number.isInteger(task[field]) && task[field] > 0 ? task[field] : 0)
+            : (task[field] ?? null),
     ),
   };
+}
+
+// Imported rows carry the anchor column only when one of them has an anchor
+// (the route drops it from every non-monthly task), for the same reason.
+function importFields(tasks) {
+  return tasks.some(task => task.recurrenceAnchorDay != null)
+    ? { fields: [...IMPORT_FIELDS, 'recurrenceAnchorDay'], columns: [...IMPORT_COLUMNS, 'recurrence_anchor_day'] }
+    : { fields: IMPORT_FIELDS, columns: IMPORT_COLUMNS };
 }
 
 export function taskMatchesCreateFields(task, fields) {
@@ -173,18 +195,19 @@ export function buildImportTasks(tasks) {
     throw new Error('No task import records provided');
   }
 
+  const { fields, columns } = importFields(tasks);
   const rows = tasks.map((_, rowIndex) => {
-    const offset = rowIndex * IMPORT_FIELDS.length;
-    return `(${IMPORT_FIELDS.map((_, fieldIndex) => `$${offset + fieldIndex + 1}`).join(', ')})`;
+    const offset = rowIndex * fields.length;
+    return `(${fields.map((_, fieldIndex) => `$${offset + fieldIndex + 1}`).join(', ')})`;
   });
 
   return {
     text: `
-      insert into tasks (${IMPORT_COLUMNS.join(', ')})
+      insert into tasks (${columns.join(', ')})
       values ${rows.join(', ')}
       returning *
     `,
-    values: tasks.flatMap(task => IMPORT_FIELDS.map(field => (
+    values: tasks.flatMap(task => fields.map(field => (
       field === 'labels' ? serializeLabels(task.labels)
         : field === 'deferralCount' || field === 'carryCount'
           ? (Number.isInteger(task[field]) && task[field] > 0 ? task[field] : 0)
@@ -226,19 +249,19 @@ async function importTaskRecords(client, tasks, { replaceProjectId = null } = {}
   return imported;
 }
 
-// Fields written per imported row, excluding project_id — a replace import
-// always belongs to the target project ($1), so we never trust the row's own
-// projectId (a row missing it must not land in some default project).
-const REPLACE_FIELDS = IMPORT_FIELDS.filter(field => field !== 'projectId');
-
 export function buildReplaceProjectTasks(projectId, tasks) {
   if (!Array.isArray(tasks) || tasks.length === 0) {
     throw new Error('No task import records provided');
   }
 
+  // Fields written per imported row, excluding project_id — a replace import
+  // always belongs to the target project ($1), so we never trust the row's own
+  // projectId (a row missing it must not land in some default project).
+  const { fields, columns } = importFields(tasks);
+  const replaceFields = fields.filter(field => field !== 'projectId');
   const rows = tasks.map((_, rowIndex) => {
-    let next = 2 + (rowIndex * REPLACE_FIELDS.length);
-    return `(${IMPORT_FIELDS.map((field) => (field === 'projectId' ? '$1' : `$${next++}`)).join(', ')})`;
+    let next = 2 + (rowIndex * replaceFields.length);
+    return `(${fields.map((field) => (field === 'projectId' ? '$1' : `$${next++}`)).join(', ')})`;
   });
 
   // SQLite has no data-modifying CTEs (the pg version deleted inside a WITH),
@@ -251,11 +274,11 @@ export function buildReplaceProjectTasks(projectId, tasks) {
     },
     insert: {
       text: `
-        insert into tasks (${IMPORT_COLUMNS.join(', ')})
+        insert into tasks (${columns.join(', ')})
         values ${rows.join(', ')}
         returning *
       `,
-      values: [projectId, ...tasks.flatMap(task => REPLACE_FIELDS.map(field => (
+      values: [projectId, ...tasks.flatMap(task => replaceFields.map(field => (
         field === 'labels' ? serializeLabels(task.labels)
         : field === 'deferralCount' || field === 'carryCount'
           ? (Number.isInteger(task[field]) && task[field] > 0 ? task[field] : 0)
@@ -507,6 +530,48 @@ export function normalizeTaskBoardExtraRow(row) {
   };
 }
 
+// A task import receipt (task_import_operations.result_json) keeps the counts
+// and the imported task ids, not copies of the tasks: a copy outlived a later
+// permanent delete. A replay returns the tasks as they are now; a task deleted
+// since is simply absent. Receipts written before 0038 held full copies, which
+// the migration reduced to ids; the `tasks` fallback reads any it missed.
+function importReceipt(result) {
+  const { tasks, ...rest } = result;
+  return { ...rest, taskIds: tasks.map((task) => task.id) };
+}
+
+async function replayImportReceipt(queryable, resultJson) {
+  const { taskIds, tasks, ...rest } = JSON.parse(resultJson);
+  const ids = Array.isArray(taskIds) ? taskIds
+    : (Array.isArray(tasks) ? tasks.map((task) => task?.id).filter(Boolean) : []);
+  const rows = ids.length
+    ? (await queryable.query('select * from tasks where id in (select value from json_each($1))', [JSON.stringify(ids)])).rows
+    : [];
+  const byId = new Map(rows.map((row) => [row.id, normalizeTaskRow(row)]));
+  return { ...rest, tasks: ids.map((id) => byId.get(id)).filter(Boolean) };
+}
+
+// A staged session that has not been touched for this long is expired: its
+// staged chunks are deleted and it is cancelled, which keeps its requestId
+// reserved. A committed session is never expired.
+export const IMPORT_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+async function expireStaleImportSessions(client, now = Date.now()) {
+  const cutoff = new Date(now - IMPORT_SESSION_TTL_MS).toISOString();
+  const stale = await client.query(
+    "select id from task_import_sessions where status = 'open' and updated_at < $1",
+    [cutoff],
+  );
+  if (stale.rows.length === 0) return;
+  const ids = JSON.stringify(stale.rows.map((row) => row.id));
+  await client.query('delete from task_import_session_chunks where session_id in (select value from json_each($1))', [ids]);
+  await client.query(
+    `update task_import_sessions set status = 'cancelled', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+     where id in (select value from json_each($1))`,
+    [ids],
+  );
+}
+
 export function buildGetTask(id) {
   return { text: `select * from tasks where id = $1 limit 1`, values: [id] };
 }
@@ -531,11 +596,11 @@ export function createTasksRepository(db) {
         clauses.push('archived_at is null');
       }
       if (filters.q) {
-        const escaped = String(filters.q).replace(/[\\%_]/g, '\\$&');
-        values.push(`%${escaped}%`);
-        // SQLite LIKE is only case-insensitive for ASCII; lower() both sides
-        // to keep the pg ILIKE behaviour. Escape wildcards so % and _ match literally.
-        clauses.push(`(lower(title) like lower($${values.length}) escape '\\' or lower(description) like lower($${values.length}) escape '\\')`);
+        // A literal substring match on Unicode-folded text (server/db.js):
+        // SQLite's lower()/LIKE fold ASCII only. instr() has no wildcards, so
+        // % and _ in the query match themselves.
+        values.push(foldCase(filters.q));
+        clauses.push(`(instr(prax_fold(title), $${values.length}) > 0 or instr(prax_fold(description), $${values.length}) > 0)`);
       }
 
       const where = clauses.length ? `where ${clauses.join(' and ')}` : '';
@@ -642,9 +707,13 @@ export function createTasksRepository(db) {
             [requestId],
           );
           if (existing.rows[0]) {
+            if (existing.rows[0].payload_hash !== payloadHash) {
+              await client.query('commit');
+              return { conflict: true };
+            }
+            const replayed = await replayImportReceipt(client, existing.rows[0].result_json);
             await client.query('commit');
-            if (existing.rows[0].payload_hash !== payloadHash) return { conflict: true };
-            return { ...JSON.parse(existing.rows[0].result_json), replayed: true };
+            return { ...replayed, replayed: true };
           }
 
           let candidates = tasks;
@@ -671,7 +740,7 @@ export function createTasksRepository(db) {
           await client.query(`
             insert into task_import_operations (id, project_id, mode, payload_hash, result_json)
             values ($1, $2, $3, $4, $5)
-          `, [requestId, projectId, mode, payloadHash, JSON.stringify(result)]);
+          `, [requestId, projectId, mode, payloadHash, JSON.stringify(importReceipt(result))]);
           await client.query('commit');
           return { ...result, replayed: false };
         } catch (err) {
@@ -904,6 +973,7 @@ export function createTasksRepository(db) {
       try {
         await client.query('begin immediate');
         try {
+          await expireStaleImportSessions(client);
           const existing = await client.query(
             'select * from task_import_sessions where id = $1 limit 1',
             [requestId],
@@ -919,6 +989,7 @@ export function createTasksRepository(db) {
                 'select payload_hash, result_json from task_import_operations where id = $1 limit 1',
                 [requestId],
               );
+              const result = op.rows[0] ? await replayImportReceipt(client, op.rows[0].result_json) : null;
               await client.query('commit');
               return {
                 sessionId: requestId,
@@ -926,12 +997,12 @@ export function createTasksRepository(db) {
                 mode: row.mode,
                 status: 'committed',
                 replayed: true,
-                result: op.rows[0] ? JSON.parse(op.rows[0].result_json) : null,
+                result,
               };
             }
             if (row.status === 'cancelled') {
               await client.query('commit');
-              return { conflict: true, message: 'import session was cancelled' };
+              return { conflict: true, message: 'import session was cancelled or has expired' };
             }
             await client.query('commit');
             return {
@@ -977,6 +1048,19 @@ export function createTasksRepository(db) {
     },
 
     async getImportSession(requestId) {
+      const expiring = await db.connect();
+      try {
+        await expiring.query('begin immediate');
+        try {
+          await expireStaleImportSessions(expiring);
+          await expiring.query('commit');
+        } catch (err) {
+          await expiring.query('rollback').catch(() => {});
+          throw err;
+        }
+      } finally {
+        expiring.release();
+      }
       const sessionResult = await db.query(
         'select * from task_import_sessions where id = $1 limit 1',
         [requestId],
@@ -1008,6 +1092,7 @@ export function createTasksRepository(db) {
       try {
         await client.query('begin immediate');
         try {
+          await expireStaleImportSessions(client);
           const sessionResult = await client.query(
             'select * from task_import_sessions where id = $1 limit 1',
             [requestId],
@@ -1019,7 +1104,7 @@ export function createTasksRepository(db) {
           const session = sessionResult.rows[0];
           if (session.status === 'cancelled') {
             await client.query('commit');
-            return { conflict: true, message: 'cannot add chunk to cancelled session' };
+            return { conflict: true, message: 'cannot add chunk to a cancelled or expired session' };
           }
           if (session.status === 'committed') {
             const existingChunk = await client.query(
@@ -1088,6 +1173,7 @@ export function createTasksRepository(db) {
       try {
         await client.query('begin immediate');
         try {
+          await expireStaleImportSessions(client);
           const sessionResult = await client.query(
             'select * from task_import_sessions where id = $1 limit 1',
             [requestId],
@@ -1099,20 +1185,20 @@ export function createTasksRepository(db) {
           const session = sessionResult.rows[0];
           if (session.status === 'cancelled') {
             await client.query('commit');
-            return { conflict: true, message: 'import session was cancelled' };
+            return { conflict: true, message: 'import session was cancelled or has expired' };
           }
           if (session.status === 'committed') {
-            await client.query('commit');
             if (session.chunk_count !== null && session.chunk_count !== expectedChunkCount) {
+              await client.query('commit');
               return { conflict: true, message: `expected ${expectedChunkCount} chunks but committed session has ${session.chunk_count}` };
             }
             const op = await client.query(
               'select payload_hash, result_json from task_import_operations where id = $1 limit 1',
               [requestId],
             );
-            if (op.rows[0]) {
-              return { ...JSON.parse(op.rows[0].result_json), replayed: true };
-            }
+            const replayed = op.rows[0] ? await replayImportReceipt(client, op.rows[0].result_json) : null;
+            await client.query('commit');
+            if (replayed) return { ...replayed, replayed: true };
             return { conflict: true, message: 'import session was already committed' };
           }
 
@@ -1182,7 +1268,7 @@ export function createTasksRepository(db) {
           await client.query(
             `insert into task_import_operations (id, project_id, mode, payload_hash, result_json)
              values ($1, $2, $3, $4, $5)`,
-            [requestId, session.project_id, session.mode, compositeHash, JSON.stringify(result)],
+            [requestId, session.project_id, session.mode, compositeHash, JSON.stringify(importReceipt(result))],
           );
 
           await client.query(

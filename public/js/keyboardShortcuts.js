@@ -45,6 +45,14 @@ export function isInteractiveShortcutTarget(target) {
   return Boolean(target?.closest?.('button, a[href], summary, [role="button"]'));
 }
 
+// A key that is part of an IME composition (Japanese, Chinese, Korean, …):
+// Escape cancels and Enter commits the composition, never the app's action.
+// WebKit reports the committing keydown with isComposing false and keyCode
+// 229, so both signals count.
+export function isImeComposing(event) {
+  return Boolean(event?.isComposing) || event?.keyCode === 229;
+}
+
 export function installKeyboardShortcuts({ handlers }) {
   let pending = '';
   let pendingTimer = null;
@@ -67,14 +75,22 @@ export function installKeyboardShortcuts({ handlers }) {
   }
 
   document.addEventListener('keydown', (event) => {
+    if (isImeComposing(event)) return;
     const metaOrCtrl = event.metaKey || event.ctrlKey;
     // ⌘K/⌘J work everywhere, Escape works everywhere; other shortcuts are
     // suppressed while typing.
     const typing = isTypingTarget(event.target);
     const interactive = isInteractiveShortcutTarget(event.target);
     if ((typing || interactive) && event.key !== 'Escape' && !metaOrCtrl) return;
-
     const result = matchShortcut({ key: event.key, metaOrCtrl, alt: event.altKey }, pending);
+    // An open modal (a confirm, the task drawer, ...) owns the one-key
+    // commands: a letter, arrow or Enter must not act on the workspace behind
+    // it. N still opens quick capture, a new layer above (capture from the
+    // drawer is a supported flow; main.js refuses it over a confirm).
+    if (event.key !== 'Escape' && !metaOrCtrl && result.action !== 'capture' && handlers.modalOpen?.()) {
+      clearPending();
+      return;
+    }
 
     if (result.pending === 'g') {
       pending = 'g';

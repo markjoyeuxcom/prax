@@ -33,6 +33,11 @@ of the server, and every write goes only there — it never fails over to anothe
 | `PRAX_AGENT` | auto | Which agent CLI is writing (`claude`, `codex`, …), sent as `x-prax-agent` on agent writes so documents and the task chronicle name it. Detected from the Claude Code / Codex / Copilot / Antigravity environments when unset. |
 | `PRAX_MCP_TIMEOUT_MS` | `180000` | How long `ask_prax`, `generate_runbook` and `generate_post_mortem` wait for an answer (they wait on a chat model). Other requests time out after 5 s. |
 
+Every request carries this machine's calendar day — `x-prax-local-date` and `x-prax-time-zone`
+(its IANA zone), as the web app sends them — so completing a recurring task with `update_task`
+schedules the next occurrence from the user's today even when Prax runs in a UTC container. The
+server process reads its zone from the system (or `TZ`).
+
 ## Register with Claude Code
 
 ```bash

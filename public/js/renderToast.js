@@ -8,5 +8,7 @@ export function renderToastHtml(state) {
   const undo = toast.undo
     ? `<button class="toast__undo" type="button" data-action="toast-undo">${escapeHtml(toast.undoLabel || 'Undo')}</button>`
     : '';
-  return `<div class="toast" role="status"><span>${escapeHtml(toast.message)}</span>${undo}</div>`;
+  // No role here: main.js announces the message through the persistent
+  // #app-announcer region, which survives the re-render this toast does not.
+  return `<div class="toast"><span>${escapeHtml(toast.message)}</span>${undo}</div>`;
 }

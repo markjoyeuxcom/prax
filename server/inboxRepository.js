@@ -131,7 +131,7 @@ export function createInboxRepository(db) {
             const planning = classifyPlanChange(record, fields);
             if (planning.kind === 'carried') fields.carryCount = record.carryCount + 1;
             const transition = planTaskRecurrenceTransition(record, fields, { today });
-            for (const [key, column] of [['projectId', 'project_id'], ['status', 'status'], ['plannedFor', 'planned_for'], ['carryCount', 'carry_count'], ['recurrence', 'recurrence']]) {
+            for (const [key, column] of [['projectId', 'project_id'], ['status', 'status'], ['plannedFor', 'planned_for'], ['carryCount', 'carry_count'], ['recurrence', 'recurrence'], ['recurrenceAnchorDay', 'recurrence_anchor_day']]) {
               if (key in transition.fields) before[column] = row[column];
             }
             await run(client, buildUpdateTask(id, transition.fields));

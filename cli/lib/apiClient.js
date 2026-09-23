@@ -9,17 +9,58 @@
 //     x-prax-agent: <id> when the calling CLI is known (PRAX_AGENT, or the
 //     markers Claude Code and Codex set in their shells).
 // Both are the shared implementation in server/instanceDiscovery.js, which the
-// MCP server uses too, so the machine clients cannot drift apart.
+// MCP server uses too, so the machine clients cannot drift apart. Every request
+// also carries the caller's calendar day (server/localDay.js), so completing a
+// recurring task rolls forward from the person's today, not a UTC container's.
 import { randomUUID } from 'node:crypto';
 import { detectAgent, resolveBaseUrls, sanitizeAgentId } from '../../server/instanceDiscovery.js';
+import { localDayHeaders } from '../../server/localDay.js';
 
 export {
   DEFAULT_BASE_URL, desktopPortFile, detectAgent, readDesktopPort, resolveBaseUrls, sanitizeAgentId,
 } from '../../server/instanceDiscovery.js';
 // The server's hard cap for one semantic-search page.
 export const SEMANTIC_PAGE_MAX = 50;
+// Without a bound, a hung app stalls an agent's call for undici's five-minute
+// header timeout. Nothing the CLI calls waits on a chat model (the MCP server's
+// ask and generation tools do, and get its long timeout), but recall, search
+// and context embed the query, and a local embedding model can take several
+// seconds to load cold — hence 30 s rather than the MCP server's 5 s.
+// PRAX_TIMEOUT_MS overrides it. The /readyz probe only has to be answered.
+export const DEFAULT_TIMEOUT_MS = 30_000;
+export const PROBE_TIMEOUT_MS = 2000;
 
-export function createClient({ baseUrl, token, agent, env = process.env, bases } = {}) {
+// PRAX_TIMEOUT_MS as milliseconds, or undefined when unset. A value that is
+// not a positive integer is a configuration error, reported rather than
+// silently replaced by the default.
+export function timeoutFromEnv(env = process.env) {
+  const raw = env.PRAX_TIMEOUT_MS;
+  if (raw === undefined || raw === '') return undefined;
+  const ms = Number(raw);
+  if (!/^\d+$/.test(String(raw).trim()) || !Number.isSafeInteger(ms) || ms < 1) {
+    throw new TypeError(`PRAX_TIMEOUT_MS must be a positive number of milliseconds (got "${raw}")`);
+  }
+  return ms;
+}
+
+function formatDuration(ms) {
+  return ms >= 1000 && ms % 1000 === 0 ? `${ms / 1000} s` : `${ms} ms`;
+}
+
+function isTimeout(err) {
+  const name = err?.name || err?.cause?.name;
+  return name === 'TimeoutError' || name === 'AbortError';
+}
+
+export function createClient({
+  baseUrl, token, agent, env = process.env, bases,
+  timeoutMs = timeoutFromEnv(env) ?? DEFAULT_TIMEOUT_MS, probeTimeoutMs = PROBE_TIMEOUT_MS,
+} = {}) {
+  // AbortSignal.timeout throws a synchronous TypeError for an invalid delay;
+  // say which setting is wrong instead of reporting "not reachable" later.
+  for (const [name, value] of [['timeoutMs', timeoutMs], ['probeTimeoutMs', probeTimeoutMs]]) {
+    if (!Number.isFinite(value) || value < 1) throw new TypeError(`${name} must be a positive finite number`);
+  }
   const candidates = bases || resolveBaseUrls({ baseUrl, env });
   let base = candidates[0];
   // Discovery binds this process to ONE instance. Until something has answered,
@@ -46,7 +87,7 @@ export function createClient({ baseUrl, token, agent, env = process.env, bases }
     let lastError;
     for (const candidate of candidates) {
       try {
-        await fetch(`${candidate}/readyz`, { method: 'GET' });
+        await fetch(`${candidate}/readyz`, { method: 'GET', signal: AbortSignal.timeout(probeTimeoutMs) });
         if (!pinned) {
           base = candidate;
           pinned = true;
@@ -73,7 +114,7 @@ export function createClient({ baseUrl, token, agent, env = process.env, bases }
   async function request(method, path, {
     body, agent: agentWrite = false, accept, retryUnavailable = false,
   } = {}) {
-    const headers = {};
+    const headers = localDayHeaders();
     if (body !== undefined) headers['content-type'] = 'application/json';
     if (agentWrite) {
       headers['x-prax-origin'] = 'agent';
@@ -88,12 +129,17 @@ export function createClient({ baseUrl, token, agent, env = process.env, bases }
     const target = base;
     let res; let lastError;
     const attempts = retryUnavailable ? 2 : 1;
+    // One deadline covers the whole exchange, body included.
+    const signal = AbortSignal.timeout(timeoutMs);
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
-        res = await fetch(`${target}${path}`, { method, headers, body: payload });
+        res = await fetch(`${target}${path}`, { method, headers, body: payload, signal });
         break;
       } catch (err) {
         lastError = err;
+        // A timeout is never re-sent: Prax answered nothing, but it may still
+        // be processing the request.
+        if (isTimeout(err)) break;
         // Unreceipted setters/links may only retry a failure that proves no
         // request reached the server. ECONNRESET or a generic fetch failure
         // can mean the response was lost after a successful commit.
@@ -101,13 +147,27 @@ export function createClient({ baseUrl, token, agent, env = process.env, bases }
           && !['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN'].includes(err?.cause?.code || err?.code)) break;
       }
     }
+    const write = !['GET', 'HEAD'].includes(method);
+    const timedOut = (err) => {
+      const error = new Error(`${write ? 'Write outcome unknown; reconcile before retrying. ' : ''}Prax at ${target} did not answer within ${formatDuration(timeoutMs)} — the request may still be processing; it was not re-sent. Set PRAX_TIMEOUT_MS to wait longer. (${err.message})`);
+      error.timedOut = true;
+      return error;
+    };
     if (!res) {
+      if (isTimeout(lastError)) throw timedOut(lastError);
       const error = unreachable(lastError);
-      if (!['GET', 'HEAD'].includes(method)) error.message = `Write outcome unknown; reconcile before retrying. ${error.message}`;
+      if (write) error.message = `Write outcome unknown; reconcile before retrying. ${error.message}`;
       throw error;
     }
     const ct = res.headers.get('content-type') || '';
-    const parsed = ct.includes('application/json') ? await res.json() : await res.text();
+    let parsed;
+    try {
+      parsed = ct.includes('application/json') ? await res.json() : await res.text();
+    } catch (err) {
+      // The status line arrived but the body stalled past the deadline.
+      if (isTimeout(err)) throw timedOut(err);
+      throw err;
+    }
     if (!res.ok) {
       const message = parsed && parsed.message ? parsed.message : `HTTP ${res.status}`;
       const error = new Error(message);

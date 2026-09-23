@@ -156,6 +156,21 @@ async function run() {
   }
   endings.push('crash recovery');
 
+  // The same crash after the capture bar was opened: recovery replaces the
+  // dead bar, and summoning capture again (tray or shortcut) brings the
+  // hidden recovery window forward instead of the bar.
+  const logBeforeCaptureCrash = readFileSync(logFile, 'utf8').length;
+  const captureCrash = await launchAndWait(binary, dataDir, options.timeoutMs, 'Capture crash launch', ['--desktop-smoke-exit', 'capture-crash']);
+  for (const checkpoint of ['capture-opened', 'capture-hidden-recovery-shown', 'capture-summon-shows-recovery']) {
+    if (!captureCrash.stdout.includes(`PRAX_DESKTOP_SMOKE ${checkpoint}\n`)) {
+      throw new Error(`Sidecar crash with the capture bar open missed "${checkpoint}"\nstdout:\n${captureCrash.stdout}\nstderr:\n${captureCrash.stderr}\nsmoke data: ${dataDir}`);
+    }
+  }
+  if (!readFileSync(logFile, 'utf8').slice(logBeforeCaptureCrash).includes('[prax] server-exit code=none signal=9')) {
+    throw new Error(`Capture crash launch did not record the killed sidecar's exit: ${logFile}`);
+  }
+  endings.push('crash recovery with the capture bar open');
+
   console.log(`[desktop-smoke] packaged runtime launched ${endings.length + 1} times, preserved data across ${migrations} migrations and the same browser storage origin, and passed: ${endings.join(', ')}`);
   rmSync(dataDir, { recursive: true, force: true });
 }

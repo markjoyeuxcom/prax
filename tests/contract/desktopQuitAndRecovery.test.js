@@ -74,4 +74,23 @@ test('the packaged smoke drives the menu quit, terminate and crash paths', () =>
   assert.match(smoke, /'--desktop-smoke-exit', 'crash'/);
   assert.match(smoke, /PRAX_DESKTOP_SMOKE recovery-shown/);
   assert.match(smoke, /prax\.db-wal/);
+
+  // A crash after the capture bar was opened: the bar is hidden, recovery
+  // shows in main, and summoning capture again brings recovery forward.
+  assert.match(rust, /Some\("capture-crash"\) => Ok\(SmokeExit::CaptureCrash\)/);
+  assert.match(smoke, /'--desktop-smoke-exit', 'capture-crash'/);
+  for (const checkpoint of ['capture-opened', 'capture-hidden-recovery-shown', 'capture-summon-shows-recovery']) {
+    assert.match(smoke, new RegExp(`'${checkpoint}'`));
+    assert.match(rust, new RegExp(`"${checkpoint}"`));
+  }
+  const captureCrash = rust.slice(rust.indexOf('SmokeExit::CaptureCrash => {'));
+  assert.match(captureCrash, /open_capture_window\(&app\);[\s\S]*?crash_sidecar\(&app\)[\s\S]*?!window_visible\(&app, "capture"\)[\s\S]*?window\.hide\(\)[\s\S]*?open_capture_window\(&app\);[\s\S]*?main_shows_recovery\(&app\) && !window_visible\(&app, "capture"\)/);
+});
+
+test('a start the child reports as failed shows its own advice, not a generic restart', () => {
+  assert.match(rust, /const FAILED_PREFIX: &str = "PRAX_DESKTOP_FAILED ";/);
+  assert.match(functionBody('startup_failure_message'), /"port-in-use", Some\(port\)/);
+  // An exit before readiness keeps the child's reason for the recovery screen.
+  assert.match(rust, /ServerPhase::Failed\(reason\) => Some\(reason\)/);
+  assert.match(rust, /"Prax could not start",\s*format!\("\{reason\} Diagnostic log: \{log\}"\)/);
 });

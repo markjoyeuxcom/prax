@@ -49,10 +49,11 @@ async function main() {
     }
   }
   const who = client.agent ? `, as ${client.agent}` : '';
-  // Say WHERE it landed whenever that is not the memory namespace the skill
-  // defaults to — a cross-project update or an --id target — so the agent
+  // Always say WHERE it landed — the memory project, the one asked for, or
+  // the project of a cross-project update or an --id target — so the agent
   // never believes it wrote a memory note when it refined a homelab runbook.
-  const where = result.project && result.project !== project ? ` in ${result.project}` : '';
+  const landed = result.project || project;
+  const where = landed ? ` in ${landed}` : '';
   // Name the instance the write landed in: discovery may have chosen the
   // desktop app or the dev server, and a memory in the wrong workspace must
   // never look identical to one in the right place.

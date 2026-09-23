@@ -129,9 +129,15 @@ export function weekLoad(tasks, { now = new Date() } = {}) {
   });
 }
 
-// Agent-written documents touched in the last `hours`, newest first, capped —
-// what the shared memory gained since you last looked.
-export function recentAgentDocs(documents, { now = new Date(), hours = 24, limit = 4 } = {}) {
+// The side cards show a few rows each; their counts always cover the whole set
+// (QINV-10: a capped list never reads as the total).
+export const AGENT_CARD_ROWS = 4;
+export const ON_CALL_CARD_ROWS = 2;
+
+// Agent-written documents touched in the last `hours`, newest first, capped at
+// `limit` (pass Infinity for the full set) — what the shared memory gained
+// since you last looked.
+export function recentAgentDocs(documents, { now = new Date(), hours = 24, limit = AGENT_CARD_ROWS } = {}) {
   const since = now.getTime() - hours * 60 * 60 * 1000;
   return (documents || [])
     .filter((doc) => doc && !doc.archivedAt && TRUST_PREDICATES.agent(doc))
@@ -142,7 +148,7 @@ export function recentAgentDocs(documents, { now = new Date(), hours = 24, limit
 
 // Active projects that carry on-call or handoff notes: the ops surface Today
 // should show without a click into each project.
-export function onCallProjects(projects, { limit = 2 } = {}) {
+export function onCallProjects(projects, { limit = ON_CALL_CARD_ROWS } = {}) {
   return (projects || [])
     .filter((project) => project && project.status !== 'completed' && project.status !== 'archived'
       && (String(project.onCall || '').trim() || String(project.handoffNotes || '').trim()))
@@ -229,7 +235,9 @@ function renderWeekCard(tasks, now) {
 }
 
 function renderAgentsCard(documents, queueCount, now) {
-  const recent = recentAgentDocs(documents, { now });
+  const all = recentAgentDocs(documents, { now, limit: Infinity });
+  const recent = all.slice(0, AGENT_CARD_ROWS);
+  const hidden = all.length - recent.length;
   if (!recent.length && !queueCount) return '';
   const rows = recent.map((doc) => (
     `<button type="button" class="agent-row" data-action="open-linked-doc" data-document-id="${escapeHtml(doc.id)}">`
@@ -244,13 +252,20 @@ function renderAgentsCard(documents, queueCount, now) {
   return `<section class="today-card" data-today-agents>
     <h3 class="today-card__title">Agents since yesterday${queue ? `<span class="today-card__meta">${queue}</span>` : ''}</h3>
     ${rows || '<p class="today-card__text">No agent writes in the last day.</p>'}
-    ${recent.length ? `<p class="today-card__text">${recent.length} ${recent.length === 1 ? 'memory' : 'memories'} written. Verification adds a human trust signal; unverified memory can still be recalled.</p>` : ''}
+    ${hidden > 0 ? `<button type="button" class="settings-link" data-action="open-agent-memory">${hidden} more in the Library →</button>` : ''}
+    ${all.length ? `<p class="today-card__text">${all.length} ${all.length === 1 ? 'memory' : 'memories'} written. Verification adds a human trust signal; unverified memory can still be recalled.</p>` : ''}
   </section>`;
 }
 
 function renderOnCallCard(projects) {
-  const list = onCallProjects(projects);
+  const all = onCallProjects(projects, { limit: Infinity });
+  const list = all.slice(0, ON_CALL_CARD_ROWS);
+  const hidden = all.length - list.length;
   if (!list.length) return '';
+  const more = hidden > 0
+    ? `<section class="today-card" data-today-oncall-more><p class="today-card__text">${hidden} more ${hidden === 1 ? 'project carries' : 'projects carry'} on-call or handoff notes.</p>`
+      + '<button type="button" class="settings-link" data-action="nav-all">All projects →</button></section>'
+    : '';
   return list.map((project) => {
     const color = escapeHtml(project.color || 'var(--ink3)');
     return `<section class="today-card" data-today-oncall>
@@ -258,7 +273,7 @@ function renderOnCallCard(projects) {
     ${project.handoffNotes ? `<p class="today-card__text">${escapeHtml(project.handoffNotes)}</p>` : '<p class="today-card__text">No handoff note.</p>'}
     <button type="button" class="settings-link" data-action="nav-project" data-project-id="${escapeHtml(project.id)}">Open project</button>
   </section>`;
-  }).join('');
+  }).join('') + more;
 }
 
 export function renderTodayHtml(state, groups, {

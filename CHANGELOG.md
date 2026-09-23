@@ -73,6 +73,41 @@ fresh empty `[Unreleased]` section is started.
   Quit, `terminate:` and a crash with the window open.
 - **A fresh Compose volume could not hold the database.** The image creates `/data` for the
   non-root user and defaults `PRAX_DB_FILE` to `/data/prax.db`.
+- **Copilot CLI answers work again.** Copilot ignores stdin when `--prompt` is set, so after the
+  prompt moved off the command line it answered that it saw no request. The prompt now goes only
+  through stdin (verified live against Copilot CLI 1.0.85).
+- **Monthly repeats remember their day.** A series set up on the 31st now goes Feb 28 → Mar 31 →
+  Apr 30 when completed on time (migration 0037 stores the anchor day; it round-trips through
+  task export and import). Existing monthly tasks pick up their anchor from their next due date.
+- **The CLI, skills and MCP send your local date and timezone,** so `prax task done` and MCP
+  completions of recurring tasks roll forward from your day on a UTC server.
+- **Project detection is stricter.** A `.prax` marker above the repository no longer beats a
+  registered git remote, a subfolder name is never used as a project, guessing from the folder
+  name warns first, and `remember` always names the project and its real trust status. CLI
+  requests time out after 30 s (`PRAX_TIMEOUT_MS`).
+- **Backups work above 2 GiB** (streamed hashing); document listings no longer read embeddings;
+  task search ignores case for non-ASCII letters; unknown document `status` filters and invalid
+  semantic-search settings are refused with `400`.
+- **Stored data is trimmed and repaired.** Migration 0038 breaks supersession cycles created
+  before 0031, and assistant and task-import receipts no longer keep copies of deleted content;
+  idle task-import sessions expire after 7 days; assistant history is cut at a user turn and
+  clipped text is marked.
+- **Desktop startup and logging.** A saved port in use now says which port and what to do; long
+  migrations report progress and get a 10-minute budget; `server.log` rotates at 5 MiB and no
+  longer records every request; Library and workspace exports reach the Save dialog as raw bytes
+  instead of a JSON number array.
+- **Document links open in your browser** (the system browser on desktop, a new tab on the web);
+  wiki links are keyboard-reachable; every dialog keeps focus inside it and makes the page behind
+  inert; toasts are announced through one persistent live region; Escape and Enter are ignored
+  while an input method is composing.
+- **Today's side cards show true counts** and say how many more there are; smart views with
+  non-Latin or similar names no longer overwrite each other; a failed chat-provider save keeps
+  the typed CLI path.
+- **Release and deployment hardening.** CI pins Node 24.21.0 (checksummed on Linux too) and Rust
+  1.98.1, builds with `--locked`, and checksums packages where they are built; the Kubernetes base
+  adds `seccompProfile: RuntimeDefault`, disables the service-account token and ships a
+  NetworkPolicy; the startup probe allows 10 minutes. Docs now match shipped behaviour, including
+  that no container image is published for current versions.
 - **Truncated AI output is no longer presented as complete.** Every provider now reports when
   a reply hit its length limit. A cut-off writing action or runbook is refused, a cut-off
   post-mortem falls back to the chronicle template, a cut-off assistant answer says so, and a

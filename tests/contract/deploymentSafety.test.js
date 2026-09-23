@@ -53,6 +53,52 @@ test('rendered Kubernetes base stays internal and makes its pod-network bind exp
   assert.doesNotMatch(base, /httproute\.yaml/);
 });
 
+test('the Kubernetes base is hardened: no API token, the runtime seccomp profile, and namespace-only ingress', async () => {
+  const [deployment, policy, base] = await Promise.all([
+    read('deploy/base/deployment.yaml'),
+    read('deploy/base/networkpolicy.yaml'),
+    read('deploy/base/kustomization.yaml'),
+  ]);
+
+  // Pod-level: Prax never calls the Kubernetes API, and every container gets
+  // the runtime's default seccomp filter.
+  assert.match(deployment, /^      automountServiceAccountToken:\s+false\s*$/m);
+  assert.match(deployment, /^      securityContext:\n(?:        .*\n)*?        seccompProfile:\n          type:\s+RuntimeDefault\s*$/m);
+  assert.match(deployment, /^\s+allowPrivilegeEscalation:\s+false\s*$/m);
+  assert.match(deployment, /^\s+readOnlyRootFilesystem:\s+true\s*$/m);
+
+  // The unauthenticated API is reachable only from its own namespace.
+  assert.match(base, /^\s+-\s+networkpolicy\.yaml\s*$/m);
+  assert.match(policy, /^kind:\s+NetworkPolicy\s*$/m);
+  assert.match(policy, /^  podSelector:\n    matchLabels:\n      app\.kubernetes\.io\/name:\s+prax\s*$/m);
+  assert.match(policy, /^  policyTypes:\n    - Ingress\s*$/m);
+  assert.match(policy, /^  ingress:\n    - from:\n        - podSelector: \{\}\n      ports:\n        - protocol: TCP\n          port: 3000\s*$/m);
+  assert.doesNotMatch(policy, /namespaceSelector|ipBlock/, 'no rule admits other namespaces or addresses');
+
+  // A long upgrade migration runs before listen; the startup probe allows it.
+  const probe = deployment.match(/startupProbe:\n(?:\s{12}.*\n)+/)?.[0] || '';
+  const period = Number(probe.match(/periodSeconds:\s+(\d+)/)?.[1]);
+  const failures = Number(probe.match(/failureThreshold:\s+(\d+)/)?.[1]);
+  assert.ok(period * failures >= 600, `startup probe allows ${period * failures}s; migrations need up to ten minutes`);
+});
+
+test('every place that names the version-tracking image tag says no image is published for it', async () => {
+  // release:prepare bumps these tags every release, but the pipeline has
+  // built no image since v0.30.0; a reader must not expect to pull one.
+  const sites = {
+    'README.md': /no container image is published/,
+    'deploy/README.md': /No image is published for\s+you/,
+    'docs/deployment.md': /the pipeline builds and publishes no\s+container image/,
+    'compose.image.yaml': /The pipeline publishes no container image/,
+    'deploy/base/deployment.yaml': /the pipeline publishes no\s+#?\s*image/,
+    'docs/desktop/BUILD.md': /builds and publishes \*\*no container image\*\*/,
+  };
+  for (const [file, claim] of Object.entries(sites)) {
+    assert.match(await read(file), claim, `${file} says the tag is self-built`);
+  }
+  assert.doesNotMatch(await read('deploy/README.md'), /release\s+workflow\)/, 'the Dockerfile is not described as a release build');
+});
+
 test('every shipped overlay inherits the route-free base and the example route cannot publish as-is', async () => {
   const packageVersion = JSON.parse(await read('package.json')).version;
   for (const environment of ['dev', 'staging', 'prod']) {

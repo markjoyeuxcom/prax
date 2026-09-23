@@ -4,6 +4,13 @@ export function trustTag(doc) {
   return doc.verified ? '[verified]' : '[unverified]';
 }
 
+// The trust a document actually has, for a confirmation line: a remember that
+// leaves the title and body unchanged keeps an earlier human verification.
+export function trustLabel(doc) {
+  if (!doc?.verified) return 'unverified';
+  return doc.verifiedBy ? `verified by ${doc.verifiedBy}` : 'verified';
+}
+
 export function formatSearchResults(results) {
   if (!Array.isArray(results) || results.length === 0) return 'No results.';
   return results

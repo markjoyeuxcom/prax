@@ -5,7 +5,7 @@ import { detectProject, detectRepoUrl } from './lib/detectProject.js';
 import { matchProjectByRepoUrl, normalizeRepoUrl } from '../server/repoUrl.js';
 import { DOCUMENT_TYPE_VALUES, isDocumentType } from '../public/js/documentTypes.js';
 import { createClient } from './lib/apiClient.js';
-import { formatSearchResults, formatDocument } from './lib/format.js';
+import { formatSearchResults, formatDocument, trustLabel } from './lib/format.js';
 import { recall, formatRecall } from './lib/recall.js';
 import { remember } from './lib/remember.js';
 import { confirmDocumentVerification } from './lib/verify.js';
@@ -112,18 +112,24 @@ function parseCommandLine(argv) {
   return parsed;
 }
 
-async function resolveProjectName(flags, client) {
+// `write`: the command creates the project when it does not exist (remember,
+// task add), so a folder-name guess that names no existing project is said
+// out loud on stderr instead of silently becoming a new project.
+async function resolveProjectName(flags, client, { write = false } = {}) {
   // MOOMORA_PROJECT is the pre-rename env var; still honoured so existing setups keep working.
   const detected = detectProject({ flag: flags.project, env: process.env.PRAX_PROJECT || process.env.MOOMORA_PROJECT });
-  // Explicit intent (flag/env/.prax marker) always wins. Only the folder-name
-  // GUESS is upgraded by a git-remote match: if the repo's origin URL matches a
-  // project's registered repoUrl, that project wins over the folder name — so
-  // recall/remember land in the right project from any checkout or worktree.
-  if (detected.source === 'folder' || detected.source === 'none') {
+  // Explicit intent (flag/env/a marker inside this repository) always wins.
+  // A git-remote match upgrades only the weaker signals — the folder-name
+  // guess and a marker found above the repository root — so recall/remember
+  // land in the registered project from any checkout or worktree, even one
+  // that sits inside a folder carrying another project's marker.
+  let projects = null;
+  if (['folder', 'none', 'outer-file'].includes(detected.source)) {
     const repoUrl = detectRepoUrl({});
     if (repoUrl && client) {
       try {
-        const match = matchProjectByRepoUrl(await client.listProjects(), repoUrl);
+        projects = await client.listProjects();
+        const match = matchProjectByRepoUrl(projects, repoUrl);
         if (match) return { project: match.slug, source: 'git' };
       } catch {
         // API unreachable — fall back to the local guess (callers surface
@@ -133,6 +139,19 @@ async function resolveProjectName(flags, client) {
   }
   if (!detected.project) {
     throw new Error('No project detected. Pass --project <slug>, set PRAX_PROJECT, or run `prax init`.');
+  }
+  if (write && detected.source === 'folder' && client) {
+    try {
+      projects ??= await client.listProjects();
+      const name = detected.project.toLowerCase();
+      const exists = (Array.isArray(projects) ? projects : [])
+        .some((p) => p.slug === detected.project || (p.name && p.name.toLowerCase() === name));
+      if (!exists) {
+        process.stderr.write(`prax: no project matches this directory; "${detected.project}" (the folder name) will be created. Pass --project <slug> or run \`prax init\` to choose one.\n`);
+      }
+    } catch {
+      // unreachable — the write itself reports it
+    }
   }
   return detected;
 }
@@ -157,9 +176,9 @@ Usage:
   prax task check <id> <n|label>      prax task uncheck <id> <n|label>
 
 Global flags: --project <slug>  --url <baseUrl>  --agent <id>  --json
-Env: PRAX_API_URL  PRAX_PROJECT  PRAX_TOKEN  PRAX_AGENT
+Env: PRAX_API_URL  PRAX_PROJECT  PRAX_TOKEN  PRAX_AGENT  PRAX_TIMEOUT_MS (default 30000)
 App discovery: --url > PRAX_API_URL > the desktop app's saved port (webview-port) > http://127.0.0.1:3000
-Project detection: --project > PRAX_PROJECT > .prax/project.json > git remote match > folder name
+Project detection: --project > PRAX_PROJECT > .prax/project.json in this repository > git remote match > .prax/project.json above the repository > repository folder name
 Provenance: writes are stamped updatedBy=agent plus the agent id (--agent, PRAX_AGENT, or auto: claude / codex / copilot / antigravity); --memory writes also carry kind=synthesized`;
 
 async function main(argv) {
@@ -303,7 +322,7 @@ async function main(argv) {
     const cite = flagValue(flags, 'cite');
     const crossProject = Boolean(flags.memory) && !flags.project && !id;
     // Every flag is validated before this first network call.
-    const project = flags.memory ? 'memory' : (await resolveProjectName(flags, client)).project;
+    const project = flags.memory ? 'memory' : (await resolveProjectName(flags, client, { write: true })).project;
     // A --memory write is agent memory, so it carries the same provenance the
     // prax-remember skill stamps (kind: synthesized). A project-scoped write is
     // left alone: it is a note about this project, not synthesized memory.
@@ -327,8 +346,10 @@ async function main(argv) {
         await client.addCodeRef(doc.id, citation);
       } catch (err) { process.stderr.write(`prax: could not attach --cite: ${err.message}\n`); }
     }
-    const where = result.project && result.project !== project ? ` in ${result.project}` : '';
-    out(flags.json ? doc : `${action === 'updated' ? 'Updated' : 'Remembered'} "${doc.title}" (${doc.id})${where} — unverified, at ${client.base}.`);
+    // Always name the project the write landed in, and the trust it now has:
+    // an update that leaves the title and body unchanged keeps a verification.
+    const where = result.project || project;
+    out(flags.json ? doc : `${action === 'updated' ? 'Updated' : 'Remembered'} "${doc.title}" (${doc.id}) in ${where} — ${trustLabel(doc)}, at ${client.base}.`);
     return;
   }
 
@@ -384,7 +405,7 @@ async function main(argv) {
       const title = positionals.slice(2).join(' ');
       const checks = repeatedValues(flags, 'check');
       const record = buildTaskRecord({ title, flags, checks });
-      const { project } = await resolveProjectName(flags, client);
+      const { project } = await resolveProjectName(flags, client, { write: true });
       const { task, replayed, project: slug } = await createTask(client, { project, record });
       out(flags.json ? task : `${replayed ? 'Already added' : 'Added'} "${task.title}" (${task.id}) in ${slug}${record.checklist ? ` with ${record.checklist.length} checklist item${record.checklist.length === 1 ? '' : 's'}` : ''} — at ${client.base}.`);
       return;

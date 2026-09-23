@@ -3,6 +3,7 @@ import {
   resolveCapture, saveBarDraft, saveBarPending, finishBarCapture,
 } from './captureBarCore.js';
 import { announceChange } from './externalRefresh.js';
+import { isImeComposing } from './keyboardShortcuts.js';
 
 const input = document.getElementById('capture-input');
 const hint = document.getElementById('capture-hint');
@@ -135,6 +136,7 @@ input.addEventListener('input', () => {
   else renderDestination();
 });
 input.addEventListener('keydown', event => {
+  if (isImeComposing(event)) return; // Enter/Escape commit or cancel the composition
   if (event.key === 'Enter') { event.preventDefault(); void submit(); }
   if (event.key === 'Escape') { event.preventDefault(); hideWindow(); }
 });

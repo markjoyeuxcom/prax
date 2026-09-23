@@ -11,5 +11,7 @@
 </head>
 <body data-theme="light">
   <div id="app"></div>
+  <!-- Persistent live region: #app is re-rendered wholesale, this never is. -->
+  <div id="app-announcer" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
 </body>
 </html>

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { isInteractiveShortcutTarget } from '../../public/js/keyboardShortcuts.js';
+import { isInteractiveShortcutTarget, isImeComposing } from '../../public/js/keyboardShortcuts.js';
 import { normalizeDocumentDraftTitle, documentDraftIsDirty } from '../../public/js/documentDraftRecovery.js';
 import { documentDraftSavedPatch, canPreserveEditorAfterDraftSave } from '../../public/js/documentDraftSave.js';
 
@@ -126,7 +126,7 @@ function planContext(planMode, extras = {}) {
     state, setState: patch => Object.assign(state, patch), todayISODate: () => '2026-09-22',
     updateTask: (id, fields) => { const d = deferred(); calls.push({ id, fields, ...d }); return d.promise.then(saved => ({ id, ...fields, ...saved })); },
     renderApp: () => { renders += 1; }, showToast: text => toasts.push(text),
-    document: { querySelector: () => null }, normalizeTask: t => t, isInteractiveShortcutTarget,
+    document: { querySelector: () => null }, normalizeTask: t => t, isInteractiveShortcutTarget, isImeComposing,
     ...extras,
   });
   install(context, 'function taskById(', 'function applyTaskPatchLocal(');
@@ -264,6 +264,18 @@ test('0eec1ac9: Enter on the end-of-walk summary closes it', () => {
   const { state, context } = planContext({ ...walk('plan', ['t1']), index: 1 });
   context.handlePlanModeKeydown(keyEvent('Enter', body));
   assert.equal(state.planMode, null);
+});
+
+test('plan-mode keys that belong to an IME composition do nothing', () => {
+  const { state, context, calls } = planContext(walk('plan', ['t1', 't2']));
+  for (const extra of [{ isComposing: true }, { keyCode: 229 }]) {
+    const enter = keyEvent('Enter', body, extra);
+    context.handlePlanModeKeydown(enter);
+    assert.equal(enter.prevented, 0);
+    context.handlePlanModeKeydown(keyEvent('s', body, extra));
+  }
+  assert.equal(calls.length, 0);
+  assert.equal(state.planMode.index, 0);
 });
 
 // ---- a68bd2cf: partial success and failed writes are reported truthfully ----

@@ -323,3 +323,24 @@ test('side cards render from loaded state: week strip always, agents and on-call
   assert.doesNotMatch(bare, /data-today-agents/);
   assert.doesNotMatch(bare, /data-today-oncall/);
 });
+
+test('QINV-10: side cards count the whole set and name what the cap hides', () => {
+  const documents = Array.from({ length: 9 }, (_, index) => ({
+    id: `a${index}`, title: `Agent memory ${index}`, updatedBy: 'agent',
+    updatedAt: new Date(NOW.getTime() - (index + 1) * 60_000).toISOString(),
+  }));
+  const projects = [1, 2, 3, 4].map((n) => ({ id: `p${n}`, name: `Ops ${n}`, status: 'active', onCall: 'Mark' }));
+  const html = renderTodayHtml(baseState({ tasks: [], documents, projects }), [], { now: NOW });
+  assert.equal((html.match(/class="agent-row"/g) || []).length, 4, 'the card still shows four rows');
+  assert.match(html, /9 memories written\./, 'the count covers every agent write, not the four shown');
+  assert.match(html, /data-action="open-agent-memory">5 more in the Library →</);
+  assert.equal((html.match(/data-today-oncall>/g) || []).length, 2, 'two on-call cards');
+  assert.match(html, /data-today-oncall-more>[\s\S]*?2 more projects carry on-call or handoff notes\.[\s\S]*?data-action="nav-all"/);
+
+  const few = renderTodayHtml(baseState({ tasks: [], documents: documents.slice(0, 3), projects: projects.slice(0, 2) }), [], { now: NOW });
+  assert.match(few, /3 memories written\./);
+  assert.doesNotMatch(few, /open-agent-memory/, 'nothing hidden, no "more" control');
+  assert.doesNotMatch(few, /data-today-oncall-more/);
+  assert.equal(recentAgentDocs(documents, { now: NOW, limit: Infinity }).length, 9);
+  assert.equal(onCallProjects(projects, { limit: Infinity }).length, 4);
+});

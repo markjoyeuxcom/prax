@@ -18,11 +18,15 @@ spec:
       labels:
         app.kubernetes.io/name: prax
     spec:
+      # Prax never talks to the Kubernetes API, so the pod gets no token.
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
         runAsGroup: 1000
         fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       volumes:
         - name: tmp
           emptyDir: {}
@@ -31,6 +35,8 @@ spec:
             claimName: prax-data
       containers:
         - name: prax
+          # The tag follows this checkout's version; the pipeline publishes no
+          # image, so build and push it yourself (deploy/README.md).
           image: registry.gitlab.com/markjoyeuxcom/apps/prax:v0.38.0
           imagePullPolicy: IfNotPresent
           securityContext:
@@ -48,12 +54,16 @@ spec:
           ports:
             - containerPort: 3000
               name: http
+          # Pending migrations run before the server listens, so an upgrade's
+          # first start answers nothing until they finish. Allow ten minutes
+          # (5s x 120) rather than one: a probe that kills a long migration
+          # rolls it back, and the next start would begin it again.
           startupProbe:
             httpGet:
               path: /healthz
               port: http
-            periodSeconds: 2
-            failureThreshold: 30
+            periodSeconds: 5
+            failureThreshold: 120
           livenessProbe:
             httpGet:
               path: /healthz

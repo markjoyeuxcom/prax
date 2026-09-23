@@ -28,14 +28,22 @@ precedence order:
 
 1. `--project <slug>` flag (highest priority)
 2. `PRAX_PROJECT` environment variable
-3. `.prax/project.json` file, searched from the current directory upwards. The file must
-   contain `{"project": "<slug>"}`. Use `prax init` to create it.
+3. `.prax/project.json` file, searched from the current directory upwards to the root of the
+   repository you are in. The file must contain `{"project": "<slug>"}`. Use `prax init` to
+   create it.
 4. A **git remote match**: the repository's `origin` URL (read from `.git/config`, no git binary
    needed) is matched against each project's registered **Repo** URL, so any checkout or
    worktree of a registered repo lands in the right project without its own marker file.
    URL spelling doesn't matter — `git@github.com:Org/Repo.git` and `https://github.com/org/repo`
    match each other.
-5. The current directory's folder name (lowest priority, a convenience default)
+5. A `.prax/project.json` **above** the repository root (a workspace folder holding several
+   checkouts). It applies only when the repository's remote is not registered, so a folder's
+   marker never pulls a registered repository into another project. Outside a repository the
+   upward search has no boundary and rung 3 covers it.
+6. The folder name (lowest priority, a convenience default): the repository root's name inside a
+   repository — never a subfolder's, so running from `repo/docs` does not name a project
+   "docs" — else the current directory's. `remember` and `task add` create a project that does
+   not exist yet; when the name is only this guess they say so on stderr first.
 
 Run `prax init` once in a project root to write the file so subsequent commands pick up the
 project automatically:
@@ -53,6 +61,12 @@ prax init --project homelab
 | `PRAX_PROJECT` | — | Default project slug (overrides folder-name detection) |
 | `PRAX_TOKEN` | — | Optional bearer token, forwarded as `Authorization: Bearer <token>`; the server does not require it under the no-auth model |
 | `PRAX_AGENT` | auto | Which agent CLI is writing (`claude`, `codex`, …), sent as `x-prax-agent` on agent writes. Detected from the Claude Code and Codex shell environments when unset; `--agent <id>` overrides |
+| `PRAX_TIMEOUT_MS` | `30000` | How long one request may take before the CLI gives up (the `/readyz` discovery probe gets 2 s). A request that times out is never re-sent; a timed-out write is reported as an unknown outcome to reconcile. Raise it for a slow embedding model. |
+
+Every request also carries the caller's calendar day — `x-prax-local-date` (this machine's local
+date) and `x-prax-time-zone` (its IANA zone), the same headers the web app sends — so
+`prax task done` on a recurring task schedules the next occurrence from your today even when Prax
+runs in a UTC container. Set `TZ` to change the zone the CLI reports.
 
 ## Global flags
 
@@ -223,8 +237,10 @@ memory becomes a fresh active document. Every write carries a caller-stable oper
 server keeps a receipt for it: a retried or replayed write returns the current document unchanged
 instead of reapplying its old body, so a delayed retry can never revert a newer memory. Agent-written
 documents (created via this command or the MCP tools) land **UNVERIFIED** by default and record
-which agent wrote them (`updatedByAgent`). The confirmation line names the instance written to
-(`… at http://127.0.0.1:<port>`).
+which agent wrote them (`updatedByAgent`). The confirmation line always names the project and
+the instance written to, and the document's actual trust — an update that leaves the title and
+body unchanged keeps an earlier verification (`… in homelab — verified by Mark, at
+http://127.0.0.1:<port>.`).
 
 ```bash
 prax remember "Postgres restore runbook" \

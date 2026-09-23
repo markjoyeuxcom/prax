@@ -53,8 +53,10 @@ import { normalizeTask } from './taskModel.js';
 import { apiStatus, designStatus, isOpen } from './statusMap.js';
 import { moveTaskOnBoard } from './boardWorkflow.js';
 import { pendingExtraIds, batchIds, clearTaskBoardExtra } from './boardExtras.js';
-import { installKeyboardShortcuts, isInteractiveShortcutTarget } from './keyboardShortcuts.js';
-import { settingsPatchMatchesStatus } from './settingsOutcome.js';
+import { installKeyboardShortcuts, isInteractiveShortcutTarget, isImeComposing } from './keyboardShortcuts.js';
+import { externalLinkUrl, openExternalUrl } from './externalLinks.js';
+import { topmostModal, syncModalInert, trapModalTab } from './modalFocus.js';
+import { settingsPatchMatchesStatus, chatSettingsDraftFrom } from './settingsOutcome.js';
 import { applyMarkdownFormat } from './markdownEditor.js';
 import { renderMarkdownHtml, titleFromMarkdown } from './markdownPreview.js';
 import { updateDocumentLivePreview } from './documentLivePreview.js';
@@ -764,7 +766,7 @@ function planModePrimaryAction() {
 // keeps its own keys: Enter on a button runs that button (Skip, Drop,
 // Reschedule), and a time/date field accepts typing and its Enter.
 function handlePlanModeKeydown(event) {
-  if (!state.planMode || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+  if (!state.planMode || event.defaultPrevented || isImeComposing(event) || event.metaKey || event.ctrlKey || event.altKey) return;
   const target = event.target;
   if (target?.matches?.('input, select, textarea') || target?.isContentEditable) return;
   const key = String(event.key || '');
@@ -1224,6 +1226,7 @@ async function ensureBoardExtras(tasks) {
 // person types, so it swaps only the toast layer and leaves the shell alone.
 function showToast(message, undo = null, duration = undo ? 5000 : 2400, undoLabel = 'Undo') {
   clearTimeout(toastTimer);
+  announce(message);
   setState({ toast: { message, undo, undoLabel } });
   toastTimer = setTimeout(() => {
     setState({ toast: null });
@@ -1245,6 +1248,23 @@ function renderToastLayer() {
   // Focus on an expiring Undo button would otherwise fall to <body>, where
   // plain letters reach the global shortcuts.
   if (hadFocus && state.navType === 'editor' && !host.contains(document.activeElement)) focusEditor();
+}
+
+// Screen-reader announcements go through one persistent polite live region
+// outside #app (index.html). renderApp rebuilds #app wholesale, and a live
+// region inserted together with its text is usually not announced, so the
+// toast itself carries no role. Status regions that stay inside rendered views
+// (dialog notices, the editor's save state, Library loading lines) are read
+// with their view or when the person reaches them; outcomes that must be
+// heard as they happen are announced here.
+let announceTimer = null;
+function announce(message) {
+  const region = document.getElementById?.('app-announcer');
+  if (!region) return;
+  clearTimeout(announceTimer);
+  region.textContent = '';
+  // Set after a beat so a repeated message is announced again.
+  announceTimer = setTimeout(() => { region.textContent = String(message || ''); }, 60);
 }
 
 // Copy text to the clipboard, resolving true/false. Prefers the async Clipboard
@@ -2885,6 +2905,8 @@ async function runAskPrax(rawQuery) {
     setState({ askPraxLoading: false, askPraxError: true });
   }
   renderApp();
+  // The result region is rebuilt with its content, so it is not announced.
+  announce(state.askPraxError ? 'Ask Prax could not answer. Try again.' : 'Answer ready.');
 }
 
 async function copyAskPrax() {
@@ -4514,6 +4536,7 @@ function renderCaptureOverlayLayer({ restoreFocus = false } = {}) {
     return;
   }
   root.innerHTML = renderOverlaysHtml();
+  syncModalInert(appRoot);
   if (state.captureOpen) {
     const input = root.querySelector('[data-capture-input]');
     input?.focus();
@@ -4737,6 +4760,8 @@ function renderApp() {
 }
 
 function afterRender() {
+  // Before any focus restore: nothing beneath an open modal may take focus.
+  syncModalInert(appRoot);
   mountEditorIfNeeded();
   restoreRenderContinuity();
   renderedPlanMode = state.planMode;
@@ -5061,6 +5086,9 @@ async function handleAction(action, el, event) {
       if (await navigateTopLevel({ navType: 'all' })) openConfirm(newProjectDialog());
       break;
     case 'nav-library': await goLibrary(); break;
+    // Today's agent card shows a few rows; the rest are the Library's
+    // agent-written facet, newest first.
+    case 'open-agent-memory': await goLibrary({ libraryTrust: ['agent'], librarySortBy: 'updated' }); break;
     case 'nav-calendar': await navigateTopLevel({ navType: 'calendar', selectedTaskId: null, multiSelectIds: [], calendarSelectedDay: null }); break;
     case 'calendar-prev':
     case 'calendar-next': {
@@ -5127,10 +5155,13 @@ async function handleAction(action, el, event) {
       }
       const name = (appRoot.querySelector('[data-confirm-input]')?.value || '').trim();
       setState({ confirm: null });
-      const view = name ? createSmartView(name, state.activeFilterExpr) : null;
+      const view = name ? createSmartView(name, state.activeFilterExpr, state.taskSmartViews) : null;
       if (view) {
+        // Only a view with this exact name is replaced, and the toast says so.
+        const replaced = state.taskSmartViews.some(v => v.id === view.id);
         setState({ taskSmartViews: [...state.taskSmartViews.filter(v => v.id !== view.id), view], activeSmartViewId: view.id });
         persistSmartViews();
+        if (replaced) { showToast(`Updated the smart view “${view.label}”.`); break; }
       }
       renderApp();
       break;
@@ -6354,12 +6385,9 @@ async function handleAction(action, el, event) {
       if (key && key.value.trim()) patch.apiKey = key.value.trim();
       const binary = appRoot.querySelector('[data-ai-chat-binary]');
       if (binary) patch.binaryPath = binary.value.trim();
-      const draft = {
-        backend: state.chatStatus?.backend || 'none',
-        model: model?.value || '',
-        baseUrl: baseUrl?.value || '',
-        apiKey: key?.value || '',
-      };
+      const draft = chatSettingsDraftFrom(state.chatStatus?.backend, {
+        model: model?.value, baseUrl: baseUrl?.value, apiKey: key?.value, binaryPath: binary?.value,
+      });
       setState({ intelligenceSettingsPending: true, chatSettingsDraft: draft });
       renderApp();
       try {
@@ -6583,6 +6611,18 @@ function bindEvents() {
     if (event.target.closest?.(`a[href="${INBOX_LINK}"]`)) {
       event.preventDefault(); void goProject(inboxProjectId(), 'inbox'); return;
     }
+    // A web link never replaces the workspace: a new tab in the browser (a
+    // modified click keeps the browser's own behavior), the system browser
+    // on the desktop, whose window only admits the sidecar origin.
+    const anchor = event.target.closest?.('a[href]');
+    const externalUrl = anchor && appRoot.contains(anchor) ? externalLinkUrl(anchor, window.location.href) : null;
+    if (externalUrl && (state.desktopShell || !(event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button))) {
+      event.preventDefault();
+      openExternalUrl(externalUrl, { desktopShell: state.desktopShell })
+        .then((opened) => { if (!opened) showToast('Prax could not open this link.'); })
+        .catch(() => showToast('Prax could not open this link in your browser.'));
+      return;
+    }
     if ((state.docMenuOpen || state.newDocMenuOpen || state.libraryMenuOpen || state.newMenuOpen || state.captureMenuOpen || state.writeMenuOpen) && !event.target.closest?.('.menu')) {
       setState({ docMenuOpen: false, newDocMenuOpen: false, libraryMenuOpen: false, newMenuOpen: false, captureMenuOpen: false, writeMenuOpen: false, writeSelection: null });
       // A click on another control should both dismiss the open menu and
@@ -6602,6 +6642,8 @@ function bindEvents() {
       // Overlay scrims (data-overlay) close only on direct clicks — clicks
       // inside the dialog bubble up here but must not dismiss it.
       if (el.dataset.overlay !== undefined && event.target !== el) return;
+      // An action link (a wiki link's href="#") runs its action, not a navigation.
+      if (el.tagName === 'A') event.preventDefault();
       // A confirm dialog's OK runs once: it stays on screen until its action
       // renders, and a second Enter or click there would repeat the action (a
       // second project). Disabled, it ignores both; re-enabled if it survives.
@@ -6898,30 +6940,13 @@ function bindEvents() {
   });
 
   appRoot.addEventListener('keydown', async (event) => {
+    // Keys that commit or cancel an IME composition belong to the IME: WebKit
+    // reports the committing Enter with isComposing false but keyCode 229.
+    if (isImeComposing(event)) return;
     if (inboxController.keydown(event)) { event.stopPropagation(); return; }
     const target = event.target;
-    const modalOverlay = state.templateStudio ? 'template-studio' : state.libraryExportOpen
-      ? 'library-export'
-      : (state.markdownImportOpen ? 'markdown-import' : (state.shortcutsOpen ? 'shortcuts' : null));
-    if (modalOverlay && event.key === 'Tab') {
-      const dialog = appRoot.querySelector(`[data-overlay="${modalOverlay}"] [role="dialog"]`);
-      const focusable = [...(dialog?.querySelectorAll('button:not([disabled]), select:not([disabled]), input:not([disabled]), [tabindex="0"], a[href]') || [])];
-      if (focusable.length) {
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        if (!dialog.contains(document.activeElement)) {
-          event.preventDefault();
-          first.focus();
-        } else if (event.shiftKey && document.activeElement === first) {
-          event.preventDefault();
-          last.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault();
-          first.focus();
-        }
-      }
-      return;
-    }
+    // Every aria-modal overlay keeps Tab inside it (modalFocus.js).
+    if (trapModalTab(event, appRoot)) return;
     if (state.templateStudio) {
       event.stopPropagation();
       if (event.key === 'Escape') { event.preventDefault(); closeTemplateStudio(); }
@@ -7045,6 +7070,12 @@ function bindEvents() {
   });
 
   document.addEventListener('keydown', handlePlanModeKeydown, true);
+  // After a render, focus can sit on <body>, whose keys never pass through
+  // #app: Tab from there still enters the open modal instead of the
+  // browser's next stop.
+  document.addEventListener('keydown', (event) => {
+    if (!appRoot.contains(event.target) && !isImeComposing(event)) trapModalTab(event, appRoot);
+  });
 
   bindDragEvents();
 
@@ -7429,6 +7460,8 @@ function installShortcuts() {
       toggleTheme,
       openShortcuts,
       openCapture() {
+        // A pending confirm owns the keyboard; capture would stack above it.
+        if (state.confirm) return;
         openFreshCapture();
       },
       toggleDoneSelected() {
@@ -7454,6 +7487,7 @@ function installShortcuts() {
         }
       },
       escape: escapeCascade,
+      modalOpen: () => Boolean(topmostModal(appRoot)),
     },
   });
 }

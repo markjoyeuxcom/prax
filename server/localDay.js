@@ -4,7 +4,8 @@
 // whose outcome depends on today (completing a recurring task, the assistant)
 // carry the browser's own view in two headers: its local date and its IANA
 // zone. The date wins; a zone alone is resolved against this clock; the server
-// clock is only the fallback for callers that send neither (CLI, MCP, tests).
+// clock is only the fallback for callers that send neither (tests, old clients);
+// the CLI, the skills and the MCP server send both (localDayHeaders below).
 
 export const LOCAL_DATE_HEADER = 'x-prax-local-date';
 export const TIME_ZONE_HEADER = 'x-prax-time-zone';
@@ -46,6 +47,17 @@ export function dateInTimeZone(now, timeZone) {
 export function resolveToday({ date, timeZone } = {}, now = new Date()) {
   if (isIsoDate(date)) return date;
   return dateInTimeZone(now, timeZone) || localToday(now);
+}
+
+// The caller's side of the contract for the machine clients — the prax CLI,
+// the skill scripts and the MCP server — which run on the person's own machine
+// and so share their clock and zone even when the app is a UTC container. The
+// same two headers the web app sends (public/js/dateHelpers.js), read afresh
+// for every request so a long-lived MCP process follows midnight.
+export function localDayHeaders(now = new Date()) {
+  let timeZone = '';
+  try { timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { /* no Intl zone */ }
+  return { [LOCAL_DATE_HEADER]: localToday(now), ...(timeZone ? { [TIME_ZONE_HEADER]: timeZone } : {}) };
 }
 
 export function requestToday(request, now = new Date()) {

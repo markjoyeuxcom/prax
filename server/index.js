@@ -21,16 +21,34 @@ import { registerSettingsRoutes } from './settingsRoutes.js';
 import { registerGoogleCalendarRoutes } from './googleCalendarRoutes.js';
 import { registerAssistantRoutes } from './assistantRoutes.js';
 import {
+  announceDesktopFailure,
   announceDesktopReady,
+  reportDesktopStartupProgress,
   savedDesktopPort,
   persistDesktopPort,
   createGracefulShutdown,
   installDesktopStdinControl,
 } from './desktopLifecycle.js';
 
+// Drops Fastify's per-request info lines (incoming, completed, route not
+// found), which carry full URLs including search terms, and keeps every
+// error and warning line.
+class QuietRequestLogController extends Fastify.LogController {
+  incomingRequest() {}
+
+  requestCompleted(error, request, reply, metadata) {
+    if (error) super.requestCompleted(error, request, reply, metadata);
+  }
+
+  routeNotFound() {}
+}
+
 export async function buildApp(options = {}) {
   const config = options.config || loadConfig();
-  const app = Fastify({ logger: options.logger || false });
+  const app = Fastify({
+    logger: options.logger || false,
+    logController: options.quietRequestLogging ? new QuietRequestLogController() : undefined,
+  });
   const db = options.db || (options.skipDb ? null : createDb(config.databaseFile));
 
   // The desktop webview exposes a deliberately tiny native IPC surface, so
@@ -73,7 +91,23 @@ export async function buildApp(options = {}) {
   });
 
   if (db && !options.skipDb && !options.db) {
-    await runMigrations(db, { logger: app.log });
+    let outcome;
+    try {
+      outcome = await runMigrations(db, {
+        logger: app.log,
+        onProgress: options.migrationProgress,
+        signal: options.signal,
+      });
+    } catch (error) {
+      await db.close?.();
+      throw error;
+    }
+    if (outcome.stopped) {
+      // A shutdown arrived between migrations: the finished ones are
+      // committed, the rest run on the next start.
+      await db.close?.();
+      throw Object.assign(new Error('Startup stopped by a shutdown request'), { code: 'PRAX_STARTUP_STOPPED' });
+    }
   }
 
   const libraryRepository = options.libraryRepository || (db ? createLibraryRepository(db) : null);
@@ -145,45 +179,93 @@ export async function buildApp(options = {}) {
 }
 
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const config = loadConfig();
-  const desktopPortFile = process.env.PRAX_DESKTOP_CONTROL === 'stdio'
-    ? process.env.PRAX_DESKTOP_PORT_FILE : null;
-  if (desktopPortFile) config.port = savedDesktopPort(desktopPortFile);
-  const app = await buildApp({ config, logger: true });
-  // The refusal lives on the listen path, not in loadConfig: non-listening
-  // CLIs (backup, migrate) read the same env and must keep working under a
-  // HOST=0.0.0.0 deployment.
-  assertSafeNetworkBinding(config);
-  const address = await app.listen({ host: config.host, port: config.port });
-  // The bind must be loud: a container publishing a loopback-bound port
-  // black-holes with otherwise healthy logs, and a non-loopback bind exposes
-  // an API with no built-in authentication.
-  app.log.info(`Prax bound to host ${config.host} port ${config.port} (${address})`);
-  if (!isLoopbackHost(config.host)) {
-    app.log.warn(
-      `Prax is reachable beyond this machine on host ${config.host} and has no built-in `
-      + 'authentication; restrict exposure at the network boundary (container/firewall/proxy)',
-    );
-  }
+  await main();
+}
 
+async function main() {
+  const config = loadConfig();
+  const desktop = process.env.PRAX_DESKTOP_CONTROL === 'stdio';
+  const desktopPortFile = desktop ? process.env.PRAX_DESKTOP_PORT_FILE : null;
+
+  // Shutdown is wired before the database opens, not after listen. A long
+  // upgrade migration can outlast a supervisor's startup budget; a quit
+  // request, a closed stdin or a signal that arrives meanwhile stops the run
+  // at the next migration boundary (each migration is its own transaction)
+  // and closes the database instead of waiting for a force-kill.
+  const startup = new AbortController();
+  let building = null;
   const shutdown = createGracefulShutdown({
-    close: () => app.close(),
+    async close() {
+      startup.abort();
+      const app = await building?.catch(() => null);
+      await app?.close();
+    },
     exit(code, error) {
-      if (error) app.log.error({ err: error }, 'graceful shutdown failed');
+      if (error) console.error('[prax] graceful shutdown failed', error);
       process.exit(code);
     },
   });
-
-  if (process.env.PRAX_DESKTOP_CONTROL === 'stdio') {
-    installDesktopStdinControl({ input: process.stdin, shutdown });
-    persistDesktopPort(desktopPortFile, address);
-    announceDesktopReady(process.stdout, address);
-  }
-
+  if (desktop) installDesktopStdinControl({ input: process.stdin, shutdown });
   // Graceful shutdown: close Fastify (which closes the embedded database via
   // the onClose hook) before exiting. The desktop wrapper and orchestrators
   // send SIGTERM; Ctrl-C sends SIGINT.
   for (const signal of ['SIGTERM', 'SIGINT']) {
     process.once(signal, () => { void shutdown(); });
   }
+
+  try {
+    if (desktopPortFile) config.port = savedDesktopPort(desktopPortFile);
+    building = buildApp({
+      config,
+      logger: true,
+      // The desktop log lives on the person's disk for the whole session. A
+      // line per request, with CLI search terms in its query string, is noise
+      // there; errors and lifecycle lines are still logged.
+      quietRequestLogging: desktop,
+      signal: startup.signal,
+      // Each migration boundary yields to the event loop so the shutdown
+      // wiring above can run; the desktop also reports it to the shell.
+      migrationProgress: desktop
+        ? (event) => reportDesktopStartupProgress(process.stdout, event)
+        : yieldToEventLoop,
+    });
+    const app = await building;
+    if (startup.signal.aborted) return;
+    // The refusal lives on the listen path, not in loadConfig: non-listening
+    // CLIs (backup, migrate) read the same env and must keep working under a
+    // HOST=0.0.0.0 deployment.
+    assertSafeNetworkBinding(config);
+    const address = await app.listen({ host: config.host, port: config.port });
+    // The bind must be loud: a container publishing a loopback-bound port
+    // black-holes with otherwise healthy logs, and a non-loopback bind exposes
+    // an API with no built-in authentication.
+    app.log.info(`Prax bound to host ${config.host} port ${config.port} (${address})`);
+    if (!isLoopbackHost(config.host)) {
+      app.log.warn(
+        `Prax is reachable beyond this machine on host ${config.host} and has no built-in `
+        + 'authentication; restrict exposure at the network boundary (container/firewall/proxy)',
+      );
+    }
+
+    if (desktop) {
+      persistDesktopPort(desktopPortFile, address);
+      announceDesktopReady(process.stdout, address);
+    }
+  } catch (error) {
+    if (startup.signal.aborted || error?.code === 'PRAX_STARTUP_STOPPED') {
+      await shutdown();
+      return;
+    }
+    // The stack goes to the log; the desktop shell reads the one structured
+    // line and tells the person what to do about it.
+    console.error('[prax] startup failed', error);
+    if (desktop) announceDesktopFailure(process.stdout, error, config.port);
+    const app = await building?.catch(() => null);
+    await app?.close().catch(() => {});
+    process.exit(1);
+  }
+}
+
+function yieldToEventLoop() {
+  return new Promise((resolve) => { setImmediate(resolve); });
 }

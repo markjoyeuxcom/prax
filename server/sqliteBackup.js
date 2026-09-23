@@ -6,7 +6,7 @@ import {
   fsyncSync,
   mkdirSync,
   openSync,
-  readFileSync,
+  readSync,
   renameSync,
   statSync,
   unlinkSync,
@@ -34,8 +34,24 @@ function syncFile(path) {
   try { fsyncSync(descriptor); } finally { closeSync(descriptor); }
 }
 
-function fileDigest(path) {
-  return createHash('sha256').update(readFileSync(path)).digest('hex');
+// Hashes in fixed-size reads: readFileSync throws ERR_FS_FILE_TOO_LARGE above
+// 2 GiB, which failed backup, validation and restore of a large workspace. It
+// stays synchronous because validate/restore are synchronous APIs.
+const DIGEST_CHUNK_BYTES = 1024 * 1024;
+
+export function fileDigest(path, { chunkBytes = DIGEST_CHUNK_BYTES } = {}) {
+  const hash = createHash('sha256');
+  const buffer = Buffer.allocUnsafe(chunkBytes);
+  const descriptor = openSync(path, 'r');
+  try {
+    let bytesRead;
+    while ((bytesRead = readSync(descriptor, buffer, 0, buffer.length, null)) > 0) {
+      hash.update(buffer.subarray(0, bytesRead));
+    }
+  } finally {
+    closeSync(descriptor);
+  }
+  return hash.digest('hex');
 }
 
 function pragmaValues(rows) {

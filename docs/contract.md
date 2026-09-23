@@ -112,6 +112,10 @@ the project list, and refuse ambiguous or unresolved ownership.
 Both supersession endpoints reject cyclic replacement chains with `409` /
 `supersession-cycle`. The database enforces the check atomically with insertion,
 including concurrent requests and edges that could become live after restore.
+Cycles stored before that check (migration `0031`) are repaired by migration
+`0038_repair_legacy_cycles_and_receipts.sql`: within a cycle only the edges that point from the
+newer document to the older one (by `created_at`, then id) are kept, so the newest document of
+a former cycle is active again. Edges outside a cycle are not changed.
 
 Other CLI/MCP setters and link operations without durable receipts retry only
 proven pre-connection failures (connection refused or DNS resolution failure).
@@ -153,6 +157,7 @@ an unknown write outcome instead of automatically reapplying an older intent.
 | `dueTime` | `"HH:MM"` \| `null` |
 | `deferredUntil` | ISO-8601 timestamp \| `null` (snooze target; hidden from Today until it passes) |
 | `recurrence` | `daily` \| `weekly` \| `monthly` \| `every:Nd` \| `every:Nw` \| `null` |
+| `recurrenceAnchorDay` | integer `1`–`31` \| `null` — the day-of-month a `monthly` series returns to (migration `0037`). Server-computed: set from `dueDate` when a monthly recurrence is set or a monthly task's due date is moved (re-sending an unchanged due date keeps it), carried to each successor, `null` for every other recurrence; never accepted from create/patch payloads; round-trips through export/import. Monthly tasks created before `0037` stay `null` until an edit or their next completion. |
 | `labels` | string array |
 | `checklist` | checklist item array (`label`, `completed`, plus runtime metadata) |
 | `sortOrder` | 32-bit signed integer |
@@ -164,12 +169,15 @@ an unknown write outcome instead of automatically reapplying an older intent.
 | `archivedAt` | ISO-8601 timestamp \| `null` |
 
 Completing a recurring task creates its successor, due one interval after `dueDate` and strictly
-after the requester's today. A `monthly` successor keeps the completed task's day-of-month,
-clamped to shorter months (the Jan 31 task completed on Apr 15 gives Apr 30, not Apr 28). The
-anchor is not stored separately, so a clamped successor (Feb 28) continues from its own day. "Today" comes from
+after the requester's today. A `monthly` successor lands on `recurrenceAnchorDay` clamped to
+shorter months, so a series set up on Jan 31 goes Feb 28 (29 in a leap year), Mar 31, Apr 30
+when each occurrence is completed on time, and the Jan 31 task completed on Apr 15 gives Apr 30.
+An unanchored (pre-`0037`) monthly task uses its due date's own day and passes that day to its
+successor as the anchor; a clamped 28th is never widened to a guessed 31st. "Today" comes from
 the optional `x-prax-local-date: YYYY-MM-DD` header, else `x-prax-time-zone: <IANA zone>` applied
 to the server clock, else the server's local date. The web app sends both on task PATCH, reorder,
-Inbox actions and assistant chat; the assistant's date context uses the same day.
+Inbox actions and assistant chat; the assistant's date context uses the same day. The `prax` CLI,
+the skill scripts and the MCP server send both on every request, from the machine they run on.
 
 ### Import (`POST /api/tasks/import`)
 
@@ -196,7 +204,9 @@ Inbox actions and assistant chat; the assistant's date context uses the same day
   `"medium"`), `status` (default `"planned"`), `dueDate`, `dueTime`, `deferredUntil`,
   `recurrence`, `labels`, `checklist`, `sortOrder` (defaults to the array index), `archivedAt`,
   `deferralCount` (non-negative integer; invalid values are rejected with `400`, not clamped),
-  `plannedFor` (`YYYY-MM-DD`), `carryCount` (non-negative integer; same 400-not-clamp rule).
+  `plannedFor` (`YYYY-MM-DD`), `carryCount` (non-negative integer; same 400-not-clamp rule),
+  `recurrenceAnchorDay` (integer `1`–`31` or `null`; other values are rejected with `400`; kept
+  only on a `monthly` task, and a record without it stays unanchored rather than guessing).
 - Checklist item IDs/timestamps are regenerated on import; label, completion state, and order are
   preserved.
 - Task IDs, `projectId`, `createdAt`, and `updatedAt` are runtime identity: they are regenerated or
@@ -209,6 +219,9 @@ Inbox actions and assistant chat; the assistant's date context uses the same day
   `"replace"` (clear the target project, then insert).
 - **Duplicate key** (skip mode): `[ title (lowercased), projectId, status, dueDate ]`.
 - Response: `{ "mode", "imported": <count>, "skipped": <count>, "tasks": [], "replayed"?: <boolean> }`.
+  The durable result receipt keeps the counts and the imported task ids, not copies of the tasks
+  (migration `0038` reduced older receipts to ids). A replay reports the original counts and the
+  imported tasks as they are now; a task permanently deleted since is absent from `tasks`.
 - In the shipped SQLite path, task rows, checklist rows, and a replace-mode project deletion commit
   in one transaction. A failed checklist write cannot leave a partially imported project.
 
@@ -646,8 +659,9 @@ semantic search, the context-pack, the `search_documents` MCP tool, and CLI/skil
 search to retired statuses (`superseded` / `deprecated`, never archived rows); `recall` has no
 such override. The raw `GET /api/library/documents` route is the exception: it returns **all
 non-archived statuses** unless `?status=active|superseded|deprecated` is passed, because the
-web UI lists superseded documents with their trust chips. Raw HTTP callers doing retrieval
-should pass `status=active`.
+web UI lists superseded documents with their trust chips. `status=all` is the explicit
+no-filter value; any other value returns `400` rather than silently listing every status.
+Raw HTTP callers doing retrieval should pass `status=active`.
 
 **Trust under no-auth:** `verified` is a workflow signal, not access control. Under the
 trusted-network model anyone on the network can call the verify endpoint. See
@@ -749,7 +763,8 @@ message (use `search_documents` instead) rather than an error. The supporting ro
 blank query, 503 when a configured backend is unreachable), `POST /api/library/embeddings/reindex`
 (rebuilds/repairs the index — add `?force=true` to re-embed **every** active document, e.g. after
 changing the embedding model or upgrading), `GET`/`PUT /api/settings/semantic-search` (status +
-the boolean toggle; the status carries `connected` plus `unavailableReason`, a sentence naming
+the boolean toggle: `enabled` must be a JSON `true`/`false`, required when no provider field is
+sent, and any other value returns `400` without changing anything; the status carries `connected` plus `unavailableReason`, a sentence naming
 why a configured backend is not usable when the backend can say — the on-device backend reports
 its missing runtime and the install command; other backends leave it `null`), and the provider
 settings routes under `/api/settings` — are **HTTP-only**
@@ -831,6 +846,18 @@ The shapes above are locked by characterization tests under `tests/contract/`, r
 you either revert it or update the test (and this document) **on purpose**. They are a safety
 net for evolving the formats carefully — not a 1.0 stability guarantee.
 
+## Request size limits
+
+HTTP request bodies are limited to **1 MiB** (1,048,576 bytes of JSON, Fastify's default),
+except `POST /api/tasks/import` and staged import chunks (50 MiB each). This is a deliberate
+bound, not an accident of configuration: a document write — create, update, upsert-by-title,
+Inbox and assistant writes through the same routes — therefore carries a Markdown body of just
+under 1 MiB of UTF-8, less where JSON escaping expands it (quotes, backslashes, newlines and
+other control characters). A larger body returns `413` with
+`code: "FST_ERR_CTP_BODY_TOO_LARGE"` and nothing is written. Keep larger material as several
+linked documents, or raise the limit deliberately together with the context-pack and embedding
+budgets that read whole bodies.
+
 ## Staged task imports
 
 The UI uses this protocol for 500 or more tasks, or a payload of at least 512 KiB. Each upload
@@ -850,6 +877,10 @@ mutation occurs before commit.
    Request IDs cannot cross between direct imports and staged sessions.
 4. `DELETE /api/tasks/import-sessions/:requestId` cancels an open upload. It cannot undo a
    committed import or erase its replay protection.
+
+An open session left untouched for 7 days expires: its staged chunks are deleted and it becomes
+`cancelled`, so further chunks or a commit return `409` and its `requestId` stays reserved.
+Expiry is applied whenever a session is created, read, extended or committed.
 
 ## Retrieval freshness and empty-result semantics
 
@@ -876,11 +907,18 @@ missing or archived document is `404`. Like every body write it refreshes the do
 
 Proposed write calls carry a server-generated `approvalId` in canonical history. The browser
 persists pending history and identity before executing approval. Each write claims a durable
-receipt before invoking its tool; matching concurrent/repeated approvals reuse the result, while
-changed intent under the same identity is rejected. If a process stops between execution and
+receipt before invoking its tool; matching concurrent approvals share the result, and a later
+repeat returns the recorded outcome — a fixed note saying the action completed or reported an
+error, with the call's `id`, `name` and `isError` — never the tool's original output, which could
+hold a document body or task text that outlives a permanent delete (migration `0038` compacted
+older receipts). Changed intent under the same identity is rejected. If a process stops between execution and
 receipt completion, the result is explicitly unknown and the old approval is never blindly
 re-executed. The person must inspect canonical workspace state before proposing a replacement.
 The browser retains uncertain approvals across reload and offers a safe retry of the same action.
+
+The server keeps the newest 120 turns of an echoed conversation, cut so the window opens on a
+person's turn (a tool result is never separated from its call). Any turn or tool result longer
+than 20,000 characters is cut with a trailing `[… N characters clipped]` note.
 
 Model-proposed tool input is parsed with the tool's own schema (unknown keys rejected) before it
 is proposed and again before it runs; invalid calls are answered with an error result and never

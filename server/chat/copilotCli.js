@@ -16,11 +16,11 @@ import { splitSystem } from './messages.js';
 //
 // The prompt (system instructions, conversation, Library bodies) is piped over
 // stdin, never passed in argv where other local users can read it through ps
-// and a long one hits the per-argument limit (E2BIG). --prompt carries only a
-// constant pointer to that input so the run stays non-interactive.
+// and a long one hits the per-argument limit (E2BIG). Piped stdin is itself a
+// non-interactive prompt source; with --prompt set, Copilot ignores stdin
+// entirely (verified live against Copilot CLI 1.0.85), so no --prompt is sent.
 
 const NO_TOOLS_PROMPT = 'Answer directly as plain text. Do not use any tools.';
-const STDIN_PROMPT = 'The complete request is the text provided on standard input. Follow it. Answer directly as plain text. Do not use any tools.';
 const FENCE_TOOL = 'fetch_copilot_cli_documentation';
 
 function defaultCandidates(env = process.env) {
@@ -69,7 +69,6 @@ export function serializeCopilotPrompt(messages) {
 
 export function buildCopilotArgs({ model }) {
   return [
-    '--prompt', STDIN_PROMPT,
     '--silent',
     '--output-format', 'text',
     '--stream', 'off',

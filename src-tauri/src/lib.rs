@@ -34,6 +34,10 @@ use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
 const READY_PREFIX: &str = "PRAX_DESKTOP_READY ";
+// A failed start's one structured line (server/desktopLifecycle.js).
+const FAILED_PREFIX: &str = "PRAX_DESKTOP_FAILED ";
+// Upgrade migrations reported before the server listens.
+const PROGRESS_PREFIX: &str = "PRAX_DESKTOP_PROGRESS ";
 // System-wide capture summon. Contended defaults are useless — this chord is
 // rarely claimed; registration failure surfaces in the tray tooltip. The
 // USER's chord lives in app_settings (fetched after the server is ready);
@@ -44,6 +48,9 @@ const CAPTURE_SHORTCUT_DEFAULT: &str = "CmdOrCtrl+Shift+Space";
 // unregister it before registering the replacement.
 struct CaptureShortcut(Mutex<Option<String>>);
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
+// While the child reports upgrade migrations, each report renews this budget
+// instead of the 30-second one: a long upgrade is progress, not a hung start.
+const MIGRATION_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_SERVER_LOG_BYTES: u64 = 5 * 1024 * 1024;
 
@@ -65,6 +72,8 @@ struct ShellLog(PathBuf);
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ServerPhase {
     Starting,
+    // Running an upgrade migration; set again for each one it reports.
+    Migrating,
     Ready(u16),
     Failed(String),
     Terminated(String),
@@ -96,8 +105,15 @@ impl ServerProcess {
         self.phase_changed.notify_all();
     }
 
-    fn wait_for_ready(&self, timeout: Duration) -> Result<u16, String> {
-        let deadline = Instant::now() + timeout;
+    // Wait for readiness within `startup`. Each migration the child reports
+    // renews a `migration` budget instead; once migrations finish the startup
+    // budget starts again, so a hang after the upgrade is still caught.
+    fn wait_for_ready(&self, startup: Duration, migration: Duration) -> Result<u16, String> {
+        let mut deadline = Instant::now() + startup;
+        let mut migrating = false;
+        // False only after a timed-out wait: then nothing was reported and
+        // the current deadline stands.
+        let mut notified = true;
         let mut phase = self.phase.lock().unwrap();
         loop {
             match &*phase {
@@ -105,25 +121,37 @@ impl ServerProcess {
                 ServerPhase::Failed(detail) | ServerPhase::Terminated(detail) => {
                     return Err(detail.clone())
                 }
-                ServerPhase::Starting => {}
+                ServerPhase::Migrating if notified => {
+                    migrating = true;
+                    deadline = Instant::now() + migration;
+                }
+                ServerPhase::Starting if notified && migrating => {
+                    migrating = false;
+                    deadline = Instant::now() + startup;
+                }
+                ServerPhase::Starting | ServerPhase::Migrating => {}
             }
 
             let now = Instant::now();
             if now >= deadline {
-                return Err(
-                    "The local server did not announce readiness within 30 seconds.".into(),
-                );
+                return Err(if migrating {
+                    format!(
+                        "Prax's database upgrade reported no progress for {} minutes. Finished upgrade steps are kept; restart Prax to continue.",
+                        migration.as_secs() / 60
+                    )
+                } else {
+                    format!(
+                        "The local server did not announce readiness within {} seconds. Restart Prax to try again.",
+                        startup.as_secs()
+                    )
+                });
             }
             let (next, result) = self
                 .phase_changed
                 .wait_timeout(phase, deadline.saturating_duration_since(now))
                 .unwrap();
             phase = next;
-            if result.timed_out() && matches!(*phase, ServerPhase::Starting) {
-                return Err(
-                    "The local server did not announce readiness within 30 seconds.".into(),
-                );
-            }
+            notified = !result.timed_out();
         }
     }
 
@@ -196,15 +224,55 @@ fn persist_export(path: &Path, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+// The suggested name travels in this header, percent-encoded by the page
+// (encodeURIComponent), because the invoke body is the archive itself.
+const EXPORT_FILENAME_HEADER: &str = "prax-export-filename";
+
+fn decode_export_filename(value: &str) -> String {
+    let mut url: tauri::Url = BUNDLED_ORIGIN
+        .parse()
+        .expect("bundled origin always parses");
+    url.set_query(Some(&format!("name={value}")));
+    url.query_pairs()
+        .find(|(key, _)| key == "name")
+        .map(|(_, name)| name.into_owned())
+        .unwrap_or_default()
+}
+
+// The archive arrives as a raw invoke body: the bytes as they are, not a JSON
+// array of numbers (a 50 MB archive became a 179 MB body and ~700 MB of page
+// heap that way). A webview that falls back to postMessage IPC can only send
+// JSON, so that shape is still accepted there.
+fn export_archive_bytes(body: &tauri::ipc::InvokeBody) -> Result<Vec<u8>, String> {
+    match body {
+        tauri::ipc::InvokeBody::Raw(bytes) => Ok(bytes.clone()),
+        tauri::ipc::InvokeBody::Json(value) => value
+            .as_array()
+            .and_then(|items| {
+                items
+                    .iter()
+                    .map(|item| item.as_u64().and_then(|byte| u8::try_from(byte).ok()))
+                    .collect::<Option<Vec<u8>>>()
+            })
+            .ok_or_else(|| "The Library archive did not arrive as bytes.".to_string()),
+    }
+}
+
 // The webview never supplies a filesystem path. This command always obtains
 // the destination through the native Save dialog, then atomically replaces it
 // from a same-directory temporary file once every archive byte is durable.
 #[tauri::command]
 async fn save_library_export(
     window: tauri::Window,
-    file_name: String,
-    bytes: Vec<u8>,
+    request: tauri::ipc::Request<'_>,
 ) -> Result<Option<String>, String> {
+    let file_name = request
+        .headers()
+        .get(EXPORT_FILENAME_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(decode_export_filename)
+        .unwrap_or_default();
+    let bytes = export_archive_bytes(request.body())?;
     let suggested_name = normalize_export_filename(&file_name);
     let dialog = window
         .app_handle()
@@ -283,6 +351,60 @@ fn parse_ready_line(line: &[u8]) -> Result<Option<u16>, String> {
     Ok(Some(port))
 }
 
+// One field of the flat, single-line JSON object on a structured child line:
+// a string without escapes, or an unsigned integer.
+fn json_field<'a>(payload: &'a str, key: &str) -> Option<&'a str> {
+    let marker = format!("\"{key}\":");
+    let rest = payload[payload.find(&marker)? + marker.len()..].trim_start();
+    if let Some(quoted) = rest.strip_prefix('"') {
+        return quoted.find('"').map(|end| &quoted[..end]);
+    }
+    let end = rest
+        .find(|character: char| !character.is_ascii_digit())
+        .unwrap_or(rest.len());
+    (end > 0).then(|| &rest[..end])
+}
+
+// What the person reads on the recovery screen for a start the child itself
+// reported as failed. Each message ends with what to do next.
+fn startup_failure_message(reason: &str, port: Option<u16>) -> String {
+    match (reason, port) {
+        ("port-in-use", Some(port)) => format!(
+            "Another program is using port {port}. Prax keeps that local address so this installation's drafts and preferences stay available, and will not start on a different one. Quit the program using port {port} (restarting the computer also frees it), then restart Prax."
+        ),
+        ("port-in-use", None) => {
+            "Another program took the local port Prax was given. Restart Prax to try again.".into()
+        }
+        ("migration-failed", _) => "Prax could not upgrade its database; the failed step was rolled back and your data is unchanged by it. Restart Prax to try again, and keep the diagnostic log if it fails again.".into(),
+        (other, _) => format!("The local server could not start ({other}). Restart Prax to try again."),
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ChildReport {
+    Failed(String),
+    Migrating,
+    Migrated,
+}
+
+fn parse_child_report(line: &[u8]) -> Option<ChildReport> {
+    let value = String::from_utf8_lossy(line);
+    let trimmed = value.trim();
+    if let Some(payload) = trimmed.strip_prefix(FAILED_PREFIX) {
+        let reason = json_field(payload, "reason").unwrap_or("startup-error");
+        let port = json_field(payload, "port")
+            .and_then(|port| port.parse::<u16>().ok())
+            .filter(|port| *port > 0);
+        return Some(ChildReport::Failed(startup_failure_message(reason, port)));
+    }
+    let payload = trimmed.strip_prefix(PROGRESS_PREFIX)?;
+    match json_field(payload, "phase")? {
+        "migrating" => Some(ChildReport::Migrating),
+        "migrated" => Some(ChildReport::Migrated),
+        _ => None,
+    }
+}
+
 fn app_origin(url: &tauri::Url) -> bool {
     (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
         || ((url.scheme() == "http" || url.scheme() == "https")
@@ -351,12 +473,71 @@ fn rotate_log(path: &Path, max_bytes: u64) -> std::io::Result<bool> {
     if metadata.len() <= max_bytes {
         return Ok(false);
     }
+    rotate_now(path)?;
+    Ok(true)
+}
+
+fn rotate_now(path: &Path) -> std::io::Result<()> {
     let rotated = path.with_extension("log.1");
     if rotated.exists() {
         std::fs::remove_file(&rotated)?;
     }
-    std::fs::rename(path, rotated)?;
-    Ok(true)
+    std::fs::rename(path, rotated)
+}
+
+// The sidecar's log, bounded within a session and not only at spawn: a line
+// that would take the file past its cap first rotates it to server.log.1.
+// The size comes from the open file, so the shell's own lines (appended by
+// path in log_shell_event, which then follows the rotation) count too.
+struct BoundedLog {
+    path: PathBuf,
+    max_bytes: u64,
+    file: Option<std::fs::File>,
+}
+
+impl BoundedLog {
+    fn open(path: PathBuf, max_bytes: u64) -> Self {
+        let _ = rotate_log(&path, max_bytes);
+        let mut log = Self {
+            path,
+            max_bytes,
+            file: None,
+        };
+        log.reopen();
+        log
+    }
+
+    fn reopen(&mut self) {
+        self.file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)
+            .ok();
+        if self.file.is_some() {
+            let _ = set_owner_only(&self.path, 0o600);
+        }
+    }
+
+    fn write_line(&mut self, line: &[u8]) {
+        // Child output lines arrive with their newline; write exactly one.
+        let line = line.strip_suffix(b"\n").unwrap_or(line);
+        let line = line.strip_suffix(b"\r").unwrap_or(line);
+        let size = self
+            .file
+            .as_ref()
+            .and_then(|file| file.metadata().ok())
+            .map_or(0, |metadata| metadata.len());
+        if size > 0 && size + line.len() as u64 + 1 > self.max_bytes {
+            // Close before renaming; Windows cannot rename an open file.
+            self.file = None;
+            let _ = rotate_now(&self.path);
+            self.reopen();
+        }
+        if let Some(file) = self.file.as_mut() {
+            let _ = file.write_all(line);
+            let _ = file.write_all(b"\n");
+        }
+    }
 }
 
 fn prepare_data_dir(
@@ -455,37 +636,34 @@ fn spawn_server(app: &AppHandle, data_dir: &Path) -> Result<(), Box<dyn std::err
     // Pump sidecar output into a bounded log under the data dir and derive
     // lifecycle state only from events produced by this exact child.
     let log_path: PathBuf = logs_dir.join("server.log");
-    let _ = rotate_log(&log_path, MAX_SERVER_LOG_BYTES);
     let handle = app.clone();
     let data_dir = data_dir.to_path_buf();
     tauri::async_runtime::spawn(async move {
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_path)
-            .ok();
-        if file.is_some() {
-            let _ = set_owner_only(&log_path, 0o600);
-        }
+        let mut log = BoundedLog::open(log_path.clone(), MAX_SERVER_LOG_BYTES);
         while let Some(event) = rx.recv().await {
             match event {
                 CommandEvent::Stdout(line) | CommandEvent::Stderr(line) => {
+                    let process = handle.state::<ServerProcess>();
                     match parse_ready_line(&line) {
                         Ok(Some(port)) => {
                             tighten_database_files(&data_dir);
-                            handle
-                                .state::<ServerProcess>()
-                                .set_phase(ServerPhase::Ready(port));
+                            process.set_phase(ServerPhase::Ready(port));
                         }
-                        Err(detail) => handle
-                            .state::<ServerProcess>()
-                            .set_phase(ServerPhase::Failed(detail)),
-                        Ok(None) => {}
+                        Err(detail) => process.set_phase(ServerPhase::Failed(format!(
+                            "{detail} Restart Prax to try again."
+                        ))),
+                        Ok(None) => match parse_child_report(&line) {
+                            Some(ChildReport::Failed(message)) => {
+                                process.set_phase(ServerPhase::Failed(message))
+                            }
+                            Some(ChildReport::Migrating) => {
+                                process.set_phase(ServerPhase::Migrating)
+                            }
+                            Some(ChildReport::Migrated) => process.set_phase(ServerPhase::Starting),
+                            None => {}
+                        },
                     }
-                    if let Some(file) = file.as_mut() {
-                        let _ = file.write_all(&line);
-                        let _ = file.write_all(b"\n");
-                    }
+                    log.write_line(&line);
                 }
                 CommandEvent::Terminated(status) => {
                     let code = status
@@ -494,20 +672,38 @@ fn spawn_server(app: &AppHandle, data_dir: &Path) -> Result<(), Box<dyn std::err
                     let signal = status
                         .signal
                         .map_or_else(|| "none".to_string(), |value| value.to_string());
-                    let detail = format!("The local server exited (code {code}, signal {signal}).");
-                    if let Some(file) = file.as_mut() {
-                        let _ = writeln!(file, "[prax] server-exit code={code} signal={signal}");
-                    }
+                    let exited = format!("The local server exited (code {code}, signal {signal}).");
+                    log.write_line(
+                        format!("[prax] server-exit code={code} signal={signal}").as_bytes(),
+                    );
                     let process = handle.state::<ServerProcess>();
                     *process.child.lock().unwrap() = None;
-                    process.set_phase(ServerPhase::Terminated(detail.clone()));
+                    // An exit before readiness is a failed start: keep the
+                    // reason the child gave, so the startup waiter and this
+                    // handler show the same advice whichever reaches it first.
+                    let previous = process.phase.lock().unwrap().clone();
+                    let startup_failure = match previous {
+                        ServerPhase::Ready(_) => None,
+                        ServerPhase::Failed(reason) => Some(reason),
+                        _ => Some(format!("{exited} Restart Prax to try again.")),
+                    };
+                    process.set_phase(ServerPhase::Terminated(
+                        startup_failure.clone().unwrap_or_else(|| exited.clone()),
+                    ));
                     if !process.expected_stop.load(Ordering::SeqCst) {
                         let log = log_path.to_string_lossy();
-                        show_recovery(
-                            &handle,
-                            "Prax's local server stopped",
-                            format!("{detail} Restart Prax to recover. Diagnostic log: {log}"),
-                        );
+                        match startup_failure {
+                            None => show_recovery(
+                                &handle,
+                                "Prax's local server stopped",
+                                format!("{exited} Restart Prax to recover. Diagnostic log: {log}"),
+                            ),
+                            Some(reason) => show_recovery(
+                                &handle,
+                                "Prax could not start",
+                                format!("{reason} Diagnostic log: {log}"),
+                            ),
+                        }
                     }
                     break;
                 }
@@ -1014,6 +1210,9 @@ enum SmokeExit {
     Terminate,
     // SIGKILL the sidecar after the main window opened; expect recovery.
     Crash,
+    // Open the capture bar first, then crash: recovery must replace the dead
+    // bar, and summoning capture again must bring recovery forward.
+    CaptureCrash,
 }
 
 fn smoke_exit_from_args<I>(args: I) -> Result<SmokeExit, String>
@@ -1027,8 +1226,9 @@ where
                 Some("menu-quit") => Ok(SmokeExit::MenuQuit),
                 Some("terminate") if cfg!(target_os = "macos") => Ok(SmokeExit::Terminate),
                 Some("crash") => Ok(SmokeExit::Crash),
+                Some("capture-crash") => Ok(SmokeExit::CaptureCrash),
                 _ => Err(
-                    "--desktop-smoke-exit takes menu-quit, crash or (macOS only) terminate"
+                    "--desktop-smoke-exit takes menu-quit, crash, capture-crash or (macOS only) terminate"
                         .to_string(),
                 ),
             };
@@ -1080,32 +1280,112 @@ fn run_smoke_exit(app: AppHandle, exit: SmokeExit) {
             unreachable!("terminate smoke is refused on this platform");
         }
         SmokeExit::Crash => {
-            let pid = app
-                .state::<ServerProcess>()
-                .child
-                .lock()
-                .unwrap()
-                .as_ref()
-                .map(CommandChild::pid);
-            let killed = pid.is_some_and(kill_sidecar_like_a_crash);
-            let deadline = Instant::now() + Duration::from_secs(15);
-            let mut shown = false;
-            while killed && !shown && Instant::now() < deadline {
-                std::thread::sleep(Duration::from_millis(200));
-                shown = app.get_webview_window("main").is_some_and(|window| {
-                    window.is_visible().unwrap_or(false)
-                        && window.url().is_ok_and(|url| is_recovery_url(&url))
-                });
-            }
-            if shown {
-                println!("PRAX_DESKTOP_SMOKE recovery-shown");
+            let shown = crash_sidecar(&app)
+                && smoke_wait(Duration::from_secs(15), || main_shows_recovery(&app));
+            if smoke_checkpoint(&app, shown, "recovery-shown") {
                 on_app_menu_event(&app, APP_MENU_QUIT);
-            } else {
-                eprintln!("PRAX_DESKTOP_SMOKE recovery-missing");
-                app.exit(1);
+            }
+        }
+        SmokeExit::CaptureCrash => {
+            // The tray item and the global shortcut both summon through here.
+            open_capture_window(&app);
+            // The bar hides itself when it loses focus, and a smoke launch is
+            // not always the frontmost app, so it can vanish as it appears.
+            // Summon it again then, as a person pressing the shortcut would.
+            let mut polls = 0;
+            let opened = smoke_wait(Duration::from_secs(10), || {
+                polls += 1;
+                if window_visible(&app, "capture") {
+                    return true;
+                }
+                if polls % 5 == 0 {
+                    open_capture_window(&app);
+                }
+                false
+            });
+            if !opened {
+                eprintln!(
+                    "PRAX_DESKTOP_SMOKE capture window exists={} visible={} focused={:?}",
+                    app.get_webview_window("capture").is_some(),
+                    window_visible(&app, "capture"),
+                    app.get_webview_window("capture")
+                        .map(|window| window.is_focused())
+                );
+            }
+            if !smoke_checkpoint(&app, opened, "capture-opened") {
+                return;
+            }
+            let recovered = crash_sidecar(&app)
+                && smoke_wait(Duration::from_secs(15), || {
+                    main_shows_recovery(&app) && !window_visible(&app, "capture")
+                });
+            if !smoke_checkpoint(&app, recovered, "capture-hidden-recovery-shown") {
+                return;
+            }
+            // Hide the recovery window, as a close-to-tray before the crash
+            // would have, so the next summon has to bring it forward itself.
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.hide();
+            }
+            let hidden = smoke_wait(Duration::from_secs(5), || !window_visible(&app, "main"));
+            open_capture_window(&app);
+            let forward = hidden
+                && smoke_wait(Duration::from_secs(10), || {
+                    main_shows_recovery(&app) && !window_visible(&app, "capture")
+                });
+            if smoke_checkpoint(&app, forward, "capture-summon-shows-recovery") {
+                on_app_menu_event(&app, APP_MENU_QUIT);
             }
         }
     }
+}
+
+// Smoke polling runs on the smoke thread, never the main thread: each window
+// query below is a round trip through the event loop.
+fn smoke_wait(limit: Duration, mut check: impl FnMut() -> bool) -> bool {
+    let deadline = Instant::now() + limit;
+    loop {
+        if check() {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
+fn window_visible(app: &AppHandle, label: &str) -> bool {
+    app.get_webview_window(label)
+        .is_some_and(|window| window.is_visible().unwrap_or(false))
+}
+
+fn main_shows_recovery(app: &AppHandle) -> bool {
+    app.get_webview_window("main").is_some_and(|window| {
+        window.is_visible().unwrap_or(false) && window.url().is_ok_and(|url| is_recovery_url(&url))
+    })
+}
+
+fn crash_sidecar(app: &AppHandle) -> bool {
+    let pid = app
+        .state::<ServerProcess>()
+        .child
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(CommandChild::pid);
+    pid.is_some_and(kill_sidecar_like_a_crash)
+}
+
+// Report one smoke checkpoint on stdout; a missed one ends the launch with 1.
+fn smoke_checkpoint(app: &AppHandle, passed: bool, name: &str) -> bool {
+    if passed {
+        println!("PRAX_DESKTOP_SMOKE {name}");
+    } else {
+        eprintln!("PRAX_DESKTOP_SMOKE {name}-missing");
+        app.exit(1);
+    }
+    passed
 }
 
 // Holding a letter key on macOS opens the accent picker instead of
@@ -1196,13 +1476,13 @@ pub fn run() {
             std::thread::spawn(move || {
                 let ready = handle
                     .state::<ServerProcess>()
-                    .wait_for_ready(STARTUP_TIMEOUT)
+                    .wait_for_ready(STARTUP_TIMEOUT, MIGRATION_TIMEOUT)
                     .and_then(|port| {
                         if wait_until_http_ready(port, Duration::from_secs(5)) {
                             Ok(port)
                         } else {
                             Err(format!(
-                                "The local server announced port {port}, but /readyz did not become healthy."
+                                "The local server announced port {port}, but /readyz did not become healthy. Restart Prax to try again."
                             ))
                         }
                     });
@@ -1225,15 +1505,15 @@ pub fn run() {
                         run_smoke_exit(handle, smoke_exit);
                     }
                 } else {
-                    let reason = ready.err().unwrap_or_else(|| "Unknown startup failure.".into());
+                    // Every startup reason already ends with its own advice.
+                    let reason = ready.err().unwrap_or_else(|| {
+                        "Unknown startup failure. Restart Prax to try again.".into()
+                    });
                     let logs = data_dir.join("logs").join("server.log");
                     show_recovery(
                         &handle,
                         "Prax could not start",
-                        format!(
-                            "{reason} Restart Prax to try again. Diagnostic log: {}",
-                            logs.to_string_lossy()
-                        ),
+                        format!("{reason} Diagnostic log: {}", logs.to_string_lossy()),
                     );
                 }
             });
@@ -1262,11 +1542,144 @@ mod tests {
     use std::fs::{self, File};
     use std::io::Write;
 
+    use std::time::Duration;
+
     use super::{
-        is_recovery_url, navigation_allowed, normalize_export_filename, parse_ready_line,
-        parse_shortcut_response, recovery_url, rotate_log, smoke_data_dir_from_args,
-        smoke_exit_from_args, SmokeExit,
+        decode_export_filename, export_archive_bytes, is_recovery_url, navigation_allowed,
+        normalize_export_filename, parse_child_report, parse_ready_line, parse_shortcut_response,
+        recovery_url, rotate_log, smoke_data_dir_from_args, smoke_exit_from_args, BoundedLog,
+        ChildReport, ServerPhase, ServerProcess, SmokeExit,
     };
+
+    #[test]
+    fn a_port_collision_explains_itself_and_names_the_port() {
+        let Some(ChildReport::Failed(message)) = parse_child_report(
+            b"PRAX_DESKTOP_FAILED {\"reason\":\"port-in-use\",\"port\":43127}\n",
+        ) else {
+            panic!("a failed start is a structured report");
+        };
+        assert!(message.contains("Another program is using port 43127"));
+        assert!(message.contains("Quit the program using port 43127"));
+        assert!(!message.starts_with("Restart Prax"));
+
+        let Some(ChildReport::Failed(unnamed)) =
+            parse_child_report(b"PRAX_DESKTOP_FAILED {\"reason\":\"port-in-use\"}")
+        else {
+            panic!("a collision without a saved port is still a failure");
+        };
+        assert!(unnamed.contains("Restart Prax to try again"));
+        let Some(ChildReport::Failed(other)) =
+            parse_child_report(b"PRAX_DESKTOP_FAILED {\"reason\":\"startup-error\"}")
+        else {
+            panic!("any other reason is a failure too");
+        };
+        assert_eq!(
+            other,
+            "The local server could not start (startup-error). Restart Prax to try again."
+        );
+        assert!(matches!(
+            parse_child_report(b"PRAX_DESKTOP_FAILED {\"reason\":\"migration-failed\"}"),
+            Some(ChildReport::Failed(message)) if message.contains("rolled back")
+        ));
+    }
+
+    #[test]
+    fn migration_progress_is_a_structured_report_and_ordinary_lines_are_not() {
+        assert_eq!(
+            parse_child_report(
+                b"PRAX_DESKTOP_PROGRESS {\"phase\":\"migrating\",\"index\":2,\"total\":9}\n"
+            ),
+            Some(ChildReport::Migrating)
+        );
+        assert_eq!(
+            parse_child_report(b"PRAX_DESKTOP_PROGRESS {\"phase\":\"migrated\",\"total\":9}"),
+            Some(ChildReport::Migrated)
+        );
+        assert_eq!(
+            parse_child_report(b"PRAX_DESKTOP_PROGRESS {\"phase\":\"other\"}"),
+            None
+        );
+        assert_eq!(
+            parse_child_report(b"{\"level\":30,\"msg\":\"PRAX_DESKTOP_FAILED\"}"),
+            None
+        );
+        assert_eq!(parse_child_report(b"PRAX_DESKTOP_READY {\"port\":1}"), None);
+    }
+
+    #[test]
+    fn reported_migrations_extend_the_startup_budget_and_a_silent_start_still_times_out() {
+        let process = std::sync::Arc::new(ServerProcess::new());
+        let reporter = std::sync::Arc::clone(&process);
+        let child = std::thread::spawn(move || {
+            // Six reports 60 ms apart outlast the 100 ms startup budget.
+            for _ in 0..6 {
+                std::thread::sleep(Duration::from_millis(60));
+                reporter.set_phase(ServerPhase::Migrating);
+            }
+            reporter.set_phase(ServerPhase::Starting);
+            std::thread::sleep(Duration::from_millis(20));
+            reporter.set_phase(ServerPhase::Ready(43127));
+        });
+        assert_eq!(
+            process.wait_for_ready(Duration::from_millis(100), Duration::from_millis(200)),
+            Ok(43127)
+        );
+        child.join().unwrap();
+
+        // A migration that stops reporting runs out of its own budget.
+        let stalled = ServerProcess::new();
+        stalled.set_phase(ServerPhase::Migrating);
+        let error = stalled
+            .wait_for_ready(Duration::from_millis(50), Duration::from_millis(120))
+            .unwrap_err();
+        assert!(error.contains("database upgrade"), "{error}");
+
+        let silent = ServerProcess::new();
+        let error = silent
+            .wait_for_ready(Duration::from_millis(50), Duration::from_secs(60))
+            .unwrap_err();
+        assert!(error.contains("did not announce readiness"), "{error}");
+    }
+
+    #[test]
+    fn the_session_log_rotates_when_a_line_would_pass_its_cap() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("server.log");
+        let mut log = BoundedLog::open(path.clone(), 32);
+        log.write_line(b"0123456789\n");
+        log.write_line(b"0123456789");
+        assert!(!dir.path().join("server.log.1").exists());
+        log.write_line(b"third line");
+        assert_eq!(
+            fs::read(dir.path().join("server.log.1")).unwrap(),
+            b"0123456789\n0123456789\n"
+        );
+        assert_eq!(fs::read(&path).unwrap(), b"third line\n");
+        for _ in 0..20 {
+            log.write_line(b"0123456789");
+        }
+        assert!(fs::metadata(&path).unwrap().len() <= 32);
+        assert!(fs::metadata(dir.path().join("server.log.1")).unwrap().len() <= 32);
+    }
+
+    #[test]
+    fn the_export_travels_as_raw_bytes_with_its_name_in_a_header() {
+        let raw = tauri::ipc::InvokeBody::from(vec![0_u8, 1, 255]);
+        assert_eq!(export_archive_bytes(&raw).unwrap(), vec![0, 1, 255]);
+        assert_eq!(
+            decode_export_filename("prax-library-all-2026-09-23.zip"),
+            "prax-library-all-2026-09-23.zip"
+        );
+        // encodeURIComponent output for a renamed, non-ASCII file.
+        assert_eq!(
+            decode_export_filename("Biblioth%C3%A8que%20%26%20notes%2B1.zip"),
+            "Bibliothèque & notes+1.zip"
+        );
+        assert_eq!(
+            normalize_export_filename(&decode_export_filename("..%2F..%2Fescape")),
+            "escape.zip"
+        );
+    }
 
     #[cfg(target_os = "macos")]
     #[test]
@@ -1395,6 +1808,14 @@ mod tests {
         assert_eq!(
             smoke_exit_from_args(["prax".into(), "--desktop-smoke-exit".into(), "crash".into()]),
             Ok(SmokeExit::Crash)
+        );
+        assert_eq!(
+            smoke_exit_from_args([
+                "prax".into(),
+                "--desktop-smoke-exit".into(),
+                "capture-crash".into()
+            ]),
+            Ok(SmokeExit::CaptureCrash)
         );
         assert_eq!(
             smoke_exit_from_args([

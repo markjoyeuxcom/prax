@@ -25,7 +25,7 @@ async function inject(app, method, url, payload, status = 200) {
 }
 
 async function upgrade(db) {
-  assert.deepEqual((await runMigrations(db, { logger: SILENT })).applied, [MIGRATION, '0033_inbox_action_receipts.sql', '0034_record_creation_receipts.sql', '0035_single_line_document_titles.sql', '0036_add_task_activity_agent.sql']);
+  assert.deepEqual((await runMigrations(db, { logger: SILENT })).applied, [MIGRATION, '0033_inbox_action_receipts.sql', '0034_record_creation_receipts.sql', '0035_single_line_document_titles.sql', '0036_add_task_activity_agent.sql', '0037_add_task_recurrence_anchor_day.sql', '0038_repair_legacy_cycles_and_receipts.sql']);
   assert.deepEqual((await runMigrations(db, { logger: SILENT })).applied, []);
   assert.deepEqual((await db.query('pragma foreign_key_check')).rows, []);
   return (await db.query("select * from projects where slug = 'inbox'")).rows[0];

@@ -32,13 +32,39 @@ test('the Linux x64 job builds on the homelab runner: verify, build, test, packa
   const linux = job('desktop-linux-x64');
   assert.match(linux, /tags: \[homelab\]/, 'the x64 build runs on the self-hosted homelab runner');
   assert.match(linux, /npm run desktop:verify -- --tag "\$CI_COMMIT_TAG"/);
-  assert.match(linux, /cargo build --manifest-path src-tauri\/Cargo\.toml\n[\s\S]*?cargo test --manifest-path src-tauri\/Cargo\.toml --lib/);
+  assert.match(linux, /cargo build --locked --manifest-path src-tauri\/Cargo\.toml\n[\s\S]*?cargo test --locked --manifest-path src-tauri\/Cargo\.toml --lib/);
   assert.match(linux, /npx tauri build --bundles deb,appimage/);
   assert.match(linux, /npm run desktop:smoke/);
   assert.match(linux, /xvfb xauth dbus-x11/, 'the smoke needs xvfb and xauth in the container');
   assert.match(linux, /cp src-tauri\/target\/release\/bundle\/deb\/\*\.deb src-tauri\/target\/release\/bundle\/appimage\/\*\.AppImage release-assets\//);
   assert.match(linux, /rules: \*rules-desktop/);
   assert.doesNotMatch(pipeline, /desktop-linux-arm64|saas-linux-medium-arm64/, 'Linux ARM64 packages are no longer built');
+});
+
+test('both desktop jobs ship a pinned, checksummed Node and build with a pinned Rust against the lockfile', () => {
+  // prepare-sidecar copies the building Node into the package, so neither
+  // job may ship whatever Node its image or machine happens to have.
+  assert.match(pipeline, /^  NODE_VERSION: "\d+\.\d+\.\d+"$/m);
+  assert.match(pipeline, /^  NODE_DARWIN_ARM64_SHA256: "[0-9a-f]{64}"$/m);
+  assert.match(pipeline, /^  NODE_LINUX_X64_SHA256: "[0-9a-f]{64}"$/m);
+  assert.match(pipeline, /^  RUST_VERSION: "\d+\.\d+\.\d+"$/m);
+  const jobs = {
+    'desktop-linux-x64': { node: /node-v\$NODE_VERSION-linux-x64[\s\S]*?echo "\$NODE_LINUX_X64_SHA256  [^"]+" \| sha256sum -c -/, sums: /sha256sum -- \* > \.\.\/SHA256SUMS\.linux-x64/ },
+    'desktop-macos-arm64': { node: /node-v\$NODE_VERSION-darwin-arm64[\s\S]*?echo "\$NODE_DARWIN_ARM64_SHA256  [^"]+" \| shasum -a 256 -c -/, sums: /shasum -a 256 -- \* > \.\.\/SHA256SUMS\.macos-arm64/ },
+  };
+  for (const [name, expected] of Object.entries(jobs)) {
+    const body = job(name);
+    assert.match(body, expected.node, `${name} downloads and verifies the pinned Node`);
+    assert.match(body, /test "\$\(node --version\)" = "v\$NODE_VERSION"/, `${name} refuses any other Node`);
+    assert.ok(body.indexOf('test "$(node --version)"') < body.indexOf('npm ci'), `${name} checks Node before installing with it`);
+    assert.match(body, /RUSTUP_TOOLCHAIN: "\$RUST_VERSION"/, `${name} builds with the pinned toolchain`);
+    assert.match(body, /--default-toolchain "\$RUST_VERSION"/);
+    assert.match(body, /cargo build --locked /);
+    assert.match(body, /cargo test --locked /);
+    assert.match(body, /npx tauri build --bundles [a-z,]+(?: --verbose)? -- --locked/);
+    assert.doesNotMatch(body, /cargo (?:build|test) --manifest-path/, `${name} has no unlocked cargo build`);
+    assert.match(body, expected.sums, `${name} checksums its packages where it built them`);
+  }
 });
 
 test('exactly two desktop jobs exist and nothing in the pipeline is optional', () => {
@@ -75,6 +101,11 @@ test('a tagged release waits for the quality gate and both packages, then publis
   assert.doesNotMatch(release, /--image/, 'the body promises no container image');
   assert.match(release, /\*_amd64\.deb[\s\S]*?\*_amd64\.AppImage[\s\S]*?\*\.dmg[\s\S]*?\*\.app\.tar\.gz/, 'every supported package must be present');
   assert.match(release, /uniq -d/, 'filename collisions are rejected');
-  assert.match(release, /sha256sum \* > SHA256SUMS/);
+  // Checksums come from the jobs that built the packages and are verified
+  // here, after artifact storage, before one combined list is published.
+  assert.match(release, /sha256sum -c --strict SHA256SUMS\.linux-x64 SHA256SUMS\.macos-arm64/);
+  assert.match(release, /cat SHA256SUMS\.linux-x64 SHA256SUMS\.macos-arm64 \| sort -k 2 > SHA256SUMS/);
+  assert.match(release, /test "\$\(ls \| grep -vx SHA256SUMS \| sort\)" = "\$\(awk '\{print \$2\}' SHA256SUMS \| sort\)"/, 'the list covers exactly the attached files');
+  assert.doesNotMatch(release, /sha256sum \* > SHA256SUMS/, 'the release job never re-hashes stored artifacts as if they were fresh');
   assert.match(release, /release-cli create --name "\$CI_COMMIT_TAG" --tag-name "\$CI_COMMIT_TAG" --description release-notes\.md/);
 });

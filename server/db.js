@@ -33,6 +33,13 @@ function rewritePlaceholders(text, params) {
   return { sql, bound: ordered };
 }
 
+// Unicode case folding for text search: SQLite's lower() and LIKE fold ASCII
+// only, so 'ÉTÉ' missed 'Été'. Upper-then-lower also folds 'ß' to 'ss' and a
+// final sigma to 'σ', so 'STRASSE' finds 'Straße'. SQL reads it as prax_fold().
+export function foldCase(value) {
+  return String(value).toUpperCase().toLowerCase();
+}
+
 export function createDb(databaseFile) {
   const file = databaseFile || ':memory:';
   if (file !== ':memory:') {
@@ -42,6 +49,7 @@ export function createDb(databaseFile) {
   db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA foreign_keys = ON');
   db.exec('PRAGMA busy_timeout = 5000');
+  db.function('prax_fold', { deterministic: true }, (value) => (value === null ? null : foldCase(value)));
 
   // Run one statement on the raw handle. Rejects (never throws synchronously)
   // so both `await query(...)` and `query(...).catch(...)` observe failures —

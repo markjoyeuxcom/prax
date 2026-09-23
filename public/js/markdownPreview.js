@@ -68,7 +68,9 @@ function renderInline(value) {
     const doc = wikiResolver ? wikiResolver(title) : null;
     const token = `\u0000WIKI${wikiSpans.length}\u0000`;
     if (doc) {
-      wikiSpans.push(`<a class="wikilink" data-action="open-doc" data-document-id="${escapeHtml(doc.id)}" title="Open ${escapeHtml(doc.title || title)}">${escapeHtml(title)}</a>`);
+      // href="#" makes the link focusable and announced as a link; the app's
+      // click handler cancels the navigation and runs data-action instead.
+      wikiSpans.push(`<a class="wikilink" data-action="open-doc" data-document-id="${escapeHtml(doc.id)}" href="#" title="Open ${escapeHtml(doc.title || title)}">${escapeHtml(title)}</a>`);
     } else {
       wikiSpans.push(`<span class="wikilink wikilink--missing" title="No document named this yet">${escapeHtml(title)}</span>`);
     }

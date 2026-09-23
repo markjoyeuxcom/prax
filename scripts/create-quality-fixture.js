@@ -119,6 +119,8 @@ function schemaFeatures(ordinal) {
     // 0030: the reserved Memory system project (slug 'memory') is seeded by
     // migration, so a workspace upgraded past it holds one more project row.
     memoryProject: ordinal >= 30,
+    // 0037: tasks.recurrence_anchor_day, the day a monthly series returns to.
+    taskRecurrenceAnchor: ordinal >= 37,
   };
 }
 
@@ -283,6 +285,11 @@ function buildTasks(profile, projectRows, features, clock, random) {
     }
     if (features.taskRecurrence) {
       row.recurrence = index === 0 ? 'every:3d' : RECURRENCES[index % RECURRENCES.length];
+    }
+    if (features.taskRecurrenceAnchor) {
+      // A dated monthly task anchored on the 31st: its due date is (or will be)
+      // a clamped day, so the anchor is data the due date cannot reconstruct.
+      row.recurrence_anchor_day = row.recurrence === 'monthly' && row.due_date ? 31 : null;
     }
     if (features.taskLabels) {
       row.labels = JSON.stringify(index === 0

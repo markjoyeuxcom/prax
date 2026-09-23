@@ -50,3 +50,32 @@ test('Folder/Name at creation files the view; stored slashed labels are never re
   assert.equal(stored[1].label, 'a/b legacy');
   assert.equal(stored[1].folder, undefined);
 });
+
+// QINV-01 / QINV-11: saving a view must never silently replace a different one.
+test('smart view ids never collide: non-Latin, case and punctuation variants each keep their own view', () => {
+  let views = [];
+  const save = (name, expr = 'open') => {
+    const view = createSmartView(name, expr, views);
+    views = [...views.filter((v) => v.id !== view.id), view];
+    return view;
+  };
+  const japanese = save('今日のタスク');
+  const russian = save('Срочно');
+  assert.notEqual(japanese.id, 'view', 'a non-Latin name keeps its own letters');
+  assert.notEqual(japanese.id, russian.id);
+  const a = save('P1 overdue');
+  const b = save('p1-overdue');
+  const c = save('P1: overdue!');
+  assert.equal(new Set([a.id, b.id, c.id]).size, 3);
+  assert.equal(views.length, 5, 'every save kept every earlier view');
+  assert.ok(createSmartView('Builtin stale', 'open', views).id !== 'builtin-stale', 'a built-in id is never taken');
+});
+
+test('saving the exact same name (and folder) updates that view in place', () => {
+  const first = createSmartView('Daily/standup', 'open', []);
+  const again = createSmartView('Daily/standup', 'p1', [first]);
+  assert.equal(again.id, first.id);
+  assert.equal(again.expr, 'p1');
+  const otherFolder = createSmartView('Weekly/standup', 'open', [first]);
+  assert.notEqual(otherFolder.id, first.id, 'the same name in another folder is a different view');
+});

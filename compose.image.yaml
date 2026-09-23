@@ -1,3 +1,6 @@
+# The pipeline publishes no container image. This tag follows the checkout's
+# version; build it yourself from deploy/Dockerfile first (README, "Run Your
+# Own Image"), or pulling it fails.
 services:
   app:
     image: registry.gitlab.com/markjoyeuxcom/apps/prax:v0.38.0

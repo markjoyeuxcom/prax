@@ -65,7 +65,20 @@ export async function runMigrations(db, options = {}) {
       return { applied: [] };
     }
 
-    for (const version of pending) {
+    // `onProgress` hears about each migration before it starts and once they
+    // are all done, so a supervisor with a startup budget (the desktop shell)
+    // can tell a long upgrade from a hung start. It is awaited: the desktop
+    // passes one that yields to the event loop, which lets a quit request or
+    // signal arrive between migrations. `signal` then stops the run at that
+    // boundary; every migration is its own transaction, so nothing is half done.
+    const onProgress = options.onProgress || null;
+    const done = [];
+    for (const [index, version] of pending.entries()) {
+      if (onProgress) await onProgress({ phase: 'migrating', version, index: index + 1, total: pending.length });
+      if (options.signal?.aborted) {
+        log.info(`migrations stopped before ${version}: shutdown requested`);
+        return { applied: done, stopped: true };
+      }
       const sql = readFileSync(join(dir, version), 'utf8');
       // Table-rebuild migrations (SQLite can't ALTER a CHECK constraint) carry
       // a `-- migrate:fk=off` marker: with foreign_keys ON, DROP TABLE runs an
@@ -94,6 +107,7 @@ export async function runMigrations(db, options = {}) {
         }
         await client.query('insert into schema_migrations (version) values ($1)', [version]);
         await client.query('commit');
+        done.push(version);
       } catch (err) {
         await client.query('rollback').catch(() => {});
         log.error(`migration failed: ${version}: ${err.message}`);
@@ -103,6 +117,7 @@ export async function runMigrations(db, options = {}) {
       }
     }
     log.info(`applied ${pending.length} migration(s)`);
+    if (onProgress) await onProgress({ phase: 'migrated', total: pending.length });
     return { applied: pending };
   } finally {
     client.release();
