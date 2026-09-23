@@ -797,6 +797,26 @@ body[data-density="compact"] .group-label { margin-top: 12px; }
 .doc-row__link { color: var(--accent); font-size: 12px; font-weight: 550; white-space: nowrap; }
 .doc-row__link:hover { text-decoration: underline; }
 
+/* Task-drawer document rows: the open button and its sibling action buttons
+   (unlink, link, not relevant) share one bordered row. */
+.doc-row-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 6px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--card);
+  transition: border-color .15s ease;
+}
+.doc-row-group:hover { border-color: var(--line2); }
+.doc-row-group + .doc-row-group { margin-top: 6px; }
+.doc-row-group > .doc-row { flex: 1; min-width: 0; border: 0; background: transparent; }
+.doc-row__actions { display: flex; flex: none; align-items: center; gap: 2px; }
+.doc-row__actions > button { padding: 4px 6px; border-radius: 6px; line-height: 1; }
+.doc-row__dismiss { color: var(--ink3); font-size: 12px; }
+.doc-row__dismiss:hover { color: var(--ink); background: var(--accent-soft); }
+
 
 .chip--type-runbook { background: var(--accent-soft); color: var(--accent); font-size: 10px; letter-spacing: .06em; }
 .chip--type-note { background: var(--line); color: var(--ink2); font-size: 10px; letter-spacing: .06em; }
@@ -2142,6 +2162,10 @@ body[data-density="compact"] .group-label { margin-top: 12px; }
 .check-item:hover { background: var(--accent-soft); }
 .check-item.is-done .check-item__label { text-decoration: line-through; color: var(--ink3); }
 .check-item__label { flex: 1; min-width: 0; }
+.check-item-group { display: flex; align-items: center; gap: 2px; }
+.check-item-group > .check-item { flex: 1; min-width: 0; }
+.check-item__delete { flex: none; padding: 4px 6px; border-radius: 6px; color: var(--ink3); font-size: 12px; line-height: 1; }
+.check-item__delete:hover { color: var(--ink); background: var(--accent-soft); }
 
 .doc-row {
   display: flex;

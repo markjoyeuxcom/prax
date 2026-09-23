@@ -25,6 +25,7 @@ deploy/overlays/prod/                 # prod: image tag
 - `pvc.yaml` — `prax-data` PersistentVolumeClaim for the SQLite file
 - `deployment.yaml` — app `Deployment`
 - `service.yaml` — `ClusterIP` `Service`
+- `networkpolicy.yaml` — admits traffic to Prax's port only from pods in its own namespace
 - `httproute.yaml` — opt-in Gateway API example; intentionally excluded from rendered resources
 - `kustomization.yaml`
 
@@ -88,8 +89,10 @@ Each overlay pins the image tag. Exposure is intentionally not part of the rende
 | staging | `prax-staging` |
 | prod | `prax-prod` |
 
-Overlays are currently pinned to `v0.38.0`. CI-driven `newTag` bumping on release is planned as
-future work.
+Overlays are currently pinned to `v0.38.0`. That tag follows this checkout's version
+(`npm run release:prepare` bumps it every release), but the pipeline builds and publishes no
+container image — the last one it pushed was `v0.30.0`. Build and push the image yourself (see
+[Build and Publish Image](#build-and-publish-image)) and point each overlay's `images:` entry at it.
 
 ## Data Volume
 
@@ -163,8 +166,14 @@ keyword-only, fully local operation.
 The rendered base creates only a `ClusterIP` Service. It deliberately does **not** include an
 Ingress or `HTTPRoute`, because Prax has no built-in authentication and anyone who reaches it
 has full workspace read/write access. ClusterIP is internal to Kubernetes, not local-only: any pod
-allowed to reach the Service by cluster network policy reaches an unauthenticated Prax API. Apply
-namespace/network policy appropriate to the cluster's trust model even when no external route exists.
+allowed to reach the Service by cluster network policy reaches an unauthenticated Prax API. The base
+therefore ships `networkpolicy.yaml`, which admits traffic to port 3000 only from pods in Prax's own
+namespace (kubelet probes and `kubectl port-forward` are unaffected). It is enforced only by a CNI
+that implements NetworkPolicy; on one that does not, apply equivalent controls. Egress is not
+restricted, because an operator may enable an embedding, chat or calendar provider.
+
+The pod also runs without a service-account token (`automountServiceAccountToken: false`; Prax
+never calls the Kubernetes API) and with the runtime's default seccomp profile.
 
 `deploy/base/httproute.yaml` is an opt-in starting point, not a rendered resource. Before adding
 it to an overlay, configure your Gateway implementation's authentication mechanism (for example
@@ -179,6 +188,8 @@ These must be in place before syncing — they are the cluster operator's respon
 1. **Default StorageClass** (or one the cluster binds automatically) so the `prax-data`
    PVC provisions — the manifest does not name a `storageClassName`.
 2. If opting into network exposure, the selected Gateway must:
+   - Be admitted by an extra ingress rule on the `prax` NetworkPolicy for the Gateway's namespace,
+     added in the same authenticated overlay as the route.
    - Have `allowedRoutes` configured to permit routes from `prax-*` namespaces.
    - Enforce authentication for the Prax hostname before traffic reaches the Service.
    - Terminate TLS for `*.example.com`.
@@ -196,7 +207,10 @@ kubectl kustomize deploy/overlays/prod
 
 ## Health Checks
 
-- `/healthz` — confirms the Node process is alive (startup and liveness probes).
+- `/healthz` — confirms the Node process is alive (startup and liveness probes). Pending migrations
+  run before the server listens, so the startup probe allows ten minutes (`periodSeconds: 5`,
+  `failureThreshold: 120`) for an upgrade's first start. SIGTERM during migrations stops at the
+  next migration boundary and closes the database; the rest run on the next start.
 - `/readyz` — confirms the embedded database answers a query; returns `503 not-ready` otherwise
   (readiness probe).
 

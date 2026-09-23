@@ -15,9 +15,9 @@ test('archive inclusion and full workspace format reach their intended endpoints
   assert.equal(libraryArchiveUrl('work', { includeArchived: true }), '/api/library/export?project=work&includeArchived=true');
   let invoked = false;
   const result = await saveLibraryArchive({ scope: 'work', format: 'workspace', mode: 'desktop',
-    globalRef: { __TAURI__: { core: { async invoke(command, args) {
+    globalRef: { __TAURI__: { core: { async invoke(command, _bytes, options) {
       invoked = true; assert.equal(command, 'save_library_export');
-      assert.match(args.fileName, /^prax-workspace-/); return '/chosen/full.zip';
+      assert.match(decodeURIComponent(options.headers['Prax-Export-Filename']), /^prax-workspace-/); return '/chosen/full.zip';
     } } } },
     async fetchImpl(url) { assert.equal(url, '/api/workspace/backup'); return new Response(new Blob(['zip'])); },
   });
@@ -117,12 +117,12 @@ test('a failed picker write is aborted and remains an error', async () => {
   assert.equal(aborted, true);
 });
 
-test('desktop export sends archive bytes to the native save command', async () => {
+test('desktop export sends the archive as a raw invoke body with its name in a header', async () => {
   const calls = [];
   const result = await saveLibraryArchive({
-    scope: 'homelab', filename: 'homelab.zip', mode: 'desktop',
-    globalRef: { __TAURI__: { core: { async invoke(command, args) {
-      calls.push([command, args]);
+    scope: 'homelab', filename: 'Bibliothèque & notes.zip', mode: 'desktop',
+    globalRef: { __TAURI__: { core: { async invoke(command, payload, options) {
+      calls.push([command, payload, options]);
       return '/chosen/homelab.zip';
     } } } },
     async fetchImpl(url) {
@@ -130,9 +130,17 @@ test('desktop export sends archive bytes to the native save command', async () =
       return new Response(new Uint8Array([1, 2, 255]), { status: 200 });
     },
   });
-  assert.deepEqual(calls, [['save_library_export', { fileName: 'homelab.zip', bytes: [1, 2, 255] }]]);
+  assert.equal(calls.length, 1);
+  const [command, payload, options] = calls[0];
+  assert.equal(command, 'save_library_export');
+  // Tauri sends a Uint8Array as the raw request body; an array of numbers
+  // would be JSON-encoded instead.
+  assert.ok(payload instanceof Uint8Array, 'the archive is bytes, not a number array');
+  assert.ok(!Array.isArray(payload));
+  assert.deepEqual([...payload], [1, 2, 255]);
+  assert.deepEqual(options, { headers: { 'Prax-Export-Filename': 'Biblioth%C3%A8que%20%26%20notes.zip' } });
   assert.deepEqual(result, {
-    status: 'saved', filename: 'homelab.zip', path: '/chosen/homelab.zip',
+    status: 'saved', filename: 'Bibliothèque & notes.zip', path: '/chosen/homelab.zip',
   });
 });
 

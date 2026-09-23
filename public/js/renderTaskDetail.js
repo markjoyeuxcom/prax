@@ -208,14 +208,18 @@ function renderChecklistSection(checklist, readOnly, dis) {
   const pct = checklist.length ? Math.round((done / checklist.length) * 100) : 0;
   const items = checklist.map(item => {
     const isDone = Boolean(item.completed);
+    // Delete is a sibling of the toggle: a control inside a <button> is
+    // neither focusable nor announced.
     const remove = readOnly
       ? ''
-      : `<span data-action="delete-checklist-item" data-item-id="${escapeHtml(item.id)}" title="Delete item">✕</span>`;
+      : `<button class="check-item__delete" type="button" data-action="delete-checklist-item" data-item-id="${escapeHtml(item.id)}" title="Delete item" aria-label="Delete ${escapeHtml(item.label || 'item')}">✕</button>`;
     return `
+        <div class="check-item-group">
         <button class="check-item${isDone ? ' is-done' : ''}" type="button" data-action="toggle-checklist-item" data-item-id="${escapeHtml(item.id)}" data-completed="${isDone ? 'true' : 'false'}"${dis}>
           <span class="task-check${isDone ? ' is-done' : ''}" aria-hidden="true">${isDone ? '✓' : ''}</span>
-          <span class="check-item__label">${escapeHtml(item.label || '')}</span>${remove}
-        </button>`;
+          <span class="check-item__label">${escapeHtml(item.label || '')}</span>
+        </button>${remove}
+        </div>`;
   }).join('');
   const adder = readOnly ? '' : `
         <div style="display:flex; gap:6px; margin-top:6px;">
@@ -232,19 +236,30 @@ function renderChecklistSection(checklist, readOnly, dis) {
       </section>`;
 }
 
+// A document row: the open button plus its secondary controls as SIBLING
+// buttons. A control nested inside the open <button> is neither focusable nor
+// announced (interactive content is not allowed inside a button).
+function docRowHtml(doc, openAction, actionsHtml) {
+  const id = escapeHtml(doc.id);
+  const type = escapeHtml(doc.documentType || 'note');
+  return `
+        <div class="doc-row-group">
+          <button class="doc-row" type="button" data-action="${openAction}" data-document-id="${id}">
+            ${icon('doc')}
+            <span class="doc-row__title">${escapeHtml(doc.title || 'Untitled document')}</span>
+            ${chip(doc.documentType || 'note', `type-${type}`)}
+          </button>${actionsHtml ? `<span class="doc-row__actions">${actionsHtml}</span>` : ''}
+        </div>`;
+}
+
 function renderDocsSection(documents, readOnly) {
   const rows = documents.length
     ? documents.map(doc => {
-        const type = escapeHtml(doc.documentType || 'note');
+        const title = escapeHtml(doc.title || 'Untitled document');
         const unlink = readOnly
           ? ''
-          : `<span data-action="unlink-task-document" data-document-id="${escapeHtml(doc.id)}" title="Unlink document">✕</span>`;
-        return `
-        <button class="doc-row" type="button" data-action="open-linked-doc" data-document-id="${escapeHtml(doc.id)}">
-          ${icon('doc')}
-          <span class="doc-row__title">${escapeHtml(doc.title || 'Untitled document')}</span>
-          ${chip(doc.documentType || 'note', `type-${type}`)}${unlink}
-        </button>`;
+          : `<button class="doc-row__dismiss" type="button" data-action="unlink-task-document" data-document-id="${escapeHtml(doc.id)}" title="Unlink document" aria-label="Unlink ${title}">✕</button>`;
+        return docRowHtml(doc, 'open-linked-doc', unlink);
       }).join('')
     : mutedText('No linked runbooks or notes.');
   const linkButton = readOnly
@@ -275,14 +290,10 @@ function renderRelatedSection(state, task, readOnly) {
   } else {
     body = related.suggestions.map((doc) => {
       const id = escapeHtml(doc.id);
-      const dismiss = readOnly ? '' : `<span data-action="dismiss-related-doc" data-document-id="${id}" title="Not relevant (this session)">✕</span>`;
-      const link = readOnly ? '' : `<span class="doc-row__link" data-action="link-related-doc" data-document-id="${id}" title="Link to this task">＋ Link</span>`;
-      return `
-        <button class="doc-row" type="button" data-action="open-linked-doc" data-document-id="${id}">
-          ${icon('doc')}
-          <span class="doc-row__title">${escapeHtml(doc.title || 'Untitled document')}</span>
-          ${chip(doc.documentType || 'note', `type-${escapeHtml(doc.documentType || 'note')}`)}${link}${dismiss}
-        </button>`;
+      const title = escapeHtml(doc.title || 'Untitled document');
+      const actions = readOnly ? '' : `<button class="doc-row__link" type="button" data-action="link-related-doc" data-document-id="${id}" title="Link to this task" aria-label="Link ${title} to this task">＋ Link</button>`
+        + `<button class="doc-row__dismiss" type="button" data-action="dismiss-related-doc" data-document-id="${id}" title="Not relevant (this session)" aria-label="Not relevant: ${title}">✕</button>`;
+      return docRowHtml(doc, 'open-linked-doc', actions);
     }).join('');
   }
   return `

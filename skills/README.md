@@ -13,7 +13,8 @@ beyond Node 20+, so the pack installs on a machine that has never seen this repo
 They talk to the Prax HTTP API of the running app (desktop or server) and find it on
 their own: `PRAX_API_URL` → the desktop app's saved port → `http://127.0.0.1:3000`. Each run
 binds to the one instance it finds (a write probes `/readyz` first and never fails over), and
-the remember confirmation names the base URL it wrote to.
+the remember confirmation names the project and the base URL it wrote to. A request that gets
+no answer within 30 s (`PRAX_TIMEOUT_MS`) fails rather than hangs, and is never re-sent.
 
 The layout follows the [Agent Skills](https://agentskills.io) standard, which both
 Claude Code and Codex read.
@@ -180,7 +181,7 @@ library, start a disposable server on a throwaway database and point the scripts
 PRAX_DB_FILE=/tmp/prax-skill-check.db PORT=3777 npm start &     # from a checkout; or use the app
 export PRAX_API_URL=http://127.0.0.1:3777
 node ~/.agents/skills/prax-remember/scripts/remember.mjs "Skill check" "Installed on $(hostname)." --type note
-# Remembered "Skill check" → <id> (created, as claude) at http://127.0.0.1:3777
+# Remembered "Skill check" → <id> (created in memory, as claude) at http://127.0.0.1:3777
 node ~/.agents/skills/prax-recall/scripts/recall.mjs "skill check"
 # one distilled block: the title, type, trust label (unverified) and id, then the body
 ```

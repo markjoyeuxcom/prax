@@ -10,8 +10,9 @@
 #   puts its own toolchain on PATH and installs what the image lacks).
 # - Desktop packages are automatic on release tags, MANUAL on merge requests and
 #   main, never blocking there.
-# - Tags vX.Y.Z or vX.Y.Z-pre: quality gate → both desktop builds with their
-#   packaged-runtime smoke → a release with every package, SHA256SUMS and the
+# - Tags vX.Y.Z or vX.Y.Z-pre: quality gate → both desktop builds (pinned,
+#   checksummed Node; pinned Rust; --locked) with their packaged-runtime smoke
+#   and per-job checksums → a release with every package, SHA256SUMS and the
 #   CHANGELOG section as its body. No container image is built or published:
 #   the desktop app is the product; deploy/Dockerfile stays for self-builds. A missing package fails the release. If a self-hosted runner is
 #   offline the tag pipeline waits for it (a stuck job fails after the runner
@@ -28,7 +29,24 @@ workflow:
 stages: [check, test, desktop, release]
 
 variables:
+  # The image for the check, test and release jobs. It ships nothing: both
+  # desktop jobs install the pinned Node below and build with that instead.
   NODE_IMAGE: node:24-bookworm
+  # The Node that Prax ships. scripts/prepare-sidecar.mjs copies the building
+  # Node binary into each package as the sidecar, so both desktop jobs install
+  # this exact official nodejs.org build, verify its checksum, and refuse to
+  # continue if `node --version` reports anything else. It must be an official
+  # build: Homebrew's node@24 links against @rpath/libnode.<abi>.dylib and a
+  # dozen Cellar dylibs, and a .dmg built with it aborts with "Library not
+  # loaded" on every Mac but the builder's (prepare-sidecar refuses it now).
+  # Bump all three together from https://nodejs.org/dist/v<version>/SHASUMS256.txt.
+  NODE_VERSION: "24.21.0"
+  NODE_DARWIN_ARM64_SHA256: "6239d4cf92d864487ec8cd3615038f7b67e7f58b77b21cd2f09ea9fbd68065fe"
+  NODE_LINUX_X64_SHA256: "fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6"
+  # The Rust toolchain both desktop jobs build with (rustup installs exactly
+  # this, and RUSTUP_TOOLCHAIN makes cargo use it); cargo builds are --locked
+  # to src-tauri/Cargo.lock, so a release never resolves new crate versions.
+  RUST_VERSION: "1.98.1"
   # The Tart executor clones a throwaway VM from this image for every job on the
   # `macos` runner, so the macOS build has to name one: with no `image:` here and
   # no `--default-image` in that runner's config.toml, its prepare stage fails
@@ -103,7 +121,8 @@ browser-tests:
 # ---- desktop -------------------------------------------------------------------
 
 # Linux x64 on the self-hosted `homelab` runner. The job runs in the Node image
-# and installs the WebKitGTK toolchain, Rust, and the xvfb/dbus smoke harness.
+# for its Debian userland, and installs the WebKitGTK toolchain, the pinned Node
+# it ships (not the image's floating one), Rust, and the xvfb/dbus smoke harness.
 desktop-linux-x64:
   stage: desktop
   image: $NODE_IMAGE
@@ -116,6 +135,7 @@ desktop-linux-x64:
     APPIMAGE_EXTRACT_AND_RUN: "1"
     CARGO_HOME: "$CI_PROJECT_DIR/.cargo"
     RUSTUP_HOME: "$CI_PROJECT_DIR/.rustup"
+    RUSTUP_TOOLCHAIN: "$RUST_VERSION"
   cache:
     - key:
         files: [package-lock.json]
@@ -128,10 +148,17 @@ desktop-linux-x64:
     - >-
       apt-get install -y --no-install-recommends
       libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
-      patchelf xvfb xauth dbus-x11 build-essential pkg-config libssl-dev curl file ca-certificates
-    - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --component rustfmt
-    - export PATH="$CARGO_HOME/bin:$PATH"
-    - node --version && cargo --version
+      patchelf xvfb xauth dbus-x11 build-essential pkg-config libssl-dev curl file ca-certificates xz-utils
+    - |
+      node_dir="node-v$NODE_VERSION-linux-x64"
+      curl --fail --location --silent --show-error --output "/opt/$node_dir.tar.xz" "https://nodejs.org/dist/v$NODE_VERSION/$node_dir.tar.xz"
+      echo "$NODE_LINUX_X64_SHA256  /opt/$node_dir.tar.xz" | sha256sum -c -
+      tar -xJf "/opt/$node_dir.tar.xz" -C /opt
+    - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain "$RUST_VERSION" --component rustfmt
+    - export PATH="/opt/node-v$NODE_VERSION-linux-x64/bin:$CARGO_HOME/bin:$PATH"
+    # The Node on PATH is the one prepare-sidecar ships; refuse any other.
+    - test "$(node --version)" = "v$NODE_VERSION"
+    - node --version && npm --version && cargo --version
     - npm ci --prefer-offline --no-audit --no-fund
   script:
     - npm run prepare:sidecar
@@ -145,14 +172,17 @@ desktop-linux-x64:
     # back with `include_bytes!`; building before `cargo test --lib` keeps the two
     # compilations from racing on that file.
     - cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-    - cargo build --manifest-path src-tauri/Cargo.toml
-    - cargo test --manifest-path src-tauri/Cargo.toml --lib
-    - npx tauri build --bundles deb,appimage --verbose
+    - cargo build --locked --manifest-path src-tauri/Cargo.toml
+    - cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
+    - npx tauri build --bundles deb,appimage --verbose -- --locked
     - npm run desktop:smoke
     # A missing package is fatal: cp fails when a glob matches nothing.
     - mkdir -p release-assets
     - cp src-tauri/target/release/bundle/deb/*.deb src-tauri/target/release/bundle/appimage/*.AppImage release-assets/
-    - ls -la release-assets
+    # Checksums are taken here, where the packages were built and smoke-tested;
+    # the release job verifies them after artifact storage.
+    - (cd release-assets && sha256sum -- * > ../SHA256SUMS.linux-x64) && mv SHA256SUMS.linux-x64 release-assets/
+    - ls -la release-assets && cat release-assets/SHA256SUMS.linux-x64
   artifacts:
     name: "$CI_JOB_NAME"
     paths: [release-assets/]
@@ -170,17 +200,8 @@ desktop-macos-arm64:
   tags: [macos]
   needs: [node-checks]
   variables:
-    # scripts/prepare-sidecar.mjs copies this very binary into the bundle as the
-    # sidecar, so the Node that Prax ships to users is pinned here rather than
-    # inherited from the build machine. It must be an official nodejs.org build:
-    # Homebrew's node@24 links against @rpath/libnode.<abi>.dylib and a dozen
-    # Cellar dylibs, and a .dmg built with it ships a sidecar that aborts with
-    # "Library not loaded" on every Mac but the builder's. prepare-sidecar now
-    # refuses such a runtime; this is the runtime that passes.
-    # Bump both together (shasum -a 256 of the darwin-arm64 tarball, published
-    # at https://nodejs.org/dist/v<version>/SHASUMS256.txt).
-    NODE_VERSION: "24.21.0"
-    NODE_SHA256: "6239d4cf92d864487ec8cd3615038f7b67e7f58b77b21cd2f09ea9fbd68065fe"
+    # The pinned Node and Rust (see the global NODE_VERSION and RUST_VERSION).
+    RUSTUP_TOOLCHAIN: "$RUST_VERSION"
   before_script:
     # A fresh VM every time: PATH holds only the system directories, because the
     # job's shell is neither a login nor an interactive shell and the image's
@@ -188,14 +209,18 @@ desktop-macos-arm64:
     - |
       node_dir="node-v$NODE_VERSION-darwin-arm64"
       curl --fail --location --silent --show-error --output "$HOME/$node_dir.tar.xz" "https://nodejs.org/dist/v$NODE_VERSION/$node_dir.tar.xz"
-      echo "$NODE_SHA256  $HOME/$node_dir.tar.xz" | shasum -a 256 -c -
+      echo "$NODE_DARWIN_ARM64_SHA256  $HOME/$node_dir.tar.xz" | shasum -a 256 -c -
       tar -xJf "$HOME/$node_dir.tar.xz" -C "$HOME"
     - export PATH="$HOME/node-v$NODE_VERSION-darwin-arm64/bin:$HOME/.cargo/bin:$PATH"
-    # Rust is not in the image; a Mac provisioned by hand keeps the one it has.
+    # Rust is not in the image. A Mac provisioned by hand keeps its rustup, but
+    # still builds with the pinned toolchain.
     - |
-      if ! command -v cargo >/dev/null 2>&1; then
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --component rustfmt --no-modify-path
+      if ! command -v rustup >/dev/null 2>&1; then
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain "$RUST_VERSION" --component rustfmt --no-modify-path
       fi
+      rustup toolchain install "$RUST_VERSION" --profile minimal --component rustfmt
+    # The Node on PATH is the one prepare-sidecar ships; refuse any other.
+    - test "$(node --version)" = "v$NODE_VERSION"
     - node --version && npm --version && cargo --version && xcode-select -p
     - npm ci --prefer-offline --no-audit --no-fund
   script:
@@ -207,14 +232,15 @@ desktop-macos-arm64:
         npm run desktop:verify
       fi
     - cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-    - cargo build --manifest-path src-tauri/Cargo.toml
-    - cargo test --manifest-path src-tauri/Cargo.toml --lib
-    - npx tauri build --bundles app,dmg
+    - cargo build --locked --manifest-path src-tauri/Cargo.toml
+    - cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
+    - npx tauri build --bundles app,dmg -- --locked
     - npm run desktop:smoke
     - mkdir -p release-assets
     - tar -czf release-assets/Prax-macos-arm64.app.tar.gz -C src-tauri/target/release/bundle/macos Prax.app
     - cp src-tauri/target/release/bundle/dmg/*.dmg release-assets/
-    - ls -la release-assets
+    - (cd release-assets && shasum -a 256 -- * > ../SHA256SUMS.macos-arm64) && mv SHA256SUMS.macos-arm64 release-assets/
+    - ls -la release-assets && cat release-assets/SHA256SUMS.macos-arm64
   artifacts:
     name: "$CI_JOB_NAME"
     paths: [release-assets/]
@@ -251,10 +277,21 @@ release:
     - |
       cd release-assets
       # Every supported package must be present; a collision would hide one.
-      test -n "$(ls *_amd64.deb 2>/dev/null)" && test -n "$(ls *_amd64.AppImage 2>/dev/null)"
-      test -n "$(ls *.dmg 2>/dev/null)" && test -n "$(ls *.app.tar.gz 2>/dev/null)"
+      # One test per line: errexit ignores a failure before the last `&&`.
+      test -n "$(ls *_amd64.deb 2>/dev/null)"
+      test -n "$(ls *_amd64.AppImage 2>/dev/null)"
+      test -n "$(ls *.dmg 2>/dev/null)"
+      test -n "$(ls *.app.tar.gz 2>/dev/null)"
       test -z "$(ls | sort | uniq -d)"
-      sha256sum * > SHA256SUMS
+      # Each desktop job checksummed its packages where it built them. Verify
+      # those sums now, after artifact storage, and publish them as one list
+      # that covers exactly the files being attached.
+      test -f SHA256SUMS.linux-x64
+      test -f SHA256SUMS.macos-arm64
+      sha256sum -c --strict SHA256SUMS.linux-x64 SHA256SUMS.macos-arm64
+      cat SHA256SUMS.linux-x64 SHA256SUMS.macos-arm64 | sort -k 2 > SHA256SUMS
+      rm SHA256SUMS.linux-x64 SHA256SUMS.macos-arm64
+      test "$(ls | grep -vx SHA256SUMS | sort)" = "$(awk '{print $2}' SHA256SUMS | sort)"
       cd ..
     - node scripts/release-notes.mjs --tag "$CI_COMMIT_TAG" --assets-dir release-assets > release-notes.md
     - test -s release-notes.md

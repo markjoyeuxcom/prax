@@ -9,7 +9,7 @@ const SEED_TASK_ID = '11111111-1111-4111-8111-111111111111';
 // The current task field set this regression test locks (order-independent).
 const FROZEN_TASK_KEYS = [
   'archivedAt', 'carryCount', 'createdAt', 'deferralCount', 'deferredUntil', 'description', 'dueDate',
-  'dueTime', 'id', 'labels', 'notes', 'plannedFor', 'priority', 'projectId', 'recurrence', 'sortOrder',
+  'dueTime', 'id', 'labels', 'notes', 'plannedFor', 'priority', 'projectId', 'recurrence', 'recurrenceAnchorDay', 'sortOrder',
   'status', 'title', 'updatedAt',
 ].sort();
 
@@ -37,6 +37,7 @@ function createFakeTasksRepository() {
     dueTime: null,
     deferredUntil: null,
     recurrence: null,
+    recurrenceAnchorDay: null,
     labels: [],
     sortOrder: 0,
     createdAt: 'now',
@@ -261,5 +262,33 @@ test('SHAPE: priority/status enums are locked (import rejects out-of-enum)', asy
   });
   assert.equal(badStatus.statusCode, 400);
   assert.match(badStatus.json().message, /status/);
+  await app.close();
+});
+
+// QINV-06 (review 2026-09-22, e7052140): the monthly anchor day is part of the
+// portable format. It round-trips on a monthly task, is validated, and is
+// dropped from any other recurrence.
+test('SHAPE: import keeps recurrenceAnchorDay on a monthly task and validates it', async () => {
+  const app = await buildContractApp();
+  const res = await app.inject({
+    method: 'POST', url: '/api/tasks/import',
+    payload: {
+      format: 'moomora.tasks', version: 1, project: 'homelab', mode: 'append',
+      tasks: [
+        { title: 'Rent', recurrence: 'monthly', dueDate: '2026-02-28', recurrenceAnchorDay: 31 },
+        { title: 'Standup', recurrence: 'weekly', dueDate: '2026-02-28', recurrenceAnchorDay: 31 },
+      ],
+    },
+  });
+  assert.equal(res.statusCode, 201);
+  assert.equal(res.json().tasks[0].recurrenceAnchorDay, 31);
+  assert.equal(res.json().tasks[1].recurrenceAnchorDay, undefined);
+
+  const bad = await app.inject({
+    method: 'POST', url: '/api/tasks/import',
+    payload: { project: 'homelab', tasks: [{ title: 'Rent', recurrence: 'monthly', recurrenceAnchorDay: 0 }] },
+  });
+  assert.equal(bad.statusCode, 400);
+  assert.equal(bad.json().message, 'recurrenceAnchorDay is invalid');
   await app.close();
 });

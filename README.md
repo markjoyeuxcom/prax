@@ -131,21 +131,22 @@ docker compose down -v
 ## Run Your Own Image
 
 The pipeline builds desktop packages only — no container image is published (the last one
-pushed was `v0.30.0`). To run a release-style container, build and tag it yourself from
-`deploy/Dockerfile`, then use the image override:
+pushed was `v0.30.0`), so pulling a newer tag from the registry fails. To run a release-style
+container, build and tag it yourself from `deploy/Dockerfile`, then use the image override:
 
 ```bash
 docker build -f deploy/Dockerfile -t registry.gitlab.com/markjoyeuxcom/apps/prax:<tag> .
 docker compose -f compose.yaml -f compose.image.yaml up
 ```
 
-The image override expects:
+The image override (like the Kubernetes manifests) names this checkout's version, which the
+release script bumps every release; use it as `<tag>` above:
 
 ```text
 registry.gitlab.com/markjoyeuxcom/apps/prax:v0.38.0
 ```
 
-Use source-build Compose for development, and use the published image path when you want to test the same artifact Kubernetes will run.
+Use source-build Compose for development, and the self-built image when you want to test the same artifact Kubernetes will run.
 
 ## Run With Persistence
 

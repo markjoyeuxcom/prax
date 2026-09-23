@@ -77,6 +77,8 @@ test('renderMarkdownHtml resolves [[wiki-links]] to a clickable doc link', () =>
   const resolveWikiLink = (title) => (title === 'Runbook' ? { id: 'doc-1', title: 'Runbook' } : null);
   const html = renderMarkdownHtml('See [[Runbook]] for steps.', { resolveWikiLink });
   assert.match(html, /<a class="wikilink" data-action="open-doc" data-document-id="doc-1"[^>]*>Runbook<\/a>/);
+  // A link without href is not focusable and is not announced as a link.
+  assert.match(html, /<a class="wikilink"[^>]* href="#"[^>]*>Runbook<\/a>/);
 });
 
 test('renderMarkdownHtml renders an unresolved [[wiki-link]] as a muted missing span', () => {

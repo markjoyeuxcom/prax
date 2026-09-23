@@ -2,17 +2,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createDb } from '../../server/db.js';
 import { runMigrations } from '../../server/migrate.js';
-import { createAssistantWriteReceipts } from '../../server/assistant/writeReceipts.js';
+import { createAssistantWriteReceipts, RECEIPT_NOTES } from '../../server/assistant/writeReceipts.js';
 
+// A replay after the first run returns the recorded outcome, not the tool's
+// output: the receipt must not keep a record's content past its deletion.
 test('assistant receipts survive a new executor and reject changed intent', async () => {
   const db=createDb(':memory:'); await runMigrations(db);
   try {
     const one=createAssistantWriteReceipts(db); let calls=0;
     const payload={name:'create_task',input:{title:'once'}};
-    const expected={content:'created',isError:false};
+    const expected={id:'call-1',name:'create_task',content:'created',isError:false};
     assert.deepEqual(await one.execute('approval',payload,async()=>{calls++;return expected;}),expected);
     const restarted=createAssistantWriteReceipts(db);
-    assert.deepEqual(await restarted.execute('approval',payload,async()=>{calls++;return null;}),expected);
+    assert.deepEqual(await restarted.execute('approval',payload,async()=>{calls++;return null;}),
+      {id:'call-1',name:'create_task',content:RECEIPT_NOTES.completed,isError:false});
     assert.equal(calls,1);
     await assert.rejects(()=>restarted.execute('approval',{...payload,input:{title:'different'}},async()=>{}),/different action/);
   } finally {await db.close();}

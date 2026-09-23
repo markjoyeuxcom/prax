@@ -34,8 +34,10 @@ export function createInjectClient(app) {
 
   // baseUrl is a placeholder — only the path/query survive into inject. The
   // large timeouts are inert (injectFetch ignores the abort signal). No agent
-  // id: the server's own environment says nothing about who is asking.
+  // id and no local day of its own: the server's environment and clock say
+  // nothing about who is asking or what their today is (the forwarded headers do).
   return createPraxClient({
     baseUrl: 'http://prax.internal', fetch: injectFetch, timeoutMs: 60_000, longTimeoutMs: 60_000, agent: null,
+    sendLocalDay: false,
   });
 }

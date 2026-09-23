@@ -120,7 +120,9 @@ test('release notes carry a container section only when an image is named explic
   const withImage = releaseNotes({ changelog, tag: 'v0.21.0', image: 'example.test/prax' });
   assert.match(withImage, /## Container\n\n```text\nexample\.test\/prax:v0\.21\.0\n```/);
   const rc = releaseNotes({ changelog, tag: 'v0.21.0-rc.1' });
-  assert.match(rc, /release candidate \(`rc\.1`\) for 0\.21\.0: it is published as a prerelease\./, 'without an image the rc note says nothing about a latest tag');
+  assert.match(rc, /release candidate \(`rc\.1`\) for 0\.21\.0, not the final 0\.21\.0 release\. GitLab lists it like any other release\./, 'without an image the rc note says nothing about a latest tag');
+  // release-cli sets no prerelease flag, so the notes must not claim one.
+  assert.doesNotMatch(rc, /published as a prerelease/);
 });
 
 test('release notes list exactly the packages the pipeline attached and name every platform it could not build', () => {

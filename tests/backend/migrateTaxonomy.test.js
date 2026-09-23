@@ -72,6 +72,8 @@ test('0010 rebuild preserves data, links, and FTS; retypes tagged post-mortems; 
     '0034_record_creation_receipts.sql',
     '0035_single_line_document_titles.sql',
     '0036_add_task_activity_agent.sql',
+    '0037_add_task_recurrence_anchor_day.sql',
+    '0038_repair_legacy_cycles_and_receipts.sql',
   ]);
 
   // Every row survived, fields intact.

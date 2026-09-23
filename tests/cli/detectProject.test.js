@@ -49,6 +49,37 @@ test('ignores a malformed project.json and keeps walking', () => {
   assert.deepEqual(out, { project: 'repo', source: 'folder' });
 });
 
+// ---- the repository boundary (review 2026-09-22) ----------------------------
+
+const reader = (files) => (p) => { if (p in files) return files[p]; throw new Error('ENOENT'); };
+
+test('a marker inside the repository is explicit intent; one above its root is only an outer marker', () => {
+  const files = {
+    '/work/.prax/project.json': '{"project":"workspace"}',
+    '/work/repoC/.git/config': '[remote "origin"]\n\turl = git@example.com:org/repoC.git\n',
+  };
+  assert.deepEqual(detectProject({ cwd: '/work/repoC/docs', readFile: reader(files) }), { project: 'workspace', source: 'outer-file' });
+  const inside = { ...files, '/work/repoC/.prax/project.json': '{"project":"repo-c"}' };
+  assert.deepEqual(detectProject({ cwd: '/work/repoC/docs', readFile: reader(inside) }), { project: 'repo-c', source: 'file' });
+  // Outside any repository the search has no boundary: the marker is explicit.
+  assert.deepEqual(detectProject({ cwd: '/work/notes/2026', readFile: reader(files) }), { project: 'workspace', source: 'file' });
+});
+
+test('a worktree .git pointer file is a repository boundary too', () => {
+  const files = {
+    '/home/u/.prax/project.json': '{"project":"dotfiles"}',
+    '/home/u/wt/.git': 'gitdir: /home/u/main/.git/worktrees/wt\n',
+  };
+  assert.equal(detectProject({ cwd: '/home/u/wt/src', readFile: reader(files) }).source, 'outer-file');
+});
+
+test('the folder guess is the repository root\'s name, never a subfolder\'s', () => {
+  const files = { '/work/repoB/.git/config': '[core]\n' };
+  assert.deepEqual(detectProject({ cwd: '/work/repoB/docs/api', readFile: reader(files) }), { project: 'repoB', source: 'folder' });
+  // Outside a repository there is nothing better than the current folder.
+  assert.deepEqual(detectProject({ cwd: '/work/scratch', readFile: reader({}) }), { project: 'scratch', source: 'folder' });
+});
+
 // ---- detectRepoUrl (repo-URL project detection) -----------------------------
 
 const GIT_CONFIG = `[core]

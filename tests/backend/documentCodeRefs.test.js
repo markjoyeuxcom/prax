@@ -108,7 +108,7 @@ test('migration 0029 collapses duplicates left by the 0028 key to the newest pin
   }
   assert.equal((await db.query('select count(*) as n from document_code_refs')).rows[0].n, 3);
   const { applied } = await runMigrations(db, { logger: SILENT });
-  assert.deepEqual(applied, ['0029_document_code_refs_null_safe_key.sql', '0030_add_memory_system_project.sql', '0031_document_update_receipts.sql', '0032_restore_inbox_system_project.sql', '0033_inbox_action_receipts.sql', '0034_record_creation_receipts.sql', '0035_single_line_document_titles.sql', '0036_add_task_activity_agent.sql']);
+  assert.deepEqual(applied, ['0029_document_code_refs_null_safe_key.sql', '0030_add_memory_system_project.sql', '0031_document_update_receipts.sql', '0032_restore_inbox_system_project.sql', '0033_inbox_action_receipts.sql', '0034_record_creation_receipts.sql', '0035_single_line_document_titles.sql', '0036_add_task_activity_agent.sql', '0037_add_task_recurrence_anchor_day.sql', '0038_repair_legacy_cycles_and_receipts.sql']);
   const rows = (await db.query('select content_hash from document_code_refs')).rows;
   assert.deepEqual(rows.map((r) => r.content_hash), ['newest']);
   await db.close();

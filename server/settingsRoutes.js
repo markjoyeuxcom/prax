@@ -139,6 +139,16 @@ export async function registerSettingsRoutes(app, options = {}) {
     for (const field of PROVIDER_FIELDS) {
       if (body[field] !== undefined) patch[field] = body[field];
     }
+    // `enabled` is a JSON boolean or absent (a provider-only change). Coercing
+    // it silently changed meaning: {} turned search off, "false" turned it on.
+    if (body.enabled !== undefined && typeof body.enabled !== 'boolean') {
+      reply.code(400);
+      return { message: 'enabled must be true or false' };
+    }
+    if (Object.keys(patch).length === 0 && body.enabled === undefined) {
+      reply.code(400);
+      return { message: 'enabled is required' };
+    }
 
     if (Object.keys(patch).length > 0) {
       // Provider reconfiguration: valid even when the current backend is
@@ -152,7 +162,7 @@ export async function registerSettingsRoutes(app, options = {}) {
         throw err;
       }
       if (body.enabled !== undefined) {
-        await appSettings.putSetting(SETTING_KEY, Boolean(body.enabled));
+        await appSettings.putSetting(SETTING_KEY, body.enabled);
       }
       return semanticStatus();
     }
@@ -160,7 +170,7 @@ export async function registerSettingsRoutes(app, options = {}) {
     // Legacy shape: a bare { enabled } toggle, 409 when nothing is configured.
     const embedder = await resolveEmbedder();
     if (!embedder) { reply.code(409); return { message: 'semantic search is not configured' }; }
-    await appSettings.putSetting(SETTING_KEY, Boolean(body.enabled));
+    await appSettings.putSetting(SETTING_KEY, body.enabled);
     return semanticStatus();
   });
 

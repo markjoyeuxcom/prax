@@ -1,0 +1,24 @@
+# Prax has no built-in authentication: anything that reaches port 3000 has
+# full read/write access. Only pods in Prax's own namespace may connect; kubelet
+# probes and `kubectl port-forward` still work. When you opt into exposure
+# (base/httproute.yaml), add an ingress rule for your gateway's namespace in
+# that authenticated overlay. Egress is left open because an operator may
+# enable an embedding, chat or calendar provider outside the cluster.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prax
+  labels:
+    app.kubernetes.io/name: prax
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: prax
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 3000

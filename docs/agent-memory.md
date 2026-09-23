@@ -201,7 +201,8 @@ and falls back to keyword search.
 
 Project-scoped commands (`prax context`, `prax search`, `prax remember` without `--memory`)
 resolve the project as: `--project` flag > `PRAX_PROJECT` env > `.prax/project.json` (walking up
-from the cwd) > **git remote match** > folder name. The git rung reads the repository's `origin`
+from the cwd to the repository root) > **git remote match** > a `.prax/project.json` above the
+repository root > the repository's folder name. The git rung reads the repository's `origin`
 URL (pure fs — no git binary) and matches it against each project's registered **Repo** URL
 (project header in the app, or set automatically by `prax init` inside a repo), so any checkout or
 worktree of a registered repo lands in the right project without its own marker file. URL

@@ -16,20 +16,36 @@ export function findSmartView(views, id) {
     || BUILT_IN_SMART_VIEWS.find((view) => view.id === id)
     || null;
 }
+// Letters and digits of every script survive, so a non-Latin name does not
+// collapse to the fallback.
 function slugFromLabel(label) {
   return String(label || '')
     .trim()
+    .normalize('NFKC')
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/[^\p{L}\p{N}]+/gu, '-')
     .replace(/^-|-$/g, '')
     || 'view';
+}
+
+function uniqueId(base, taken) {
+  if (!taken.has(base)) return base;
+  let suffix = 2;
+  while (taken.has(`${base}-${suffix}`)) suffix += 1;
+  return `${base}-${suffix}`;
 }
 
 // "Folder/Name" at creation files the view under that folder (the save
 // dialog's single text input is the only creation surface, so the slash is
 // the affordance). Only the FIRST slash splits; parsing happens at creation
 // only — stored labels are never reinterpreted.
-export function createSmartView(label, expr) {
+//
+// `existing` is the saved list. A view with exactly this folder and name is
+// updated in place (it keeps its id, so the caller can tell and say so); any
+// other name gets an id no saved or built-in view holds — names that
+// differ only by case, punctuation or script never overwrite each other
+// (QINV-01, QINV-11).
+export function createSmartView(label, expr, existing = []) {
   const raw = String(label || '').trim();
   const normalizedExpr = String(expr || '').trim();
   if (!raw || !normalizedExpr) return null;
@@ -38,8 +54,11 @@ export function createSmartView(label, expr) {
   const folder = slash > 0 ? raw.slice(0, slash).trim() : null;
   const normalizedLabel = slash > 0 ? raw.slice(slash + 1).trim() : raw;
   if (!normalizedLabel) return null;
+  const views = Array.isArray(existing) ? existing : [];
+  const same = views.find((view) => view?.label === normalizedLabel && (view.folder || null) === folder);
+  const taken = new Set([...views.map((view) => view?.id), ...BUILT_IN_SMART_VIEWS.map((view) => view.id)]);
   return {
-    id: slugFromLabel(raw),
+    id: same ? same.id : uniqueId(slugFromLabel(raw), taken),
     label: normalizedLabel,
     expr: normalizedExpr,
     ...(folder ? { folder } : {}),

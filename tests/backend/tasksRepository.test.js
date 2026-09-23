@@ -54,6 +54,7 @@ test('normalizeTaskRow maps database fields to API task fields', () => {
     dueTime: null,
     deferredUntil: null,
     recurrence: null,
+    recurrenceAnchorDay: null,
     labels: [],
     sortOrder: 2,
     archivedAt: null,
@@ -434,8 +435,8 @@ test('listTasks parameterizes projectId status and search filters', async () => 
 
   assert.match(calls[0].text, /project_id = \$1/);
   assert.match(calls[0].text, /status = \$2/);
-  assert.match(calls[0].text, /lower\(title\) like lower\(\$3\) escape '\\' or lower\(description\) like lower\(\$3\) escape '\\'/);
-  assert.deepEqual(calls[0].values, [PROJECT_ID, 'planned', '%backup%']);
+  assert.match(calls[0].text, /instr\(prax_fold\(title\), \$3\) > 0 or instr\(prax_fold\(description\), \$3\) > 0/);
+  assert.deepEqual(calls[0].values, [PROJECT_ID, 'planned', 'backup']);
 });
 
 test('buildListTaskDocuments returns join query with task_id param', () => {

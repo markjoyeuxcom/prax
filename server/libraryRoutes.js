@@ -48,6 +48,8 @@ import { normalizeTitle } from './documentTitle.js';
 // the DB CHECK was dropped in migration 0010; this is the enforcement point.
 const DOCUMENT_TYPES = new Set(DOCUMENT_TYPE_VALUES);
 const DOCUMENT_KINDS = new Set(['source', 'synthesized']);
+// Accepted `status` values for GET /api/library/documents (`all` = no filter).
+const LISTING_STATUSES = new Set(['active', 'superseded', 'deprecated', 'all']);
 // 'project' (slug-or-id) is the client-facing field; 'projectId' is resolved
 // server-side and injected into the patch by the handler — never accepted raw.
 const PATCH_FIELDS = ['title', 'body', 'documentType', 'project', 'tags', 'sourceFilename', 'kind'];
@@ -426,12 +428,19 @@ export async function registerLibraryRoutes(app, options = {}) {
       reply.code(400);
       return { message: 'kind is invalid' };
     }
+    // An unknown status used to drop the filter and list retired documents
+    // to a caller that asked for one status. `all` is the explicit no-filter.
+    const status = request.query.status;
+    if (status !== undefined && !LISTING_STATUSES.has(status)) {
+      reply.code(400);
+      return { message: 'status must be active, superseded, deprecated or all' };
+    }
     let projectId;
     if (request.query.project && request.query.project !== 'all') {
       projectId = await resolveProjectId(request.query.project);
       if (projectId === null) { reply.code(400); return { message: 'project is invalid' }; }
     }
-    return repository.listDocuments({ ...request.query, projectId });
+    return repository.listDocuments({ ...request.query, status: status === 'all' ? undefined : status, projectId });
   });
 
   app.get('/api/library/documents/semantic-search', async (request, reply) => {

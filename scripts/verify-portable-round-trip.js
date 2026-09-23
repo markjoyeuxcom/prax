@@ -22,6 +22,7 @@ export function canonicalPortableTask(task) {
     dueTime: task?.dueTime ?? null,
     deferredUntil: task?.deferredUntil ?? null,
     recurrence: task?.recurrence ?? null,
+    recurrenceAnchorDay: task?.recurrenceAnchorDay ?? null,
     labels: Array.isArray(task?.labels) ? [...task.labels] : [],
     sortOrder: task?.sortOrder ?? null,
     archivedAt: task?.archivedAt ?? null,

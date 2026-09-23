@@ -40,12 +40,19 @@ test('the localhost desktop webview has an explicit grant for every exported Lib
   ));
   assert.ok(capability.remote.urls.includes('http://127.0.0.1:*'));
   assert.ok(capability.permissions.includes(PERMISSION));
-  // The main webview's non-core grants: the export save + the live shortcut
-  // re-registration (persistence itself is plain HTTP, not IPC).
+  // The main webview's non-core grants: the export save, the live shortcut
+  // re-registration (persistence itself is plain HTTP, not IPC), and the
+  // shell plugin's open command for web links — never execute/spawn/kill.
   assert.deepEqual(
     capability.permissions.filter(permission => !permission.startsWith('core:')),
-    [PERMISSION, SHORTCUT_PERMISSION],
+    [PERMISSION, SHORTCUT_PERMISSION, 'shell:allow-open'],
   );
+  // No open-scope override: the plugin's default admits only http(s),
+  // mailto and tel URLs.
+  const tauriConfig = JSON.parse(readFileSync(new URL('../../src-tauri/tauri.conf.json', import.meta.url), 'utf8'));
+  assert.equal(tauriConfig.plugins?.shell?.open, undefined);
+  assert.ok(!localCapability.permissions.some(permission => String(permission).startsWith('shell:')));
+  assert.ok(!captureCapability.permissions.some(permission => String(permission).startsWith('shell:')));
   assert.ok(localCapability.permissions.includes(RESTART_PERMISSION));
   assert.ok(!capability.permissions.includes(RESTART_PERMISSION));
 

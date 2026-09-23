@@ -44,7 +44,7 @@ export function assertVersionAgreement({ packageVersion, cargoText, tauriConfig,
     throw new Error(`Desktop version drift: package.json=${packageVersion}, Cargo.toml=${cargoVersion}`);
   }
   // A release candidate is the same version with a prerelease suffix
-  // (v0.21.0-rc.1); the workflow marks it as a prerelease and skips `latest`.
+  // (v0.21.0-rc.1); its release notes say it is a candidate.
   if (tag && tag !== `v${packageVersion}` && !tag.startsWith(`v${packageVersion}-`)) {
     throw new Error(`Release tag ${tag} does not match package version v${packageVersion}`);
   }

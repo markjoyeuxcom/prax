@@ -52,13 +52,37 @@ const MAX_STEPS = 8;          // model round-trips per request (bounds tool loop
 const MAX_TURNS = 120;        // incoming history length cap
 const MAX_CONTENT = 20_000;   // per-turn text cap
 
+// Text over the cap is cut with a visible note, so neither the model nor a
+// person reading the echoed history mistakes a clipped result for a whole one.
+export function clipContent(text) {
+  if (text.length <= MAX_CONTENT) return text;
+  const note = (omitted) => `\n\n[… ${omitted} characters clipped]`;
+  const keep = MAX_CONTENT - note(text.length).length;
+  return text.slice(0, keep) + note(text.length - keep);
+}
+
+// The newest MAX_TURNS turns, starting at a person's turn. A cut anywhere else
+// could open on a tool result whose tool call was dropped, which providers
+// reject; and every provider expects the conversation to open with the user.
+// Without a user turn in the window (one enormous tool-driven turn) it falls
+// back to skipping only the leading tool results.
+function recentTurns(input) {
+  if (input.length <= MAX_TURNS) return input;
+  const window = input.slice(-MAX_TURNS);
+  const userStart = window.findIndex((m) => m?.role === 'user' && !isToolCallTurn(m)
+    && typeof m.content === 'string' && m.content.trim());
+  if (userStart >= 0) return window.slice(userStart);
+  const firstCall = window.findIndex((m) => m?.role !== 'tool');
+  return firstCall >= 0 ? window.slice(firstCall) : [];
+}
+
 // Validate + normalize the client-supplied conversation into canonical turns,
 // dropping anything malformed and any client-supplied system turn (the server
 // owns the system prompt). This is a trust boundary: the body is untrusted.
 export function sanitizeMessages(input) {
   if (!Array.isArray(input)) return [];
   const out = [];
-  for (const m of input.slice(-MAX_TURNS)) {
+  for (const m of recentTurns(input)) {
     if (!m || typeof m !== 'object') continue;
     if (m.role === 'user' || m.role === 'assistant') {
       if (isToolCallTurn(m)) {
@@ -84,7 +108,7 @@ export function sanitizeMessages(input) {
           const geminiParts = sanitizeGeminiParts(m.geminiParts, toolCalls);
           out.push({
             role: 'assistant',
-            content: typeof m.content === 'string' ? m.content.slice(0, MAX_CONTENT) : '',
+            content: typeof m.content === 'string' ? clipContent(m.content) : '',
             toolCalls,
             ...(providerOutput ? { providerOutput } : {}),
             ...(geminiParts ? { geminiParts } : {}),
@@ -94,12 +118,12 @@ export function sanitizeMessages(input) {
       }
       if (typeof m.content === 'string' && m.content.trim()) {
         const geminiParts = m.role === 'assistant' ? sanitizeGeminiParts(m.geminiParts) : null;
-        out.push({ role: m.role, content: m.content.slice(0, MAX_CONTENT), ...(geminiParts ? { geminiParts } : {}) });
+        out.push({ role: m.role, content: clipContent(m.content), ...(geminiParts ? { geminiParts } : {}) });
       }
     } else if (m.role === 'tool' && Array.isArray(m.results)) {
       const results = m.results
         .filter((r) => r && typeof r.id === 'string' && typeof r.name === 'string')
-        .map((r) => ({ id: r.id, name: r.name, content: String(r.content ?? '').slice(0, MAX_CONTENT), isError: Boolean(r.isError) }));
+        .map((r) => ({ id: r.id, name: r.name, content: clipContent(String(r.content ?? '')), isError: Boolean(r.isError) }));
       if (results.length) out.push({ role: 'tool', results });
     }
   }

@@ -76,6 +76,21 @@ function serializeTags(tags) {
   return JSON.stringify(Array.isArray(tags) ? tags : []);
 }
 
+// Every markdown_documents column except `embedding`. A stored vector is JSON
+// text (about 30 KB at 1536 dimensions), and only the similarity paths read it:
+// listing 2,000 documents with d.* carried 60 MB of vectors nobody used.
+// tests/backend/libraryRepository.test.js keeps this in step with the schema.
+export const DOCUMENT_LISTING_COLUMNS = Object.freeze([
+  'id', 'title', 'body', 'document_type', 'project_id', 'tags', 'source_filename', 'archived_at',
+  'content_hash', 'updated_by', 'updated_by_agent', 'kind', 'verified', 'verified_at', 'verified_by',
+  'status', 'embedding_backend', 'embedding_model', 'embedding_dim', 'embedded_hash', 'embedded_at',
+  'created_at', 'updated_at', 'creation_operation', 'creation_intent_hash', 'revision',
+]);
+
+function documentListingColumns(alias) {
+  return DOCUMENT_LISTING_COLUMNS.map((column) => `${alias}.${column}`).join(', ');
+}
+
 export function normalizeDocumentRow(row) {
   return {
     id: row.id,
@@ -381,7 +396,7 @@ export function buildListActiveDocumentsForExport({ projectId, includeArchived =
   }
   return {
     text: `
-      select d.*, p.slug as project_slug
+      select ${documentListingColumns('d')}, p.slug as project_slug
       from markdown_documents d
       join projects p on p.id = d.project_id
       ${where}
@@ -791,7 +806,7 @@ export function createLibraryRepository(db) {
       // stale: pg used a LEFT JOIN LATERAL (... limit 1); SQLite ports it to a
       // scalar EXISTS subquery in the select list (0/1, normalized to boolean).
       const result = await db.query(`
-        select d.*, p.slug as project_slug, exists (
+        select ${documentListingColumns('d')}, p.slug as project_slug, exists (
           select 1
           from document_links dl
           join markdown_documents tgt

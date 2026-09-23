@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  isValidRecurrence, nextDueDate, planTaskRecurrenceTransition,
+  isValidRecurrence, isValidRecurrenceAnchorDay, nextDueDate, planTaskRecurrenceTransition,
+  recurrenceAnchorDayFor,
 } from '../../server/recurrence.js';
 
 const WED = new Date(2026, 6, 8); // 2026-07-08, a Wednesday
@@ -53,14 +54,87 @@ test('a late completion lands on the anchored day, not a clamped one', () => {
   assert.equal(nextDueDate('monthly', '2020-08-31', '2026-09-30'), '2026-10-31');
 });
 
-test('existing monthly tasks keep their anchor: it is the stored due date\'s day', () => {
-  // No new storage: the task being completed carries the anchor.
+test('existing monthly tasks without a stored anchor use the due date\'s day', () => {
+  // A pre-0037 task has no anchor; the task being completed supplies it.
   const plan = planTaskRecurrenceTransition(
     { ...RECURRING_TASK, recurrence: 'monthly', dueDate: '2026-01-31' },
     { status: 'completed' },
     { today: '2026-04-15' },
   );
   assert.equal(plan.nextTask.dueDate, '2026-04-30');
+});
+
+// Regression (review 2026-09-22, e7052140): the anchor day is stored with the
+// series (migration 0037), so an on-time series returns to the 31st after a
+// clamped month instead of drifting to the 28th for good.
+test('an anchored monthly series completed on time returns to its anchor day', () => {
+  assert.equal(nextDueDate('monthly', '2026-02-28', '2026-02-28', { anchorDay: 31 }), '2026-03-31');
+  assert.equal(nextDueDate('monthly', '2026-03-31', '2026-03-31', { anchorDay: 31 }), '2026-04-30');
+  assert.equal(nextDueDate('monthly', '2026-04-30', '2026-04-30', { anchorDay: 31 }), '2026-05-31');
+  assert.equal(nextDueDate('monthly', '2028-01-31', '2028-01-31', { anchorDay: 31 }), '2028-02-29', 'leap year');
+  assert.equal(nextDueDate('monthly', '2028-02-29', '2028-02-29', { anchorDay: 31 }), '2028-03-31');
+  assert.equal(nextDueDate('monthly', '2026-02-28', '2026-02-28', { anchorDay: 30 }), '2026-03-30');
+  // Late: a Feb 28 occurrence of a 31st series completed on Apr 15.
+  assert.equal(nextDueDate('monthly', '2026-02-28', '2026-04-15', { anchorDay: 31 }), '2026-04-30');
+  // An invalid anchor is ignored rather than trusted.
+  assert.equal(nextDueDate('monthly', '2026-02-28', '2026-02-28', { anchorDay: 32 }), '2026-03-28');
+});
+
+test('a whole Jan 31 series planned on time: Feb 28, Mar 31, Apr 30, May 31', () => {
+  let task = { ...RECURRING_TASK, recurrence: 'monthly', dueDate: '2026-01-31', recurrenceAnchorDay: 31 };
+  const seen = [];
+  for (let i = 0; i < 4; i += 1) {
+    const plan = planTaskRecurrenceTransition(task, { status: 'completed' }, { today: task.dueDate });
+    seen.push(plan.nextTask.dueDate);
+    assert.equal(plan.nextTask.recurrenceAnchorDay, 31, 'the anchor rides on every occurrence');
+    task = { ...plan.nextTask };
+  }
+  assert.deepEqual(seen, ['2026-02-28', '2026-03-31', '2026-04-30', '2026-05-31']);
+});
+
+test('the anchor follows the person\'s scheduling edits', () => {
+  const monthly = { ...RECURRING_TASK, recurrence: 'monthly', dueDate: '2026-02-28', recurrenceAnchorDay: 31 };
+  // Setting a monthly recurrence anchors on the due date's day.
+  assert.deepEqual(
+    planTaskRecurrenceTransition({ ...RECURRING_TASK, dueDate: '2026-01-31' }, { recurrence: 'monthly' }).fields,
+    { recurrence: 'monthly', recurrenceAnchorDay: 31 },
+  );
+  // Moving the due date re-anchors; re-sending the same date does not.
+  assert.equal(planTaskRecurrenceTransition(monthly, { dueDate: '2026-03-15' }).fields.recurrenceAnchorDay, 15);
+  assert.deepEqual(planTaskRecurrenceTransition(monthly, { dueDate: '2026-02-28', title: 'Renamed' }).fields,
+    { dueDate: '2026-02-28', title: 'Renamed' });
+  // Clearing the due date or leaving monthly clears the anchor.
+  assert.equal(planTaskRecurrenceTransition(monthly, { dueDate: null }).fields.recurrenceAnchorDay, null);
+  assert.equal(planTaskRecurrenceTransition(monthly, { recurrence: 'weekly' }).fields.recurrenceAnchorDay, null);
+  // Reopening a completed occurrence as a one-off clears it too.
+  assert.deepEqual(
+    planTaskRecurrenceTransition({ ...monthly, status: 'completed' }, { status: 'planned' }).fields,
+    { status: 'planned', recurrence: null, recurrenceAnchorDay: null },
+  );
+  // A due date moved in the completing patch anchors the successor.
+  const moved = planTaskRecurrenceTransition(monthly, { dueDate: '2026-01-30', status: 'completed' }, { today: '2026-01-30' });
+  assert.equal(moved.nextTask.dueDate, '2026-02-28');
+  assert.equal(moved.nextTask.recurrenceAnchorDay, 30);
+});
+
+test('an unanchored (pre-0037) monthly task is anchored on its own day at completion, never a guessed 31st', () => {
+  const legacy = { ...RECURRING_TASK, recurrence: 'monthly', dueDate: '2026-02-28', recurrenceAnchorDay: null };
+  const plan = planTaskRecurrenceTransition(legacy, { status: 'completed' }, { today: '2026-02-28' });
+  assert.equal(plan.nextTask.dueDate, '2026-03-28');
+  assert.equal(plan.nextTask.recurrenceAnchorDay, 28);
+  assert.deepEqual(plan.fields, { status: 'completed' }, 'the completed occurrence itself is left as it was');
+  const undated = planTaskRecurrenceTransition({ ...legacy, dueDate: null }, { status: 'completed' }, { today: '2026-01-31' });
+  assert.equal(undated.nextTask.dueDate, '2026-02-28');
+  assert.equal(undated.nextTask.recurrenceAnchorDay, 31, 'an undated series anchors on the day it was completed');
+});
+
+test('anchor helpers accept only a day of the month and only for monthly tasks', () => {
+  for (const day of [1, 15, 31, null, undefined]) assert.equal(isValidRecurrenceAnchorDay(day), true, String(day));
+  for (const day of [0, 32, 1.5, '31', -1]) assert.equal(isValidRecurrenceAnchorDay(day), false, String(day));
+  assert.equal(recurrenceAnchorDayFor({ recurrence: 'monthly', dueDate: '2026-01-31' }), 31);
+  assert.equal(recurrenceAnchorDayFor({ recurrence: 'monthly', dueDate: '2026-02-28', recurrenceAnchorDay: 31 }), 31);
+  assert.equal(recurrenceAnchorDayFor({ recurrence: 'monthly', dueDate: null }), null);
+  assert.equal(recurrenceAnchorDayFor({ recurrence: 'weekly', dueDate: '2026-01-31', recurrenceAnchorDay: 31 }), null);
 });
 
 test('the requester\'s today overrides the server clock', () => {
@@ -127,6 +201,7 @@ test('recurrence transition plans one complete successor from the proposed task'
     dueDate: '2026-07-15',
     dueTime: '09:30',
     recurrence: 'weekly',
+    recurrenceAnchorDay: null,
     labels: ['maintenance'],
     sortOrder: 0,
   });

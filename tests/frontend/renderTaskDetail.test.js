@@ -437,3 +437,33 @@ test('drawer escapes hostile label text', () => {
   assert.doesNotMatch(html, /data-label="<script>"/);
   assert.match(html, /&lt;script&gt;/);
 });
+
+// A control nested inside another <button> is not keyboard-reachable or
+// announced: every secondary doc-row control is a sibling button.
+function buttonsNestInButtons(html) {
+  let depth = 0;
+  for (const tag of html.match(/<\/?button\b/g) || []) {
+    if (tag === '<button') { if (depth > 0) return true; depth += 1; } else depth -= 1;
+  }
+  return false;
+}
+
+test('related knowledge Link / Not relevant and linked-doc Unlink are real sibling buttons', () => {
+  const state = makeState({
+    taskRelatedDocs: { taskId: 't1', loading: false, degraded: false, suggestions: [{ id: 'r1', title: 'Backup runbook', documentType: 'runbook' }] },
+  });
+  const html = render({ state, context: makeContext({
+    documents: [{ id: 'doc-1', title: 'Deploy Runbook', documentType: 'runbook' }],
+    checklist: [{ id: 'c1', label: 'Step one', completed: false }],
+  }) });
+  assert.equal(buttonsNestInButtons(html), false, 'no button inside a button');
+  assert.match(html, /<button class="check-item__delete" type="button" data-action="delete-checklist-item" data-item-id="c1"[^>]*aria-label="Delete Step one">/);
+  assert.doesNotMatch(html, /<span[^>]*data-action=/, 'no span pretends to be a control');
+  assert.match(html, /<button class="doc-row__dismiss" type="button" data-action="dismiss-related-doc" data-document-id="r1"[^>]*aria-label="Not relevant: Backup runbook">/);
+  assert.match(html, /<button class="doc-row__link" type="button" data-action="link-related-doc" data-document-id="r1"[^>]*aria-label="Link Backup runbook to this task">/);
+  assert.match(html, /<button class="doc-row__dismiss" type="button" data-action="unlink-task-document" data-document-id="doc-1"[^>]*aria-label="Unlink Deploy Runbook">/);
+  assert.match(html, /class="doc-row" type="button" data-action="open-linked-doc" data-document-id="r1"/);
+
+  const readOnly = render({ state, context: makeContext({ readOnly: true }) });
+  assert.doesNotMatch(readOnly, /dismiss-related-doc|link-related-doc/);
+});

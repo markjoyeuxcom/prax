@@ -48,9 +48,56 @@ function resolveBaseUrls({ baseUrl, env = process.env, portFile, read } = {}) {
   return urls;
 }
 
+// server/localDay.js
+var LOCAL_DATE_HEADER = "x-prax-local-date";
+var TIME_ZONE_HEADER = "x-prax-time-zone";
+function pad(n) {
+  return String(n).padStart(2, "0");
+}
+function localToday(now = /* @__PURE__ */ new Date()) {
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+function localDayHeaders(now = /* @__PURE__ */ new Date()) {
+  let timeZone = "";
+  try {
+    timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  } catch {
+  }
+  return { [LOCAL_DATE_HEADER]: localToday(now), ...timeZone ? { [TIME_ZONE_HEADER]: timeZone } : {} };
+}
+
 // cli/lib/apiClient.js
 var SEMANTIC_PAGE_MAX = 50;
-function createClient({ baseUrl, token, agent, env = process.env, bases } = {}) {
+var DEFAULT_TIMEOUT_MS = 3e4;
+var PROBE_TIMEOUT_MS = 2e3;
+function timeoutFromEnv(env = process.env) {
+  const raw = env.PRAX_TIMEOUT_MS;
+  if (raw === void 0 || raw === "") return void 0;
+  const ms = Number(raw);
+  if (!/^\d+$/.test(String(raw).trim()) || !Number.isSafeInteger(ms) || ms < 1) {
+    throw new TypeError(`PRAX_TIMEOUT_MS must be a positive number of milliseconds (got "${raw}")`);
+  }
+  return ms;
+}
+function formatDuration(ms) {
+  return ms >= 1e3 && ms % 1e3 === 0 ? `${ms / 1e3} s` : `${ms} ms`;
+}
+function isTimeout(err) {
+  const name = err?.name || err?.cause?.name;
+  return name === "TimeoutError" || name === "AbortError";
+}
+function createClient({
+  baseUrl,
+  token,
+  agent,
+  env = process.env,
+  bases,
+  timeoutMs = timeoutFromEnv(env) ?? DEFAULT_TIMEOUT_MS,
+  probeTimeoutMs = PROBE_TIMEOUT_MS
+} = {}) {
+  for (const [name, value] of [["timeoutMs", timeoutMs], ["probeTimeoutMs", probeTimeoutMs]]) {
+    if (!Number.isFinite(value) || value < 1) throw new TypeError(`${name} must be a positive finite number`);
+  }
   const candidates = bases || resolveBaseUrls({ baseUrl, env });
   let base = candidates[0];
   let pinned = candidates.length === 1;
@@ -65,7 +112,7 @@ function createClient({ baseUrl, token, agent, env = process.env, bases } = {}) 
     let lastError;
     for (const candidate of candidates) {
       try {
-        await fetch(`${candidate}/readyz`, { method: "GET" });
+        await fetch(`${candidate}/readyz`, { method: "GET", signal: AbortSignal.timeout(probeTimeoutMs) });
         if (!pinned) {
           base = candidate;
           pinned = true;
@@ -93,7 +140,7 @@ function createClient({ baseUrl, token, agent, env = process.env, bases } = {}) 
     accept,
     retryUnavailable = false
   } = {}) {
-    const headers = {};
+    const headers = localDayHeaders();
     if (body !== void 0) headers["content-type"] = "application/json";
     if (agentWrite) {
       headers["x-prax-origin"] = "agent";
@@ -107,22 +154,37 @@ function createClient({ baseUrl, token, agent, env = process.env, bases } = {}) 
     let res;
     let lastError;
     const attempts = retryUnavailable ? 2 : 1;
+    const signal = AbortSignal.timeout(timeoutMs);
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
-        res = await fetch(`${target}${path}`, { method, headers, body: payload });
+        res = await fetch(`${target}${path}`, { method, headers, body: payload, signal });
         break;
       } catch (err) {
         lastError = err;
+        if (isTimeout(err)) break;
         if (retryUnavailable === "connect-only" && !["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN"].includes(err?.cause?.code || err?.code)) break;
       }
     }
+    const write = !["GET", "HEAD"].includes(method);
+    const timedOut = (err) => {
+      const error = new Error(`${write ? "Write outcome unknown; reconcile before retrying. " : ""}Prax at ${target} did not answer within ${formatDuration(timeoutMs)} \u2014 the request may still be processing; it was not re-sent. Set PRAX_TIMEOUT_MS to wait longer. (${err.message})`);
+      error.timedOut = true;
+      return error;
+    };
     if (!res) {
+      if (isTimeout(lastError)) throw timedOut(lastError);
       const error = unreachable(lastError);
-      if (!["GET", "HEAD"].includes(method)) error.message = `Write outcome unknown; reconcile before retrying. ${error.message}`;
+      if (write) error.message = `Write outcome unknown; reconcile before retrying. ${error.message}`;
       throw error;
     }
     const ct = res.headers.get("content-type") || "";
-    const parsed = ct.includes("application/json") ? await res.json() : await res.text();
+    let parsed;
+    try {
+      parsed = ct.includes("application/json") ? await res.json() : await res.text();
+    } catch (err) {
+      if (isTimeout(err)) throw timedOut(err);
+      throw err;
+    }
     if (!res.ok) {
       const message = parsed && parsed.message ? parsed.message : `HTTP ${res.status}`;
       const error = new Error(message);
@@ -651,7 +713,8 @@ async function main() {
     }
   }
   const who = client.agent ? `, as ${client.agent}` : "";
-  const where = result.project && result.project !== project ? ` in ${result.project}` : "";
+  const landed = result.project || project;
+  const where = landed ? ` in ${landed}` : "";
   console.log(`Remembered "${title}" \u2192 ${doc.id} (${action}${where}${who}${refNote}${citeNote}) at ${client.base}`);
 }
 main().catch((err) => {

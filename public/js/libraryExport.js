@@ -140,10 +140,13 @@ export async function saveLibraryArchive({ scope = 'all', filename, mode, ...opt
 
   if (destinationMode === 'desktop') {
     const blob = await fetchLibraryArchive(scope, options);
-    const bytes = Array.from(new Uint8Array(await blob.arrayBuffer()));
-    const path = await globalRef.__TAURI__.core.invoke('save_library_export', {
-      fileName: suggestedName,
-      bytes,
+    // The archive is the raw invoke body, never a JSON array of numbers (a
+    // 50 MB archive needed ~700 MB of heap that way, and 200 MB threw). The
+    // name rides in a header, percent-encoded because it may be renamed to
+    // anything; src-tauri/src/lib.rs decodes and sanitizes it.
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const path = await globalRef.__TAURI__.core.invoke('save_library_export', bytes, {
+      headers: { 'Prax-Export-Filename': encodeURIComponent(suggestedName) },
     });
     if (!path) return { status: 'cancelled' };
     return { status: 'saved', filename: suggestedName, path };
