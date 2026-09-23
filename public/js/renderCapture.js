@@ -1,4 +1,4 @@
-import { escapeHtml } from './renderHelpers.js';
+import { cssColor, escapeHtml } from './html.js';
 import { icon } from './icons.js';
 import { dueFlag } from './dueFlags.js';
 
@@ -25,13 +25,13 @@ function nlPreviewHtml(state, projects) {
   if (!fields) return '';
   const chips = [];
   const disabled = state?.captureSubmitting ? ' disabled' : '';
-  const chip = (field, label, { tone = '', dot = '' } = {}) =>
-    `<button type="button" class="nlchip${tone ? ` nlchip--${tone}` : ''}" data-action="drop-nl-field" data-field="${escapeHtml(field)}" aria-label="Remove ${escapeHtml(label)}" title="Click to remove"${disabled}>${dot}${escapeHtml(label)}<span class="nlchip__x" aria-hidden="true">×</span></button>`;
+  const chip = (field, label, { tone = '', dotHtml = '' } = {}) =>
+    `<button type="button" class="nlchip${tone ? ` nlchip--${escapeHtml(tone)}` : ''}" data-action="drop-nl-field" data-field="${escapeHtml(field)}" aria-label="Remove ${escapeHtml(label)}" title="Click to remove"${disabled}>${dotHtml}${escapeHtml(label)}<span class="nlchip__x" aria-hidden="true">×</span></button>`;
 
   if (fields.project) {
     const proj = (projects || []).find((p) => p.slug === fields.project);
-    const dot = `<span class="proj-dot" style="--dot:${escapeHtml(proj?.color || 'var(--accent)')}" aria-hidden="true"></span>`;
-    chips.push(chip('project', proj?.name || `#${fields.project}`, { dot }));
+    const dotHtml = `<span class="proj-dot" style="--dot:${cssColor(proj?.color, 'var(--accent)')}" aria-hidden="true"></span>`;
+    chips.push(chip('project', proj?.name || `#${fields.project}`, { dotHtml }));
   }
   if (fields.priority) chips.push(chip('priority', `!${fields.priority}`));
   if (fields.dueDate) {
@@ -51,7 +51,7 @@ function nlPreviewHtml(state, projects) {
 }
 
 export function renderCaptureHtml(state, project, projects = []) {
-  const color = escapeHtml(project?.color || 'var(--accent)');
+  const color = cssColor(project?.color, 'var(--accent)');
   const dueHint = state?.captureDueDate && !state?.nlCaptureFields ? '<span class="capture__due">Due today</span>' : '';
   const canNl = Boolean(state?.chatStatus?.available);
   const previewing = Boolean(state?.nlCaptureFields);
@@ -62,7 +62,7 @@ export function renderCaptureHtml(state, project, projects = []) {
       + projects.map((p) => {
         const selected = p.id === project?.id;
         return `<button type="button" class="menu__item capture__menu-item${selected ? ' is-selected' : ''}" role="option" aria-selected="${selected}" data-action="set-capture-project" data-project-id="${escapeHtml(p.id)}"${disabled}>`
-          + `<span class="proj-dot" style="--dot:${escapeHtml(p.color || 'var(--accent)')}" aria-hidden="true"></span>`
+          + `<span class="proj-dot" style="--dot:${cssColor(p.color, 'var(--accent)')}" aria-hidden="true"></span>`
           + `<span class="capture__menu-name">${escapeHtml(p.name)}</span>`
           + (selected ? icon('check', 12) : '')
           + '</button>';

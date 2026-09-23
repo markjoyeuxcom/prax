@@ -41,6 +41,13 @@ function targetTriple() {
 console.log('[prepare-sidecar] staging server payload…');
 rmSync(staging, { recursive: true, force: true });
 mkdirSync(staging, { recursive: true });
+// Tauri copies resources into target/<profile>/resources on every build but
+// never removes a file deleted from the source, so a local build would keep
+// shipping it (desktop:verify reports it as "not in source"). Clearing those
+// copies makes the build recopy exactly the staged payload.
+for (const profile of ['debug', 'release']) {
+  rmSync(join(root, 'src-tauri', 'target', profile, 'resources', 'app'), { recursive: true, force: true });
+}
 
 for (const dir of ['server', 'public', 'mcp', 'cli', 'skills']) {
   cpSync(join(root, dir), join(staging, dir), { recursive: true });

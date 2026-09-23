@@ -1,4 +1,4 @@
-import { escapeHtml } from './renderHelpers.js';
+import { escapeHtml } from './html.js';
 import { icon } from './icons.js';
 
 // "Generate runbook" overlay — describe an alert/incident, pick a project, and

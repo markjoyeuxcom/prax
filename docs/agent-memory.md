@@ -85,9 +85,9 @@ On servers without that endpoint, the fallback PATCH is attempted once; an
 uncertain response is reported as an unknown outcome, requiring reconciliation.
 See [the update retry contract](contract.md#document-update-retries).
 
-The client binds to one Prax instance for the whole run: a write first probes `/readyz` to pin
-the instance and is then sent only there, never failed over to the other discovery candidate,
-and the confirmation line names the base URL it wrote to.
+The client binds to one Prax instance for the whole run and never fails a write over to another
+(see [Connecting to the app](#connecting-to-the-app)); the confirmation line names the base URL
+it wrote to.
 
 ## Namespace & provenance
 
@@ -185,17 +185,62 @@ blocks and the shim; it edits a symlinked instruction file at its target (the li
 the mode is kept) and leaves a file with malformed markers unchanged, failing the run. See
 [`skills/README.md`](../skills/README.md).
 
-### Finding the app
+### Connecting to the app
 
-The skills, the CLI and the MCP server find the HTTP API in this order: `PRAX_API_URL` → the desktop app's saved
-loopback port (the `webview-port` file under its app-data folder: `~/Library/Application
-Support/com.moomora.prax` on macOS, `~/.local/share/com.moomora.prax` on Linux) →
-`http://127.0.0.1:3000`. Discovery pins one instance for the run — a read may probe both
-candidates, a write probes `/readyz` first and then never fails over — so one process cannot
-straddle two workspaces. An explicit `PRAX_API_URL` disables the fallbacks so a wrong address
-fails loudly. The app must be running with an embedding backend configured (Settings ▸
-Intelligence, or `EMBEDDING_BACKEND`) for meaning-based recall; otherwise recall labels itself
-and falls back to keyword search.
+The skills, the `prax` CLI and the MCP server reach Prax through one shared transport
+(`server/praxTransport.js`), so they find the app, identify themselves, time out and retry in
+exactly the same way. This section is the single description of that behaviour; the
+[CLI reference](cli.md#environment-variables), the [MCP server README](../mcp/README.md#configuration)
+and the [skills README](../skills/README.md) list only their own settings.
+
+**Discovery.** The HTTP API is found in this order: `prax --url` → `PRAX_API_URL` → the desktop
+app's saved loopback port (the `webview-port` file under its app-data folder:
+`~/Library/Application Support/com.moomora.prax` on macOS, `~/.local/share/com.moomora.prax` on
+Linux) → `http://127.0.0.1:3000`. An explicit URL disables the fallbacks, so a wrong address
+fails loudly.
+
+**Pinning, with no write failover.** The first candidate that answers a read-only `/readyz`
+probe (2 s) is pinned for the life of the process, and every later request goes only there. A
+write never fails over to another candidate: with the desktop app gone and a dev server on
+`:3000`, landing the same write in a second workspace would be worse than an honest "not
+reachable". Concurrent first requests share one probe; a discovery that finds nothing is tried
+again by the next request. `prax remember` and the remember skill name the base URL they wrote to.
+
+**Headers.** Every request carries the caller's calendar day (`x-prax-local-date` and
+`x-prax-time-zone`, as the web app sends them), so completing a recurring task schedules the next
+occurrence from the person's today even when Prax runs in a UTC container. Agent writes carry
+`x-prax-origin: agent` and, when the agent is known, `x-prax-agent: <id>` — from `--agent`,
+`PRAX_AGENT`, or the Claude Code / Codex / Copilot / Antigravity shell markers. A bearer token,
+when set, is sent as `Authorization: Bearer <token>`: an explicit token first, then
+`PRAX_API_TOKEN`, then `PRAX_TOKEN`, then the pre-rename `MOOMORA_API_TOKEN`. The server does
+not require one under the no-auth model; it is for an authenticated ingress in front of it.
+
+**Timeouts.** One deadline covers each request, response body included. The CLI and the skills
+wait 30 s (recall, search and context embed the query, and a local embedding model can take
+seconds to load cold); the MCP server's ordinary requests wait 5 s. `PRAX_TIMEOUT_MS` overrides
+either. The MCP tools that wait on a chat model — `ask_prax`, `generate_runbook` and
+`generate_post_mortem` — wait 180 s, or `PRAX_MCP_TIMEOUT_MS`. A setting that is not a positive
+whole number of milliseconds is refused at startup rather than replaced by the default.
+
+**Errors.** A failure is one of three kinds, worded the same by every client: Prax is **not
+reachable** (`Prax not reachable at <url> — is the app running?`); it **did not answer in time**
+(`Prax at <url> did not answer within 30 s — the request may still be processing; it was not
+re-sent.`, naming the setting that raises the bound); or it answered with an **HTTP error**,
+reported with its status and the server's message. A write that failed after it may have been
+sent starts `Write outcome unknown; reconcile before retrying.`
+
+**Retries.** A request is re-sent at most once, and only when a replay is provably safe. A
+receipted operation — one that carries a caller-stable id or operation id (a remember, a
+receipt-backed update, a task import with a request id, an MCP create with its `id`) — may be
+retried after a lost response, because the server returns the first attempt's result instead of
+repeating it. An unreceipted idempotent setter (checking a checklist item, `prax task done`,
+verify, supersede, links) is retried only when the failure proves no request reached the server
+(connection refused, or a DNS failure). Anything else, and every timeout, is reported rather than
+re-sent: Prax may still be processing it.
+
+The app must be running with an embedding backend configured (Settings ▸ Intelligence, or
+`EMBEDDING_BACKEND`) for meaning-based recall; otherwise recall labels itself and falls back to
+keyword search.
 
 ### Project detection
 

@@ -1,5 +1,5 @@
 import { toIso } from './columnTypes.js';
-import { createWithReceipt, creationIntentHash } from './creationReceipts.js';
+import { createRecordOnce, creationIntentHash } from './operationLedger.js';
 
 // One bound, enforced at BOTH creation and import: whatever the app lets a
 // task accumulate, the app must be able to restore. A creation-side cap that
@@ -88,12 +88,12 @@ export function createChecklistRepository(db) {
       const result = await db.query(q.text, q.values);
       return normalizeChecklistRow(result.rows[0]);
     },
-    // Receipt-backed like task creation (see creationReceipts.js): the
+    // Receipt-backed like task creation (see createRecordOnce in operationLedger.js): the
     // outcome carries `replayed`, `gone` or `conflict`; `capped` means a new
     // item would exceed `maxItems`. A replay outranks the cap.
     async addChecklistItemIdempotent(taskId, label, id, { maxItems = null } = {}) {
-      const result = await createWithReceipt(db, {
-        kind: 'checklist-item',
+      const result = await createRecordOnce(db, {
+        recordKind: 'checklist-item',
         id,
         intentHash: creationIntentHash('checklist-item', id, [taskId, label]),
         async load(client) {

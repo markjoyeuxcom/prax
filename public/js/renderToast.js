@@ -1,4 +1,4 @@
-import { escapeHtml } from './renderHelpers.js';
+import { escapeHtml } from './html.js';
 
 // Bottom-center toast (design-handoff §10) — optional Undo action; main.js owns
 // the 5s/2.4s timers and runs state.toast.undo on toast-undo.

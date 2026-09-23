@@ -1,4 +1,4 @@
-import { escapeHtml } from './renderHelpers.js';
+import { escapeHtml } from './html.js';
 
 // In-app confirmation dialog — pure `confirm-state → HTML string` renderer.
 // Native window.confirm/prompt are unavailable in the desktop webview (Tauri

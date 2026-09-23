@@ -1,5 +1,6 @@
 // Finding the running Prax and naming the calling agent — ONE implementation
-// shared by every machine client: the prax CLI and skill scripts
+// shared by every machine client through their common transport
+// (server/praxTransport.js): the prax CLI and skill scripts
 // (cli/lib/apiClient.js re-exports it) and the MCP server (mcp/praxClient.js).
 // It lives beside server/repoUrl.js for the same reason: server/ ships in every
 // payload (desktop bundle, container, checkout), so the MCP server needs no

@@ -1,6 +1,7 @@
 import { DOCUMENT_TYPES, isDocumentType } from './documentTypes.js';
 import { externalRefKind, EXTERNAL_REF_KIND_LABELS, isSafeHttpUrl, refsToLines } from './externalRefKind.js';
-import { escapeHtml, chip, prioDotClass } from './renderHelpers.js';
+import { cssColor, escapeHtml } from './html.js';
+import { chip, prioDotClass } from './renderHelpers.js';
 import { DOCUMENT_INFO_FIELD_LABELS } from './documentInfoDraft.js';
 import { localDateOf } from './dateHelpers.js';
 
@@ -80,7 +81,7 @@ export function buildBacklinks(tasks, projects, docId) {
 
 function projectChip(name, color) {
   if (!name) return '';
-  const safeColor = escapeHtml(color || 'var(--ink3)');
+  const safeColor = cssColor(color);
   return `<span class="chip chip--project" style="--project-color:${safeColor};background:color-mix(in oklab, ${safeColor} 13%, transparent)">${escapeHtml(name)}</span>`;
 }
 
@@ -133,7 +134,7 @@ function renderDocMenu(state, doc, { readOnly }) {
 // current id is THIS document, so opening something else simply hides it.
 export function renderReviewWalkLabel(walk) {
   const verified = Number(walk.verified) || 0;
-  return `Review queue · <b>${walk.index + 1} of ${walk.ids.length}</b>${verified ? ` · ${verified} verified` : ''}`;
+  return `Review queue · <b>${escapeHtml(walk.index + 1)} of ${walk.ids.length}</b>${verified ? ` · ${verified} verified` : ''}`;
 }
 
 export function renderReviewWalkHtml(state, doc) {
@@ -282,7 +283,7 @@ function renderOutlineRail(outline) {
   return `
       <aside class="outline" aria-label="Document outline">
         <div class="outline__label">Outline</div>
-        ${outline.map((item) => `<button type="button" data-action="outline-jump" data-heading-index="${item.index}" data-line="${item.line}" style="padding-left:${8 + (item.level - 1) * 11}px">${escapeHtml(item.label)}</button>`).join('')}${hint}
+        ${outline.map((item) => `<button type="button" data-action="outline-jump" data-heading-index="${escapeHtml(item.index)}" data-line="${escapeHtml(item.line)}" style="padding-left:${8 + (item.level - 1) * 11}px">${escapeHtml(item.label)}</button>`).join('')}${hint}
       </aside>`;
 }
 

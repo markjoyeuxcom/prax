@@ -90,7 +90,7 @@ Tauri desktop host. The desktop runs the same application payload on its bundled
 | --- | --- |
 | Server startup and routes | `server/index.js`, `server/*Routes.js` |
 | Persistence and migrations | `server/*Repository.js`, `server/migrations/` |
-| Frontend state, events and rendering | `public/js/main.js`, `state.js`, `render*.js` |
+| Frontend state, events and rendering | `public/js/main.js`, `state.js`, `*Controller.js` (features), `keyboardDispatcher.js`, `render*.js` |
 | Memory commands and retrieval | `cli/prax.js`, `cli/lib/`, `server/libraryRoutes.js`, `server/contextPack.js` |
 | Portable agent skills | `skills/src/`, `skills/prax-*/SKILL.md`, `skills/install.sh` |
 | Desktop lifecycle and packaging | `src-tauri/src/`, `scripts/prepare-sidecar.mjs`, `.gitlab-ci.yml` |
@@ -101,6 +101,45 @@ Use [README](../README.md) for setup, [API/data contracts](contract.md) for boun
 [agent memory](agent-memory.md) for retrieval and persistence semantics. Design rationale
 and implementation plans live under `docs/superpowers/`; dated plans describe their own
 milestone and must be checked against current code. The [roadmap](ROADMAP.md) records direction.
+
+## HTML escaping
+
+The frontend builds HTML strings, and much of what it shows (documents, task text, model
+output) is written by agents, so treat every value as untrusted. Escape it with
+`public/js/html.js`:
+
+- `escapeHtml(value)` for text and `escapeAttr(value)` for a quoted attribute value (the same
+  escaping; `null` and `undefined` become `''`).
+- `cssColor(value, fallback)` for a colour inside a `style` attribute. Escaping alone keeps a
+  value inside its attribute, not inside its CSS declaration.
+- `isSafeHttpUrl(url)` before a value becomes an `href`.
+
+Markdown goes through `renderMarkdownHtml(md, { mode })` in `markdownPreview.js`. Use
+`mode: 'document'` only for a person's own document in the editor preview (remote images load;
+`editable: true` turns on task toggles). Everything else, including model output, uses
+`mode: 'untrusted'`, which is also the default. The older `remoteImages`/`taskToggles` flags
+still work and map onto these modes.
+
+`tests/frontend/htmlEscaping.test.js` checks every `${…}` in a template literal that builds
+HTML in every `public/js` module, `main.js` included. A template builds HTML when its text
+contains a tag or an attribute (` name="`), or when it sits inside another HTML template's
+interpolation. The value must be one of:
+
+1. wrapped in an escaper (`escapeHtml`, `escapeAttr`, `cssColor`, or a local alias such as `esc`);
+2. a literal, number, boolean, comparison, `.length`, an `UPPER_CASE` constant or a lookup in one;
+3. a call to an HTML builder: a `render…` or `…Html` function, an allow-listed builder such as
+   `chip` or `icon`, or a helper in the same file whose every return value passes;
+4. built only from passing values: ternary branches, `||`, `??`, `&&`, `+`, template literals,
+   and `list.map(item => …).join(…)`;
+5. a local name whose every binding in the file passes: each initialiser and assignment, each
+   pushed list item, and for a helper's parameter, the argument at every call; or
+6. marked on its line with `// html-safe: <reason>`, or `/* html-safe: <reason> */` inside the
+   interpolation when the line is template text.
+
+The scanner (`tests/frontend/htmlInterpolationScanner.js`) is a small lexer, not a JavaScript
+parser. It doesn't follow values through object fields or across modules, so data from a
+model object (`model.count`) needs an escaper even when it's a number. When it reports a
+value, escape it; use `html-safe` only when the value is HTML that another builder escaped.
 
 ## Validate changes
 

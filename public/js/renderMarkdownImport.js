@@ -1,4 +1,4 @@
-import { escapeHtml } from './renderHelpers.js';
+import { escapeHtml } from './html.js';
 
 export function renderMarkdownImportHtml(state, projects = []) {
   if (!state.markdownImportOpen) return '';

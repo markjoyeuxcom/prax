@@ -1,14 +1,5 @@
-export class PraxUnavailableError extends Error {
-  constructor(message) {
-    super(message);
-    this.name = 'PraxUnavailableError';
-  }
-}
-
-export class PraxApiError extends Error {
-  constructor(status, message) {
-    super(message);
-    this.name = 'PraxApiError';
-    this.status = status;
-  }
-}
+// The MCP tools' error classes are the shared transport's
+// (server/praxTransport.js), so a tool, the prax CLI and the skills classify a
+// failure the same way: PraxUnavailableError (unreachable, or `timedOut`) and
+// PraxApiError (an HTTP error with `status`).
+export { PraxApiError, PraxUnavailableError } from '../server/praxTransport.js';

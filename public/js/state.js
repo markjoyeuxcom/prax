@@ -17,6 +17,7 @@ export const state = {
   panelTab: 'projects',         // rail+panel shell: which browser tab ('projects' | 'views')
   panelFilter: '',              // type-to-filter text for the active panel tab
   pinned: { projects: [], smartViews: [], libraryViews: [] }, // starred favorites (localStorage)
+  collapsedSections: [],        // folded section keys: sidebar groups, Today bands, list groups, project ops (localStorage)
   recentProjects: [],           // last-visited project ids, most recent first (localStorage)
   recentDocuments: [],          // last-opened document ids, most recent first (localStorage)
   captureShortcut: null,        // { shortcut, default } from the server (desktop shell)
@@ -30,10 +31,12 @@ export const state = {
   revealedOpsFields: [],        // 'projectId:field' ops inputs shown while empty (session only)
   paletteScope: 'all',          // ⌘K scope: 'all' | 'commands' | 'projects' | 'views' | 'tasks' | 'docs'
   shortcutsOpen: false,         // ⌘/ keyboard shortcuts overlay
+  confirm: null,                // in-app confirm dialog { message, okLabel, action, danger?, data?, input? } (null = closed)
   newMenuOpen: false,           // titlebar New ▾ split menu
   libraryGroupBy: 'type',       // Library cards grouping: 'type' | 'none'
   libraryMenuOpen: false,       // Library header ⋯ overflow (import/export/health/review/archive)
   libraryTagFilter: '',         // Library panel: type-to-filter text over the tag list
+  libraryTagsExpanded: false,   // Library tag facet shows every tag, not just the first few
   tab: 'list',                  // project tab: 'list' | 'board' | 'backlog' | 'archive'
   groupBy: 'due',               // list grouping cycler: 'due' | 'priority' | 'status'
 
@@ -138,9 +141,14 @@ export const state = {
   semanticMoreError: false,     // append failed; existing results remain usable
   documentLinks: null,          // null = not yet fetched; [] = fetched, empty
   documentExternalRefs: null,   // external URLs the doc points at; null = not yet fetched
+  documentTaskBacklinks: null,  // tasks linking the open document; null = not yet fetched
+  documentSimilar: null,        // semantically similar documents { items, degraded, reason }; null = not yet fetched
   docInfoRefsSeed: null,        // refs snapshot the open Document-info form was seeded from
   staleDocs: [],
   maintenanceProjectFilter: 'all',
+
+  // ---- Inbox processing (owned by inboxController.js) ----
+  inbox: null,                  // { view, data, summary, inboxId, reviewCount, processing, undo, ... } once the controller starts
 
   // ---- "Ask Prax" (grounded, cited answer over the library) ----
   askPraxOpen: false,
@@ -178,6 +186,8 @@ export const state = {
   assistantPending: null,       // null, or [{ id, name, input, summary }] writes awaiting confirmation
   assistantError: null,         // null | error message string
   assistantErrorKind: null,     // null | 'error' | 'partial' (truthful committed-write outcome)
+  assistantInput: '',           // composer text mirrored on input so a re-render keeps it
+  assistantApprovalAttempted: false, // an approval was sent; its outcome must be recovered before a new chat
 
   // ---- NL capture & NL→filter (Tier-3 #8) ----
   nlCaptureLoading: false,
@@ -206,12 +216,14 @@ export const state = {
   documentDraftTitle: '',
   documentDraftBody: '',
   documentDraftId: null,
+  documentDraftBase: null,      // the saved record the open draft was seeded from (revision guard for saves)
   isDocumentDirty: false,
   documentSaveStatus: 'Saved',  // includes unsaved/autosaving/failure/recovery states
   documentDraftRecoveryReason: null, // null | 'failed' | 'recovered' | 'conflict'
   isDocumentDraftStored: true,  // false when origin-local recovery storage is unavailable
   isDocumentInfoEditorOpen: false,
   documentInfoError: '',
+  documentInfoDraft: null,      // explicit Document-info form draft { documentId, baseline, fields, pending, conflict }
   docMenuOpen: false,           // editor ••• actions dropdown
   newDocMenuOpen: false,        // Library "＋ New doc" template chooser
   templateStudio: null,         // reviewed source, destination and durable creation identity

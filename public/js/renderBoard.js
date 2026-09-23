@@ -7,7 +7,8 @@
 // design↔API translation happens via statusMap/dueFlags at render time.
 
 import { BOARD_COLUMNS, designStatus, isBoardable } from './statusMap.js';
-import { chip, escapeHtml, prioDotClass } from './renderHelpers.js';
+import { cssColor, escapeHtml } from './html.js';
+import { chip, prioDotClass } from './renderHelpers.js';
 import { dueFlag } from './dueFlags.js';
 import { slippageChips } from './slippageFlags.js';
 import { icon } from './icons.js';
@@ -111,7 +112,7 @@ function renderCard(state, task, projectsById, now) {
   const chips = [];
   const project = lookupProject(projectsById, task.projectId);
   if (project && project.name) {
-    const color = escapeHtml(project.color || 'var(--accent)');
+    const color = cssColor(project.color, 'var(--accent)');
     chips.push(chip(
       project.name,
       'project',
@@ -185,7 +186,7 @@ function renderColumn(state, column, projectsById, now) {
     ? '<div class="empty-slot">Drop cards here</div>'
     : '';
   const older = column.olderCount > 0
-    ? `<button type="button" class="board-col__older" data-action="set-tab" data-tab="list" title="Older finished work lives in the list under Done earlier">${column.olderCount} older, in the list</button>`
+    ? `<button type="button" class="board-col__older" data-action="set-tab" data-tab="list" title="Older finished work lives in the list under Done earlier">${escapeHtml(column.olderCount)} older, in the list</button>`
     : '';
 
   return `<div class="board-col${column.isOver ? ' is-over' : ''}" data-board-column="${escapeHtml(column.key)}">`
@@ -198,7 +199,7 @@ export function renderBoardHtml(state = {}, columns = [], projectsById = null, {
   const safeColumns = Array.isArray(columns) ? columns : [];
   const cols = safeColumns.map(column => renderColumn(state, column, projectsById, now)).join('');
   const progress = collection?.hasMore
-    ? `<div class="collection-progress" role="status"><span>Showing ${collection.shown} of ${collection.total} task cards.</span>`
+    ? `<div class="collection-progress" role="status"><span>Showing ${escapeHtml(collection.shown)} of ${escapeHtml(collection.total)} task cards.</span>`
       + '<button class="btn-ghost" type="button" data-action="show-more-tasks">Show more cards</button></div>'
     : '';
   return `<div class="board-wrap"><div class="board">${cols}</div>${progress}</div>`;

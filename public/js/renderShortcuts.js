@@ -4,7 +4,7 @@
 // "shortcuts" button, and the list is the real keymap from
 // keyboardShortcuts.js rather than a subset.
 
-import { escapeHtml } from './renderHelpers.js';
+import { escapeHtml } from './html.js';
 
 export const SHORTCUT_GROUPS = Object.freeze([
   {

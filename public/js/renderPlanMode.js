@@ -1,4 +1,5 @@
-import { escapeHtml, chip } from './renderHelpers.js';
+import { escapeHtml } from './html.js';
+import { chip } from './renderHelpers.js';
 import { icon } from './icons.js';
 import { projectChipHtml } from './renderToday.js';
 

@@ -3,7 +3,7 @@
 // events are delegated in main.js via data-action attributes
 // (docs/desktop/phase1-actions.md). Classes come from public/prax.css.
 
-import { escapeHtml } from './renderHelpers.js';
+import { cssColor, escapeHtml } from './html.js';
 import { icon, logo } from './icons.js';
 import { BUILT_IN_SMART_VIEWS } from './taskSmartViews.js';
 import { isPinned, splitPinned } from './pinned.js';
@@ -136,13 +136,15 @@ function renderBreadcrumbHtml(state) {
     if (last) {
       html = `<span class="titlebar__crumb-current" aria-current="page">${label}</span>`;
     } else if (segment.action) {
+      // Only a plain attribute-name suffix becomes a data-* attribute name.
       const data = Object.entries(segment.data || {})
-        .map(([key, value]) => ` data-${key}="${escapeHtml(value)}"`).join('');
+        .filter(([key]) => /^[a-z][a-z0-9-]*$/.test(key))
+        .map(([key, value]) => ` data-${key}="${escapeHtml(value)}"`).join(''); // html-safe: key is checked above
       // A crumb link re-dispatches the rail/panel action through
       // `breadcrumb` + data-target, so `[data-action="nav-project"]` keeps
       // meaning the rail and panel rows (tests, focus restores) and never the
       // titlebar.
-      html = `<button type="button" class="titlebar__crumb-link" data-action="breadcrumb" data-target="${segment.action}"${data}>${label}</button>`;
+      html = `<button type="button" class="titlebar__crumb-link" data-action="breadcrumb" data-target="${escapeHtml(segment.action)}"${data}>${label}</button>`;
     } else {
       html = `<span class="titlebar__crumb-text">${label}</span>`;
     }
@@ -237,7 +239,7 @@ function railProjectsHtml(state) {
 }
 
 function railBadge(count, variant = '') {
-  return count > 0 ? `<span class="rail__badge${variant ? ` rail__badge--${variant}` : ''}">${count > 99 ? '99+' : count}</span>` : '';
+  return count > 0 ? `<span class="rail__badge${variant ? ` rail__badge--${escapeHtml(variant)}` : ''}">${count > 99 ? '99+' : escapeHtml(count)}</span>` : '';
 }
 
 export function renderRailHtml(state, counts = {}, { showProjects = true } = {}) {
@@ -256,7 +258,7 @@ export function renderRailHtml(state, counts = {}, { showProjects = true } = {})
     { title: 'Library', iconName: 'book', action: 'nav-library', active: isLibraryNav(state), badge: counts.reviewQueue, badgeVariant: 'review' },
     { title: 'Filter', iconName: 'filter', action: 'nav-filter', active: state.navType === 'filter' },
   ].map(({ title, iconName, action, active, projectId, badge, badgeVariant }) => (
-    `<button type="button" class="rail__btn${active ? ' is-active' : ''}" title="${title}${badge > 0 && badgeVariant === 'review' ? ` · ${badge} to review` : ''}" data-action="${action}"${projectId ? ` data-project-id="${escapeHtml(projectId)}"` : ''}${active ? ' aria-current="true"' : ''}>${icon(iconName, 16)}${railBadge(badge, badgeVariant)}</button>`
+    `<button type="button" class="rail__btn${active ? ' is-active' : ''}" title="${escapeHtml(title)}${badge > 0 && badgeVariant === 'review' ? ` · ${escapeHtml(badge)} to review` : ''}" data-action="${escapeHtml(action)}"${projectId ? ` data-project-id="${escapeHtml(projectId)}"` : ''}${active ? ' aria-current="true"' : ''}>${icon(iconName, 16)}${railBadge(badge, badgeVariant)}</button>`
   )).join('');
 
   // Narrow windows (no panel): not every project as an identical dot (spec
@@ -292,7 +294,7 @@ function panelMatches(filter, label) {
 // pinned). Pinned rows float into a leading "Pinned" section per tab.
 function pinButton(kind, key, label, pinned, { solo = true } = {}) {
   const on = isPinned(pinned, kind, key);
-  return `<button type="button" class="side-item__pin${solo ? ' side-item__pin--solo' : ''}${on ? ' is-pinned' : ''}" data-action="toggle-pin" data-kind="${kind}" data-key="${escapeHtml(key)}" title="${on ? 'Unpin' : 'Pin'}" aria-label="${on ? 'Unpin' : 'Pin'} ${escapeHtml(label || '')}" aria-pressed="${on}">${on ? '★' : '☆'}</button>`;
+  return `<button type="button" class="side-item__pin${solo ? ' side-item__pin--solo' : ''}${on ? ' is-pinned' : ''}" data-action="toggle-pin" data-kind="${kind}" data-key="${escapeHtml(key)}" title="${on ? 'Unpin' : 'Pin'}" aria-label="${on ? 'Unpin' : 'Pin'} ${escapeHtml(label || '')}" aria-pressed="${escapeHtml(on)}">${on ? '★' : '☆'}</button>`;
 }
 
 function pinnedSectionHtml(pinnedRows, restRows) {
@@ -365,7 +367,7 @@ function panelRecentRows(state, counts, projects) {
       + `<span class="proj-dot${project.status === 'on-hold' ? ' is-onhold' : ''}" style="--dot: ${projectColor(project)}"></span>`
       + `<span class="side-item__label">${escapeHtml(project.name)}</span>`
       + (project.area ? `<span class="side-item__sub">${escapeHtml(project.area)}</span>` : '')
-      + `<span class="side-item__count">${openCount || ''}</span>`
+      + `<span class="side-item__count">${escapeHtml(openCount || '')}</span>`
       + '</button>';
   }).join('');
   return `<div class="side-section"><span>Recent</span></div>${rows}<div class="panel__rest-gap"></div>`;
@@ -383,7 +385,7 @@ function panelProjectRows(state, counts, filter) {
         + `<button type="button" class="side-item side-item--saved${active ? ' is-active' : ''}" data-action="nav-project" data-project-id="${escapeHtml(project.id)}"${active ? ' aria-current="true"' : ''}>`
         + `<span class="${dotClass}" style="--dot: ${projectColor(project)}"></span>`
         + `<span class="side-item__label">${escapeHtml(project.name)}</span>`
-        + `<span class="side-item__count">${openCount || ''}</span>`
+        + `<span class="side-item__count">${escapeHtml(openCount || '')}</span>`
         + '</button>'
         + pinButton('projects', project.id, project.name, state.pinned)
         + '</div>';
@@ -565,7 +567,7 @@ export function renderStatusbarHtml(state) {
 function panelTaskRow(task) {
   const time = task.dueTime ? `<span class="side-item__count">${escapeHtml(task.dueTime)}</span>` : '';
   return `<button type="button" class="side-item" data-action="open-task" data-task-id="${escapeHtml(task.id)}">`
-    + `<span class="proj-dot" style="--dot: ${task.projColor || 'var(--ink3)'}"></span>`
+    + `<span class="proj-dot" style="--dot: ${cssColor(task.projColor)}"></span>`
     + `<span class="side-item__label">${escapeHtml(task.title || 'Untitled task')}</span>`
     + time
     + '</button>';
@@ -584,17 +586,17 @@ function renderTodayPanel(state, counts = {}) {
   const dateLabel = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 
   const score = (built.plannedCount + built.plannedDone) > 0
-    ? `<div class="panel__score" data-panel-plan-score>planned ${built.plannedCount + built.plannedDone} — ${built.plannedDone} done</div>`
+    ? `<div class="panel__score" data-panel-plan-score>planned ${escapeHtml(built.plannedCount + built.plannedDone)} — ${escapeHtml(built.plannedDone)} done</div>`
     : '';
   const actions = '<div class="panel__actions">'
     + '<button type="button" class="panel__action" data-action="open-plan-mode">Plan today</button>'
     + (built.plannedCount > 0 ? '<button type="button" class="panel__action" data-action="open-shutdown">Shut down</button>' : '')
     + '</div>';
   const countRow = (label, count) => (count > 0
-    ? `<div class="side-item panel__count-row"><span class="side-item__label">${label}</span><span class="side-item__count">${count}</span></div>`
+    ? `<div class="side-item panel__count-row"><span class="side-item__label">${label}</span><span class="side-item__count">${escapeHtml(count)}</span></div>`
     : '');
   const stale = built.stalePlannedCount > 0
-    ? `<button type="button" class="side-item panel__stale" data-action="open-plan-mode"><span class="side-item__label">Planned earlier — review</span><span class="side-item__count">${built.stalePlannedCount}</span></button>`
+    ? `<button type="button" class="side-item panel__stale" data-action="open-plan-mode"><span class="side-item__label">Planned earlier — review</span><span class="side-item__count">${escapeHtml(built.stalePlannedCount)}</span></button>`
     : '';
   const plannedRows = planned.slice(0, 8).map(panelTaskRow).join('')
     + (planned.length > 8 ? `<div class="panel__empty">＋${planned.length - 8} more on Today</div>` : '');
@@ -640,7 +642,7 @@ function renderCalendarPanel(state) {
     if (day.isToday) classes.push('is-today');
     if (state.calendarSelectedDay === day.iso) classes.push('is-selected');
     if (day.tasks.length) classes.push('has-tasks');
-    return `<button type="button" class="${classes.join(' ')}" data-action="calendar-select-day" data-day="${day.iso}" aria-label="${day.iso}">${day.dayNum}</button>`;
+    return `<button type="button" class="${classes.join(' ')}" data-action="calendar-select-day" data-day="${escapeHtml(day.iso)}" aria-label="${escapeHtml(day.iso)}">${escapeHtml(day.dayNum)}</button>`;
   }).join('');
 
   const peekIso = state.calendarSelectedDay || model.todayIso;
@@ -681,7 +683,7 @@ function renderLibraryPanel(state) {
   const facetRow = (action, key, label, count, active, extraClass = '') => (
     `<button type="button" class="side-item${extraClass}${active ? ' is-active' : ''}" data-action="${action}" data-facet="${escapeHtml(key)}" aria-pressed="${active}">`
     + `<span class="side-item__label">${escapeHtml(label)}</span>`
-    + `<span class="side-item__count">${count || ''}</span>`
+    + `<span class="side-item__count">${escapeHtml(count || '')}</span>`
     + '</button>'
   );
 
@@ -716,7 +718,7 @@ function renderLibraryPanel(state) {
   const hiddenTags = matching.length - shownTags.length;
   const tagRows = shownTags.map(({ tag, count }) => (
     `<button type="button" class="side-item side-item--tag${activeTags.has(tag) ? ' is-active' : ''}" data-action="toggle-lib-tag" data-tag="${escapeHtml(tag)}" aria-pressed="${activeTags.has(tag)}">`
-    + `<span class="side-item__label">#${escapeHtml(tag)}</span><span class="side-item__count">${count}</span></button>`
+    + `<span class="side-item__label">#${escapeHtml(tag)}</span><span class="side-item__count">${escapeHtml(count)}</span></button>`
   )).join('')
     + (hiddenTags > 0
       ? `<button type="button" class="side-item side-item--more" data-action="toggle-lib-tags" aria-expanded="false"><span class="side-item__label">${hiddenTags} more, by use</span></button>`

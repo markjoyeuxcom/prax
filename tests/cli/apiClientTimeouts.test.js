@@ -51,7 +51,7 @@ test('a timed-out write is never re-sent, even one that may retry a lost connect
     const client = createClient({ baseUrl: url, env: {}, timeoutMs: 150 });
     await assert.rejects(
       client.createMemory({ id: '11111111-1111-4111-8111-111111111111', title: 'T', body: 'B' }),
-      /^Error: Write outcome unknown; reconcile before retrying\. .*did not answer within 150 ms — the request may still be processing; it was not re-sent/,
+      /^PraxUnavailableError: Write outcome unknown; reconcile before retrying\. .*did not answer within 150 ms — the request may still be processing; it was not re-sent/,
     );
     assert.deepEqual(seen, ['POST /api/library/documents']);
   });

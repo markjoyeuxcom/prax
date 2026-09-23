@@ -1,4 +1,4 @@
-import { escapeHtml } from './renderHelpers.js';
+import { escapeHtml } from './html.js';
 import { icon } from './icons.js';
 
 // "Daily brief" overlay — a copyable stand-up / on-call handoff built from live

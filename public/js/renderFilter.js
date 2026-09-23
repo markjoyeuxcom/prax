@@ -1,4 +1,4 @@
-import { escapeHtml } from './renderHelpers.js';
+import { escapeHtml } from './html.js';
 import { isOpen } from './statusMap.js';
 import { dueFlag } from './dueFlags.js';
 import { logo } from './icons.js';
@@ -78,7 +78,7 @@ export function renderFilterHtml(state, model) {
       <header class="page-head"><h1 class="page-head__title">${title}</h1></header>
       <div class="filter-bar">
         <input class="filter-bar__input" type="text" data-filter-input placeholder="p1 &amp; overdue · @waiting · “high priority due this week” + ⌘↵" value="${escapeHtml(expr)}" autocomplete="off" spellcheck="false" aria-label="Task filter">
-        <span class="filter-bar__count">${model.count} match${model.count === 1 ? '' : 'es'}</span>
+        <span class="filter-bar__count">${escapeHtml(model.count)} match${model.count === 1 ? '' : 'es'}</span>
         ${nlBtn}
         ${saveBtn}
       </div>

@@ -67,6 +67,25 @@ test('both desktop jobs ship a pinned, checksummed Node and build with a pinned 
   }
 });
 
+test('both desktop jobs verify the payload tauri build bundled, after the build and before the smoke', () => {
+  // tauri build's beforeBuildCommand deletes and re-stages the payload, so a
+  // verification before the build checks files that do not ship.
+  const packageJson = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
+  assert.match(packageJson.scripts['desktop:verify'], /verify-desktop-release\.mjs --require-built$/);
+  const tauri = JSON.parse(readFileSync(new URL('../../src-tauri/tauri.conf.json', import.meta.url), 'utf8'));
+  assert.equal(tauri.build.beforeBuildCommand, 'node scripts/prepare-sidecar.mjs', 'the build re-stages the payload itself');
+  for (const name of ['desktop-linux-x64', 'desktop-macos-arm64']) {
+    const body = job(name);
+    const build = body.search(/npx tauri build --bundles/);
+    const tagged = body.indexOf('npm run desktop:verify -- --tag "$CI_COMMIT_TAG"');
+    const untagged = body.search(/\n\s+npm run desktop:verify\n/);
+    const smoke = body.indexOf('npm run desktop:smoke');
+    assert.ok(build > 0 && tagged > build && untagged > build, `${name} verifies after tauri build`);
+    assert.ok(smoke > tagged && smoke > untagged, `${name} verifies before the runtime smoke`);
+    assert.equal((body.match(/npm run desktop:verify/g) || []).length, 2, `${name} has one verify step (tagged and untagged forms)`);
+  }
+});
+
 test('exactly two desktop jobs exist and nothing in the pipeline is optional', () => {
   const desktopJobs = [...pipeline.matchAll(/^(desktop-[\w-]+):$/gm)].map((m) => m[1]);
   assert.deepEqual(desktopJobs, ['desktop-linux-x64', 'desktop-macos-arm64'], 'the supported targets are Linux x64 and macOS Apple Silicon, one job each');
@@ -108,4 +127,10 @@ test('a tagged release waits for the quality gate and both packages, then publis
   assert.match(release, /test "\$\(ls \| grep -vx SHA256SUMS \| sort\)" = "\$\(awk '\{print \$2\}' SHA256SUMS \| sort\)"/, 'the list covers exactly the attached files');
   assert.doesNotMatch(release, /sha256sum \* > SHA256SUMS/, 'the release job never re-hashes stored artifacts as if they were fresh');
   assert.match(release, /release-cli create --name "\$CI_COMMIT_TAG" --tag-name "\$CI_COMMIT_TAG" --description release-notes\.md/);
+});
+
+test('staging clears Tauri\'s copied resources so a deleted source file is never shipped', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const script = await readFile(new URL('../../scripts/prepare-sidecar.mjs', import.meta.url), 'utf8');
+  assert.match(script, /for \(const profile of \['debug', 'release'\]\)[\s\S]*?rmSync\(join\(root, 'src-tauri', 'target', profile, 'resources', 'app'\)/);
 });

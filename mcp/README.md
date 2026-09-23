@@ -21,17 +21,21 @@ under `tests/contract/` locks the current shapes so changes are made deliberatel
 
 ## Configuration
 
-With no configuration the server finds the app the way the `prax` CLI does: the desktop
-app's saved loopback port (`webview-port` under its app-data folder), then
-`http://127.0.0.1:3000`. The first that answers a read-only `/readyz` probe is used for the life
-of the server, and every write goes only there — it never fails over to another instance.
+The server reaches Prax through the same transport as the `prax` CLI and the skills, so
+discovery, tokens, timeouts, error wording and retries behave identically; they are described
+once, in [Connecting to the app](../docs/agent-memory.md#connecting-to-the-app). In short: with
+no configuration it finds the desktop app's saved loopback port (`webview-port` under its
+app-data folder), then `http://127.0.0.1:3000`; the first that answers a read-only `/readyz`
+probe is used for the life of the server, and every write goes only there — it never fails over
+to another instance.
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `PRAX_API_URL` | discovery (above) | Base URL of the Prax API; disables discovery. Use `http://127.0.0.1:3100` for the demo server. |
-| `PRAX_API_TOKEN` (or `PRAX_TOKEN`) | _(unset)_ | If set, sent as `Authorization: Bearer <token>` (for a future authenticated ingress). |
+| `PRAX_API_TOKEN` (or `PRAX_TOKEN`) | _(unset)_ | If set, sent as `Authorization: Bearer <token>` (for a future authenticated ingress); `PRAX_API_TOKEN` wins when both are set. |
 | `PRAX_AGENT` | auto | Which agent CLI is writing (`claude`, `codex`, …), sent as `x-prax-agent` on agent writes so documents and the task chronicle name it. Detected from the Claude Code / Codex / Copilot / Antigravity environments when unset. |
-| `PRAX_MCP_TIMEOUT_MS` | `180000` | How long `ask_prax`, `generate_runbook` and `generate_post_mortem` wait for an answer (they wait on a chat model). Other requests time out after 5 s. |
+| `PRAX_TIMEOUT_MS` | `5000` | How long an ordinary request may take (the same setting as the CLI's, whose default is 30 s). |
+| `PRAX_MCP_TIMEOUT_MS` | `180000` | How long `ask_prax`, `generate_runbook` and `generate_post_mortem` wait for an answer (they wait on a chat model). |
 
 Every request carries this machine's calendar day — `x-prax-local-date` and `x-prax-time-zone`
 (its IANA zone), as the web app sends them — so completing a recurring task with `update_task`

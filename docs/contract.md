@@ -89,6 +89,33 @@ or unreadable output return `502` / `invalid-suggestion`; unavailable/failed pro
 `503` / `ai-unavailable|ai-failed`; source changes during generation return `409` / `item-changed`.
 Provider diagnostics are not returned. Suggestions neither verify records nor merge duplicates.
 
+### Retry identity: the operation ledger
+
+Every caller-identified write is judged by a durable receipt, through one server module
+(`server/operationLedger.js`). The caller's id (an `operationId`, an import `requestId`, an
+assistant approval id, or the UUID of the record being created) is claimed with a hash of the
+request's intent in the same transaction as the write. A later request with that id is answered
+from the receipt, never from the record's current content: the same intent **replays** the
+original result as the record is now; a different intent is a **conflict**; the same intent after
+the result was permanently deleted is **gone** and is not recreated; and a request that arrives
+while the first is still running in the server (a document generation, an approved assistant
+action) waits for it. The status codes and bodies for each route are described in their own
+sections below; the ledger does not change them. Receipt kinds and their tables:
+
+| Kind | Table | Id | Used by |
+|---|---|---|---|
+| document upsert | `document_upsert_receipts` (0027) | `id` / `operationId` | upsert-by-title ("remember"); document create with `operationId` |
+| document update | `document_update_receipts` (0031) | `operationId` | `POST /api/library/documents/:id/update` |
+| Inbox action | `inbox_action_receipts` (0033) | `operationId` | Inbox decisions and their undo |
+| task import | `task_import_operations` (0014) | `requestId` | direct and staged task imports |
+| assistant write | `assistant_write_receipts` (0025) | approval id | approved assistant tools |
+| record creation | `record_creation_receipts` (0034) | record UUID | task, checklist item and document create by ID |
+| document generation | `markdown_documents.creation_*` (0015) | result `id` | post-mortem and runbook generation |
+
+Receipts are runtime metadata: they survive restart and SQLite backup/restore but are not part of
+any portable export. They outlive the records they describe, except generation receipts, which
+live on the generated row, and task import receipts, which are removed with their project.
+
 ### Document update retries
 
 CLI/skills and MCP use `POST /api/library/documents/:id/update` with the ordinary
@@ -307,7 +334,9 @@ citations, run history, settings, embeddings and Inbox action/undo receipts. It 
 bundled starter guides and `RESTORE.md`. Both ZIP routes send `Cache-Control: no-store`.
 
 The ZIP contains `prax.db` and `manifest.json` with `format: "prax.workspace-backup"`, `version: 1`,
-`praxVersion`, `createdAt`, `database: {file, sha256, bytes, integrityCheck, foreignKeyViolations}`,
+`praxVersion`, `schema: {finalMigration}` (the last migration the snapshot records, for example
+`"0038_repair_legacy_cycles_and_receipts.sql"`; absent from backups made before it was added),
+`createdAt`, `database: {file, sha256, bytes, integrityCheck, foreignKeyViolations}`,
 and explicit `includes`/`excludes` lists. The snapshot must pass integrity and foreign-key checks
 before download. Only one full backup streams per app at a time (409 on overlap); unavailable
 storage returns 503 and a failed snapshot returns 500. Temporary files are removed on completion,
@@ -317,7 +346,13 @@ Backups contain saved provider credentials. Unsaved drafts, browser-only setting
 choices, external files and environment configuration are excluded. With Prax stopped,
 `npm run restore -- --from extracted/prax.db --to /new/path/prax.db --sha256 <manifest digest>`
 validates the digest and database, rejects unexpected source WAL/SHM sidecars, and refuses an
-existing target or its sidecars. Restore with the same or a newer Prax version. See
+existing target or its sidecars. It reads the `manifest.json` beside the database, or the one
+named by `--manifest <path>`, and refuses before writing anything when the manifest's
+`praxVersion` is newer than this Prax, its `schema.finalMigration` is unknown to this build, its
+format or version is not understood, or its `database.sha256` disagrees with `--sha256`. It also
+refuses a database whose own `schema_migrations` holds a migration this build does not know, with
+or without a manifest. Restore with the same or a newer Prax version. See
+[Schema versions and downgrades](#schema-versions-and-downgrades) and
 [the bundled restore guide](../public/starter-content/workspace-restore.md).
 
 ### `links:` block
@@ -838,6 +873,27 @@ Event shape (one `VEVENT` per task instance; serialization in `server/icsFeed.js
 - Recurring tasks carry **no `RRULE`** deliberately: Prax spawns the next instance server-side
   on completion, so an `RRULE` would double-count future occurrences.
 - Lines are CRLF-terminated and folded at 75 octets (multibyte-safe).
+
+## Schema versions and downgrades
+
+The schema version of a database is the set of migrations in its `schema_migrations` table; each
+build ships `server/migrations/`. Startup and `npm run migrate` apply the missing ones in order.
+
+- **Newer database, older build.** If the database records a migration this build does not ship,
+  startup and `npm run migrate` refuse before changing anything, naming the unknown migration(s)
+  and the last one this build knows (error code `PRAX_SCHEMA_TOO_NEW`). Older code never runs on a
+  newer schema.
+- **Newer backup, older build.** The restore command refuses a backup from a newer Prax, by its
+  manifest and by its database (see [Full workspace backup ZIP](#full-workspace-backup-zip)).
+- **Trigger set.** The FTS, lifecycle and supersession triggers on `markdown_documents` and
+  `document_links` are listed once, in `EXPECTED_TRIGGERS` (`server/migrate.js`). After the final
+  migration, inside its transaction, and at each startup of an up-to-date database, the set must
+  match exactly: a missing, moved or unexpected trigger fails startup with its name, and a
+  migration that caused it is rolled back. A table-rebuild migration must drop the
+  `document_links` triggers before renaming and recreate every trigger afterwards.
+
+`tests/backend/migrationSafety.test.js` and `tests/backend/restoreVersionGuard.test.js` pin these
+rules.
 
 ## Regression tests
 

@@ -1,4 +1,4 @@
-import { escapeHtml } from './renderHelpers.js';
+import { escapeHtml } from './html.js';
 import { DOCUMENT_TYPES } from './documentTypes.js';
 
 export function renderTemplateStudioHtml(draft, choices, projects, previewHtml = '') {

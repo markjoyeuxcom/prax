@@ -1,64 +1,59 @@
-import { templateChoices, buildTemplateJob, executeTemplateJob, saveTemplateDraft, loadTemplateDraft, clearTemplateDraft } from './templateUse.js';
 import { renderTemplateStudioHtml } from './renderTemplateStudio.js';
-import { importRequestFor, completeImportRequest } from './importRecovery.js';
 import { reconcileTaskArchive } from './taskArchiveOutcome.js';
 import { documentDraftPatch, mergeDocumentDraft } from './documentDraftMerge.js';
-import { openDocumentInfoDraft, normalizeInfoFields, documentInfoPatch, mergeDocumentInfo, documentInfoCommitted, rebaseDocumentInfoDraft } from './documentInfoDraft.js';
-import { loadAssistantRecovery, saveAssistantRecovery } from './assistantRecovery.js';
 import { createProjectDrafts } from './projectDrafts.js';
-import { getSystemProject, isSystemProject } from './systemProject.js';
+import { isSystemProject } from './systemProject.js';
 import { captureLibraryReturn, libraryReturnPatch, libraryViewKey } from './libraryReturn.js';
 import { createInboxController } from './inboxController.js';
-import { renderInboxSummary, renderInboxView, renderInboxDialog } from './renderInbox.js';
+import { createPlanModeController } from './planModeController.js';
+import { createAssistantController } from './assistantController.js';
+import { createSettingsController } from './settingsController.js';
+import { createDocumentLifecycleController } from './documentLifecycleController.js';
+import { createReviewWalkController } from './reviewWalkController.js';
+import { createRunController } from './runController.js';
+import { createLibraryTransferController } from './libraryTransferController.js';
+import { createKnowledgeToolsController } from './knowledgeToolsController.js';
+import { createWritingController } from './writingController.js';
+import { createDocumentInfoController } from './documentInfoController.js';
+import { createCaptureController } from './captureController.js';
+import { createTemplateStudioController } from './templateStudioController.js';
+import { createTaskDrawerController } from './taskDrawerController.js';
+import { renderInboxView, renderInboxDialog } from './renderInbox.js';
 import { INBOX_LINK } from './inboxModel.js';
 // Prax — application orchestrator.
-// Render modules are pure state → HTML string functions; this file owns data
-// loading, event delegation (single delegated click/input/change listeners
-// reading data-action attributes), API translation via statusMap, and the
-// post-render lifecycle (CodeMirror mount, drag indicator, autosave timers).
+// Render modules are pure state → HTML string functions; feature controllers
+// (*Controller.js, created below with injected dependencies) own cohesive
+// features and their data-actions. This file owns data loading, event
+// delegation (single delegated click/input/change listeners reading
+// data-action attributes, and one keyboard dispatcher — keyboardDispatcher.js),
+// API translation via statusMap, and the post-render lifecycle (CodeMirror
+// mount, drag indicator, autosave timers, render continuity).
 
 import { state, setState, loadActiveProject, persistActiveProject } from './state.js';
 import {
-  applyPreferences, loadPreferences, savePreferences, resetPreferences,
-  SLIPPAGE_DEFERRAL_OPTIONS, SLIPPAGE_AGE_OPTIONS, WIP_LIMIT_OPTIONS,
+  applyPreferences, loadPreferences,
 } from './preferences.js';
 import {
-  fetchTasks, fetchTask, createTask, updateTask, reorderTasks, archiveTask, restoreTask,
-  deleteArchivedTask, exportTasks, importTasks, fetchTaskDocuments, fetchRelatedDocuments,
-  linkTaskDocument, unlinkTaskDocument, fetchTaskChecklist, addChecklistItem,
-  setChecklistItem, deleteChecklistItem, fetchTaskActivity, fetchTaskBoardExtras,
-  parseNlCapture, parseNlFilter,
+  fetchTasks, fetchTask, updateTask, reorderTasks, archiveTask, restoreTask, deleteArchivedTask,
+  fetchTaskBoardExtras,
 } from './taskApi.js';
 import {
   fetchProjects, createProject, updateProject, deleteProjectPermanent,
 } from './projectApi.js';
 import {
-  fetchDocuments, fetchDocument, createDocument, updateDocument, archiveDocument,
-  restoreDocument, deleteDocumentPermanently, fetchDocumentLinks, fetchDocumentTaskBacklinks, fetchSimilarDocuments,
-  unlinkDocuments,
-  fetchExternalRefs, addExternalRef, removeExternalRef,
-  fetchStaleDocuments, fetchDeploymentStatus, fetchSemanticStatus,
-  setSemanticEnabled, putSemanticSettings, reindexEmbeddings, semanticSearch,
-  fetchChatStatus, putChatSettings,
-  fetchGoogleCalendarStatus, putGoogleCalendarSettings, connectGoogleCalendar,
-  syncGoogleCalendar, disconnectGoogleCalendar,
-  verifyDocument, supersedeDocument,
-  startRun, fetchRuns, fetchRun, setRunStep, setRunStatus, createPostMortem,
-  askPrax, generateRunbook, fetchHealth, narrateBrief,
-  assistantChat, fetchAssistantStatus,
-  fetchLinkSuggestions, applyWikiLink, runAiReview, runWritingAction,
-  generateWeeklyReview, fetchCaptureShortcut, saveCaptureShortcut,
+  fetchDocuments, fetchDocument, createDocument, updateDocument, fetchDocumentLinks,
+  fetchDocumentTaskBacklinks, fetchSimilarDocuments, fetchExternalRefs, semanticSearch, fetchRuns,
 } from './libraryApi.js';
 import { normalizeTask } from './taskModel.js';
 import { apiStatus, designStatus, isOpen } from './statusMap.js';
 import { moveTaskOnBoard } from './boardWorkflow.js';
 import { pendingExtraIds, batchIds, clearTaskBoardExtra } from './boardExtras.js';
-import { installKeyboardShortcuts, isInteractiveShortcutTarget, isImeComposing } from './keyboardShortcuts.js';
+import { createGlobalShortcuts } from './keyboardShortcuts.js';
+import { createKeyboardDispatcher, KEY_CONSUMED, KEY_HANDLED } from './keyboardDispatcher.js';
 import { externalLinkUrl, openExternalUrl } from './externalLinks.js';
 import { topmostModal, syncModalInert, trapModalTab } from './modalFocus.js';
-import { settingsPatchMatchesStatus, chatSettingsDraftFrom } from './settingsOutcome.js';
 import { applyMarkdownFormat } from './markdownEditor.js';
-import { renderMarkdownHtml, titleFromMarkdown } from './markdownPreview.js';
+import { renderMarkdownHtml } from './markdownPreview.js';
 import { updateDocumentLivePreview } from './documentLivePreview.js';
 import {
   canPreserveEditorAfterDraftSave, documentDraftSavedPatch,
@@ -73,26 +68,11 @@ import {
 } from './taskDraftRecovery.js';
 import { createTaskMutationQueue } from './taskMutationQueue.js';
 import { taskMatchesPatch } from './taskPatchOutcome.js';
-import { taskMatchesCreatePayload } from './taskCreateOutcome.js';
-import { documentMatchesLifecycle, lifecycleOutcomeMessage } from './documentLifecycleOutcome.js';
 import {
-  runMatchesStartIntent, runMatchesStatusIntent, runMatchesStepIntent,
-} from './runOutcome.js';
-import {
-  captureIntentKey, clearTaskCaptureRecovery, loadTaskCaptureRecovery,
-  storeTaskCaptureRecovery,
-} from './taskCaptureRecovery.js';
-import {
-  libraryArchiveFilename, workspaceArchiveFilename, libraryExportDestinationMode, libraryExportFailureMessage, saveLibraryArchive,
-  triggerLibraryDocumentDownload,
+  libraryExportDestinationMode, triggerLibraryDocumentDownload,
 } from './libraryExport.js';
-import { tasksFromImportPayload, exportFilename, normalizeImportMode } from './importExport.js';
 import { createSavedLibraryView, savedLibraryViewsFromJson } from './librarySavedViews.js';
-import { parseCaptureShorthand, mergeNlCapture } from './captureShorthand.js';
 import { computeDueReminders, isOverdue } from './dueReminders.js';
-import { dueBucket } from './dueFlags.js';
-import { normalizeLabel } from './labels.js';
-import { parseExternalRefLines } from './externalRefKind.js';
 import { mountCodeMirrorEditor } from '../vendor/codemirror-editor.js';
 
 import {
@@ -111,7 +91,7 @@ import {
 } from './externalRefresh.js';
 import { renderCalendarHtml, buildCalendarModel, monthKeyOf, shiftMonthKey } from './renderCalendar.js';
 import { renderFilterHtml, buildFilterGroups } from './renderFilter.js';
-import { parseTaskFilter, projectResolver } from './taskFilter.js';
+import { parseTaskFilter } from './taskFilter.js';
 import { createSmartView, findSmartView, smartViewsFromJson } from './taskSmartViews.js';
 import { loadPinned, savePinned, togglePinned } from './pinned.js';
 import { isCollapsed, loadCollapsed, saveCollapsed, toggleCollapsed } from './collapsed.js';
@@ -121,17 +101,19 @@ import { renderBoardHtml, buildBoardColumns, limitBoardColumns } from './renderB
 import { renderBacklogHtml, renderArchiveHtml } from './renderBacklog.js';
 import { renderTaskDrawerHtml, renderMissingTaskDrawerHtml } from './renderTaskDetail.js';
 import { renderLinkPickerHtml } from './renderLinkPicker.js';
-import { LIBRARY_RENDER_BATCH_SIZE, renderLibraryHtml, buildLibraryModel, reviewQueue, isReviewQueueDoc, SEMANTIC_UNAVAILABLE_HINT } from './renderLibrary.js';
+import {
+  LIBRARY_RENDER_BATCH_SIZE, renderLibraryHtml, buildLibraryModel, reviewQueue,
+  SEMANTIC_UNAVAILABLE_HINT,
+} from './renderLibrary.js';
 import { templateById } from './documentTemplates.js';
-import { renderReviewWalkLabel, renderEditorHtml, buildOutline, buildBacklinks, WRITE_ACTIONS } from './renderEditor.js';
-import { renderRunHtml, buildChronicle } from './renderRun.js';
+import { renderEditorHtml, buildOutline, buildBacklinks } from './renderEditor.js';
+import { renderRunHtml } from './renderRun.js';
 import { renderAskPraxHtml } from './renderAskPrax.js';
 import { renderGenerateRunbookHtml } from './renderGenerateRunbook.js';
 import { renderHealthHtml } from './renderHealth.js';
 import { renderDailyBriefHtml } from './renderDailyBrief.js';
 import { buildDailyBrief } from './brief.js';
-import { renderAssistantHtml, assistantDecisions, withCallDecision } from './renderAssistant.js';
-import { assistantOutcomeNotice } from './assistantOutcome.js';
+import { renderAssistantHtml } from './renderAssistant.js';
 import { renderWritingPreviewHtml } from './renderWritingPreview.js';
 import { renderSearchPanelHtml, searchCountLabel } from './renderSearchPanel.js';
 import { renderAllProjectsHtml, buildProjectGroups } from './renderAllProjects.js';
@@ -143,12 +125,16 @@ import { renderShortcutsHtml } from './renderShortcuts.js';
 import { renderMarkdownImportHtml } from './renderMarkdownImport.js';
 import { renderLibraryExportHtml } from './renderLibraryExport.js';
 import { renderSettingsHtml } from './renderSettings.js';
-import { escapeHtml } from './renderHelpers.js';
-import { renderOpsToggleHtml, renderProjectOpsHtml, opsSectionKey, revealKey, opsFieldAttr } from './renderProjectOps.js';
-import { icon } from './icons.js';
+import { revealKey, opsFieldAttr } from './renderProjectOps.js';
+import { renderProjectPageHtml } from './renderProjectPage.js';
+import {
+  renderAppFrameHtml, renderTasksLoadingHtml, renderDocumentNotFoundHtml, renderToastRootHtml, renderBootLoadingHtml,
+  renderBootErrorHtml,
+} from './renderAppFrame.js';
 
 const SAVED_LIBRARY_VIEWS_KEY = 'moomora.librarySavedViews.v1';
 const SMART_VIEWS_KEY = 'moomora.taskSmartViews.v1';
+const INBOX_SLUG = 'inbox';
 const DOCUMENT_AUTOSAVE_DELAY_MS = 1200;
 const TASK_DRAFT_AUTOSAVE_DELAY_MS = 1000;
 
@@ -164,7 +150,6 @@ let documentSavePromise = null;     // coalesces navigation flushes with an in-f
 let taskDraftSaveTimer = null;
 let taskDraftSavePromise = null;  // coalesces close/switch with a drawer autosave
 let toastTimer = null;
-let isReindexing = false;         // guards the reindex/rebuild handler from double-runs
 let prevViewKey = null;           // suppress the main-content fade on same-view re-renders
 const projectOpsTimers = new Map();
 let projectRecoveryAnnounced = false;
@@ -179,18 +164,9 @@ let dragIndicator = null;
 let documentsLoadToken = 0;       // only the newest Active/Archive collection may install
 let tasksLoadToken = 0;           // only the newest task collection request may install
 let semanticSearchToken = 0;      // stale/superseded meaning searches never install
-let askPraxToken = 0;             // stale/closed grounded-answer requests never install
-let drawerContextToken = 0;       // a late task-context load cannot replace a newer drawer
-let gcalPollToken = 0;            // stale Google-connect polls (left Settings / newer op) never install
-let restoreMarkdownImportFocus = false;
-let restoreLibraryExportFocus = false;
-let libraryExportReturnAction = 'export-library';
-let captureReturnElement = null;
 let taskCollectionWindow = { key: '', limit: TASK_RENDER_BATCH_SIZE };
 let libraryCollectionWindow = { key: '', limit: LIBRARY_RENDER_BATCH_SIZE };
 const enqueueTaskMutation = createTaskMutationQueue();
-const enqueueRunMutation = createTaskMutationQueue();
-let pendingRunMutationCount = 0;
 
 function taskCollectionLimit(key) {
   if (taskCollectionWindow.key !== key) {
@@ -317,23 +293,6 @@ function fireNativeReminder(task) {
   } catch { return false; }
 }
 
-// Evening shutdown nudge (preference, default off): one gentle toast per day
-// once the hour passes and planned items are still open. Delivery only — the
-// decision walk lives behind the Today view's Shut down button.
-const SHUTDOWN_NUDGE_KEY = 'prax.shutdownNudge.lastShown';
-function checkShutdownNudge(now = new Date()) {
-  if (!state.preferences?.shutdownNudge) return;
-  if (now.getHours() < 17) return;
-  const today = todayISODate(now);
-  try {
-    if (localStorage.getItem(SHUTDOWN_NUDGE_KEY) === today) return;
-  } catch { return; }
-  const openPlanned = (state.tasks || []).filter((task) => planEligible(task, now) && task.plannedFor === today).length;
-  if (!openPlanned) return;
-  try { localStorage.setItem(SHUTDOWN_NUDGE_KEY, today); } catch { /* no storage, no stamp */ }
-  showToast(`${openPlanned} planned task${openPlanned === 1 ? '' : 's'} still open — shut down today from the Today view.`, null, 8000);
-}
-
 // Weekly-review nudge (preference, default off): Sunday evening, once, only
 // while this week's review doc does not exist yet.
 const WEEKLY_NUDGE_KEY = 'prax.weeklyReviewNudge.lastShown';
@@ -424,606 +383,82 @@ const inboxController = createInboxController({
   openTask: async id => { await loadTasks({ announceReminders: false }); await openTaskDrawer(id); },
 });
 
-async function loadDeploymentStatus() {
-  setState({ deploymentStatus: { loading: true, error: '' } });
-  try {
-    const status = await fetchDeploymentStatus();
-    setState({ deploymentStatus: { ...status, loading: false, error: '' } });
-  } catch {
-    setState({
-      deploymentStatus: {
-        loading: false,
-        error: 'Prax could not load the deployment security status.',
-      },
-    });
-  }
-}
-
-async function loadSemanticStatus() {
-  setState({ semanticStatus: { ...state.semanticStatus, loading: true, loadError: '' } });
-  try {
-    setState({ semanticStatus: { ...(await fetchSemanticStatus()), loading: false, loadError: '' } });
-  } catch {
-    setState({
-      semanticStatus: {
-        ...state.semanticStatus,
-        loading: false,
-        loadError: 'Prax could not load semantic-search settings.',
-      },
-    });
-  }
-}
-
-async function loadChatStatus() {
-  setState({ chatStatus: { ...state.chatStatus, loading: true, loadError: '' } });
-  try {
-    setState({ chatStatus: { ...(await fetchChatStatus()), loading: false, loadError: '' } });
-  } catch {
-    setState({
-      chatStatus: {
-        ...state.chatStatus,
-        loading: false,
-        loadError: 'Prax could not load answer-model settings.',
-      },
-    });
-  }
-}
-
-async function loadGoogleCalendarStatus() {
-  setState({ googleCalendarStatus: { ...(state.googleCalendarStatus || {}), loading: true, loadError: '' } });
-  try {
-    setState({ googleCalendarStatus: { ...(await fetchGoogleCalendarStatus()), loading: false, loadError: '' } });
-  } catch {
-    setState({
-      googleCalendarStatus: {
-        ...(state.googleCalendarStatus || {}),
-        loading: false,
-        loadError: 'Prax could not load Google Calendar settings.',
-      },
-    });
-  }
-}
-
-// Google-connect polling: consent happens in an external browser tab and the
-// app only learns the outcome when the OAuth callback lands on the server.
-// Poll the status endpoint (3s, up to 2 minutes) until `connected` flips, and
-// go stale silently when the user leaves Settings or a newer connect /
-// disconnect bumps the token.
-const GCAL_POLL_INTERVAL_MS = 3000;
-const GCAL_POLL_MAX_ATTEMPTS = 40; // 40 × 3s = 2 minutes
-
-function stopGoogleCalendarPolling() {
-  gcalPollToken += 1;
-}
-
-function startGoogleCalendarPolling() {
-  gcalPollToken += 1;
-  const token = gcalPollToken;
-  let attempts = 0;
-  const tick = async () => {
-    if (token !== gcalPollToken) return;
-    if (state.navType !== 'settings') return; // user left Settings — stop quietly
-    attempts += 1;
-    try {
-      const status = await fetchGoogleCalendarStatus();
-      if (token !== gcalPollToken) return;
-      if (status.connected) {
-        setState({
-          googleCalendarStatus: { ...status, loading: false, loadError: '' },
-          googleCalendarNotice: 'Google Calendar connected — the dedicated “Prax” calendar is ready.',
-        });
-        if (state.navType === 'settings') renderApp();
-        return;
-      }
-    } catch { /* transient poll failure — keep waiting for the callback */ }
-    if (token !== gcalPollToken) return;
-    if (attempts >= GCAL_POLL_MAX_ATTEMPTS) {
-      setState({ googleCalendarNotice: 'Google sign-in did not complete. Click Connect to try again.' });
-      if (state.navType === 'settings') renderApp();
-      return;
-    }
-    setTimeout(tick, GCAL_POLL_INTERVAL_MS);
-  };
-  setTimeout(tick, GCAL_POLL_INTERVAL_MS);
-}
-
-async function reconcileSemanticSettingsMutation(patch, error) {
-  const previousStatus = state.semanticStatus;
-  try {
-    const status = { ...(await fetchSemanticStatus()), loading: false, loadError: '' };
-    const applied = settingsPatchMatchesStatus(patch, status, previousStatus);
-    setState({
-      semanticStatus: status,
-      intelligenceSettingsPending: false,
-      semanticSettingsDraft: applied ? null : state.semanticSettingsDraft,
-    });
-    showToast(applied
-      ? 'Semantic-search settings were saved; Prax recovered the current status after the response failed.'
-      : `${error?.message || 'Prax could not save the semantic-search settings.'} Current settings were reloaded; review before retrying.`);
-  } catch {
-    setState({
-      intelligenceSettingsPending: false,
-      semanticStatus: {
-        ...state.semanticStatus,
-        loading: false,
-        loadError: 'Prax could not confirm the semantic-search settings outcome.',
-      },
-    });
-    showToast('Prax could not confirm the semantic-search settings outcome. Reload status before retrying.');
-  }
-  renderApp();
-}
-
-async function reconcileChatSettingsMutation(patch, error) {
-  const previousStatus = state.chatStatus;
-  try {
-    const status = { ...(await fetchChatStatus()), loading: false, loadError: '' };
-    const applied = settingsPatchMatchesStatus(patch, status, previousStatus);
-    setState({
-      chatStatus: status,
-      intelligenceSettingsPending: false,
-      chatSettingsDraft: applied ? null : state.chatSettingsDraft,
-    });
-    showToast(applied
-      ? 'Answer-model settings were saved; Prax recovered the current status after the response failed.'
-      : `${error?.message || 'Prax could not save the answer-model settings.'} Current settings were reloaded; review before retrying.`);
-  } catch {
-    setState({
-      intelligenceSettingsPending: false,
-      chatStatus: {
-        ...state.chatStatus,
-        loading: false,
-        loadError: 'Prax could not confirm the answer-model settings outcome.',
-      },
-    });
-    showToast('Prax could not confirm the answer-model settings outcome. Reload status before retrying.');
-  }
-  renderApp();
-}
-
-async function loadMaintenance() {
-  const project = state.maintenanceProjectFilter === 'all' ? '' : state.maintenanceProjectFilter;
-  try {
-    setState({ staleDocs: await fetchStaleDocuments(project) });
-  } catch {
-    setState({ staleDocs: [] });
-  }
-}
-
-async function loadHealth() {
-  setState({ healthLoading: true });
-  try {
-    const [healthData, healthLinkSuggestions] = await Promise.all([
-      fetchHealth(''),
-      fetchLinkSuggestions('').catch(() => []), // suggestions are a bonus; never fail the page
-    ]);
-    setState({ healthData, healthLinkSuggestions, healthLoading: false });
-  } catch {
-    setState({ healthData: null, healthLoading: false });
-  }
-}
-
-// Generation token so an in-flight scan whose Health view was left and re-entered
-// (or superseded by a newer scan) drops its result instead of clobbering state.
-let aiReviewToken = 0;
-
-async function goHealth() {
-  if (!(await prepareEditorNavigation())) return false;
-  // Clear any prior AI review and invalidate any in-flight scan on re-entry.
-  aiReviewToken += 1;
-  setState({ navType: 'health', editorFocus: false, healthAiReview: null, healthAiReviewError: null, healthAiReviewLoading: false });
-  renderApp();
-  loadHealth().then(renderApp);
-  return true;
-}
-
-// On-demand AI review (contradictions + gaps). Advisory; spends model tokens.
-async function scanLibraryWithAi() {
-  if (state.healthAiReviewLoading || !state.chatStatus?.available) return;
-  const token = (aiReviewToken += 1);
-  setState({ healthAiReviewLoading: true, healthAiReviewError: null });
-  renderApp();
-  try {
-    const review = await runAiReview('');
-    if (token !== aiReviewToken) return; // superseded by a newer scan or navigation
-    if (review.reason === 'no-chat-model') {
-      setState({ healthAiReviewLoading: false, healthAiReview: null, healthAiReviewError: 'No AI model configured — set one in Settings ▸ Intelligence.' });
-    } else if (review.reason === 'ai-review-failed') {
-      setState({ healthAiReviewLoading: false, healthAiReview: null, healthAiReviewError: 'The AI review could not complete. Please try again.' });
-    } else {
-      setState({ healthAiReviewLoading: false, healthAiReview: review });
-    }
-  } catch {
-    if (token !== aiReviewToken) return;
-    setState({ healthAiReviewLoading: false, healthAiReviewError: 'Could not complete the AI review.' });
-  }
-  if (token === aiReviewToken) renderApp();
-}
-
-// ---- Today plan & shutdown ritual (2026-07-18 plan) -------------------------
-// One queue-walking overlay, two modes. Every action is a normal PATCH; the
-// server classifies planned/carried and owns carry_count. A failure keeps the
-// current item on screen with a toast — skipping data loss is not an option.
-
-function planEligible(task, now) {
-  return task && task.status !== 'completed' && !task.archivedAt
-    && !(task.deferredUntil && new Date(task.deferredUntil) > now);
-}
-
-function buildPlanQueue(now = new Date()) {
-  const today = todayISODate(now);
-  const tasks = state.tasks || [];
-  const seen = new Set();
-  const queue = [];
-  const push = (task, bucket) => {
-    if (!task || seen.has(task.id)) return;
-    seen.add(task.id);
-    queue.push({ id: task.id, bucket });
-  };
-  const open = tasks.filter((task) => planEligible(task, now));
-  // Stale plans first: yesterday's unshut-down working set demands a verdict.
-  open.filter((task) => task.plannedFor && task.plannedFor < today)
-    .forEach((task) => push(task, 'stale'));
-  const unplanned = open.filter((task) => task.plannedFor !== today && !(task.plannedFor && task.plannedFor < today));
-  const bucketOf = (task) => dueBucket(task.dueDate, { now });
-  unplanned.filter((task) => bucketOf(task) === 'overdue').forEach((task) => push(task, 'overdue'));
-  unplanned.filter((task) => bucketOf(task) === 'today').forEach((task) => push(task, 'today'));
-  const inboxId = inboxProjectId();
-  unplanned.filter((task) => task.projectId === inboxId && !task.dueDate).forEach((task) => push(task, 'inbox'));
-  unplanned.filter((task) => task.dueDate && task.dueDate > today && task.dueDate <= todayISODate(new Date(now.getTime() + 7 * 86_400_000)))
-    .forEach((task) => push(task, 'upcoming'));
-  return queue;
-}
-
-function openPlanMode() {
-  const queue = buildPlanQueue(new Date());
-  setState({ planMode: { mode: 'plan', queue, index: 0, added: 0, carried: 0, dropped: 0, rescheduled: 0 } });
-  renderApp();
-}
-
-function openShutdown() {
-  const today = todayISODate();
-  const queue = (state.tasks || [])
-    .filter((task) => planEligible(task, new Date()) && task.plannedFor === today)
-    .map((task) => ({ id: task.id, bucket: 'planned' }));
-  const done = (state.tasks || []).filter((task) => task.plannedFor === today && task.status === 'completed' && !task.archivedAt).length;
-  setState({ planMode: { mode: 'shutdown', queue, index: 0, added: 0, carried: 0, dropped: 0, rescheduled: 0, done } });
-  renderApp();
-}
-
-function mergePlanTask(updated) {
-  setState({ tasks: state.tasks.map((task) => (task.id === updated.id ? normalizeTask(updated) : task)) });
-}
-
-// One decision at a time: a second activation (double click, Enter pressed
-// twice) while the first PATCH is in flight is ignored, instead of acting on
-// the same item and advancing twice past the next one unseen.
-let planModeDecisionPending = false;
-
-async function planModeAct(action) {
-  const planMode = state.planMode;
-  if (!planMode || planModeDecisionPending) return;
-  const index = planMode.index;
-  const entry = planMode.queue[index];
-  // Advance only the walk and position this decision was made on: closing or
-  // reopening the walk mid-flight keeps the newer walk as it is.
-  const advance = (patch = {}) => {
-    if (state.planMode !== planMode || state.planMode.index !== index) return;
-    setState({ planMode: { ...planMode, ...patch, index: index + 1 } });
-    renderApp();
-  };
-  if (!entry || action === 'skip') { advance(); return; }
-  const today = todayISODate();
-  let request;
-  let counted;
-  if (action === 'add' || action === 'today') {
-    const time = document.querySelector('[data-plan-time]')?.value || '';
-    const fields = { plannedFor: today, ...(time ? { dueTime: time, ...(state.tasks.find(t => t.id === entry.id)?.dueDate ? {} : { dueDate: today }) } : {}) };
-    request = () => updateTask(entry.id, fields);
-    counted = { added: planMode.added + 1 };
-  } else if (action === 'carry') {
-    const tomorrow = todayISODate(new Date(Date.now() + 86_400_000));
-    request = () => updateTask(entry.id, { plannedFor: tomorrow });
-    counted = { carried: planMode.carried + 1 };
-  } else if (action === 'reschedule') {
-    const date = document.querySelector('[data-shutdown-date]')?.value || '';
-    if (!date) { showToast('Pick a reschedule date first'); return; }
-    request = () => updateTask(entry.id, { dueDate: date, plannedFor: null });
-    counted = { rescheduled: planMode.rescheduled + 1 };
-  } else if (action === 'drop') {
-    request = () => updateTask(entry.id, { plannedFor: null });
-    counted = { dropped: planMode.dropped + 1 };
-  } else {
-    return;
-  }
-  planModeDecisionPending = true;
-  let updated;
-  try {
-    updated = await request();
-  } catch {
-    showToast('Could not save that decision — Prax may be unreachable. The item stays here.');
-    return;
-  } finally {
-    planModeDecisionPending = false;
-  }
-  // The write committed: its result is installed even when the walk moved on.
-  mergePlanTask(updated);
-  advance(counted);
-}
-
-function planModePrimaryAction() {
-  const planMode = state.planMode;
-  const entry = planMode?.queue[planMode.index];
-  if (!entry || !taskById(entry.id)) return null; // the summary: Enter closes
-  if (planMode.mode !== 'plan') return 'carry';
-  return entry.bucket === 'stale' ? 'today' : 'add';
-}
-
-// Plan mode / shutdown keys: Enter = primary decision, S = skip. Bound on the
-// document in the capture phase: after a render, focus sits on <body>, whose
-// keys never pass through #app, and the document-level shortcuts (Enter opens
-// the selected task) must not also act behind the overlay. A focused control
-// keeps its own keys: Enter on a button runs that button (Skip, Drop,
-// Reschedule), and a time/date field accepts typing and its Enter.
-function handlePlanModeKeydown(event) {
-  if (!state.planMode || event.defaultPrevented || isImeComposing(event) || event.metaKey || event.ctrlKey || event.altKey) return;
-  const target = event.target;
-  if (target?.matches?.('input, select, textarea') || target?.isContentEditable) return;
-  const key = String(event.key || '');
-  if (key === 'Enter') {
-    if (event.repeat) { event.preventDefault(); event.stopPropagation(); return; } // a held Enter must not walk the queue
-    if (isInteractiveShortcutTarget(target)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const action = planModePrimaryAction();
-    if (action) void planModeAct(action);
-    else { setState({ planMode: null }); renderApp(); }
-  } else if (key.toLowerCase() === 's') {
-    event.preventDefault();
-    event.stopPropagation();
-    if (!event.repeat) void planModeAct('skip');
-  }
-}
-
-// Compile (or refresh) this week's review and open it. One in flight at a
-// time — the button, the Today ritual row and the ⌘K command all come here.
-let weeklyReviewBusy = false;
-async function runWeeklyReview() {
-  if (weeklyReviewBusy) return;
-  weeklyReviewBusy = true;
-  showToast('Compiling the week…');
-  try {
-    const result = await generateWeeklyReview();
-    if (result.degraded) {
-      showToast(result.message || 'Weekly review unavailable.');
-      // A verified review still exists — open it so the refusal is legible.
-      if (result.documentId) await openDocumentInEditor(result.documentId);
-    } else {
-      await loadDocuments();
-      showToast(result.created ? 'Weekly review created.' : 'Weekly review updated.');
-      await openDocumentInEditor(result.documentId);
-    }
-  } catch {
-    showToast('Weekly review failed — Prax may be unreachable.');
-  } finally {
-    weeklyReviewBusy = false;
-  }
-}
-
-function openDailyBrief() {
-  setState({ dailyBriefOpen: true, dailyBriefNarrative: null, dailyBriefError: false, dailyBriefLoading: false });
-  renderApp();
-}
-
-async function draftDailyBrief() {
-  if (state.dailyBriefLoading) return;
-  setState({ dailyBriefLoading: true, dailyBriefError: false });
-  renderApp();
-  try {
-    const res = await narrateBrief(buildDailyBrief(state));
-    if (res.narrative) setState({ dailyBriefLoading: false, dailyBriefNarrative: res.narrative });
-    else setState({ dailyBriefLoading: false, dailyBriefError: res.reason === 'no-chat-model' ? 'No AI model configured — set one in Settings ▸ Intelligence. Showing the plain brief.' : 'Could not draft with AI. Showing the plain brief.' });
-  } catch {
-    setState({ dailyBriefLoading: false, dailyBriefError: 'Could not reach the AI model. Showing the plain brief.' });
-  }
-  renderApp();
-}
-
-async function copyDailyBrief() {
-  const text = state.dailyBriefNarrative || buildDailyBrief(state);
-  const ok = await copyToClipboard(text);
-  showToast(ok ? 'Brief copied' : 'Could not copy');
-}
-
-// ---- AI assistant (agentic tool-calling chat) -----------------------------
-
-function openAssistant() {
-  if (state.captureSubmitting) return;
-  if (state.captureOpen) discardCapture();
-  setState({ assistantOpen: true, assistantError: null, assistantErrorKind: null, paletteOpen: false });
-  renderApp();
-  loadAssistantStatus();
-}
-
-async function loadAssistantStatus() {
-  try {
-    const status = await fetchAssistantStatus();
-    setState({ assistantStatus: status });
-  } catch {
-    setState({ assistantStatus: { available: false, toolCount: 0 } });
-  }
-  if (state.assistantOpen) renderApp();
-}
-
-// Apply one turn's response envelope to state (shared by send + confirm resume).
-// After the assistant executes an approved write, the server has mutated data
-// the human UI holds a cached copy of (tasks/projects/documents). Reload it so
-// the change shows immediately instead of only after a manual refresh/nav.
-async function refreshAfterAssistantWrite() {
-  try {
-    await Promise.all([loadTasks(), loadProjects(), loadDocuments()]);
-    if (state.healthData) await loadHealth();
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function applyAssistantResult(res) {
-  const preserveApproval = Boolean(state.assistantPending?.length)
-    && (res.status === 'no_model' || res.reason === 'approval-unavailable');
-  if (preserveApproval) {
-    setState({ assistantLoading: false, assistantError: res.status === 'no_model'
-      ? 'No AI model configured — restore a tool-capable model in Settings, then retry this saved approval.'
-      : 'This model cannot resume the saved approval. Restore a tool-capable model in Settings, then retry.', assistantErrorKind: 'error' });
-  } else if (res.status === 'awaiting_confirmation') {
-    setState({ assistantMessages: res.messages, assistantPending: res.pending || [], assistantLoading: false, assistantError: null, assistantErrorKind: null });
-  } else if (res.status === 'no_model') {
-    setState({ assistantLoading: false, assistantPending: null, assistantError: 'No AI model configured — set one in Settings ▸ Intelligence ▸ AI answers.', assistantErrorKind: 'error', assistantStatus: { available: false, toolCount: state.assistantStatus?.toolCount || 0 } });
-  } else if (res.status === 'error') {
-    setState({ assistantMessages: res.messages || state.assistantMessages, assistantLoading: false, assistantPending: null, assistantError: null, assistantErrorKind: null });
-  } else {
-    // done
-    setState({ assistantMessages: res.messages, assistantLoading: false, assistantPending: null, assistantError: null, assistantErrorKind: null });
-  }
-
-  // A write mutated cached data. Wait for the reload so the notice can say
-  // whether the committed change is already visible or requires a page reload.
-  const refreshed = res.didWrite || res.outcomeUnknown ? await refreshAfterAssistantWrite() : true;
-  if (!preserveApproval) setState({ assistantApprovalAttempted: false });
-  saveAssistantRecovery(taskDraftStorage(), state.assistantPending?.length ? { messages: state.assistantMessages, pending: state.assistantPending, attempted: state.assistantApprovalAttempted } : null);
-  const notice = preserveApproval || res.status === 'no_model' ? null : assistantOutcomeNotice(res, { refreshed });
-  if (notice) setState({ assistantError: notice.text, assistantErrorKind: notice.kind });
-}
-
-async function sendAssistant(rawText) {
-  const text = (rawText || '').trim();
-  if (!text || state.assistantLoading || (state.assistantPending && state.assistantPending.length)) return;
-  const messages = [...state.assistantMessages, { role: 'user', content: text }];
-  setState({ assistantMessages: messages, assistantInput: '', assistantLoading: true, assistantError: null, assistantErrorKind: null });
-  renderApp();
-  try {
-    const res = await assistantChat(messages);
-    await applyAssistantResult(res);
-  } catch (err) {
-    setState({ assistantLoading: false, assistantError: err?.message || 'The assistant request failed.', assistantErrorKind: 'error' });
-  }
-  renderApp();
-}
-
-async function resolveAssistantWrites(decision) {
-  if (!state.assistantPending?.length || state.assistantLoading) return;
-  if (state.assistantApprovalAttempted && decision !== 'approve') return;
-  // Per-call decisions (a retry resends the recorded ones unchanged).
-  const decisions = assistantDecisions(state.assistantPending, decision);
-  if (!decisions) { showToast('Approve or decline each change first.'); return; }
-  const pending = state.assistantPending.map((p) => ({ ...p, decision: decisions[p.id] }));
-  const attempted = Object.values(decisions).includes('approve');
-  if (!saveAssistantRecovery(taskDraftStorage(), { messages: state.assistantMessages, pending, attempted })) {
-    showToast('The approval could not be saved for recovery. Keep this window open and try again.');
-    return;
-  }
-  setState({ assistantPending: pending, assistantApprovalAttempted: attempted, assistantLoading: true, assistantError: null, assistantErrorKind: null });
-  renderApp();
-  try {
-    const res = await assistantChat(state.assistantMessages, decisions);
-    await applyAssistantResult(res);
-  } catch (err) {
-    setState({ assistantLoading: false, assistantError: 'The connection ended before the approval outcome was known. Retry safely to recover the same action; do not start a replacement action.', assistantErrorKind: 'error' });
-  }
-  renderApp();
-}
-
-function clearAssistant() {
-  if (state.assistantLoading || state.assistantApprovalAttempted) { showToast('Recover the pending approval outcome before starting a new chat.'); return; }
-  saveAssistantRecovery(taskDraftStorage(), null);
-  setState({ assistantMessages: [], assistantPending: null, assistantError: null, assistantErrorKind: null, assistantInput: '', assistantLoading: false });
-  renderApp();
-}
-
-async function verifyHealthDoc(id) {
-  return openWalkDocument(id, { coach: true });
-}
-
-// Accept a suggested wiki-link: link the first plain mention, then reload so the
-// suggestion (now satisfied) drops off the list.
-async function acceptLinkSuggestion(id, title) {
-  if (!id || !title) return;
-  try {
-    await applyWikiLink(id, title);
-    showToast(`Linked [[${title}]]`);
-    await loadDocuments(); // the doc body changed
-    await loadHealth();
-  } catch (err) {
-    showToast(err?.message || 'Could not add the link');
-  }
-  renderApp();
-}
-
-async function loadDrawerContext(taskId) {
-  const token = (drawerContextToken += 1);
-  const [documents, checklist, activity] = await Promise.allSettled([
-    fetchTaskDocuments(taskId),
-    fetchTaskChecklist(taskId),
-    fetchTaskActivity(taskId),
-  ]);
-  if (token !== drawerContextToken || state.drawerTaskId !== taskId) return false;
-  setState({
-    taskDocuments: documents.status === 'fulfilled' ? documents.value : [],
-    taskChecklist: checklist.status === 'fulfilled' ? checklist.value : [],
-    taskActivity: activity.status === 'fulfilled' ? activity.value : [],
-  });
-  renderApp();
-  // Related knowledge fills AFTER the drawer renders (advisory regime: it may
-  // never delay the drawer). The token guard drops a stale fill.
-  loadRelatedDocuments(taskId, token);
-  return true;
-}
-
-// Session-scoped dismissals: a dismissed suggestion stays gone for this tab's
-// lifetime, per task — not a server concern.
-const relatedDismissed = new Set();
-
-async function loadRelatedDocuments(taskId, token) {
-  setState({ taskRelatedDocs: { taskId, loading: true, suggestions: [] } });
-  renderApp();
-  const result = await fetchRelatedDocuments(taskId).catch(() => ({ suggestions: [], degraded: true, reason: 'search-failed' }));
-  if (token !== drawerContextToken || state.drawerTaskId !== taskId) return;
-  setState({
-    taskRelatedDocs: {
-      taskId,
-      loading: false,
-      suggestions: (result.suggestions || []).filter((doc) => !relatedDismissed.has(`${taskId}:${doc.id}`)),
-      degraded: Boolean(result.degraded),
-      reason: result.reason || null,
-    },
-  });
-  renderApp();
-}
-
-async function loadDocumentTaskBacklinks(documentId) {
-  try {
-    const tasks = await fetchDocumentTaskBacklinks(documentId);
-    if (state.editorDocId === documentId) {
-      setState({ documentTaskBacklinks: tasks });
-      if (!state.isDocumentInfoEditorOpen) renderApp();
-    }
-  } catch {
-    /* backlinks footer stays empty */
-  }
-}
-
-async function loadSimilarDocuments(documentId) {
-  try {
-    const similar = await fetchSimilarDocuments(documentId);
-    if (state.editorDocId === documentId) {
-      setState({ documentSimilar: similar });
-      if (!state.isDocumentInfoEditorOpen) renderApp();
-    }
-  } catch {
-    if (state.editorDocId === documentId) { setState({ documentSimilar: { items: [], degraded: true, reason: 'unavailable' } }); renderApp(); }
-  }
-}
+// ---- feature controllers -----------------------------------------------------
+// Cohesive features live in their own modules with injected dependencies
+// (inboxController.js pattern). handleAction delegates their data-actions.
+const planMode = createPlanModeController({
+  getState: () => state, setState, renderApp, showToast, alertError, taskById, todayISODate, inboxProjectId,
+  applyTaskPatches, refreshTasksAfterWrites, partialTaskOutcome, taskCountLabel,
+});
+const assistant = createAssistantController({
+  getState: () => state, setState, renderApp, showToast, discardCapture: () => capture.discardCapture(), getRoot: () => appRoot,
+  loadTasks, loadProjects, loadDocuments, loadHealth: () => knowledge.loadHealth(), storage: taskDraftStorage,
+});
+const settings = createSettingsController({
+  getState: () => state, setState, renderApp, showToast, alertError, openConfirm, getRoot: () => appRoot,
+  prepareEditorNavigation, inboxProjectId, resetSemanticSearchPatch, checkDueReminders, destroyEditorController,
+});
+const lifecycle = createDocumentLifecycleController({
+  getState: () => state, setState, renderApp, showToast, dismissToast, alertError, openConfirm,
+  loadDocuments, loadDocumentLinks, seedEditorDraft, destroyEditorController, prepareEditorNavigation,
+  pendingDocumentSave: () => documentSavePromise, currentDocument, resetLibraryFilters, documentDraftStorage,
+  verifyHealthDoc: id => reviewWalk.verifyHealthDoc(id),
+});
+const { cacheLifecycleDocument, performDocumentLifecycleOnce } = lifecycle;
+const reviewWalk = createReviewWalkController({
+  getState: () => state, setState, renderApp, showToast, getRoot: () => appRoot, visibleLibraryDocuments,
+  currentDocument, prepareEditorNavigation, openDocumentInEditor, destroyEditorController, goLibrary,
+  cacheLifecycleDocument, performDocumentLifecycleOnce, changeDocumentVerification: lifecycle.changeDocumentVerification,
+});
+const runs = createRunController({
+  getState: () => state, setState, renderApp, showToast, alertError, openConfirm, currentDocument,
+  prepareEditorNavigation, openDocumentInEditor, goLibrary, copyToClipboard,
+});
+const transfer = createLibraryTransferController({
+  getState: () => state, setState, renderApp, showToast, alertError, getRoot: () => appRoot, loadDocuments, loadTasks,
+  storage: taskDraftStorage, markdownImportProjects, libraryExportProjects, inboxSlug: INBOX_SLUG,
+});
+const knowledge = createKnowledgeToolsController({
+  getState: () => state, setState, renderApp, showToast, announce, copyToClipboard, getRoot: () => appRoot,
+  prepareEditorNavigation, openDocumentInEditor, loadDocuments, captureProjectChoices, inboxSlug: INBOX_SLUG,
+});
+const writing = createWritingController({
+  getState: () => state, setState, renderApp, showToast, copyToClipboard, getEditor: () => documentEditorController,
+  destroyEditorController, handleDocumentDraftBodyChange,
+});
+const documentInfo = createDocumentInfoController({
+  getState: () => state, setState, renderApp, showToast, currentDocument, cacheLifecycleDocument,
+  destroyEditorController, saveDocumentDraft, loadDocuments,
+});
+const capture = createCaptureController({
+  getState: () => state, setState, renderApp, showToast, getRoot: () => appRoot, loadTasks, defaultProjectId,
+  inboxProjectId, todayISODate, renderOverlaysHtml,
+});
+const templateStudio = createTemplateStudioController({
+  getState: () => state, setState, renderApp, showToast, openConfirm, getRoot: () => appRoot, prepareEditorNavigation,
+  defaultProjectId, markdownImportProjects, loadDocuments, loadTasks, openDocumentInEditor, openTaskDrawer,
+});
+const drawer = createTaskDrawerController({
+  getState: () => state, setState, renderApp, showToast, alertError, getRoot: () => appRoot, taskById, patchTask,
+  projectsById, loadDocuments, openDocumentInEditor, flushTaskDrawerDraft, archiveTaskWithUndo,
+});
+// Merged data-action handlers of the controllers above; each action has one
+// owner (tests/frontend/featureControllers.test.js).
+const featureActions = {
+  ...planMode.actions,
+  ...assistant.actions,
+  ...settings.actions,
+  ...lifecycle.actions,
+  ...reviewWalk.actions,
+  ...runs.actions,
+  ...transfer.actions,
+  ...knowledge.actions,
+  ...writing.actions,
+  ...documentInfo.actions,
+  ...capture.actions,
+  ...templateStudio.actions,
+  ...drawer.actions,
+};
 
 async function loadDocumentLinks(documentId) {
   try {
@@ -1037,123 +472,11 @@ async function loadDocumentLinks(documentId) {
   }
 }
 
-async function loadExternalRefs(documentId) {
-  try {
-    const refs = await fetchExternalRefs(documentId);
-    if (state.editorDocId === documentId) {
-      setState({ documentExternalRefs: refs });
-      // While the Document info form is open, a re-render would rebuild it
-      // from state and discard whatever the user has typed; the section
-      // renders on the next render (form close, save, or any action).
-      if (!state.isDocumentInfoEditorOpen) renderApp();
-    }
-  } catch {
-    /* refs section stays unfetched */
-  }
-}
-
-// Reconcile the doc-info refs textarea (one `url` or `url | label` per line)
-// against the refs SNAPSHOT the form was seeded from (docInfoRefsSeed):
-// upsert every desired line (the POST is idempotent and also updates a
-// changed label) and delete any seeded ref whose URL is no longer listed.
-// If the seed is null the form opened before the stored refs could be
-// fetched — the user never saw them, so an absent line means "not displayed",
-// not "removed": upserts still apply but nothing is deleted. Best-effort per
-// row so one bad line doesn't abort the rest; returns the failure count so
-// the caller can tell the user about a partial save.
-async function reconcileExternalRefs(documentId, refsText, seed = state.docInfoRefsSeed) {
-  const desired = parseExternalRefLines(refsText);
-  const desiredUrls = new Set(desired.map((r) => r.url));
-  const seeded = Array.isArray(seed) ? seed : [];
-  let failed = 0;
-  for (const ref of seeded) {
-    if (!desiredUrls.has(ref.url)) {
-      try { await removeExternalRef(documentId, ref.id); } catch { failed += 1; }
-    }
-  }
-  for (const ref of desired) {
-    try { await addExternalRef(documentId, ref); } catch { failed += 1; }
-  }
-  return failed;
-}
-
-// ---------------------------------------------------------------------------
-// Document-info form (root-review finding 5). The form is an explicit draft in
-// state.documentInfoDraft: what it was opened from (baseline + revision), what
-// the person typed, and any unresolved conflict. Inputs mirror into the draft
-// without re-rendering, so a rerender or a failed save never reseeds the
-// inputs from the record and throws typed metadata away.
-const DOCUMENT_INFO_INPUT_FIELDS = [
-  ['data-doc-info-title', 'title'], ['data-doc-info-type', 'documentType'], ['data-doc-info-project', 'projectId'],
-  ['data-doc-info-tags', 'tags'], ['data-doc-info-source', 'sourceFilename'], ['data-doc-info-refs', 'refsText'],
-];
-
-function mirrorDocumentInfoInput(target) {
-  const entry = DOCUMENT_INFO_INPUT_FIELDS.find(([attr]) => target.hasAttribute?.(attr));
-  if (!entry) return false;
-  const draft = state.documentInfoDraft;
-  if (draft && !draft.pending) setState({ documentInfoDraft: { ...draft, fields: { ...draft.fields, [entry[1]]: target.value } } });
-  return true;
-}
-
-// One metadata PATCH, classified: saved / conflict (the record the server
-// holds now) / error. A lost response is judged only on the fields SENT, so
-// an unrelated concurrent edit cannot mask a save that landed.
-async function sendDocumentInfoPatch(docId, patch) {
-  try {
-    return { saved: await updateDocument(docId, patch) };
-  } catch (error) {
-    if (error?.status === 409 && error?.document?.revision) return { conflict: error.document };
-    let observed = null;
-    try { observed = await fetchDocument(docId); } catch { observed = null; }
-    if (observed && documentInfoCommitted(observed, patch)) return { saved: observed };
-    return { error: true };
-  }
-}
-
-// Rebase the editor on an acknowledged record so the next body edit stays
-// conditional on the saved title and body. A clean editor adopts the record
-// outright — a remote body surfaced by a 409 must never be typed over by the
-// next autosave. A dirty editor keeps its base when the body moved under it,
-// so its own autosave reconciles through the body-conflict review instead of
-// silently overwriting the remote body.
-function rebaseEditorOnDocument(docId, doc) {
-  const base = state.documentDraftBase || currentDocument();
-  cacheLifecycleDocument(doc);
-  if (state.editorDocId !== docId || state.documentDraftId !== docId) return;
-  const body = doc.body || '';
-  if (!state.isDocumentDirty) {
-    const bodyMoved = state.documentDraftBody !== body;
-    setState({ documentDraftBase: doc, documentDraftTitle: doc.title || '', documentDraftBody: body });
-    if (bodyMoved) destroyEditorController();
-    return;
-  }
-  if (body !== (base?.body || '')) return;
-  setState({
-    documentDraftBase: doc,
-    documentDraftTitle: state.documentDraftTitle === (base?.title || '') ? (doc.title || '') : state.documentDraftTitle,
-  });
-}
-
-// Past runs of a runbook, shown in the editor sidebar. Notes have no runs.
-async function loadDocumentRuns(doc) {
-  if (!doc || doc.documentType !== 'runbook') { setState({ documentRuns: null }); return; }
-  try {
-    const runs = await fetchRuns(doc.id);
-    if (state.editorDocId === doc.id) {
-      setState({ documentRuns: runs });
-      if (!state.isDocumentInfoEditorOpen) renderApp();
-    }
-  } catch {
-    /* runs section stays hidden */
-  }
-}
-
 // Opening an editor needs five independent context reads. Installing each one
 // separately rebuilt the entire shell and remounted CodeMirror five times.
 // Fetch them concurrently, reject stale results, then install one coherent
-// patch and render once. Individual loaders remain for targeted refreshes after
-// mutations (supersession and external-reference edits).
+// patch and render once. loadDocumentLinks remains for the targeted refresh
+// after a supersession.
 async function loadDocumentContext(doc) {
   if (!doc?.id) return false;
   const documentId = doc.id;
@@ -1340,15 +663,6 @@ async function saveRenameProject(id, rawValue) {
   renderApp();
 }
 
-// Snooze target for a preset: tomorrow / next week, at 9am local so the task
-// reappears in the morning rather than at midnight. Returns an ISO timestamp.
-function snoozeUntil(preset) {
-  const d = new Date();
-  d.setDate(d.getDate() + (preset === 'week' ? 7 : 1));
-  d.setHours(9, 0, 0, 0);
-  return d.toISOString();
-}
-
 async function updateTaskWithReadback(id, apiPatch) {
   try {
     return await updateTask(id, apiPatch);
@@ -1402,26 +716,6 @@ async function patchTask(id, apiPatch, { failure = 'update this task' } = {}) {
   }
   renderApp();
   return lifecycleRefreshFailed ? { ...normalized, lifecycleRefreshFailed: true } : normalized;
-}
-
-// Add a normalized label to the open task (deduped). Shares the label
-// convention with the server and the filter grammar via normalizeLabel.
-async function addTaskLabel(raw) {
-  const label = normalizeLabel(raw);
-  const task = taskById(state.drawerTaskId);
-  if (!label || !task) return;
-  const current = Array.isArray(task.labels) ? task.labels : [];
-  if (current.includes(label)) {
-    setState({ taskLabelDraft: '' });
-    renderApp();
-    return;
-  }
-  const taskId = state.drawerTaskId;
-  const saved = await patchTask(taskId, { labels: [...current, label] });
-  if (saved && state.drawerTaskId === taskId) {
-    setState({ taskLabelDraftId: taskId, taskLabelDraft: '' });
-    renderApp();
-  }
 }
 
 async function toggleTaskDone(id) {
@@ -1995,253 +1289,6 @@ function currentDocument() {
   return state.documents.find(d => d.id === state.editorDocId) || null;
 }
 
-const documentLifecyclePending = new Set();
-const documentLifecycleUncertain = new Set();
-
-async function performDocumentLifecycleOnce(key, operation) {
-  if (documentLifecycleUncertain.has(key)) {
-    showToast('This document still has an unconfirmed lifecycle outcome. Reload before retrying.', null, 5000);
-    return false;
-  }
-  if (documentLifecyclePending.has(key)) return false;
-  documentLifecyclePending.add(key);
-  try {
-    return await operation();
-  } finally {
-    documentLifecyclePending.delete(key);
-  }
-}
-
-function cacheLifecycleDocument(document, { remove = false } = {}) {
-  if (!document?.id) return;
-  const documents = (state.documents || []).filter(item => item.id !== document.id);
-  if (!remove) documents.push(document);
-  setState({ documents });
-}
-
-async function reconcileDocumentLifecycle({ id, intent, mutate }) {
-  try {
-    return { committed: true, document: await mutate(), outcome: 'committed' };
-  } catch {
-    let observed;
-    try {
-      observed = await fetchDocument(id);
-    } catch (readError) {
-      if (intent.type === 'delete' && readError?.status === 404) {
-        observed = null;
-      } else {
-        return { committed: false, document: null, outcome: 'unknown' };
-      }
-    }
-    if (documentMatchesLifecycle(observed, intent)) {
-      return { committed: true, document: observed, outcome: 'reconciled' };
-    }
-    return { committed: false, document: observed, outcome: 'failed' };
-  }
-}
-
-async function refreshLifecycleCollection(action, undo = null) {
-  try {
-    const applied = await loadDocuments();
-    if (applied === false) throw new Error('stale collection refresh');
-    return true;
-  } catch {
-    showToast(lifecycleOutcomeMessage(action, 'refresh-failed'), undo, undo ? 7000 : 5000);
-    return false;
-  }
-}
-
-function reportUncommittedLifecycle(action, outcome, documentId) {
-  if (outcome === 'unknown' && documentId) {
-    documentLifecycleUncertain.add(`document:${documentId}`);
-  }
-  showToast(outcome === 'unknown'
-    ? lifecycleOutcomeMessage(action, 'unknown')
-    : `Prax could not ${action.toLowerCase()}.`, null, 5000);
-}
-
-async function changeDocumentVerification(id, verified, { offerUndo = true } = {}) {
-  const editorVersion = state.editorContextVersion;
-  const editorUnchanged = () => state.editorContextVersion === editorVersion
-    && state.navType === 'editor' && state.editorDocId === id && state.documentDraftId === id;
-  let reviewedRevision = null;
-  if (verified) {
-    if (state.navType !== 'editor' || state.documentDraftId !== id) { await verifyHealthDoc(id); return false; }
-    const reviewed = state.documentDraftBase;
-    if (state.isDocumentDirty || documentSavePromise || !reviewed?.revision
-      || documentDraftIsDirty(reviewed, { title: state.documentDraftTitle, body: state.documentDraftBody })) {
-      showToast('Save the draft and review the saved content before verifying.');
-      return false;
-    }
-    reviewedRevision = reviewed.revision;
-  }
-  const result = await reconcileDocumentLifecycle({
-    id,
-    intent: { type: 'verify', verified, revision: reviewedRevision },
-    mutate: () => verifyDocument(id, verified, 'user', reviewedRevision),
-  });
-  if (!result.committed) {
-    if (verified && result.document && result.document.revision !== reviewedRevision) {
-      cacheLifecycleDocument(result.document);
-      if (editorUnchanged() && !state.isDocumentDirty && !documentSavePromise) {
-        seedEditorDraft(result.document);
-        destroyEditorController(); renderApp();
-        showToast('The document changed. Review the current title and body before verifying again.', null, 7000);
-      } else {
-        showToast('Verification was not applied because the document changed. Your current draft is kept; reopen the document to review it.', null, 7000);
-      }
-    } else reportUncommittedLifecycle(verified ? 'Verify this document' : 'Unverify this document', result.outcome, id);
-    return false;
-  }
-  cacheLifecycleDocument(result.document);
-  if (state.navType !== 'editor' || editorUnchanged()) renderApp();
-  const undo = offerUndo ? async () => {
-    dismissToast();
-    await performDocumentLifecycleOnce(`document:${id}`, () => (
-      changeDocumentVerification(id, !verified, { offerUndo: false })
-    ));
-  } : null;
-  const action = verified ? 'Verification' : 'Unverification';
-  if (!(await refreshLifecycleCollection(action, undo))) return true;
-  const reconciled = lifecycleOutcomeMessage(action, result.outcome);
-  showToast(reconciled || (verified ? 'Document verified' : 'Document unverified'), undo);
-  return true;
-}
-
-async function restoreKnowledgeDocument(id) {
-  const result = await reconcileDocumentLifecycle({
-    id,
-    intent: { type: 'restore' },
-    mutate: () => restoreDocument(id),
-  });
-  if (!result.committed) {
-    reportUncommittedLifecycle('Restore this document', result.outcome, id);
-    return false;
-  }
-  const restoringOpenEditor = state.navType === 'editor' && state.editorDocId === id;
-  const wasArchiveCollection = state.navType === 'library' && state.libraryView === 'archive';
-  if (restoringOpenEditor) setState({ libraryView: 'active' });
-  cacheLifecycleDocument(result.document, { remove: wasArchiveCollection });
-  renderApp();
-  if (!(await refreshLifecycleCollection('Restore'))) return true;
-  showToast(lifecycleOutcomeMessage('Restore', result.outcome) || 'Document restored');
-  return true;
-}
-
-async function archiveKnowledgeDocument(id, { offerUndo = true } = {}) {
-  const result = await reconcileDocumentLifecycle({
-    id,
-    intent: { type: 'archive' },
-    mutate: () => archiveDocument(id),
-  });
-  if (!result.committed) {
-    reportUncommittedLifecycle('Archive this document', result.outcome, id);
-    return false;
-  }
-  cacheLifecycleDocument(result.document, { remove: state.libraryView !== 'archive' });
-  if (state.editorDocId === id) {
-    destroyEditorController();
-    setState({ navType: 'library', editorDocId: null, editorFocus: false, ...resetLibraryFilters() });
-  }
-  renderApp();
-  const undo = offerUndo ? async () => {
-    dismissToast();
-    await performDocumentLifecycleOnce(`document:${id}`, () => (
-      restoreKnowledgeDocument(id)
-    ));
-  } : null;
-  if (!(await refreshLifecycleCollection('Archive', undo))) return true;
-  showToast(lifecycleOutcomeMessage('Archive', result.outcome) || 'Document archived', undo);
-  return true;
-}
-
-async function deleteKnowledgeDocument(id) {
-  const result = await reconcileDocumentLifecycle({
-    id,
-    intent: { type: 'delete' },
-    mutate: () => deleteDocumentPermanently(id),
-  });
-  if (!result.committed) {
-    reportUncommittedLifecycle('Permanently delete this document', result.outcome, id);
-    return false;
-  }
-  clearDocumentDraftRecovery(documentDraftStorage(), id);
-  cacheLifecycleDocument({ id }, { remove: true });
-  if (state.editorDocId === id) {
-    destroyEditorController();
-    setState({ navType: 'library', editorDocId: null, editorFocus: false });
-  }
-  renderApp();
-  if (!(await refreshLifecycleCollection('Permanent deletion'))) return true;
-  showToast(lifecycleOutcomeMessage('Permanent deletion', result.outcome) || 'Document permanently deleted');
-  return true;
-}
-
-async function undoDocumentSupersession(predecessorId, replacementId) {
-  try {
-    await unlinkDocuments(replacementId, predecessorId, 'supersedes');
-  } catch {
-    try {
-      const links = await fetchDocumentLinks(replacementId, 'outbound');
-      const stillLinked = links.some(link => link.documentId === predecessorId && link.relation === 'supersedes');
-      if (stillLinked) {
-        showToast('Prax could not undo this supersession.');
-        return false;
-      }
-    } catch {
-      documentLifecycleUncertain.add(`document:${predecessorId}`);
-      showToast(lifecycleOutcomeMessage('Undo supersession', 'unknown'), null, 5000);
-      return false;
-    }
-  }
-  const predecessor = await fetchDocument(predecessorId).catch(() => null);
-  if (predecessor) cacheLifecycleDocument(predecessor);
-  await loadDocumentLinks(predecessorId);
-  renderApp();
-  if (!(await refreshLifecycleCollection('Undo supersession'))) return true;
-  showToast('Supersession undone');
-  return true;
-}
-
-async function supersedeKnowledgeDocument(predecessorId, replacementId) {
-  let result;
-  try {
-    result = { committed: true, document: await supersedeDocument(predecessorId, replacementId), outcome: 'committed' };
-  } catch {
-    try {
-      const [predecessor, links] = await Promise.all([
-        fetchDocument(predecessorId),
-        fetchDocumentLinks(replacementId, 'outbound'),
-      ]);
-      const exactLink = links.some(link => link.documentId === predecessorId && link.relation === 'supersedes');
-      result = documentMatchesLifecycle(predecessor, { type: 'supersede' }) && exactLink
-        ? { committed: true, document: predecessor, outcome: 'reconciled' }
-        : { committed: false, document: predecessor, outcome: 'failed' };
-    } catch {
-      result = { committed: false, document: null, outcome: 'unknown' };
-    }
-  }
-  if (!result.committed) {
-    if (result.outcome === 'unknown') setState({ isLinkPickerOpen: false });
-    reportUncommittedLifecycle('Supersede this document', result.outcome, predecessorId);
-    return false;
-  }
-  cacheLifecycleDocument(result.document);
-  setState({ isLinkPickerOpen: false });
-  renderApp();
-  await loadDocumentLinks(predecessorId);
-  renderApp();
-  const undo = async () => {
-    dismissToast();
-    await performDocumentLifecycleOnce(`document:${predecessorId}`, () => (
-      undoDocumentSupersession(predecessorId, replacementId)
-    ));
-  };
-  if (!(await refreshLifecycleCollection('Supersession', undo))) return true;
-  showToast(lifecycleOutcomeMessage('Supersession', result.outcome) || 'Document superseded', undo, 7000);
-  return true;
-}
-
 function documentDraftStorage() {
   try { return window.localStorage; } catch { return null; }
 }
@@ -2442,7 +1489,7 @@ function handleDocumentDraftBodyChange(value) {
     const words = value.split(/\s+/).filter(Boolean).length;
     counts.textContent = `${words} words · ${value.length} characters · ${Math.max(1, Math.round(words / 200))} min read`;
   }
-  updateDocumentLivePreview(appRoot, value, { resolveWikiLink, remoteImages: true, taskToggles: editorTaskToggles() });
+  updateDocumentLivePreview(appRoot, value, { mode: 'document', editable: editorTaskToggles(), resolveWikiLink });
 }
 
 function handleDocumentDraftTitleChange(value) {
@@ -2510,7 +1557,7 @@ function applyDocumentDraftSave(saved, { draftId, sentDraft }) {
       mountEditorIfNeeded();
       if (focused) documentEditorController?.focus();
     }
-    updateDocumentLivePreview(appRoot, patch.documentDraftBody, { resolveWikiLink, remoteImages: true, taskToggles: editorTaskToggles() });
+    updateDocumentLivePreview(appRoot, patch.documentDraftBody, { mode: 'document', editable: editorTaskToggles(), resolveWikiLink });
   }
   // The fallback textarea preserves the caret exactly like CodeMirror does —
   // either way, re-rendering mid-typing would destroy the edit surface and
@@ -2708,119 +1755,6 @@ function applyEditorFormat(action) {
   handleDocumentDraftBodyChange(result.value);
 }
 
-// ---- editor AI writing actions (Tier-3 #7) --------------------------------
-
-const WRITE_LABELS = Object.fromEntries(WRITE_ACTIONS);
-// Bumped on every run/close/navigation so a request that resolves after the
-// user cancelled (or started another) is dropped instead of resurrecting the
-// overlay. Mirrors aiReviewToken.
-let writeToken = 0;
-
-function currentEditorDoc() {
-  return state.documents.find((d) => d.id === state.editorDocId) || null;
-}
-
-// Run a writing action over the selection (if any) or the whole document, then
-// open the preview overlay. Nothing touches the document until the human applies.
-async function runWrite(action) {
-  if (!WRITE_LABELS[action] || state.navType !== 'editor') return;
-  const doc = currentEditorDoc();
-  const body = state.documentDraftBody || '';
-  // Selection was captured when the menu opened (see toggle-write-menu); fall
-  // back to a live read for any programmatic caller.
-  const stash = state.writeSelection || null;
-  const range = stash ? { from: stash.from, to: stash.to } : (documentEditorController?.getSelectionRange?.() || null);
-  const rawSel = stash ? stash.text : String(documentEditorController?.getSelectionText?.() || '');
-  const selText = rawSel.trim() ? rawSel : '';
-  let payload;
-  let mode;
-  let verb;
-  let selStart = null;
-  let selEnd = null;
-  if (action === 'draft') {
-    payload = { action, title: doc?.title || '', documentType: doc?.documentType || '' };
-    mode = 'whole';
-    verb = body.trim() ? 'Replace document' : 'Insert draft';
-  } else if (action === 'summarize') {
-    const source = selText || body;
-    if (!source.trim()) { showToast('Nothing to summarize — the document is empty.'); setState({ writeMenuOpen: false, writeSelection: null }); renderApp(); return; }
-    payload = { action, text: source };
-    mode = 'prepend';
-    verb = 'Insert summary at top';
-  } else { // rewrite | checklist
-    const useSel = Boolean(selText);
-    if (!useSel && !body.trim()) { showToast(`Nothing to ${action === 'checklist' ? 'convert' : 'rewrite'} — the document is empty.`); setState({ writeMenuOpen: false, writeSelection: null }); renderApp(); return; }
-    payload = { action, text: useSel ? selText : body };
-    mode = useSel ? 'selection' : 'whole';
-    verb = useSel ? 'Replace selection' : 'Replace document';
-    if (useSel && range) { selStart = range.from; selEnd = range.to; }
-  }
-  const token = (writeToken += 1);
-  setState({
-    writeMenuOpen: false, writeSelection: null,
-    writeContext: { action, label: WRITE_LABELS[action], verb, mode, docId: state.editorDocId, selText: mode === 'selection' ? selText : '', selStart, selEnd, model: null },
-    writeResult: null, writeLoading: true, writeError: null,
-  });
-  renderApp();
-  try {
-    const res = await runWritingAction(payload);
-    if (token !== writeToken) return; // cancelled or superseded
-    if (res.degraded) {
-      setState({ writeLoading: false, writeError: res.reason === 'no-chat-model' ? 'No AI model configured — set one in Settings ▸ Intelligence.' : res.reason === 'truncated' ? 'The model’s output was cut off at its length limit, so there is no complete result to apply. Try a shorter selection.' : 'The model could not complete this. Try again.' });
-    } else {
-      setState({ writeLoading: false, writeResult: res.text, writeContext: { ...state.writeContext, model: res.model } });
-    }
-  } catch {
-    if (token !== writeToken) return;
-    setState({ writeLoading: false, writeError: 'Could not run the writing action.' });
-  }
-  if (token === writeToken) renderApp();
-}
-
-function closeWrite() {
-  writeToken += 1; // invalidate any in-flight request
-  setState({ writeContext: null, writeResult: null, writeLoading: false, writeError: null, writeSelection: null });
-  renderApp();
-}
-
-// Apply the generated text to the editor buffer (dirty, not saved) per the mode.
-function applyWrite() {
-  const ctx = state.writeContext;
-  const text = state.writeResult;
-  if (!ctx || !text) return;
-  // Guard against applying to a document the user navigated away from.
-  if (ctx.docId && ctx.docId !== state.editorDocId) { showToast('You left the document — nothing was applied.'); closeWrite(); return; }
-  const body = state.documentDraftBody || '';
-  let next;
-  if (ctx.mode === 'prepend') {
-    next = body.trim() ? `${text.trim()}\n\n${body}` : text.trim();
-  } else if (ctx.mode === 'selection') {
-    // Prefer the exact recorded offsets (correct even when the selected text
-    // repeats in the body). Splice, never String.replace, so `$` sequences in
-    // the AI output are inserted literally rather than expanded.
-    if (Number.isInteger(ctx.selStart) && Number.isInteger(ctx.selEnd) && body.slice(ctx.selStart, ctx.selEnd) === ctx.selText) {
-      next = body.slice(0, ctx.selStart) + text + body.slice(ctx.selEnd);
-    } else if (ctx.selText && body.includes(ctx.selText)) {
-      next = body.replace(ctx.selText, () => text); // function replacer: no $-pattern expansion
-    } else {
-      showToast('The selected text changed — could not apply.'); closeWrite(); return;
-    }
-  } else {
-    next = text; // whole
-  }
-  writeToken += 1;
-  setState({ writeContext: null, writeResult: null, writeLoading: false, writeError: null });
-  destroyEditorController();
-  handleDocumentDraftBodyChange(next);
-  renderApp();
-  showToast('Applied — review and save');
-}
-
-async function copyWrite() {
-  const ok = await copyToClipboard(state.writeResult || '');
-  showToast(ok ? 'Copied' : 'Could not copy');
-}
-
 // Preview task items are checkboxes only in the open, editable document.
 function editorTaskToggles() {
   const doc = currentDocument();
@@ -2860,7 +1794,7 @@ async function openDocumentInEditor(documentId, { isCurrent = () => true } = {})
   }
   if (!doc) { alertError('open that document'); return false; }
   seedEditorDraft(doc);
-  writeToken += 1; // drop any in-flight writing action from a previous doc
+  writing.invalidate(); // drop any in-flight writing action from a previous doc
   setState({
     navType: 'editor', editorReturnView: returnView, editorFocus: false, writeMenuOpen: false, writeSelection: null, writeContext: null, writeResult: null, writeLoading: false, writeError: null,
     recentDocuments: saveRecentDocuments(pushRecentDocument(state.recentDocuments, documentId)),
@@ -2868,290 +1802,6 @@ async function openDocumentInEditor(documentId, { isCurrent = () => true } = {})
   renderApp();
   loadDocumentContext(doc);
   return true;
-}
-
-// ---------------------------------------------------------------------------
-// "Ask Prax" — grounded, cited answers over the library
-// ---------------------------------------------------------------------------
-
-function openAskPrax() {
-  // Keep the last query (handy to re-run) but clear any prior answer.
-  askPraxToken += 1;
-  setState({ askPraxOpen: true, askPraxResult: null, askPraxError: false, askPraxLoading: false, paletteOpen: false });
-  renderApp();
-}
-
-function closeAskPrax() {
-  askPraxToken += 1;
-  setState({ askPraxOpen: false, askPraxLoading: false });
-  renderApp();
-}
-
-async function runAskPrax(rawQuery) {
-  const query = String(rawQuery || '').trim();
-  if (!query) return;
-  const token = (askPraxToken += 1);
-  const isCurrent = () => token === askPraxToken
-    && state.askPraxOpen
-    && state.askPraxQuery === query;
-  setState({ askPraxQuery: query, askPraxLoading: true, askPraxError: false, askPraxResult: null });
-  renderApp();
-  try {
-    const result = await askPrax(query, 'all');
-    if (!isCurrent()) return;
-    setState({ askPraxLoading: false, askPraxResult: result });
-  } catch {
-    if (!isCurrent()) return;
-    setState({ askPraxLoading: false, askPraxError: true });
-  }
-  renderApp();
-  // The result region is rebuilt with its content, so it is not announced.
-  announce(state.askPraxError ? 'Ask Prax could not answer. Try again.' : 'Answer ready.');
-}
-
-async function copyAskPrax() {
-  const r = state.askPraxResult;
-  if (!r) return;
-  const text = (typeof r.answer === 'string' && r.answer.trim()) ? r.answer : (r.markdown || '');
-  if (!text) return;
-  const ok = await copyToClipboard(text);
-  showToast(ok ? 'Answer copied' : 'Could not copy');
-}
-
-// A generation keeps running after Esc (the server finishes it either way), so
-// reopening the dialog shows that request instead of offering a second one.
-let genRbInFlight = false;
-
-function openGenerateRunbook() {
-  if (genRbInFlight) {
-    setState({ genRbOpen: true, genRbLoading: true, genRbError: false, paletteOpen: false });
-    renderApp();
-    return;
-  }
-  const projects = captureProjectChoices().filter((p) => p.slug !== INBOX_SLUG);
-  setState({ genRbOpen: true, genRbLoading: false, genRbError: false, genRbDescription: '', genRbProject: projects[0]?.id || null, paletteOpen: false });
-  renderApp();
-}
-
-async function runGenerateRunbook() {
-  if (genRbInFlight) return;
-  const description = String(appRoot.querySelector('[data-genrb-input]')?.value || '').trim();
-  const project = appRoot.querySelector('[data-genrb-project]')?.value || '';
-  if (!description) { setState({ genRbError: 'Describe the alert or incident first.' }); renderApp(); return; }
-  if (!project) { setState({ genRbError: 'Pick a project for the runbook.' }); renderApp(); return; }
-  genRbInFlight = true;
-  setState({ genRbLoading: true, genRbError: false, genRbDescription: description, genRbProject: project });
-  renderApp();
-  let res;
-  try {
-    res = await generateRunbook(description, project);
-  } catch (err) {
-    genRbInFlight = false;
-    setState({ genRbLoading: false, genRbError: err?.message || 'Could not generate the runbook.' });
-    renderApp();
-    return;
-  }
-  genRbInFlight = false;
-  setState({ genRbOpen: false, genRbLoading: false });
-  showToast('Runbook drafted — review, edit, and verify');
-  // The draft exists; failing to open it is not a failed generation.
-  try {
-    if (!(await openDocumentInEditor(res.document.id))) showToast('Runbook drafted — find it in the Library to review it.', null, 7000);
-  } catch { showToast('Runbook drafted — find it in the Library to review it.', null, 7000); }
-}
-
-// ---------------------------------------------------------------------------
-// Runbook execution (runs)
-// ---------------------------------------------------------------------------
-
-// Snapshot the runbook's checkbox steps into a fresh run and open the run view.
-// The run is a chronicle: checking a step stamps a time without touching the doc.
-async function startRunForDocument(documentId) {
-  if (state.runStartPending) return;
-  const doc = state.documents.find((d) => d.id === documentId) || currentDocument();
-  if (!doc) { alertError('start a run'); return; }
-  const priorIntent = state.runStartIntent;
-  const intent = priorIntent?.documentId === doc.id
-    ? priorIntent
-    : { id: crypto.randomUUID(), documentId: doc.id, title: '' };
-  setState({ runStartPending: true, runStartIntent: intent });
-  renderApp();
-  // A run snapshots the persisted checkbox steps. Flush the current draft so
-  // the chronicle cannot start from an older revision than the one on screen.
-  if (!(await prepareEditorNavigation())) {
-    setState({ runStartPending: false });
-    renderApp();
-    return;
-  }
-  let run;
-  let recovered = false;
-  try {
-    run = await startRun(doc.id, intent.title, intent.id);
-  } catch (writeError) {
-    try {
-      const canonical = await fetchRun(intent.id);
-      if (runMatchesStartIntent(canonical, intent)) {
-        run = canonical;
-        recovered = true;
-      } else {
-        setState({ runStartPending: false });
-        renderApp();
-        showToast(writeError?.message || 'Run did not start. Retry uses the same safe identity.');
-        return;
-      }
-    } catch (readError) {
-      setState({ runStartPending: false });
-      renderApp();
-      const message = readError?.status === 404
-        ? 'Run did not start. Retry is safe and will reuse the same identity.'
-        : 'Could not confirm whether the run started. Retry is safe and cannot create a duplicate.';
-      showToast(message, null, 7000);
-      return;
-    }
-  }
-  setState({
-    navType: 'run',
-    editorFocus: false,
-    activeRun: run,
-    runReturnDocId: doc.id,
-    runStartPending: false,
-    runStartIntent: null,
-    runMutationPending: false,
-    docMenuOpen: false,
-  });
-  renderApp();
-  if (recovered) showToast('Run started — confirmed after the response was lost');
-  if (!run.steps || run.steps.length === 0) showToast('This runbook has no checkbox steps yet — add “- [ ] step” lines.');
-}
-
-async function openRun(runId, returnDocId) {
-  if (!(await prepareEditorNavigation())) return;
-  try {
-    const run = await fetchRun(runId);
-    setState({
-      navType: 'run',
-      editorFocus: false,
-      activeRun: run,
-      runReturnDocId: returnDocId || run.documentId,
-      runMutationPending: false,
-    });
-    renderApp();
-  } catch { alertError('open that run'); }
-}
-
-function applyRunMutationResponse(runId, response, intent) {
-  const current = state.activeRun;
-  if (!current || current.id !== runId) return;
-  if (intent.type === 'step') {
-    const steps = current.steps.map((step) => (step.id === intent.stepId
-      ? { ...step, checkedAt: response.checkedAt, checkedBy: response.checkedBy }
-      : step));
-    setState({ activeRun: { ...current, steps } });
-  } else {
-    setState({ activeRun: {
-      ...current,
-      status: response.status,
-      finishedAt: response.finishedAt,
-      finishedBy: response.finishedBy,
-    } });
-  }
-}
-
-// Run writes are deliberately followed by a canonical read. The PATCH response
-// proves a commit, but only GET carries the complete event ledger; a rejected
-// PATCH may also be a lost response after commit.
-function queueRunMutation(runId, { write, intent, successMessage = '' }) {
-  pendingRunMutationCount += 1;
-  setState({ runMutationPending: true });
-  renderApp();
-  return enqueueRunMutation(runId, async () => {
-    let response;
-    let writeError = null;
-    try {
-      response = await write();
-    } catch (error) {
-      writeError = error;
-    }
-
-    try {
-      const canonical = await fetchRun(runId);
-      const matches = intent.type === 'step'
-        ? runMatchesStepIntent(canonical, intent.stepId, intent.checked)
-        : runMatchesStatusIntent(canonical, intent.status);
-      if (state.activeRun?.id === runId) setState({ activeRun: canonical });
-      if (writeError && !matches) {
-        showToast(writeError.message || 'The run did not change.');
-      } else if (writeError) {
-        showToast(`${successMessage || 'Run updated'} — confirmed after the response was lost`);
-      } else if (successMessage) {
-        showToast(successMessage);
-      }
-    } catch {
-      if (writeError) {
-        showToast('Could not confirm the run change. Retry is safe and will not duplicate the event.', null, 7000);
-      } else {
-        applyRunMutationResponse(runId, response, intent);
-        showToast('Run updated, but the chronicle could not refresh. Reopen the run to reload it.', null, 7000);
-      }
-    }
-  }).finally(() => {
-    pendingRunMutationCount = Math.max(0, pendingRunMutationCount - 1);
-    setState({ runMutationPending: pendingRunMutationCount > 0 });
-    renderApp();
-  });
-}
-
-function toggleRunStep(stepId, nowChecked) {
-  const run = state.activeRun;
-  if (!run || run.status !== 'running') return Promise.resolve();
-  return queueRunMutation(run.id, {
-    intent: { type: 'step', stepId, checked: nowChecked },
-    write: () => setRunStep(run.id, stepId, nowChecked),
-  });
-}
-
-function endRun(status) {
-  const run = state.activeRun;
-  if (!run) return Promise.resolve();
-  setState({ confirm: null });
-  const label = status === 'completed' ? 'Run completed' : (status === 'aborted' ? 'Run aborted' : 'Run resumed');
-  return queueRunMutation(run.id, {
-    intent: { type: 'status', status },
-    write: () => setRunStatus(run.id, status),
-    successMessage: label,
-  });
-}
-
-async function copyRunChronicle() {
-  const run = state.activeRun;
-  if (!run) return;
-  const doc = (state.documents || []).find((d) => d.id === run.documentId);
-  const ok = await copyToClipboard(buildChronicle(run, run.documentTitle || doc?.title || ''));
-  showToast(ok ? 'Chronicle copied' : 'Could not copy chronicle');
-}
-
-async function generatePostMortem(runId) {
-  if (!runId || state.postMortemLoading) return;
-  setState({ postMortemLoading: true });
-  renderApp();
-  try {
-    const res = await createPostMortem(runId);
-    setState({ postMortemLoading: false });
-    showToast(res.generated ? 'Post-mortem drafted — review & verify' : 'Draft created (no AI model) — fill in the narrative');
-    // Open the new agent-written doc so the human can review + verify it.
-    await openDocumentInEditor(res.document.id);
-  } catch {
-    setState({ postMortemLoading: false });
-    renderApp();
-    showToast('Could not generate the post-mortem');
-  }
-}
-
-async function backFromRun() {
-  const docId = state.runReturnDocId || state.activeRun?.documentId;
-  setState({ activeRun: null });
-  if (docId && await openDocumentInEditor(docId)) return;
-  await goLibrary();
 }
 
 // ---------------------------------------------------------------------------
@@ -3170,7 +1820,6 @@ function deletedProjectMessage(result) {
   return parts.length ? `${name} deleted (${parts.join(', ')})` : `${name} deleted`;
 }
 
-const INBOX_SLUG = 'inbox';
 function inboxProject() {
   return (state.projects || []).find((p) => p.slug === INBOX_SLUG) || null;
 }
@@ -3190,138 +1839,6 @@ function defaultProjectId() {
   return inboxProjectId() || state.projects[0]?.id || null;
 }
 
-// Context-derived capture defaults: destination + due/status reflect the view
-// you're in, so a new task lands where you'd expect — a project view targets
-// that project; Today targets Inbox and pre-sets a due-today; a Backlog tab
-// pre-sets backlog status; everything else falls to Inbox.
-function captureDefaults() {
-  const fromProject = state.navType === 'project' ? state.navId : null;
-  const onBacklog = state.navType === 'project' && state.tab === 'backlog';
-  return {
-    captureProjectId: fromProject || inboxProjectId() || state.projects[0]?.id || null,
-    captureDueDate: state.navType === 'today' ? todayISODate() : null,
-    captureStatus: onBacklog ? 'backlog' : 'planned',
-    captureMenuOpen: false,
-  };
-}
-
-function taskCaptureStorage() {
-  try { return window.localStorage; } catch { return null; }
-}
-
-function captureRecoveryDraft() {
-  return {
-    query: state.captureQuery,
-    projectId: state.captureProjectId,
-    dueDate: state.captureDueDate,
-    status: state.captureStatus,
-    nlFields: state.nlCaptureFields,
-    nlDropped: state.nlCaptureDropped,
-    nlRaw: state.nlCaptureRaw,
-    requestPayload: state.captureRequestPayload,
-    requestIntent: state.captureRequestIntent,
-  };
-}
-
-function persistCaptureRecovery(options) {
-  return storeTaskCaptureRecovery(taskCaptureStorage(), captureRecoveryDraft(), options);
-}
-
-function clearCaptureRequestPatch() {
-  return {
-    captureRequestPayload: null,
-    captureRequestIntent: null,
-    captureError: null,
-    captureRecovered: false,
-  };
-}
-
-function openFreshCapture() {
-  if (state.captureSubmitting) return false;
-  captureReturnElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-  // Owner-guarded (no force): starting fresh HERE is not a verdict on a draft
-  // another tab is still typing — only this tab's own leftover is dropped.
-  clearTaskCaptureRecovery(taskCaptureStorage());
-  setState({
-    captureOpen: true,
-    captureQuery: '',
-    captureSubmitting: false,
-    paletteOpen: false,
-    ...captureDefaults(),
-    ...clearCaptureRequestPatch(),
-    ...nlCaptureResetPatch(),
-  });
-  renderCaptureOverlayLayer();
-  return true;
-}
-
-function discardCapture() {
-  if (state.captureSubmitting) return false;
-  // force only when THIS tab displays capture content the user is throwing
-  // away (typed text, a parsed preview, a restored recovery, or a pending
-  // retry identity) — a restored draft may still carry a stale owner stamp
-  // that an owner-guarded clear would resurrect. Closing an EMPTY capture
-  // (Esc, palette, assistant) expresses no verdict on another tab's stored
-  // draft, so that clear stays owner-guarded.
-  const displaysDraft = Boolean(state.captureQuery
-    || state.nlCaptureFields || state.captureRecovered || state.captureRequestPayload);
-  clearTaskCaptureRecovery(taskCaptureStorage(), { force: displaysDraft });
-  setState({
-    captureOpen: false,
-    captureQuery: '',
-    captureMenuOpen: false,
-    captureSubmitting: false,
-    ...clearCaptureRequestPatch(),
-    ...nlCaptureResetPatch(),
-  });
-  return true;
-}
-
-function restoreCaptureRecovery() {
-  const recovery = loadTaskCaptureRecovery(taskCaptureStorage());
-  if (!recovery) return false;
-  if (recovery.requestPayload) {
-    const observed = state.tasks.find(task => task.id === recovery.requestPayload.id);
-    if (taskMatchesCreatePayload(observed, recovery.requestPayload)) {
-      // force: the stored payload was confirmed created — it is stale for
-      // every tab, and its owner token predates this reload anyway.
-      clearTaskCaptureRecovery(taskCaptureStorage(), { force: true });
-      showToast('Task was added before reload.');
-      return false;
-    }
-  }
-  const knownProjects = new Set((state.projects || []).map(project => project.id));
-  const projectId = knownProjects.has(recovery.projectId)
-    ? recovery.projectId
-    : (inboxProjectId() || state.projects[0]?.id || null);
-  const requestProject = recovery.requestPayload?.project;
-  const keepRequest = !requestProject || knownProjects.has(requestProject);
-  setState({
-    captureOpen: true,
-    captureQuery: recovery.query,
-    captureProjectId: projectId,
-    captureDueDate: recovery.dueDate,
-    captureStatus: recovery.status === 'backlog' ? 'backlog' : 'planned',
-    captureMenuOpen: false,
-    captureSubmitting: false,
-    captureError: 'Recovered unfinished task.',
-    captureRecovered: true,
-    captureRequestPayload: keepRequest ? recovery.requestPayload : null,
-    captureRequestIntent: keepRequest ? recovery.requestIntent : null,
-    nlCaptureLoading: false,
-    nlCaptureFields: recovery.nlFields,
-    nlCaptureDropped: recovery.nlDropped,
-    nlCaptureRaw: recovery.nlRaw,
-    nlCaptureError: null,
-  });
-  // Adopt the draft into THIS tab: the stored stamp predates this load, and
-  // without a re-stamp the tab could never clear or empty its own restored
-  // draft (owner-guarded paths would refuse forever). Single-slot trade-off:
-  // if two tabs restore the same draft, the later adoption wins the slot.
-  persistCaptureRecovery({ force: true });
-  return true;
-}
-
 // Projects offered in the capture picker: Inbox first, then active/on-hold user
 // projects, each carrying its dot color for the menu.
 function captureProjectChoices() {
@@ -3330,120 +1847,6 @@ function captureProjectChoices() {
     (p) => p.slug !== INBOX_SLUG && (p.status === 'active' || p.status === 'on-hold'),
   );
   return (inbox ? [inbox, ...rest] : rest).map((p) => ({ ...p, color: projectColor(p) }));
-}
-
-let templateStudioChoices = [];
-let templateStudioOpening = false;
-let templateStudioReturnAction = 'toggle-new-doc-menu';
-let restoreTemplateStudioFocus = false;
-function templateStorage() {
-  try { return window.sessionStorage; } catch { return null; }
-}
-function persistTemplateStudio(draft) {
-  try { saveTemplateDraft(templateStorage(), draft); return true; }
-  catch {
-    draft.error = 'This tab cannot retain the creation draft. Allow browser storage before creating a copy.';
-    return false;
-  }
-}
-async function openTemplateStudio(sourceId = null) {
-  if (templateStudioOpening || state.templateStudio) return;
-  templateStudioOpening = true;
-  const navigation = [state.navType, state.editorDocId, state.navId];
-  const stillHere = () => navigation.every((value, index) => value === [state.navType, state.editorDocId, state.navId][index]);
-  try {
-    if (!(await prepareEditorNavigation())) return;
-    if (!stillHere()) return;
-    const response = await fetch('/api/library/starters');
-    if (!response.ok) throw new Error('Could not load templates and guides. Try again.');
-    const catalogue = await response.json();
-    let documents = await fetchDocuments();
-    if (sourceId) {
-      const current = await fetchDocument(sourceId);
-      documents = [...documents.filter(doc => doc.id !== sourceId), current];
-    }
-    if (!stillHere()) return;
-    templateStudioChoices = templateChoices(catalogue.items, documents);
-    const recovered = loadTemplateDraft(templateStorage());
-    const source = templateStudioChoices.find(item => item.sourceId === sourceId) || templateStudioChoices[0];
-    if (sourceId && !templateStudioChoices.some(item => item.sourceId === sourceId)) throw new Error('That template is no longer active.');
-    // A pending identity must be resolved before starting another copy in this tab.
-    const draft = recovered?.job || (!sourceId && recovered) ? recovered : {
-      source, title: source.title, project: defaultProjectId() || '', documentType: source.documentType || 'note',
-      job: null, pending: false, error: '',
-    };
-    if (!templateStudioChoices.some(item => item.id === draft.source.id)) templateStudioChoices.unshift(draft.source);
-    templateStudioReturnAction = sourceId ? 'use-document-template' : 'toggle-new-doc-menu';
-    persistTemplateStudio(draft);
-    setState({ templateStudio: draft, newDocMenuOpen: false, docMenuOpen: false });
-    renderApp();
-  } catch (error) { showToast(error.message); }
-  finally { templateStudioOpening = false; }
-}
-function closeTemplateStudio() {
-  if (state.templateStudio?.pending) return;
-  restoreTemplateStudioFocus = true;
-  setState({ templateStudio: null });
-  renderApp();
-}
-function updateTemplateStudio(field, value) {
-  if (!state.templateStudio || state.templateStudio.pending || state.templateStudio.job) return;
-  let draft = { ...state.templateStudio, error: '' };
-  if (field === 'source') {
-    const source = templateStudioChoices.find(item => item.id === value);
-    if (!source) return;
-    draft = { ...draft, source, title: source.title, documentType: source.documentType || 'note' };
-  } else if (['project', 'title', 'documentType'].includes(field)) draft[field] = value;
-  persistTemplateStudio(draft);
-  setState({ templateStudio: draft });
-  // Text input remains mounted while typing. Other fields change the preview.
-  if (field !== 'title') {
-    renderApp();
-    appRoot.querySelector(`[data-template-field="${field}"]`)?.focus();
-  }
-}
-async function submitTemplateStudio() {
-  const draft = state.templateStudio;
-  if (!draft || draft.pending) return;
-  draft.pending = true; draft.error = '';
-  renderApp();
-  let result;
-  try {
-    if (!draft.job) {
-      if (!markdownImportProjects().some(project => project.id === draft.project)) throw new Error('Choose an active destination project.');
-      if (draft.source.sourceId) {
-        const source = await fetchDocument(draft.source.sourceId);
-        if (source.archivedAt || source.status !== 'active' || source.documentType !== 'template') throw new Error('The original template is no longer active. Choose another starting point.');
-        if (source.revision !== draft.source.sourceRevision) throw new Error('The original template changed. Close and reopen it to review the current version.');
-      }
-      const job = buildTemplateJob(draft, crypto.randomUUID());
-      // Fail before writing if recovery storage is unavailable.
-      saveTemplateDraft(templateStorage(), { ...draft, job });
-      draft.job = job;
-    }
-    result = await executeTemplateJob(draft.job, { createDocument, fetchDocument, importTasks, fetchTask });
-  } catch (error) {
-    draft.pending = false;
-    draft.error = `${error.message}${draft.job ? ' Retry checks the same creation; it will not make another copy.' : ''}`;
-    renderApp();
-    return;
-  }
-  // Creation has committed. Refresh/open failures are a separate outcome.
-  try { clearTemplateDraft(templateStorage()); }
-  catch { /* retaining the receipt is safer than creating a new identity */ }
-  setState({ templateStudio: null });
-  let refreshFailed = false;
-  if (result.target === 'document') {
-    try { await loadDocuments(); } catch { refreshFailed = true; }
-    if (!state.documents.some(doc => doc.id === result.record.id)) setState({ documents: [...state.documents, result.record] });
-    await openDocumentInEditor(result.record.id).catch(() => { refreshFailed = true; });
-  } else {
-    try { await loadTasks(); } catch { refreshFailed = true; }
-    if (!state.tasks.some(task => task.id === result.record.id)) setState({ tasks: [...state.tasks, normalizeTask(result.record)] });
-    await openTaskDrawer(result.record.id).catch(() => { refreshFailed = true; });
-  }
-  renderApp();
-  showToast(`${result.target === 'task' ? 'Onboarding task' : 'Document copy'} created.${refreshFailed ? ' Some details could not refresh; reload to see them.' : ''}`);
 }
 
 // One new document at a time: a double click on New document (or a repeated
@@ -3473,7 +1876,7 @@ async function createNewDocument(templateId) {
     try { await loadDocuments(); } catch { /* the created record below stands in */ }
     if (!state.documents.some(d => d.id === doc.id)) setState({ documents: [doc, ...state.documents] });
     seedEditorDraft(state.documents.find(d => d.id === doc.id) || doc);
-    writeToken += 1; // drop any writing state carried from the previous doc
+    writing.invalidate(); // drop any writing state carried from the previous doc
     setState({ navType: 'editor', editorMode: 'edit', editorFocus: false, writeMenuOpen: false, writeSelection: null, writeContext: null, writeResult: null, writeLoading: false, writeError: null });
     renderApp();
     showToast('New document — rename it in the title bar');
@@ -3490,206 +1893,6 @@ function markdownImportProjects() {
 function libraryExportProjects() {
   const projects = state.managedProjects?.length ? state.managedProjects : state.projects;
   return (projects || []).filter(project => project.slug);
-}
-
-function openLibraryExport(scope = 'all', returnAction = 'export-library') {
-  const projects = libraryExportProjects();
-  const selectedScope = scope === 'all' || projects.some(project => project.slug === scope)
-    ? scope
-    : 'all';
-  libraryExportReturnAction = returnAction;
-  restoreLibraryExportFocus = false;
-  setState({
-    libraryExportOpen: true,
-    libraryExportScope: selectedScope,
-    libraryExportFormat: 'markdown',
-    libraryExportIncludeArchived: false,
-    libraryExportFilename: libraryArchiveFilename(selectedScope),
-    libraryExportPending: false,
-    libraryExportError: '',
-    newDocMenuOpen: false,
-  });
-  renderApp();
-}
-
-function closeLibraryExport() {
-  if (state.libraryExportPending) return false;
-  restoreLibraryExportFocus = true;
-  setState({
-    libraryExportOpen: false,
-    libraryExportPending: false,
-    libraryExportError: '',
-  });
-  renderApp();
-  return true;
-}
-
-async function submitLibraryExport() {
-  if (state.libraryExportPending) return;
-  const projects = libraryExportProjects();
-  const scope = state.libraryExportScope === 'all'
-    || projects.some(project => project.slug === state.libraryExportScope)
-    ? state.libraryExportScope
-    : 'all';
-  const filename = state.libraryExportFilename || libraryArchiveFilename(scope);
-  const mode = libraryExportDestinationMode({ desktopShell: state.desktopShell });
-  setState({ libraryExportPending: true, libraryExportError: '' });
-  renderApp();
-
-  try {
-    const result = await saveLibraryArchive({
-      scope,
-      filename,
-      mode,
-      format: state.libraryExportFormat,
-      includeArchived: state.libraryExportIncludeArchived,
-      desktopShell: state.desktopShell,
-    });
-    if (result.status === 'cancelled') {
-      setState({ libraryExportPending: false });
-      renderApp();
-      return;
-    }
-    restoreLibraryExportFocus = true;
-    setState({
-      libraryExportOpen: false,
-      libraryExportPending: false,
-      libraryExportError: '',
-    });
-    showToast(result.status === 'downloaded'
-      ? `Download started: ${filename}`
-      : `Saved ${filename}`);
-  } catch (error) {
-    setState({
-      libraryExportPending: false,
-      libraryExportError: libraryExportFailureMessage(error),
-    });
-    renderApp();
-  }
-}
-
-function openMarkdownImport() {
-  const projects = markdownImportProjects();
-  const retained = projects.find(project => project.id === state.markdownImportProjectId);
-  const destination = retained || projects.find(project => project.slug === INBOX_SLUG) || projects[0] || null;
-  setState({
-    markdownImportOpen: true,
-    markdownImportProjectId: destination?.id || null,
-    markdownImportFiles: [],
-    markdownImportPending: false,
-    markdownImportError: destination ? '' : 'Create an active project before importing Markdown.',
-    markdownImportNotice: '',
-    newDocMenuOpen: false,
-  });
-  restoreMarkdownImportFocus = false;
-  renderApp();
-}
-
-function closeMarkdownImport() {
-  if (state.markdownImportPending) return false;
-  restoreMarkdownImportFocus = true;
-  setState({
-    markdownImportOpen: false,
-    markdownImportFiles: [],
-    markdownImportError: '',
-    markdownImportNotice: '',
-  });
-  renderApp();
-  return true;
-}
-
-async function selectMarkdownImportFiles(fileList) {
-  if (state.markdownImportPending || state.markdownImportNotice) return;
-  const files = [...(fileList || [])];
-  if (!files.length) return;
-  const records = [];
-  const unreadable = [];
-  for (const file of files) {
-    try {
-      const body = await file.text();
-      records.push({
-        id: globalThis.crypto.randomUUID(),
-        name: file.name || 'unnamed.md',
-        title: titleFromMarkdown(body, file.name),
-        body,
-      });
-    } catch {
-      unreadable.push(file.name || 'unnamed file');
-    }
-  }
-  setState({
-    markdownImportFiles: records,
-    markdownImportError: unreadable.length
-      ? `${unreadable.length} file${unreadable.length === 1 ? '' : 's'} could not be read: ${unreadable.slice(0, 3).join(', ')}.`
-      : '',
-    markdownImportNotice: '',
-  });
-  renderApp();
-}
-
-async function submitMarkdownImport() {
-  if (state.markdownImportPending) return;
-  const destination = markdownImportProjects().find(project => project.id === state.markdownImportProjectId);
-  const records = [...(state.markdownImportFiles || [])];
-  if (!destination) {
-    setState({ markdownImportError: 'Choose an active destination project.' });
-    renderApp();
-    return;
-  }
-  if (!records.length) {
-    setState({ markdownImportError: 'Choose at least one Markdown file.' });
-    renderApp();
-    return;
-  }
-  setState({ markdownImportPending: true, markdownImportError: '', markdownImportNotice: '' });
-  renderApp();
-  let imported = 0;
-  const failed = [];
-  for (const record of records) {
-    try {
-      await createDocument({
-        id: record.id,
-        title: record.title,
-        body: record.body,
-        documentType: 'note',
-        project: destination.id,
-        tags: ['imported'],
-        sourceFilename: record.name,
-      });
-      imported += 1;
-    } catch {
-      failed.push(record);
-    }
-  }
-
-  let refreshFailed = false;
-  if (imported) {
-    try { await loadDocuments(); } catch { refreshFailed = true; }
-  }
-  const committed = imported
-    ? `Imported ${imported} note${imported === 1 ? '' : 's'} into ${destination.name}.`
-    : `No notes were confirmed in ${destination.name}.`;
-  if (failed.length) {
-    setState({
-      markdownImportPending: false,
-      markdownImportFiles: failed,
-      markdownImportNotice: `${committed} ${failed.length} file${failed.length === 1 ? ' remains' : 's remain'}; retry is exact-once safe.${refreshFailed ? ' The Library could not refresh; reload to reconcile committed notes.' : ''}`,
-    });
-    renderApp();
-    return;
-  }
-
-  setState({
-    markdownImportOpen: false,
-    markdownImportPending: false,
-    markdownImportFiles: [],
-    markdownImportError: '',
-    markdownImportNotice: '',
-  });
-  restoreMarkdownImportFocus = true;
-  showToast(refreshFailed
-    ? `${committed} The Library could not refresh; reload to reconcile it.`
-    : committed, null, refreshFailed ? 7000 : 5000);
 }
 
 function persistSavedViews() {
@@ -3709,7 +1912,7 @@ function persistSmartViews() {
 async function goFilter({ expr = '', smartViewId = null } = {}) {
   if (!(await prepareEditorNavigation())) return false;
   // The filter world's panel sidebar is its views — auto-select the tab.
-  setState({ navType: 'filter', editorFocus: false, activeFilterExpr: expr, activeSmartViewId: smartViewId, selectedTaskId: null, multiSelectIds: [], panelTab: 'views', ...nlFilterResetPatch() });
+  setState({ navType: 'filter', editorFocus: false, activeFilterExpr: expr, activeSmartViewId: smartViewId, selectedTaskId: null, multiSelectIds: [], panelTab: 'views', ...capture.nlFilterResetPatch() });
   renderApp();
   return true;
 }
@@ -3809,129 +2012,6 @@ async function runSemanticSearch({ append = false } = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Settings / data-admin flows
-// ---------------------------------------------------------------------------
-
-function downloadJsonFile(filename, payload) {
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-  const anchor = document.createElement('a');
-  anchor.href = URL.createObjectURL(blob);
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  setTimeout(() => URL.revokeObjectURL(anchor.href), 3000);
-}
-
-async function exportTasksScoped(all) {
-  try {
-    const project = all ? 'all' : (state.navId || 'all');
-    const payload = await exportTasks({ project });
-    const context = all ? 'all-projects' : (state.projects.find(p => p.id === state.navId)?.name || 'project');
-    downloadJsonFile(exportFilename(context, new Date()), payload);
-  } catch {
-    alertError(all ? 'export all projects' : 'export this project');
-  }
-}
-
-async function importTasksFromSettings() {
-  if (state.adminImportPending) return;
-  let mode;
-  try {
-    mode = normalizeImportMode(state.adminImportMode || 'skip');
-  } catch {
-    mode = 'skip';
-  }
-  if (mode === 'replace') {
-    const confirmBox = appRoot.querySelector('[data-replace-confirm]');
-    if ((confirmBox?.value || '') !== 'REPLACE') {
-      showToast('Type REPLACE to confirm a replace import.');
-      return;
-    }
-  }
-  const payload = state.adminImportPayload;
-  if (!payload) { showToast('Choose a valid JSON export file first.'); return; }
-  const project = state.adminImportProjectId;
-  if (!project) { showToast('Create a project first.'); return; }
-  const tasks = tasksFromImportPayload(payload);
-  const intent = JSON.stringify({ project, mode, payload });
-  setState({adminImportPending:true});
-  let request;
-  try { request = await importRequestFor(taskDraftStorage(), intent); }
-  catch {
-    setState({adminImportPending:false, adminImportError:'The import identity could not be saved for safe retry. Keep this window open and retry when storage is available.'});
-    renderApp(); return;
-  }
-  setState({
-    adminImportPending: true,
-    adminImportError: '',
-    adminImportResult: null,
-    adminImportRequest: request,
-  });
-  renderApp();
-  try {
-    const result = await importTasks({
-      project, mode, tasks,
-      format: payload?.format,
-      version: payload?.version,
-      requestId: request.id,
-    });
-    setState({
-      adminImportPending: false,
-      adminImportError: '',
-      adminImportResult: result,
-      adminImportRequest: null,
-      adminImportFileName: '',
-      adminImportPayload: null,
-    });
-    completeImportRequest(taskDraftStorage(), request);
-    const destination = state.projects.find(item => item.id === project)?.name || 'the selected project';
-    const committed = `Imported ${result.imported} task${result.imported === 1 ? '' : 's'} into ${destination}; skipped ${result.skipped ?? 0}.`;
-    try {
-      await loadTasks();
-      showToast(result.replayed ? `${committed} Recovered the earlier commit safely.` : committed, null, 5000);
-    } catch {
-      setState({ adminImportError: `${committed} The task list could not refresh; reload to reconcile it.` });
-      showToast('Import committed, but the task list could not refresh. Reload to reconcile it.', null, 6000);
-    }
-    renderApp();
-  } catch (err) {
-    const transportUnknown = !Number.isInteger(err?.status);
-    const message = transportUnknown
-      ? 'The connection ended before Prax could confirm the result. Retry is safe and will reuse the same import operation.'
-      : `Prax rejected the import: ${err?.message || 'the request was invalid'}.`;
-    setState({ adminImportPending: false, adminImportError: message });
-    if (err?.status === 409) setState({ adminImportRequest: null });
-    showToast(message, null, 6000);
-    renderApp();
-  }
-}
-
-async function selectTaskImportFile(file) {
-  if (!file || state.adminImportPending) return;
-  try {
-    const payload = JSON.parse(await file.text());
-    tasksFromImportPayload(payload);
-    setState({
-      adminImportFileName: file.name || 'task-export.json',
-      adminImportPayload: payload,
-      adminImportError: '',
-      adminImportResult: null,
-      adminImportRequest: null,
-    });
-  } catch (err) {
-    setState({
-      adminImportFileName: file.name || '',
-      adminImportPayload: null,
-      adminImportError: `That file is not a supported Prax task export. ${err?.message || ''}`.trim(),
-      adminImportResult: null,
-      adminImportRequest: null,
-    });
-  }
-  renderApp();
-}
-
-// ---------------------------------------------------------------------------
 // Navigation
 // ---------------------------------------------------------------------------
 
@@ -3964,113 +2044,6 @@ async function toggleReviewQueue() {
   });
   if (wasArchive) await loadDocuments();
   renderApp();
-}
-
-// ---------------------------------------------------------------------------
-// Review-queue walk (year-one spec item 11): open a queued document, read it,
-// verify or skip, and land on the next one — one click per document instead
-// of three. The walk is a snapshot of the queue as it was shown, so what you
-// asked to review is what you review; documents verified elsewhere meanwhile
-// are skipped at advance time.
-// ---------------------------------------------------------------------------
-
-function startReviewWalk(fromId) {
-  const ids = visibleLibraryDocuments().filter(isReviewQueueDoc).map((doc) => doc.id);
-  const index = Math.max(0, ids.indexOf(fromId));
-  setState({ reviewWalk: ids.length ? { ids: ids.includes(fromId) ? ids : [fromId, ...ids], index, verified: 0 } : { ids: [fromId], index: 0, verified: 0 } });
-}
-
-// Open a queued document for review: the first one through the health-style
-// preview (with its coaching toast), later ones silently — the strip explains.
-function reviewWalkPositionIsCurrent(walk) {
-  return state.reviewWalk === walk || Boolean(walk && state.reviewWalk?.ids === walk.ids
-    && state.reviewWalk.index === walk.index);
-}
-
-async function openWalkDocument(id, { coach = false } = {}) {
-  const walk = state.reviewWalk;
-  const originView = state.navType;
-  const originDocument = state.editorDocId;
-  if (!id || !(await prepareEditorNavigation(id))) return;
-  if (state.navType !== originView || state.editorDocId !== originDocument) return;
-  const version = state.editorContextVersion;
-  const isCurrent = () => reviewWalkPositionIsCurrent(walk) && state.editorContextVersion === version;
-  if (!isCurrent()) return;
-  try {
-    const document = await fetchDocument(id);
-    if (!isCurrent()) return;
-    cacheLifecycleDocument(document);
-    if (!(await openDocumentInEditor(id, { isCurrent }))) return;
-    if (!reviewWalkPositionIsCurrent(walk) || state.navType !== 'editor' || state.editorDocId !== id) return;
-    destroyEditorController();
-    setState({ editorMode: 'preview' });
-    renderApp();
-    if (coach) showToast('Review this document, then use Verify to approve the content shown.', null, 7000);
-  } catch { if (isCurrent()) showToast('Could not load the next document for review.'); }
-}
-
-async function advanceReviewWalk() {
-  const walk = state.reviewWalk;
-  if (!walk) return;
-  const byId = new Map((state.documents || []).map((doc) => [doc.id, doc]));
-  let next = walk.index + 1;
-  while (next < walk.ids.length && !isReviewQueueDoc(byId.get(walk.ids[next]))) next += 1;
-  if (next >= walk.ids.length) {
-    const verified = walk.verified;
-    setState({ reviewWalk: null });
-    await goLibrary({ libraryView: 'review' }, { restore: true });
-    showToast(verified ? `Queue walked — ${verified === 1 ? '1 document' : `${verified} documents`} verified.` : 'Queue walked — nothing verified.');
-    return;
-  }
-  setState({ reviewWalk: { ...walk, index: next } });
-  await openWalkDocument(walk.ids[next]);
-}
-
-async function reviewWalkVerify() {
-  const doc = currentDocument();
-  const walk = state.reviewWalk;
-  const editorVersion = state.editorContextVersion;
-  if (!doc || !walk || walk.ids[walk.index] !== doc.id) return;
-  if (doc.verified !== true) {
-    const committed = await performDocumentLifecycleOnce(`document:${doc.id}`, () => changeDocumentVerification(doc.id, true));
-    // Advance only on a committed verification; a refusal (dirty draft,
-    // changed revision) leaves the strip in place with its toast explaining.
-    const after = (state.documents || []).find((item) => item.id === doc.id);
-    if (!committed || after?.verified !== true || state.reviewWalk?.ids !== walk.ids) return;
-    const advance = reviewWalkPositionIsCurrent(walk) && state.navType === 'editor' && state.editorDocId === doc.id
-      && state.editorContextVersion === editorVersion;
-    // A verification that finished after Skip still counts in this walk, but
-    // must not advance its new position or alter another walk's summary.
-    setState({ reviewWalk: { ...state.reviewWalk, verified: (state.reviewWalk?.verified || 0) + 1 } });
-    if (!advance) {
-      const label = appRoot?.querySelector('.review-walk__label');
-      if (label) label.innerHTML = renderReviewWalkLabel(state.reviewWalk);
-      return;
-    }
-  }
-  await advanceReviewWalk();
-}
-
-// Archive every selected document through the same reconcile path as the
-// single action, with one summary toast instead of one per document.
-async function bulkArchiveDocuments() {
-  const ids = [...(state.librarySelectedDocIds || [])];
-  if (!ids.length) return;
-  let archived = 0;
-  for (const id of ids) {
-    const done = await performDocumentLifecycleOnce(`document:${id}`, async () => {
-      const result = await reconcileDocumentLifecycle({ id, intent: { type: 'archive' }, mutate: () => archiveDocument(id) });
-      if (result.committed) cacheLifecycleDocument(result.document, { remove: state.libraryView !== 'archive' });
-      return result.committed;
-    });
-    if (done) archived += 1;
-  }
-  setState({ librarySelectedDocIds: [] });
-  try { await loadDocuments(); } catch { /* the cache already reflects the commits */ }
-  renderApp();
-  showToast(archived === ids.length
-    ? `${archived === 1 ? '1 document' : `${archived} documents`} archived. Restore from the Archive.`
-    : `${archived} of ${ids.length} archived; the rest could not be confirmed. Reload to reconcile.`, null, 7000);
 }
 
 async function navigateTopLevel(patch) {
@@ -4140,21 +2113,6 @@ async function goLibrary(extra = {}, { restore = false } = {}) {
   return true;
 }
 
-async function goSettings() {
-  if (!(await prepareEditorNavigation())) return false;
-  const validDestination = state.projects.some(project => project.id === state.navId)
-    ? state.navId
-    : (inboxProjectId() || state.projects[0]?.id || null);
-  setState({ navType: 'settings', editorFocus: false, adminImportProjectId: validDestination });
-  loadDeploymentStatus().then(renderApp);
-  loadSemanticStatus().then(renderApp);
-  loadChatStatus().then(renderApp);
-  loadGoogleCalendarStatus().then(renderApp);
-  loadMaintenance().then(renderApp);
-  renderApp();
-  return true;
-}
-
 function openShortcuts() {
   if (state.shortcutsOpen) { setState({ shortcutsOpen: false }); renderApp(); return; }
   setState({ shortcutsOpen: true });
@@ -4166,26 +2124,26 @@ function escapeCascade() {
   if (state.shortcutsOpen) { setState({ shortcutsOpen: false }); renderApp(); return; }
   // The writing preview is a full-screen modal — it owns Esc over the (hidden,
   // behind-the-scrim) editor search panel.
-  if (state.writeContext) { closeWrite(); return; }
+  if (state.writeContext) { writing.closeWrite(); return; }
   if (state.editorSearchOpen) { closeEditorSearch(); return; }
   if (state.assistantOpen) { setState({ assistantOpen: false }); renderApp(); return; }
-  if (state.askPraxOpen) { closeAskPrax(); return; }
+  if (state.askPraxOpen) { knowledge.closeAskPrax(); return; }
   if (state.genRbOpen) { setState({ genRbOpen: false }); renderApp(); return; }
   if (state.dailyBriefOpen) { setState({ dailyBriefOpen: false }); renderApp(); return; }
   if (state.planMode) { setState({ planMode: null }); renderApp(); return; }
-  if (state.templateStudio) { closeTemplateStudio(); return; }
-  if (state.libraryExportOpen) { closeLibraryExport(); return; }
-  if (state.markdownImportOpen) { closeMarkdownImport(); return; }
+  if (state.templateStudio) { templateStudio.closeTemplateStudio(); return; }
+  if (state.libraryExportOpen) { transfer.closeLibraryExport(); return; }
+  if (state.markdownImportOpen) { transfer.closeMarkdownImport(); return; }
   if (state.confirm) { setState({ confirm: null }); renderApp(); return; }
   if (state.docMenuOpen) { setState({ docMenuOpen: false }); renderApp(); return; }
   if (state.paletteOpen) { setState({ paletteOpen: false }); renderApp(); return; }
   // Inside capture, the NL layer peels first: Esc aborts a parse / discards the
   // preview and restores the typed text; only the next Esc closes the overlay.
-  if (state.captureOpen && (state.nlCaptureLoading || state.nlCaptureFields || state.nlCaptureError)) { cancelNlCapture(); return; }
+  if (state.captureOpen && (state.nlCaptureLoading || state.nlCaptureFields || state.nlCaptureError)) { capture.cancelNlCapture(); return; }
   if (state.captureOpen) {
     if (state.captureSubmitting) return;
-    discardCapture();
-    renderCaptureOverlayLayer({ restoreFocus: true });
+    capture.discardCapture();
+    capture.renderCaptureOverlayLayer({ restoreFocus: true });
     return;
   }
   // The ✦ AI dropdown sits below the modal overlays + palette: a still-open (but
@@ -4210,7 +2168,7 @@ function escapeCascade() {
     renderApp();
     return;
   }
-  if (state.navType === 'run') backFromRun();
+  if (state.navType === 'run') runs.backFromRun();
 }
 
 // ---------------------------------------------------------------------------
@@ -4243,23 +2201,11 @@ function projectTasks() {
   return state.tasks.filter(t => t.projectId === state.navId);
 }
 
-// Comfortable / compact rows (spec item 9), a preference applied on <body>.
-function renderDensityToggle(state) {
-  const density = state.preferences?.listDensity === 'compact' ? 'compact' : 'comfortable';
-  const button = (key, label, glyph) => (
-    `<button type="button" class="layout-toggle__btn${density === key ? ' is-active' : ''}" data-action="set-list-density" data-density="${key}" aria-pressed="${density === key}" aria-label="${label} rows" title="${label} rows">${glyph}</button>`
-  );
-  return `<div class="layout-toggle" role="group" aria-label="Row density">${button('comfortable', 'Comfortable', '<span aria-hidden="true">☰</span>')}${button('compact', 'Compact', '<span aria-hidden="true">≡</span>')}</div>`;
-}
-
 function renderMainHtml() {
   const now = new Date();
   if (state.apiStatus === 'loading'
     && ['today', 'all', 'filter', 'calendar', 'project'].includes(state.navType)) {
-    return '<div class="page"><div class="empty" role="status" aria-live="polite">'
-      + '<p class="empty__title">Loading tasks…</p>'
-      + '<p class="empty__sub">Preparing your workspace.</p>'
-      + '</div></div>';
+    return renderTasksLoadingHtml();
   }
   switch (state.navType) {
     case 'today': {
@@ -4303,7 +2249,7 @@ function renderMainHtml() {
     }
     case 'editor': {
       const doc = currentDocument();
-      if (!doc) return '<div class="page"><p class="view-hint">Document not found.</p></div>';
+      if (!doc) return renderDocumentNotFoundHtml();
       const text = state.documentDraftBody;
       // Backlinks come from the server (tasks referencing this doc). Give each
       // a docIds pointer and hand projects their computed color so the shared,
@@ -4317,7 +2263,7 @@ function renderMainHtml() {
       const model = {
         outline: buildOutline(text),
         backlinks: buildBacklinks(backlinkTasks, coloredProjects, doc.id),
-        previewHtml: renderMarkdownHtml(text, { resolveWikiLink, remoteImages: true, taskToggles: !doc.archivedAt }),
+        previewHtml: renderMarkdownHtml(text, { mode: 'document', editable: !doc.archivedAt, resolveWikiLink }),
         project: owner ? { ...owner, color: projectColor(owner) } : null,
         projects: infoProjects,
       };
@@ -4362,21 +2308,9 @@ function renderMainHtml() {
     default: {
       const tasks = projectTasks();
       const project = projectsById()[state.navId];
-      const system = getSystemProject(project);
-      const chipClass = `chip--state-${project?.status || 'active'}`;
       const backlogCount = tasks.filter(t => designStatus(t.status) === 'backlog' && !t.archivedAt).length;
       const archiveCount = state.tab === 'archive' ? state.archivedTasks.length : 0;
       const inboxView = project?.slug === 'inbox';
-      const tabs = [...(inboxView ? [['inbox', 'To process'], ['reviews', 'Reviews']] : []), ['list', 'List'], ['board', 'Board'], ['backlog', 'Backlog'], ['archive', 'Archive']]
-        .map(([key, label]) => {
-          const count = key === 'backlog' ? backlogCount : (key === 'archive' ? archiveCount : 0);
-          const suffix = count ? ` · ${count}` : '';
-          return `<button class="tabs__tab${state.tab === key ? ' is-active' : ''}" type="button" data-action="set-tab" data-tab="${key}">${label}${suffix}</button>`;
-        }).join('');
-      const groupLabel = { due: 'Due date', priority: 'Priority', status: 'Status' }[state.groupBy];
-      const right = state.tab === 'list'
-        ? `<div class="tabs__right"><button class="btn-ghost" type="button" data-action="cycle-group">Group: ${groupLabel}</button>${renderDensityToggle(state)}</div>`
-        : '';
       let body = '';
       if (inboxView && ['inbox', 'reviews'].includes(state.tab)) {
         body = renderInboxView(state.inbox);
@@ -4416,28 +2350,7 @@ function renderMainHtml() {
         flatIds = collection.flatIds;
         body = renderListHtml(state, collection.groups, { collection }) + renderBulkBarHtml(state);
       }
-      const canRename = project && !system;
-      // Ops metadata (on call / handoff / repo / area) sits on its own row under
-      // an Ops disclosure; the title keeps the header row (year-one shell spec).
-      const hasOps = Boolean(project) && !system;
-      const opsCollapsed = hasOps && isCollapsed(state.collapsedSections, opsSectionKey(project.id));
-      const titleHtml = (canRename && state.renamingProjectId === project.id)
-        ? `<input class="page-head__rename" type="text" data-project-rename data-project-id="${escapeHtml(project.id)}" value="${escapeHtml(project.name)}" aria-label="Rename project" autocomplete="off" spellcheck="false">`
-        : `<h1 class="page-head__title">${escapeHtml(project?.name || 'Tasks')}</h1>`
-          + (canRename ? `<button class="page-head__rename-btn" type="button" data-action="rename-project" data-project-id="${escapeHtml(project.id)}" title="Rename project" aria-label="Rename project">${icon('pencil', 13)}</button>` : '');
-      return `<div class="page">
-        <header class="page-head">
-          <span class="page-head__dot" style="--dot:${project ? projectColor(project) : 'var(--accent)'}"></span>
-          ${titleHtml}
-          <span class="chip ${system ? 'chip--system' : chipClass}">${escapeHtml(system ? `System · ${system.purpose}` : (project?.status || 'active').replace('-', ' '))}</span>
-          ${hasOps ? renderOpsToggleHtml(project, { collapsed: opsCollapsed }) : ''}
-        </header>
-        ${system ? `<p class="view-hint">${escapeHtml(system.description)}</p>` : ''}
-        ${inboxView ? renderInboxSummary(state.inbox) : ''}
-        ${hasOps ? renderProjectOpsHtml(project, { collapsed: opsCollapsed, revealed: state.revealedOpsFields }) : ''}
-        <nav class="tabs">${tabs}${right}</nav>
-        ${body}
-      </div>`;
+      return renderProjectPageHtml(state, project, { backlogCount, archiveCount, bodyHtml: body });
     }
   }
 }
@@ -4445,7 +2358,7 @@ function renderMainHtml() {
 function renderOverlaysHtml() {
   let html = '';
   html += renderInboxDialog(state.inbox);
-  if (state.templateStudio) html += renderTemplateStudioHtml(state.templateStudio, templateStudioChoices, markdownImportProjects(), renderMarkdownHtml(state.templateStudio.source.body));
+  if (state.templateStudio) html += renderTemplateStudioHtml(state.templateStudio, templateStudio.choices(), markdownImportProjects(), renderMarkdownHtml(state.templateStudio.source.body, { mode: 'untrusted' }));
   if (state.drawerTaskId) {
     const task = taskById(state.drawerTaskId);
     if (task) {
@@ -4501,50 +2414,28 @@ function renderOverlaysHtml() {
     const r = state.askPraxResult;
     // Render the written answer when there is one, else the retrieved pack.
     const md = r ? ((typeof r.answer === 'string' && r.answer.trim()) ? r.answer : (r.markdown || '')) : '';
-    html += renderAskPraxHtml(state, { bodyHtml: md ? renderMarkdownHtml(md, { resolveWikiLink }) : '' });
+    html += renderAskPraxHtml(state, { bodyHtml: md ? renderMarkdownHtml(md, { mode: 'untrusted', resolveWikiLink }) : '' });
   }
   if (state.genRbOpen) {
     html += renderGenerateRunbookHtml(state, { projects: captureProjectChoices().filter((p) => p.slug !== INBOX_SLUG) });
   }
   if (state.dailyBriefOpen) {
     html += renderDailyBriefHtml(state, {
-      briefHtml: renderMarkdownHtml(buildDailyBrief(state), { resolveWikiLink }),
-      narrativeHtml: state.dailyBriefNarrative ? renderMarkdownHtml(state.dailyBriefNarrative, { resolveWikiLink }) : '',
+      briefHtml: renderMarkdownHtml(buildDailyBrief(state), { mode: 'untrusted', resolveWikiLink }),
+      narrativeHtml: state.dailyBriefNarrative ? renderMarkdownHtml(state.dailyBriefNarrative, { mode: 'untrusted', resolveWikiLink }) : '',
     });
   }
   if (state.assistantOpen) {
-    html += renderAssistantHtml(state, { renderMarkdown: (md) => renderMarkdownHtml(md, { resolveWikiLink }) });
+    html += renderAssistantHtml(state, { renderMarkdown: (md) => renderMarkdownHtml(md, { mode: 'untrusted', resolveWikiLink }) });
   }
   if (state.writeContext && state.navType === 'editor') {
-    html += renderWritingPreviewHtml(state, { resultHtml: state.writeResult ? renderMarkdownHtml(state.writeResult, { resolveWikiLink }) : '' });
+    html += renderWritingPreviewHtml(state, { resultHtml: state.writeResult ? renderMarkdownHtml(state.writeResult, { mode: 'untrusted', resolveWikiLink }) : '' });
   }
   if (state.planMode) html += renderPlanModeHtml(state);
   if (state.shortcutsOpen) html += renderShortcutsHtml(state);
   if (state.confirm) html += renderConfirmHtml(state.confirm);
-  html += `<div data-toast-root>${renderToastHtml(state)}</div>`;
+  html += renderToastRootHtml(renderToastHtml(state));
   return html;
-}
-
-// Capture is a modal layer over an otherwise unchanged workspace. Opening or
-// closing it must not rebuild thousands of task objects, the sidebar, or an
-// editor. Internal capture mutations may still choose a full render when the
-// underlying collection genuinely changed (for example after task creation).
-function renderCaptureOverlayLayer({ restoreFocus = false } = {}) {
-  const root = appRoot?.querySelector('[data-overlay-root]');
-  if (!root) {
-    renderApp();
-    return;
-  }
-  root.innerHTML = renderOverlaysHtml();
-  syncModalInert(appRoot);
-  if (state.captureOpen) {
-    const input = root.querySelector('[data-capture-input]');
-    input?.focus();
-    input?.setSelectionRange?.(input.value.length, input.value.length);
-  } else if (restoreFocus && captureReturnElement?.isConnected) {
-    captureReturnElement.focus();
-    captureReturnElement = null;
-  }
 }
 
 // ---- render continuity -------------------------------------------------------
@@ -4708,13 +2599,7 @@ function renderApp() {
     }
     : null;
   destroyEditorController();
-  // The ✦ AI menu/overlay are editor-only; never let leaked write state (e.g. an
-  // in-flight action the user navigated away from) render over another view.
-  if (state.navType !== 'editor' && (state.writeContext || state.writeMenuOpen || state.writeSelection)) {
-    writeToken += 1;
-    state.writeContext = null; state.writeResult = null; state.writeLoading = false;
-    state.writeError = null; state.writeMenuOpen = false; state.writeSelection = null;
-  }
+  writing.dropOutsideEditor();
   const narrow = state.winW < 940;
   const chrome = !state.editorFocus;
   const counts = sidebarCounts();
@@ -4732,18 +2617,14 @@ function renderApp() {
   renderContinuity = flatMain ? captureRenderContinuity() : null;
   renderingApp = true;
   try {
-    appRoot.innerHTML = `
-    <div class="desk">
-      <div class="window">
-        ${chrome ? renderTitlebarHtml(state) : ''}
-        <div class="window__body">
-          ${nav}
-          <main class="main"><div class="main__scroll${flatMain ? ' main__scroll--flat' : ''}">${renderMainHtml()}</div></main>
-        </div>
-        ${chrome ? renderStatusbarHtml(state) : ''}
-      </div>
-    </div>
-    <div data-overlay-root>${renderOverlaysHtml()}</div>`;
+    appRoot.innerHTML = renderAppFrameHtml({
+      titlebarHtml: chrome ? renderTitlebarHtml(state) : '',
+      navHtml: nav,
+      mainHtml: renderMainHtml(),
+      flatMain,
+      statusbarHtml: chrome ? renderStatusbarHtml(state) : '',
+      overlaysHtml: renderOverlaysHtml(),
+    });
   } finally {
     renderingApp = false;
   }
@@ -4772,27 +2653,8 @@ function afterRender() {
     }
     return;
   }
-  if (restoreTemplateStudioFocus && !state.templateStudio) {
-    restoreTemplateStudioFocus = false;
-    appRoot.querySelector(`[data-action="${templateStudioReturnAction}"]`)?.focus();
-  }
-  if (state.templateStudio) {
-    if (!renderRestoredField?.matches('[data-template-field]')) {
-      appRoot.querySelector('[data-template-field="source"]:not([disabled]), [data-action="submit-template-studio"]:not([disabled]), .template-studio__preview')?.focus();
-    }
-    return;
-  }
-  // The Import / Export triggers live in the Library's ⋯ overflow, which is
-  // closed by the time the dialog goes; focus then returns to the overflow
-  // button rather than nowhere.
-  if (restoreMarkdownImportFocus && !state.markdownImportOpen) {
-    restoreMarkdownImportFocus = false;
-    (appRoot.querySelector('[data-action="import-documents"]') || appRoot.querySelector('[data-action="toggle-library-menu"]'))?.focus();
-  }
-  if (restoreLibraryExportFocus && !state.libraryExportOpen) {
-    restoreLibraryExportFocus = false;
-    (appRoot.querySelector(`[data-action="${libraryExportReturnAction}"]`) || appRoot.querySelector('[data-action="toggle-library-menu"]'))?.focus();
-  }
+  if (templateStudio.afterRender(renderRestoredField)) return;
+  transfer.restoreFocus();
   if (state.renamingProjectId) {
     const input = appRoot.querySelector('[data-project-rename]');
     if (input && document.activeElement !== input) { input.focus(); input.select(); }
@@ -4864,9 +2726,9 @@ function afterRender() {
 // ---------------------------------------------------------------------------
 
 const paletteCommands = {
-  'new-task': () => { openFreshCapture(); },
+  'new-task': () => { capture.openFreshCapture(); },
   'new-document': () => { setState({ paletteOpen: false }); createNewDocument(); },
-  'toggle-theme': () => { setState({ paletteOpen: false }); toggleTheme(); },
+  'toggle-theme': () => { setState({ paletteOpen: false }); settings.toggleTheme(); },
   'go-board': async () => {
     setState({ paletteOpen: false });
     await goProject(state.navType === 'project' ? state.navId : state.projects[0]?.id, 'board');
@@ -4882,19 +2744,19 @@ const paletteCommands = {
     setState({ editorFocus: true, editorMode: 'edit' });
     renderApp();
   },
-  'go-settings': async () => { setState({ paletteOpen: false }); await goSettings(); },
+  'go-settings': async () => { setState({ paletteOpen: false }); await settings.goSettings(); },
   // The Library's occasional actions live behind its ⋯ menu; these give each
   // a keyboard route. The dialogs are overlays, so they open from any view.
-  'go-ask-prax': () => { openAskPrax(); },
-  'go-health': async () => { setState({ paletteOpen: false }); await goHealth(); },
-  'go-weekly-review': async () => { setState({ paletteOpen: false }); renderApp(); await runWeeklyReview(); },
+  'go-ask-prax': () => { knowledge.openAskPrax(); },
+  'go-health': async () => { setState({ paletteOpen: false }); await knowledge.goHealth(); },
+  'go-weekly-review': async () => { setState({ paletteOpen: false }); renderApp(); await knowledge.runWeeklyReview(); },
   'go-review-queue': async () => {
     setState({ paletteOpen: false });
     if (state.navType === 'library' && state.libraryView === 'review') { renderApp(); return; }
     await toggleReviewQueue();
   },
-  'go-import': () => { setState({ paletteOpen: false }); openMarkdownImport(); },
-  'go-export': () => { setState({ paletteOpen: false }); openLibraryExport('all', 'export-library'); },
+  'go-import': () => { setState({ paletteOpen: false }); transfer.openMarkdownImport(); },
+  'go-export': () => { setState({ paletteOpen: false }); transfer.openLibraryExport('all', 'export-library'); },
   'go-shortcuts': () => { setState({ paletteOpen: false }); openShortcuts(); },
 };
 
@@ -4948,16 +2810,6 @@ async function runPaletteItem(item, { done = false } = {}) {
   if (command) await command();
 }
 
-function toggleTheme() {
-  const preferences = savePreferences({
-    ...state.preferences,
-    theme: state.preferences.theme === 'dark' ? 'light' : 'dark',
-  });
-  setState({ preferences });
-  applyPreferences(preferences);
-  renderApp();
-}
-
 async function openTaskDrawer(taskId, { multi = false } = {}) {
   if (multi) {
     const next = state.multiSelectIds.includes(taskId)
@@ -4983,7 +2835,7 @@ async function openTaskDrawer(taskId, { multi = false } = {}) {
     taskActivity: [],
   });
   renderApp();
-  loadDrawerContext(taskId);
+  drawer.loadDrawerContext(taskId);
   return true;
 }
 
@@ -5001,61 +2853,13 @@ async function closeTaskDrawer() {
 }
 
 // ---------------------------------------------------------------------------
-// Actions
+// Actions: feature controllers own their data-actions (featureActions);
+// the workspace's own actions stay in the switch below.
 // ---------------------------------------------------------------------------
 
-// A working note for the open task: create, link, open. The create is the
-// commitment: once it succeeds, a failed link or open is reported as such —
-// never as a failed create, which would invite a retry and a second note.
-// One create per task at a time (a double click creates one note).
-const workingNotePending = new Set();
-// In-flight creates, so a repeated Enter or a double click creates one item.
-const checklistAddPending = new Set(); // task ids
+// One project create at a time: a repeated Enter or a double click while the
+// first POST is in flight would otherwise create two projects.
 let projectCreatePending = false;
-async function startWorkingNote(taskId) {
-  const task = state.tasks.find((candidate) => candidate.id === taskId);
-  if (!task || workingNotePending.has(taskId)) return;
-  const project = projectsById()[task.projectId];
-  workingNotePending.add(taskId);
-  try {
-    let doc;
-    try {
-      doc = await createDocument({
-        title: `Working note — ${task.title || 'Untitled task'}`,
-        project: project?.slug || project?.id || 'inbox',
-        documentType: 'note',
-        body: `# Working note — ${task.title || 'Untitled task'}
-
-_Task:_ ${task.title || 'Untitled task'}`
-          + `${project ? ` _(${project.name})_` : ''}
-
-## Context
-
-
-## Findings
-
-`,
-      });
-    } catch (err) {
-      showToast(err?.message || 'Could not create the working note.');
-      return;
-    }
-    let linked = true;
-    try { await linkTaskDocument(taskId, doc.id); } catch { linked = false; }
-    let opened = false;
-    try {
-      await loadDocuments();
-      opened = await openDocumentInEditor(doc.id);
-    } catch { opened = false; }
-    if (linked && opened) { showToast('Working note created and linked.'); return; }
-    const problem = !linked && !opened ? 'could not link it to the task or open it'
-      : (!linked ? 'could not link it to the task' : 'could not open it');
-    showToast(`Working note created, but Prax ${problem}. It is in the Library as “${doc.title || 'Working note'}”.`, null, 8000);
-  } finally {
-    workingNotePending.delete(taskId);
-  }
-}
-
 async function handleAction(action, el, event) {
   if (action.startsWith('inbox-')) {
     const handlers = {
@@ -5078,6 +2882,8 @@ async function handleAction(action, el, event) {
     try { await handlers[action]?.(); } catch { showToast('Prax could not open this Inbox item. Your decision is retained.'); }
     return;
   }
+  const featureAction = featureActions[action];
+  if (featureAction) { await featureAction(el, event, action); return; }
   switch (action) {
     // ---- navigation ----
     case 'nav-today': await navigateTopLevel({ navType: 'today', selectedTaskId: null, multiSelectIds: [] }); break;
@@ -5110,7 +2916,7 @@ async function handleAction(action, el, event) {
       break;
     }
     case 'nav-filter': await goFilter(); break;
-    case 'nav-settings': await goSettings(); loadCaptureShortcut(); break;
+    case 'nav-settings': await settings.goSettings(); settings.loadCaptureShortcut(); break;
     case 'toggle-section': {
       setState({ collapsedSections: saveCollapsed(toggleCollapsed(state.collapsedSections, el.dataset.sectionKey)) });
       renderApp();
@@ -5166,49 +2972,6 @@ async function handleAction(action, el, event) {
       renderApp();
       break;
     }
-    case 'nl-filter': await runNlFilter(); break;
-    case 'restore-nl-query': {
-      const source = state.nlFilterSource;
-      if (source != null) {
-        setState({ activeFilterExpr: source, activeSmartViewId: null, ...nlFilterResetPatch() });
-        renderApp();
-        const input = appRoot.querySelector('[data-filter-input]');
-        if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
-      }
-      break;
-    }
-    case 'drop-nl-field': {
-      if (!state.nlCaptureFields || state.captureSubmitting) break;
-      const fields = { ...state.nlCaptureFields };
-      delete fields[el.dataset.field];
-      if (el.dataset.field === 'dueDate') delete fields.dueTime; // a time needs its date
-      setState({ nlCaptureFields: fields, ...clearCaptureRequestPatch() });
-      persistCaptureRecovery();
-      renderApp();
-      break;
-    }
-    case 'drop-nl-label': {
-      if (!state.nlCaptureFields || state.captureSubmitting) break;
-      const labels = (state.nlCaptureFields.labels || []).filter((l) => l !== el.dataset.value);
-      const fields = { ...state.nlCaptureFields };
-      if (labels.length) fields.labels = labels;
-      else delete fields.labels;
-      setState({ nlCaptureFields: fields, ...clearCaptureRequestPatch() });
-      persistCaptureRecovery();
-      renderApp();
-      break;
-    }
-    case 'set-settings-tab': {
-      setState({ settingsTab: el.dataset.tab });
-      // Integrations loads lazily: fetch the Google Calendar status the first
-      // time the tab opens (goSettings also primes it on entering Settings).
-      if (el.dataset.tab === 'integrations' && !state.googleCalendarStatus) {
-        loadGoogleCalendarStatus().then(renderApp);
-      }
-      renderApp();
-      break;
-    }
-    case 'refresh-deployment-status': loadDeploymentStatus().then(renderApp); renderApp(); break;
     case 'nav-project': await goProject(el.dataset.projectId); break;
     case 'rename-project': startRenameProject(el.dataset.projectId); break;
     case 'breadcrumb': await handleAction(el.dataset.target, el, event); break;
@@ -5247,22 +3010,11 @@ async function handleAction(action, el, event) {
     }
     case 'open-palette':
       if (state.captureSubmitting) break;
-      if (state.captureOpen) discardCapture();
+      if (state.captureOpen) capture.discardCapture();
       setState({ paletteOpen: true, paletteQuery: '', paletteSelection: 0, paletteScope: 'all' });
       renderApp();
       break;
-    case 'open-capture': openFreshCapture(); break;
-    case 'toggle-capture-menu':
-      if (!state.captureSubmitting) { setState({ captureMenuOpen: !state.captureMenuOpen }); renderApp(); }
-      break;
-    case 'set-capture-project':
-      if (!state.captureSubmitting) {
-        setState({ captureProjectId: el.dataset.projectId, captureMenuOpen: false, ...clearCaptureRequestPatch() });
-        persistCaptureRecovery();
-        renderApp();
-      }
-      break;
-    case 'toggle-theme': toggleTheme(); break;
+    case 'toggle-theme': settings.toggleTheme(); break;
 
     // ---- tasks ----
     case 'open-task': await openTaskDrawer(el.dataset.taskId, { multi: event.metaKey || event.shiftKey || event.ctrlKey }); break;
@@ -5382,197 +3134,9 @@ async function handleAction(action, el, event) {
       await requestTaskDraftSave({ confirmed });
       break;
     }
-    case 'set-task-status': {
-      const before = taskById(state.drawerTaskId);
-      const saved = await patchTask(state.drawerTaskId, { status: el.dataset.status });
-      if (before && saved && before.status !== saved.status) {
-        if (saved.status === 'completed' && saved.nextOccurrenceTaskId) {
-          showToast(saved.lifecycleRefreshFailed
-            ? 'Completed — next occurrence scheduled; reload to show it.'
-            : 'Completed — next occurrence scheduled.');
-        } else if (saved.status === 'completed' && saved.recurrence) {
-          showToast('Completed — but the next occurrence could not be scheduled.');
-        } else if (before.status === 'completed' && before.recurrence) {
-          showToast('Reopened as one-off — future occurrences are unchanged.');
-        }
-      }
-      break;
-    }
-    case 'set-task-priority': await patchTask(state.drawerTaskId, { priority: el.dataset.priority }); break;
-    case 'set-task-recurrence': await patchTask(state.drawerTaskId, { recurrence: el.dataset.recurrence }); break;
-    case 'remove-task-label': {
-      const task = taskById(state.drawerTaskId);
-      if (task) await patchTask(state.drawerTaskId, { labels: (task.labels || []).filter(l => l !== el.dataset.label) });
-      break;
-    }
-    case 'clear-task-due': await patchTask(state.drawerTaskId, { dueDate: null, dueTime: null }); break;
-    case 'snooze-task':
-      await patchTask(el.dataset.taskId || state.drawerTaskId, { deferredUntil: snoozeUntil(el.dataset.snooze) }, { failure: 'snooze the task' });
-      renderApp();
-      break;
-    case 'unsnooze-task':
-      await patchTask(el.dataset.taskId || state.drawerTaskId, { deferredUntil: '' }, { failure: 'unsnooze the task' });
-      renderApp();
-      break;
-    case 'add-checklist-item': {
-      const input = appRoot.querySelector('[data-checklist-new]');
-      const label = (input?.value || '').trim();
-      const taskId = state.drawerTaskId;
-      // One add per task at a time: a second Enter or click while the first
-      // POST is in flight would otherwise create the same item twice.
-      if (!label || !taskId || checklistAddPending.has(taskId)) break;
-      checklistAddPending.add(taskId);
-      try {
-        try {
-          await addChecklistItem(taskId, label);
-        } catch { alertError('add the checklist item'); renderApp(); break; }
-        // The field's text lives only in the DOM; clear the added item so the
-        // render does not carry it into the next one.
-        const current = appRoot.querySelector('[data-checklist-new]');
-        if (current && current.value.trim() === label) current.value = '';
-        // The item is saved; a failed refetch is not a failed add.
-        try {
-          const checklist = await fetchTaskChecklist(taskId);
-          if (state.drawerTaskId === taskId) setState({ taskChecklist: checklist });
-          setState(clearTaskBoardExtra(state, taskId));
-        } catch { showToast('Checklist item added, but the checklist could not refresh. Reopen the task to see it.', null, 7000); }
-        renderApp();
-      } finally {
-        checklistAddPending.delete(taskId);
-      }
-      break;
-    }
-    case 'toggle-checklist-item': {
-      event.stopPropagation();
-      const completed = el.dataset.completed !== 'true';
-      try {
-        await setChecklistItem(state.drawerTaskId, el.dataset.itemId, completed);
-        setState({
-          taskChecklist: await fetchTaskChecklist(state.drawerTaskId),
-          ...clearTaskBoardExtra(state, state.drawerTaskId),
-        });
-      } catch { alertError('update the checklist item'); }
-      renderApp();
-      break;
-    }
-    case 'delete-checklist-item': {
-      event.stopPropagation();
-      try {
-        await deleteChecklistItem(state.drawerTaskId, el.dataset.itemId);
-        setState({
-          taskChecklist: await fetchTaskChecklist(state.drawerTaskId),
-          ...clearTaskBoardExtra(state, state.drawerTaskId),
-        });
-      } catch { alertError('delete the checklist item'); }
-      renderApp();
-      break;
-    }
-    case 'open-linked-doc': {
-      event.stopPropagation();
-      if (!(await flushTaskDrawerDraft())) {
-        showToast('Save this task draft before opening its linked document.');
-        break;
-      }
-      setState({ drawerTaskId: null, taskNotesDraftId: null, taskLabelDraftId: null, taskLabelDraft: '' });
-      await openDocumentInEditor(el.dataset.documentId);
-      break;
-    }
-    case 'unlink-task-document': {
-      event.stopPropagation();
-      try {
-        const documents = await unlinkTaskDocument(state.drawerTaskId, el.dataset.documentId);
-        setState({ taskDocuments: documents, ...clearTaskBoardExtra(state, state.drawerTaskId) });
-      } catch { alertError('unlink the document'); }
-      renderApp();
-      break;
-    }
-    case 'open-link-picker': {
-      try {
-        const documents = await fetchDocuments({ archived: false });
-        setState({ isLinkPickerOpen: true, pickerMode: 'link', linkPickerDocuments: documents, linkPickerQuery: '' });
-      } catch { alertError('load documents to link'); }
-      renderApp();
-      break;
-    }
-    case 'close-link-picker': setState({ isLinkPickerOpen: false }); renderApp(); break;
-    case 'archive-task': archiveTaskWithUndo(state.drawerTaskId); break;
 
     // ---- library ----
     case 'open-doc': await openDocumentInEditor(el.dataset.documentId); break;
-    case 'open-ask-prax': openAskPrax(); break;
-    case 'close-ask-prax': closeAskPrax(); break;
-    case 'run-ask-prax': runAskPrax(appRoot.querySelector('[data-ask-prax-input]')?.value); break;
-    case 'open-ask-source': {
-      const documentId = el.dataset.documentId;
-      closeAskPrax();
-      if (documentId) await openDocumentInEditor(documentId);
-      break;
-    }
-    case 'copy-ask-prax': copyAskPrax(); break;
-    case 'open-generate-runbook': openGenerateRunbook(); break;
-    case 'close-generate-runbook': setState({ genRbOpen: false }); renderApp(); break;
-    case 'run-generate-runbook': runGenerateRunbook(); break;
-    case 'open-daily-brief': openDailyBrief(); break;
-    case 'close-daily-brief': setState({ dailyBriefOpen: false }); renderApp(); break;
-    case 'link-related-doc': {
-      event.stopPropagation();
-      const documentId = el.dataset.documentId;
-      const taskId = state.drawerTaskId;
-      if (!documentId || !taskId) break;
-      try {
-        const documents = await linkTaskDocument(taskId, documentId);
-        setState({
-          taskDocuments: documents,
-          taskRelatedDocs: state.taskRelatedDocs && state.taskRelatedDocs.taskId === taskId
-            ? { ...state.taskRelatedDocs, suggestions: state.taskRelatedDocs.suggestions.filter((doc) => doc.id !== documentId) }
-            : state.taskRelatedDocs,
-        });
-        showToast('Linked.');
-      } catch {
-        showToast('Could not link the document.');
-      }
-      renderApp();
-      break;
-    }
-    case 'dismiss-related-doc': {
-      event.stopPropagation();
-      const documentId = el.dataset.documentId;
-      const taskId = state.drawerTaskId;
-      if (!documentId || !taskId) break;
-      relatedDismissed.add(`${taskId}:${documentId}`);
-      if (state.taskRelatedDocs?.taskId === taskId) {
-        setState({ taskRelatedDocs: { ...state.taskRelatedDocs, suggestions: state.taskRelatedDocs.suggestions.filter((doc) => doc.id !== documentId) } });
-      }
-      renderApp();
-      break;
-    }
-    case 'start-working-note': await startWorkingNote(state.drawerTaskId); break;
-    case 'apply-capture-shortcut': {
-      const input = appRoot.querySelector('[data-capture-shortcut]');
-      if (!input) break;
-      const shortcut = input.value.trim();
-      try {
-        const saved = await saveCaptureShortcut(shortcut);
-        let notice;
-        if (window.__TAURI__?.core?.invoke) {
-          try {
-            await window.__TAURI__.core.invoke('set_capture_shortcut', { shortcut });
-            notice = shortcut ? `Registered ${shortcut}.` : 'Shortcut off — the tray Capture item still works.';
-          } catch (err) {
-            // Saved but NOT registered: the shell's verdict is the truth.
-            notice = `Saved, but not active: ${String(err)}`;
-          }
-        } else {
-          notice = 'Saved. Takes effect in the desktop app.';
-        }
-        setState({ captureShortcut: saved, captureShortcutNotice: notice });
-      } catch (err) {
-        setState({ captureShortcutNotice: err?.message || 'Could not save the shortcut.' });
-      }
-      renderApp();
-      break;
-    }
-    case 'generate-weekly-review': await runWeeklyReview(); break;
     case 'triage-all': {
       // From a project list the set is that project's overdue group; from
       // Today it is every project's.
@@ -5584,47 +3148,6 @@ async function handleAction(action, el, event) {
       break;
     }
     case 'triage-task': await triageTasks([el.dataset.taskId], el.dataset.decision, triageLabel(el.dataset.decision)); break;
-    case 'plan-add-today': {
-      // Every task due today that is not yet in the plan joins it.
-      const today = todayISODate();
-      const ids = (buildTodayGroups(state.tasks, state.projects, { now: new Date() }).groups
-        .find((group) => group.key === 'today')?.tasks || []).map((task) => task.id);
-      if (!ids.length) break;
-      const { committed, failed } = await applyTaskPatches(ids, () => ({ plannedFor: today }));
-      const refreshed = await refreshTasksAfterWrites();
-      if (!committed.length) alertError('add those tasks to the plan');
-      else {
-        showToast(partialTaskOutcome(`${taskCountLabel(committed.length)} added to today's plan`, failed, refreshed, 'could not be added'),
-          null, failed.length || !refreshed ? 7000 : undefined);
-      }
-      renderApp();
-      break;
-    }
-    case 'open-plan-mode': openPlanMode(); break;
-    case 'open-shutdown': openShutdown(); break;
-    case 'close-plan-mode': {
-      if (el.dataset.overlay === 'planmode' && event.target !== el) break; // backdrop only
-      setState({ planMode: null }); renderApp(); break;
-    }
-    case 'plan-mode-add': await planModeAct('add'); break;
-    case 'plan-mode-today': await planModeAct('today'); break;
-    case 'plan-mode-drop': await planModeAct('drop'); break;
-    case 'plan-mode-skip': await planModeAct('skip'); break;
-    case 'shutdown-carry': await planModeAct('carry'); break;
-    case 'shutdown-reschedule': await planModeAct('reschedule'); break;
-    case 'shutdown-drop': await planModeAct('drop'); break;
-    case 'draft-daily-brief': draftDailyBrief(); break;
-    case 'copy-daily-brief': copyDailyBrief(); break;
-    case 'open-assistant': openAssistant(); break;
-    case 'close-assistant': setState({ assistantOpen: false }); renderApp(); break;
-    case 'assistant-send': sendAssistant(appRoot.querySelector('[data-assistant-input]')?.value); break;
-    case 'assistant-suggest': sendAssistant(el.dataset.suggest); break;
-    case 'assistant-approve': resolveAssistantWrites('approve'); break;
-    case 'assistant-decline': resolveAssistantWrites('deny'); break;
-    case 'assistant-call-decision':
-      if (!state.assistantLoading && !state.assistantApprovalAttempted) { setState({ assistantPending: withCallDecision(state.assistantPending, el.dataset.callId, el.dataset.decision) }); renderApp(); }
-      break;
-    case 'assistant-clear': clearAssistant(); break;
     case 'toggle-semantic': setState({ librarySemantic: !state.librarySemantic, ...resetSemanticSearchPatch() }); renderApp(); break;
     case 'load-more-semantic': runSemanticSearch({ append: true }); break;
     case 'show-more-library':
@@ -5680,8 +3203,8 @@ async function handleAction(action, el, event) {
       if (semantic && !(state.semanticStatus?.available && state.semanticStatus?.enabled)) {
         // The segment is always drawn; without an embedding backend the
         // Semantic half leads to the Settings card that provides one.
-        if (await goSettings()) {
-          loadCaptureShortcut();
+        if (await settings.goSettings()) {
+          settings.loadCaptureShortcut();
           setState({ settingsTab: 'intelligence' });
           showToast(SEMANTIC_UNAVAILABLE_HINT);
           renderApp();
@@ -5694,39 +3217,7 @@ async function handleAction(action, el, event) {
       break;
     }
     case 'cycle-lib-group': setState({ libraryGroupBy: state.libraryGroupBy === 'none' ? 'type' : 'none' }); renderApp(); break;
-    case 'set-list-density': {
-      setState({ preferences: applyPreferences(savePreferences({ ...state.preferences, listDensity: el.dataset.density })) });
-      renderApp();
-      break;
-    }
-    case 'open-template-studio': await openTemplateStudio(); break;
-    case 'use-document-template': await openTemplateStudio(state.editorDocId); break;
-    case 'close-template-studio': closeTemplateStudio(); break;
-    case 'submit-template-studio': await submitTemplateStudio(); break;
-    case 'discard-template-studio': {
-      if (!state.templateStudio || state.templateStudio.pending) break;
-      const attempted = Boolean(state.templateStudio.job);
-      setState({ templateStudio: null });
-      openConfirm({
-        message: attempted
-          ? 'This copy may already exist. Discard only the saved creation draft? Check the Library or Tasks before creating another copy. This does not delete any created document or task.'
-          : 'Discard the saved template draft and its title and destination choices?',
-        okLabel: 'Discard draft', action: 'confirm-discard-template-studio',
-      });
-      break;
-    }
-    case 'confirm-discard-template-studio': {
-      try { clearTemplateDraft(templateStorage()); showToast('Template draft discarded.'); }
-      catch { showToast('Could not discard the saved draft. Browser storage is unavailable.'); }
-      setState({ confirm: null }); renderApp(); break;
-    }
     case 'new-document': setState({ newMenuOpen: false }); createNewDocument(el.dataset.templateId); break;
-    case 'import-documents': setState({ libraryMenuOpen: false }); openMarkdownImport(); break;
-    case 'close-markdown-import': closeMarkdownImport(); break;
-    case 'submit-markdown-import': await submitMarkdownImport(); break;
-    case 'export-library': setState({ libraryMenuOpen: false }); openLibraryExport('all', action); break;
-    case 'close-library-export': closeLibraryExport(); break;
-    case 'submit-library-export': await submitLibraryExport(); break;
     case 'save-library-view': {
       if (!el.dataset.confirmed) {
         openConfirm({
@@ -5772,22 +3263,6 @@ async function handleAction(action, el, event) {
       break;
     }
     case 'clear-doc-selection': setState({ librarySelectedDocIds: [] }); renderApp(); break;
-    case 'bulk-archive-docs': await bulkArchiveDocuments(); break;
-    case 'review-doc': {
-      // From the queue, Review starts a walk through what is shown.
-      if (state.libraryView === 'review') startReviewWalk(el.dataset.documentId);
-      await openWalkDocument(el.dataset.documentId, { coach: true });
-      break;
-    }
-    case 'review-next': {
-      const next = visibleLibraryDocuments().find((doc) => doc.verified !== true);
-      if (!next) break;
-      startReviewWalk(next.id);
-      await openWalkDocument(next.id, { coach: true });
-      break;
-    }
-    case 'review-walk-verify': await reviewWalkVerify(); break;
-    case 'review-walk-skip': await advanceReviewWalk(); break;
     case 'toggle-library-view': {
       setState({ libraryMenuOpen: false });
       setState({ libraryView: state.libraryView === 'archive' ? 'active' : 'archive', librarySelectedDocIds: [], ...resetSemanticSearchPatch() });
@@ -5795,26 +3270,6 @@ async function handleAction(action, el, event) {
       renderApp();
       break;
     }
-    case 'restore-document': {
-      const id = el.dataset.documentId || state.editorDocId;
-      await performDocumentLifecycleOnce(`document:${id}`, () => restoreKnowledgeDocument(id));
-      break;
-    }
-    case 'delete-document': {
-      const id = el.dataset.documentId || state.editorDocId;
-      if (!el.dataset.confirmed) {
-        openConfirm({
-          message: 'Permanently delete this document? This cannot be undone.',
-          okLabel: 'Delete', danger: true,
-          action: 'delete-document', data: { 'document-id': id || '' },
-        });
-        break;
-      }
-      setState({ confirm: null });
-      await performDocumentLifecycleOnce(`document:${id}`, () => deleteKnowledgeDocument(id));
-      break;
-    }
-
     // ---- editor ----
     // Leaving a document opened from the review queue returns to the queue.
     case 'back-to-library': {
@@ -5892,20 +3347,6 @@ async function handleAction(action, el, event) {
       break;
     }
     case 'md-format': applyEditorFormat(el.dataset.mdAction); break;
-    case 'toggle-write-menu': {
-      // Capture the selection NOW — renderApp() below re-mounts the editor and
-      // clears it, so runWrite (fired later from the menu) can't read it live.
-      const opening = !state.writeMenuOpen;
-      const range = opening ? (documentEditorController?.getSelectionRange?.() || null) : null;
-      const selText = opening && range ? String(documentEditorController?.getSelectionText?.() || '') : '';
-      setState({ writeMenuOpen: opening, writeSelection: opening && range && selText.trim() ? { from: range.from, to: range.to, text: selText } : null });
-      renderApp();
-      break;
-    }
-    case 'write-action': await runWrite(el.dataset.write); break;
-    case 'apply-write': applyWrite(); break;
-    case 'copy-write': copyWrite(); break;
-    case 'close-write': closeWrite(); break;
     case 'outline-jump': {
       const index = Number(el.dataset.headingIndex);
       const preview = appRoot.querySelector('[data-markdown-preview]');
@@ -5924,170 +3365,6 @@ async function handleAction(action, el, event) {
       if (!event?.target?.closest?.('a[href]')) toggleMarkdownCheck(Number(el.dataset.line));
       break;
     case 'toggle-doc-menu': setState({ docMenuOpen: !state.docMenuOpen }); renderApp(); break;
-    case 'edit-document-info': {
-      if (state.isDocumentDirty) {
-        if (['recovered', 'conflict'].includes(state.documentDraftRecoveryReason)) {
-          showToast('Review and save the recovered draft before editing document info.');
-          break;
-        }
-        if (!(await saveDocumentDraft())) break;
-      }
-      // Snapshot the refs the form is seeded from — save reconciles against
-      // this snapshot, not live state, so a background refs load resolving
-      // mid-edit can't shift what "removing a line" means. If the on-open
-      // load hasn't landed (or failed), fetch now so the user edits the true
-      // stored list; a null seed makes the save merge-only (no deletes).
-      let seed = state.documentExternalRefs;
-      if (!Array.isArray(seed)) {
-        try {
-          seed = await fetchExternalRefs(state.editorDocId);
-          setState({ documentExternalRefs: seed });
-        } catch { seed = null; }
-      }
-      // The form edits the record the editor is based on (the freshest
-      // revision the client holds); an older cached row is refreshed first so
-      // the conditional save is guarded by a real revision.
-      let base = state.documentDraftBase?.id === state.editorDocId ? state.documentDraftBase : currentDocument();
-      if (!base?.revision) { try { base = await fetchDocument(state.editorDocId); } catch { base = null; } }
-      let documentInfoDraft;
-      try {
-        documentInfoDraft = openDocumentInfoDraft(base, { refs: seed });
-      } catch (error) {
-        showToast(error.message);
-        break;
-      }
-      setState({ isDocumentInfoEditorOpen: true, documentInfoError: '', docMenuOpen: false, docInfoRefsSeed: seed, documentInfoDraft });
-      renderApp();
-      break;
-    }
-    case 'cancel-document-info': setState({ isDocumentInfoEditorOpen: false, documentInfoError: '', documentInfoDraft: null }); renderApp(); break;
-    case 'doc-info-keep-theirs':
-    case 'doc-info-keep-mine': {
-      const draft = state.documentInfoDraft;
-      if (!draft?.conflict) break;
-      const keep = action === 'doc-info-keep-theirs' ? 'theirs' : 'mine';
-      setState({
-        documentInfoDraft: rebaseDocumentInfoDraft(draft, draft.conflict.remote, { keep, conflicts: draft.conflict.conflicts }),
-        documentInfoError: '',
-      });
-      renderApp();
-      break;
-    }
-    case 'save-document-info': {
-      const opened = state.documentInfoDraft;
-      const docId = state.editorDocId;
-      if (!opened || opened.documentId !== docId) { setState({ documentInfoError: 'Reopen Document info before saving.' }); renderApp(); break; }
-      if (opened.pending) break;
-      const fields = normalizeInfoFields(opened.fields);
-      if (!fields.title) { setState({ documentInfoError: 'Title is required.' }); renderApp(); break; }
-      const refsSeed = state.docInfoRefsSeed;
-      const inFlight = { ...opened, pending: true, conflict: null };
-      setState({ documentInfoDraft: inFlight, documentInfoError: '' });
-      renderApp();
-      // Send only the fields that changed since the form's baseline, guarded
-      // by the revision it was opened from.
-      let working = inFlight;
-      let patch = documentInfoPatch(working.baseline, fields);
-      let outcome = Object.keys(patch).length > 1 ? await sendDocumentInfoPatch(docId, patch) : { saved: null };
-      // A revision mismatch that does not contest my fields (a body edit, or a
-      // tag change while I renamed) rebases onto the remote record and retries
-      // once against ITS revision. A contested field stops for review instead.
-      if (outcome.conflict && !mergeDocumentInfo(working.baseline, fields, outcome.conflict).conflicts.length) {
-        rebaseEditorOnDocument(docId, outcome.conflict);
-        working = rebaseDocumentInfoDraft(working, outcome.conflict, { keep: 'mine' });
-        patch = documentInfoPatch(working.baseline, normalizeInfoFields(working.fields));
-        outcome = Object.keys(patch).length > 1 ? await sendDocumentInfoPatch(docId, patch) : { saved: outcome.conflict };
-      }
-      const stillOpen = state.isDocumentInfoEditorOpen && state.documentInfoDraft === inFlight && state.editorDocId === docId;
-      if (outcome.conflict) {
-        const { conflicts } = mergeDocumentInfo(working.baseline, normalizeInfoFields(working.fields), outcome.conflict);
-        rebaseEditorOnDocument(docId, outcome.conflict);
-        if (stillOpen) setState({ documentInfoDraft: { ...working, pending: false, conflict: { remote: outcome.conflict, conflicts } }, documentInfoError: '' });
-        else showToast('Document info was not saved: the document changed meanwhile. Reopen Document info to review.');
-        renderApp();
-        break;
-      }
-      if (outcome.error) {
-        if (stillOpen) setState({ documentInfoDraft: { ...working, pending: false }, documentInfoError: 'Prax could not save document info. Your entries are kept — retry when ready.' });
-        else showToast('Prax could not save document info.');
-        renderApp();
-        break;
-      }
-      if (outcome.saved) rebaseEditorOnDocument(docId, outcome.saved);
-      // Metadata is acknowledged independently of reference writes and cache
-      // refreshes. A later failure must not strand a committed form as pending.
-      const acknowledged = outcome.saved
-        ? rebaseDocumentInfoDraft(working, outcome.saved, { keep: 'mine' })
-        : { ...working, pending: false };
-      const refsFailed = await reconcileExternalRefs(docId, working.fields.refsText, refsSeed).catch(() => 1);
-      let currentRefs = null;
-      try { currentRefs = await fetchExternalRefs(docId); } catch { /* retain the known seed for retry */ }
-      let refreshed = true;
-      try { await loadDocuments(); } catch { refreshed = false; }
-      if (state.documentInfoDraft === inFlight) {
-        if (refsFailed) {
-          setState({ documentInfoDraft: acknowledged, documentInfoError: `Document info saved. ${refsFailed} reference change${refsFailed === 1 ? '' : 's'} could not be confirmed; your entries are kept for retry.`, docInfoRefsSeed: currentRefs ?? refsSeed });
-        } else {
-          setState({ isDocumentInfoEditorOpen: false, documentInfoError: '', documentInfoDraft: null });
-        }
-      }
-      if (state.editorDocId === docId && currentRefs) setState({ documentExternalRefs: currentRefs });
-      if (!refreshed) showToast('Document info saved, but the library list could not be refreshed. Reload to reconcile it.', null, 7000);
-      else if (refsFailed) showToast('Document info saved; some references still need retry.', null, 6000);
-      renderApp();
-      break;
-    }
-    case 'toggle-verify': {
-      const doc = currentDocument();
-      setState({ docMenuOpen: false });
-      if (!doc) break;
-      await performDocumentLifecycleOnce(`document:${doc.id}`, () => (
-        changeDocumentVerification(doc.id, !doc.verified)
-      ));
-      break;
-    }
-    case 'supersede-document': {
-      const doc = currentDocument();
-      setState({ docMenuOpen: false });
-      if (!doc) break;
-      try {
-        const documents = await fetchDocuments({ archived: false });
-        setState({
-          isLinkPickerOpen: true,
-          pickerMode: 'supersede',
-          linkPickerDocuments: documents.filter(d => d.projectId === doc.projectId && d.status === 'active' && d.id !== doc.id),
-          linkPickerQuery: '',
-        });
-      } catch { alertError('load documents to supersede'); }
-      renderApp();
-      break;
-    }
-    case 'archive-document': {
-      const doc = currentDocument();
-      setState({ docMenuOpen: false });
-      if (!doc) break;
-      if (!(await prepareEditorNavigation())) break;
-      await performDocumentLifecycleOnce(`document:${doc.id}`, () => archiveKnowledgeDocument(doc.id));
-      break;
-    }
-
-    // ---- runbook execution ----
-    case 'start-run': startRunForDocument(state.editorDocId); break;
-    case 'open-run': openRun(el.dataset.runId, el.dataset.documentId || state.editorDocId); break;
-    case 'toggle-run-step':
-      event.stopPropagation();
-      toggleRunStep(el.dataset.stepId, el.dataset.checked !== '1');
-      break;
-    case 'finish-run': endRun('completed'); break;
-    case 'resume-run': endRun('running'); break;
-    case 'abort-run':
-      if (el.dataset.confirmed === '1') { endRun('aborted'); break; }
-      openConfirm({ message: 'Abort this run? The chronicle so far is kept, but the run is marked aborted.', action: 'abort-run', okLabel: 'Abort run', danger: true });
-      break;
-    case 'copy-chronicle': copyRunChronicle(); break;
-    case 'generate-post-mortem': generatePostMortem(el.dataset.runId); break;
-    case 'back-from-run': await backFromRun(); break;
-
     // ---- all projects ----
     case 'open-project': await goProject(el.dataset.projectId); break;
     case 'set-project-state': {
@@ -6171,12 +3448,6 @@ async function handleAction(action, el, event) {
       break;
     }
     case 'close-palette': setState({ paletteOpen: false }); renderApp(); break;
-    case 'close-capture': if (discardCapture()) renderCaptureOverlayLayer({ restoreFocus: true }); break;
-    case 'submit-capture':
-      if (state.captureSubmitting || state.nlCaptureLoading) break;
-      if (state.nlCaptureFields) await confirmNlCapture();
-      else await addQuickTask(state.captureQuery.trim());
-      break;
     case 'confirm-cancel': setState({ confirm: null }); renderApp(); break;
     case 'open-shortcuts': openShortcuts(); break;
     case 'close-shortcuts': {
@@ -6186,416 +3457,6 @@ async function handleAction(action, el, event) {
     }
     case 'toast-undo': state.toast?.undo?.(); break;
 
-    // ---- settings ----
-    case 'set-theme': case 'set-accent': case 'set-chrome': {
-      const patch = action === 'set-theme'
-        ? { theme: el.dataset.theme }
-        : action === 'set-accent' ? { accent: el.dataset.accent } : { chromeOS: el.dataset.chrome };
-      const preferences = savePreferences({ ...state.preferences, ...patch });
-      setState({ preferences });
-      applyPreferences(preferences);
-      renderApp();
-      break;
-    }
-    case 'toggle-line-numbers': {
-      const preferences = savePreferences({ ...state.preferences, lineNumbers: !state.preferences.lineNumbers });
-      setState({ preferences });
-      renderApp();
-      break;
-    }
-    case 'toggle-reminders': {
-      const enabled = !state.preferences.reminders;
-      const preferences = savePreferences({ ...state.preferences, reminders: enabled });
-      setState({ preferences });
-      if (enabled) checkDueReminders();
-      renderApp();
-      break;
-    }
-    case 'toggle-weekly-review-nudge': {
-      setState({ preferences: savePreferences({ ...state.preferences, weeklyReviewNudge: !state.preferences.weeklyReviewNudge }) });
-      renderApp();
-      break;
-    }
-    case 'toggle-shutdown-nudge': {
-      setState({ preferences: savePreferences({ ...state.preferences, shutdownNudge: !state.preferences.shutdownNudge }) });
-      renderApp();
-      break;
-    }
-    case 'toggle-slippage-chips': {
-      setState({ preferences: savePreferences({ ...state.preferences, slippageChips: !state.preferences.slippageChips }) });
-      renderApp();
-      break;
-    }
-    case 'set-slippage-deferrals': {
-      const value = Number(el.dataset.value);
-      if (!SLIPPAGE_DEFERRAL_OPTIONS.includes(value)) break;
-      setState({ preferences: savePreferences({ ...state.preferences, slippageDeferrals: value }) });
-      renderApp();
-      break;
-    }
-    case 'set-slippage-age': {
-      const value = Number(el.dataset.value);
-      if (!SLIPPAGE_AGE_OPTIONS.includes(value)) break;
-      setState({ preferences: savePreferences({ ...state.preferences, slippageAgeDays: value }) });
-      renderApp();
-      break;
-    }
-    case 'set-wip-limit': {
-      const value = Number(el.dataset.value);
-      if (!WIP_LIMIT_OPTIONS.includes(value)) break;
-      setState({ preferences: savePreferences({ ...state.preferences, wipLimit: value }) });
-      renderApp();
-      break;
-    }
-    case 'set-editor-font': {
-      const preferences = savePreferences({ ...state.preferences, editorFont: el.dataset.font });
-      setState({ preferences });
-      applyPreferences(preferences); // flips <body data-editor-font> → --editor-font
-      destroyEditorController(); // remount so CodeMirror re-measures the new font
-      renderApp();
-      break;
-    }
-    case 'set-preview-font': {
-      const preferences = savePreferences({ ...state.preferences, previewFont: el.dataset.font });
-      setState({ preferences });
-      applyPreferences(preferences); // flips <body data-preview-font> → --prose-font (CSS-only)
-      renderApp();
-      break;
-    }
-    case 'enable-desktop-notifications': {
-      // A user gesture — the only context in which the browser will show the
-      // permission prompt. Once granted, checkDueReminders fires native ones.
-      try { if (typeof Notification !== 'undefined') await Notification.requestPermission(); }
-      catch { /* unsupported / dismissed */ }
-      renderApp();
-      break;
-    }
-    case 'reset-preferences': {
-      const preferences = resetPreferences();
-      setState({ preferences });
-      applyPreferences(preferences);
-      renderApp();
-      break;
-    }
-    case 'set-ai-provider': {
-      if (state.intelligenceSettingsPending || state.semanticStatus?.loadError) break;
-      const patch = { backend: el.dataset.backend };
-      setState({ intelligenceSettingsPending: true, semanticSettingsDraft: null });
-      renderApp();
-      try {
-        const status = await putSemanticSettings(patch);
-        setState({
-          semanticStatus: { ...status, loading: false, loadError: '' },
-          intelligenceSettingsPending: false,
-          semanticSettingsDraft: null,
-          librarySemantic: false,
-          ...resetSemanticSearchPatch(),
-        });
-      } catch (err) {
-        await reconcileSemanticSettingsMutation(patch, err);
-        break;
-      }
-      renderApp();
-      break;
-    }
-    case 'save-ai-provider': {
-      if (state.intelligenceSettingsPending || state.semanticStatus?.loadError) break;
-      const patch = {};
-      const model = appRoot.querySelector('[data-ai-model]');
-      if (model) patch.model = model.value.trim();
-      const baseUrl = appRoot.querySelector('[data-ai-base-url]');
-      // Only send a non-empty base URL: the server rejects '' as an invalid URL
-      // (400), which would sink an otherwise model-only save. Mirrors the apiKey
-      // guard below.
-      if (baseUrl && baseUrl.value.trim()) patch.baseUrl = baseUrl.value.trim();
-      const key = appRoot.querySelector('[data-ai-key]');
-      if (key && key.value.trim()) patch.apiKey = key.value.trim();
-      const draft = {
-        backend: state.semanticStatus?.backend || 'none',
-        model: model?.value || '',
-        baseUrl: baseUrl?.value || '',
-        apiKey: key?.value || '',
-      };
-      setState({ intelligenceSettingsPending: true, semanticSettingsDraft: draft });
-      renderApp();
-      try {
-        const status = await putSemanticSettings(patch);
-        setState({
-          semanticStatus: { ...status, loading: false, loadError: '' },
-          intelligenceSettingsPending: false,
-          semanticSettingsDraft: null,
-        });
-        showToast(status.connected
-          ? `Connected to ${status.backend} — embeddings ready.`
-          : `Saved, but ${status.backend || 'the backend'} is not reachable yet.`);
-      } catch (err) {
-        await reconcileSemanticSettingsMutation(patch, err);
-        break;
-      }
-      renderApp();
-      break;
-    }
-    case 'toggle-semantic-search': {
-      if (state.intelligenceSettingsPending || state.semanticStatus?.loadError) break;
-      const patch = { enabled: !state.semanticStatus.enabled };
-      setState({ intelligenceSettingsPending: true });
-      renderApp();
-      try {
-        const status = await setSemanticEnabled(patch.enabled);
-        setState({
-          semanticStatus: { ...status, loading: false, loadError: '' },
-          intelligenceSettingsPending: false,
-          librarySemantic: false,
-          ...resetSemanticSearchPatch(),
-        });
-      } catch (err) {
-        await reconcileSemanticSettingsMutation(patch, err);
-        break;
-      }
-      renderApp();
-      break;
-    }
-    case 'set-ai-chat-provider': {
-      if (state.intelligenceSettingsPending || state.chatStatus?.loadError) break;
-      const patch = { backend: el.dataset.backend };
-      setState({ intelligenceSettingsPending: true, chatSettingsDraft: null });
-      renderApp();
-      try {
-        const status = await putChatSettings(patch);
-        setState({
-          chatStatus: { ...status, loading: false, loadError: '' },
-          intelligenceSettingsPending: false,
-          chatSettingsDraft: null,
-        });
-      } catch (err) {
-        await reconcileChatSettingsMutation(patch, err);
-        break;
-      }
-      renderApp();
-      break;
-    }
-    case 'save-ai-chat': {
-      if (state.intelligenceSettingsPending || state.chatStatus?.loadError) break;
-      const patch = {};
-      const model = appRoot.querySelector('[data-ai-chat-model]');
-      if (model) patch.model = model.value.trim();
-      const baseUrl = appRoot.querySelector('[data-ai-chat-base-url]');
-      if (baseUrl && baseUrl.value.trim()) patch.baseUrl = baseUrl.value.trim();
-      const key = appRoot.querySelector('[data-ai-chat-key]');
-      if (key && key.value.trim()) patch.apiKey = key.value.trim();
-      const binary = appRoot.querySelector('[data-ai-chat-binary]');
-      if (binary) patch.binaryPath = binary.value.trim();
-      const draft = chatSettingsDraftFrom(state.chatStatus?.backend, {
-        model: model?.value, baseUrl: baseUrl?.value, apiKey: key?.value, binaryPath: binary?.value,
-      });
-      setState({ intelligenceSettingsPending: true, chatSettingsDraft: draft });
-      renderApp();
-      try {
-        const status = await putChatSettings(patch);
-        setState({
-          chatStatus: { ...status, loading: false, loadError: '' },
-          intelligenceSettingsPending: false,
-          chatSettingsDraft: null,
-        });
-        showToast(status.connected
-          ? `Connected to ${status.backend} — Ask Prax can write answers.`
-          : `Saved, but ${status.backend || 'the model'} is not reachable yet.`);
-      } catch (err) {
-        await reconcileChatSettingsMutation(patch, err);
-        break;
-      }
-      renderApp();
-      break;
-    }
-    case 'retry-intelligence-status': {
-      if (state.intelligenceSettingsPending) break;
-      const semantic = loadSemanticStatus();
-      const chat = loadChatStatus();
-      renderApp();
-      await Promise.all([semantic, chat]);
-      renderApp();
-      break;
-    }
-    // ---- Google Calendar integration ----
-    // Every branch keeps failures out of the console: transport errors become
-    // googleCalendarNotice text, mirroring the backend's degraded-not-crashed
-    // contract.
-    case 'retry-google-calendar-status': {
-      if (state.googleCalendarPending) break;
-      loadGoogleCalendarStatus().then(renderApp);
-      renderApp();
-      break;
-    }
-    case 'save-google-calendar': {
-      if (state.googleCalendarPending) break;
-      const draft = state.googleCalendarDraft || { clientId: '', clientSecret: '' };
-      const patch = {};
-      // Only send non-empty fields: PUT '' would wipe a saved value, and the
-      // secret input is legitimately empty when '(saved)' is shown.
-      if ((draft.clientId || '').trim()) patch.clientId = draft.clientId.trim();
-      if ((draft.clientSecret || '').trim()) patch.clientSecret = draft.clientSecret.trim();
-      if (!patch.clientId && !patch.clientSecret) {
-        setState({ googleCalendarNotice: 'Enter the OAuth client id and secret before saving.' });
-        renderApp();
-        break;
-      }
-      setState({ googleCalendarPending: true, googleCalendarNotice: 'Saving the OAuth client…' });
-      renderApp();
-      try {
-        const status = await putGoogleCalendarSettings(patch);
-        setState({
-          googleCalendarStatus: { ...status, loading: false, loadError: '' },
-          googleCalendarPending: false,
-          // The secret is write-only: clear it from the draft once saved so a
-          // later Save cannot resend a stale one — the field now shows the
-          // '(saved)' placeholder instead.
-          googleCalendarDraft: { clientId: draft.clientId, clientSecret: '' },
-          googleCalendarNotice: status.configured
-            ? 'OAuth client saved — click Connect to sign in with Google.'
-            : 'Saved. Add the missing client id or secret to finish configuring.',
-        });
-      } catch (err) {
-        setState({
-          googleCalendarPending: false,
-          googleCalendarNotice: err?.message || 'Prax could not save the Google Calendar settings.',
-        });
-      }
-      renderApp();
-      break;
-    }
-    case 'connect-google-calendar': {
-      if (state.googleCalendarPending) break;
-      setState({ googleCalendarPending: true, googleCalendarNotice: 'Starting Google sign-in…' });
-      renderApp();
-      try {
-        const { authUrl } = await connectGoogleCalendar();
-        window.open(authUrl, '_blank');
-        setState({
-          googleCalendarPending: false,
-          googleCalendarNotice: 'Waiting for the Google sign-in to finish in the opened tab…',
-        });
-        startGoogleCalendarPolling();
-      } catch (err) {
-        // 409 (not configured) surfaces the server's actionable message.
-        setState({
-          googleCalendarPending: false,
-          googleCalendarNotice: err?.message || 'Prax could not start the Google sign-in.',
-        });
-      }
-      renderApp();
-      break;
-    }
-    case 'sync-google-calendar': {
-      if (state.googleCalendarPending) break;
-      setState({ googleCalendarPending: true, googleCalendarNotice: 'Syncing to Google Calendar…' });
-      renderApp();
-      let notice;
-      try {
-        const result = await syncGoogleCalendar();
-        if (result.degraded && !result.summary) {
-          // Whole-sync failure envelope { degraded, reason, message }.
-          notice = `Sync failed: ${result.message || result.reason || 'Google Calendar failed'}`;
-        } else {
-          notice = `Synced: ${result.summary}`;
-          if (result.degraded && Array.isArray(result.failures) && result.failures.length) {
-            notice += `\n${result.failures
-              .map((f) => `Failed: ${f.title || f.eventId || f.taskId || 'item'} — ${f.message || 'unknown error'}`)
-              .join('\n')}`;
-          }
-        }
-      } catch (err) {
-        notice = err?.message || 'Google Calendar sync failed.';
-      }
-      // Refresh lastSyncAt/lastSyncSummary; a failed refresh keeps the old
-      // status — the notice above already reports the sync outcome.
-      try {
-        setState({ googleCalendarStatus: { ...(await fetchGoogleCalendarStatus()), loading: false, loadError: '' } });
-      } catch { /* keep the previous status */ }
-      setState({ googleCalendarPending: false, googleCalendarNotice: notice });
-      renderApp();
-      break;
-    }
-    case 'disconnect-google-calendar': {
-      if (!el.dataset.confirmed) {
-        openConfirm({
-          message: 'Disconnect Google Calendar? The “Prax” calendar stays in your Google account; Prax just stops pushing to it.',
-          okLabel: 'Disconnect', danger: true,
-          action: 'disconnect-google-calendar',
-        });
-        break;
-      }
-      setState({ confirm: null });
-      if (state.googleCalendarPending) { renderApp(); break; }
-      stopGoogleCalendarPolling();
-      setState({ googleCalendarPending: true, googleCalendarNotice: 'Disconnecting…' });
-      renderApp();
-      try {
-        const status = await disconnectGoogleCalendar();
-        setState({
-          googleCalendarStatus: { ...status, loading: false, loadError: '' },
-          googleCalendarPending: false,
-          googleCalendarNotice: 'Disconnected. The “Prax” calendar remains in Google Calendar.',
-        });
-      } catch {
-        setState({
-          googleCalendarPending: false,
-          googleCalendarNotice: 'Prax could not disconnect Google Calendar. Reload the status and try again.',
-        });
-      }
-      renderApp();
-      break;
-    }
-    case 'reindex-embeddings': case 'force-reindex-embeddings': {
-      const force = action === 'force-reindex-embeddings';
-      if (force && !el.dataset.confirmed) {
-        openConfirm({
-          message: 'Rebuild embeddings for every document?',
-          okLabel: 'Rebuild', action: 'force-reindex-embeddings',
-        });
-        break;
-      }
-      if (isReindexing) break; // ignore repeat clicks while one is running
-      isReindexing = true;
-      // Close the confirm dialog immediately and show progress — a rebuild can
-      // take a while against a remote/large model, and leaving the dialog up (it
-      // only closed after the whole run finished) read as "the button did
-      // nothing". showToast re-renders, so the dialog is gone right away.
-      if (state.confirm) setState({ confirm: null });
-      showToast(force ? 'Rebuilding every embedding…' : 'Re-indexing…');
-      try {
-        const result = await reindexEmbeddings(force);
-        await loadSemanticStatus();
-        const embedded = Number(result?.embedded) || 0;
-        const failed = Number(result?.failed) || 0;
-        if (failed) {
-          const reason = result?.sampleError ? ` (${result.sampleError})` : '';
-          showToast(`Re-index: embedded ${embedded}, ${failed} failed${reason}`, null, 6000);
-        } else if (embedded) {
-          showToast(`Re-indexed ${embedded} document${embedded === 1 ? '' : 's'}.`);
-        } else {
-          showToast('Embeddings are already up to date.');
-        }
-      } catch { alertError('reindex embeddings'); }
-      finally { isReindexing = false; }
-      renderApp();
-      break;
-    }
-    case 'export-project-tasks': exportTasksScoped(false); break;
-    case 'export-all-tasks': exportTasksScoped(true); break;
-    case 'import-tasks': importTasksFromSettings(); break;
-    case 'export-library-project': {
-      const slug = state.managedProjects.find(p => p.id === state.navId)?.slug || 'all';
-      openLibraryExport(slug, action);
-      break;
-    }
-    case 'export-library-all': openLibraryExport('all', action); break;
-    case 'refresh-maintenance': await loadMaintenance(); renderApp(); break;
-    case 'open-health': setState({ libraryMenuOpen: false }); await goHealth(); break;
-    case 'refresh-health': await loadHealth(); renderApp(); break;
-    case 'open-health-doc': await openDocumentInEditor(el.dataset.docId); break;
-    case 'verify-health-doc': verifyHealthDoc(el.dataset.docId); break;
-    case 'apply-wiki-link': await acceptLinkSuggestion(el.dataset.docId, el.dataset.title); break;
-    case 'run-ai-review': await scanLibraryWithAi(); break;
     case 'open-library-doc': await openDocumentInEditor(el.dataset.libraryDocumentId); break;
 
     default: break;
@@ -6681,7 +3542,7 @@ function bindEvents() {
   appRoot.addEventListener('input', (event) => {
     const target = event.target;
     if (target.matches?.('[data-inbox-field]')) { inboxController.change(target.dataset.inboxField, target.value); return; }
-    if (target.matches?.('[data-template-field="title"]')) { updateTemplateStudio('title', target.value); return; }
+    if (target.matches?.('[data-template-field="title"]')) { templateStudio.updateTemplateStudio('title', target.value); return; }
     if (target.matches?.('[data-search-find]')) {
       setState({ searchQuery: target.value });
       scheduleSearchApply();
@@ -6697,38 +3558,12 @@ function bindEvents() {
       renderApp();
       return;
     }
-    if (target.matches?.('[data-capture-input]')) {
-      // Keep the exact-once retry identity: submit compares the current
-      // intent key against the stored one, so typing a character and
-      // deleting it again still reuses the SAME request id — clearing here
-      // minted a fresh id and made "retry unchanged" able to duplicate.
-      setState({ captureQuery: target.value, captureError: null, captureRecovered: false });
-      persistCaptureRecovery();
-      const submit = appRoot.querySelector('[data-action="submit-capture"]');
-      if (submit) submit.disabled = !target.value.trim();
-      appRoot.querySelector('.capture__notice')?.remove();
-      return;
-    }
+    if (capture.input(target)) return;
     if (target.matches?.('[data-assistant-input]')) {
-      // Mirror to state (no re-render) so the composer survives re-renders.
-      setState({ assistantInput: target.value });
+      assistant.mirrorInput(target.value);
       return;
     }
-    if (target.matches?.('[data-ask-prax-input]')) {
-      const wasLoading = state.askPraxLoading;
-      if (wasLoading) askPraxToken += 1;
-      setState({
-        askPraxQuery: target.value,
-        ...(wasLoading ? { askPraxLoading: false, askPraxError: false, askPraxResult: null } : {}),
-      });
-      if (wasLoading) {
-        renderApp();
-        return;
-      }
-      const submit = appRoot.querySelector('[data-action="run-ask-prax"]');
-      if (submit) submit.disabled = !target.value.trim();
-      return;
-    }
+    if (knowledge.input(target)) return;
     if (target.matches?.('[data-panel-filter]')) {
       const caret = target.selectionStart;
       setState({ panelFilter: target.value });
@@ -6780,7 +3615,7 @@ function bindEvents() {
       const caret = target.selectionStart;
       setState({
         activeFilterExpr: target.value, activeSmartViewId: null,
-        ...(state.nlFilterLoading ? nlFilterResetPatch() : { nlFilterSource: null, nlFilterWarnings: [], nlFilterError: null }),
+        ...(state.nlFilterLoading ? capture.nlFilterResetPatch() : { nlFilterSource: null, nlFilterWarnings: [], nlFilterError: null }),
       });
       renderApp();
       const next = appRoot.querySelector('[data-filter-input]');
@@ -6836,17 +3671,8 @@ function bindEvents() {
       handleDocumentDraftTitleChange(target.value);
       return;
     }
-    if (mirrorDocumentInfoInput(target)) return;
-    if (target.matches?.('[data-gcal-client-id]')) {
-      // Mirror to state (no re-render) so the OAuth draft survives re-renders
-      // without stealing focus — the render reads googleCalendarDraft back.
-      setState({ googleCalendarDraft: { ...state.googleCalendarDraft, clientId: target.value } });
-      return;
-    }
-    if (target.matches?.('[data-gcal-client-secret]')) {
-      setState({ googleCalendarDraft: { ...state.googleCalendarDraft, clientSecret: target.value } });
-      return;
-    }
+    if (documentInfo.mirrorInput(target)) return;
+    if (settings.input(target)) return;
     if (target.matches?.('[data-link-picker-search]')) {
       setState({ linkPickerQuery: target.value });
       renderApp();
@@ -6856,8 +3682,8 @@ function bindEvents() {
   appRoot.addEventListener('change', (event) => {
     const target = event.target;
     if (target.matches?.('[data-inbox-field]')) { inboxController.change(target.dataset.inboxField, target.value); return; }
-    if (target.matches?.('[data-template-field]')) { updateTemplateStudio(target.dataset.templateField, target.value); return; }
-    if (mirrorDocumentInfoInput(target)) return;
+    if (target.matches?.('[data-template-field]')) { templateStudio.updateTemplateStudio(target.dataset.templateField, target.value); return; }
+    if (documentInfo.mirrorInput(target)) return;
     if (target.matches?.('[data-task-due]')) {
       // Clearing the date clears the time too (a time with no date is meaningless).
       const dueDate = target.value || null;
@@ -6872,209 +3698,8 @@ function bindEvents() {
       patchTask(state.drawerTaskId, { project: target.value }, { failure: 'move the task' });
       return;
     }
-    if (target.matches?.('[data-reading-scale]')) {
-      const preferences = savePreferences({ ...state.preferences, readingScale: Number(target.value) });
-      setState({ preferences });
-      applyPreferences(preferences);
-      renderApp();
-      return;
-    }
-    if (target.matches?.('[data-maintenance-project-filter]')) {
-      setState({ maintenanceProjectFilter: target.value });
-      loadMaintenance().then(renderApp);
-      return;
-    }
-    if (target.matches?.('[data-markdown-import-files]')) {
-      selectMarkdownImportFiles(target.files);
-      return;
-    }
-    if (target.matches?.('[data-markdown-import-project]')) {
-      if (!state.markdownImportPending && !state.markdownImportNotice) {
-        setState({ markdownImportProjectId: target.value, markdownImportError: '', markdownImportNotice: '' });
-        renderApp();
-      }
-      return;
-    }
-    if (target.matches?.('[data-library-export-format], [data-library-export-archived]')) {
-      if (!state.libraryExportPending) {
-        const format = target.matches('[data-library-export-format]') ? (target.value === 'workspace' ? 'workspace' : 'markdown') : state.libraryExportFormat;
-        setState({ libraryExportFormat: format,
-          libraryExportIncludeArchived: target.matches('[data-library-export-archived]') ? target.checked : state.libraryExportIncludeArchived,
-          libraryExportFilename: format === 'workspace' ? workspaceArchiveFilename() : libraryArchiveFilename(state.libraryExportScope), libraryExportError: '' });
-        renderApp();
-        appRoot.querySelector(target.matches('[data-library-export-format]') ? '[data-library-export-format]' : '[data-library-export-archived]')?.focus();
-      }
-      return;
-    }
-    if (target.matches?.('[data-library-export-scope]')) {
-      if (!state.libraryExportPending) {
-        const projects = libraryExportProjects();
-        const scope = target.value === 'all' || projects.some(project => project.slug === target.value)
-          ? target.value
-          : 'all';
-        setState({
-          libraryExportScope: scope,
-          libraryExportFilename: libraryArchiveFilename(scope),
-          libraryExportError: '',
-        });
-        renderApp();
-      }
-      return;
-    }
-    if (target.matches?.('[data-import-file]')) {
-      selectTaskImportFile(target.files?.[0]);
-      return;
-    }
-    if (target.matches?.('[data-import-project]')) {
-      if (!state.adminImportPending) {
-        setState({ adminImportProjectId: target.value, adminImportRequest: null, adminImportError: '', adminImportResult: null });
-        renderApp();
-      }
-      return;
-    }
-    if (target.matches?.('[name="import-mode"]')) {
-      if (state.adminImportPending) return;
-      setState({ adminImportMode: target.value, adminImportRequest: null, adminImportError: '', adminImportResult: null });
-      renderApp();
-    }
-  });
-
-  appRoot.addEventListener('keydown', async (event) => {
-    // Keys that commit or cancel an IME composition belong to the IME: WebKit
-    // reports the committing Enter with isComposing false but keyCode 229.
-    if (isImeComposing(event)) return;
-    if (inboxController.keydown(event)) { event.stopPropagation(); return; }
-    const target = event.target;
-    // Every aria-modal overlay keeps Tab inside it (modalFocus.js).
-    if (trapModalTab(event, appRoot)) return;
-    if (state.templateStudio) {
-      event.stopPropagation();
-      if (event.key === 'Escape') { event.preventDefault(); closeTemplateStudio(); }
-      return;
-    }
-    // Plan mode / shutdown keys are bound on the document (handlePlanModeKeydown).
-    // ⌘F / Ctrl+F opens the editor find panel from anywhere in the editor view
-    // (document, panel inputs, preview) — never the browser's find-in-page.
-    if (state.navType === 'editor' && (event.metaKey || event.ctrlKey)
-      && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'f') {
-      event.preventDefault();
-      openEditorSearch();
-      return;
-    }
-    if (target.matches?.('[data-search-find]')) {
-      if (event.key === 'Enter') { event.preventDefault(); runSearchCommand(event.shiftKey ? 'previous' : 'next'); }
-      else if (event.key === 'Escape') { event.preventDefault(); closeEditorSearch(); }
-      return;
-    }
-    if (target.matches?.('[data-search-replace]')) {
-      if (event.key === 'Enter') { event.preventDefault(); runSearchCommand('replace'); }
-      else if (event.key === 'Escape') { event.preventDefault(); closeEditorSearch(); }
-      return;
-    }
-    if (target.matches?.('[data-palette-input]')) {
-      if (event.key === 'ArrowDown') {
-        event.preventDefault();
-        setState({ paletteSelection: Math.min(Math.max(0, paletteFlat.length - 1), state.paletteSelection + 1) });
-        renderApp();
-      } else if (event.key === 'ArrowUp') {
-        event.preventDefault();
-        setState({ paletteSelection: Math.max(0, state.paletteSelection - 1) });
-        renderApp();
-      } else if (event.key === 'Enter') {
-        event.preventDefault();
-        const item = paletteFlat[Math.min(state.paletteSelection, Math.max(0, paletteFlat.length - 1))];
-        await runPaletteItem(item, { done: event.metaKey || event.ctrlKey });
-      } else if (event.key === 'Tab') {
-        // ⇥ / ⇧⇥ walk the scope bar; the input keeps focus.
-        event.preventDefault();
-        setPaletteScope(cyclePaletteScope(state.paletteScope, event.shiftKey ? -1 : 1));
-      }
-      return;
-    }
-    // A held-down Enter must not repeat a create (see the pending locks too).
-    if (target.matches?.('[data-new-project-name]') && event.key === 'Enter') {
-      event.preventDefault();
-      if (!event.repeat && !event.isComposing) handleAction('create-project', target, event);
-      return;
-    }
-    if (target.matches?.('[data-confirm-input]') && event.key === 'Enter') {
-      event.preventDefault();
-      if (!event.repeat && !event.isComposing) appRoot.querySelector('[data-confirm-ok]')?.click();
-      return;
-    }
-    if (target.matches?.('[data-capture-input]') && event.key === 'Enter' && !event.isComposing) {
-      event.preventDefault();
-      if (event.repeat) return; // held-down Enter must not machine-gun creates
-      if (state.captureSubmitting) return;
-      // ⌘/Ctrl+Enter = AI smart add (falls through to a plain add when no model
-      // is configured); plain Enter confirms a preview or adds deterministically.
-      if (event.metaKey || event.ctrlKey) { runNlCapture(); return; }
-      if (state.nlCaptureLoading) return; // parse in flight — Esc cancels it
-      if (state.nlCaptureFields) { confirmNlCapture(); return; }
-      addQuickTask(state.captureQuery.trim());
-      return;
-    }
-    if (target.matches?.('[data-filter-input]') && event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.isComposing) {
-      event.preventDefault();
-      runNlFilter();
-      return;
-    }
-    if (target.matches?.('[data-ask-prax-input]') && event.key === 'Enter') {
-      event.preventDefault();
-      runAskPrax(target.value);
-      return;
-    }
-    if (target.matches?.('[data-assistant-input]') && event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault();
-      sendAssistant(target.value);
-      return;
-    }
-    if (target.matches?.('[data-project-rename]')) {
-      if (event.key === 'Enter') { event.preventDefault(); target.blur(); return; } // blur commits
-      if (event.key === 'Escape') { event.preventDefault(); setState({ renamingProjectId: null }); renderApp(); return; }
-      return;
-    }
-    // A preview checkbox (role=checkbox) toggles with Space, like a native one,
-    // and with Enter; neither reaches the document-level shortcuts.
-    if (target.matches?.('[data-action="toggle-md-check"]') && (event.key === ' ' || event.key === 'Enter')) {
-      event.preventDefault();
-      event.stopPropagation();
-      if (event.repeat) return;
-      const line = Number(target.dataset.line);
-      toggleMarkdownCheck(line);
-      appRoot.querySelector(`[data-action="toggle-md-check"][data-line="${line}"]`)?.focus();
-      return;
-    }
-    if (target.matches?.('[data-checklist-new]') && event.key === 'Enter') {
-      event.preventDefault();
-      if (!event.repeat && !event.isComposing) handleAction('add-checklist-item', target, event);
-      return;
-    }
-    if (target.matches?.('[data-task-label-input]') && event.key === 'Enter') {
-      event.preventDefault();
-      await addTaskLabel(target.value);
-      return;
-    }
-    if (target.matches?.('[data-library-search]') && event.key === 'Enter' && state.librarySemantic) {
-      event.preventDefault();
-      runSemanticSearch();
-      return;
-    }
-    if (target.matches?.('[data-document-editor]') && (event.metaKey || event.ctrlKey)) {
-      const key = event.key.toLowerCase();
-      if (key === 's') { event.preventDefault(); requestDocumentDraftSave(); }
-      else if (key === 'b') { event.preventDefault(); applyEditorFormat('bold'); }
-      else if (key === 'i') { event.preventDefault(); applyEditorFormat('italic'); }
-      else if (key === 'e') { event.preventDefault(); applyEditorFormat('code'); }
-    }
-  });
-
-  document.addEventListener('keydown', handlePlanModeKeydown, true);
-  // After a render, focus can sit on <body>, whose keys never pass through
-  // #app: Tab from there still enters the open modal instead of the
-  // browser's next stop.
-  document.addEventListener('keydown', (event) => {
-    if (!appRoot.contains(event.target) && !isImeComposing(event)) trapModalTab(event, appRoot);
+    if (settings.change(target)) return;
+    transfer.change(target);
   });
 
   bindDragEvents();
@@ -7094,352 +3719,131 @@ async function handleLinkPickerPick(documentId) {
   if (state.pickerMode === 'supersede') {
     const predecessorId = state.editorDocId;
     await performDocumentLifecycleOnce(`document:${predecessorId}`, () => (
-      supersedeKnowledgeDocument(predecessorId, documentId)
+      lifecycle.supersedeKnowledgeDocument(predecessorId, documentId)
     ));
     return;
   }
-  try {
-    const alreadyLinked = state.taskDocuments.some(d => d.id === documentId);
-    const documents = alreadyLinked
-      ? await unlinkTaskDocument(state.drawerTaskId, documentId)
-      : await linkTaskDocument(state.drawerTaskId, documentId);
-    setState({ taskDocuments: documents, ...clearTaskBoardExtra(state, state.drawerTaskId) });
-  } catch { alertError('update the document link'); }
-  renderApp();
+  await drawer.toggleDocumentLink(documentId);
 }
 
-// ---- NL capture & NL→filter (Tier-3 #8) ------------------------------------
-// Generation tokens + abort controllers for the two NL calls: bumped on every
-// run/cancel/close so a stale response can never resurrect a dismissed preview
-// (the writeToken pattern), and aborted so a hung local model doesn't hold the
-// speed-critical capture flow hostage.
-let nlCaptureToken = 0;
-let nlFilterToken = 0;
-let nlCaptureAbort = null;
-let nlFilterAbort = null;
-const NL_TIMEOUT_MS = 20000;
+// ---------------------------------------------------------------------------
+// Keyboard: one dispatcher (keyboardDispatcher.js documents the priority order)
+// ---------------------------------------------------------------------------
 
-// Everything the NL layer holds, reset in one place (capture open/close, view
-// navigation, cancel).
-function nlCaptureResetPatch() {
-  nlCaptureToken += 1;
-  nlCaptureAbort?.abort();
-  nlCaptureAbort = null;
-  return { nlCaptureLoading: false, nlCaptureFields: null, nlCaptureDropped: [], nlCaptureRaw: null, nlCaptureError: null };
-}
-
-function nlFilterResetPatch() {
-  nlFilterToken += 1;
-  nlFilterAbort?.abort();
-  nlFilterAbort = null;
-  return { nlFilterLoading: false, nlFilterSource: null, nlFilterWarnings: [], nlFilterError: null };
-}
-
-// Bounded grounding for the NL prompts — the client owns what the user sees.
-function nlGrounding() {
-  const projects = (state.projects || []).filter((p) => p.slug).map((p) => ({ slug: p.slug, name: p.name }));
-  const labels = new Set();
-  for (const task of state.tasks || []) {
-    for (const label of task.labels || []) labels.add(label);
+// Keys of focused workspace fields (and ⌘F in the editor). A matched field
+// ends the workspace layers; the global shortcuts still see the key, and they
+// ignore typing targets except for Escape and ⌘ commands.
+function workspaceKeydown(event) {
+  const target = event.target;
+  // ⌘F / Ctrl+F opens the editor find panel from anywhere in the editor view
+  // (document, panel inputs, preview) — never the browser's find-in-page.
+  if (state.navType === 'editor' && (event.metaKey || event.ctrlKey)
+    && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'f') {
+    event.preventDefault();
+    openEditorSearch();
+    return KEY_HANDLED;
   }
-  return { projects, labels: [...labels].slice(0, 50) };
-}
-
-// The input value we last set from a parse (the cleaned title) — lets the ⌘↵
-// chord tell "re-parse the same phrase" (input unedited → resend the preserved
-// raw text) from "parse what I just typed" (input edited).
-let nlCaptureSetQuery = null;
-
-// ⌘↵ in capture: parse the typed text with the AI, preview the fields as chips.
-// The cleaned title replaces the input (still editable); nothing is created
-// until plain Enter confirms. Falls through to the plain add when no model is
-// configured — the chord must never be a dead keystroke.
-async function runNlCapture() {
-  const current = (state.captureQuery || '').trim();
-  if (!current || state.nlCaptureLoading || state.captureSubmitting) return;
-  if (!state.chatStatus?.available) { addQuickTask(current); return; }
-  // Re-parse (⌘↵ with an unedited preview) resends the ORIGINAL phrase — the
-  // visible title no longer carries the date/priority words the first parse
-  // extracted. An edited input is a new phrase and becomes the new raw.
-  const unedited = state.nlCaptureFields && nlCaptureSetQuery != null && state.captureQuery === nlCaptureSetQuery;
-  const text = unedited && state.nlCaptureRaw ? state.nlCaptureRaw : current;
-  const raw = text;
-  const sentQuery = state.captureQuery; // input at send time (divergence guard)
-  const token = (nlCaptureToken += 1);
-  nlCaptureAbort?.abort();
-  nlCaptureAbort = new AbortController();
-  const timer = setTimeout(() => nlCaptureAbort?.abort(), NL_TIMEOUT_MS);
-  setState({
-    nlCaptureLoading: true,
-    nlCaptureError: null,
-    nlCaptureFields: null,
-    nlCaptureDropped: [],
-    nlCaptureRaw: raw,
-    ...clearCaptureRequestPatch(),
-  });
-  persistCaptureRecovery();
-  renderApp();
-  try {
-    const res = await parseNlCapture({ text, date: todayISODate(), ...nlGrounding() }, { signal: nlCaptureAbort.signal });
-    // Drop a stale response: cancelled/superseded, capture closed, or the user
-    // typed while it was in flight (their text wins over our parse of old text).
-    if (token !== nlCaptureToken || !state.captureOpen || state.captureQuery !== sentQuery) return;
-    if (res.degraded) {
-      setState({
-        nlCaptureLoading: false,
-        nlCaptureError: res.reason === 'no-chat-model'
-          ? 'No AI model configured — set one in Settings ▸ Intelligence.'
-          : 'The model could not parse this — ↵ adds the task as typed.',
-      });
-    } else {
-      // Sigiled tokens in the typed text override the model (mergeNlCapture).
-      const merged = mergeNlCapture(text, res.fields || {});
-      const { title, ...fields } = merged;
-      // Capture-from-Today seeds a due-today default; surface it as a chip so
-      // the preview shows EVERY field the created task will carry (and removal
-      // works). confirmNlCapture uses the preview alone — no invisible fallback.
-      if (!fields.dueDate && state.captureDueDate) fields.dueDate = state.captureDueDate;
-      if (state.planMode?.mode === 'plan') fields.plannedFor = todayISODate();
-      nlCaptureSetQuery = title || text;
-      setState({
-        nlCaptureLoading: false,
-        nlCaptureFields: fields,
-        nlCaptureDropped: res.dropped || [],
-        captureQuery: nlCaptureSetQuery,
-      });
+  if (target.matches?.('[data-search-find]')) {
+    if (event.key === 'Enter') { event.preventDefault(); runSearchCommand(event.shiftKey ? 'previous' : 'next'); }
+    else if (event.key === 'Escape') { event.preventDefault(); closeEditorSearch(); }
+    return KEY_HANDLED;
+  }
+  if (target.matches?.('[data-search-replace]')) {
+    if (event.key === 'Enter') { event.preventDefault(); runSearchCommand('replace'); }
+    else if (event.key === 'Escape') { event.preventDefault(); closeEditorSearch(); }
+    return KEY_HANDLED;
+  }
+  if (target.matches?.('[data-palette-input]')) {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setState({ paletteSelection: Math.min(Math.max(0, paletteFlat.length - 1), state.paletteSelection + 1) });
+      renderApp();
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setState({ paletteSelection: Math.max(0, state.paletteSelection - 1) });
+      renderApp();
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      const item = paletteFlat[Math.min(state.paletteSelection, Math.max(0, paletteFlat.length - 1))];
+      void runPaletteItem(item, { done: event.metaKey || event.ctrlKey });
+    } else if (event.key === 'Tab') {
+      // ⇥ / ⇧⇥ walk the scope bar; the input keeps focus.
+      event.preventDefault();
+      setPaletteScope(cyclePaletteScope(state.paletteScope, event.shiftKey ? -1 : 1));
     }
-  } catch (err) {
-    if (token !== nlCaptureToken || !state.captureOpen || state.captureQuery !== sentQuery) return;
-    setState({
-      nlCaptureLoading: false,
-      nlCaptureError: err?.name === 'AbortError'
-        ? 'The model took too long — ↵ adds the task as typed, or ⌘↵ retries.'
-        : 'Could not reach the model — ↵ adds the task as typed.',
-    });
-  } finally {
-    clearTimeout(timer);
+    return KEY_HANDLED;
   }
-  if (token === nlCaptureToken) persistCaptureRecovery();
-  if (token === nlCaptureToken) renderApp();
+  // A held-down Enter must not repeat a create (see the pending locks too).
+  if (target.matches?.('[data-new-project-name]') && event.key === 'Enter') {
+    event.preventDefault();
+    if (!event.repeat && !event.isComposing) handleAction('create-project', target, event);
+    return KEY_HANDLED;
+  }
+  if (target.matches?.('[data-confirm-input]') && event.key === 'Enter') {
+    event.preventDefault();
+    if (!event.repeat && !event.isComposing) appRoot.querySelector('[data-confirm-ok]')?.click();
+    return KEY_HANDLED;
+  }
+  if (capture.keydown(event)) return KEY_HANDLED;
+  if (target.matches?.('[data-ask-prax-input]') && event.key === 'Enter') {
+    event.preventDefault();
+    knowledge.runAskPrax(target.value);
+    return KEY_HANDLED;
+  }
+  if (target.matches?.('[data-assistant-input]') && event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault();
+    void assistant.sendAssistant(target.value);
+    return KEY_HANDLED;
+  }
+  if (target.matches?.('[data-project-rename]')) {
+    if (event.key === 'Enter') { event.preventDefault(); target.blur(); return KEY_HANDLED; } // blur commits
+    if (event.key === 'Escape') { event.preventDefault(); setState({ renamingProjectId: null }); renderApp(); return KEY_HANDLED; }
+    return KEY_HANDLED;
+  }
+  // A preview checkbox (role=checkbox) toggles with Space, like a native one,
+  // and with Enter; neither reaches the global shortcuts.
+  if (target.matches?.('[data-action="toggle-md-check"]') && (event.key === ' ' || event.key === 'Enter')) {
+    event.preventDefault();
+    if (event.repeat) return KEY_CONSUMED;
+    const line = Number(target.dataset.line);
+    toggleMarkdownCheck(line);
+    appRoot.querySelector(`[data-action="toggle-md-check"][data-line="${line}"]`)?.focus();
+    return KEY_CONSUMED;
+  }
+  if (target.matches?.('[data-checklist-new]') && event.key === 'Enter') {
+    event.preventDefault();
+    if (!event.repeat && !event.isComposing) handleAction('add-checklist-item', target, event);
+    return KEY_HANDLED;
+  }
+  if (target.matches?.('[data-task-label-input]') && event.key === 'Enter') {
+    event.preventDefault();
+    void drawer.addTaskLabel(target.value);
+    return KEY_HANDLED;
+  }
+  if (target.matches?.('[data-library-search]') && event.key === 'Enter' && state.librarySemantic) {
+    event.preventDefault();
+    runSemanticSearch();
+    return KEY_HANDLED;
+  }
+  if (target.matches?.('[data-document-editor]') && (event.metaKey || event.ctrlKey)) {
+    const key = event.key.toLowerCase();
+    if (key === 's') { event.preventDefault(); requestDocumentDraftSave(); }
+    else if (key === 'b') { event.preventDefault(); applyEditorFormat('bold'); }
+    else if (key === 'i') { event.preventDefault(); applyEditorFormat('italic'); }
+    else if (key === 'e') { event.preventDefault(); applyEditorFormat('code'); }
+    return KEY_HANDLED;
+  }
+  return null;
 }
 
-// First Esc with a preview (or parse in flight): abort/discard; the overlay
-// stays open. The typed text is restored only when a preview replaced it —
-// after a failed parse the input was never touched, so Esc must not revert
-// edits the user made since (it just clears the error).
-function cancelNlCapture() {
-  if (state.captureSubmitting) return;
-  const raw = state.nlCaptureFields ? state.nlCaptureRaw : null;
-  setState({
-    ...nlCaptureResetPatch(),
-    ...(raw != null ? { captureQuery: raw } : {}),
-    ...clearCaptureRequestPatch(),
-  });
-  persistCaptureRecovery();
-  renderApp();
-}
-
-// One create path for both capture flows (deterministic + NL preview): resolve
-// the destination, translate design-vocab status at the API boundary, create,
-// close + reset, toast. A client UUID makes retry exact-once; a failed POST is
-// reconciled with one canonical read before the UI calls it a failure.
-async function createCapturedTaskWithReadback(payload) {
-  try {
-    return { task: await createTask(payload), reconciled: false };
-  } catch (writeError) {
-    try {
-      const observed = await fetchTask(payload.id);
-      if (taskMatchesCreatePayload(observed, payload)) {
-        return { task: observed, reconciled: true };
-      }
-    } catch {
-      // The original error is the useful failure; the retry identity remains
-      // stored so the unchanged create can safely be attempted again.
-    }
-    throw writeError;
-  }
-}
-
-async function submitCapturedTask(fields) {
-  if (state.captureSubmitting) return;
-  const title = fields.title;
-  if (!title) {
-    setState({ captureError: 'Add a task title.', captureRecovered: false });
-    persistCaptureRecovery();
-    renderApp();
-    return;
-  }
-  let project = state.captureProjectId || defaultProjectId();
-  if (fields.project) {
-    const resolved = projectResolver(state.projects)(fields.project);
-    if (resolved) project = resolved; // an explicit/parsed project overrides the destination
-  }
-  if (!project) {
-    setState({ captureError: 'Create a project before adding this task.' });
-    persistCaptureRecovery();
-    renderApp();
-    return;
-  }
-  const intent = captureIntentKey({
-    query: state.captureQuery,
-    projectId: state.captureProjectId,
-    dueDate: state.captureDueDate,
-    status: state.captureStatus,
-    nlFields: state.nlCaptureFields,
-  });
-  const reusable = state.captureRequestIntent === intent && state.captureRequestPayload;
-  const payload = reusable || {
-    id: globalThis.crypto.randomUUID(),
-    title,
-    description: '',
-    notes: '',
-    priority: fields.priority || 'medium',
-    // captureStatus is design vocab ('backlog'|'planned') — translate at the
-    // API boundary ('backlog' → 'notes'); sending it raw 400s.
-    status: apiStatus(state.captureStatus || 'planned'),
-    project,
-    dueDate: fields.dueDate || null,
-    dueTime: fields.dueDate ? fields.dueTime || null : null,
-    recurrence: fields.recurrence || null,
-    labels: fields.labels || [],
-    sortOrder: state.tasks.length,
-    ...(fields.plannedFor ? { plannedFor: fields.plannedFor } : {}),
-  };
-  setState({
-    captureSubmitting: true,
-    captureError: null,
-    captureRecovered: false,
-    captureMenuOpen: false,
-    captureRequestPayload: payload,
-    captureRequestIntent: intent,
-  });
-  persistCaptureRecovery();
-  renderApp();
-  let outcome;
-  try {
-    outcome = await createCapturedTaskWithReadback(payload);
-  } catch (writeError) {
-    // A deterministic 4xx rejection is not retry-safe advice: the server
-    // said no to THIS payload/identity, so repeating it unchanged can only
-    // fail (or 409 forever on the same id). Drop the retry identity so the
-    // next submit mints a fresh one, and say what actually happened.
-    const permanent = Number.isInteger(writeError?.status)
-      && writeError.status >= 400 && writeError.status < 500;
-    setState({
-      captureSubmitting: false,
-      ...(permanent ? { captureRequestPayload: null, captureRequestIntent: null } : {}),
-      captureError: permanent
-        ? `The server rejected this capture: ${writeError.message}. Edit it and try again.`
-        : 'Could not confirm creation. Your task is saved here; retry unchanged is safe.',
-    });
-    persistCaptureRecovery();
-    renderApp();
-    return;
-  }
-  // Owner-guarded (no force): the entry is this tab's own fulfilled draft —
-  // typing and restore both stamp this tab as owner. A foreign stamp means
-  // another tab took the slot for ITS draft, which this success says nothing
-  // about, so that entry must survive.
-  clearTaskCaptureRecovery(taskCaptureStorage());
-  setState({
-    captureOpen: false,
-    captureQuery: '',
-    captureMenuOpen: false,
-    captureSubmitting: false,
-    ...clearCaptureRequestPatch(),
-    ...nlCaptureResetPatch(),
-  });
-  let refreshed = true;
-  try { await loadTasks(); } catch { refreshed = false; }
-  const name = state.projects.find(p => p.id === payload.project)?.name || 'project';
-  showToast(refreshed ? `Added to ${name}` : `Added to ${name}; reload to show it.`);
-  renderApp();
-  return outcome.task;
-}
-
-// Plain Enter with a preview showing: create the previewed task. The input is
-// the (editable) title — sigils typed into it after the parse still win via a
-// re-merge (they are visible in the input, so the preview stays truthful).
-async function confirmNlCapture() {
-  const fields = mergeNlCapture(state.captureQuery, { ...state.nlCaptureFields, title: '' });
-  // The preview is authoritative: what you see is exactly what gets created
-  // (the due-today default was already surfaced as a removable chip).
-  await submitCapturedTask(fields);
-}
-
-// ✦ Translate in the Filter view: the input's English becomes a grammar string
-// in the same input — transparent, editable, saveable. An invalid expression is
-// still landed (the existing error hint explains it) rather than discarded.
-async function runNlFilter() {
-  const text = (state.activeFilterExpr || '').trim();
-  if (!text || state.nlFilterLoading || !state.chatStatus?.available) return;
-  const token = (nlFilterToken += 1);
-  nlFilterAbort?.abort();
-  nlFilterAbort = new AbortController();
-  const timer = setTimeout(() => nlFilterAbort?.abort(), NL_TIMEOUT_MS);
-  setState({ nlFilterLoading: true, nlFilterError: null, nlFilterWarnings: [] });
-  renderApp();
-  try {
-    const res = await parseNlFilter({ text, date: todayISODate(), ...nlGrounding() }, { signal: nlFilterAbort.signal });
-    // Drop a stale response: superseded, or the user left the Filter view —
-    // a late translation must not mutate the expression under another view.
-    if (token !== nlFilterToken || state.navType !== 'filter') return;
-    if (res.degraded) {
-      setState({
-        nlFilterLoading: false,
-        nlFilterError: res.reason === 'no-chat-model'
-          ? 'No AI model configured — set one in Settings ▸ Intelligence.'
-          : 'The model could not translate this. Try rephrasing.',
-      });
-    } else if (res.expr) {
-      setState({
-        nlFilterLoading: false,
-        activeFilterExpr: res.expr,
-        activeSmartViewId: null,
-        nlFilterSource: text,
-        nlFilterWarnings: res.warnings || [],
-      });
-    } else {
-      setState({ nlFilterLoading: false, nlFilterError: 'The model could not produce a filter. Try rephrasing.' });
-    }
-  } catch (err) {
-    if (token !== nlFilterToken || state.navType !== 'filter') return;
-    setState({
-      nlFilterLoading: false,
-      nlFilterError: err?.name === 'AbortError' ? 'The model took too long — try again.' : 'Could not reach the model.',
-    });
-  } finally {
-    clearTimeout(timer);
-  }
-  if (token === nlFilterToken && state.navType === 'filter') {
-    renderApp();
-    const input = appRoot.querySelector('[data-filter-input]');
-    if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
-  }
-}
-
-async function addQuickTask(rawTitle) {
-  // Shorthand (!high, tomorrow, fri, 2026-09-01, #project, @label) is parsed out
-  // of the typed text; an explicit token wins over the view-derived defaults
-  // (here the due-today default applies invisibly — unlike the NL preview,
-  // which surfaces it as a removable chip and is authoritative on its own).
-  const { title, priority, dueDate, project: projectToken, labels } = parseCaptureShorthand(rawTitle);
-  await submitCapturedTask({
-    title, priority, project: projectToken, labels,
-    dueDate: dueDate || state.captureDueDate || null,
-    // Captured mid-planning: the new task joins today's working set.
-    ...(state.planMode?.mode === 'plan' ? { plannedFor: todayISODate() } : {}),
-  });
-}
-
-function installShortcuts() {
+function installKeyboard() {
   function openPaletteShortcut() {
     if (state.captureSubmitting) return;
-    if (state.captureOpen) discardCapture();
+    if (state.captureOpen) capture.discardCapture();
     setState({ paletteOpen: true, paletteQuery: '', paletteSelection: 0, paletteScope: 'all' });
     renderApp();
   }
-  installKeyboardShortcuts({
+  const globalShortcuts = createGlobalShortcuts({
     handlers: {
       async switchView(view) {
         if (view === 'library') { await goLibrary(); return; }
@@ -7456,13 +3860,13 @@ function installShortcuts() {
         }
         openPaletteShortcut();
       },
-      openAssistant,
-      toggleTheme,
+      openAssistant: assistant.openAssistant,
+      toggleTheme: settings.toggleTheme,
       openShortcuts,
       openCapture() {
         // A pending confirm owns the keyboard; capture would stack above it.
         if (state.confirm) return;
-        openFreshCapture();
+        capture.openFreshCapture();
       },
       toggleDoneSelected() {
         if (state.selectedTaskId && !state.paletteOpen && !state.captureOpen && !state.drawerTaskId) {
@@ -7490,6 +3894,17 @@ function installShortcuts() {
       modalOpen: () => Boolean(topmostModal(appRoot)),
     },
   });
+  createKeyboardDispatcher({
+    getRoot: () => appRoot,
+    layers: [
+      { name: 'plan-walk', handle: event => (planMode.keydown(event) ? KEY_CONSUMED : null) },
+      { name: 'inbox-dialog', scope: 'app', handle: event => (inboxController.keydown(event) ? KEY_CONSUMED : null) },
+      { name: 'modal-tab-trap', handle: event => (trapModalTab(event, appRoot) ? KEY_HANDLED : null) },
+      { name: 'template-studio', scope: 'app', handle: event => templateStudio.keydown(event) },
+      { name: 'workspace-fields', scope: 'app', handle: workspaceKeydown },
+      { name: 'global-shortcuts', global: true, handle: globalShortcuts },
+    ],
+  }).install(document);
 }
 
 // ---------------------------------------------------------------------------
@@ -7502,17 +3917,6 @@ function loadSavedViews() {
   } catch {
     return [];
   }
-}
-
-// Desktop-only settings surface; a failed load leaves the row on its
-// placeholder default rather than inventing a value.
-async function loadCaptureShortcut() {
-  if (!state.desktopShell || state.captureShortcut) return;
-  try {
-    const loaded = await fetchCaptureShortcut();
-    setState({ captureShortcut: loaded });
-    if (state.navType === 'settings') renderApp();
-  } catch { /* row keeps its placeholder */ }
 }
 
 function loadSmartViews() {
@@ -7537,7 +3941,7 @@ async function init() {
   document.body.classList.toggle('is-desktop-mac', desktopShell && desktopPlatform === 'macos');
   setState({ preferences, librarySavedViews: loadSavedViews(), taskSmartViews: loadSmartViews(), pinned: loadPinned(), recentProjects: loadRecent(), recentDocuments: loadRecentDocuments(), libraryLayout: loadLayout(), collapsedSections: loadCollapsed(), winW: window.innerWidth, desktopShell, desktopPlatform });
   applyPreferences(preferences);
-  appRoot.innerHTML = '<main class="empty" style="height:100vh"><p class="empty__sub">Loading Prax…</p></main>';
+  appRoot.innerHTML = renderBootLoadingHtml();
   try {
     await loadProjects();
     const persisted = loadActiveProject();
@@ -7552,7 +3956,7 @@ async function init() {
     }
     setState({ apiStatus: 'loading' });
     bindEvents();
-    installShortcuts();
+    installKeyboard();
     // From the first request on, regaining focus, becoming visible, navigating,
     // or a capture-bar announcement refetches what other surfaces may have
     // written — including a capture made while the initial load is in flight
@@ -7569,13 +3973,9 @@ async function init() {
     if ((initialTasks === 'superseded' || initialTasks === 'stale') && externalRefresh.inFlight) {
       await externalRefresh.inFlight; // an early trigger's (or the retry's) newer snapshot installs instead
     }
-    restoreCaptureRecovery();
-    if (loadTemplateDraft(templateStorage())) showToast('An unfinished template copy is saved in this tab. Open Templates & guides to continue.', null, 8000);
-    const assistantRecovery = loadAssistantRecovery(taskDraftStorage());
-    if (assistantRecovery) {
-      setState({ assistantMessages: assistantRecovery.messages, assistantPending: assistantRecovery.pending, assistantApprovalAttempted: assistantRecovery.attempted, assistantError: assistantRecovery.attempted ? 'Recovered an approval whose outcome was not confirmed. Retry safely to check the same action.' : null, assistantErrorKind: assistantRecovery.attempted ? 'partial' : null });
-      showToast('Recovered a pending assistant approval. Open Assistant to review it.', null, 8000);
-    }
+    capture.restoreCaptureRecovery();
+    templateStudio.announceRecovery();
+    assistant.restoreRecovery();
     // A browser fallback reminder renders the workspace together with its
     // toast. Otherwise render once here. This avoids two consecutive full DOM
     // builds on every startup with due tasks.
@@ -7585,18 +3985,18 @@ async function init() {
     documentsPromise.then((applied) => {
       if (applied && (state.navType === 'library' || state.navType === 'settings')) renderApp();
     });
-    loadSemanticStatus().then(() => {
+    settings.loadSemanticStatus().then(() => {
       if (state.navType === 'library' || state.navType === 'settings') renderApp();
     });
-    loadChatStatus().then(() => {
-      if (state.captureOpen) renderCaptureOverlayLayer();
+    settings.loadChatStatus().then(() => {
+      if (state.captureOpen) capture.renderCaptureOverlayLayer();
       else if (state.navType === 'library' || state.navType === 'settings') renderApp();
     });
     // Heartbeat so a task that ticks over to "due" while the app sits open still
     // gets a reminder (e.g. across midnight). Cheap: a filter over state.tasks.
-    if (typeof setInterval === 'function') setInterval(() => { checkDueReminders(); checkShutdownNudge(); checkWeeklyReviewNudge(); }, 15 * 60 * 1000);
+    if (typeof setInterval === 'function') setInterval(() => { checkDueReminders(); planMode.checkShutdownNudge(); checkWeeklyReviewNudge(); }, 15 * 60 * 1000);
   } catch (err) {
-    appRoot.innerHTML = `<main class="empty" style="height:100vh"><h2 class="empty__title">Prax could not load</h2><p class="empty__sub">${escapeHtml(err?.message || 'Unknown error')}</p></main>`;
+    appRoot.innerHTML = renderBootErrorHtml(err?.message);
     setState({ apiStatus: 'error' });
   }
 }

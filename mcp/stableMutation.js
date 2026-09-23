@@ -15,10 +15,9 @@ export async function runStableMutation({ label, id, inputName }, operation) {
   } catch (error) {
     if (!(error instanceof PraxUnavailableError)) throw error;
     const retry = `Retry the same intent with ${inputName}="${id}": it returns the first attempt's result instead of repeating it.`;
-    const wrapped = new PraxUnavailableError(error.timedOut
+    throw new PraxUnavailableError(error.timedOut
       ? `${label} may still be processing: Prax did not answer in time, so its outcome is not known yet. ${retry} (${error.message})`
-      : `${label} outcome is unknown because Prax was not reachable. ${retry} (${error.message})`);
-    wrapped.timedOut = Boolean(error.timedOut);
-    throw wrapped;
+      : `${label} outcome is unknown because Prax was not reachable. ${retry} (${error.message})`,
+    { kind: error.timedOut ? 'timeout' : 'unreachable', timeoutMs: error.timeoutMs });
   }
 }

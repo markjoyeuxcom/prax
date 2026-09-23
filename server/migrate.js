@@ -31,6 +31,95 @@ export function migrationBoundary(allFiles, through = 'current') {
   throw new Error(`Unknown migration boundary: ${through}`);
 }
 
+// The migrations this build ships, in order.
+export function knownMigrations(dir = DEFAULT_MIGRATIONS_DIR) {
+  return orderedMigrations(readdirSync(dir)).map(({ version }) => version);
+}
+
+// Applied migrations this build does not ship: the database was upgraded by a
+// newer Prax. Running this build's code on it would be a silent downgrade.
+export function unknownMigrations(allFiles, appliedVersions) {
+  const known = new Set(orderedMigrations(allFiles).map(({ version }) => version));
+  return [...appliedVersions].filter((version) => !known.has(version)).sort();
+}
+
+export class SchemaTooNewError extends Error {
+  constructor(unknown, { finalKnown = null, subject = 'This database' } = {}) {
+    super(`${subject} was upgraded by a newer version of Prax: it has migration(s) this version does not know `
+      + `(${unknown.join(', ')}). This version of Prax only knows migrations through ${finalKnown || 'none'}. `
+      + 'Refusing to use it, because older code on a newer schema can lose or corrupt data. '
+      + 'Install the newer Prax again, or restore a backup made by this version or an older one.');
+    this.name = 'SchemaTooNewError';
+    this.code = 'PRAX_SCHEMA_TOO_NEW';
+    this.unknownMigrations = unknown;
+  }
+}
+
+export function assertKnownSchema(allFiles, appliedVersions, options = {}) {
+  const unknown = unknownMigrations(allFiles, appliedVersions);
+  if (unknown.length) {
+    throw new SchemaTooNewError(unknown, { finalKnown: orderedMigrations(allFiles).at(-1)?.version, ...options });
+  }
+}
+
+// The complete trigger set on the two tables whose triggers carry data rules:
+// FTS maintenance and supersession lifecycle on markdown_documents, and the
+// supersession sync and cycle guard on document_links. It is the one place
+// that lists them; a migration that adds, renames or removes one of these
+// triggers updates it in the same change.
+//
+// Why it is checked: SQLite cannot ALTER a CHECK constraint, so a migration
+// may rebuild a table (create a copy, drop the old one, rename the copy).
+// DROP TABLE silently drops every trigger on the old table, and ALTER TABLE
+// RENAME fails while a document_links trigger still names the missing
+// markdown_documents. A rebuild therefore drops the document_links triggers
+// first and must recreate every trigger here afterwards; forgetting one leaves
+// search or lifecycle state quietly wrong. runMigrations verifies the set
+// inside the final migration's transaction, so such a migration rolls back.
+export const EXPECTED_TRIGGERS = Object.freeze({
+  markdown_documents: Object.freeze([
+    'markdown_documents_fts_ad',
+    'markdown_documents_fts_ai',
+    'markdown_documents_fts_au',
+    'markdown_documents_superseder_archived',
+    'markdown_documents_superseder_restored',
+    'markdown_documents_target_restored',
+  ]),
+  document_links: Object.freeze([
+    'document_links_no_supersession_cycle',
+    'document_links_supersedes_delete',
+    'document_links_supersedes_insert',
+  ]),
+});
+
+// Differences between the triggers on the guarded tables and `expected`.
+export async function triggerSetProblems(q, expected = EXPECTED_TRIGGERS) {
+  const tables = Object.keys(expected);
+  const rows = (await q.query("select name, tbl_name from sqlite_master where type = 'trigger'")).rows;
+  const problems = [];
+  for (const table of tables) {
+    for (const name of expected[table]) {
+      const row = rows.find((candidate) => candidate.name === name);
+      if (!row) problems.push(`missing ${name} on ${table}`);
+      else if (row.tbl_name !== table) problems.push(`${name} is on ${row.tbl_name}, not ${table}`);
+    }
+  }
+  const listed = new Set(tables.flatMap((table) => expected[table]));
+  for (const row of rows) {
+    if (tables.includes(row.tbl_name) && !listed.has(row.name)) problems.push(`unexpected ${row.name} on ${row.tbl_name}`);
+  }
+  return problems;
+}
+
+export async function assertTriggerSet(q, expected = EXPECTED_TRIGGERS) {
+  const problems = await triggerSetProblems(q, expected);
+  if (problems.length) {
+    throw Object.assign(new Error(`schema trigger check failed: ${problems.join('; ')}. `
+      + 'The expected set is EXPECTED_TRIGGERS in server/migrate.js; a table rebuild must recreate every trigger on the rebuilt table.'),
+    { code: 'PRAX_SCHEMA_TRIGGERS', problems });
+  }
+}
+
 export function pendingMigrations(allFiles, appliedVersions, { through = 'current' } = {}) {
   const applied = new Set(appliedVersions);
   const boundary = migrationBoundary(allFiles, through);
@@ -58,9 +147,23 @@ export async function runMigrations(db, options = {}) {
     `);
     const appliedRes = await client.query('select version from schema_migrations');
     const applied = appliedRes.rows.map((row) => row.version);
-    const pending = pendingMigrations(readdirSync(dir), applied, { through: options.through });
+    const files = readdirSync(dir);
+    // Downgrade guard: never run this build's code on a schema a newer build
+    // has already changed.
+    assertKnownSchema(files, applied);
+    const pending = pendingMigrations(files, applied, { through: options.through });
+
+    // The trigger set describes the final schema, so it is checked only when
+    // this run brings (or finds) the database at this build's last migration.
+    const final = orderedMigrations(files).at(-1)?.version;
+    const reachesFinal = migrationBoundary(files, options.through)?.version === final;
+    const expectedTriggers = options.expectedTriggers === undefined
+      ? (dir === DEFAULT_MIGRATIONS_DIR ? EXPECTED_TRIGGERS : null)
+      : options.expectedTriggers;
+    const checkTriggers = Boolean(expectedTriggers) && reachesFinal;
 
     if (pending.length === 0) {
+      if (checkTriggers && applied.includes(final)) await assertTriggerSet(client, expectedTriggers);
       log.info('schema up to date');
       return { applied: [] };
     }
@@ -105,6 +208,9 @@ export async function runMigrations(db, options = {}) {
             throw new Error(`foreign_key_check found ${violations.rows.length} violation(s) after rebuild`);
           }
         }
+        // Inside the final migration's transaction, so a migration that lost
+        // a trigger rolls back instead of committing a quietly broken schema.
+        if (checkTriggers && version === final) await assertTriggerSet(client, expectedTriggers);
         await client.query('insert into schema_migrations (version) values ($1)', [version]);
         await client.query('commit');
         done.push(version);

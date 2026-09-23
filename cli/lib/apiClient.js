@@ -1,186 +1,54 @@
 // Thin HTTP client over the Prax API. No business logic — every method maps
-// to one endpoint. Uses global fetch (Node 20+).
+// to one endpoint. Used by the prax CLI, the skill scripts and the bundled
+// skill pack.
 //
-// Two things live here besides the endpoint map, because every caller (the
-// prax CLI, the skill scripts, the bundled skill pack) needs them identically:
-//   - finding the app: PRAX_API_URL, else the desktop app's saved loopback
-//     port, else the dev default — tried in that order on connection failure;
-//   - saying who is writing: x-prax-origin: agent on every memory write plus
-//     x-prax-agent: <id> when the calling CLI is known (PRAX_AGENT, or the
-//     markers Claude Code and Codex set in their shells).
-// Both are the shared implementation in server/instanceDiscovery.js, which the
-// MCP server uses too, so the machine clients cannot drift apart. Every request
-// also carries the caller's calendar day (server/localDay.js), so completing a
-// recurring task rolls forward from the person's today, not a UTC container's.
+// How a request reaches Prax — discovery and pinning (no write failover), the
+// token, agent and local-day headers, timeouts, error classes and the retry-
+// safety rule — is the shared transport in server/praxTransport.js, which the
+// MCP client builds on too, so the machine clients cannot drift apart. What
+// stays here is the endpoint map and this client's response shape: a JSON
+// body parsed as JSON, anything else (a Markdown context pack) as text.
 import { randomUUID } from 'node:crypto';
-import { detectAgent, resolveBaseUrls, sanitizeAgentId } from '../../server/instanceDiscovery.js';
-import { localDayHeaders } from '../../server/localDay.js';
+import {
+  createTransport, timeoutFromEnv, DEFAULT_TIMEOUT_MS, PROBE_TIMEOUT_MS,
+} from '../../server/praxTransport.js';
 
 export {
   DEFAULT_BASE_URL, desktopPortFile, detectAgent, readDesktopPort, resolveBaseUrls, sanitizeAgentId,
 } from '../../server/instanceDiscovery.js';
+export {
+  DEFAULT_TIMEOUT_MS, PROBE_TIMEOUT_MS, PraxApiError, PraxUnavailableError, timeoutFromEnv, tokenFromEnv,
+} from '../../server/praxTransport.js';
 // The server's hard cap for one semantic-search page.
 export const SEMANTIC_PAGE_MAX = 50;
-// Without a bound, a hung app stalls an agent's call for undici's five-minute
-// header timeout. Nothing the CLI calls waits on a chat model (the MCP server's
-// ask and generation tools do, and get its long timeout), but recall, search
-// and context embed the query, and a local embedding model can take several
-// seconds to load cold — hence 30 s rather than the MCP server's 5 s.
-// PRAX_TIMEOUT_MS overrides it. The /readyz probe only has to be answered.
-export const DEFAULT_TIMEOUT_MS = 30_000;
-export const PROBE_TIMEOUT_MS = 2000;
 
-// PRAX_TIMEOUT_MS as milliseconds, or undefined when unset. A value that is
-// not a positive integer is a configuration error, reported rather than
-// silently replaced by the default.
-export function timeoutFromEnv(env = process.env) {
-  const raw = env.PRAX_TIMEOUT_MS;
-  if (raw === undefined || raw === '') return undefined;
-  const ms = Number(raw);
-  if (!/^\d+$/.test(String(raw).trim()) || !Number.isSafeInteger(ms) || ms < 1) {
-    throw new TypeError(`PRAX_TIMEOUT_MS must be a positive number of milliseconds (got "${raw}")`);
-  }
-  return ms;
-}
+const parseResponse = (res) => ((res.headers.get('content-type') || '').includes('application/json')
+  ? res.json()
+  : res.text());
 
-function formatDuration(ms) {
-  return ms >= 1000 && ms % 1000 === 0 ? `${ms / 1000} s` : `${ms} ms`;
-}
-
-function isTimeout(err) {
-  const name = err?.name || err?.cause?.name;
-  return name === 'TimeoutError' || name === 'AbortError';
-}
-
+// Every request is bounded (DEFAULT_TIMEOUT_MS, 30 s, or PRAX_TIMEOUT_MS):
+// nothing the CLI calls waits on a chat model, but recall, search and context
+// embed the query and a local embedding model can take seconds to load cold.
 export function createClient({
-  baseUrl, token, agent, env = process.env, bases,
+  baseUrl, token, agent, env = process.env, bases, fetch,
   timeoutMs = timeoutFromEnv(env) ?? DEFAULT_TIMEOUT_MS, probeTimeoutMs = PROBE_TIMEOUT_MS,
 } = {}) {
-  // AbortSignal.timeout throws a synchronous TypeError for an invalid delay;
-  // say which setting is wrong instead of reporting "not reachable" later.
-  for (const [name, value] of [['timeoutMs', timeoutMs], ['probeTimeoutMs', probeTimeoutMs]]) {
-    if (!Number.isFinite(value) || value < 1) throw new TypeError(`${name} must be a positive finite number`);
-  }
-  const candidates = bases || resolveBaseUrls({ baseUrl, env });
-  let base = candidates[0];
-  // Discovery binds this process to ONE instance. Until something has answered,
-  // a read may probe every candidate; once pinned, every request — above all a
-  // write — goes only there. A write never fails over: with the desktop app
-  // gone and a dev server on :3000, silently landing the same remember in a
-  // second workspace is worse than an honest "not reachable" (QINV-02).
-  let pinned = candidates.length === 1;
-  // One discovery for the whole process: every request that arrives before
-  // the pin awaits the same probe, so concurrent first requests cannot each
-  // discover a different instance, and nothing ever reassigns `base` once it
-  // is set (a late probe completion cannot re-pin behind an in-flight write).
-  let discovery = null;
-  const agentId = agent === undefined ? detectAgent(env) : sanitizeAgentId(agent);
-  const bearer = token ?? env.PRAX_TOKEN;
-
-  function unreachable(lastError) {
-    const where = pinned ? base : candidates.join(' or ');
-    return new Error(`Prax not reachable at ${where} — is the app running? (${lastError.message})`);
-  }
-
-  // Pin an instance with a read-only probe, trying candidates in order.
-  async function probe() {
-    let lastError;
-    for (const candidate of candidates) {
-      try {
-        await fetch(`${candidate}/readyz`, { method: 'GET', signal: AbortSignal.timeout(probeTimeoutMs) });
-        if (!pinned) {
-          base = candidate;
-          pinned = true;
-        }
-        return;
-      } catch (err) {
-        lastError = err;
-      }
-    }
-    throw unreachable(lastError);
-  }
-
-  function ensurePinned() {
-    if (pinned) return Promise.resolve();
-    if (!discovery) {
-      discovery = probe().catch((err) => {
-        discovery = null; // a failed discovery may be retried by a later request
-        throw err;
-      });
-    }
-    return discovery;
-  }
-
-  async function request(method, path, {
+  const transport = createTransport({
+    baseUrl, bases, env, token, agent, fetch, timeoutMs, probeTimeoutMs,
+  });
+  // `agent: true` marks an agent write (x-prax-origin, plus x-prax-agent when
+  // known); `retryUnavailable` is the transport's retry rule (true for a
+  // receipted operation, 'connect-only' for an idempotent unreceipted setter).
+  const request = (method, path, {
     body, agent: agentWrite = false, accept, retryUnavailable = false,
-  } = {}) {
-    const headers = localDayHeaders();
-    if (body !== undefined) headers['content-type'] = 'application/json';
-    if (agentWrite) {
-      headers['x-prax-origin'] = 'agent';
-      if (agentId) headers['x-prax-agent'] = agentId;
-    }
-    if (accept) headers['accept'] = accept;
-    if (bearer) headers['authorization'] = `Bearer ${bearer}`;
-    const payload = body === undefined ? undefined : JSON.stringify(body);
-    await ensurePinned();
-    // Only the pinned instance is ever contacted; a retry is a retry of the
-    // SAME instance, never a search for another one.
-    const target = base;
-    let res; let lastError;
-    const attempts = retryUnavailable ? 2 : 1;
-    // One deadline covers the whole exchange, body included.
-    const signal = AbortSignal.timeout(timeoutMs);
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
-      try {
-        res = await fetch(`${target}${path}`, { method, headers, body: payload, signal });
-        break;
-      } catch (err) {
-        lastError = err;
-        // A timeout is never re-sent: Prax answered nothing, but it may still
-        // be processing the request.
-        if (isTimeout(err)) break;
-        // Unreceipted setters/links may only retry a failure that proves no
-        // request reached the server. ECONNRESET or a generic fetch failure
-        // can mean the response was lost after a successful commit.
-        if (retryUnavailable === 'connect-only'
-          && !['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN'].includes(err?.cause?.code || err?.code)) break;
-      }
-    }
-    const write = !['GET', 'HEAD'].includes(method);
-    const timedOut = (err) => {
-      const error = new Error(`${write ? 'Write outcome unknown; reconcile before retrying. ' : ''}Prax at ${target} did not answer within ${formatDuration(timeoutMs)} — the request may still be processing; it was not re-sent. Set PRAX_TIMEOUT_MS to wait longer. (${err.message})`);
-      error.timedOut = true;
-      return error;
-    };
-    if (!res) {
-      if (isTimeout(lastError)) throw timedOut(lastError);
-      const error = unreachable(lastError);
-      if (write) error.message = `Write outcome unknown; reconcile before retrying. ${error.message}`;
-      throw error;
-    }
-    const ct = res.headers.get('content-type') || '';
-    let parsed;
-    try {
-      parsed = ct.includes('application/json') ? await res.json() : await res.text();
-    } catch (err) {
-      // The status line arrived but the body stalled past the deadline.
-      if (isTimeout(err)) throw timedOut(err);
-      throw err;
-    }
-    if (!res.ok) {
-      const message = parsed && parsed.message ? parsed.message : `HTTP ${res.status}`;
-      const error = new Error(message);
-      error.status = res.status;
-      throw error;
-    }
-    return parsed;
-  }
+  } = {}) => transport.request(method, path, {
+    body, agentWrite, accept, retry: retryUnavailable, parse: parseResponse,
+  });
 
   return {
-    get base() { return base; },
-    candidates,
-    agent: agentId,
+    get base() { return transport.base; },
+    candidates: transport.candidates,
+    agent: transport.agent,
     contextPack(project, { query, format = 'md', limit } = {}) {
       const params = new URLSearchParams();
       if (query) params.set('query', query);

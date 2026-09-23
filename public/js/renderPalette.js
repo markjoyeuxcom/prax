@@ -1,4 +1,4 @@
-import { escapeHtml } from './renderHelpers.js';
+import { escapeHtml } from './html.js';
 import { icon, logo } from './icons.js';
 import { BUILT_IN_SMART_VIEWS } from './taskSmartViews.js';
 import { isPinned } from './pinned.js';
@@ -214,7 +214,7 @@ function renderScopes(model) {
   if (!scopes.length) return '';
   const active = normalizePaletteScope(model.scope);
   return `<div class="palette__scopes" role="tablist" aria-label="Search scope">${scopes.map(({ key, label, count }) => (
-    `<button type="button" role="tab" class="palette__scope${key === active ? ' is-active' : ''}" data-action="palette-scope" data-scope="${key}" aria-selected="${key === active}">${escapeHtml(label)}${count > 0 ? ` <span class="palette__scope-count">${count}</span>` : ''}</button>`
+    `<button type="button" role="tab" class="palette__scope${key === active ? ' is-active' : ''}" data-action="palette-scope" data-scope="${escapeHtml(key)}" aria-selected="${key === active}">${escapeHtml(label)}${count > 0 ? ` <span class="palette__scope-count">${escapeHtml(count)}</span>` : ''}</button>`
   )).join('')}</div>`;
 }
 
@@ -229,7 +229,7 @@ export function renderPaletteHtml(state, model = { groups: [], flat: [] }) {
   const body = groups.length
     ? groups.map((group) => `
         <div class="palette__group">${escapeHtml(group.label)}</div>
-        ${group.items.map((item) => renderItem(item, index++, selectedIndex)).join('')}${group.truncated > 0 ? `<div class="palette__truncated">${group.truncated} more — keep typing to narrow it down.</div>` : ''}`).join('')
+        ${group.items.map((item) => renderItem(item, index++, selectedIndex)).join('')}${group.truncated > 0 ? `<div class="palette__truncated">${escapeHtml(group.truncated)} more — keep typing to narrow it down.</div>` : ''}`).join('')
     : '<div class="palette__empty">No matches.</div>';
   const scopeBar = Array.isArray(model) ? '' : renderScopes(model);
 

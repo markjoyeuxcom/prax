@@ -1,4 +1,4 @@
-import { escapeHtml } from './renderHelpers.js';
+import { escapeHtml } from './html.js';
 import { DOCUMENT_TYPES } from './documentTypes.js';
 import { localDateOf } from './dateHelpers.js';
 
@@ -6,8 +6,8 @@ const esc = escapeHtml;
 export function renderInboxSummary(inbox = {}) {
   const summary = inbox.summary;
   return `<section class="inbox-summary" aria-label="Inbox processing">
-    <div><strong>${summary ? `${summary.total} to process` : 'Inbox captures'}</strong>
-      <p>${summary ? `${summary.tasks} tasks · ${summary.notes} notes${summary.total ? ` · oldest ${summary.oldestDays} days · ${summary.olderThanWeek} at least a week old` : ''}` : 'File captures into their owning projects. Saved weekly reviews stay separate.'}</p></div>
+    <div><strong>${summary ? `${esc(summary.total)} to process` : 'Inbox captures'}</strong>
+      <p>${summary ? `${esc(summary.tasks)} tasks · ${esc(summary.notes)} notes${summary.total ? ` · oldest ${esc(summary.oldestDays)} days · ${esc(summary.olderThanWeek)} at least a week old` : ''}` : 'File captures into their owning projects. Saved weekly reviews stay separate.'}</p></div>
     <div class="inbox-summary__actions"><button class="btn-primary" type="button" data-action="inbox-start">Process Inbox</button>
       ${inbox.undo ? `<button class="btn-outline" type="button" data-action="inbox-undo"${inbox.undoPending ? ' disabled' : ''}>${inbox.undoPending ? 'Undoing…' : 'Undo last decision'}</button>` : ''}</div>
     ${inbox.undo ? `<p class="inbox-summary__last">Last decision: ${esc(inbox.undo.title)}</p>` : ''}
@@ -23,13 +23,13 @@ export function renderInboxView(inbox = {}) {
     ${inbox.error ? `<p role="alert">${esc(inbox.error)} <button class="btn-outline" data-action="inbox-reload">Retry</button></p>` : ''}
     ${inbox.loading ? '<p role="status">Loading Inbox…</p>' : ''}
     <div class="inbox-items">${items.map(item => `<article class="inbox-item">
-      <div><button class="inbox-item__title" type="button" data-action="inbox-open" data-kind="${item.kind}" data-id="${esc(item.id)}">${esc(item.title)}</button>
-        <p>${reviews ? 'Weekly review' : item.kind === 'task' ? 'Task' : 'Note'} · ${item.ageDays} days old</p>
+      <div><button class="inbox-item__title" type="button" data-action="inbox-open" data-kind="${esc(item.kind)}" data-id="${esc(item.id)}">${esc(item.title)}</button>
+        <p>${reviews ? 'Weekly review' : item.kind === 'task' ? 'Task' : 'Note'} · ${esc(item.ageDays)} days old</p>
         <p class="inbox-item__preview">${esc(item.preview)}</p></div>
-      ${reviews ? '' : `<button class="btn-outline" type="button" data-action="inbox-start" data-kind="${item.kind}" data-id="${esc(item.id)}" aria-label="Process ${esc(item.title)}">Process</button>`}
+      ${reviews ? '' : `<button class="btn-outline" type="button" data-action="inbox-start" data-kind="${esc(item.kind)}" data-id="${esc(item.id)}" aria-label="Process ${esc(item.title)}">Process</button>`}
     </article>`).join('')}</div>
     ${!items.length && !inbox.loading && !inbox.error ? `<p class="view-hint">${reviews ? 'No saved weekly reviews yet.' : 'No captures waiting to be processed.'}</p>` : ''}
-    ${data ? `<p class="view-hint">Showing ${items.length} of ${data.page.total}${data.page.hasMore ? ' <button class="btn-outline" data-action="inbox-more">Load more</button>' : ''}</p>` : ''}
+    ${data ? `<p class="view-hint">Showing ${items.length} of ${esc(data.page.total)}${data.page.hasMore ? ' <button class="btn-outline" data-action="inbox-more">Load more</button>' : ''}</p>` : ''}
   </section>`;
 }
 
@@ -45,7 +45,7 @@ export function renderInboxDialog(inbox = {}) {
   const destination = suggestion && projects.find(project => project.id === suggestion.projectId);
   return `<div class="overlay-center" data-overlay="inbox">
     <section class="inbox-dialog" role="dialog" aria-modal="true" aria-labelledby="inbox-dialog-title" data-inbox-dialog tabindex="-1">
-      <header><div><h2 id="inbox-dialog-title">Process Inbox</h2><p>${p.index + 1} of ${p.queue.length} in this pass</p></div>
+      <header><div><h2 id="inbox-dialog-title">Process Inbox</h2><p>${esc(p.index + 1)} of ${p.queue.length} in this pass</p></div>
         <button class="btn-ghost" type="button" data-action="inbox-close" aria-label="Close Inbox processing"${p.pending ? ' disabled' : ''}>×</button></header>
       ${p.recovered ? '<p role="status">Recovered unfinished decision. Review the current item before applying.</p>' : ''}
       ${p.request && !p.pending ? '<p role="alert">A previous request is unconfirmed. Retry that same decision to check its result.</p>' : ''}
@@ -61,8 +61,8 @@ export function renderInboxDialog(inbox = {}) {
           <p>Uses your configured answer model. Suggestions do not change any item.</p>
           ${suggestion ? `<div class="inbox-suggestion"><h3>Suggested filing</h3><p>${destination ? esc(destination.name) : 'No destination suggested'}${suggestion.documentType ? ` · ${esc(suggestion.documentType)}` : ''}</p><p>${esc(suggestion.reason)}</p>
             <button class="btn-outline" type="button" data-action="inbox-use-suggestion"${disabled}>Use suggestion in form</button>
-            <p>Reviewed ${suggestion.coverage.projectsShown} of ${suggestion.coverage.projectsTotal} projects and ${suggestion.coverage.candidatesShown} of ${suggestion.coverage.candidatesTotal} possible matches.${suggestion.coverage.sourceTruncated ? ' Only the first 8,000 characters of this item were sent.' : ''}</p>
-            ${suggestion.duplicates.length ? `<h3>Possible duplicates — review before deciding</h3>${suggestion.duplicates.map(item => `<p><button class="btn-ghost" type="button" data-action="inbox-open" data-kind="${item.kind}" data-id="${esc(item.id)}">${esc(item.title)}</button> ${esc(item.reason)}</p>`).join('')}` : '<p>No duplicate suggested within the candidates reviewed.</p>'}</div>` : ''}</div>
+            <p>Reviewed ${esc(suggestion.coverage.projectsShown)} of ${esc(suggestion.coverage.projectsTotal)} projects and ${esc(suggestion.coverage.candidatesShown)} of ${esc(suggestion.coverage.candidatesTotal)} possible matches.${suggestion.coverage.sourceTruncated ? ' Only the first 8,000 characters of this item were sent.' : ''}</p>
+            ${suggestion.duplicates.length ? `<h3>Possible duplicates — review before deciding</h3>${suggestion.duplicates.map(item => `<p><button class="btn-ghost" type="button" data-action="inbox-open" data-kind="${esc(item.kind)}" data-id="${esc(item.id)}">${esc(item.title)}</button> ${esc(item.reason)}</p>`).join('')}` : '<p>No duplicate suggested within the candidates reviewed.</p>'}</div>` : ''}</div>
         <div class="inbox-decisions">${p.request ? '' : `<button class="btn-primary" type="button" data-action="inbox-file">${p.kind === 'task' ? 'File task' : 'File note'}</button>
             <button class="btn-outline" type="button" data-action="inbox-reference">Keep as reference</button>
             ${p.kind === 'task' ? '<button class="btn-outline" type="button" data-action="inbox-complete">Complete task</button>' : ''}

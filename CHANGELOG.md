@@ -12,6 +12,33 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Changed
+
+- **Internal structure (no visible behaviour change).** The web app's 7,600-line `main.js` is now
+  4,000 lines: thirteen feature controllers (plan mode, assistant, settings, document lifecycle,
+  review walk, runs, Library transfer, knowledge tools, writing, document info, capture, template
+  studio, task drawer) and one keyboard dispatcher with a documented priority order replace the
+  in-file code and four separate key listeners. Every state field is declared in `state.js`.
+- **HTML escaping is enforced.** One `html.js` module escapes text, attributes and CSS colours,
+  and a test fails on any unescaped interpolation in any frontend module; it caught and fixed an
+  unescaped project colour and about a hundred values that relied on convention. The Markdown
+  renderer uses a per-render token table (NUL can no longer forge its placeholders) and explicit
+  `document` / `untrusted` modes, and every call names its mode.
+- **One client core.** The CLI and MCP server share one HTTP transport (discovery, headers,
+  timeouts, error kinds and retry rules) and accept `PRAX_API_TOKEN` or `PRAX_TOKEN`; the
+  skills parse arguments with the CLI's engine. MCP timeout and "unreachable" messages now match
+  the CLI's, and MCP honours `PRAX_TIMEOUT_MS`.
+- **One operation ledger.** Every retry receipt (document upsert and update, Inbox actions, task
+  imports, assistant writes, record creation, generation) goes through one module over the
+  existing tables; HTTP behaviour and stored hashes are unchanged.
+- **Schema and restore guards.** Startup checks the full set of search, lifecycle and
+  supersession triggers; a database with migrations this build does not know refuses to start
+  (`PRAX_SCHEMA_TOO_NEW`); restore refuses a backup from a newer Prax or schema, and backup
+  manifests record their final migration.
+- **`desktop:verify` checks what ships.** It inspects the built payload and bundles after
+  `tauri build` (files, version, production dependencies, sidecar Node) and runs in both desktop
+  CI jobs; staging now clears Tauri's copied resources so a deleted file is never shipped.
+
 ### Security
 
 - **AI answers no longer load remote images.** Assistant answers, Ask Prax, AI narratives and

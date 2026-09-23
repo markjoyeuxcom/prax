@@ -1,4 +1,5 @@
-import { escapeHtml, chip, prioDotClass } from './renderHelpers.js';
+import { escapeHtml } from './html.js';
+import { chip, prioDotClass } from './renderHelpers.js';
 import { designPriority, designStatus } from './statusMap.js';
 import { dueFlag } from './dueFlags.js';
 import { slippageChips } from './slippageFlags.js';
@@ -112,7 +113,7 @@ export function limitTaskGroups(groups, limit = TASK_RENDER_BATCH_SIZE) {
 export function renderTaskCollectionProgressHtml(collection) {
   if (!collection?.hasMore) return '';
   return `<div class="collection-progress" role="status">`
-    + `<span>Showing ${collection.shown} of ${collection.total} tasks.</span>`
+    + `<span>Showing ${escapeHtml(collection.shown)} of ${escapeHtml(collection.total)} tasks.</span>`
     + `<button class="btn-ghost" type="button" data-action="show-more-tasks">Show ${Math.min(TASK_RENDER_BATCH_SIZE, collection.total - collection.shown)} more</button>`
     + '</div>';
 }

@@ -1,4 +1,4 @@
-import { escapeHtml } from './renderHelpers.js';
+import { escapeHtml } from './html.js';
 import { icon } from './icons.js';
 
 // Preview overlay for an editor writing action (Tier-3 #7). The generated text is

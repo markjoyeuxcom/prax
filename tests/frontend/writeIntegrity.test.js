@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { isInteractiveShortcutTarget, isImeComposing } from '../../public/js/keyboardShortcuts.js';
+import { createPlanModeController } from '../../public/js/planModeController.js';
+import { createKnowledgeToolsController } from '../../public/js/knowledgeToolsController.js';
+import { createTaskDrawerController } from '../../public/js/taskDrawerController.js';
 import { normalizeDocumentDraftTitle, documentDraftIsDirty } from '../../public/js/documentDraftRecovery.js';
 import { documentDraftSavedPatch, canPreserveEditorAfterDraftSave } from '../../public/js/documentDraftSave.js';
 
@@ -57,7 +59,7 @@ test('fee5b02e: complete A (recurring reload) then B: the reload read before B n
     alertError: () => {}, renderApp: () => { rendered += 1; },
   });
   install(context, 'function taskById(', '// Update a project in both');
-  install(context, 'async function updateTaskWithReadback(', '// Add a normalized label');
+  install(context, 'async function updateTaskWithReadback(', 'async function toggleTaskDone(');
 
   // A's PATCH already committed; its lifecycle reload is in flight.
   const reloading = vm.runInContext('loadTasks()', context);
@@ -122,23 +124,24 @@ function planContext(planMode, extras = {}) {
   const calls = [];
   const toasts = [];
   let renders = 0;
-  const context = vm.createContext({
-    state, setState: patch => Object.assign(state, patch), todayISODate: () => '2026-09-22',
+  const controller = createPlanModeController({
+    getState: () => state, setState: patch => Object.assign(state, patch), todayISODate: () => '2026-09-22',
     updateTask: (id, fields) => { const d = deferred(); calls.push({ id, fields, ...d }); return d.promise.then(saved => ({ id, ...fields, ...saved })); },
     renderApp: () => { renders += 1; }, showToast: text => toasts.push(text),
-    document: { querySelector: () => null }, normalizeTask: t => t, isInteractiveShortcutTarget, isImeComposing,
+    doc: { querySelector: () => null }, normalizeTask: t => t,
+    taskById: id => state.tasks.find(t => t.id === id) || state.archivedTasks.find(t => t.id === id) || null,
     ...extras,
   });
-  install(context, 'function taskById(', 'function applyTaskPatchLocal(');
-  install(context, 'function mergePlanTask(', '// Compile (or refresh) this week');
-  return { state, context, calls, toasts, renders: () => renders };
+  // The shipped controller, addressed by the names the walk's handlers had in main.js.
+  const context = { planModeAct: controller.planModeAct, handlePlanModeKeydown: controller.keydown, setState: patch => Object.assign(state, patch) };
+  return { state, context, controller, calls, toasts, renders: () => renders };
 }
 const walk = (mode, ids, bucket = 'today') => ({ mode, queue: ids.map(id => ({ id, bucket })), index: 0, added: 0, carried: 0, dropped: 0, rescheduled: 0 });
 
 test('0eec1ac9: a double activation applies one decision and shows the next item', async () => {
   const { state, context, calls } = planContext(walk('plan', ['t1', 't2', 't3']));
-  const first = vm.runInContext("planModeAct('add')", context);
-  const second = vm.runInContext("planModeAct('add')", context);
+  const first = context.planModeAct('add');
+  const second = context.planModeAct('add');
   await second;
   assert.equal(calls.length, 1, 'the second activation is ignored while the first is in flight');
   calls[0].resolve({});
@@ -147,15 +150,15 @@ test('0eec1ac9: a double activation applies one decision and shows the next item
   assert.equal(state.planMode.added, 1);
   assert.equal(state.tasks.find(t => t.id === 't1').plannedFor, '2026-09-22');
   // The lock is released: the next decision acts on t2.
-  const next = vm.runInContext("planModeAct('skip')", context);
+  const next = context.planModeAct('skip');
   await next;
   assert.equal(state.planMode.index, 2);
 });
 
 test('0eec1ac9: closing the walk mid-flight keeps the committed write and reports no failure', async () => {
   const { state, context, calls, toasts } = planContext(walk('shutdown', ['t1', 't2'], 'planned'));
-  const acting = vm.runInContext("planModeAct('carry')", context);
-  vm.runInContext('setState({ planMode: null })', context);
+  const acting = context.planModeAct('carry');
+  context.setState({ planMode: null });
   calls[0].resolve({ plannedFor: '2026-09-23' });
   await acting;
   assert.equal(state.planMode, null);
@@ -165,9 +168,9 @@ test('0eec1ac9: closing the walk mid-flight keeps the committed write and report
 
 test('0eec1ac9: a reopened walk is not advanced by the old decision', async () => {
   const { state, context, calls } = planContext(walk('plan', ['t1', 't2']));
-  const acting = vm.runInContext("planModeAct('add')", context);
+  const acting = context.planModeAct('add');
   const reopened = { ...walk('plan', ['t1', 't2']) };
-  vm.runInContext('setState({ planMode: null })', context);
+  context.setState({ planMode: null });
   state.planMode = reopened;
   calls[0].resolve({});
   await acting;
@@ -177,12 +180,12 @@ test('0eec1ac9: a reopened walk is not advanced by the old decision', async () =
 
 test('0eec1ac9: a failed decision keeps the item and releases the lock', async () => {
   const { state, context, calls, toasts } = planContext(walk('plan', ['t1', 't2']));
-  const acting = vm.runInContext("planModeAct('add')", context);
+  const acting = context.planModeAct('add');
   calls[0].reject(new Error('offline'));
   await acting;
   assert.equal(state.planMode.index, 0);
   assert.match(toasts[0], /Could not save that decision/);
-  const retry = vm.runInContext("planModeAct('add')", context);
+  const retry = context.planModeAct('add');
   assert.equal(calls.length, 2);
   calls[1].resolve({});
   await retry;
@@ -344,31 +347,46 @@ test('a68bd2cf: a failed refresh after committed writes is not a failed write', 
   assert.equal(toasts[0].message, '1 task → Backlog. The list could not refresh; reload to reconcile it.');
 });
 
-test('a68bd2cf: plan-add reports per-task outcomes through the same helper', () => {
-  const start = source.indexOf("case 'plan-add-today': {");
-  const block = source.slice(start, source.indexOf("case 'open-plan-mode'", start));
-  assert.match(block, /applyTaskPatches\(ids, \(\) => \(\{ plannedFor: today \}\)\)/);
-  assert.match(block, /partialTaskOutcome\(/);
-  assert.doesNotMatch(block, /Promise\.all\(/);
+test('a68bd2cf: plan-add reports per-task outcomes through the same helper', async () => {
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const state = { projects: [{ id: 'p1', name: 'Ops' }],
+    tasks: ['a', 'b'].map(id => ({ id, title: id, projectId: 'p1', status: 'planned', dueDate: today, plannedFor: null })) };
+  const helpers = vm.createContext({});
+  install(helpers, 'function taskCountLabel(', 'async function undoTaskPatches(');
+  const patched = []; const toasts = []; const errors = [];
+  const controller = createPlanModeController({
+    getState: () => state, setState: patch => Object.assign(state, patch), todayISODate: () => today,
+    renderApp: () => {}, showToast: (message, undo, duration) => toasts.push({ message, undo, duration }), alertError: message => errors.push(message),
+    // Each task settles on its own through the per-task helper, not one Promise.all.
+    applyTaskPatches: async (ids, patchFor) => { ids.forEach(id => patched.push([id, patchFor(id)])); return { committed: ['a'], failed: ['b'] }; },
+    refreshTasksAfterWrites: async () => true,
+    partialTaskOutcome: helpers.partialTaskOutcome, taskCountLabel: helpers.taskCountLabel,
+  });
+  await controller.actions['plan-add-today']();
+  assert.deepEqual(patched, [['a', { plannedFor: today }], ['b', { plannedFor: today }]]);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(toasts, [{ message: "1 task added to today's plan; 1 could not be added.", undo: null, duration: 7000 }]);
 });
 
 function workingNoteContext({ link = async () => [], open = async () => true, create } = {}) {
   const state = { tasks: [{ id: 't1', title: 'Rotate keys', projectId: 'p1' }] };
   const toasts = [];
   let created = 0;
-  const context = vm.createContext({
-    state, projectsById: () => ({ p1: { id: 'p1', slug: 'homelab', name: 'Homelab' } }),
+  const drawer = createTaskDrawerController({
+    getState: () => state, projectsById: () => ({ p1: { id: 'p1', slug: 'homelab', name: 'Homelab' } }),
     createDocument: create || (async (payload) => { created += 1; return { id: `d${created}`, ...payload }; }),
     linkTaskDocument: link, loadDocuments: async () => true, openDocumentInEditor: open,
     showToast: message => toasts.push(message),
   });
-  install(context, '// A working note for the open task', 'async function handleAction(');
+  // The shipped handler, under the name the tests used when it lived in main.js.
+  const context = { startWorkingNote: taskId => drawer.startWorkingNote(taskId) };
   return { context, toasts, created: () => created };
 }
 
 test('a68bd2cf: a failed link after a committed working note is reported as a failed link', async () => {
   const { context, toasts, created } = workingNoteContext({ link: async () => { throw new Error('link failed'); } });
-  await vm.runInContext("startWorkingNote('t1')", context);
+  await context.startWorkingNote('t1');
   assert.equal(created(), 1);
   assert.match(toasts[0], /^Working note created, but Prax could not link it to the task\./);
   assert.doesNotMatch(toasts[0], /created and linked/);
@@ -376,10 +394,10 @@ test('a68bd2cf: a failed link after a committed working note is reported as a fa
 
 test('a68bd2cf: a failed open after the create never reads as a failed create', async () => {
   const { context, toasts } = workingNoteContext({ open: async () => { throw new Error('boom'); } });
-  await vm.runInContext("startWorkingNote('t1')", context);
+  await context.startWorkingNote('t1');
   assert.match(toasts[0], /^Working note created, but Prax could not open it\./);
   const ok = workingNoteContext();
-  await vm.runInContext("startWorkingNote('t1')", ok.context);
+  await ok.context.startWorkingNote('t1');
   assert.deepEqual(ok.toasts, ['Working note created and linked.']);
 });
 
@@ -389,8 +407,8 @@ test('d469a9c0: a double click on Working note creates one note', async () => {
   const { context, toasts } = workingNoteContext({
     create: async (payload) => { calls += 1; await gate.promise; return { id: 'd1', ...payload }; },
   });
-  const first = vm.runInContext("startWorkingNote('t1')", context);
-  const second = vm.runInContext("startWorkingNote('t1')", context);
+  const first = context.startWorkingNote('t1');
+  const second = context.startWorkingNote('t1');
   gate.resolve();
   await Promise.all([first, second]);
   assert.equal(calls, 1);
@@ -416,7 +434,7 @@ test('d469a9c0: a double click on New document creates one document', async () =
     templateById: () => ({ title: 'Untitled', body: '', documentType: 'note' }),
     createDocument: async (payload) => { creates += 1; await gate.promise; return { id: `d${creates}`, ...payload }; },
     loadDocuments: async () => { throw new Error('library refresh failed'); },
-    seedEditorDraft: doc => { state.editorDocId = doc.id; }, writeToken: 0,
+    seedEditorDraft: doc => { state.editorDocId = doc.id; }, writing: { invalidate: () => {} },
     renderApp: () => {}, showToast: text => toasts.push(text), alertError: text => toasts.push(`error: ${text}`),
   });
   install(context, '// One new document at a time', 'function markdownImportProjects(');
@@ -435,18 +453,18 @@ test('d469a9c0: generate-runbook reopened mid-request shows that request, not a 
   const gate = deferred();
   let generated = 0;
   const fields = { '[data-genrb-input]': { value: 'Postgres primary down' }, '[data-genrb-project]': { value: 'p1' } };
-  const context = vm.createContext({
-    state, setState: patch => Object.assign(state, patch), appRoot: { querySelector: s => fields[s] || null },
-    captureProjectChoices: () => [{ id: 'p1', slug: 'homelab' }], INBOX_SLUG: 'inbox',
+  const setState = patch => Object.assign(state, patch);
+  const tools = createKnowledgeToolsController({
+    getState: () => state, setState, getRoot: () => ({ querySelector: s => fields[s] || null }),
+    captureProjectChoices: () => [{ id: 'p1', slug: 'homelab' }], inboxSlug: 'inbox',
     generateRunbook: async () => { generated += 1; await gate.promise; return { document: { id: 'rb1' } }; },
     openDocumentInEditor: async () => true, renderApp: () => {}, showToast: () => {},
   });
-  install(context, '// A generation keeps running after Esc', '// ---------------------------------------------------------------------------');
-  const running = vm.runInContext('runGenerateRunbook()', context);
-  vm.runInContext('setState({ genRbOpen: false })', context); // Esc
-  vm.runInContext('openGenerateRunbook()', context);
+  const running = tools.runGenerateRunbook();
+  setState({ genRbOpen: false }); // Esc
+  tools.openGenerateRunbook();
   assert.equal(state.genRbLoading, true, 'the reopened dialog shows the running request');
-  await vm.runInContext('runGenerateRunbook()', context);
+  await tools.runGenerateRunbook();
   assert.equal(generated, 1);
   gate.resolve();
   await running;

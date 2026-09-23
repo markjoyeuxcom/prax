@@ -43,8 +43,18 @@ It also removes foreign platform/architecture directories from dependencies’ `
 This keeps native packagers from trying to resolve Android or other foreign libraries in the desktop payload;
 host prebuilds, package JavaScript and metadata are retained. The unused development tests
 from `@fastify/send` are omitted as well.
-`npm run desktop:verify` then proves version/resource agreement and that the payload contains every
-production dependency without development-only packages.
+`tauri build` runs the same script as its `beforeBuildCommand`, deleting and re-staging the payload,
+so checking `src-tauri/resources/app` before a build proves nothing about the package. After a
+build, `npm run desktop:verify` (`--require-built`) checks what the build produced: the payload
+beside the release binary (`src-tauri/target/release/resources/app`, which the unbundled binary and
+`npm run desktop:smoke` run) and the payload inside every bundle under
+`src-tauri/target/release/bundle/` (the macOS `Prax.app`, the `.deb` data tree). For each it proves
+version/resource agreement, that every production dependency is present without development-only
+packages, that the payload is the checkout's current `server/`, `public/`, `mcp/`, `cli/`,
+`skills/`, `package.json` and backup/restore scripts file for file, and that its sidecar runs a
+supported Node (the staged runtime, when still present). A stale or foreign payload fails with the
+differing files. `node scripts/verify-desktop-release.mjs --require-prepared` still checks the
+staged inputs before a build.
 
 Both locations are generated and git-ignored. No window opens while the server starts: the main
 window opens directly on the app once the server reports ready and `/readyz` answers. A failed
@@ -97,8 +107,8 @@ unless `node --version` reports exactly `v$NODE_VERSION`, build with the `$RUST_
 and run every cargo and Tauri build with `--locked`, so a release never resolves crate versions
 that `src-tauri/Cargo.lock` does not name.
 
-Each job stages the Node runtime and dependencies, builds the installers, runs the packaged-runtime
-smoke, checksums its packages where it built them, and hands them to the release job as artifacts.
+Each job stages the Node runtime and dependencies, builds the installers, verifies the payload the
+build bundled (`npm run desktop:verify`), runs the packaged-runtime smoke, checksums its packages where it built them, and hands them to the release job as artifacts.
 The release job verifies those checksums after artifact storage, then publishes one `SHA256SUMS`
 covering exactly the attached files. Tagged releases attach both platforms' installers, and the
 release is only created once every package is present.
@@ -112,6 +122,7 @@ To build a package by hand instead, for example on a Mac:
 
 ```bash
 npm ci && npm run desktop:build              # .dmg and .app under src-tauri/target/release/bundle/
+npm run desktop:verify                       # the bundled payload is the current source
 npm run desktop:smoke                        # packaged-runtime smoke of the built app
 shasum -a 256 src-tauri/target/release/bundle/dmg/Prax_0.21.0_aarch64.dmg
 ```

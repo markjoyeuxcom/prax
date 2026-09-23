@@ -1,4 +1,5 @@
-import { escapeHtml, chip } from './renderHelpers.js';
+import { cssColor, escapeHtml } from './html.js';
+import { chip } from './renderHelpers.js';
 import { designStatus } from './statusMap.js';
 import { logo } from './icons.js';
 import { getSystemProject } from './systemProject.js';
@@ -90,7 +91,7 @@ function renderStateChips(project) {
 function renderProjectCard(entry, groupState, colorFor) {
   const { project, open, done, pct, updated } = entry;
   const id = escapeHtml(project.id);
-  const color = escapeHtml(colorFor(project));
+  const color = cssColor(colorFor(project));
   const stateDef = STATE_DEFS.find((def) => def.state === normalizedStatus(project));
   const dim = groupState === 'archived' ? ' is-dim' : '';
   const system = getSystemProject(project);
@@ -101,9 +102,9 @@ function renderProjectCard(entry, groupState, colorFor) {
         <span class="proj-card__name">${escapeHtml(project.name)}</span>
         ${chip(stateDef.groupLabel, `state-${stateDef.state}`)}
       </div>
-      <div class="proj-card__bar"><span style="width:${pct}%; --dot:${color}"></span></div>
+      <div class="proj-card__bar"><span style="width:${Number(pct)}%; --dot:${color}"></span></div>
       <div class="proj-card__meta">
-        <span>${open} open · ${done} done</span>
+        <span>${escapeHtml(open)} open · ${escapeHtml(done)} done</span>
         <span>${escapeHtml(updated)}</span>
       </div>
       <div class="proj-card__actions">

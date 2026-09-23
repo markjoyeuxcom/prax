@@ -12,7 +12,7 @@
 // aria labels, placeholders) is unchanged so the existing debounced-PATCH
 // handler in main.js keeps working.
 
-import { escapeHtml } from './renderHelpers.js';
+import { escapeHtml } from './html.js';
 
 export const OPS_FIELDS = Object.freeze([
   { key: 'onCall', label: 'On call', attr: 'data-project-oncall', ariaLabel: 'On-call owner', placeholder: 'who is on call' },

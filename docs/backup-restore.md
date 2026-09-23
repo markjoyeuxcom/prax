@@ -44,8 +44,9 @@ projects, archives, templates, trust, run history and Inbox undo records. It inc
 credentials, so keep it private. Unsaved drafts, browser preferences/pending decisions and external
 files are excluded. Follow the included `RESTORE.md` or the
 [bundled restore guide](../public/starter-content/workspace-restore.md) with Prax stopped. The
-shipped `npm run restore` command checks the manifest checksum and refuses to overwrite existing
-data. This is the authoritative recovery option accessible from the UI.
+shipped `npm run restore` command checks the manifest checksum, refuses a backup made by a newer
+Prax (see [Version and schema guards](#version-and-schema-guards)) and refuses to overwrite
+existing data. This is the authoritative recovery option accessible from the UI.
 
 The automated task portability drill is `npm run verify:portable`. It proves the documented task
 fields and checklist state against a fresh target instance; it does not change the exclusions
@@ -99,9 +100,40 @@ also valid when its consistency guarantees cover SQLite/WAL; rehearse the exact 
 4. Copy the backup to the configured `PRAX_DB_FILE` path with ownership/mode appropriate for the
    Prax process. Do not carry stale sidecars across from the failed working copy.
 5. Run `PRAX_DB_FILE=/restored/prax.db npm run migrate`. Migrations are idempotent and no-op on an
-   up-to-date backup.
+   up-to-date backup. A backup taken by a newer Prax is refused here (see below).
 6. Start Prax, require `/healthz` and `/readyz` to succeed, and inspect representative recent work.
    If validation fails, stop Prax and put the saved pre-restore files back.
+
+## Version and schema guards
+
+Prax never runs older code on a schema a newer Prax has changed, and never quietly serves a schema
+that lost one of its data-rule triggers. Three guards enforce this.
+
+- **Downgrade guard (startup and `npm run migrate`).** Before applying anything, the migration
+  runner compares the database's `schema_migrations` with the migrations this build ships. If the
+  database records a migration this build does not know, it refuses to start with a message naming
+  the unknown migration(s) and the last migration this build knows (error code
+  `PRAX_SCHEMA_TOO_NEW`). Install the newer Prax again, or restore a backup made by this version or
+  an older one. Nothing is changed.
+- **Restore guard (`npm run restore`, the app-bundle restore command and the restore drill).** A
+  full workspace ZIP's `manifest.json` records `praxVersion` and `schema.finalMigration`. The
+  restore command reads the manifest extracted beside `prax.db` (or the one named with
+  `--manifest <path>`) and refuses, before writing anything, a backup whose `praxVersion` is newer
+  than this Prax, whose final migration this build does not know, whose manifest format or version
+  it does not understand, or whose `database.sha256` disagrees with `--sha256`. It then checks the
+  database's own `schema_migrations` too, before copying and again after folding in any WAL, so an
+  edited or missing manifest (for example a raw database backup) cannot bypass the guard. A backup
+  from the same or an older Prax restores as before and is upgraded by the normal startup
+  migrations.
+- **Trigger-set check (after migrations).** FTS maintenance and the supersession lifecycle live in
+  triggers on `markdown_documents` and `document_links`. SQLite drops a table's triggers when a
+  migration rebuilds the table (SQLite cannot `ALTER` a `CHECK` constraint), and a `document_links`
+  trigger that names `markdown_documents` makes the rebuild's rename fail. The expected trigger set
+  is listed once, as `EXPECTED_TRIGGERS` in `server/migrate.js`. The runner verifies it inside the
+  final migration's transaction, so a migration that loses a trigger is rolled back and startup
+  fails with the missing or unexpected trigger names. It also verifies it at every startup of an
+  up-to-date database. A migration that adds or removes one of these triggers updates the list in
+  the same change.
 
 For app-level exports: create/choose a project, then Settings ▸ Data & admin ▸
 **Import tasks from JSON** (choose append/skip/replace). To intake loose `.md` files, open Library ▸
