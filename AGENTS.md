@@ -5,15 +5,17 @@ Instructions for agents working in this repository. CLAUDE.md is a symlink to th
 ## Start a task
 
 1. Read [Working on Prax](docs/working-on-prax.md) for project organisation and code entry points.
-2. Find the owning project’s overview with `prax search "Prax project overview" --project prax`,
-   then fetch the matching document with `prax get <id>`. If this is a fresh library, use the
-   repository guide and the bundled Project overview starter; do not assume another machine’s IDs.
-   If the app is unavailable, use the repository guide and report the missing memory access.
-3. Run `prax context "<task>" --project prax` for a bounded project briefing, then
-   `prax recall "Prax <task>"` for relevant knowledge across projects. Fetch a full note when
-   its details matter. Unverified notes are leads; check them against current code.
-4. Inspect the working tree and the relevant Prax task's notes, checklist and linked documents
-   before editing. Preserve unrelated work. Create a task for substantial new work when absent.
+2. Print the owning project’s overview with `node cli/prax.js overview` (the checkout’s marker
+   selects prax). It says whether the card is verified; an unverified card is a lead. If none
+   exists, use the repository guide and the bundled Project overview starter; do not assume
+   another machine’s IDs. If the app is unavailable, use the repository guide and report the
+   missing memory access.
+3. Run `node cli/prax.js context "<task>"` for a bounded project briefing, then
+   `node cli/prax.js recall "Prax <task>"` for relevant knowledge across projects. Fetch a full
+   note when its details matter. Unverified notes are leads; check them against current code.
+4. For a known task, `node cli/prax.js brief <task-id>` prints its checklist, latest handoff,
+   linked documents and the top related memories in one call. Inspect the working tree and the
+   relevant Prax task's notes, checklist and linked documents before editing. Preserve unrelated work. Create a task for substantial new work when absent.
 
 ## Organise work and knowledge
 
@@ -46,9 +48,14 @@ recent/keyword check, not an assumption that no knowledge exists.
 
 ## Memory tools
 
-Use `prax`, or `~/.local/bin/prax` when PATH does not find it. From a checkout,
-`node cli/prax.js` is equivalent. The portable prax-recall and prax-remember skills share the
-CLI engine; see [the memory convention](docs/agent-memory.md) and [skills](skills/README.md).
+Inside this checkout, run `node cli/prax.js`: it is the code you are working on. `prax` on PATH
+(`~/.local/bin/prax`) is a shim to the installed desktop release (`/Applications/Prax.app`), so
+it lags the checkout until the next release and may lack new commands or fixes. Outside this
+repository, `prax` is the right command. In a sandbox where `node` resolves through mise shims
+that cannot read `~/.config/mise/config.toml`, run the checkout CLI on the desktop bundle's own
+runtime instead: `/Applications/Prax.app/Contents/MacOS/prax-server cli/prax.js <args>` (see
+[Working on Prax](docs/working-on-prax.md)). The portable prax-recall and prax-remember skills
+share the CLI engine; see [the memory convention](docs/agent-memory.md) and [skills](skills/README.md).
 Project commands resolve `--project`, PRAX_PROJECT, .prax/project.json, git remote or folder
 name; this checkout's marker selects prax. Recall searches all projects unless scoped.
 

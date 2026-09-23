@@ -7,11 +7,17 @@ import { DOCUMENT_TYPE_VALUES, isDocumentType } from '../public/js/documentTypes
 import { createClient } from './lib/apiClient.js';
 import { formatSearchResults, formatDocument, trustLabel } from './lib/format.js';
 import { recall, formatRecall } from './lib/recall.js';
+import { memoryDelta, planDelta, recordDelta, parseSince } from './lib/delta.js';
+import { budgetedContext, formatBudgetedContext, budgetedContextJson } from './lib/context.js';
+import { buildBrief, formatBrief, briefJson } from './lib/brief.js';
 import { remember } from './lib/remember.js';
-import { confirmDocumentVerification } from './lib/verify.js';
+import { projectOverview, overviewCaveat } from './lib/overview.js';
+import { assertAttendedHuman, confirmDocumentVerification } from './lib/verify.js';
+import { createTriageClient, triage } from './lib/triage.js';
 import { searchLibrary, describeRetrieval } from './lib/search.js';
 import { createCheckout, createRepoReader, headSha } from './lib/repoFiles.js';
 import { resolveCitation } from './lib/codeRefs.js';
+import { checkCommand, CHECK_USAGE } from './lib/checkCommand.js';
 import {
   CliUsageError, checkCommandArgs, flagValue, parseArgs, positiveIntFlag, repeatedValues,
 } from './lib/cliArgs.js';
@@ -20,6 +26,13 @@ import {
   buildTaskRecord, buildTaskPatch, createTask, updateTask, completeTask, setChecklistItem,
   formatTask, formatTaskList, isTaskId, selectListedTasks, TASK_PRIORITIES, TASK_STATUSES,
 } from './lib/tasks.js';
+import {
+  MIRROR_BOOLEAN_FLAGS, MIRROR_COMMAND, MIRROR_HELP, MIRROR_VALUE_FLAGS, runMirror,
+} from './lib/mirrorCommand.js';
+import { runHarvest } from './lib/harvestCommand.js';
+import {
+  markUsed, doctorExitCode, formatDoctor, formatTelemetryStatus, DOCTOR_EXIT,
+} from './lib/librarian.js';
 
 // The declared flag grammar (cli/lib/cliArgs.js). Every flag any command
 // takes is named here with its kind, so an unknown or mistyped flag is refused
@@ -28,12 +41,16 @@ import {
 // accumulate when repeated (`--check a --check b`) are `repeatable`; every
 // other flag is last-wins.
 const REPEATABLE_FLAGS = ['check'];
-const BOOLEAN_FLAGS = ['json', 'help', 'all', 'all-projects', 'memory'];
+const BOOLEAN_FLAGS = ['json', 'help', 'all', 'all-projects', 'memory', 'since-last-session', 'comment', 'strict', 'foreground', 'dry-run', 'handoff', ...MIRROR_BOOLEAN_FLAGS];
 // `--recent` takes a count only when the next word is one.
 const OPTIONAL_FLAGS = { recent: (next) => /^\d+$/.test(next) };
 const VALUE_FLAGS = [
   'project', 'url', 'agent', 'limit', 'body', 'type', 'tag', 'ref', 'cite', 'id', 'as', 'with',
   'priority', 'status', 'due', 'planned', 'label', 'description', 'notes', 'query', 'title', 'append-notes',
+  ...MIRROR_VALUE_FLAGS,
+  'diff', 'files',
+  'transcript', 'hook', 'session', 'budget-ms', 'input',
+  'budget', 'since',
 ];
 // The prax-remember skill spells the tag flag --tags; an agent that learned
 // that syntax keeps its tags here too (both spellings at once are refused).
@@ -47,19 +64,38 @@ const TASK_FIELD_FLAGS = ['priority', 'status', 'due', 'planned', 'label', 'desc
 const COMMANDS = {
   help: { flags: [], max: Infinity, usage: 'prax help' },
   init: { flags: [], max: 0, usage: 'prax init [--project <slug>]' },
-  context: { flags: ['limit'], usage: 'prax context [query...] [--json] [--limit <n>]' },
+  context: { flags: ['limit', 'budget'], usage: 'prax context [query...] [--json] [--limit <n>] [--budget <tokens>]' },
   search: { flags: ['all'], usage: 'prax search <query> [--all] [--json]' },
-  recall: { flags: ['limit', 'recent'], usage: 'prax recall [query...] [--project <slug>] [--limit <n>] [--recent [n]] [--json]' },
+  recall: {
+    flags: ['limit', 'recent', 'budget', 'since', 'since-last-session'],
+    usage: 'prax recall [query...] [--project <slug>] [--limit <n>] [--budget <tokens>] [--recent [n] | --since-last-session | --since <iso>] [--json]',
+  },
+  brief: { flags: ['budget'], max: 1, usage: 'prax brief <task-id> [--budget <tokens>] [--json]' },
   get: { flags: [], max: 1, usage: 'prax get <id> [--json]' },
+  overview: { flags: [], max: 0, usage: 'prax overview [--project <slug>] [--json]' },
   remember: {
     flags: ['body', 'memory', 'type', 'tag', 'ref', 'cite', 'id'],
     max: 1,
     usage: 'prax remember "<title>" --body <text> [--memory] [--type <type>] [--tag a,b] [--ref <url>] [--cite <path[:start[-end]]>] [--id <uuid>]',
   },
   verify: { flags: ['as'], max: 1, usage: 'prax verify <id> --as <human-name>' },
+  triage: { flags: ['as'], max: 0, usage: 'prax triage [--as <human-name>] [--project <slug>]' },
   unverify: { flags: [], max: 1, usage: 'prax unverify <id>' },
   supersede: { flags: ['with'], max: 1, usage: 'prax supersede <oldId> --with <newId>' },
   task: { flags: [], max: Infinity, usage: 'prax task <add|list|show|update|done|check|uncheck> …' },
+  mirror: MIRROR_COMMAND,
+  check: { flags: ['diff', 'files', 'comment', 'strict'], max: 0, usage: CHECK_USAGE },
+  // --input/--handoff are the hook worker's own (a detached child reads the
+  // hook JSON its parent saved); a person uses --transcript or stdin.
+  harvest: {
+    flags: ['transcript', 'hook', 'session', 'budget-ms', 'foreground', 'dry-run', 'input', 'handoff'],
+    max: 0,
+    usage: 'prax harvest [--transcript <file>] [--session <id>] [--dry-run] [--budget-ms <n>] [--json]   (or --hook claude|codex|copilot, reading hook JSON on stdin)',
+  },
+  // Librarian (docs/superpowers/specs/2026-09-23-librarian-design.md).
+  used: { flags: [], max: 1, usage: 'prax used <id> [--json]' },
+  doctor: { flags: [], max: 0, usage: 'prax doctor [--project <slug>] [--json]' },
+  telemetry: { flags: [], max: 1, usage: 'prax telemetry <status|clear> [--json]' },
 };
 const TASK_COMMANDS = {
   add: { flags: [...TASK_FIELD_FLAGS, 'check'], usage: 'prax task add <title> [--priority p] [--status s] [--due d] [--planned d] [--label a,b] [--description t] [--notes t] [--check <item>]...' },
@@ -92,6 +128,8 @@ function parseCommandLine(argv) {
     });
   } catch (err) {
     if (err instanceof CliUsageError) err.message = `${err.message}\n${usageFor(argv)}`;
+    // prax check keeps exit 1 for drift alone; a usage error is exit 2.
+    if (argv.find((a) => !a.startsWith('--')) === 'check') err.exitCode = 2;
     throw err;
   }
   const { positionals, flags } = parsed;
@@ -106,9 +144,14 @@ function parseCommandLine(argv) {
     });
     return parsed;
   }
-  checkCommandArgs(command, { flags, positionals: positionals.slice(1) }, {
-    allowed: [...GLOBAL_FLAGS, ...spec.flags], max: spec.max, usage: spec.usage,
-  });
+  try {
+    checkCommandArgs(command, { flags, positionals: positionals.slice(1) }, {
+      allowed: [...GLOBAL_FLAGS, ...spec.flags], max: spec.max, usage: spec.usage,
+    });
+  } catch (err) {
+    if (command === 'check') err.exitCode = 2; // exit 1 means drift
+    throw err;
+  }
   return parsed;
 }
 
@@ -160,12 +203,16 @@ const HELP = `prax — shared project memory CLI
 
 Usage:
   prax init [--project <slug>]
-  prax context [query...] [--json] [--limit <n>]
+  prax context [query...] [--json] [--limit <n>] [--budget <tokens>]
   prax search <query> [--all] [--json]
-  prax recall [query...] [--project <slug>] [--limit <n>] [--recent [n]] [--json]
+  prax recall [query...] [--project <slug>] [--limit <n>] [--budget <tokens>] [--recent [n]] [--json]
+  prax recall --since-last-session | --since <iso> [--project <slug>] [--limit <n>] [--budget <tokens>] [--json]
+  prax brief <task-id> [--budget <tokens>] [--json]
   prax get <id> [--json]
+  prax overview [--project <slug>] [--json]
   prax remember "<title>" --body <text> [--memory] [--type note|runbook|decision|known-issue|reference|post-mortem|template] [--tag a,b] [--ref <url>] [--cite <path[:start[-end]]>] [--id <uuid>]
   prax verify <id> --as <human-name>
+  prax triage [--as <human-name>] [--project <slug>]    (interactive review queue; people only)
   prax unverify <id>
   prax supersede <oldId> --with <newId>
   prax task add <title> [--priority high|medium|low] [--status planned|in-progress|...] [--due YYYY-MM-DD] [--planned YYYY-MM-DD] [--label a,b] [--description <text>] [--notes <text>] [--check <item>]...
@@ -174,6 +221,13 @@ Usage:
   prax task update <id> [--title <t>] [--status <s>] [--priority <p>] [--due <d>] [--planned <d>] [--label a,b] [--description <text>] [--notes <text> | --append-notes <text>]
   prax task done <id>
   prax task check <id> <n|label>      prax task uncheck <id> <n|label>
+${MIRROR_HELP}
+  prax check [--diff <range> | --files <a,b,…>] [--project <slug>] [--comment] [--strict] [--json]
+  prax harvest [--transcript <file>] [--session <id>] [--dry-run] [--budget-ms <n>] [--json]
+  prax harvest --hook claude|codex|copilot      (agent CLI hook: hook JSON on stdin; always exits 0)
+  prax used <id>                      (after acting on a recalled memory)
+  prax doctor [--project <slug>] [--json]   (exit 0 ok, 2 warnings, 1 could not run)
+  prax telemetry <status|clear> [--json]
 
 Global flags: --project <slug>  --url <baseUrl>  --agent <id>  --json
 Env: PRAX_API_URL  PRAX_PROJECT  PRAX_API_TOKEN (or PRAX_TOKEN)  PRAX_AGENT  PRAX_TIMEOUT_MS (default 30000)
@@ -195,6 +249,10 @@ async function main(argv) {
   const out = (text) => process.stdout.write(`${typeof text === 'string' ? text : JSON.stringify(text, null, 2)}\n`);
 
   if (!command || command === 'help' || flags.help) { out(HELP); return; }
+
+  if (command === 'harvest') {
+    return runHarvest({ flags, agent, out, createClient: (options) => createClient({ ...options, agent: options.agent ?? agent }) });
+  }
 
   if (command === 'init') {
     const repoUrl = detectRepoUrl({});
@@ -246,7 +304,15 @@ async function main(argv) {
     const query = positionals.slice(1).join(' ');
     const format = flags.json ? 'json' : 'md';
     const limit = positiveIntFlag(flags, 'limit');
-    const pack = await client.contextPack(project, { query, format, limit });
+    const budget = positiveIntFlag(flags, 'budget');
+    if (budget !== undefined) {
+      // Filled here, not on the server: only this checkout can say whether
+      // cited code still matches (the fill order's second tier).
+      const result = await budgetedContext(client, { project, query, limit, budget, checkout: createCheckout() });
+      out(flags.json ? budgetedContextJson(result) : formatBudgetedContext(result));
+      return;
+    }
+    const pack = await client.contextPack(project, { query, format, limit, source: 'context' });
     out(pack);
     return;
   }
@@ -272,13 +338,67 @@ async function main(argv) {
     if (recentCount !== undefined && limitFlag !== undefined) {
       throw new CliUsageError('give the count once: --recent <n> or --limit <n>.');
     }
-    const limit = recentCount ?? limitFlag ?? 5;
+    const budget = positiveIntFlag(flags, 'budget');
     const query = positionals.slice(1).join(' ');
+    const sinceFlag = flagValue(flags, 'since');
+    const sinceLastSession = Boolean(flags['since-last-session']);
+    if (sinceFlag !== undefined || sinceLastSession) {
+      // The delta: what changed in memory since this agent's last delta (or
+      // since --since), instead of a search.
+      if (sinceFlag !== undefined && sinceLastSession) throw new CliUsageError('give one of --since <iso> or --since-last-session.');
+      if (recent) throw new CliUsageError('--recent and a delta (--since / --since-last-session) are different lists; give one.');
+      if (query) throw new CliUsageError(`a delta lists changed memory and takes no query (got "${query}").`);
+      const since = sinceFlag === undefined ? undefined : parseSince(sinceFlag);
+      if (sinceFlag !== undefined && !since) throw new CliUsageError(`--since must be an ISO-8601 date or date-time (got "${sinceFlag}").`);
+      if (sinceLastSession && !client.agent) {
+        throw new CliUsageError('--since-last-session needs an agent id: pass --agent <id> or set PRAX_AGENT.');
+      }
+      const result = await memoryDelta(client, {
+        since, sinceLastSession, project, limit: limitFlag, checkout: createCheckout(),
+      });
+      const planned = planDelta(result, budget ?? Infinity);
+      out(flags.json ? { ...result, budget: planned.summary, advance: sinceLastSession && planned.advance } : planned.text);
+      // Only after the block is out, and only when nothing was left out: the
+      // marker is the end of what this agent has actually read.
+      let marked = false;
+      if (sinceLastSession && planned.advance) {
+        const recorded = await recordDelta(client, result, { project });
+        marked = recorded.marked;
+        if (recorded.error) process.stderr.write(`prax: could not record the delta marker (${recorded.error.message}); the next --since-last-session repeats these changes.\n`);
+      }
+      if (flags.json && sinceLastSession) process.stderr.write(`prax: delta marker ${marked ? `recorded at ${result.until}` : 'not advanced'}.\n`);
+      return;
+    }
+    if (budget !== undefined && recent) throw new CliUsageError('--budget does not apply to --recent (a chronological list bounded by its count).');
+    // A budget bounds the printed block, not the match count: without --limit
+    // it considers up to 20 matches.
+    const limit = recentCount ?? limitFlag ?? (budget !== undefined ? 20 : 5);
     if (!recent && !query) throw new CliUsageError('recall requires a query (or use --recent).');
     // --recent is a chronological list; a query would be silently ignored.
     if (recent && query) throw new CliUsageError(`recall --recent lists the newest documents and takes no query (got "${query}").`);
-    const result = await recall(client, { query, project, limit, recent, checkout: createCheckout() });
+    const result = await recall(client, { query, project, limit, recent, budget, checkout: createCheckout() });
     out(flags.json ? result : formatRecall(result));
+    return;
+  }
+
+  if (command === 'overview') {
+    const { project } = await resolveProjectName(flags, client);
+    const result = await projectOverview(client, project);
+    if (flags.json) { out(result); return; }
+    if (!result.found) {
+      out(`No project overview for "${result.project.slug}". Create one from Library ▸ New doc ▸ Templates & guides ▸ Project overview and tag it project-card.`);
+      return;
+    }
+    out(`${overviewCaveat(result)}\n\n${formatDocument(result.doc)}`);
+    return;
+  }
+
+  if (command === 'brief') {
+    const id = positionals[1];
+    if (!isTaskId(id)) throw new CliUsageError('brief requires a task uuid (prax task list shows them).');
+    const budget = positiveIntFlag(flags, 'budget');
+    const brief = await buildBrief(client, { taskId: id, budget, checkout: createCheckout() });
+    out(flags.json ? briefJson(brief) : formatBrief(brief));
     return;
   }
 
@@ -357,6 +477,12 @@ async function main(argv) {
     const id = positionals[1];
     if (!id) throw new Error('verify requires a document id.');
     if (flags.json) throw new Error('verify is interactive and does not support --json.');
+    // People only: refused in an agent CLI's shell (or with --agent) and
+    // without a terminal, before anything is read (cli/lib/verify.js).
+    assertAttendedHuman({
+      input: process.stdin, output: process.stdout, command: 'verify',
+      env: agent ? { ...process.env, PRAX_AGENT: agent } : process.env,
+    });
     const actor = (flagValue(flags, 'as') ?? '').trim();
     if (!actor) throw new Error('verify requires --as <human-name> for attribution.');
     const current = await client.getDocument(id);
@@ -379,6 +505,27 @@ async function main(argv) {
     return;
   }
 
+  // Interactive review-queue pass (cli/lib/triage.js). The guard runs before
+  // any request; --project narrows the queue and is never guessed from the
+  // checkout, since the queue is library-wide like the UI's.
+  if (command === 'triage') {
+    if (flags.json) throw new CliUsageError('triage is interactive and does not support --json.');
+    const env = agent ? { ...process.env, PRAX_AGENT: agent } : process.env;
+    assertAttendedHuman({
+      input: process.stdin, output: process.stdout, env, command: 'triage', raw: true,
+    });
+    await triage({
+      input: process.stdin,
+      output: process.stdout,
+      env,
+      client: createTriageClient({ baseUrl: flags.url }),
+      as: flagValue(flags, 'as'),
+      project: flagValue(flags, 'project'),
+      checkout: createCheckout(),
+    });
+    return;
+  }
+
   if (command === 'unverify') {
     const id = positionals[1];
     if (!id) throw new Error('unverify requires a document id.');
@@ -393,6 +540,18 @@ async function main(argv) {
     if (!oldId || !newId) throw new Error('supersede requires <oldId> --with <newId>.');
     const doc = await client.supersede(oldId, newId);
     out(flags.json ? doc : `Superseded ${oldId} with ${newId}.`);
+    return;
+  }
+
+  if (command === 'mirror') {
+    await runMirror({ positionals, flags, client, out, resolveProject: (options) => resolveProjectName(flags, client, options) });
+    return;
+  }
+
+  if (command === 'check') {
+    // Cite-drift gate (cli/lib/checkCommand.js). Read-only; exit 0 clean or
+    // skipped fail-open, 1 drift, 2 could not check.
+    process.exitCode = await checkCommand({ flags, client });
     return;
   }
 
@@ -469,10 +628,54 @@ async function main(argv) {
     throw new Error(`Unknown task subcommand: ${sub}\n\n${TASK_HELP}\nPriorities: ${TASK_PRIORITIES.join(', ')}. Statuses: ${TASK_STATUSES.join(', ')}.`);
   }
 
+  if (command === 'used') {
+    const id = positionals[1];
+    const use = await markUsed(client, id);
+    out(flags.json ? use : `Noted: used "${use.title || id}" (${id}).`);
+    return;
+  }
+
+  if (command === 'doctor') {
+    const project = flagValue(flags, 'project');
+    let report;
+    try {
+      report = await client.librarianReport(project);
+    } catch (err) {
+      process.stderr.write(`prax: doctor could not run: ${err.message}\n`);
+      process.exitCode = DOCTOR_EXIT.failed;
+      return;
+    }
+    out(flags.json ? report : formatDoctor(report, { base: client.base }));
+    process.exitCode = doctorExitCode(report);
+    return;
+  }
+
+  if (command === 'telemetry') {
+    const sub = positionals[1] || 'status';
+    if (sub === 'status') {
+      const stats = await client.telemetryStatus();
+      out(flags.json ? stats : formatTelemetryStatus(stats));
+      return;
+    }
+    if (sub === 'clear') {
+      const result = await client.clearTelemetry();
+      out(flags.json ? result : `Cleared ${result.cleared.queries} recorded queries and ${result.cleared.uses} used signals at ${client.base}.`);
+      return;
+    }
+    throw new CliUsageError(`Unknown telemetry subcommand: ${sub}\nUsage: ${COMMANDS.telemetry.usage}`);
+  }
+
   throw new Error(`Unknown command: ${command}\n\n${HELP}`);
 }
 
-main(process.argv.slice(2)).catch((err) => {
+// harvest settles its own exit (a budget may leave a request in flight), and a
+// harvest hook never fails the agent that ran it, not even on a usage error.
+const argv = process.argv.slice(2);
+const harvestHook = argv[0] === 'harvest' && argv.some((a) => a === '--hook' || a.startsWith('--hook='));
+main(argv).then((code) => {
+  if (typeof code === 'number') process.exit(code);
+}).catch((err) => {
+  if (harvestHook) process.exit(0);
   process.stderr.write(`prax: ${err.message}\n`);
-  process.exit(1);
+  process.exit(Number.isInteger(err?.exitCode) ? err.exitCode : 1);
 });

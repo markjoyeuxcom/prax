@@ -61,6 +61,8 @@ prax init --project homelab
 | `PRAX_PROJECT` | — | Default project slug (overrides folder-name detection) |
 | `PRAX_API_TOKEN` (or `PRAX_TOKEN`) | — | Optional bearer token, forwarded as `Authorization: Bearer <token>`; `PRAX_API_TOKEN` wins when both are set. The server does not require it under the no-auth model |
 | `PRAX_AGENT` | auto | Which agent CLI is writing (`claude`, `codex`, …), sent as `x-prax-agent` on agent writes. Detected from the Claude Code and Codex shell environments when unset; `--agent <id>` overrides |
+| `PRAX_TRUSTED_VERIFIERS` | — | Comma-separated verifier names whose git-sourced verification `prax mirror import` may honour (after attended confirmation); `--trust-verifier` overrides |
+| `PRAX_HARVEST_LOG` | — | `prax harvest --hook`: a file that receives one line per hook run, including failures the hook stays silent about |
 | `PRAX_TIMEOUT_MS` | `30000` | How long one request may take before the CLI gives up (the `/readyz` discovery probe gets 2 s). A request that times out is never re-sent; a timed-out write is reported as an unknown outcome to reconcile. Raise it for a slow embedding model. |
 
 The CLI, the skills and the MCP server share one transport; discovery, tokens, timeouts, error
@@ -122,7 +124,7 @@ the existing project instead of creating a folder-named duplicate) > an existing
 the folder name. Inside a git repository it also registers the remote URL on the project. The
 file is safe to commit to the repo.
 
-### `context [query...] [--json] [--limit <n>]`
+### `context [query...] [--json] [--limit <n>] [--budget <tokens>]`
 
 The headline command. Pulls a bounded, trust-aware Markdown briefing assembled from the
 project's active documents. With a query the server ranks documents by semantic similarity
@@ -133,12 +135,18 @@ uses recency only.
 prax context "how do we restore postgres"
 prax context --limit 20
 prax context --json
+prax context "restore postgres" --budget 800
 ```
 
 Flags:
 
 - `--json` — emit the raw JSON context-pack object instead of Markdown
 - `--limit <n>` — cap the total number of documents in the pack (server default: 12, max: 50)
+- `--budget <tokens>` — bound the printed pack by an estimated token count instead of a
+  document count, filled in the [budget fill order](#budgets-and-the-fill-order). The CLI asks
+  for up to `--limit` candidates (50 when no limit is given), checks their code citations in
+  this checkout and renders the pack itself; sections keep their order and unverified entries
+  stay quarantined last. Without `--budget` the output is exactly the server's pack.
 
 The Markdown output groups documents into labelled sections — see [Output shape](#context-output-shape) below.
 Both Markdown and JSON name the retrieval mode. Query fallback is explicit (for example,
@@ -172,7 +180,7 @@ Each result shows the document title, a trust tag (`[verified]`, `[unverified]`,
 `[superseded]`), the document id, and a short snippet. A degraded result is always labelled in
 the human-readable output too.
 
-### `recall [query...] [--project <slug>] [--limit <n>] [--recent [n]] [--json]`
+### `recall [query...] [--project <slug>] [--limit <n>] [--budget <tokens>] [--recent [n] | --since-last-session | --since <iso>] [--json]`
 
 Cross-project, active-only recall distilled to one block: the top hit's title, type, trust
 label and id, its body trimmed to about 800 characters, then a short `Related:` list. This is
@@ -214,12 +222,104 @@ prax recall --recent 5
   recorded repository, or when the citations could not be read — rather than calling the code
   gone or changed. In a very large file only the lines near the citation
   are searched for a move, and a `changed` note says so.
+  A citation is re-found in three steps:
+  1. Its line hash at the recorded lines.
+  2. The same line hash anywhere nearby, reported as `moved to p:a-b`.
+  3. A whitespace-free content hash, so re-indenting or re-wrapping the cited code is not
+     reported as a change. When the code also moved, the note says
+     `moved to p:a-b (whitespace changed)`.
+
+  When the content really changed, the note says where the enclosing function now is
+  (`(loadConfig is now at line 40)`) or that it is gone. A citation pinned before these anchors
+  existed is checked by its line hash alone. The first recall that finds its lines unchanged
+  fills in the other two anchors with one small write, which is ignored if it fails.
 - `--limit <n>` bounds the matches kept in the structured result (default 5). The server answers
   in pages of at most 50 and `recall` pages up to the bound; when matches remain beyond it the
   block starts with `(N of M matches shown — raise --limit for the rest)`. The rendered
   `Related:` list is deliberately short (five entries); `--json` carries every kept match.
 - `--json` emits the structured result instead of the rendered block, including `index`,
   `degraded`, `reason` and `page`.
+- `--budget <tokens>` switches to the fill-ordered, budgeted block (see
+  [Budgets and the fill order](#budgets-and-the-fill-order)): up to `--limit` matches (20 when
+  no limit is given), each read in full and with **every** match's citations checked, printed
+  verified first, then cited-and-unchanged, then newest. The top of the block may therefore not
+  be the highest-ranked match. `--json` adds `budget: { tokens, used, estimate, fill, entries:
+  [{ id, tier, form }], omitted }`. `--budget` is refused with `--recent`.
+
+#### The since-last-session delta
+
+```bash
+prax recall --since-last-session              # what changed since this agent's last delta
+prax recall --since-last-session --project homelab --budget 600
+prax recall --since 2026-09-20                # an explicit window; moves no marker
+```
+
+Instead of searching, list the memory that changed in a window: documents **created**,
+**updated**, **verified**, **superseded**, **deprecated** or **archived** since then, each with
+what changed, retired ones as a single line naming their replacement (`superseded by <id>`).
+
+- `--since-last-session` starts where this agent's last `--since-last-session` delta ended. The
+  server keeps one marker per agent (the `x-prax-agent` id, from `--agent`, `PRAX_AGENT` or a
+  detected agent shell; without one the command is refused) and per scope (all projects, or the
+  `--project` given). The first run has no marker: it prints `No earlier delta recorded …;
+  baseline set at …` and records the baseline.
+- The marker moves only after a `--since-last-session` block has been printed, to the last
+  change it contained. Plain recalls, `--recent`, context packs, briefs and `--since` never
+  move it, so every change reaches an agent's delta exactly once. When `--budget` leaves changes
+  out, the marker stays put and the block says so. A marker that could not be recorded is
+  reported on stderr; the next delta then repeats the window.
+- `--since <iso>` takes an ISO-8601 date or date-time and reads without touching any marker.
+- `--limit <n>` bounds one page (server default 50, max 200); a page lists the oldest changes
+  first and says when more remain (the next delta continues from there).
+- Unverifications and permanent deletions are not tracked by the delta, and the block says so.
+- Several sessions of the same agent share one marker; use `--since` when that matters.
+- The delta takes no query and cannot be combined with `--recent`; `--json` returns the route's
+  envelope with each item's `tier`, the `budget` decisions and `advance` (whether the marker is
+  advanced after output; stderr confirms it).
+
+### `brief <task-id> [--budget <tokens>] [--json]`
+
+Everything an agent needs to start a task, in one read-only call:
+
+```bash
+prax brief 2234a575-027e-4218-892a-b74d2b5c7f8c
+prax brief 2234a575-027e-4218-892a-b74d2b5c7f8c --budget 500 --json
+```
+
+- The task header (status, priority, project, planned/due dates, labels, id) and description.
+- The checklist, numbered as `prax task check` takes it, with an `n of m done` count.
+- The **latest handoff**: the last paragraph of the task's notes (paragraphs are separated by a
+  blank line), with a pointer to `prax task show` when there are more.
+- **Linked documents** and **related documents** (the app's meaning-based suggestions), one line
+  each with the trust chip, type, id, project and trust line. A document whose record could not
+  be read prints `[trust unknown]`; only the first 20 linked documents are read. A degraded
+  related list says why (`related documents unavailable: semantic-off`), and suggestions already
+  shown under Memory are not repeated.
+- **Memory**: the top 3 recall matches for the task's title and description (across projects,
+  excluding documents already linked), every match's citations checked, in the budget fill
+  order, with the same index-coverage and keyword-fallback disclosures as `recall`. In keyword
+  mode every word of the task text must match, so this section is often empty there.
+- `--budget <tokens>` bounds the memory section only; the task's own text always prints.
+- `--json` returns `{ schemaVersion, task, project, checklist, handoff: { paragraph,
+  paragraphs }, linked, related: { items, alsoUnderMemory, degraded, reason }, memory }`.
+
+### `overview [--project <slug>] [--json]`
+
+Print the project's orientation card in one call. Active documents only, in this order: a
+verified document tagged `project-card`; otherwise the newest `project-card`; otherwise one
+titled exactly "<Project name> project overview". A caveat line above the card always states
+whether it is verified and how it was found, so an agent treats an unverified card as a lead.
+With no card it prints how to create one (exit 0). `--json` returns
+`{ project, found, source, doc }`. `prax context` still leads with the card once it is verified.
+
+```bash
+prax overview                  # the checkout's project
+prax overview --project homelab
+```
+
+- The recall is recorded in the workspace's local recall telemetry (query, agent, mode, the ids
+  returned); a paged recall is one query. See [`used`](#used-id---json) and
+  [Recall telemetry](#recall-telemetry). `search` and `context` are recorded the same way.
 
 ### `get <id> [--json]`
 
@@ -274,6 +374,13 @@ Flags:
   `--tags` (the prax-remember skill's spelling) is accepted as the same flag; giving both is
   refused.
 - `--ref <url>` — attach an external reference (a PR, dashboard, or issue URL) to the memory. Best-effort: a rejected URL warns on stderr but never fails the remember.
+- `--cite <path[:start[-end]]>` — pin the code the memory is about, from inside the checkout.
+  The path is repository-relative and the lines are 1-based and inclusive; no range means the
+  whole file.
+  - Three anchors are stored, never the source: a hash of the lines, a whitespace-free hash of
+    them, and the name of the enclosing function, class or method.
+  - The name comes from a heuristic for JS/TS, Python, Rust, Go, Swift and shell.
+  - Re-citing the same range refreshes the pin. Best-effort, like `--ref`.
 
 ### `verify <id> --as <human-name>`
 
@@ -284,11 +391,62 @@ Mark a document as verified (human-blessed). Sets `verified: true`, stamps `veri
 prax verify c58d3108-4f93-4a50-ac42-0c1d61e61b08 --as mark
 ```
 
-Verification is an attended trust action. The command refuses non-interactive input, requires an
-explicit human name, prints the full current document for review, and asks for a document-specific
-confirmation phrase before changing trust. It does not support `--json`. Use the Library UI when
-an interactive terminal is unavailable. The write includes the reviewed document's content hash;
-if it changes before confirmation, Prax returns a conflict instead of verifying unseen content.
+Verification is a trust action that a person must attend. Before any request, the command
+checks two things. It refuses when the shell belongs to an agent CLI: `PRAX_AGENT`, `--agent`,
+or a marker set by Claude Code (`CLAUDECODE`), Codex (`CODEX_THREAD_ID`, `CODEX_SESSION_ID`),
+Copilot CLI (`COPILOT_CLI`, `COPILOT_AGENT_SESSION_ID`) or Antigravity (`ANTIGRAVITY_AGENT`,
+`ANTIGRAVITY_CONVERSATION_ID`). It also refuses non-interactive input. There is no override
+flag; see [Verification](agent-memory.md#verification) for why. If the refusal is wrong, open a
+terminal that no agent CLI started, or use the Library review queue.
+
+The command requires an explicit human name. It prints the full current document for review
+and asks for a confirmation phrase specific to that document before it changes trust. It does
+not support `--json`. The write includes the reviewed revision and content hash; if the
+document changes before confirmation, Prax returns a conflict instead of verifying content
+nobody reviewed. To review many documents, use `triage`.
+
+### `triage [--as <human-name>] [--project <slug>]`
+
+An interactive pass over the review queue: agent-written documents that are unverified, not
+superseded and not archived. The queue is walked in the same order as the Library's review
+walk: grouped by type in registry order (runbooks, notes, decisions, known issues, templates,
+references, post-mortems), newest first within each type. Each document shows its title,
+type, project, trust, age, writing agent and creation date, then its id and tags. Its
+citations are checked against the current checkout as `recall` checks them. The card ends
+with a body excerpt (30 lines, 2,400 characters) and up to five similar documents. Then one
+key decides:
+
+| Key | Action |
+| --- | --- |
+| `v` | Verify the revision shown, as `--as` (asked once if absent). A truncated body is printed in full first, and a second `v` verifies it. |
+| `e` | Edit the body in `$VISUAL`, `$EDITOR` or `vi`. The saved revision is shown again, so `v` can verify it. |
+| `s` | Supersede: retire this document in favour of a replacement. Pick it by its number in the Similar list, by pasting an id, or with search words. Confirm with `y`. |
+| `r` | Reject by archiving (confirm with `y`). Restore from Library → Archive. |
+| `n` | Skip; the document stays in the queue. |
+| `f` / `?` | Show the full body / the key help. |
+| `q`, Ctrl-C, Ctrl-D | Quit and print a summary. |
+
+```bash
+prax triage --as mark
+prax triage --as mark --project homelab
+```
+
+- Only a person can run it. The agent-environment and terminal checks that `verify` makes run
+  before the first request. Triage also needs raw mode, and it refuses `--json`.
+- `--project` narrows the queue to one project. It is never guessed from the checkout: like
+  the UI queue, the queue covers every project by default.
+- Triage writes as a person, never as an agent. An edit clears the agent attribution, exactly
+  as a Library edit does. Every action uses an existing route: verify (bound to the revision
+  shown), the receipt-backed document update (`operationId` plus `ifRevision`), supersede and
+  archive. When a document changed after it was shown, triage reloads it instead of writing.
+  An uncertain outcome is checked by re-reading the document, and triage never re-sends it.
+  An edit whose outcome is unknown, or that met a conflict, keeps the draft file and prints
+  its path.
+- The queue is a snapshot taken at the start. A document verified, superseded, archived or
+  deleted elsewhere is skipped and counted as already handled.
+- Agents write the text, so it is untrusted: control characters, ANSI escapes and bidi
+  overrides are shown as visible placeholders (`^[`, `<U+202E>`) so they cannot hide content.
+- Triage is not part of the `prax-recall` / `prax-remember` skill bundles.
 
 ### `unverify <id>`
 
@@ -356,13 +514,268 @@ prax task done 2234a575-…
   number or exact (case-insensitive) label. Setting a value is idempotent, so these and `done`
   retry only when no request provably reached the server.
 
+### `mirror [--out <dir>] [--check] [--force]`, `mirror import [dir]`, `mirror --agents-block`
+
+A one-way git mirror of the resolved project's Library, and a compiled block of its verified
+decisions for the workspace instruction file. Prax stays the single source of truth: the mirror
+never writes to it, and an import never writes over an existing document. Design:
+[the mirror spec](superpowers/specs/2026-09-23-library-git-mirror-design.md).
+
+```bash
+prax mirror                          # writes .prax/library/ at the repository root
+prax mirror --check                  # exit 1 when the mirror is stale (CI)
+prax mirror import .prax/library --project homelab --trust-verifier "Mark"
+prax mirror --agents-block           # compile verified decisions into AGENTS.md
+prax mirror --agents-block --remove  # take the block out again
+```
+
+- **`mirror`** writes each document as Markdown v3 (the Library export format, byte for byte)
+  into `--out <dir>`, default `.prax/library/` at the repository root (the current directory
+  outside a checkout). Active documents sit at the folder root, superseded and deprecated ones
+  under `retired/`; `README.md` lists them and `index.json` is the manifest. The same Library
+  state gives identical bytes, and an unchanged file is not rewritten. A title change renames
+  the file, retiring moves it, and archiving or deleting removes it. Only files the manifest
+  lists are ever deleted; other `.md` files are reported as unmanaged. A non-empty folder without
+  a manifest is refused unless `--force`. Receipts, revisions, run history, embeddings, tasks and
+  archived documents are not mirrored. Commit the folder with the change that motivated it; do
+  not edit the files there.
+- **`mirror import [dir]`** creates the folder's **active** documents in the resolved project
+  (created when new) through the Markdown-import route, keyed by each document's own id, so a
+  re-run creates nothing twice. A document that already exists keeps the library's copy (reported
+  as present, or skipped when its content differs); one permanently deleted here is not
+  recreated; retired files are skipped because links do not round-trip. Title, body, type, tags,
+  kind, source file name, external references and code citations are imported; timestamps and
+  author provenance are not (the import is an agent write).
+- **Verification from git is a claim.** Every document lands unverified unless its file says
+  `verified: true` with a `verified_by` name in your trusted list (`--trust-verifier a,b` or
+  `PRAX_TRUSTED_VERIFIERS`; exact names, never read from the repository), its body still hashes
+  to its `content_hash`, and you confirm in an attended terminal by typing `VERIFY <n>` after the
+  list is shown. The verification is recorded as the claimed verifier. Anything else is reported
+  under "Left unverified" with the reason.
+- **`mirror --agents-block`** compiles the project's active, **verified** documents of type
+  `decision`, plus verified documents of any type tagged `convention`, into a managed block
+  between `<!-- prax-library:start -->` and `<!-- prax-library:end -->` in `--file <path>`
+  (default: the repository's `AGENTS.md`, else `CLAUDE.md`, else a new `AGENTS.md`). `--type a,b`
+  and `--tag a,b` replace the selection. Unverified documents are never compiled. The block is
+  bounded by `--max-chars` (default 8000, minimum 1000); each body is capped at 1500 characters
+  and anything cut or omitted says so and how to read it. A symlinked file is edited at its
+  target, surrounding text is kept, an unchanged block is not rewritten, and malformed markers
+  refuse the edit. `--print` writes the block to stdout instead; `--remove` deletes it.
+
+### `check [--diff <range> | --files <a,b,…>] [--project <slug>] [--comment] [--strict] [--json]`
+
+The cite-drift gate: find the memories whose cited code a change broke, so they are refreshed
+or superseded in the same merge request instead of rotting. Read-only.
+
+```bash
+prax check --diff origin/main...HEAD         # a branch against where it forked
+prax check --diff HEAD                       # uncommitted edits
+prax check --files src/config.js,src/db.js   # whole files, against the working tree
+git diff --name-only origin/main... | prax check
+```
+
+- **Input**, exactly one:
+  - `--diff <range>`: `A...B` compares the merge base of A and B with B, `A..B` compares A with
+    B, and `A` compares A with the working tree.
+  - `--files`: a comma- or newline-separated list of repository-relative paths.
+  - Paths piped on stdin.
+- **Which memories**: live, active documents with a citation on a changed path, including the
+  old path of a rename or deletion, from every project.
+  - A citation is only checked when it belongs to this repository, by the same rule recall
+    uses. Others are counted as `not checked`, never reported as drift.
+  - `--project <slug>` narrows the lookup to one project and vouches for its citations.
+- **With `--diff`**, a citation counts when the change touches its lines, located in the base
+  version. For a whole-file citation, or a renamed or deleted file, touching the file is
+  enough. Each touched citation gets one verdict:
+  - `DRIFT`: it held before the change and does not after. The cited code changed, it is gone,
+    or its file was renamed (the stored path is now wrong). **Fails.**
+  - `STALE`: it was already broken before this change. Reported, never failing: one old rotten
+    memory must not block every change to its file.
+  - `HOLDS`: unchanged, moved, or changed only in whitespace.
+- **With `--files` or stdin** there is no base, so each citation on a listed file is `DRIFT` or
+  `HOLDS` against the working tree.
+- **Exit codes**, following grep and diff:
+  - `0`: no drift, or skipped because Prax was unreachable.
+  - `1`: drift.
+  - `2`: the check could not run, for example a usage error, an unknown revision, outside a
+    checkout, or an API error.
+- **Fail-open**: when Prax cannot be reached (refused, DNS or timeout) or predates this command,
+  the check prints `prax check: skipped — Prax is not reachable at <url>; cited memories were
+  not checked` on stderr and exits `0`.
+  - Prax is local-first and usually runs on someone's machine, so a gate that failed whenever
+    that machine slept would soon be switched off.
+  - `--strict` makes it exit `2` instead, for a Prax that CI can always reach.
+  - Other API errors always exit `2`.
+  - `PRAX_TIMEOUT_MS` bounds how long an unreachable host can stall the job.
+  - A change that touches no files never contacts Prax.
+- **Output**: the text summary by default, `--json` for the structured report, or `--comment`
+  for a merge-request comment body in Markdown.
+  - The comment starts with `<!-- prax-check -->` so a bot can update its own comment.
+  - It has a table of drifted memories (title, project, trust, citation, what happened,
+    including where the enclosing function is now), then stale and still-holding sections, then
+    how to fix them.
+
+#### GitLab CI example
+
+Not part of Prax's own pipeline, whose runners cannot reach a developer's desktop app. For a
+project whose runner can reach a Prax instance:
+
+```yaml
+prax-check:
+  stage: test
+  image: node:24-bookworm
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  variables:
+    GIT_DEPTH: "0"                  # the merge base must be in the clone
+    PRAX_API_URL: "https://prax.internal.example:3000"
+    PRAX_TIMEOUT_MS: "5000"
+    PRAX_REF: "main"                # better: the release tag that matches the instance
+    # PRAX_API_TOKEN: a masked CI/CD variable, when the instance requires one
+  script:
+    - git clone --quiet --depth 1 --branch "$PRAX_REF" https://gitlab.com/<group>/prax.git /tmp/prax
+    # the CLI needs Node only: no npm install
+    - set +e
+    - node /tmp/prax/cli/prax.js check --diff "$CI_MERGE_REQUEST_DIFF_BASE_SHA..$CI_COMMIT_SHA" --comment > prax-check.md
+    - status=$?
+    - set -e
+    - cat prax-check.md
+    - |
+      # Post the comment only when there is something to act on. PRAX_MR_TOKEN is a
+      # project access token with the api scope, stored as a masked variable.
+      if [ "$status" -eq 1 ] && [ -n "$PRAX_MR_TOKEN" ]; then
+        curl --fail --silent --show-error --request POST \
+          --header "PRIVATE-TOKEN: $PRAX_MR_TOKEN" \
+          --data-urlencode "body@prax-check.md" \
+          "$CI_API_V4_URL/projects/$CI_PROJECT_ID/merge_requests/$CI_MERGE_REQUEST_IID/notes"
+      fi
+    - exit $status
+  artifacts:
+    when: always
+    paths: [prax-check.md]
+```
+
+Exit `2` fails the job as well. To report a broken gate without blocking the merge, add
+`allow_failure: { exit_codes: [2] }`.
+
+### `harvest [--transcript <file>] [--session <id>] [--dry-run] [--budget-ms <n>] [--json]`
+
+Harvests the memories an agent **proposed** in a session and files each one once, as an
+unverified candidate in the **Inbox**, for a person to review. The design, and what each vendor's
+hook contract is known to provide, are in
+[the session-harvesting spec](superpowers/specs/2026-09-23-session-harvesting-design.md).
+
+An agent proposes a memory in its own reply, with either:
+
+- a line that starts with `Remember:` (after an optional bullet, optionally bold) and holds one
+  self-contained finding. The title is its first sentence; or
+- a fenced `prax-remember` block: `title:` (required), optional `type:`, `project:` (the
+  suggested owner) and `tags:` lines, a blank line, then the body.
+
+````markdown
+Remember: Release tags are cut from main only. A tag on a feature branch breaks the updater feed.
+
+```prax-remember
+title: Harvest hooks run detached
+type: decision
+project: prax
+tags: agent-memory
+
+The hook hands its input to a detached worker, so the agent never waits on Prax.
+```
+````
+
+Only the agent's own messages are read. User messages, tool calls and tool results are not
+read, so text a fetched page plants cannot become a candidate. Markers inside other code fences
+are examples and are ignored. A candidate that looks like it holds a credential is skipped. So
+is one over 8,000 characters, and a run takes at most 20.
+
+```bash
+prax harvest --transcript ~/.claude/projects/<dir>/<session>.jsonl   # a saved session
+prax harvest --transcript notes.md --session review-2026-09-23          # any text file
+prax harvest --transcript session.jsonl --dry-run                       # list, send nothing
+```
+
+- **Input:** `--transcript <file>` reads a Claude Code, Codex (rollout) or Copilot CLI
+  (`events.jsonl`) transcript, or plain text. Without it, stdin is read: a hook's JSON (the
+  transcript it names plus `last_assistant_message`) or a transcript itself.
+- **Each candidate** becomes a `note` (or the block's valid `type`) in `inbox`, tagged
+  `harvested` plus the block's tags, `kind: synthesized`, stamped as an agent write, unverified.
+  The body starts with the proposal. A *Harvest details* section follows, with the suggested
+  project, the source session and transcript, and up to three similar active memories from
+  recall.
+- **Exactly once.** The document id and the operation id are derived from the session id and a
+  hash of the candidate, and the create goes through the receipt-backed route. A later run of
+  the same session reports `already` instead of writing, including after a person deleted the
+  candidate. A candidate whose title matches an active document in any project is `skipped`, and
+  the output names that document. It is never written over.
+- **`--budget-ms <n>`** (default 20000) bounds the whole run. A run that exceeds it stops, reports
+  what it did and exits 1. `--dry-run` prints the candidates and their derived ids and makes no
+  request. `--session <id>` names the session when the input does not carry one.
+
+`--hook claude|codex|copilot` is the entry point that `skills/install.sh --hooks` installs. It
+reads the hook JSON from stdin and hands it to a detached background worker through a private
+temporary file. It then returns at once, printing nothing and always exiting 0, even when Prax
+is down or the input is malformed, so a hook never blocks or fails the agent. `--foreground`
+runs the worker inline, for debugging. Set `PRAX_HARVEST_LOG` to get one line per run.
+
+### `used <id> [--json]`
+
+Report that you acted on a recalled memory, after recall or search returned it and you relied on
+it. It records a used signal (`POST /api/library/telemetry/used`) with the agent id. The
+librarian counts a question as answered when one of its hits gets a used signal within 24 hours;
+questions that got no hits, or hits nobody used, become the knowledge-gaps queue in Library
+health. Retried only when no request reached the server, so one use is never counted twice.
+
+```bash
+prax recall "how do we restore postgres"
+# … follow the runbook it returned …
+prax used c58d3108-4f93-4a50-ac42-0c1d61e61b08
+```
+
+### `doctor [--project <slug>] [--json]`
+
+A CI-friendly summary of knowledge-base health from the read-only librarian report
+(`GET /api/library/librarian/report`): index coverage, stale derivations, empty documents,
+near-duplicate clusters without a proposal, open proposals, unverified documents, knowledge
+gaps, never-recalled memories and the telemetry counts. It never writes anything; filing
+proposals is the **Run librarian** action in Library health.
+
+| Exit | Meaning |
+|------|---------|
+| `0` | Every check is `ok` or `info` |
+| `2` | A `warn` check: incomplete embedding index, stale derivations, empty documents, or duplicate clusters with no proposal |
+| `1` | The report could not be fetched (Prax not reachable, HTTP error) |
+
+The whole workspace is checked unless `--project` names one. `--json` prints the report with
+its `checks` array (`{ id, level, count, message }`) and still sets the exit code.
+
+### `telemetry <status|clear> [--json]`
+
+`status` (the default) shows whether recall telemetry is on, how many queries and used signals
+are stored, and the bounds. `clear` deletes every recorded query, hit and used signal in the
+workspace (`DELETE /api/library/telemetry`).
+
+## Recall telemetry
+
+Prax keeps a local record of the retrievals agent clients make so the librarian can list
+unanswered questions, sort the review queue by what agents rely on and flag memories nobody
+recalls. It is recorded only for requests that name their source (`prax recall`, `search`,
+`context`, the skills and the MCP server do; the web UI does not), after the response is sent,
+so it never slows or fails a recall. It stays in the workspace's database: it is never sent
+anywhere and never included in the portable Library export, but a full workspace backup (the
+whole database) carries it. Rows are kept 90 days, at most 20,000 queries and 20,000 used
+signals. `prax telemetry clear` deletes it; `PRAX_RECALL_TELEMETRY=off` in the server's
+environment stops recording. Queries are stored as typed, so keep secrets out of them.
+
 ## Trust model
 
 Documents carry two trust/workflow fields:
 
 - **`verified`** (boolean) — whether a human has blessed this document. Agent writes (CLI
   `remember`, MCP `create_document` / `update_document`) land unverified by default. A human
-  runs the attended `verify <id> --as <name>` flow (or uses the Library UI) to bless them.
+  runs `triage` or the attended `verify <id> --as <name>` flow, or uses the Library UI, to
+  bless them. Both commands refuse in an agent CLI's shell and without a terminal.
 - **`status`** (`active` | `superseded` | `deprecated`) — lifecycle state. `supersede <oldId>
   --with <newId>` sets the old document's status to `superseded`. Deprecated is a manual
   state for documents that are stale but have no direct replacement.
@@ -375,7 +788,9 @@ filter.
 **Important:** under the no-auth / trusted-network model, `verified` is a **workflow signal,
 not access control**. Anyone on the network who can reach the Prax server can call `verify`
 or `unverify`. It is useful for distinguishing agent-written memory that has been reviewed by a
-human from memory that hasn't — not for preventing unauthorized writes. See
+human from memory that hasn't — not for preventing unauthorized writes. The agent-environment
+guard on `verify` and `triage` stops an agent from verifying its own memory by reflex. It does
+not stop a caller that goes around the CLI. See
 [SECURITY.md](../SECURITY.md) for the security model.
 
 ## `context` output shape
@@ -411,3 +826,34 @@ Early notes, not yet reviewed …
 
 Sections that have no documents are omitted entirely. A "Project overview" section is
 prepended when the project has any verified document tagged `project-card`.
+
+## Budgets and the fill order
+
+`recall --budget`, `context --budget`, the delta and `brief`'s memory section share one fill
+order and one compaction (`cli/lib/budget.js`). The design is in
+[the spec](superpowers/specs/2026-09-23-budgeted-context-and-brief-design.md).
+
+**Estimate.** `tokens ≈ ceil(characters / 4)` over the exact text printed. It is a heuristic,
+not a tokenizer: prose runs close to it, code and non-Latin text run above it. The budget line
+reports it: `(budget: ~412 of 500 tokens, chars/4 · 4 of 7 shown · fill: verified →
+cited-unchanged → recent)`.
+
+**Fill order.** Three tiers, deterministic:
+
+1. **verified** — active documents a person verified, in retrieval order;
+2. **cited-and-unchanged** — unverified documents that pin code (`remember --cite`) whose every
+   citation was checked in this checkout and still matches at its pinned lines, in retrieval
+   order. A moved, changed, missing or unchecked citation does not qualify;
+3. **recent** — everything else, newest first (an undated document sorts last).
+
+**Compaction.** Entries print in full (a heading line with the trust chip and trust line, then
+an excerpt: 800 characters for the first entry, 240 for the rest) while they fit. From the first
+entry that does not, every later entry prints compact — one line, `- [chip] Title (type · id)
+— first line of the body` — and the first compact line that does not fit ends the fill. No model
+summarises anything, so every entry starts on a line with its trust chip (`[verified]`,
+`[unverified]`, `[superseded]`, `[deprecated]`, `[archived]`).
+
+**Never dropped.** The retrieval mode and fallback, index coverage (`index incomplete …`,
+`index coverage unknown`), the bound note and the budget line always print, even when they alone
+exceed the budget (the budget line then says so). What the budget left out is counted:
+`_3 more left out by the budget (2 unverified) — raise --budget, or prax get <id>._`

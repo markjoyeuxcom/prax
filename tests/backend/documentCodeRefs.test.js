@@ -34,6 +34,8 @@ test('a row normalises to the citation shape the checker consumes', () => {
   assert.deepEqual(normalizeCodeRefRow(row), {
     id: 'r1', documentId: DOC, path: 'server/config.js',
     startLine: 12, endLine: 36, commitSha: 'abc123', contentHash: 'f'.repeat(64),
+    // A row pinned before migration 0039 has no hybrid anchors (legacy).
+    normalizedHash: null, symbol: null,
     createdAt: '2026-09-11T00:00:00.000Z',
   });
 });
@@ -56,9 +58,12 @@ test('adding a citation is idempotent per (document, path, range)', () => {
   assert.match(q.text, /on conflict \(document_id, path, coalesce\(start_line, 0\), coalesce\(end_line, 0\)\) do update/);
   assert.match(q.text, /content_hash = excluded\.content_hash/);
   assert.match(q.text, /commit_sha = excluded\.commit_sha/);
+  // A re-cite replaces the hybrid anchors (0039) with the new pin's.
+  assert.match(q.text, /normalized_hash = excluded\.normalized_hash/);
+  assert.match(q.text, /symbol = excluded\.symbol/);
   // Never attach a citation to an archived document.
   assert.match(q.text, /archived_at is null/);
-  assert.deepEqual(q.values, [DOC, 'a.js', 1, 2, 'sha', 'h']);
+  assert.deepEqual(q.values, [DOC, 'a.js', 1, 2, 'sha', 'h', null, null]);
 });
 
 test('listing is ordered so output is stable across calls', () => {
@@ -108,7 +113,7 @@ test('migration 0029 collapses duplicates left by the 0028 key to the newest pin
   }
   assert.equal((await db.query('select count(*) as n from document_code_refs')).rows[0].n, 3);
   const { applied } = await runMigrations(db, { logger: SILENT });
-  assert.deepEqual(applied, ['0029_document_code_refs_null_safe_key.sql', '0030_add_memory_system_project.sql', '0031_document_update_receipts.sql', '0032_restore_inbox_system_project.sql', '0033_inbox_action_receipts.sql', '0034_record_creation_receipts.sql', '0035_single_line_document_titles.sql', '0036_add_task_activity_agent.sql', '0037_add_task_recurrence_anchor_day.sql', '0038_repair_legacy_cycles_and_receipts.sql']);
+  assert.deepEqual(applied, ['0029_document_code_refs_null_safe_key.sql', '0030_add_memory_system_project.sql', '0031_document_update_receipts.sql', '0032_restore_inbox_system_project.sql', '0033_inbox_action_receipts.sql', '0034_record_creation_receipts.sql', '0035_single_line_document_titles.sql', '0036_add_task_activity_agent.sql', '0037_add_task_recurrence_anchor_day.sql', '0038_repair_legacy_cycles_and_receipts.sql', '0039_add_citation_anchors.sql', '0040_recall_telemetry_and_librarian.sql', '0041_add_agent_recall_markers.sql']);
   const rows = (await db.query('select content_hash from document_code_refs')).rows;
   assert.deepEqual(rows.map((r) => r.content_hash), ['newest']);
   await db.close();

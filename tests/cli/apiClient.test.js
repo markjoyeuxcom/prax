@@ -330,3 +330,30 @@ test('task writes are agent-stamped; add retries only with a requestId; patch re
   await assert.rejects(client2.importTasks({ tasks: [], requestId: 'r' }), /Write outcome unknown/);
   assert.equal(calls, 2);
 });
+
+test('the delta reads as the calling agent and the marker is a PUT retried only when nothing was sent', async () => {
+  const seen = [];
+  globalThis.fetch = async (url, opts) => { seen.push({ url, opts }); return jsonRes(200, { items: [] }); };
+  const client = createClient({ baseUrl: 'http://x', agent: 'claude' });
+  await client.memoryChanges({ sinceLastSession: true, project: 'homelab', limit: 10 });
+  assert.equal(seen[0].url, 'http://x/api/library/changes?sinceLastSession=true&project=homelab&limit=10');
+  assert.equal(seen[0].opts.headers['x-prax-origin'], 'agent');
+  assert.equal(seen[0].opts.headers['x-prax-agent'], 'claude');
+  await client.memoryChanges({ since: '2026-09-20T00:00:00.000Z' });
+  assert.equal(seen[1].url, 'http://x/api/library/changes?since=2026-09-20T00%3A00%3A00.000Z');
+  await client.advanceRecallMarker({ at: '2026-09-22T10:00:00.000Z' });
+  assert.equal(seen[2].url, 'http://x/api/library/recall-marker');
+  assert.equal(seen[2].opts.method, 'PUT');
+  assert.deepEqual(JSON.parse(seen[2].opts.body), { at: '2026-09-22T10:00:00.000Z' });
+  assert.equal(seen[2].opts.headers['x-prax-agent'], 'claude');
+  await client.listTaskDocuments('t1');
+  await client.relatedTaskDocuments('t1');
+  assert.deepEqual(seen.slice(3).map((s) => s.url), ['http://x/api/tasks/t1/documents', 'http://x/api/tasks/t1/related-documents']);
+
+  // A timeout may have reached the server; the marker PUT is not re-sent then.
+  let calls = 0;
+  globalThis.fetch = async () => { calls += 1; throw new Error('socket hang up'); };
+  const once = createClient({ baseUrl: 'http://x', agent: 'claude' });
+  await assert.rejects(once.advanceRecallMarker({ at: '2026-09-22T10:00:00.000Z' }));
+  assert.equal(calls, 1);
+});

@@ -49,8 +49,21 @@
 # before --instructions, because the shim decides which form that block teaches.
 # --mcp prints the MCP registration command for each tool, pointing at the
 # same payload's mcp/server.js — registration itself stays opt-in.
-# --uninstall removes the skills, their links, the instruction blocks and the
-# shim, and leaves everything else alone.
+# --library-block compiles the verified decisions and conventions of the
+# `memory` project (PRAX_LIBRARY_BLOCK_PROJECT) into the same four instruction
+# files, in a second marked block of its own (`prax mirror --agents-block`).
+# It runs the payload's CLI, so it needs cli/ beside the pack and a running app;
+# an unreachable app is reported and leaves the files as they were.
+# --hooks adds the session-harvesting hook (`prax harvest --hook <vendor>` on
+# the payload's CLI and runtime) to each agent CLI that has hooks:
+#   Claude Code  Stop in $PRAX_CLAUDE_SETTINGS (default ~/.claude/settings.json)
+#   Codex        Stop in $PRAX_CODEX_HOOKS (default ${CODEX_HOME:-~/.codex}/hooks.json)
+#   Copilot CLI  agentStop in $PRAX_COPILOT_HOOKS_DIR/prax-harvest.json
+#                (default ${COPILOT_HOME:-~/.copilot}/hooks), a file the installer owns
+# Only Prax's own handler is added, replaced or removed; every other setting
+# and hook is kept. See docs/superpowers/specs/2026-09-23-session-harvesting-design.md.
+# --uninstall removes the skills, their links, the instruction blocks (both
+# kinds), the shim and the harvest hooks, and leaves everything else alone.
 set -eu
 
 REF="${PRAX_SKILLS_REF:-main}"
@@ -74,22 +87,35 @@ COPILOT_MD="$COPILOT_DIR/AGENTS.md"
 BLOCK_START='<!-- prax-memory:start -->'
 BLOCK_END='<!-- prax-memory:end -->'
 SHIM_MARK='# prax-shim: written by the Prax skills installer; --uninstall removes it.'
+# Session-harvesting hook files (see --hooks in the header).
+CLAUDE_SETTINGS="${PRAX_CLAUDE_SETTINGS:-$HOME/.claude/settings.json}"
+CODEX_HOOKS="${PRAX_CODEX_HOOKS:-${CODEX_HOME:-$HOME/.codex}/hooks.json}"
+COPILOT_HOOKS_DIR="${PRAX_COPILOT_HOOKS_DIR:-${COPILOT_HOME:-$HOME/.copilot}/hooks}"
+COPILOT_HOOKS="$COPILOT_HOOKS_DIR/prax-harvest.json"
+HARVEST_FORM=0
+
+LIBRARY_BLOCK_PROJECT="${PRAX_LIBRARY_BLOCK_PROJECT:-memory}"
+LIBRARY_BLOCK_START='<!-- prax-library:start -->'
 
 usage() {
-  echo "usage: install.sh [--instructions] [--cli] [--mcp]   install/update the skills (plus the standing instructions, the prax shim, the MCP commands)"
-  echo "       install.sh --uninstall                       remove the skills, their links, any instruction blocks and the shim"
+  echo "usage: install.sh [--instructions] [--cli] [--mcp] [--library-block] [--hooks]   install/update the skills (plus the standing instructions, the prax shim, the MCP commands, the compiled verified-conventions block, the harvest hooks)"
+  echo "       install.sh --uninstall                                                  remove the skills, their links, any instruction blocks, the shim and the harvest hooks"
 }
 
 UNINSTALL=0
 INSTRUCTIONS=0
 CLI=0
 MCP=0
+LIBRARY_BLOCK=0
+HOOKS=0
 for arg in "$@"; do
   case "$arg" in
+    --library-block) LIBRARY_BLOCK=1 ;;
     --uninstall) UNINSTALL=1 ;;
     --instructions) INSTRUCTIONS=1 ;;
     --cli) CLI=1 ;;
     --mcp) MCP=1 ;;
+    --hooks) HOOKS=1 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "install.sh: unknown option $arg" >&2; usage >&2; exit 2 ;;
   esac
@@ -177,6 +203,20 @@ If `prax` is not found, run it as `__BIN_DIR__/prax`.
 NOTE
 }
 
+# Taught only when a harvest hook is installed on this machine (HARVEST_FORM),
+# so an agent is never told a marker files anything when nothing harvests it.
+harvest_note() {
+  [ "$HARVEST_FORM" = 1 ] || return 0
+  cat <<'NOTE'
+**Propose what you are unsure of.** A session hook on this machine files proposals as unverified
+Inbox candidates for a person to review. When a finding might be durable but you are not sure,
+start a line of your reply with `Remember:` and one self-contained sentence, or write a fenced
+`prax-remember` block (a `title:` line, optional `type:`, `project:` and `tags:` lines, a blank
+line, then the body). A proposal is not a memory: remember what you are sure of directly.
+
+NOTE
+}
+
 # The block every tool gets. Quoted heredocs: nothing expands, so the backticks
 # stay literal Markdown and the paths are filled in by subst_paths.
 instruction_block() {
@@ -219,6 +259,7 @@ BLOCK
 
 BLOCK
     remember_note
+    harvest_note
     cat <<'BLOCK'
 Re-running with the same title refines the memory in place; without `--project`, a title that
 already lives in another project is refined there, never duplicated. Use `--cite` when the claim
@@ -309,12 +350,177 @@ remove_instructions() {
   edit_instructions remove "$file" || REMOVE_FAILED=1
 }
 
+# ---- session-harvesting hooks (--hooks) ------------------------------------
+# Kept apart from the instruction-block code above: these edit each agent
+# CLI's own settings file, which holds far more than Prax's entry.
+#
+# Add, replace or remove only Prax's harvest handler in one vendor's hook
+# settings. A handler is Prax's when its command runs `… prax(.js) harvest
+# --hook <vendor>`; everything else in the file is kept in order. A symlinked
+# file is edited at its target (the link stays a link) and keeps its mode; a
+# new file is 0600. Invalid JSON, or a hooks value of the wrong shape, refuses
+# the edit and leaves the file as it is. The write is atomic and is refused if
+# the file changed while it was being edited. The Copilot file is the
+# installer's own (hooks/prax-harvest.json): written whole, removed whole —
+# but only when it holds Prax's command.
+#   edit_hook_settings install <claude|codex|copilot> <file> <runtime> <cli>
+#   edit_hook_settings remove  <claude|codex|copilot> <file>
+edit_hook_settings() {
+  node --input-type=module - "$@" <<'NODE'
+import { existsSync, readFileSync, realpathSync, statSync, writeFileSync, renameSync, unlinkSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+const [mode, vendor, file, runtime, cli] = process.argv.slice(2);
+const LABEL = { claude: 'Claude Code Stop', codex: 'Codex Stop', copilot: 'Copilot CLI agentStop' }[vendor];
+const OURS = /prax(?:\.js)?'?\s+harvest\s+--hook(?:\s+|=)'?(?:claude|codex|copilot)\b/;
+const isOurs = (handler) => Boolean(handler) && typeof handler === 'object'
+  && [handler.command, handler.bash].some((c) => typeof c === 'string' && OURS.test(c));
+const plain = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+if (mode === 'remove' && !existsSync(file)) process.exit(0);
+const path = existsSync(file) ? realpathSync(file) : file;
+const before = existsSync(path) ? readFileSync(path, 'utf8') : '';
+const refuse = (why) => { console.error(`install.sh: ${why} in ${file}; file left unchanged`); process.exit(1); };
+// POSIX single quotes: literal under sh -c, and under shell-style splitting.
+const quote = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
+const command = mode === 'install' ? `${quote(runtime)} ${quote(cli)} harvest --hook ${vendor}` : null;
+// Nothing of Prax's in the file: there is nothing to remove, whatever its shape.
+if (mode === 'remove' && !OURS.test(before)) process.exit(0);
+
+let after;
+if (vendor === 'copilot') {
+  if (before && !OURS.test(before)) refuse('a hook file that is not the installer\'s own');
+  if (mode === 'remove') {
+    if (before) { unlinkSync(path); console.log(`harvest hook removed: ${file}`); }
+    process.exit(0);
+  }
+  after = `${JSON.stringify({ version: 1, hooks: { agentStop: [{ type: 'command', bash: command, timeoutSec: 30 }] } }, null, 2)}\n`;
+} else {
+  let settings = {};
+  if (before.trim()) {
+    try { settings = JSON.parse(before); } catch { refuse('invalid JSON'); }
+  }
+  if (!plain(settings)) refuse('settings that are not a JSON object');
+  if (settings.hooks !== undefined && !plain(settings.hooks)) refuse('a "hooks" value that is not an object');
+  const hooks = settings.hooks || {};
+  for (const [event, groups] of Object.entries(hooks)) {
+    if (!Array.isArray(groups)) refuse(`a hooks.${event} value that is not an array`);
+  }
+  // Remove every Prax handler (any event, so a moved event cannot leave a
+  // stale copy behind), pruning only the containers that held nothing else.
+  let removed = 0;
+  for (const [event, groups] of Object.entries(hooks)) {
+    const kept = [];
+    for (const group of groups) {
+      if (!plain(group) || !Array.isArray(group.hooks)) { kept.push(group); continue; }
+      const handlers = group.hooks.filter((h) => !isOurs(h));
+      removed += group.hooks.length - handlers.length;
+      if (handlers.length === group.hooks.length) kept.push(group);
+      else if (handlers.length) kept.push({ ...group, hooks: handlers });
+    }
+    if (kept.length) hooks[event] = kept;
+    else delete hooks[event];
+  }
+  if (mode === 'remove' && !removed) process.exit(0);
+  if (mode === 'install') {
+    // Synchronous on purpose: the handler hands off to a detached worker and
+    // returns in tens of milliseconds, and an async handler was killed before
+    // it could hand off when `claude -p` exited (verified 2026-09-23).
+    hooks.Stop = [...(hooks.Stop || []), { hooks: [{ type: 'command', command, timeout: 30 }] }];
+  }
+  if (Object.keys(hooks).length) settings.hooks = hooks;
+  else delete settings.hooks;
+  after = `${JSON.stringify(settings, null, 2)}\n`;
+}
+if (after === before) { console.log(`harvest hook already current in ${file} (${LABEL})`); process.exit(0); }
+const temporary = `${path}.prax-tmp.${randomUUID()}`;
+try {
+  writeFileSync(temporary, after, { flag: 'wx', mode: existsSync(path) ? statSync(path).mode & 0o777 : 0o600 });
+  if ((existsSync(path) ? readFileSync(path, 'utf8') : '') !== before) throw new Error(`${file} changed during the update; left unchanged`);
+  renameSync(temporary, path);
+} finally {
+  if (existsSync(temporary)) unlinkSync(temporary);
+}
+console.log(`harvest hook ${mode === 'remove' ? 'removed from' : before ? 'updated in' : 'added in'} ${file} (${LABEL})`);
+NODE
+}
+
+install_hooks() {
+  for pair in "claude:$CLAUDE_SETTINGS" "codex:$CODEX_HOOKS" "copilot:$COPILOT_HOOKS"; do
+    vendor="${pair%%:*}"
+    file="${pair#*:}"
+    mkdir -p "$(dirname "$file")"
+    edit_hook_settings install "$vendor" "$file" "$RUNTIME" "$APP_DIR/cli/prax.js" || HOOK_FAILED=1
+  done
+  echo "Codex runs a new hook only after you trust it: open Codex, run /hooks and trust the Prax harvest hook."
+  echo "Harvest: agents propose memories with 'Remember:' lines or prax-remember blocks; candidates land unverified in the Inbox."
+}
+
+# Without Node there is no safe edit, so a file that holds a Prax hook is left.
+remove_hooks() {
+  for pair in "claude:$CLAUDE_SETTINGS" "codex:$CODEX_HOOKS" "copilot:$COPILOT_HOOKS"; do
+    vendor="${pair%%:*}"
+    file="${pair#*:}"
+    [ -e "$file" ] || continue
+    if ! command -v node >/dev/null 2>&1; then
+      if grep -q 'harvest --hook' "$file"; then
+        echo "install.sh: node is needed to remove the Prax harvest hook from $file safely; left unchanged" >&2
+        REMOVE_FAILED=1
+      fi
+      continue
+    fi
+    edit_hook_settings remove "$vendor" "$file" || REMOVE_FAILED=1
+  done
+}
+
+# Whether any agent CLI on this machine runs the harvest hook.
+harvest_hooks_present() {
+  for file in "$CLAUDE_SETTINGS" "$CODEX_HOOKS" "$COPILOT_HOOKS"; do
+    [ -f "$file" ] && grep -q 'harvest --hook' "$file" && return 0
+  done
+  return 1
+}
+
 # The shim is ours only if it carries the marker; a foreign `prax` is never touched.
 remove_shim() {
   [ -f "$BIN_DIR/prax" ] || return 0
   grep -qF "$SHIM_MARK" "$BIN_DIR/prax" || return 0
   rm -f "$BIN_DIR/prax"
   echo "removed $BIN_DIR/prax"
+}
+
+# --library-block: the compiled block of verified conventions. The CLI owns
+# compiling and the marked edit (cli/lib/managedBlock.js, the same routine as
+# edit_instructions above, under its own prax-library markers), so these only
+# run it. Compiling reads the running app; when it cannot, the files are left
+# as they were and the install carries on.
+write_library_blocks() {
+  if [ -z "$APP_DIR" ]; then
+    echo "install.sh: --library-block needs the app payload (cli/ next to skills/): run this installer from the Prax app bundle or a checkout." >&2
+    exit 1
+  fi
+  runtime="$(runtime_for_app)"
+  for f in "$CLAUDE_MD" "$CODEX_MD" "$COPILOT_MD" "$GEMINI_MD"; do
+    mkdir -p "$(dirname "$f")"
+    if ! "$runtime" "$APP_DIR/cli/prax.js" mirror --agents-block --project "$LIBRARY_BLOCK_PROJECT" --file "$f"; then
+      echo "install.sh: could not compile the verified-conventions block from Prax (is the app running?); instruction files left unchanged." >&2
+      return 0
+    fi
+  done
+}
+
+# Remove the compiled block. Without the payload's CLI there is no safe edit,
+# so a file that holds one is reported and the run fails, as for the other block.
+remove_library_block() {
+  file="$1"
+  [ -e "$file" ] || return 0
+  grep -qF "$LIBRARY_BLOCK_START" "$file" || return 0
+  runtime=""
+  [ -n "$APP_DIR" ] && runtime="$(runtime_for_app)"
+  if [ -z "$runtime" ]; then
+    echo "install.sh: the compiled Prax block in $file needs the app payload's CLI to be removed safely; run --uninstall from the app bundle or a checkout. Left unchanged." >&2
+    REMOVE_FAILED=1
+    return 0
+  fi
+  "$runtime" "$APP_DIR/cli/prax.js" mirror --agents-block --remove --file "$file" || REMOVE_FAILED=1
 }
 
 if [ "$UNINSTALL" = 1 ]; then
@@ -324,11 +530,15 @@ if [ "$UNINSTALL" = 1 ]; then
     [ -L "$GEMINI_DIR/$s" ] && rm -f "$GEMINI_DIR/$s"
     echo "removed $s"
   done
+  # The compiled block first: it was added after the skills' block, and
+  # removing in reverse order also takes each block's separating blank line.
+  for f in "$CLAUDE_MD" "$CODEX_MD" "$COPILOT_MD" "$GEMINI_MD"; do remove_library_block "$f"; done
   for f in "$CLAUDE_MD" "$CODEX_MD" "$COPILOT_MD" "$GEMINI_MD"; do remove_instructions "$f"; done
   remove_shim
+  remove_hooks
   # A block that could not be removed safely is reported, and the run fails.
   if [ "$REMOVE_FAILED" = 1 ]; then
-    echo "install.sh: some instruction blocks were left in place; remove them by hand" >&2
+    echo "install.sh: some instruction blocks or harvest hooks were left in place; remove them by hand" >&2
     exit 1
   fi
   exit 0
@@ -429,9 +639,9 @@ done
 
 echo "Prax skills installed from $ORIGIN."
 
-if [ "$CLI" = 1 ] || [ "$MCP" = 1 ]; then
+if [ "$CLI" = 1 ] || [ "$MCP" = 1 ] || [ "$HOOKS" = 1 ]; then
   if [ -z "$APP_DIR" ]; then
-    echo "install.sh: --cli and --mcp need the app payload (cli/ and mcp/ next to skills/): run this installer from the Prax app bundle or a checkout." >&2
+    echo "install.sh: --cli and --mcp need the app payload (cli/ and mcp/ next to skills/), and so does --hooks: run this installer from the Prax app bundle or a checkout." >&2
     exit 1
   fi
   RUNTIME="$(runtime_for_app)"
@@ -465,6 +675,13 @@ if [ -f "$BIN_DIR/prax" ] && grep -qF "$SHIM_MARK" "$BIN_DIR/prax"; then
   case ":$PATH:" in *":$BIN_DIR:"*) CLI_FORM=1 ;; esac
 fi
 
+HOOK_FAILED=0
+if [ "$HOOKS" = 1 ]; then
+  install_hooks
+fi
+# The standing block teaches the harvest markers only where a hook reads them.
+if harvest_hooks_present; then HARVEST_FORM=1; fi
+
 if [ "$INSTRUCTIONS" = 1 ]; then
   for f in "$CLAUDE_MD" "$CODEX_MD" "$COPILOT_MD" "$GEMINI_MD"; do write_instructions "$f"; done
   # Copilot only reads a custom-instructions directory it has been told about.
@@ -482,6 +699,10 @@ if [ "$INSTRUCTIONS" = 1 ]; then
   echo "Antigravity: global instructions written to $GEMINI_MD; workspace AGENTS.md or GEMINI.md can add project guidance."
 fi
 
+if [ "$LIBRARY_BLOCK" = 1 ]; then
+  write_library_blocks
+fi
+
 if [ "$MCP" = 1 ]; then
   echo "MCP (optional — the skills do not need it; registers the app's full task/library tool tree):"
   echo "  claude mcp add prax -- \"$RUNTIME\" \"$APP_DIR/mcp/server.js\""
@@ -496,4 +717,10 @@ if [ "$CLI_FORM" = 1 ]; then
   echo "Check: prax recall --recent 3"
 else
   echo "Check: node \"$DEST/prax-recall/scripts/recall.mjs\" --recent 3"
+fi
+
+# A hook file that could not be edited safely was reported above; fail the run.
+if [ "$HOOK_FAILED" = 1 ]; then
+  echo "install.sh: some harvest hooks were not installed; fix the files named above and re-run with --hooks" >&2
+  exit 1
 fi

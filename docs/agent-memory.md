@@ -33,7 +33,7 @@ repository's concrete workflow, see [Working on Prax](working-on-prax.md).
 ## The loop
 
 ```
-retrieve  →  work  →  persist  →  supersede
+retrieve  →  work  →  persist  →  supersede  →  report use
 ```
 
 1. **Retrieve-on-start** — read the repository's startup guide and project overview when
@@ -52,6 +52,11 @@ retrieve  →  work  →  persist  →  supersede
    and a later recall from a checkout of the same repository says whether they changed, moved,
    or vanished. A recall anywhere else — outside a checkout, in another repository, or when the
    citations cannot be read — says `not checked` rather than implying the lines still match.
+   A citation keeps three anchors: the line hash, a whitespace-free content hash (re-indenting
+   or re-wrapping is not a change), and the enclosing function's name (so a changed citation
+   says where that function is now). Run `prax check --diff origin/main...HEAD` before merging,
+   or in the merge-request pipeline: it fails when the change breaks a memory's citation, so the
+   memory is refreshed or superseded in the same change (see `docs/cli.md`).
    Recall is cross-project and says where each hit lives (`in homelab`). A remember run
    without `--project` follows that: a same-title document that exists only in another
    project is refined there, never copied into `memory`; several candidates are refused by
@@ -60,6 +65,38 @@ retrieve  →  work  →  persist  →  supersede
    memory replaces another distinct one, run `prax supersede <oldId> --with <newId>` — it records
    the `supersedes` link and retires the old document from default retrieval. A retired title is
    never revived by a later remember: that becomes a new active document.
+5. **Report use** — when a recalled memory actually informed the work, run `prax used <id>`.
+   That is the signal the librarian uses to tell an answered question from one that only
+   returned hits (see [The librarian](#the-librarian)).
+
+## The librarian
+
+The librarian keeps the Library consolidated without ever acting on its own
+([design](superpowers/specs/2026-09-23-librarian-design.md)).
+
+- **Recall telemetry.** Recall, search and context requests from agent clients (the CLI, the
+  skills, the MCP server; they send `x-prax-query-source`) are recorded after the response:
+  query text, agent id, mode and the ids returned. `prax used <id>` records a used signal. The
+  web UI's searches are not recorded. Telemetry is local only: it never leaves the workspace's
+  database and is not in the portable Library export, though a full workspace backup carries it.
+  It is kept 90 days (20,000 rows per table at most), `prax telemetry clear` deletes it, and
+  `PRAX_RECALL_TELEMETRY=off` on the server stops recording.
+- **Knowledge gaps.** Questions that returned no hits, or hits nobody reported using within a
+  day, are listed in Library health (most asked first). Answer one by remembering the missing
+  knowledge.
+- **Consolidation proposals.** **Run librarian** in Library health (or the daily schedule,
+  off by default) clusters near-duplicate documents in each project: by embedding cosine when
+  semantic search is on, by title and body shingles otherwise. Each new cluster becomes one
+  unverified proposal document (`kind: synthesized`, written by `librarian`) with a draft
+  canonical body, its sources and the `supersedes` links it proposes. It lands in the review
+  queue. Nothing is merged or retired until a person verifies the proposal and approves it;
+  agents cannot approve or dismiss proposals.
+- **Recall frequency.** The review queue can sort by how often agents' recalls returned each
+  document (**Sort: Most recalled**), as can Library health's Needs review list. Agent memories
+  not recalled in 30 days of telemetry are flagged as prune candidates, never removed.
+- **`prax doctor`** prints the same checks for CI, exiting 2 on a warning.
+- Contradiction detection stays in the on-demand AI review; nothing here runs on the remember
+  path.
 
 ## How a remember is written
 
@@ -89,6 +126,37 @@ The client binds to one Prax instance for the whole run and never fails a write 
 (see [Connecting to the app](#connecting-to-the-app)); the confirmation line names the base URL
 it wrote to.
 
+## Session harvesting: proposals into the Inbox
+
+Some findings might be durable, but the agent is not sure enough to run `remember` in the
+middle of other work. For those, the agent writes a **proposal** in its own reply: a line that
+starts with `Remember:`, or a fenced `prax-remember` block with a `title:` line, optional
+`type:`, `project:` and `tags:` lines, a blank line and the body. A hook that
+`skills/install.sh --hooks` installs runs `prax harvest --hook <vendor>` when the agent stops.
+It files each new proposal once as an **unverified candidate in the Inbox**, tagged `harvested`,
+`kind: synthesized` and stamped with the agent. The candidate body names the source session, a
+suggested owning project, and similar active memories that recall found, so a person can accept
+it, refile it with its owner, or archive it during Inbox triage.
+
+- **Vendors.** Claude Code (`Stop`) and Codex (`Stop`, which Codex runs only after you
+  trust it with `/hooks`) pass the transcript path and the final assistant message. Copilot CLI
+  (`agentStop`) passes the transcript path. Antigravity has no hooks; run
+  `prax harvest --transcript <file>` on an exported conversation instead. The spec records what
+  was verified live and what is taken from vendor documentation:
+  [session harvesting](superpowers/specs/2026-09-23-session-harvesting-design.md).
+- **Deterministic.** Only the agent's own messages are read. User messages, tool calls and tool
+  results never are, so a page an agent fetched cannot plant a candidate. No model summarises
+  the session. Fenced examples, credential-shaped text and oversized bodies are skipped.
+- **Exactly once.** The document id and the operation id are derived from the session and the
+  candidate. A later turn of the same session, or a retry, creates nothing new. Neither does a
+  candidate a person deleted, because the server's receipt outlives it. A title that already
+  exists as an active document anywhere is skipped, never overwritten.
+- **Never in the agent's way.** The hook hands its input to a detached worker and exits 0 at
+  once, with no output, whether or not Prax is running. The worker works within a 20 s budget.
+- **Not a memory yet.** Candidates are active, unverified documents, so another agent's recall
+  can already surface them with that label. Findings the agent is sure of still go through
+  `remember`.
+
 ## Namespace & provenance
 
 - **`memory` project** — the home for reusable cross-project knowledge. It is Prax's one reserved system
@@ -106,6 +174,41 @@ it wrote to.
   `--agent <id>` or sets `PRAX_AGENT`. A human edit clears it.
 - **`kind: synthesized`** — marks memory as machine-generated, which the maintenance tooling treats
   as safe to refresh aggressively (vs. `source` docs left for human review).
+
+## Verification
+
+Everything an agent writes lands **unverified**, and only a person raises it to verified.
+Recall, search and context packs show the difference, and the Library review queue lists
+agent-written documents nobody has verified. There are three ways to clear the queue. All of
+them bind the verification to the exact revision (title and body) the person was shown. If
+the document changed since, the result is a conflict, never a blessing of content nobody saw.
+
+- **Library → Review queue**: open a document, read it, press Verify and move to the next.
+- **`prax triage`**: the same queue in a terminal, in the same order, with one key per decision:
+  verify, edit, supersede, archive (reject) or skip. See [the CLI guide](cli.md#triage---as-human-name---project-slug).
+- **`prax verify <id> --as <name>`**: a single document, confirmed by typing a phrase specific
+  to that document.
+
+**Agents cannot verify.** `prax verify` and `prax triage` refuse before any request in two
+cases. The first is a shell that belongs to an agent CLI: `PRAX_AGENT`, `--agent`, or the
+markers set by Claude Code, Codex, Copilot CLI and Antigravity (the list the provenance
+headers use). The second is input or output that is not an interactive terminal. There is
+**deliberately no override flag**:
+
+- An agent reads the remedy in an error message and types it, so any documented bypass would
+  be the first thing it tried.
+- The terminal requirement is the real barrier, because agent shell tools have no TTY.
+- Scripted verification never existed (`verify` has always required a terminal), so nothing is
+  lost.
+
+If you are a person in a shell that inherited an agent's variables, open a fresh terminal or
+use the Library. The skills have no verify path, and the triage and verify modules are kept out
+of the skill bundles. Agents keep `unverify` and `supersede`: lowering trust and retiring memory
+are part of their loop and never raise trust.
+
+Under the no-auth model this is a guard against self-verification by reflex, not access
+control. Anything that can reach the API can still call it directly (see
+[SECURITY.md](../SECURITY.md)).
 
 ## Why skills + CLI (and where the MCP server fits)
 
@@ -131,10 +234,64 @@ the tasks/checklist suite and `derived-from` document linking, which the CLI doe
   to scope). Hits carry a trust label, and an incomplete semantic index is disclosed inline
   (`index incomplete: N of M documents pending`) so an empty result is never mistaken for an
   honest miss while vectors are still pending.
+- `prax used <id>` — reports that a recalled memory informed the work (see
+  [The librarian](#the-librarian)); `prax doctor` summarizes Library health with CI exit codes.
 - `prax remember "<title>" --body "<text>" --project <slug>` — writes project knowledge to its
   owner (the current project is resolved when the flag is omitted). Use `--memory` for reusable
   cross-project knowledge. The skill defaults new titles to memory, so pass its `--project`
   explicitly. These destinations do not change cross-project recall or agent attribution.
+- `prax brief <task-id>` — one briefing to start a task: header, numbered checklist, the latest
+  handoff paragraph, linked and related documents with trust, and the top 3 memories for the
+  task in the budget fill order.
+
+### Budgeted recall and the since-last-session delta
+
+An agent with a small context window can bound what it pulls instead of guessing a document
+count: `prax recall "<query>" --budget <tokens>` and `prax context --budget <tokens>` (the
+recall skill takes `--budget` too). Tokens are estimated as characters / 4. The block is filled
+**verified first, then cited-and-unchanged, then newest**: an unverified note whose cited code
+was checked in this checkout and still matches outranks one nobody can vouch for. Lower entries
+are compacted to one line — title, type, trust chip, first line — rather than summarised, so no
+entry ever loses its trust label, and whatever the budget leaves out is counted. Disclosures
+(retrieval mode, index coverage) always print. Without `--budget` nothing changes. See
+[Budgets and the fill order](cli.md#budgets-and-the-fill-order).
+
+At the start of a session, ask what changed instead of re-reading everything:
+
+```bash
+prax recall --since-last-session          # or the skill: recall.mjs --since-last-session
+```
+
+This lists memory created, updated, verified, superseded, deprecated or archived since the end
+of **this agent's** last delta (the server keeps one marker per `x-prax-agent` id and scope,
+migration 0041). It needs an agent id (`--agent`, `PRAX_AGENT`, or a detected agent shell). The
+marker moves only after a delta has been printed in full — plain recalls never move it, and a
+budget that leaves changes out holds it — so no change is skipped. The first run sets the
+baseline and says so; `--since <iso>` reads any window without touching the marker. The delta
+does not see unverifications or permanent deletions. Several sessions of the same agent share
+one marker; pass `--since` when they must not.
+
+## Through git: the Library mirror and the compiled block
+
+Recall needs a running Prax. Two outputs carry a project's knowledge into the repository for
+teammates and agents without it; both are one-way projections, and SQLite stays the single
+source of truth ([spec](superpowers/specs/2026-09-23-library-git-mirror-design.md)).
+
+- **`prax mirror`** writes the project's Library as Markdown v3 into `.prax/library/` with stable
+  names and byte-identical output when nothing changed, so knowledge changes are reviewed like
+  code. Commit it; do not edit it there. Retired documents move to `retired/`; archived and
+  deleted ones leave. `prax mirror import` brings a mirror into another library without ever
+  writing over an existing document, and treats a file's verification as a **claim**: documents
+  land unverified unless the named verifier is in the operator's trusted list
+  (`--trust-verifier`, `PRAX_TRUSTED_VERIFIERS`), the body still matches the verified hash, and a
+  person confirms in an attended terminal.
+- **`prax mirror --agents-block`** compiles the project's **verified** decisions (and verified
+  documents tagged `convention`) into a bounded, marked block of the repository's `AGENTS.md` /
+  `CLAUDE.md`, so they are always-on for every session. Unverified memory is never compiled; it
+  stays with recall, where its label travels with it. `skills/install.sh --library-block` does
+  the same for the `memory` project in each tool's global instructions file. Refresh the block
+  after verifying or retiring a decision; tag a standing runbook or reference `convention` to
+  include it.
 
 ## Setup
 
@@ -180,8 +337,11 @@ absolute path, so the block never teaches a command the machine cannot run. The 
 line). Project-specific startup guidance belongs in the workspace's instruction file.
 Updating an existing block preserves surrounding text; malformed or ambiguous markers stop
 the update instead of guessing. Re-running switches command form without uninstalling first.
-`--uninstall` removes the skills, the links, the instruction
-blocks and the shim; it edits a symlinked instruction file at its target (the link stays a link,
+`--hooks` adds the [session-harvesting](#session-harvesting-proposals-into-the-inbox) hook to
+Claude Code (`~/.claude/settings.json`), Codex (`~/.codex/hooks.json`) and Copilot CLI
+(`~/.copilot/hooks/prax-harvest.json`). It keeps every other setting and hook, and it teaches the
+proposal markers in the standing block. `--uninstall` removes the skills, the links, the
+instruction blocks, the shim and Prax's hook handlers; it edits a symlinked instruction file at its target (the link stays a link,
 the mode is kept) and leaves a file with malformed markers unchanged, failing the run. See
 [`skills/README.md`](../skills/README.md).
 

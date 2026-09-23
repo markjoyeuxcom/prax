@@ -11,21 +11,108 @@ const CAP = 20;
 function docRow(doc, rowAction, showTrust) {
   const agent = showTrust && doc.updatedBy === 'agent' ? '<span class="health-tag">agent-written</span>' : '';
   const unver = showTrust && !doc.verified ? '<span class="health-tag health-tag--warn">unverified</span>' : '';
+  // Present only when the list was fetched with sort=recall.
+  const recalled = Number.isFinite(doc.recallHits) ? `<span class="health-tag">recalled ${escapeHtml(doc.recallHits)}×</span>` : '';
   return `<div class="health-row">
     <button class="health-row__title" type="button" data-action="open-health-doc" data-doc-id="${escapeHtml(doc.id || '')}">${escapeHtml(doc.title || 'Untitled')}</button>
-    <span class="health-row__meta">${escapeHtml(doc.documentType || 'note')}${agent}${unver}</span>
+    <span class="health-row__meta">${escapeHtml(doc.documentType || 'note')}${agent}${unver}${recalled}</span>
     ${rowAction ? rowAction(doc) : '' /* html-safe: rowAction is verifyBtn below, which escapes */}
   </div>`;
 }
 
-function section(title, docs, { empty, rowAction, showTrust = false } = {}) {
+function section(title, docs, { empty, rowAction, showTrust = false, headAction = '' } = {}) {
   const list = Array.isArray(docs) ? docs : [];
   const shown = list.slice(0, CAP).map((d) => docRow(d, rowAction, showTrust)).join('');
   const more = list.length > CAP ? `<p class="health-more">and ${list.length - CAP} more…</p>` : '';
   const body = list.length ? `${shown}${more}` : `<p class="health-empty">✓ ${escapeHtml(empty)}</p>`;
   return `<section class="health-card">
-    <h2 class="health-card__title">${escapeHtml(title)}<span class="health-count${list.length ? '' : ' is-zero'}">${list.length}</span></h2>
+    <h2 class="health-card__title">${escapeHtml(title)}<span class="health-count${list.length ? '' : ' is-zero'}">${list.length}</span>${headAction /* html-safe: reviewSortToggle builds it with escaped values */}</h2>
     ${body}
+  </section>`;
+}
+
+// Opt-in: order the review list by how often agents' recalls returned each
+// document. The default order is the one every other consumer sees.
+function reviewSortToggle(state) {
+  const on = state.healthReviewSort === 'recall';
+  return `<button class="btn-ghost health-card__action" type="button" data-action="toggle-health-review-sort" aria-pressed="${on ? 'true' : 'false'}">${on ? 'Most recalled first' : 'Sort by recall'}</button>`;
+}
+
+// ---- Librarian (docs/superpowers/specs/2026-09-23-librarian-design.md) --------
+// Consolidation proposals (drafted, never applied without a person), the
+// questions memory could not answer, and never-recalled agent memories.
+
+function proposalRow(p) {
+  const trust = p.verified
+    ? '<span class="health-tag">verified</span>'
+    : '<span class="health-tag health-tag--warn">unverified</span>';
+  const approve = p.verified
+    ? `<button class="btn-outline btn-outline--sm" type="button" data-action="decide-proposal" data-decision="approve" data-proposal-id="${escapeHtml(p.documentId || '')}">Approve</button>`
+    : `<button class="btn-outline btn-outline--sm" type="button" data-action="verify-health-doc" data-doc-id="${escapeHtml(p.documentId || '')}" title="Read the draft and verify it; then approve it here">Review</button>`;
+  return `<div class="health-row librarian-proposal">
+    <button class="health-row__title" type="button" data-action="open-health-doc" data-doc-id="${escapeHtml(p.documentId || '')}">${escapeHtml(p.title || 'Untitled proposal')}</button>
+    <span class="health-row__meta">${escapeHtml((p.sourceIds || []).length)} sources · ${escapeHtml(p.method || '')}${trust}</span>
+    <span class="librarian-proposal__actions">${approve}<button class="btn-ghost" type="button" data-action="decide-proposal" data-decision="dismiss" data-proposal-id="${escapeHtml(p.documentId || '')}">Dismiss</button></span>
+  </div>`;
+}
+
+function gapRow(g) {
+  const why = g.reason === 'no-hits' ? 'no hits' : 'hits never used';
+  const who = (g.agents || []).length ? ` · ${escapeHtml(g.agents.join(', '))}` : '';
+  return `<div class="health-row librarian-gap">
+    <span class="librarian-gap__query">${escapeHtml(g.query || '')}</span>
+    <span class="health-row__meta">asked ${escapeHtml(g.occurrences)}× · ${escapeHtml(why)}${who}</span>
+  </div>`;
+}
+
+export function librarianSection(state) {
+  const lib = state.librarian;
+  const running = Boolean(state.librarianRunning);
+  const schedule = Boolean(lib?.settings?.scheduleEnabled);
+  const telemetryOn = lib?.settings ? lib.settings.telemetryEnabled !== false : true;
+  const head = `<div class="librarian__actions">
+      <button class="btn-outline btn-outline--sm" type="button" data-action="run-librarian"${running ? ' disabled' : ''}>${running ? 'Running…' : 'Run librarian'}</button>
+      <label class="librarian__schedule"><input type="checkbox" data-action="toggle-librarian-schedule"${schedule ? ' checked' : ''}${lib?.settings ? '' : ' disabled'}> Run daily</label>
+    </div>`;
+  const lastRun = state.librarianLastRun;
+  const last = lastRun
+    ? `<p class="health-empty">Last run: ${escapeHtml(lastRun.clusters)} cluster(s) by ${escapeHtml(lastRun.method === 'embedding' ? 'embeddings' : 'shingles')}, ${escapeHtml(lastRun.created)} new proposal(s).</p>`
+    : '';
+  const proposals = Array.isArray(lib?.proposals) ? lib.proposals : null;
+  let proposalBody;
+  if (proposals === null) proposalBody = '<p class="health-empty">Proposals could not be loaded.</p>';
+  else if (!proposals.length) proposalBody = '<p class="health-empty">✓ No open proposals. Run the librarian to look for near-duplicates.</p>';
+  else proposalBody = proposals.slice(0, CAP).map(proposalRow).join('');
+  const gaps = Array.isArray(lib?.gaps?.items) ? lib.gaps.items : null;
+  let gapBody;
+  if (!telemetryOn) gapBody = '<p class="health-empty">Recall telemetry is off on this server (PRAX_RECALL_TELEMETRY=off).</p>';
+  else if (gaps === null) gapBody = '<p class="health-empty">Knowledge gaps could not be loaded.</p>';
+  else if (!gaps.length) gapBody = '<p class="health-empty">✓ No unanswered questions recorded.</p>';
+  else gapBody = gaps.slice(0, CAP).map(gapRow).join('');
+  const usedHint = gaps !== null && telemetryOn && !lib?.gaps?.usedSignals
+    ? '<p class="librarian__hint">Only questions with no hits are listed until agents report use with <code>prax used &lt;id&gt;</code>.</p>'
+    : '';
+  const prune = lib?.prune;
+  let pruneBody;
+  if (!prune) pruneBody = '<p class="health-empty">Prune candidates could not be loaded.</p>';
+  else if (!prune.ready) pruneBody = `<p class="health-empty">Needs ${escapeHtml(prune.minAgeDays)} days of recall telemetry (have ${escapeHtml(prune.coverageDays)}).</p>`;
+  else if (!prune.items.length) pruneBody = '<p class="health-empty">✓ Every agent memory was recalled recently.</p>';
+  else pruneBody = prune.items.slice(0, CAP).map((d) => docRow(d, null, false)).join('');
+  const proposalCount = proposals ? proposals.length : 0;
+  const gapCount = gaps ? gaps.length : 0;
+  const pruneCount = prune?.items ? prune.items.length : 0;
+  return `<section class="health-card librarian" aria-label="Librarian">
+    <h2 class="health-card__title">Librarian</h2>
+    <p class="aireview__intro">Finds near-duplicate documents and drafts one <strong>proposal</strong> per group for you to review. Nothing is merged or retired until you verify a proposal and approve it. Recall telemetry stays on this machine.</p>
+    ${head}
+    ${last}
+    <h3 class="aireview__sub">Consolidation proposals<span class="health-count${proposalCount ? '' : ' is-zero'}">${escapeHtml(proposalCount)}</span></h3>
+    ${proposalBody}
+    <h3 class="aireview__sub">Knowledge gaps<span class="health-count${gapCount ? '' : ' is-zero'}">${escapeHtml(gapCount)}</span></h3>
+    ${usedHint}
+    ${gapBody}
+    <h3 class="aireview__sub">Never recalled<span class="health-count${pruneCount ? '' : ' is-zero'}">${escapeHtml(pruneCount)}</span></h3>
+    ${pruneBody}
   </section>`;
 }
 
@@ -124,10 +211,11 @@ export function renderHealthHtml(state) {
   return `<div class="page health">
       ${head}
       <p class="page-head__sub">Documents that may need attention — verify AI drafts, fill or delete stubs, and refresh stale derivations.</p>
-      ${section('Needs review', h.needsReview, { empty: 'No unverified documents.', rowAction: verifyBtn, showTrust: true })}
+      ${section('Needs review', h.needsReview, { empty: 'No unverified documents.', rowAction: verifyBtn, showTrust: true, headAction: reviewSortToggle(state) })}
       ${section('Empty stubs', h.empty, { empty: 'No empty documents.' })}
       ${section('Stale derivations', h.stale, { empty: 'No stale documents.' })}
       ${suggestionsSection(state.healthLinkSuggestions)}
+      ${librarianSection(state)}
       ${aiReviewSection(state)}
     </div>`;
 }

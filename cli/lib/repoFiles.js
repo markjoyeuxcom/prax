@@ -74,3 +74,72 @@ export function createCheckout(root = repoRoot()) {
     hasCommit: (sha) => hasCommit(sha, root),
   };
 }
+
+// ---- prax check: git diff access ---------------------------------------------
+// Every call pins the output format, so a user's diff configuration (noprefix,
+// external drivers, textconv, quoted paths) cannot change what is parsed.
+
+export class GitError extends Error {}
+
+const GIT_MAX_BUFFER = 512 * 1024 * 1024;
+
+function git(args, root) {
+  try {
+    return execFileSync('git', ['-c', 'core.quotePath=false', ...args], {
+      cwd: root, encoding: 'utf8', maxBuffer: GIT_MAX_BUFFER, stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (err) {
+    const detail = String(err?.stderr || err?.message || '').trim().split('\n')[0];
+    throw new GitError(`git ${args[0]} failed${detail ? `: ${detail}` : ''}`);
+  }
+}
+
+function commitOf(rev, root) {
+  if (!rev || rev.startsWith('-')) throw new GitError(`not a revision: "${rev}"`);
+  try {
+    return git(['rev-parse', '--verify', '--quiet', `${rev}^{commit}`], root).trim();
+  } catch {
+    throw new GitError(`unknown revision "${rev}" (in CI, fetch enough history: GIT_DEPTH 0, or fetch the base commit)`);
+  }
+}
+
+// `A...B`: the merge base of A and B against B. `A..B`: A against B. `A`: A
+// against the working tree (head null). An empty side means HEAD, as in git.
+export function resolveDiffRange(range, root = repoRoot()) {
+  const spec = String(range ?? '').trim();
+  if (!spec) throw new GitError('--diff needs a range such as origin/main...HEAD');
+  if (spec.includes('...')) {
+    const [a, b] = spec.split('...');
+    const head = commitOf(b || 'HEAD', root);
+    const left = commitOf(a || 'HEAD', root);
+    const base = git(['merge-base', left, head], root).trim();
+    if (!base) throw new GitError(`no merge base between "${a || 'HEAD'}" and "${b || 'HEAD'}"`);
+    return { base, head };
+  }
+  if (spec.includes('..')) {
+    const [a, b] = spec.split('..');
+    return { base: commitOf(a || 'HEAD', root), head: commitOf(b || 'HEAD', root) };
+  }
+  return { base: commitOf(spec, root), head: null };
+}
+
+// The zero-context unified diff between two commits (head null = the working
+// tree), with rename detection.
+export function gitDiff({ base, head }, root = repoRoot()) {
+  return git([
+    'diff', '--no-color', '--no-ext-diff', '--no-textconv', '--unified=0', '-M',
+    '--src-prefix=a/', '--dst-prefix=b/', base, ...(head ? [head] : []), '--',
+  ], root);
+}
+
+// A file's text at a commit, or null when it does not exist there.
+export function readAtRevision(rev, path, root = repoRoot()) {
+  if (!rev || !path) return null;
+  try {
+    return execFileSync('git', ['cat-file', 'blob', `${rev}:${path}`], {
+      cwd: root, encoding: 'utf8', maxBuffer: GIT_MAX_BUFFER, stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch {
+    return null;
+  }
+}

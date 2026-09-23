@@ -128,7 +128,7 @@ export function buildListOutboundLinksForDocuments(docIds) {
       join markdown_documents t on t.id = dl.target_document_id
       join projects p on p.id = t.project_id
       where dl.source_document_id in (select value from json_each($1))
-      order by dl.source_document_id, dl.relation, t.title
+      order by dl.source_document_id, dl.relation, t.title, t.id
     `,
     values: [JSON.stringify(docIds)],
   };

@@ -256,8 +256,9 @@ prax remember "Postgres restore drill" --body "…" --project homelab  # file wi
 prax remember "Agent working conventions" --body "…" --memory       # reusable across projects
 ```
 
-Documents written by agents (via the CLI or MCP) are **unverified** by default. A human runs
-`prax verify <id> --as <name>` in an attended terminal (or uses the Library UI) to bless them.
+Documents written by agents (via the CLI or MCP) are **unverified** by default. A human
+clears the review queue with `prax triage` or `prax verify <id> --as <name>` in an attended
+terminal, or in the Library UI. Both commands refuse to run in an agent CLI's shell.
 Retrieval is active-only and keeps unverified memory in a
 clearly-labelled section so AI tools can see it while treating it with appropriate caution.
 Project knowledge stays with its project; all projects participate in shared recall. For work

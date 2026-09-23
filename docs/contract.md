@@ -318,9 +318,20 @@ Steps...
   within a folder get a `-2`, `-3`, … suffix.
 - **ZIP layout:** `prax-library-<scope>-<YYYY-MM-DD>.zip`, with entries under
   `<project-slug>/<file>.md` for an all-projects export (flat for a single project).
+- **Ordering** is total, so equal library state renders equal bytes: documents by project slug,
+  title, creation time and id; outbound links by relation, target title and target id; code
+  citations by path, start line and id. The first document in that order keeps a bare filename.
+- **`format`** is `zip` (default) or `json`; **`layout`** is `flat` (default, the layout above)
+  or `mirror` (see [Library git mirror](#library-git-mirror)). Other values return 400.
+  `format=json` returns `{ format: "prax.library-export", version: 1, markdownVersion: 3, scope,
+  layout, includeArchived, documents: [{ path, id, title, documentType, status, tags, verified,
+  verifiedBy, verifiedAt, contentHash, markdown }] }` in export order, where `path` is the entry
+  name and `markdown` its exact bytes, with `Cache-Control: no-store`.
 
 The v3 additions record the document UUID, lifecycle/archive and verification state, specific agent,
-original filename, external references, code citations and linked task IDs. Optional values are
+original filename, external references, code citations and linked task IDs. Each `code_refs`
+entry is the citation object above, so since migration `0039` it also carries `normalizedHash` and
+`symbol`. The addition stays within the JSON objects, so the version remains 3. Optional values are
 explicit JSON-quoted strings or `null`; relation arrays use JSON flow syntax (valid YAML). Titles,
 slugs and tags that resemble typed YAML values or begin with YAML punctuation are quoted. These
 fields describe saved evidence and do not authorize an importer to verify a document automatically.
@@ -330,12 +341,14 @@ fields describe saved evidence and do not authorize an importer to verify a docu
 `GET /api/workspace/backup` creates a coherent snapshot through SQLite's online backup API,
 serialized behind the application's transaction gate. It includes **all committed SQLite tables**:
 projects, tasks/checklists/activity, documents/templates/archive, trust and attribution, links and
-citations, run history, settings, embeddings and Inbox action/undo receipts. It also packages the
-bundled starter guides and `RESTORE.md`. Both ZIP routes send `Cache-Control: no-store`.
+citations, run history, settings, embeddings, Inbox action/undo receipts, and the local recall
+telemetry and librarian proposals (see [Recall telemetry and the librarian](#recall-telemetry-and-the-librarian)).
+It also packages the bundled starter guides and `RESTORE.md`. Both ZIP routes send
+`Cache-Control: no-store`. The portable Library export never contains recall telemetry.
 
 The ZIP contains `prax.db` and `manifest.json` with `format: "prax.workspace-backup"`, `version: 1`,
 `praxVersion`, `schema: {finalMigration}` (the last migration the snapshot records, for example
-`"0038_repair_legacy_cycles_and_receipts.sql"`; absent from backups made before it was added),
+`"0041_add_agent_recall_markers.sql"`; absent from backups made before it was added),
 `createdAt`, `database: {file, sha256, bytes, integrityCheck, foreignKeyViolations}`,
 and explicit `includes`/`excludes` lists. The snapshot must pass integrity and foreign-key checks
 before download. Only one full backup streams per app at a time (409 on overlap); unavailable
@@ -395,8 +408,51 @@ fallback in `filename` (each such run replaced by `_`) plus the exact name as RF
 The server fetches the document's outbound links and computes refs in single-project scope
 before rendering. Returns 404 for a missing or archived document, 400 for an invalid UUID.
 
-**Not currently supported:** library `.md` / document **import (round-trip)**. Library export
-is one-way today. **Import Markdown…** opens an explicit destination-project dialog and creates one
+### Library git mirror
+
+`prax mirror` writes one project's export (`format=json&layout=mirror`) into a folder of the
+checkout, default `.prax/library/`. The mirror layout puts active documents at the folder root and
+superseded or deprecated ones under `retired/`; link `ref`s name those paths. The root also holds
+the mirror's own `README.md` (a generated table of documents; a document whose file name folds to
+it takes the `-2` suffix) and `index.json`:
+
+```json
+{
+  "format": "prax.library-mirror",
+  "version": 1,
+  "project": "homelab",
+  "documents": [
+    { "path": "postgres-restore.md", "id": "…", "title": "Postgres restore", "type": "runbook",
+      "status": "active", "verified": true, "verifiedBy": "Mark", "contentHash": "…" }
+  ]
+}
+```
+
+Entries are sorted by path; neither index file carries a timestamp. The mirror deletes only paths
+its manifest lists that match `[retired/]<name>.md`, so an edited manifest cannot reach outside
+the folder. An interrupted run leaves a manifest with `"pending": true` naming every path it may
+have written, and the next run finishes and cleans up. Not mirrored: operation receipts, revisions,
+run history, embeddings, activity, settings, tasks and archived documents.
+
+`prax mirror import` is the Markdown v3 read path. It creates the folder's `active` documents
+through `POST /api/library/documents` with each document's own UUID (the record-creation receipt,
+so `201` created, `200` replayed, `409` id used for different content, `410` permanently deleted
+here and not recreated), always with `verified: false`. An existing document is never
+overwritten: SQLite stays the only writer. Portable through the mirror: `id`, `title`, `type`,
+`tags`, `kind`, body (recovered exactly using `content_hash`, since the renderer adds a final
+newline), `source_filename`, `external_refs` (URL and label) and `code_refs` (path, lines, commit,
+hash). Deliberately not round-tripped: `created_at`, `updated_at`, `updated_by`,
+`updated_by_agent` (the import is stamped as the importer's agent write), `verified_at`,
+`task_ids`, `links` and retired or archived documents. `tests/contract/libraryMirror.test.js`
+locks this set.
+
+Front-matter verification is a claim. The importer records it, through the verify route bound to
+the created revision, only when the file says `verified: true` with a `verified_by` name that the
+operator trusts (`--trust-verifier` or `PRAX_TRUSTED_VERIFIERS`, never the mirror itself), the body
+hashes to `content_hash`, the library copy is unverified with that hash, and a person confirms in an
+attended terminal (`VERIFY <n>`). The claim covers the body, not the title.
+
+**Library intake without front matter.** **Import Markdown…** opens an explicit destination-project dialog and creates one
 project-owned source note per selected file. It retains the file body/filename but does not parse
 Prax front matter or restore type, provenance, trust, or graph links. The dialog retains failed files,
 reports committed and remaining counts separately, and offers an exact-once-safe retry.
@@ -583,11 +639,21 @@ the repository itself can report when the claim has gone stale. Where an externa
 nothing and therefore has no staleness, a citation stores a `content_hash` (sha256 of the cited
 lines, line endings normalised) and is checked by re-hashing the file. The source is never
 stored — only its hash. Each citation is
-`{ id, documentId, path, startLine, endLine, commitSha, contentHash, createdAt }`, unique per
+`{ id, documentId, path, startLine, endLine, commitSha, contentHash, normalizedHash, symbol, createdAt }`, unique per
 `(document, path, startLine, endLine)`, deleted with the document. `startLine`/`endLine` are
 inclusive and 1-based; both null means the whole file. `commitSha` records where the pin was
 taken and is **informational** — the check is content-based, so a citation survives rebases and
 branch switches that a commit comparison would false-alarm on.
+
+Hybrid anchors (migration `0039`), both nullable:
+
+- `normalizedHash` is the sha256 of the cited lines with all whitespace removed, newlines
+  included.
+- `symbol` is the name of the definition enclosing the first cited line, from a
+  zero-dependency heuristic for JS/TS, Python, Rust, Go, Swift and shell (`cli/lib/symbols.js`).
+  It is `null` for other files, whole-file citations and top-level code.
+- A non-null `normalizedHash` means the anchors were computed. Both null is a **legacy** pin
+  from before 0039, which is checked by `contentHash` alone.
 
 Served at `GET`/`POST`/`DELETE /api/library/documents/:id/code-refs`. POST is an idempotent
 upsert on the range (`201`; re-citing refreshes the hash and commit, which is what re-verifying
@@ -599,10 +665,43 @@ inverted range, or an `endLine` without a `startLine` (not a range). `prax remem
 <path[:start[-end]]>` and the `prax-remember` skill attach one, resolving it against the current
 checkout.
 
+The anchors are written as follows:
+
+- POST accepts optional `normalizedHash` (64 hex digits) and `symbol` (one line, at most 200
+  characters, and only together with `normalizedHash`). Otherwise it returns `400`.
+- The upsert overwrites both. A re-cite from a client that sends neither stores nulls, because
+  the old anchors described old content.
+- `POST /api/library/documents/:id/code-refs/:refId/anchors` with
+  `{ contentHash, normalizedHash, symbol? }` backfills a legacy pin. It is a compare-and-set:
+  the write happens only while the row still has that `contentHash` and a null
+  `normalizedHash`. The route returns `{ updated, ref }`, or `404` for an unknown citation. The
+  CLI's recall sends it when the line hash proves that the checkout holds the pinned content.
+
+`GET /api/library/code-refs?path=<p>[&path=<p>…][&project=<slug>]` is the read-only lookup behind
+`prax check`.
+
+- It returns `{ items: [{ …citation, document: { id, title, documentType, status, verified,
+  verifiedBy, updatedAt, projectId, projectSlug, projectRepoUrl } }] }`.
+- Only non-archived documents with status `active` are included.
+- A request takes 1 to 200 repository-relative paths. It returns `400` for none, too many, an
+  absolute or `..` path, or an unknown project. The CLI sends 50 per request.
+
 **Checking happens client-side**, because only a working tree can answer it: `prax recall` and
 the `prax-recall` skill re-read the cited file and report `current`, `moved` (the content was
 re-found elsewhere in the file — line numbers drift, and a staleness signal that cries wolf on
-every insertion above gets ignored), `changed`, or `missing`. Recall run from outside a checkout
+every insertion above gets ignored), `changed`, or `missing`.
+
+The check tries the anchors in order:
+
+1. The line hash at the recorded range.
+2. The line hash over nearby equal-length windows, which gives `moved`.
+3. The content hash over variable windows, which gives `current` or `moved` with
+   `anchor: "content"`.
+4. The symbol, which gives `changed` with `symbol: { name, line | null }`.
+
+A result that the line hash settles keeps its pre-0039 shape. `prax check` applies the same
+check to the base and head of a diff and fails only on drift the change introduced (see
+`docs/cli.md`). Recall run from outside a checkout
 reports **nothing either way**: silence must not read as "still true", and an unreadable file
 must not read as "deleted".
 
@@ -751,6 +850,56 @@ the substantive active candidates the `limit` left out; the Markdown pack states
 when it is non-zero. Each Markdown entry is one heading line carrying its title and its
 labels (`— _unverified_`, `— _stale_`); titles are rendered on one line, so they cannot add
 headings. The library-wide `GET /api/library/context-pack?q=` follows the same rules.
+JSON pack items carry `updatedAt` (the current revision's time), which the CLI's token budget
+(`prax context --budget`) uses for its newest-first tier; the budget itself is applied by the
+client, which alone can check code citations against its checkout (see
+[Budgets and the fill order](cli.md#budgets-and-the-fill-order)).
+
+### Memory changes and recall markers
+
+The since-last-session delta (`prax recall --since-last-session | --since <iso>`). Design:
+[the spec](superpowers/specs/2026-09-23-budgeted-context-and-brief-design.md).
+
+`GET /api/library/changes?since=<iso>|sinceLastSession=true[&project=<slug|id>][&limit=<n>]`
+
+Exactly one of `since` (an ISO-8601 date or date-time) and `sinceLastSession=true` is required
+(400 otherwise). `limit` defaults to 50, max 200. `project` narrows to one project (400 when
+unknown). Returns:
+
+```json
+{ "agent": "claude" | null, "project": { "id", "slug", "name" } | null,
+  "baseline": "explicit" | "marker" | "none", "since": "<iso>" | null, "until": "<iso>",
+  "items": [ { "id", "title", "documentType", "projectId", "projectSlug", "tags", "kind",
+               "verified", "verifiedAt", "verifiedBy", "status", "updatedBy", "updatedByAgent",
+               "createdAt", "updatedAt", "archivedAt", "supersededBy": ["<id>"],
+               "changes": ["created"|"updated"|"verified"|"superseded"|"deprecated"|"archived"],
+               "changedAt": "<iso>", "snippet": "<first 800 characters>" } ],
+  "page": { "returned", "total", "hasMore", "limit" } }
+```
+
+A document is included when its `created_at`, `updated_at`, `verified_at` (while verified) or
+`archived_at` is later than `since`; archived documents appear only when archived in the window.
+A document created in the window is `created`, not also `updated`; a retired document reports
+`superseded`/`deprecated` instead of `updated`; an archived one is not also `updated`.
+Unverification and permanent deletion are not visible. Items are ordered oldest `changedAt`
+first; a page never splits items with the same `changedAt`. `until` is the last item's
+`changedAt` (equal to `since` when nothing changed), never the server clock, so the next page
+or delta starts strictly after it without losing a write that committed during the read.
+
+With `sinceLastSession=true` the caller must identify as an agent (`x-prax-origin: agent` and a
+valid `x-prax-agent`; 400 otherwise). The server reads that agent's marker for the scope (`*`
+for all projects, else the project id): `baseline: "marker"` uses it as `since`; with no marker,
+`baseline: "none"`, `since: null`, no items and `until` = the server's now.
+
+`GET /api/library/recall-marker[?project=]` → `{ agent, project, lastRecallAt | null }`.
+
+`PUT /api/library/recall-marker` `{ "at": "<iso>", "project"?: "<slug|id>" }` →
+`{ agent, project, lastRecallAt }`. Monotonic: the stored value becomes `max(stored, at)`,
+clamped to the server's clock, so a replay or a stale session never moves it back (a setter
+that is safe to retry when no request reached the server). Both marker routes require the agent
+headers (400 otherwise). Markers live in `agent_recall_markers` (migration `0041`), keyed by
+`(agent, scope)`; they are runtime metadata, not part of portable export. The CLI advances a
+marker only after it printed a `--since-last-session` delta in full.
 
 Semantic search ranks documents by embedding similarity (meaning), not keywords, so a
 paraphrased query can find topically-relevant docs that share no words with it. It is
@@ -873,6 +1022,55 @@ Event shape (one `VEVENT` per task instance; serialization in `server/icsFeed.js
 - Recurring tasks carry **no `RRULE`** deliberately: Prax spawns the next instance server-side
   on completion, so an `RRULE` would double-count future occurrences.
 - Lines are CRLF-terminated and folded at 75 octets (multibyte-safe).
+
+## Recall telemetry and the librarian
+
+Design: [2026-09-23 librarian](superpowers/specs/2026-09-23-librarian-design.md). Migration
+`0040_recall_telemetry_and_librarian.sql` adds `recall_queries`, `recall_query_hits`,
+`recall_uses` and `librarian_proposals`.
+
+**Recording.** A retrieval is recorded only when its request carries
+`x-prax-query-source: recall|search|context|mcp|assistant` (the CLI and skills send the first
+three, the MCP server `mcp`, the in-app assistant `assistant`; any other value, or none, records
+nothing). The agent id is taken from `x-prax-agent` when `x-prax-origin: agent` is also sent.
+Recorded routes: `GET /api/library/documents/semantic-search` (the first page only; `hitCount`
+is the page's `total`), `GET /api/library/documents?q=` (keyword; every returned id, at most 50
+stored), and `GET /api/projects/:idOrSlug/context-pack?query=` / `GET /api/library/context-pack?q=`
+(the pack's document ids; a project pack that fell back to recency records zero hits). Recording
+is scheduled after the response and every failure is swallowed: the response body and status are
+identical with telemetry on, off, or failing. Rows are deleted after 90 days and each table keeps
+at most 20,000 rows. `PRAX_RECALL_TELEMETRY=off` turns recording off.
+
+| Route | Result |
+|-------|--------|
+| `POST /api/library/telemetry/used` `{ documentId, source? }` | `{ id, documentId, agent, occurredAt, title }`; 400 bad id, 404 unknown document, 409 `reason: "telemetry-off"` |
+| `GET /api/library/telemetry` | `{ enabled, queries, uses, oldestAt, newestAt, retentionDays, maxQueryRows, maxUseRows }` |
+| `DELETE /api/library/telemetry` | `{ cleared: { queries, uses } }` (works with recording off) |
+| `GET /api/library/librarian/gaps` | `{ items: [{ query, queryKey, reason: "no-hits"\|"unused", occurrences, lastAskedAt, lastHitCount, agents, sources }], usedSignals, since, windowHours, enabled }` |
+| `GET /api/library/librarian/recall-counts` | `{ counts: { <documentId>: { hits, uses, lastRecalledAt } }, since }` |
+| `GET /api/library/librarian/prune-candidates?project=` | `{ ready, coverageDays, minAgeDays, items: [{ id, title, documentType, projectId, createdAt, updatedAt, updatedByAgent, verified }] }` |
+| `GET /api/library/librarian/report?project=` | read-only: `{ status: "ok"\|"warn", checks: [{ id, level: "ok"\|"info"\|"warn", count, message }], health, index, clusters, proposals, gaps, prune, telemetry }` |
+| `POST /api/library/librarian/run` `{ project?, embeddingThreshold?, shingleThreshold? }` | `{ method, thresholds, documentsScanned, documentsEligible, documentsWithVectors, truncated, clusters: [{ key, status: "new"\|"proposed"\|"covered"\|"dismissed"\|"approved", method, proposalId, projectId, documents, edges, truncatedFrom }], created: [{ id, title, projectId, sourceIds }] }`; thresholds are 0.5–0.999 |
+| `GET /api/library/librarian/proposals?status=open\|approved\|dismissed` | `{ items: [{ documentId, clusterKey, projectId, sourceIds, method, status, createdAt, decidedAt, title, verified, archived, revision }] }` |
+| `POST /api/library/librarian/proposals/:id/approve` | `{ proposal, results: [{ id, outcome: "superseded"\|"already-superseded"\|"missing"\|"archived"\|"cycle" }] }`; 403 `human-approval-required` for an agent-origin request, 409 `verify-first` for an unverified proposal, 409 `not-open` after a dismissal; a repeat returns `replayed: true` |
+| `POST /api/library/librarian/proposals/:id/dismiss` | `{ proposal }`; archives the proposal document; 403 for an agent-origin request |
+| `GET` / `PUT /api/library/librarian/settings` `{ scheduleEnabled }` | `{ scheduleEnabled, lastScheduledRunAt, telemetryEnabled }` |
+
+Without a database the librarian routes answer 409 `reason: "unavailable"`.
+
+**Proposals.** A run clusters active documents within each project (templates, weekly reviews
+and earlier proposals excluded): cosine ≥ 0.92 between current vectors when semantic search is
+on, 3-word shingle Jaccard ≥ 0.5 otherwise and for any pair lacking a current vector. Each new
+cluster becomes one document: `kind: "synthesized"`, `updatedBy: "agent"`,
+`updatedByAgent: "librarian"`, `verified: false`, tag `librarian-proposal`, with `derived-from`
+links to its sources. A run never creates a `supersedes` link and never edits, archives or
+retires a source; only approval of a verified proposal by a non-agent request does. Re-running
+skips a cluster key already proposed (in any status) or wholly inside an open proposal.
+
+**Review order.** `GET /api/library/health?sort=recall` orders `needsReview` by recall hits,
+then uses, then the default order, and adds `recallHits` and `recallUses` to those rows (both
+`null` when telemetry cannot be read). Any other `sort` value is 400. Without `sort` the
+response is unchanged.
 
 ## Schema versions and downgrades
 

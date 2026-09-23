@@ -39,5 +39,7 @@ export function createInjectClient(app) {
   return createPraxClient({
     baseUrl: 'http://prax.internal', fetch: injectFetch, timeoutMs: 60_000, longTimeoutMs: 60_000, agent: null,
     sendLocalDay: false,
+    // Its searches are recorded as the assistant's, not an external MCP agent's.
+    querySource: 'assistant',
   });
 }

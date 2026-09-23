@@ -242,6 +242,11 @@ function createTransport({
 
 // cli/lib/apiClient.js
 var SEMANTIC_PAGE_MAX = 50;
+var CODE_REF_PATHS_PER_REQUEST = 50;
+var QUERY_SOURCES = Object.freeze(["recall", "search", "context"]);
+function querySourceHeaders(source) {
+  return QUERY_SOURCES.includes(source) ? { "x-prax-query-source": source, "x-prax-origin": "agent" } : void 0;
+}
 var parseResponse = (res) => (res.headers.get("content-type") || "").includes("application/json") ? res.json() : res.text();
 function createClient({
   baseUrl,
@@ -267,11 +272,13 @@ function createClient({
     body,
     agent: agentWrite = false,
     accept,
-    retryUnavailable = false
+    retryUnavailable = false,
+    headers
   } = {}) => transport.request(method, path, {
     body,
     agentWrite,
     accept,
+    headers,
     retry: retryUnavailable,
     parse: parseResponse
   });
@@ -281,7 +288,7 @@ function createClient({
     },
     candidates: transport.candidates,
     agent: transport.agent,
-    contextPack(project, { query, format = "md", limit } = {}) {
+    contextPack(project, { query, format = "md", limit, source } = {}) {
       const params = new URLSearchParams();
       if (query) params.set("query", query);
       if (format === "json") params.set("format", "json");
@@ -290,27 +297,35 @@ function createClient({
       return request(
         "GET",
         `/api/projects/${encodeURIComponent(project)}/context-pack${qs ? `?${qs}` : ""}`,
-        { accept: format === "json" ? "application/json" : "text/markdown" }
+        { accept: format === "json" ? "application/json" : "text/markdown", headers: querySourceHeaders(source) }
       );
     },
-    keywordSearch(project, q, { all = false } = {}) {
+    keywordSearch(project, q, { all = false, source } = {}) {
       const params = new URLSearchParams({ q });
       if (project) params.set("project", project);
       if (!all) params.set("status", "active");
-      return request("GET", `/api/library/documents?${params.toString()}`);
+      return request("GET", `/api/library/documents?${params.toString()}`, { headers: querySourceHeaders(source) });
     },
     // Paged mode so the response carries index coverage (`index`, `degraded`,
     // `reason: 'index-incomplete'`): the legacy array cannot say that pending
     // vectors were skipped, and a miss on an incomplete index is not an honest
     // miss. Older servers ignore `page` and return the array; normalise both.
-    async semanticSearch(project, q, { all = false, limit = SEMANTIC_PAGE_MAX, offset = 0, mode } = {}) {
+    async semanticSearch(project, q, {
+      all = false,
+      limit = SEMANTIC_PAGE_MAX,
+      offset = 0,
+      mode,
+      source
+    } = {}) {
       const params = new URLSearchParams({ q, page: "true" });
       if (mode) params.set("mode", String(mode));
       if (project) params.set("project", project);
       if (all) params.set("all", "true");
       params.set("limit", String(Math.min(Math.max(Number(limit) || SEMANTIC_PAGE_MAX, 1), SEMANTIC_PAGE_MAX)));
       if (Number(offset) > 0) params.set("offset", String(Math.trunc(Number(offset))));
-      const res = await request("GET", `/api/library/documents/semantic-search?${params.toString()}`);
+      const res = await request("GET", `/api/library/documents/semantic-search?${params.toString()}`, {
+        headers: querySourceHeaders(source)
+      });
       if (Array.isArray(res)) return { items: res, page: null, index: null, degraded: false, reason: "coverage-unknown", legacy: true };
       return {
         items: Array.isArray(res?.items) ? res.items : [],
@@ -396,6 +411,29 @@ function createClient({
         retryUnavailable: "connect-only"
       });
     },
+    // Citations on any of `paths` from live active documents (prax check),
+    // batched CODE_REF_PATHS_PER_REQUEST at a time.
+    async listCodeRefsByPath(paths, { project } = {}) {
+      const unique = [...new Set(paths)];
+      const items = [];
+      for (let at = 0; at < unique.length; at += CODE_REF_PATHS_PER_REQUEST) {
+        const params = new URLSearchParams();
+        for (const path of unique.slice(at, at + CODE_REF_PATHS_PER_REQUEST)) params.append("path", path);
+        if (project) params.set("project", project);
+        const res = await request("GET", `/api/library/code-refs?${params.toString()}`);
+        items.push(...Array.isArray(res?.items) ? res.items : []);
+      }
+      return items;
+    },
+    // Lazy anchor backfill for a pre-0039 citation. Compare-and-set on the
+    // server, so a retry that proves nothing reached it is safe.
+    backfillCodeRefAnchors(documentId, refId, anchors) {
+      return request("POST", `/api/library/documents/${encodeURIComponent(documentId)}/code-refs/${encodeURIComponent(refId)}/anchors`, {
+        body: anchors,
+        agent: true,
+        retryUnavailable: "connect-only"
+      });
+    },
     addExternalRef(documentId, { url, label } = {}) {
       return request("POST", `/api/library/documents/${encodeURIComponent(documentId)}/external-refs`, {
         body: { url, label },
@@ -473,6 +511,59 @@ function createClient({
         retryUnavailable: "connect-only"
       });
     },
+    // The Library export as rendered Markdown v3 in JSON (`prax mirror`).
+    exportLibrary(project, { format = "json", layout = "mirror" } = {}) {
+      const params = new URLSearchParams({ project, format, layout });
+      return request("GET", `/api/library/export?${params.toString()}`, { accept: "application/json" });
+    },
+    listTaskDocuments(taskId) {
+      return request("GET", `/api/tasks/${encodeURIComponent(taskId)}/documents`);
+    },
+    // Advisory: always 200, `{ suggestions, degraded?, reason? }`.
+    relatedTaskDocuments(taskId) {
+      return request("GET", `/api/tasks/${encodeURIComponent(taskId)}/related-documents`);
+    },
+    // ---- the since-last-session delta ------------------------------------
+    // Sent as an agent request so the server knows WHOSE marker to read; a
+    // read, so it is never retried after it may have reached the server.
+    memoryChanges({ since, sinceLastSession = false, project, limit } = {}) {
+      const params = new URLSearchParams();
+      if (sinceLastSession) params.set("sinceLastSession", "true");
+      else if (since) params.set("since", since);
+      if (project) params.set("project", project);
+      if (limit) params.set("limit", String(limit));
+      return request("GET", `/api/library/changes?${params.toString()}`, { agent: true });
+    },
+    // A monotonic setter (the server keeps max(stored, at)), so it is retried
+    // when no request provably reached the server.
+    advanceRecallMarker({ project, at } = {}) {
+      return request("PUT", "/api/library/recall-marker", {
+        body: { at, ...project ? { project } : {} },
+        agent: true,
+        retryUnavailable: "connect-only"
+      });
+    },
+    // ---- librarian (prax used / doctor / telemetry) -------------------------
+    // A used signal is a setter of "this happened": re-sending it after a
+    // lost response would count the use twice, so retry only when no request
+    // reached the server.
+    markUsed(documentId) {
+      return request("POST", "/api/library/telemetry/used", {
+        body: { documentId, source: "cli" },
+        agent: true,
+        retryUnavailable: "connect-only"
+      });
+    },
+    telemetryStatus() {
+      return request("GET", "/api/library/telemetry");
+    },
+    clearTelemetry() {
+      return request("DELETE", "/api/library/telemetry", { retryUnavailable: "connect-only" });
+    },
+    librarianReport(project) {
+      const qs = project ? `?${new URLSearchParams({ project }).toString()}` : "";
+      return request("GET", `/api/library/librarian/report${qs}`);
+    },
     listDocuments(project, { status } = {}) {
       const params = new URLSearchParams();
       if (project && project !== "all") params.set("project", project);
@@ -485,6 +576,186 @@ function createClient({
 
 // cli/lib/codeRefs.js
 import { createHash } from "node:crypto";
+
+// cli/lib/symbols.js
+var JS_IDENT = "[A-Za-z_$][\\w$]*";
+var JS_KEYWORDS = /* @__PURE__ */ new Set([
+  "if",
+  "for",
+  "while",
+  "switch",
+  "catch",
+  "with",
+  "function",
+  "return",
+  "else",
+  "do",
+  "try",
+  "typeof",
+  "await",
+  "new",
+  "delete",
+  "void",
+  "yield",
+  "super",
+  "import",
+  "export"
+]);
+var PATTERNS = {
+  js: [
+    new RegExp(`^\\s*(?:export\\s+)?(?:default\\s+)?(?:declare\\s+)?(?:async\\s+)?function\\s*\\*?\\s*(?<name>${JS_IDENT})`),
+    new RegExp(`^\\s*(?:export\\s+)?(?:default\\s+)?(?:declare\\s+)?(?:abstract\\s+)?class\\s+(?<name>${JS_IDENT})`),
+    new RegExp(`^\\s*(?:export\\s+)?(?:declare\\s+)?(?:const\\s+)?(?:interface|enum|namespace)\\s+(?<name>${JS_IDENT})`),
+    new RegExp(`^\\s*(?:export\\s+)?(?:declare\\s+)?type\\s+(?<name>${JS_IDENT})\\s*(?:<[^=]*>)?\\s*=`),
+    // const f = function… | const f = x => … | const f = (a) => … | const f = async ( (params wrapped)
+    new RegExp(`^\\s*(?:export\\s+)?(?:const|let|var)\\s+(?<name>${JS_IDENT})\\s*(?::[^=]+)?=\\s*(?:async\\s*)?(?:function\\b|${JS_IDENT}\\s*=>|\\([^)]*\\)\\s*(?::[^=]+)?=>|\\([^)]*$)`),
+    // A method or object-literal method whose body opens on this line.
+    new RegExp(`^\\s*(?:(?:public|private|protected|static|readonly|override|abstract|async|get|set)\\s+)*\\*?\\s*(?<name>#?${JS_IDENT})\\s*(?:<[^>]*>)?\\s*\\([^;]*\\)\\s*(?::\\s*[^{;]+)?\\{\\s*$`)
+  ],
+  python: [
+    /^\s*(?:async\s+)?def\s+(?<name>\w+)/,
+    /^\s*class\s+(?<name>\w+)/
+  ],
+  rust: [
+    /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:default\s+)?(?:const\s+)?(?:async\s+)?(?:unsafe\s+)?(?:extern\s+"[^"]*"\s+)?fn\s+(?<name>\w+)/,
+    /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:struct|enum|trait|union|mod|type)\s+(?<name>\w+)/,
+    /^\s*(?:unsafe\s+)?impl(?:\s*<[^>]*>)?\s+(?:[\w:<>, ]+?\s+for\s+)?(?<name>\w+)/
+  ],
+  go: [
+    /^func\s+\(\s*\w*\s*\*?\s*(?<recv>\w+)[^)]*\)\s*(?<name>\w+)/,
+    /^func\s+(?<name>\w+)/,
+    /^type\s+(?<name>\w+)/
+  ],
+  swift: [
+    /^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:public|private|fileprivate|internal|open|static|class|final|override|mutating|nonmutating|convenience|required|indirect|lazy|dynamic|nonisolated|distributed)(?:\([^)]*\))?\s+)*func\s+(?<name>[^\s(<]+)/,
+    /^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:public|private|fileprivate|internal|open|override|convenience|required|nonisolated)\s+)*(?<name>init|deinit)\b/,
+    /^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:public|private|fileprivate|internal|open|final|indirect)\s+)*(?:class|struct|enum|protocol|extension|actor)\s+(?<name>[\w.]+)/
+  ],
+  shell: [
+    /^\s*function\s+(?<name>[A-Za-z_][\w.:-]*)/,
+    /^\s*(?<name>[A-Za-z_][\w.:-]*)\s*\(\s*\)/
+  ]
+};
+var EXTENSIONS = {
+  js: "js",
+  mjs: "js",
+  cjs: "js",
+  jsx: "js",
+  ts: "js",
+  tsx: "js",
+  mts: "js",
+  cts: "js",
+  py: "python",
+  pyi: "python",
+  rs: "rust",
+  go: "go",
+  swift: "swift",
+  sh: "shell",
+  bash: "shell",
+  zsh: "shell",
+  ksh: "shell"
+};
+function symbolLanguage(path, firstLine2 = "") {
+  const base = String(path || "").split("/").pop();
+  const dot = base.lastIndexOf(".");
+  if (dot > 0) return EXTENSIONS[base.slice(dot + 1).toLowerCase()] ?? null;
+  const shebang = /^#!\s*\S+(?:\s+(\S+))?/.exec(String(firstLine2));
+  if (!shebang) return null;
+  const interpreter = (shebang[0].includes("/env") && shebang[1] ? shebang[1] : shebang[0]).split("/").pop();
+  if (/^(?:node|deno|bun)\b/.test(interpreter)) return "js";
+  if (/^python/.test(interpreter)) return "python";
+  if (/^(?:ba|z|k|da)?sh\b/.test(interpreter)) return "shell";
+  return null;
+}
+function indentOf(line) {
+  let width = 0;
+  for (const ch of line) {
+    if (ch === " ") width += 1;
+    else if (ch === "	") width += 4;
+    else break;
+  }
+  return width;
+}
+var isBlank = (line) => !/\S/.test(line);
+var isClosingLine = (line) => /^\s*[)\]}]/.test(line);
+function definitionName(line, language) {
+  const patterns = PATTERNS[language];
+  if (!patterns) return null;
+  for (const pattern of patterns) {
+    const match = pattern.exec(line);
+    if (!match) continue;
+    const { name, recv } = match.groups;
+    if (!name || language === "js" && JS_KEYWORDS.has(name)) continue;
+    return recv ? `${recv}.${name}` : name;
+  }
+  return null;
+}
+function linesOf(text) {
+  return Array.isArray(text) ? text : String(text ?? "").replace(/\r\n/g, "\n").split("\n");
+}
+function enclosingSymbol(text, line, path) {
+  const lines = linesOf(text);
+  const language = symbolLanguage(path, lines[0]);
+  if (!language || !Number.isInteger(line) || line < 1 || line > lines.length) return null;
+  if (isBlank(lines[line - 1])) return null;
+  let limit = Infinity;
+  for (let i = line - 1; i >= 0; i -= 1) {
+    const raw = lines[i];
+    if (isBlank(raw)) continue;
+    const indent = indentOf(raw);
+    if (i === line - 1) {
+      const own = definitionName(raw, language);
+      if (own) return own;
+      limit = indent;
+      continue;
+    }
+    if (indent >= limit || isClosingLine(raw)) continue;
+    const name = definitionName(raw, language);
+    if (name) return name;
+    limit = indent;
+  }
+  return null;
+}
+function citationSymbol(text, startLine, endLine, path) {
+  if (!startLine) return null;
+  const lines = linesOf(text);
+  const last = Math.min(endLine ?? startLine, lines.length);
+  let first = startLine;
+  while (first <= last && isBlank(lines[first - 1])) first += 1;
+  if (first > last) return null;
+  const enclosing = enclosingSymbol(lines, first, path);
+  if (enclosing) return enclosing;
+  const language = symbolLanguage(path, lines[0]);
+  if (!language) return null;
+  let outer = Infinity;
+  for (let i = first - 1; i < last; i += 1) if (!isBlank(lines[i])) outer = Math.min(outer, indentOf(lines[i]));
+  for (let i = first - 1; i < last; i += 1) {
+    if (isBlank(lines[i]) || indentOf(lines[i]) > outer) continue;
+    const name = definitionName(lines[i], language);
+    if (name) return name;
+  }
+  return null;
+}
+function findDefinitions(text, path) {
+  const lines = linesOf(text);
+  const language = symbolLanguage(path, lines[0]);
+  if (!language) return [];
+  const found = [];
+  lines.forEach((raw, index) => {
+    const name = definitionName(raw, language);
+    if (name) found.push({ name, line: index + 1, indent: indentOf(raw) });
+  });
+  return found;
+}
+function locateSymbol(text, name, nearLine, path) {
+  if (!name) return null;
+  const matches = findDefinitions(text, path).filter((d) => d.name === name);
+  if (!matches.length) return null;
+  const near = Number.isInteger(nearLine) ? nearLine : 1;
+  return matches.reduce((best, d) => Math.abs(d.line - near) < Math.abs(best.line - near) ? d : best).line;
+}
+
+// cli/lib/codeRefs.js
 function toLines(text) {
   return String(text).replace(/\r\n/g, "\n").split("\n");
 }
@@ -499,6 +770,7 @@ function hashCitation(text) {
   return createHash("sha256").update(toLines(text).join("\n"), "utf8").digest("hex");
 }
 var MOVED_SCAN_BUDGET_LINES = 1e6;
+var CONTENT_SCAN_BUDGET_STEPS = 25e4;
 function hashWindow(lines, from, span) {
   const hash = createHash("sha256");
   for (let i = from; i < from + span; i += 1) {
@@ -507,8 +779,44 @@ function hashWindow(lines, from, span) {
   }
   return hash.digest("hex");
 }
-function checkCitation(ref, currentText, { budgetLines = MOVED_SCAN_BUDGET_LINES } = {}) {
-  const { startLine, endLine, contentHash } = ref;
+var stripWhitespace = (text) => String(text).replace(/\s+/g, "");
+function hashNormalized(text) {
+  return createHash("sha256").update(stripWhitespace(text), "utf8").digest("hex");
+}
+var EMPTY_NORMALIZED_HASH = hashNormalized("");
+function computeAnchors(text, startLine, endLine, path) {
+  const cited = sliceLines(text, startLine, endLine);
+  if (cited === null) return null;
+  return {
+    contentHash: hashCitation(cited),
+    normalizedHash: hashNormalized(cited),
+    symbol: startLine ? citationSymbol(text, startLine, endLine, path) : null
+  };
+}
+function scanContent(lines, target, origin, maxSpan, budget) {
+  const stripped = lines.map(stripWhitespace);
+  const last = lines.length - 1;
+  let spent = 0;
+  for (let distance2 = 0; origin - distance2 >= 0 || origin + distance2 <= last; distance2 += 1) {
+    for (const from of distance2 === 0 ? [origin] : [origin - distance2, origin + distance2]) {
+      if (from < 0 || from > last || stripped[from] === "") continue;
+      if (spent >= budget) return { complete: false };
+      const hash = createHash("sha256");
+      for (let end = from; end <= Math.min(last, from + maxSpan - 1); end += 1) {
+        spent += 1;
+        if (stripped[end] === "") continue;
+        hash.update(stripped[end], "utf8");
+        if (hash.copy().digest("hex") === target) return { startLine: from + 1, endLine: end + 1 };
+      }
+    }
+  }
+  return { complete: true };
+}
+function checkCitation(ref, currentText, {
+  budgetLines = MOVED_SCAN_BUDGET_LINES,
+  contentBudget = CONTENT_SCAN_BUDGET_STEPS
+} = {}) {
+  const { startLine, endLine, contentHash, normalizedHash, symbol, path } = ref;
   if (currentText === null || currentText === void 0) {
     return { status: "missing", startLine: startLine ?? null, endLine: endLine ?? null };
   }
@@ -516,35 +824,60 @@ function checkCitation(ref, currentText, { budgetLines = MOVED_SCAN_BUDGET_LINES
   if (atRecordedRange !== null && hashCitation(atRecordedRange) === contentHash) {
     return { status: "current", startLine: startLine ?? null, endLine: endLine ?? null };
   }
-  if (!startLine) return { status: "changed", startLine: null, endLine: null };
+  if (!startLine) {
+    if (normalizedHash && hashNormalized(currentText) === normalizedHash) {
+      return { status: "current", startLine: null, endLine: null, anchor: "content" };
+    }
+    return { status: "changed", startLine: null, endLine: null };
+  }
   const span = endLine - startLine + 1;
   const lines = toLines(currentText);
+  let complete = true;
   const lastFirst = lines.length - span;
-  if (lastFirst < 0) return { status: "changed", startLine, endLine };
-  const origin = Math.min(Math.max(startLine - 1, 0), lastFirst);
-  const windows = Math.max(1, Math.floor(budgetLines / span));
-  let tried = 0;
-  for (let distance2 = 0; tried < windows && (origin - distance2 >= 0 || origin + distance2 <= lastFirst); distance2 += 1) {
-    for (const from of distance2 === 0 ? [origin] : [origin - distance2, origin + distance2]) {
-      if (from < 0 || from > lastFirst || tried >= windows) continue;
-      tried += 1;
-      if (hashWindow(lines, from, span) === contentHash) {
-        return { status: "moved", startLine: from + 1, endLine: from + span };
+  if (lastFirst >= 0) {
+    const origin = Math.min(Math.max(startLine - 1, 0), lastFirst);
+    const windows = Math.max(1, Math.floor(budgetLines / span));
+    let tried = 0;
+    for (let distance2 = 0; tried < windows && (origin - distance2 >= 0 || origin + distance2 <= lastFirst); distance2 += 1) {
+      for (const from of distance2 === 0 ? [origin] : [origin - distance2, origin + distance2]) {
+        if (from < 0 || from > lastFirst || tried >= windows) continue;
+        tried += 1;
+        if (hashWindow(lines, from, span) === contentHash) {
+          return { status: "moved", startLine: from + 1, endLine: from + span };
+        }
       }
     }
+    complete = tried >= lastFirst + 1;
   }
-  const complete = tried >= lastFirst + 1;
-  return complete ? { status: "changed", startLine, endLine } : { status: "changed", startLine, endLine, searched: "nearby" };
+  if (normalizedHash && normalizedHash !== EMPTY_NORMALIZED_HASH && lines.length) {
+    const origin = Math.min(Math.max(startLine - 1, 0), lines.length - 1);
+    const found = scanContent(lines, normalizedHash, origin, 2 * span + 10, contentBudget);
+    if (found.startLine) {
+      const inPlace = found.startLine === startLine && found.endLine === endLine;
+      return { status: inPlace ? "current" : "moved", startLine: found.startLine, endLine: found.endLine, anchor: "content" };
+    }
+    complete = complete && found.complete;
+  }
+  const result = { status: "changed", startLine, endLine };
+  if (!complete) result.searched = "nearby";
+  if (symbol) result.symbol = { name: symbol, line: locateSymbol(lines, symbol, startLine, path) };
+  return result;
 }
 function describeCitationStatus(result, ref) {
   const path = ref?.path || "cited code";
   switch (result?.status) {
-    case "changed":
-      return result.searched === "nearby" ? `${path} changed since this was written (a move far from the cited lines was not searched)` : `${path} changed since this was written`;
+    case "changed": {
+      const hints = [];
+      if (result.searched === "nearby") hints.push("a move far from the cited lines was not searched");
+      if (result.symbol?.name) {
+        hints.push(result.symbol.line ? `${result.symbol.name} is now at line ${result.symbol.line}` : `${result.symbol.name} is gone`);
+      }
+      return `${path} changed since this was written${hints.length ? ` (${hints.join("; ")})` : ""}`;
+    }
     case "missing":
       return `${path} is gone`;
     case "moved":
-      return `moved to ${path}:${result.startLine}-${result.endLine}`;
+      return `moved to ${path}:${result.startLine}-${result.endLine}${result.anchor === "content" ? " (whitespace changed)" : ""}`;
     default:
       return "";
   }
@@ -580,6 +913,143 @@ function normalizeRepoUrl(raw) {
   path = path.replace(/\.git$/i, "");
   if (!host || !path) return null;
   return `${host}/${path}`.toLowerCase();
+}
+
+// cli/lib/budget.js
+var CHARS_PER_TOKEN = 4;
+var TOKEN_ESTIMATE = "chars/4";
+var FILL_TIERS = Object.freeze(["verified", "cited-unchanged", "recent"]);
+var FIRST_LINE_CHARS = 120;
+var LEAD_EXCERPT_CHARS = 800;
+var EXCERPT_CHARS = 240;
+function estimateTokens(text) {
+  return Math.ceil(String(text ?? "").length / CHARS_PER_TOKEN);
+}
+var statusOf = (doc) => doc?.status || "active";
+var isRetired = (doc) => Boolean(doc?.archivedAt) || statusOf(doc) !== "active";
+function trustChip(doc) {
+  if (!doc) return "[trust unknown]";
+  if (doc.archivedAt) return "[archived]";
+  const status = statusOf(doc);
+  if (status !== "active") return `[${status}]`;
+  return doc.verified ? "[verified]" : "[unverified]";
+}
+function citedAndUnchanged(item) {
+  const citations = Array.isArray(item?.citations) ? item.citations : [];
+  if (!citations.length) return false;
+  const check = item.citationCheck;
+  if (check && (check.reason || check.unchecked)) return false;
+  return citations.every((c) => c && c.status === "current");
+}
+function fillTier(item) {
+  if (isRetired(item)) return 2;
+  if (item?.verified) return 0;
+  if (citedAndUnchanged(item)) return 1;
+  return 2;
+}
+function fillOrder(items, { recencyOf = (item) => item?.updatedAt } = {}) {
+  const list = (Array.isArray(items) ? items : []).map((item, rank) => ({
+    item,
+    rank,
+    tier: fillTier(item),
+    at: String(recencyOf(item) || "")
+  }));
+  list.sort((a, b) => {
+    if (a.tier !== b.tier) return a.tier - b.tier;
+    if (a.tier === 2 && a.at !== b.at) {
+      if (!a.at) return 1;
+      if (!b.at) return -1;
+      return a.at < b.at ? 1 : -1;
+    }
+    return a.rank - b.rank;
+  });
+  return list.map(({ item, tier }) => ({ ...item, tier: FILL_TIERS[tier] }));
+}
+function firstLine(body, title = "", max = FIRST_LINE_CHARS) {
+  const heading = String(title || "").replace(/\s+/g, " ").trim().toLowerCase();
+  for (const raw of String(body || "").split(/\r?\n/)) {
+    const line = raw.replace(/^\s*(?:#{1,6}\s+|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+|>\s*)/, "").replace(/\s+/g, " ").trim();
+    if (!line || /^[-*_=]{3,}$/.test(line)) continue;
+    if (heading && line.toLowerCase() === heading) continue;
+    return line.length <= max ? line : `${line.slice(0, max).trimEnd()}\u2026`;
+  }
+  return "";
+}
+function excerpt(body, chars) {
+  const text = String(body || "").trim();
+  return text.length <= chars ? text : `${text.slice(0, chars).trimEnd()}\u2026`;
+}
+var oneLine = (text) => String(text || "").replace(/\s+/g, " ").trim();
+function compactLine(doc, { extra = [] } = {}) {
+  const title = oneLine(doc?.title) || "Untitled";
+  const lead = firstLine(doc?.body ?? doc?.snippet ?? doc?.text, doc?.title);
+  const facts = [doc?.documentType || "note", doc?.id, ...extra.map(oneLine)].filter(Boolean).join(" \xB7 ");
+  return `- ${trustChip(doc)} ${title} (${facts})${lead ? ` \u2014 ${lead}` : ""}`;
+}
+function omissionLine({ total, unverified }) {
+  if (!total) return "";
+  const extra = unverified > 0 ? ` (${unverified} unverified)` : "";
+  return `_${total} more left out by the budget${extra} \u2014 raise --budget, or prax get <id>._`;
+}
+function budgetLine({ tokens, used, total, shown }) {
+  const over = used > tokens ? " \u2014 exceeded by the disclosure lines, which are never dropped" : "";
+  return `(budget: ~${used} of ${tokens} tokens, ${TOKEN_ESTIMATE} \xB7 ${shown} of ${total} shown \xB7 fill: verified \u2192 cited-unchanged \u2192 recent${over})`;
+}
+function planBudget(entries, { budget, fixed = "" } = {}) {
+  const list = Array.isArray(entries) ? entries : [];
+  const cost = (text) => text === void 0 || text === null ? 0 : estimateTokens(`${text}
+`);
+  const fixedCost = cost(fixed);
+  const seen = /* @__PURE__ */ new Set();
+  const headerCost = (entry) => entry.group !== void 0 && !seen.has(entry.group) ? cost(entry.header) : 0;
+  const unverifiedTotal = list.filter((e) => e.unverified).length;
+  if (!Number.isFinite(budget)) {
+    let used2 = fixedCost;
+    for (const entry of list) {
+      used2 += headerCost(entry) + cost(entry.full);
+      seen.add(entry.group);
+    }
+    return { forms: list.map(() => "full"), used: used2, omitted: { total: 0, unverified: 0 } };
+  }
+  let all = fixedCost;
+  for (const entry of list) {
+    all += headerCost(entry) + cost(entry.full);
+    seen.add(entry.group);
+  }
+  seen.clear();
+  if (all <= budget) return { forms: list.map(() => "full"), used: all, omitted: { total: 0, unverified: 0 } };
+  const reserve = cost(omissionLine({ total: list.length, unverified: unverifiedTotal }));
+  const forms = [];
+  let used = fixedCost;
+  let compactOnly = false;
+  let stopped = false;
+  list.forEach((entry, index) => {
+    if (stopped) {
+      forms.push(null);
+      return;
+    }
+    const last = index === list.length - 1;
+    const room = (text) => used + headerCost(entry) + cost(text) + (last ? 0 : reserve) <= budget;
+    if (!compactOnly && room(entry.full)) {
+      used += headerCost(entry) + cost(entry.full);
+      seen.add(entry.group);
+      forms.push("full");
+      return;
+    }
+    compactOnly = true;
+    if (room(entry.compact)) {
+      used += headerCost(entry) + cost(entry.compact);
+      seen.add(entry.group);
+      forms.push("compact");
+      return;
+    }
+    stopped = true;
+    forms.push(null);
+  });
+  const left = list.filter((_, i) => forms[i] === null);
+  const omitted = { total: left.length, unverified: left.filter((e) => e.unverified).length };
+  if (omitted.total) used += cost(omissionLine(omitted));
+  return { forms, used, omitted };
 }
 
 // cli/lib/recall.js
@@ -646,14 +1116,19 @@ function boundNote(result) {
 }
 async function collectSemantic(client, project, query, limit, mode = "hybrid") {
   const wanted = Math.max(1, Number(limit) || 1);
-  let res = await client.semanticSearch(project, query, { limit: wanted, mode });
+  let res = await client.semanticSearch(project, query, { limit: wanted, mode, source: "recall" });
   if (Array.isArray(res)) return res;
   const items = [...res.items || []];
   let page = res.page;
   let guard = 0;
   while (page?.hasMore && items.length < wanted && Number.isInteger(page.nextOffset) && guard < 100) {
     guard += 1;
-    const next = await client.semanticSearch(project, query, { limit: wanted - items.length, offset: page.nextOffset, mode });
+    const next = await client.semanticSearch(project, query, {
+      limit: wanted - items.length,
+      offset: page.nextOffset,
+      mode,
+      source: "recall"
+    });
     if (Array.isArray(next)) break;
     items.push(...next.items || []);
     page = next.page;
@@ -685,6 +1160,16 @@ async function projectRepoUrl(client, projectId) {
   const project = Array.isArray(projects) ? projects.find((p) => p && p.id === projectId) : null;
   return project?.repoUrl || null;
 }
+function createRepoUrlLookup(client) {
+  let projects;
+  return async (projectId) => {
+    if (!projectId || typeof client.listProjects !== "function") return null;
+    projects ??= client.listProjects().catch(() => null);
+    const list = await projects;
+    const project = Array.isArray(list) ? list.find((p) => p && p.id === projectId) : null;
+    return project?.repoUrl || null;
+  };
+}
 var UNCHECKED_REASONS = {
   "no-checkout": "not run inside a checkout",
   "other-repository": "cited in another repository",
@@ -692,7 +1177,7 @@ var UNCHECKED_REASONS = {
   "unknown-repository": "the cited repository is not recorded",
   unavailable: "the citations could not be read"
 };
-async function checkTopCitations(client, hit, checkout) {
+async function checkTopCitations(client, hit, checkout, repoUrlOf = (projectId) => projectRepoUrl(client, projectId)) {
   const none = { citations: [], citationCheck: null };
   if (typeof client.listCodeRefs !== "function") return none;
   let refs;
@@ -706,7 +1191,7 @@ async function checkTopCitations(client, hit, checkout) {
   if (!checkout || typeof checkout.readFile !== "function") {
     return { citations: [], citationCheck: { checked: 0, unchecked: refs.length, reason: "no-checkout" } };
   }
-  const repoUrl = checkout.repoUrl === void 0 && checkout.hasCommit === void 0 ? null : await projectRepoUrl(client, hit.projectId);
+  const repoUrl = checkout.repoUrl === void 0 && checkout.hasCommit === void 0 ? null : await repoUrlOf(hit.projectId);
   const citations = [];
   const reasons = [];
   for (const ref of refs) {
@@ -722,6 +1207,7 @@ async function checkTopCitations(client, hit, checkout) {
       text = null;
     }
     const result = checkCitation(ref, text);
+    await backfillAnchors(client, hit.id, ref, result, text);
     citations.push({ ...result, path: ref.path, note: describeCitationStatus(result, ref) });
   }
   const distinct = [...new Set(reasons)];
@@ -735,6 +1221,17 @@ async function checkTopCitations(client, hit, checkout) {
     }
   };
 }
+async function backfillAnchors(client, documentId, ref, result, text) {
+  if (typeof client.backfillCodeRefAnchors !== "function" || !ref.id || ref.normalizedHash !== null) return;
+  if (!["current", "moved"].includes(result.status) || result.anchor) return;
+  const anchors = computeAnchors(text, result.startLine, result.endLine, ref.path);
+  if (!anchors || anchors.contentHash !== ref.contentHash) return;
+  try {
+    await client.backfillCodeRefAnchors(documentId, ref.id, anchors);
+  } catch {
+  }
+}
+var checkCitations = checkTopCitations;
 function citationCheckNote(check) {
   if (!check || !check.reason) return "";
   const why = (check.reasons?.length ? check.reasons : [check.reason]).map((reason) => UNCHECKED_REASONS[reason] || reason).join("; ");
@@ -758,6 +1255,64 @@ function rankKeywordMatches(docs, query) {
   };
   return list.map((doc, index) => ({ doc, index, score: score(doc) })).sort((a, b) => b.score - a.score || a.index - b.index).map((entry) => entry.doc);
 }
+async function searchCandidates(client, { query, project, limit = 5, mode = "hybrid" } = {}) {
+  let res;
+  try {
+    res = await collectSemantic(client, project || void 0, query, limit, mode);
+  } catch (err) {
+    if (err && err.status === 409) {
+      const ranked = rankKeywordMatches(await client.keywordSearch(project || void 0, query, { source: "recall" }), query);
+      const kept = await withProjectSlugs(client, ranked.slice(0, limit));
+      return {
+        keyword: true,
+        degraded: true,
+        reason: "semantic-not-configured",
+        index: null,
+        page: { returned: kept.length, total: ranked.length, hasMore: ranked.length > kept.length },
+        items: kept
+      };
+    }
+    throw err;
+  }
+  const legacy = Array.isArray(res) || Boolean(res?.legacy) || res?.reason === "coverage-unknown";
+  const list = Array.isArray(res) ? res : Array.isArray(res?.items) ? res.items : [];
+  return {
+    keyword: false,
+    degraded: !legacy && Boolean(res?.degraded),
+    // An old server reports no coverage at all: that is "unknown", not
+    // "complete", and the output must not imply otherwise.
+    reason: legacy ? "coverage-unknown" : res?.reason || null,
+    index: legacy ? null : res?.index || null,
+    // What remains beyond the requested bound after paging up to it.
+    page: legacy ? null : res?.page || null,
+    items: list.length ? await withProjectSlugs(client, list.slice(0, limit)) : []
+  };
+}
+var coverageOf = (found) => ({
+  degraded: found.degraded,
+  reason: found.reason,
+  index: found.index,
+  page: found.page
+});
+var DOC_FIELDS = [
+  "body",
+  "verified",
+  "verifiedBy",
+  "status",
+  "updatedAt",
+  "updatedBy",
+  "updatedByAgent",
+  "projectSlug"
+];
+async function enrichCandidates(client, items, checkout, { fetch = true } = {}) {
+  const repoUrlOf = createRepoUrlLookup(client);
+  return Promise.all((Array.isArray(items) ? items : []).map(async (item) => {
+    const doc = fetch ? await client.getDocument(item.id).catch(() => null) : null;
+    const merged = mergeDefined({ ...item, projectId: item.projectId ?? doc?.projectId }, doc, DOC_FIELDS);
+    const { citations, citationCheck } = await checkCitations(client, merged, checkout, repoUrlOf);
+    return { ...merged, citations, citationCheck };
+  }));
+}
 async function recall(client, {
   query,
   project,
@@ -765,7 +1320,9 @@ async function recall(client, {
   recent = false,
   mode = "hybrid",
   readFile,
-  checkout: givenCheckout
+  checkout: givenCheckout,
+  budget,
+  now = /* @__PURE__ */ new Date()
 } = {}) {
   const checkout = givenCheckout ?? (typeof readFile === "function" ? { readFile } : null);
   if (recent) {
@@ -784,65 +1341,116 @@ async function recall(client, {
     }));
     return { kind: "recent", project: project || "", items: await withProjectSlugs(client, items) };
   }
-  let res;
-  try {
-    res = await collectSemantic(client, project || void 0, query, limit, mode);
-  } catch (err) {
-    if (err && err.status === 409) {
-      const ranked = rankKeywordMatches(await client.keywordSearch(project || void 0, query, {}), query);
-      const kept2 = await withProjectSlugs(client, ranked.slice(0, limit));
-      const fallback = {
-        degraded: true,
-        reason: "semantic-not-configured",
-        index: null,
-        page: { returned: kept2.length, total: ranked.length, hasMore: ranked.length > kept2.length }
-      };
-      if (kept2.length === 0) return { kind: "empty", query, note: "keyword", ...fallback };
-      const { citations: citations2, citationCheck: citationCheck2 } = await checkTopCitations(client, kept2[0], checkout);
-      return {
-        kind: "hit",
-        note: "semantic search disabled \u2014 keyword results",
-        ...fallback,
-        top: { ...kept2[0], citations: citations2, citationCheck: citationCheck2 },
-        related: kept2.slice(1)
-      };
-    }
-    throw err;
+  const found = await searchCandidates(client, { query, project, limit, mode });
+  const kept = found.items;
+  if (kept.length === 0) return { kind: "empty", query, note: found.keyword ? "keyword" : null, ...coverageOf(found) };
+  const note = found.keyword ? "semantic search disabled \u2014 keyword results" : null;
+  if (budget !== void 0) {
+    const ordered = fillOrder(await enrichCandidates(client, kept, checkout, { fetch: !found.keyword }));
+    const result = { kind: "hit", note, ...coverageOf(found), top: ordered[0], related: ordered.slice(1) };
+    const plan = planRecallBudget(result, budget, now);
+    return { ...result, budget: plan.summary };
   }
-  const legacy = Array.isArray(res) || Boolean(res?.legacy) || res?.reason === "coverage-unknown";
-  const list = Array.isArray(res) ? res : Array.isArray(res?.items) ? res.items : [];
-  const coverage = {
-    degraded: !legacy && Boolean(res?.degraded),
-    // An old server reports no coverage at all: that is "unknown", not
-    // "complete", and the output must not imply otherwise.
-    reason: legacy ? "coverage-unknown" : res?.reason || null,
-    index: legacy ? null : res?.index || null,
-    // What remains beyond the requested bound after paging up to it.
-    page: legacy ? null : res?.page || null
-  };
-  if (list.length === 0) return { kind: "empty", query, note: null, ...coverage };
-  const kept = await withProjectSlugs(client, list.slice(0, limit));
+  if (found.keyword) {
+    const { citations: citations2, citationCheck: citationCheck2 } = await checkTopCitations(client, kept[0], checkout);
+    return {
+      kind: "hit",
+      note,
+      ...coverageOf(found),
+      top: { ...kept[0], citations: citations2, citationCheck: citationCheck2 },
+      related: kept.slice(1)
+    };
+  }
   const topDoc = await client.getDocument(kept[0].id).catch(() => null);
   const { citations, citationCheck } = await checkTopCitations(client, { ...kept[0], projectId: kept[0].projectId ?? topDoc?.projectId }, checkout);
   return {
     kind: "hit",
-    note: null,
-    ...coverage,
-    top: mergeDefined({ ...kept[0], citations, citationCheck }, topDoc, [
-      "body",
-      "verified",
-      "verifiedBy",
-      "status",
-      "updatedAt",
-      "updatedBy",
-      "updatedByAgent",
-      "projectSlug"
-    ]),
+    note,
+    ...coverageOf(found),
+    top: mergeDefined({ ...kept[0], citations, citationCheck }, topDoc, DOC_FIELDS),
     related: kept.slice(1)
   };
 }
+function citationNotes(item) {
+  return [
+    ...(item?.citations || []).map((c) => c.note).filter(Boolean),
+    citationCheckNote(item?.citationCheck)
+  ].filter(Boolean);
+}
+function memoryEntryFull(item, index, now = /* @__PURE__ */ new Date(), { heading = "##", extra = [] } = {}) {
+  const trust = [projectLabel(item), ...extra, trustLabel(item, now), ...citationNotes(item)].filter(Boolean).join(" \xB7 ");
+  const head = `${heading} ${trustChip(item)} ${oneLine(item.title) || "Untitled"}  (${item.documentType || "note"} \xB7 ${item.id}${trust ? ` \xB7 ${trust}` : ""})`;
+  const text = excerpt(item.body ?? item.snippet, index === 0 ? LEAD_EXCERPT_CHARS : EXCERPT_CHARS);
+  return text ? `${head}
+
+${text}
+` : `${head}
+`;
+}
+function renderBudgeted({
+  fixedLines = [],
+  entries,
+  budget,
+  footerLines = [],
+  order = null
+}) {
+  const total = entries.length;
+  const limited = Number.isFinite(budget);
+  const compose = (used2, plan2) => {
+    const shown = plan2.forms.filter(Boolean).length;
+    const head = limited ? [...fixedLines, budgetLine({ tokens: budget, used: used2, total, shown })] : [...fixedLines];
+    const body = [];
+    if (order) body.push(...order(plan2));
+    else {
+      entries.forEach((entry, i) => {
+        if (plan2.forms[i]) body.push(plan2.forms[i] === "full" ? entry.full : entry.compact);
+      });
+    }
+    const tail = [omissionLine(plan2.omitted), ...footerLines].filter(Boolean);
+    return [...head, ...head.length ? [""] : [], ...body, ...tail].join("\n").replace(/\n+$/, "");
+  };
+  const fixed = [
+    ...fixedLines,
+    ...limited ? [budgetLine({ tokens: budget, used: budget, total, shown: total })] : [],
+    "",
+    ...footerLines
+  ].join("\n");
+  const plan = planBudget(entries, { budget, fixed });
+  const used = estimateTokens(compose(estimateTokens(compose(plan.used, plan)), plan));
+  return { text: compose(used, plan), used, plan };
+}
+function budgetSummary(items, budget, used, plan) {
+  return {
+    tokens: budget,
+    used,
+    estimate: TOKEN_ESTIMATE,
+    fill: FILL_TIERS,
+    entries: items.map((item, i) => ({ id: item.id, tier: item.tier, form: plan.forms[i] || "omitted" })),
+    omitted: plan.omitted
+  };
+}
+function disclosureLines(result) {
+  const lines = [];
+  if (result.note) lines.push(`(${result.note})`);
+  const coverage = coverageNote(result);
+  if (coverage) lines.push(`(${coverage} \u2014 results may be missing)`);
+  const bound = boundNote(result);
+  if (bound) lines.push(`(${bound})`);
+  return lines;
+}
+function planRecallBudget(result, budget, now = /* @__PURE__ */ new Date()) {
+  const items = [result.top, ...result.related || []].filter(Boolean);
+  const entries = items.map((item, i) => ({
+    full: memoryEntryFull(item, i, now),
+    compact: compactLine(item),
+    unverified: !item.verified
+  }));
+  const { text, used, plan } = renderBudgeted({ fixedLines: disclosureLines(result), entries, budget });
+  return { text, summary: budgetSummary(items, budget, used, plan) };
+}
 function formatRecall(result, now = /* @__PURE__ */ new Date()) {
   if (!result) return "";
+  if (result.kind === "hit" && result.budget) return planRecallBudget(result, result.budget.tokens, now).text;
   if (result.kind === "empty") {
     const notes = [];
     if (result.note === "keyword") notes.push("keyword; semantic search is disabled");
@@ -868,11 +1476,11 @@ function formatRecall(result, now = /* @__PURE__ */ new Date()) {
   const bound = boundNote(result);
   if (bound) lines.push(`(${bound})`);
   const top = result.top;
-  const citationNotes = [
+  const citationNotes2 = [
     ...(top.citations || []).map((c) => c.note).filter(Boolean),
     citationCheckNote(top.citationCheck)
   ].filter(Boolean);
-  const trust = [projectLabel(top), trustLabel(top, now), ...citationNotes].filter(Boolean).join(" \xB7 ");
+  const trust = [projectLabel(top), trustLabel(top, now), ...citationNotes2].filter(Boolean).join(" \xB7 ");
   lines.push(`## ${top.title || "Untitled"}  (${top.documentType || "note"} \xB7 ${top.id}${trust ? ` \xB7 ${trust}` : ""})`);
   lines.push("");
   lines.push(trimBody(top.body));
@@ -887,6 +1495,113 @@ function formatRecall(result, now = /* @__PURE__ */ new Date()) {
     }
   }
   return lines.join("\n");
+}
+
+// cli/lib/delta.js
+var ISO_RE = /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/;
+function parseSince(value) {
+  const text = String(value ?? "").trim();
+  if (!ISO_RE.test(text)) return null;
+  const ms = Date.parse(text);
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+}
+var DeltaError = class extends Error {
+};
+async function memoryDelta(client, {
+  since,
+  sinceLastSession = false,
+  project,
+  limit,
+  checkout
+} = {}) {
+  if (Boolean(since) === Boolean(sinceLastSession)) throw new DeltaError("give exactly one of --since <iso> or --since-last-session.");
+  if (sinceLastSession && !client.agent) {
+    throw new DeltaError("--since-last-session needs an agent id: pass --agent <id> or set PRAX_AGENT.");
+  }
+  let res;
+  try {
+    res = await client.memoryChanges({ since, sinceLastSession, project, limit });
+  } catch (err) {
+    if (err && err.status === 404) err.message = `this Prax predates the memory delta (GET /api/library/changes answered 404). ${err.message}`;
+    throw err;
+  }
+  const repoUrlOf = createRepoUrlLookup(client);
+  const items = await Promise.all((res.items || []).map(async (item) => {
+    if (isRetired(item)) return { ...item, citations: [], citationCheck: null };
+    const { citations, citationCheck } = await checkCitations(client, item, checkout, repoUrlOf);
+    return { ...item, citations, citationCheck };
+  }));
+  const byChange = items.slice().sort((a, b) => String(b.changedAt).localeCompare(String(a.changedAt)));
+  return {
+    kind: "delta",
+    agent: res.agent ?? client.agent ?? null,
+    project: res.project ?? null,
+    baseline: res.baseline,
+    since: res.since ?? null,
+    until: res.until,
+    page: res.page ?? null,
+    items: fillOrder(byChange, { recencyOf: (item) => item.changedAt })
+  };
+}
+async function recordDelta(client, result, { project } = {}) {
+  if (!result || result.baseline === "explicit" || !result.until) return { marked: false };
+  try {
+    await client.advanceRecallMarker({ project, at: result.until });
+    return { marked: true };
+  } catch (err) {
+    return { marked: false, error: err };
+  }
+}
+var scopeOf = (result) => result.project?.slug ? `project ${result.project.slug}` : "all projects";
+function changeFacts(item) {
+  const facts = item.changes?.length ? [`changed: ${item.changes.join(", ")}`] : [];
+  if (item.supersededBy?.length) facts.push(`superseded by ${item.supersededBy.join(", ")}`);
+  return facts;
+}
+function planDelta(result, budget, now = /* @__PURE__ */ new Date()) {
+  const lines = [];
+  const window = `${result.since ?? "\u2014"} \u2192 ${result.until}`;
+  if (result.baseline === "none") {
+    lines.push(`No earlier delta recorded for agent "${result.agent}" (${scopeOf(result)}); baseline set at ${result.until} \u2014 the next --since-last-session starts here. Use --since <iso> or --recent to look back.`);
+  } else {
+    const source = result.baseline === "marker" ? `since the last delta for ${result.agent}` : "since --since";
+    lines.push(`# Memory changes ${source} (${scopeOf(result)})`);
+    lines.push(`_Window: ${window} \xB7 ${result.items.length} change${result.items.length === 1 ? "" : "s"}_`);
+    if (result.page?.hasMore) {
+      lines.push(`(${result.page.returned} of ${result.page.total} changes shown, oldest first \u2014 run the delta again for the rest)`);
+    }
+    if (!result.items.length) lines.push("No memory changed in this window.");
+    lines.push("(unverifications and permanent deletions are not tracked by the delta)");
+  }
+  const items = result.items || [];
+  const entries = items.map((item, i) => {
+    const extra = changeFacts(item);
+    const compact = compactLine(item, { extra });
+    return {
+      // Retired rows are no longer current memory: their line says what
+      // happened and what replaced them, never their old body as if current.
+      full: isRetired(item) ? `${compact}
+` : memoryEntryFull(item, i, now, { extra }),
+      compact,
+      unverified: !item.verified
+    };
+  });
+  let rendered = renderBudgeted({ fixedLines: lines, entries, budget });
+  const holdMarker = result.baseline === "marker" && rendered.plan.omitted.total > 0;
+  if (holdMarker) {
+    rendered = renderBudgeted({
+      fixedLines: lines,
+      entries,
+      budget,
+      footerLines: ["(marker not advanced: changes were left out by the budget, so the next --since-last-session repeats this window)"]
+    });
+  }
+  const { text, used, plan } = rendered;
+  return {
+    text,
+    advance: result.baseline !== "explicit" && plan.omitted.total === 0,
+    summary: Number.isFinite(budget) ? budgetSummary(items, budget, used, plan) : null
+  };
 }
 
 // public/js/documentTypes.js
@@ -1043,7 +1758,7 @@ function parseCommand(argv, {
 }
 
 // cli/lib/skillArgs.js
-var RECALL_USAGE = 'Usage: recall "<query>" [--project <slug>] [--limit <n>] [--agent <id>]\n       recall --recent [n] [--project <slug>]';
+var RECALL_USAGE = 'Usage: recall "<query>" [--project <slug>] [--limit <n>] [--budget <tokens>] [--agent <id>]\n       recall --recent [n] [--project <slug>]\n       recall --since-last-session | --since <iso> [--project <slug>] [--limit <n>] [--budget <tokens>] [--agent <id>]';
 var REMEMBER_USAGE = `Usage: remember "<title>" "<body>" [--tags a,b] [--type ${DOCUMENT_TYPE_VALUES.join("|")}] [--project <slug>] [--id <uuid>] [--ref <url>] [--cite <path[:start[-end]]>] [--agent <id>]`;
 var UsageError = class extends Error {
   constructor(message, usage) {
@@ -1060,7 +1775,8 @@ var SKILL_MESSAGES = {
 };
 var RECALL_SPEC = {
   usage: RECALL_USAGE,
-  value: ["project", "limit", "agent"],
+  value: ["project", "limit", "agent", "budget", "since"],
+  boolean: ["since-last-session"],
   optional: { recent: (next) => !next.startsWith("--") }
 };
 function parseSkillCommand(argv, spec) {
@@ -1089,6 +1805,16 @@ function parseRecallArgs(argv) {
     out.limit = positiveCount(flags.limit);
     if (out.limit === null) throw fail("--limit must be a positive integer");
   }
+  if (flags.budget !== void 0) {
+    out.budget = positiveCount(flags.budget);
+    if (out.budget === null) throw fail("--budget must be a positive number of tokens");
+    if (flags.limit === void 0) out.limit = 20;
+  }
+  if (flags["since-last-session"]) out.sinceLastSession = true;
+  if (flags.since !== void 0) {
+    out.since = flags.since;
+    if (out.sinceLastSession) throw fail("give one of --since <iso> or --since-last-session");
+  }
   if (flags.recent !== void 0) {
     out.recent = true;
     if (flags.recent !== true) {
@@ -1098,7 +1824,15 @@ function parseRecallArgs(argv) {
   }
   out.agent = parseAgent(flags.agent, fail);
   out.query = positionals.join(" ").trim();
-  if (!out.recent && !out.query) throw fail("recall needs a query, or --recent for a chronological list");
+  const delta = out.sinceLastSession || out.since !== void 0;
+  if (delta) {
+    if (out.recent) throw fail("--recent and a delta (--since / --since-last-session) are different lists; give one");
+    if (out.query) throw fail(`a delta lists changed memory and takes no query (got "${out.query}")`);
+    if (flags.limit === void 0) out.limit = void 0;
+    return out;
+  }
+  if (out.recent && out.budget !== void 0) throw fail("--budget does not apply to --recent");
+  if (!out.recent && !out.query) throw fail("recall needs a query, --recent for a chronological list, or --since-last-session for what changed");
   if (out.recent && out.query) throw fail(`--recent lists the newest documents and takes no query (got "${out.query}")`);
   return out;
 }
@@ -1207,12 +1941,53 @@ function createCheckout(root = repoRoot()) {
     hasCommit: (sha) => hasCommit(sha, root)
   };
 }
+var GIT_MAX_BUFFER = 512 * 1024 * 1024;
 
 // skills/src/recall.mjs
 async function main() {
-  const { query, project, limit, recent, agent } = parseRecallArgs(process.argv.slice(2));
+  const {
+    query,
+    project,
+    limit,
+    recent,
+    agent,
+    budget,
+    since: sinceArg,
+    sinceLastSession
+  } = parseRecallArgs(process.argv.slice(2));
   const client = createClient({ agent });
-  const result = await recall(client, { query, project, limit, recent, checkout: createCheckout() });
+  const checkout = createCheckout();
+  if (sinceLastSession || sinceArg !== void 0) {
+    const since = sinceArg === void 0 ? void 0 : parseSince(sinceArg);
+    if (sinceArg !== void 0 && !since) {
+      throw new UsageError(`--since must be an ISO-8601 date or date-time (got "${sinceArg}")`, RECALL_USAGE);
+    }
+    if (sinceLastSession && !client.agent) {
+      throw new UsageError("--since-last-session needs an agent id: pass --agent <id> or set PRAX_AGENT", RECALL_USAGE);
+    }
+    const result2 = await memoryDelta(client, {
+      since,
+      sinceLastSession,
+      project: project || void 0,
+      limit,
+      checkout
+    });
+    const planned = planDelta(result2, budget ?? Infinity);
+    console.log(planned.text);
+    if (sinceLastSession && planned.advance) {
+      const recorded = await recordDelta(client, result2, { project: project || void 0 });
+      if (recorded.error) console.error(`could not record the delta marker (${recorded.error.message}); the next --since-last-session repeats these changes.`);
+    }
+    return;
+  }
+  const result = await recall(client, {
+    query,
+    project,
+    limit,
+    recent,
+    budget,
+    checkout
+  });
   console.log(formatRecall(result));
 }
 main().catch((err) => {

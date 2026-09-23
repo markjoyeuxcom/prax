@@ -7,7 +7,7 @@ export async function decorateExportDocuments(db, documents) {
   const ids = JSON.stringify(documents.map(doc => doc.id));
   const [external, code, tasks] = await Promise.all([
     db.query('select * from document_external_refs where document_id in (select value from json_each($1)) order by document_id, url', [ids]),
-    db.query('select * from document_code_refs where document_id in (select value from json_each($1)) order by document_id, path, start_line', [ids]),
+    db.query('select * from document_code_refs where document_id in (select value from json_each($1)) order by document_id, path, start_line, id', [ids]),
     db.query('select * from task_documents where document_id in (select value from json_each($1)) order by document_id, task_id', [ids]),
   ]);
   const byId = new Map(documents.map(doc => [doc.id, { ...doc, externalRefs: [], codeRefs: [], taskIds: [] }]));

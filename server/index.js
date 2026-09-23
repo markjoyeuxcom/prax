@@ -9,6 +9,7 @@ import { registerInboxRoutes } from './inboxRoutes.js';
 import { registerWorkspaceBackupRoutes } from './workspaceBackup.js';
 import { registerTasksRoutes } from './tasksRoutes.js';
 import { registerLibraryRoutes } from './libraryRoutes.js';
+import { registerMemoryChangesRoutes } from './memoryChangesRoutes.js';
 import { registerStarterContentRoutes } from './starterContent.js';
 import { registerProjectsRoutes } from './projectsRoutes.js';
 import { registerChecklistRoutes } from './checklistRoutes.js';
@@ -20,6 +21,8 @@ import { createChatProvider } from './chatProvider.js';
 import { registerSettingsRoutes } from './settingsRoutes.js';
 import { registerGoogleCalendarRoutes } from './googleCalendarRoutes.js';
 import { registerAssistantRoutes } from './assistantRoutes.js';
+import { createRecallTelemetry } from './recallTelemetry.js';
+import { registerLibrarianRoutes } from './librarianRoutes.js';
 import {
   announceDesktopFailure,
   announceDesktopReady,
@@ -150,6 +153,10 @@ export async function buildApp(options = {}) {
   app.decorate('chatProvider', chatProvider);
   app.decorate('appSettingsRepository', appSettingsRepository);
   app.decorate('embeddingService', embeddingService);
+  // Recall telemetry needs the real database; an injected store (tests) wins.
+  app.decorate('recallTelemetry', options.recallTelemetry !== undefined
+    ? options.recallTelemetry
+    : (db ? createRecallTelemetry(db, { enabled: config.recallTelemetry !== false }) : null));
   app.decorate('embeddingSearch', {
     minSimilarity: config.embeddingSearchMinSimilarity,
     minSimilarityExplicit: Boolean(config.embeddingSearchMinSimilarityExplicit),
@@ -157,6 +164,8 @@ export async function buildApp(options = {}) {
   });
   await registerTasksRoutes(app, options);
   await registerLibraryRoutes(app, options);
+  await registerMemoryChangesRoutes(app, options);
+  await registerLibrarianRoutes(app, options);
   registerStarterContentRoutes(app);
   await registerProjectsRoutes(app, options);
   registerInboxRoutes(app, options);

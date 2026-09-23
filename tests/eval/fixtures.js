@@ -52,3 +52,89 @@ export const CASES = [
   // The empty scratch doc must never surface, even though "Test" matches its title.
   { name: 'junk doc stays out of results', query: 'Test', expect: [], notExpect: ['empty-scratch'] },
 ];
+
+// ---- Budgeted context and the since-last-session delta -------------------
+// (docs/superpowers/specs/2026-09-23-budgeted-context-and-brief-design.md)
+// Keyword mode, no embedder: the fixture memory is retrieved through the FTS
+// path, filled by `prax context --budget`'s own code (cli/lib/context.js) and
+// the delta runs through the real changes repository. `cite` pins lines of a
+// fake checkout file: `current` is what the checkout holds now.
+export const MEMORY_DOCS = [
+  {
+    key: 'mem-verified', title: 'Backup rotation policy', documentType: 'decision', verified: true, updatedAt: '2025-11-01T00:00:00.000Z',
+    body: 'Keep seven daily backup snapshots and four weekly ones. Older backup sets are pruned by the rotation job.',
+  },
+  {
+    key: 'mem-cited', title: 'Backup script location', documentType: 'reference', verified: false, updatedAt: '2025-06-01T00:00:00.000Z',
+    body: 'The backup script lives in scripts/backup.sh and writes to the NAS share.',
+    cite: { path: 'scripts/backup.sh', pinned: 'rsync -a /data /nas/backup\n', current: 'rsync -a /data /nas/backup\n' },
+  },
+  {
+    key: 'mem-stale-cite', title: 'Backup cron schedule', documentType: 'note', verified: false, updatedAt: '2026-02-01T00:00:00.000Z',
+    body: 'The backup cron runs at 02:00 every night.',
+    cite: { path: 'deploy/cron.txt', pinned: '0 2 * * * backup\n', current: '30 3 * * * backup\n' },
+  },
+  {
+    key: 'mem-recent', title: 'Backup failures last week', documentType: 'note', verified: false, updatedAt: '2026-09-20T00:00:00.000Z',
+    body: 'Two backup runs failed on the full NAS volume; pruning fixed it.',
+  },
+  {
+    key: 'mem-old', title: 'Backup notes from the migration', documentType: 'note', verified: false, updatedAt: '2025-01-01T00:00:00.000Z',
+    body: `Backup notes. ${'The old backup host was retired during the migration. '.repeat(12)}`,
+  },
+];
+
+// `expectOrder`: the fill order of every candidate. `expectForms`: the form
+// each key must print in ('full' | 'compact' | 'omitted'); keys not listed are
+// unconstrained. Every case also asserts that every printed entry line carries
+// a trust chip and that the budget is honoured when anything was left out.
+export const BUDGET_CASES = [
+  {
+    name: 'budget: fill order is verified, cited-and-unchanged, then recent',
+    query: 'backup',
+    budget: 5000,
+    expectOrder: ['mem-verified', 'mem-cited', 'mem-recent', 'mem-stale-cite', 'mem-old'],
+    expectForms: { 'mem-verified': 'full', 'mem-cited': 'full', 'mem-recent': 'full', 'mem-stale-cite': 'full', 'mem-old': 'full' },
+  },
+  {
+    name: 'budget: a tight budget keeps verified in full, compacts, and leaves out the oldest unverified',
+    query: 'backup',
+    budget: 240,
+    expectOrder: ['mem-verified', 'mem-cited', 'mem-recent', 'mem-stale-cite', 'mem-old'],
+    expectForms: { 'mem-verified': 'full', 'mem-cited': 'full', 'mem-stale-cite': 'compact', 'mem-old': 'omitted' },
+    expectCompacted: true,
+  },
+];
+
+// The delta: every fixture memory is pinned at T0, then these changes happen
+// after `DELTA_SINCE`. `create` adds a new memory; `supersede` retires `key`
+// in favour of `by`.
+export const DELTA_T0 = '2026-01-01T00:00:00.000Z';
+export const DELTA_SINCE = '2026-06-01T00:00:00.000Z';
+export const DELTA_EVENTS = [
+  { at: '2026-07-01T00:00:00.000Z', create: { key: 'delta-new', title: 'Backup cron moved to 03:30', body: 'The backup cron now runs at 03:30.', verified: false } },
+  { at: '2026-07-02T00:00:00.000Z', update: 'mem-old', body: 'Backup notes, trimmed.' },
+  { at: '2026-07-03T00:00:00.000Z', verify: 'mem-recent' },
+  { at: '2026-07-04T00:00:00.000Z', supersede: 'mem-stale-cite', by: 'delta-new' },
+];
+export const DELTA_CASES = [
+  {
+    name: 'delta: only memory changed since the marker, with what changed',
+    since: DELTA_SINCE,
+    expect: { 'delta-new': ['created'], 'mem-old': ['updated'], 'mem-recent': ['verified'], 'mem-stale-cite': ['superseded'] },
+    notExpect: ['mem-verified', 'mem-cited'],
+    expectFirst: 'mem-recent',
+  },
+  {
+    name: 'delta: a window after the last change is empty',
+    since: '2026-08-01T00:00:00.000Z',
+    expect: {},
+    notExpect: ['delta-new', 'mem-old', 'mem-recent', 'mem-stale-cite', 'mem-verified', 'mem-cited'],
+  },
+  {
+    name: 'delta: a window that starts mid-way sees only the later changes',
+    since: '2026-07-02T12:00:00.000Z',
+    expect: { 'mem-recent': ['verified'], 'mem-stale-cite': ['superseded'] },
+    notExpect: ['delta-new', 'mem-old'],
+  },
+];

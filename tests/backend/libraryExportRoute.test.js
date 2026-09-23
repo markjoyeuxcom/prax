@@ -326,3 +326,57 @@ test('case-only filename collisions get distinct entries and refs follow the ded
   const linkerAll = allEntries.find((e) => e.name === 'homelab/zed.md');
   assert.match(linkerAll.body, new RegExp(`- id: ${TITLED}\\n      ref: homelab/setup-2\\.md`));
 });
+
+// The git mirror (`prax mirror`) reads the same rendered documents as JSON in
+// the mirror layout: retired documents under retired/, README.md reserved, and
+// link refs naming those real paths.
+test('format=json&layout=mirror returns the ZIP bytes as JSON in the mirror layout', async () => {
+  const ACTIVE = '0a000000-0000-4000-8000-000000000001';
+  const OLD = '0a000000-0000-4000-8000-000000000002';
+  const README = '0a000000-0000-4000-8000-000000000003';
+  const mk = (id, title, status, extra = {}) => ({
+    id, title, body: `# ${title}\n`, documentType: 'decision', projectId: PROJECT_HOMELAB, projectSlug: 'homelab',
+    tags: ['architecture'], sourceFilename: null, archivedAt: null, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-02T00:00:00.000Z',
+    kind: 'source', contentHash: 'a'.repeat(64), updatedBy: 'user', status, verified: true, verifiedBy: 'Mark', ...extra,
+  });
+  const docs = [mk(ACTIVE, 'Current rule', 'active'), mk(OLD, 'Old rule', 'superseded'), mk(README, 'Readme', 'active', { verified: false, verifiedBy: null })];
+  const outboundMap = new Map([
+    [ACTIVE, { 'derived-from': [], supersedes: [{ targetId: OLD, targetProjectSlug: 'homelab', targetSourceFilename: null, targetTitle: 'Old rule' }] }],
+  ]);
+  const app = await buildTestApp(docs, outboundMap);
+  const json = await app.inject({ method: 'GET', url: '/api/library/export?project=homelab&format=json&layout=mirror' });
+  const zip = await app.inject({ method: 'GET', url: '/api/library/export?project=homelab&layout=mirror' });
+  const flat = await app.inject({ method: 'GET', url: '/api/library/export?project=homelab&format=json' });
+  await app.close();
+
+  assert.equal(json.statusCode, 200);
+  assert.match(json.headers['content-type'], /application\/json/);
+  assert.equal(json.headers['cache-control'], 'no-store');
+  const body = json.json();
+  assert.deepEqual(
+    { format: body.format, version: body.version, markdownVersion: body.markdownVersion, scope: body.scope, layout: body.layout, includeArchived: body.includeArchived },
+    { format: 'prax.library-export', version: 1, markdownVersion: 3, scope: 'homelab', layout: 'mirror', includeArchived: false },
+  );
+  assert.deepEqual(body.documents.map((d) => d.path), ['current-rule.md', 'retired/old-rule.md', 'readme-2.md']);
+  const current = body.documents[0];
+  assert.deepEqual(Object.keys(current), ['path', 'id', 'title', 'documentType', 'status', 'tags', 'verified', 'verifiedBy', 'verifiedAt', 'contentHash', 'markdown']);
+  assert.equal(current.verifiedBy, 'Mark');
+  assert.match(current.markdown, new RegExp(`- id: ${OLD}\\n      ref: retired/old-rule\\.md`), 'the ref names the retired path');
+
+  // The same layout as a ZIP holds byte-identical entries.
+  const entries = readZipEntries(zip.rawPayload);
+  for (const doc of body.documents) assert.equal(entries.find((e) => e.name === doc.path).body, doc.markdown);
+  // The flat layout keeps the classic names.
+  assert.deepEqual(flat.json().documents.map((d) => d.path), ['current-rule.md', 'old-rule.md', 'readme.md']);
+});
+
+test('format and layout are validated', async () => {
+  const app = await buildTestApp(FIXTURE_DOCS);
+  const badFormat = await app.inject({ method: 'GET', url: '/api/library/export?project=homelab&format=tar' });
+  const badLayout = await app.inject({ method: 'GET', url: '/api/library/export?project=homelab&layout=tree' });
+  await app.close();
+  assert.equal(badFormat.statusCode, 400);
+  assert.deepEqual(badFormat.json(), { message: 'format must be zip or json' });
+  assert.equal(badLayout.statusCode, 400);
+  assert.deepEqual(badLayout.json(), { message: 'layout must be flat or mirror' });
+});

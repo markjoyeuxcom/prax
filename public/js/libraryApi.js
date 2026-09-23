@@ -389,8 +389,12 @@ export async function narrateBrief(text) {
 }
 
 // Library health: docs needing attention (needsReview / empty / stale + counts).
-export async function fetchHealth(project = '') {
-  const params = project && project !== 'all' ? `?project=${encodeURIComponent(project)}` : '';
+// `sort: 'recall'` (opt-in) orders needsReview by recall frequency.
+export async function fetchHealth(project = '', { sort } = {}) {
+  const query = new URLSearchParams();
+  if (project && project !== 'all') query.set('project', project);
+  if (sort === 'recall') query.set('sort', 'recall');
+  const params = query.toString() ? `?${query.toString()}` : '';
   const res = await fetch(`/api/library/health${params}`);
   if (!res.ok) throw new Error('Failed to load library health');
   return res.json();
@@ -506,4 +510,60 @@ export async function supersedeDocument(id, supersededBy) {
   });
   if (!response.ok) throw new Error('Failed to supersede document');
   return response.json();
+}
+
+// ---- Librarian (docs/superpowers/specs/2026-09-23-librarian-design.md) --------
+
+async function librarianJson(res, fallback) {
+  if (!res.ok) {
+    const payload = await res.json().catch(() => null);
+    const error = new Error(payload?.message || fallback);
+    error.status = res.status;
+    error.reason = payload?.reason || null;
+    throw error;
+  }
+  return res.json();
+}
+
+// Per-document recall counts: { counts: { id: { hits, uses, lastRecalledAt } }, since }.
+export async function fetchRecallCounts() {
+  return librarianJson(await fetch('/api/library/librarian/recall-counts'), 'Failed to load recall counts');
+}
+
+// Questions agents asked that memory did not answer.
+export async function fetchKnowledgeGaps() {
+  return librarianJson(await fetch('/api/library/librarian/gaps'), 'Failed to load knowledge gaps');
+}
+
+export async function fetchPruneCandidates() {
+  return librarianJson(await fetch('/api/library/librarian/prune-candidates'), 'Failed to load prune candidates');
+}
+
+export async function fetchLibrarianProposals(status = 'open') {
+  return librarianJson(await fetch(`/api/library/librarian/proposals?status=${encodeURIComponent(status)}`), 'Failed to load proposals');
+}
+
+// Run the consolidation pass: files one unverified proposal per new cluster.
+export async function runLibrarian(project = '') {
+  const body = project && project !== 'all' ? { project } : {};
+  return librarianJson(await fetch('/api/library/librarian/run', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+  }), 'Failed to run the librarian');
+}
+
+export async function decideLibrarianProposal(id, decision) {
+  if (decision !== 'approve' && decision !== 'dismiss') throw new Error('unknown decision');
+  return librarianJson(await fetch(`/api/library/librarian/proposals/${encodeURIComponent(id)}/${decision}`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+  }), decision === 'approve' ? 'Failed to approve the proposal' : 'Failed to dismiss the proposal');
+}
+
+export async function fetchLibrarianSettings() {
+  return librarianJson(await fetch('/api/library/librarian/settings'), 'Failed to load librarian settings');
+}
+
+export async function saveLibrarianSettings(patch) {
+  return librarianJson(await fetch('/api/library/librarian/settings', {
+    method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch || {}),
+  }), 'Failed to save librarian settings');
 }
