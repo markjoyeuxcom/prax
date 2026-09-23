@@ -2546,7 +2546,7 @@ checksum = "439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391"
 
 [[package]]
 name = "prax"
-version = "0.38.0"
+version = "0.39.0"
 dependencies = [
  "objc2",
  "objc2-app-kit",
