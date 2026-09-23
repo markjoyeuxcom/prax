@@ -6,6 +6,14 @@
 // identical results. Rules, as there:
 //   - exactly one start/end pair, each on its own line, start before end; a
 //     malformed or duplicated pair refuses the edit and leaves the file as is;
+//   - other managed blocks (the skills' prax-memory block and the compiled
+//     prax-library block share files) are never touched: a block whose span
+//     holds any other marker-shaped line (nested or interleaved blocks) and a
+//     body holding marker-shaped text both refuse, since either would let one
+//     edit replace or delete part of another block;
+//   - removal also takes the blank line the writer put before the block when
+//     what follows is a blank line or the end of the file, so adding and
+//     removing blocks in any order gives the original bytes back;
 //   - a symlinked file is edited at its target (the link stays a link) and the
 //     file mode is kept; a new file is private (0600);
 //   - the write is atomic (temporary file + rename) and refuses when the file
@@ -19,6 +27,20 @@ export class ManagedBlockError extends Error {
     super(message);
     this.name = 'ManagedBlockError';
   }
+}
+
+// Any managed-block marker line, whatever its name.
+const ANY_MARKER_RE = /<!-- [a-z][a-z0-9-]*:(start|end) -->/;
+
+// Whether the block spanning [from, to) holds another block's marker, or sits
+// between another block's start and end (nested in it). A lone marker of a
+// malformed other block outside the span is not an overlap: that block's own
+// editor refuses it, and this one leaves it as it is.
+function overlapsAnotherBlock(text, name, from, to) {
+  if (ANY_MARKER_RE.test(text.slice(from, to))) return true;
+  const others = [...text.matchAll(/<!-- ([a-z][a-z0-9-]*):(start|end) -->/g)].filter((m) => m[1] !== name);
+  return others.some((s) => s[2] === 'start' && s.index < from
+    && others.some((e) => e[1] === s[1] && e[2] === 'end' && e.index >= to));
 }
 
 export function blockMarkers(name) {
@@ -39,13 +61,22 @@ export function applyManagedBlock(before, { mode, body = '', name, file = 'the f
       || (b.index + end.length < before.length && before[b.index + end.length] !== '\n'))) {
     throw new ManagedBlockError(`Malformed ${name} markers in ${file}; file left unchanged`);
   }
+  if (markers.length && overlapsAnotherBlock(before, name, a.index + start.length, b.index)) {
+    throw new ManagedBlockError(`The ${name} block in ${file} overlaps another managed block; file left unchanged`);
+  }
+  if (mode === 'write' && ANY_MARKER_RE.test(body)) {
+    throw new ManagedBlockError(`The new ${name} block holds marker-shaped text; ${file} left unchanged`);
+  }
   if (mode === 'remove') {
-    // The block and its own line ending; when it closed the file, also the
-    // blank line the writer put before it.
+    // The block and its own line ending, plus the blank line the writer put
+    // before it when a blank line or the end of the file follows (another
+    // block written after this one starts with its own separator).
     const tail = b.index + end.length + (before[b.index + end.length] === '\n' ? 1 : 0);
-    let after = before.slice(0, a.index) + before.slice(tail);
-    if (tail === before.length && after.endsWith('\n\n')) after = after.slice(0, -1);
-    return after;
+    let head = before.slice(0, a.index);
+    let rest = before.slice(tail);
+    if (head.endsWith('\n\n') && (rest === '' || rest.startsWith('\n'))) head = head.slice(0, -1);
+    else if (head === '' && rest.startsWith('\n')) rest = rest.slice(1);
+    return head + rest;
   }
   const block = `${start}\n${body}\n${end}`;
   return markers.length

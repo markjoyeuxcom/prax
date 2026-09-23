@@ -3,6 +3,7 @@ import { isValidUuid } from '../validate.js';
 import { okResult, errorResult, textResult, withErrorHandling } from '../toolResult.js';
 import { toDocumentRef } from '../shape.js';
 import { paginateResults, paginationInput } from '../pagination.js';
+import { hiddenHarvestedNote } from '../../server/harvestedCandidates.js';
 import { DOCUMENT_TYPE_VALUES } from '../../public/js/documentTypes.js';
 import { runStableMutation, stableMutationId } from '../stableMutation.js';
 
@@ -27,23 +28,42 @@ export function createDocumentTools(client) {
         kind: DOCUMENT_KIND.optional().describe('Limit to hand-authored sources or agent-synthesized derivations.'),
         status: z.enum(['active', 'superseded', 'deprecated', 'all']).optional()
           .describe("Trust-status filter. Defaults to 'active' (retrieval is active-only); pass 'all' to include superseded/deprecated memory, e.g. for curation."),
+        includeHarvested: z.boolean().optional().describe('With a query: include unreviewed harvested candidates (unverified Inbox proposals tagged harvested), which a text search leaves out by default. Browsing without a query lists them.'),
         ...paginationInput(),
       },
-      handler: withErrorHandling(async ({ query, project, documentType, tags, kind, status, limit, offset }) => {
+      handler: withErrorHandling(async ({
+        query, project, documentType, tags, kind, status, includeHarvested, limit, offset,
+      }) => {
         const effectiveStatus = status || 'active';
-        const docs = await client.listDocuments({
+        const filters = {
           q: query,
           project,
           documentType,
           kind,
           ...(effectiveStatus === 'all' ? {} : { status: effectiveStatus }),
-        });
+        };
+        // A text search is retrieval and says how many harvested candidates it
+        // hid; a browse (no query) lists everything.
+        let docs;
+        let hiddenHarvested = 0;
+        if (query && typeof client.searchDocumentsKeyword === 'function') {
+          const found = await client.searchDocumentsKeyword({ ...filters, ...(includeHarvested ? { includeHarvested } : {}) });
+          docs = found?.items;
+          hiddenHarvested = Number(found?.hiddenHarvested) || 0;
+        } else {
+          docs = await client.listDocuments({ ...filters, ...(includeHarvested ? { includeHarvested } : {}) });
+        }
         let refs = (Array.isArray(docs) ? docs : []).map(toDocumentRef);
         if (Array.isArray(tags) && tags.length > 0) {
           refs = refs.filter((ref) => tags.every((tag) => ref.tags.includes(tag)));
         }
         // Paginate after tag filtering so totals and page boundaries describe the actual match set.
-        return okResult(paginateResults(refs, { limit, offset }));
+        const page = paginateResults(refs, { limit, offset });
+        if (hiddenHarvested > 0) {
+          page.hiddenHarvested = hiddenHarvested;
+          page.note = `${hiddenHarvestedNote(hiddenHarvested, { hint: 'includeHarvested: true' })}.`;
+        }
+        return okResult(page);
       }),
     },
     {
@@ -56,9 +76,14 @@ export function createDocumentTools(client) {
         query: z.string().min(1).describe('The question or topic to gather context for.'),
         project: z.string().optional().describe('Limit to one project (slug or id); omit for the whole library.'),
         limit: z.number().int().positive().optional().describe('Max documents in the pack (default 12, capped at 50).'),
+        includeHarvested: z.boolean().optional().describe('Include unreviewed harvested candidates (unverified Inbox proposals tagged harvested), which the pack leaves out by default and counts.'),
       },
-      handler: withErrorHandling(async ({ query, project, limit }) => {
-        const markdown = await client.contextPack({ q: query, project, limit });
+      handler: withErrorHandling(async ({
+        query, project, limit, includeHarvested,
+      }) => {
+        const markdown = await client.contextPack({
+          q: query, project, limit, ...(includeHarvested ? { includeHarvested } : {}),
+        });
         return textResult(markdown);
       }),
     },

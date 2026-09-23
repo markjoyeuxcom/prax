@@ -11,8 +11,10 @@
 // containment by construction). Extraction is deterministic; no model runs.
 import { createHash } from 'node:crypto';
 import { isDocumentType } from '../../public/js/documentTypes.js';
+import { looksLikeCredential } from '../../server/secretPatterns.js';
+import { HARVEST_TAG } from '../../server/harvestedCandidates.js';
 
-export const HARVEST_TAG = 'harvested';
+export { HARVEST_TAG };
 export const INBOX_PROJECT = 'inbox';
 export const MAX_CANDIDATES = 20;
 export const MAX_TITLE_CHARS = 200;
@@ -127,17 +129,10 @@ export function readTranscript(text) {
 
 // Credential shapes a harvested candidate must never carry (memory never
 // persists secrets). A match skips the candidate; it is not redacted, because
-// a half-redacted memory is still a leak and still a wrong memory.
-const SECRET_PATTERNS = [
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
-  /\bAKIA[0-9A-Z]{16}\b/,
-  /\b(?:ghp|gho|ghu|ghs|ghr|github_pat)_[A-Za-z0-9_]{20,}/,
-  /\bglpat-[A-Za-z0-9_-]{20,}/,
-  /\bxox[abprs]-[A-Za-z0-9-]{10,}/,
-  /\bsk-(?:ant-|proj-)?[A-Za-z0-9_-]{20,}/,
-];
+// a half-redacted memory is still a leak and still a wrong memory. The shapes
+// are shared with recall telemetry's query redaction (server/secretPatterns.js).
 export function looksSecret(text) {
-  return SECRET_PATTERNS.some((pattern) => pattern.test(text));
+  return looksLikeCredential(text);
 }
 
 const collapse = (text) => String(text || '').replace(/\s+/g, ' ').trim();
@@ -326,12 +321,16 @@ async function findSimilar(client, candidate, { exclude, slugById }) {
     let items;
     let note = null;
     try {
-      const res = await client.semanticSearch(undefined, query, { limit: SIMILAR_LIMIT + 1, mode: 'hybrid' });
+      // Other unreviewed candidates count as similar here: the person triaging
+      // this one should see a near-duplicate proposal too.
+      const res = await client.semanticSearch(undefined, query, {
+        limit: SIMILAR_LIMIT + 1, mode: 'hybrid', includeHarvested: true,
+      });
       items = Array.isArray(res) ? res : (res?.items || []);
       if (res?.reason === 'index-incomplete') note = 'The semantic index was incomplete when this was checked; similar memories may be missing.';
     } catch (error) {
       if (error?.status !== 409) throw error;
-      items = await client.keywordSearch(undefined, candidate.title);
+      items = await client.keywordSearch(undefined, candidate.title, { includeHarvested: true });
       note = 'Checked by keyword: semantic search is not configured.';
     }
     const list = (Array.isArray(items) ? items : [])

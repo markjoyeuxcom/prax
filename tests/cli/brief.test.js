@@ -141,3 +141,48 @@ test('a server without related-documents is reported, not an error', async () =>
   assert.equal(brief.related.reason, 'not-supported');
   assert.match(formatBrief(brief, NOW), /\(related documents unavailable: not-supported\)/);
 });
+
+// Regression (Agy's 2026-09-23 review): a related suggestion was left out of
+// Related because it was also a memory match, and then the budget left it out
+// of Memory too, so it appeared nowhere. Related now dedupes only against the
+// memory entries actually rendered.
+test('a related document the budget leaves out of Memory stays under Related', async () => {
+  const brief = await buildBrief(client(), { taskId: TASK_ID, budget: 1, now: NOW });
+  const json = briefJson(brief, NOW);
+  const omitted = json.memory.budget.entries.filter((e) => e.form === 'omitted').map((e) => e.id);
+  assert.ok(omitted.includes('m1'), 'the tiny budget leaves m1 out of Memory');
+  assert.deepEqual(json.related.items.map((i) => i.id), ['rel', 'm1']);
+  assert.equal(json.related.alsoUnderMemory, 0);
+  const text = formatBrief(brief, NOW);
+  const related = text.slice(text.indexOf('## Related documents'), text.indexOf('## Memory'));
+  assert.match(related, /- \[unverified\] Token rotation how-to \(note · m1 · in homelab · unverified/);
+  assert.doesNotMatch(related, /more shown under Memory/);
+  // Every linked and related document is printed somewhere (memory-only
+  // matches the budget leaves out are counted by its omission line).
+  for (const id of ['linked', 'rel', 'm1']) assert.match(text, new RegExp(`\\b${id}\\b`), id);
+  assert.match(text, /_3 more left out by the budget/);
+
+  // Rendered at another time (a different budget plan), the split follows the
+  // rendering, never a stale decision: with room for everything, m1 is under
+  // Memory only.
+  const roomy = { ...brief, memory: { ...brief.memory, budget: 100000 } };
+  const roomyJson = briefJson(roomy, NOW);
+  assert.deepEqual(roomyJson.related.items.map((i) => i.id), ['rel']);
+  assert.equal(roomyJson.related.alsoUnderMemory, 1);
+  assert.match(formatBrief(roomy, NOW), /\(1 more shown under Memory\)/);
+});
+
+test('the brief passes the harvested opt-in and says what the memory and related sections hid', async () => {
+  const c = client({ related: { suggestions: [{ id: 'rel', title: 'Cloudflare notes', documentType: 'note' }], hiddenHarvested: 2 } });
+  const seen = [];
+  const search = c.semanticSearch;
+  c.semanticSearch = async (project, q, opts) => ({ ...(await search(project, q, opts)), hiddenHarvested: 1 });
+  const related = c.relatedTaskDocuments;
+  c.relatedTaskDocuments = async (id, opts) => { seen.push(opts); return related(id, opts); };
+  const text = formatBrief(await buildBrief(c, { taskId: TASK_ID, now: NOW }), NOW);
+  assert.match(text, /## Related documents[\s\S]*\(2 unreviewed harvested candidates hidden until a person triages them; --include-harvested to show\)/);
+  assert.match(text, /## Memory[\s\S]*\(1 unreviewed harvested candidate hidden until a person triages it; --include-harvested to show\)/);
+  assert.deepEqual(seen[0], { includeHarvested: false });
+  await buildBrief(c, { taskId: TASK_ID, includeHarvested: true });
+  assert.deepEqual(seen[1], { includeHarvested: true });
+});

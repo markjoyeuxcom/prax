@@ -11,6 +11,7 @@
 
 import { checkCitation, computeAnchors, describeCitationStatus } from './codeRefs.js';
 import { normalizeRepoUrl } from '../../server/repoUrl.js';
+import { hiddenHarvestedNote, partitionHarvested } from '../../server/harvestedCandidates.js';
 import {
   budgetLine, compactLine, estimateTokens, excerpt, fillOrder, oneLine, planBudget, trustChip,
   omissionLine, EXCERPT_CHARS, LEAD_EXCERPT_CHARS, TOKEN_ESTIMATE, FILL_TIERS,
@@ -126,10 +127,12 @@ export function boundNote(result) {
 // Page the semantic route up to `limit` matches (the server caps one page at
 // 50), so a requested bound is honoured rather than silently cut. The last
 // page's metadata says whether more remained beyond the bound.
-export async function collectSemantic(client, project, query, limit, mode = 'hybrid') {
+export async function collectSemantic(client, project, query, limit, mode = 'hybrid', { includeHarvested = false } = {}) {
   const wanted = Math.max(1, Number(limit) || 1);
   // `source: 'recall'` has the server record this recall (first page only).
-  let res = await client.semanticSearch(project, query, { limit: wanted, mode, source: 'recall' });
+  let res = await client.semanticSearch(project, query, {
+    limit: wanted, mode, source: 'recall', ...(includeHarvested ? { includeHarvested } : {}),
+  });
   if (Array.isArray(res)) return res;
   const items = [...(res.items || [])];
   let page = res.page;
@@ -137,7 +140,7 @@ export async function collectSemantic(client, project, query, limit, mode = 'hyb
   while (page?.hasMore && items.length < wanted && Number.isInteger(page.nextOffset) && guard < 100) {
     guard += 1;
     const next = await client.semanticSearch(project, query, {
-      limit: wanted - items.length, offset: page.nextOffset, mode, source: 'recall',
+      limit: wanted - items.length, offset: page.nextOffset, mode, source: 'recall', ...(includeHarvested ? { includeHarvested } : {}),
     });
     if (Array.isArray(next)) break;
     items.push(...(next.items || []));
@@ -320,15 +323,23 @@ export function rankKeywordMatches(docs, query) {
 // keyword on a 409 (semantic search not configured), with the coverage facts
 // every caller must disclose. `keyword: true` marks the fallback, whose rows
 // are full documents (bodies included); semantic rows are refs.
-export async function searchCandidates(client, { query, project, limit = 5, mode = 'hybrid' } = {}) {
+// Unreviewed harvested candidates are left out by the server unless
+// `includeHarvested`; `hiddenHarvested` says how many, for the disclosure.
+export async function searchCandidates(client, {
+  query, project, limit = 5, mode = 'hybrid', includeHarvested = false,
+} = {}) {
   let res;
   try {
-    res = await collectSemantic(client, project || undefined, query, limit, mode);
+    res = await collectSemantic(client, project || undefined, query, limit, mode, { includeHarvested });
   } catch (err) {
     if (err && err.status === 409) {
       // The same envelope `prax search` gives this state: degraded, with the
       // reason, and a page that says how many matches the bound held back.
-      const ranked = rankKeywordMatches(await client.keywordSearch(project || undefined, query, { source: 'recall' }), query);
+      const found = await client.keywordSearch(project || undefined, query, {
+        source: 'recall', includeHarvested, envelope: true,
+      });
+      const rows = Array.isArray(found) ? found : (Array.isArray(found?.items) ? found.items : []);
+      const ranked = rankKeywordMatches(rows, query);
       const kept = await withProjectSlugs(client, ranked.slice(0, limit));
       return {
         keyword: true,
@@ -336,6 +347,7 @@ export async function searchCandidates(client, { query, project, limit = 5, mode
         reason: 'semantic-not-configured',
         index: null,
         page: { returned: kept.length, total: ranked.length, hasMore: ranked.length > kept.length },
+        hiddenHarvested: Number(found?.hiddenHarvested) || 0,
         items: kept,
       };
     }
@@ -356,12 +368,17 @@ export async function searchCandidates(client, { query, project, limit = 5, mode
     index: legacy ? null : (res?.index || null),
     // What remains beyond the requested bound after paging up to it.
     page: legacy ? null : (res?.page || null),
+    hiddenHarvested: Number(res?.hiddenHarvested) || 0,
     items: list.length ? await withProjectSlugs(client, list.slice(0, limit)) : [],
   };
 }
 
 export const coverageOf = (found) => ({
-  degraded: found.degraded, reason: found.reason, index: found.index, page: found.page,
+  degraded: found.degraded,
+  reason: found.reason,
+  index: found.index,
+  page: found.page,
+  ...(found.hiddenHarvested > 0 ? { hiddenHarvested: found.hiddenHarvested } : {}),
 });
 const DOC_FIELDS = [
   'body', 'verified', 'verifiedBy', 'status', 'updatedAt', 'updatedBy', 'updatedByAgent', 'projectSlug',
@@ -387,14 +404,20 @@ export async function enrichCandidates(client, items, checkout, { fetch = true }
 // top-plus-related shape.
 export async function recall(client, {
   query, project, limit = 5, recent = false, mode = 'hybrid', readFile, checkout: givenCheckout, budget, now = new Date(),
+  includeHarvested = false,
 } = {}) {
   const checkout = givenCheckout ?? (typeof readFile === 'function' ? { readFile } : null);
   if (recent) {
     const docs = await client.listDocuments(project || undefined, { status: 'active' });
-    const items = (Array.isArray(docs) ? docs : [])
+    // The listing is a browse and includes everything, so the chronological
+    // recall applies the harvested rule itself: a candidate that would have
+    // made the list is left out and counted.
+    const newest = (Array.isArray(docs) ? docs : [])
       .filter((d) => (d.status ?? 'active') === 'active')
       .slice()
-      .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))
+      .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+    const hiddenHarvested = partitionHarvested(newest.slice(0, limit), { include: includeHarvested }).hidden.length;
+    const items = partitionHarvested(newest, { include: includeHarvested }).kept
       .slice(0, limit)
       .map((d) => ({
         title: d.title || 'Untitled',
@@ -408,10 +431,17 @@ export async function recall(client, {
         projectSlug: d.projectSlug ?? null,
         snippet: snippetOf(d, 100),
       }));
-    return { kind: 'recent', project: project || '', items: await withProjectSlugs(client, items) };
+    return {
+      kind: 'recent',
+      project: project || '',
+      items: await withProjectSlugs(client, items),
+      ...(hiddenHarvested > 0 ? { hiddenHarvested } : {}),
+    };
   }
 
-  const found = await searchCandidates(client, { query, project, limit, mode });
+  const found = await searchCandidates(client, {
+    query, project, limit, mode, includeHarvested,
+  });
   const kept = found.items;
   if (kept.length === 0) return { kind: 'empty', query, note: found.keyword ? 'keyword' : null, ...coverageOf(found) };
   const note = found.keyword ? 'semantic search disabled — keyword results' : null;
@@ -513,6 +543,8 @@ export function disclosureLines(result) {
   if (coverage) lines.push(`(${coverage} — results may be missing)`);
   const bound = boundNote(result);
   if (bound) lines.push(`(${bound})`);
+  const hidden = hiddenHarvestedNote(result.hiddenHarvested);
+  if (hidden) lines.push(`(${hidden})`);
   return lines;
 }
 
@@ -536,26 +568,24 @@ export function formatRecall(result, now = new Date()) {
     if (result.note === 'keyword') notes.push('keyword; semantic search is disabled');
     const coverage = coverageNote(result);
     if (coverage) notes.push(`${coverage} — this may not be a true miss`);
+    const hidden = hiddenHarvestedNote(result.hiddenHarvested);
+    if (hidden) notes.push(hidden);
     const suffix = notes.length ? ` (${notes.join('; ')})` : '';
     return `No relevant memory found for: "${result.query}"${suffix}`;
   }
   if (result.kind === 'recent') {
-    if (!result.items.length) return 'No documents yet.';
+    const hidden = hiddenHarvestedNote(result.hiddenHarvested);
+    if (!result.items.length) return hidden ? `No documents yet (${hidden}).` : 'No documents yet.';
     const scope = result.project ? ` in "${result.project}"` : '';
     const head = `Most recent ${result.items.length} active document(s)${scope}:`;
     const lines = result.items.map((d) => {
       const label = [projectLabel(d), trustLabel(d, now)].filter(Boolean).join(' · ');
       return `- ${d.title} — ${d.id}${label ? ` (${label})` : ''}${d.snippet ? ` — ${d.snippet}` : ''}`;
     });
-    return [head, ...lines].join('\n');
+    return [head, ...lines, ...(hidden ? [`(${hidden})`] : [])].join('\n');
   }
   // kind: 'hit'
-  const lines = [];
-  if (result.note) lines.push(`(${result.note})`);
-  const coverage = coverageNote(result);
-  if (coverage) lines.push(`(${coverage} — results may be missing)`);
-  const bound = boundNote(result);
-  if (bound) lines.push(`(${bound})`);
+  const lines = disclosureLines(result);
   const top = result.top;
   const citationNotes = [
     ...(top.citations || []).map((c) => c.note).filter(Boolean),

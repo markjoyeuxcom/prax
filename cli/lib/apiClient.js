@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto';
 import {
   createTransport, timeoutFromEnv, DEFAULT_TIMEOUT_MS, PROBE_TIMEOUT_MS,
 } from '../../server/praxTransport.js';
+import { HIDDEN_HARVESTED_HEADER } from '../../server/harvestedCandidates.js';
 
 export {
   DEFAULT_BASE_URL, desktopPortFile, detectAgent, readDesktopPort, resolveBaseUrls, sanitizeAgentId,
@@ -54,38 +55,59 @@ export function createClient({
   // known); `retryUnavailable` is the transport's retry rule (true for a
   // receipted operation, 'connect-only' for an idempotent unreceipted setter).
   const request = (method, path, {
-    body, agent: agentWrite = false, accept, retryUnavailable = false, headers,
+    body, agent: agentWrite = false, accept, retryUnavailable = false, headers, parse = parseResponse,
   } = {}) => transport.request(method, path, {
-    body, agentWrite, accept, headers, retry: retryUnavailable, parse: parseResponse,
+    body, agentWrite, accept, headers, retry: retryUnavailable, parse,
   });
 
   return {
     get base() { return transport.base; },
     candidates: transport.candidates,
     agent: transport.agent,
-    contextPack(project, { query, format = 'md', limit, source } = {}) {
+    // Unreviewed harvested candidates are left out of every retrieval read
+    // unless `includeHarvested` (server/harvestedCandidates.js); each read
+    // reports how many it hid as `hiddenHarvested`.
+    contextPack(project, {
+      query, format = 'md', limit, source, includeHarvested = false,
+    } = {}) {
       const params = new URLSearchParams();
       if (query) params.set('query', query);
       if (format === 'json') params.set('format', 'json');
       if (limit) params.set('limit', String(limit));
+      if (includeHarvested) params.set('includeHarvested', 'true');
       const qs = params.toString();
       return request('GET', `/api/projects/${encodeURIComponent(project)}/context-pack${qs ? `?${qs}` : ''}`,
         { accept: format === 'json' ? 'application/json' : 'text/markdown', headers: querySourceHeaders(source) });
     },
-    keywordSearch(project, q, { all = false, source } = {}) {
+    // The listing's body is a bare array, so the hidden count travels in a
+    // header: `envelope: true` returns `{ items, hiddenHarvested }`, otherwise
+    // the array as before.
+    async keywordSearch(project, q, {
+      all = false, source, includeHarvested = false, envelope = false,
+    } = {}) {
       const params = new URLSearchParams({ q });
       if (project) params.set('project', project);
       if (!all) params.set('status', 'active');
-      return request('GET', `/api/library/documents?${params.toString()}`, { headers: querySourceHeaders(source) });
+      if (includeHarvested) params.set('includeHarvested', 'true');
+      let hiddenHarvested = 0;
+      const items = await request('GET', `/api/library/documents?${params.toString()}`, {
+        headers: querySourceHeaders(source),
+        parse: (res) => {
+          hiddenHarvested = Number(res.headers.get(HIDDEN_HARVESTED_HEADER)) || 0;
+          return parseResponse(res);
+        },
+      });
+      return envelope ? { items: Array.isArray(items) ? items : [], hiddenHarvested } : items;
     },
     // Paged mode so the response carries index coverage (`index`, `degraded`,
     // `reason: 'index-incomplete'`): the legacy array cannot say that pending
     // vectors were skipped, and a miss on an incomplete index is not an honest
     // miss. Older servers ignore `page` and return the array; normalise both.
     async semanticSearch(project, q, {
-      all = false, limit = SEMANTIC_PAGE_MAX, offset = 0, mode, source,
+      all = false, limit = SEMANTIC_PAGE_MAX, offset = 0, mode, source, includeHarvested = false,
     } = {}) {
       const params = new URLSearchParams({ q, page: 'true' });
+      if (includeHarvested) params.set('includeHarvested', 'true');
       // Older servers have no `mode` and ignore the parameter, so asking for
       // hybrid is safe against any instance: it either fuses or it does not.
       if (mode) params.set('mode', String(mode));
@@ -106,6 +128,7 @@ export function createClient({
         index: res?.index || null,
         degraded: Boolean(res?.degraded),
         reason: res?.reason || null,
+        hiddenHarvested: Number(res?.hiddenHarvested) || 0,
       };
     },
     getDocument(id) {
@@ -275,18 +298,22 @@ export function createClient({
       return request('GET', `/api/tasks/${encodeURIComponent(taskId)}/documents`);
     },
     // Advisory: always 200, `{ suggestions, degraded?, reason? }`.
-    relatedTaskDocuments(taskId) {
-      return request('GET', `/api/tasks/${encodeURIComponent(taskId)}/related-documents`);
+    relatedTaskDocuments(taskId, { includeHarvested = false } = {}) {
+      const qs = includeHarvested ? '?includeHarvested=true' : '';
+      return request('GET', `/api/tasks/${encodeURIComponent(taskId)}/related-documents${qs}`);
     },
     // ---- the since-last-session delta ------------------------------------
     // Sent as an agent request so the server knows WHOSE marker to read; a
     // read, so it is never retried after it may have reached the server.
-    memoryChanges({ since, sinceLastSession = false, project, limit } = {}) {
+    memoryChanges({
+      since, sinceLastSession = false, project, limit, includeHarvested = false,
+    } = {}) {
       const params = new URLSearchParams();
       if (sinceLastSession) params.set('sinceLastSession', 'true');
       else if (since) params.set('since', since);
       if (project) params.set('project', project);
       if (limit) params.set('limit', String(limit));
+      if (includeHarvested) params.set('includeHarvested', 'true');
       return request('GET', `/api/library/changes?${params.toString()}`, { agent: true });
     },
     // A monotonic setter (the server keeps max(stored, at)), so it is retried

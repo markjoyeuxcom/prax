@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { okResult, withErrorHandling } from '../toolResult.js';
 import { pageEnvelope, paginateResults, paginationInput } from '../pagination.js';
+import { hiddenHarvestedNote } from '../../server/harvestedCandidates.js';
 
 export function createSemanticSearchTools(client) {
   return [
@@ -13,11 +14,16 @@ export function createSemanticSearchTools(client) {
       inputSchema: {
         query: z.string().min(1).describe('Natural-language query matched by meaning.'),
         project: z.string().optional().describe('Limit to one project (slug or id); omit for all.'),
+        includeHarvested: z.boolean().optional().describe('Include unreviewed harvested candidates (unverified Inbox proposals tagged harvested), which are left out by default.'),
         ...paginationInput(),
       },
-      handler: withErrorHandling(async ({ query, project, limit, offset }) => {
+      handler: withErrorHandling(async ({
+        query, project, includeHarvested, limit, offset,
+      }) => {
         try {
-          const result = await client.searchDocumentsSemantic(query, project, { limit, offset });
+          const result = await client.searchDocumentsSemantic(query, project, {
+            limit, offset, ...(includeHarvested ? { includeHarvested } : {}),
+          });
           // A bare-array response means the server ignored the pagination
           // params (pre-envelope server) and returned EVERYTHING — slice it
           // here, or the "paginated" envelope carries an unbounded item list.
@@ -39,6 +45,13 @@ export function createSemanticSearchTools(client) {
             };
             envelope.degraded = Boolean(result.degraded);
             if (result.reason) envelope.reason = String(result.reason);
+          }
+          // Unreviewed harvested candidates the server left out, said rather
+          // than silently missing (QINV-08).
+          const hidden = Number(result?.hiddenHarvested) || 0;
+          if (hidden > 0) {
+            envelope.hiddenHarvested = hidden;
+            envelope.note = `${hiddenHarvestedNote(hidden, { hint: 'includeHarvested: true' })}.`;
           }
           return okResult(envelope);
         } catch (err) {

@@ -5,6 +5,9 @@ export async function fetchDocuments(filters = {}) {
   Object.entries(filters).forEach(([key, value]) => {
     if (value) params.set(key, value);
   });
+  // A person's Library search shows unreviewed harvested candidates, which
+  // agent retrieval leaves out by default.
+  if (filters.q) params.set('includeHarvested', 'true');
   const response = await fetch(`/api/library/documents?${params.toString()}`);
   if (!response.ok) throw new Error('Failed to load documents');
   return response.json();
@@ -121,7 +124,7 @@ export async function fetchDocumentTaskBacklinks(id) {
 // Documents most similar to this one by embedding (empty when semantic search
 // is off or the document has no embedding) — [{ id, title, similarity, ... }].
 export async function fetchSimilarDocuments(id) {
-  const response = await fetch(`/api/library/documents/${id}/similar`);
+  const response = await fetch(`/api/library/documents/${id}/similar?includeHarvested=true`);
   if (!response.ok) throw new Error('Failed to load similar documents');
   return response.json();
 }
@@ -297,6 +300,8 @@ export async function semanticSearch(query, project, { limit = 20, offset = 0 } 
   params.set('page', 'true');
   params.set('limit', String(limit));
   params.set('offset', String(offset));
+  // The Library search is a person's: harvested candidates are shown.
+  params.set('includeHarvested', 'true');
   const res = await fetch(`/api/library/documents/semantic-search?${params.toString()}`);
   if (!res.ok) throw new Error('Semantic search failed');
   return res.json();

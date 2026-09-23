@@ -8,6 +8,7 @@
 // (while still verified) and archived_at. Unverification clears verified_at
 // and so is not visible here; that limit is documented, not papered over.
 import { normalizeTitle } from './documentTitle.js';
+import { unreviewedHarvestedSql } from './harvestedCandidates.js';
 
 export const CHANGES_DEFAULT_LIMIT = 50;
 export const CHANGES_MAX_LIMIT = 200;
@@ -21,7 +22,15 @@ const NORM = (column) => `strftime('%Y-%m-%dT%H:%M:%fZ', ${column})`;
 
 // The changed documents' columns plus their normalised stamps and the latest
 // of them (`changed_at`). `$1` = since (canonical ISO), `$2` = project id or null.
-const CHANGED_ROWS = `
+// `harvested` selects unreviewed harvested candidates: 'exclude' leaves them
+// out (the default feed), 'only' keeps only them (to count what was hidden),
+// 'include' applies no filter.
+const HARVESTED_FILTER = {
+  include: '',
+  exclude: ` and not ${unreviewedHarvestedSql('d')}`,
+  only: ` and ${unreviewedHarvestedSql('d')}`,
+};
+const changedRows = (harvested = 'include') => `
   select * from (
     select d.id, d.title, d.body, d.document_type, d.project_id, p.slug as project_slug, d.tags,
       d.kind, d.verified, d.verified_at, d.verified_by, d.status, d.updated_by, d.updated_by_agent,
@@ -43,15 +52,15 @@ const CHANGED_ROWS = `
       ) as superseded_by
     from markdown_documents d
     join projects p on p.id = d.project_id
-    where ($2 is null or d.project_id = $2)
+    where ($2 is null or d.project_id = $2)${HARVESTED_FILTER[harvested] ?? ''}
   ) changed
   where changed.changed_at > $1
     and (changed.archived_at is null or changed.a_at > $1)
 `;
 
-export function buildListChanges({ since, projectId = null, limit }) {
+export function buildListChanges({ since, projectId = null, limit, harvested = 'include' }) {
   return {
-    text: `${CHANGED_ROWS} order by changed.changed_at, changed.id limit $3`,
+    text: `${changedRows(harvested)} order by changed.changed_at, changed.id limit $3`,
     values: [since, projectId, limit],
   };
 }
@@ -59,16 +68,16 @@ export function buildListChanges({ since, projectId = null, limit }) {
 // The rest of a tie at a page boundary: rows sharing the boundary's changed_at
 // that sort after the last row returned. A page never splits a tie, because the
 // next page starts strictly after `until`.
-export function buildListTieRemainder({ since, projectId = null, changedAt, afterId }) {
+export function buildListTieRemainder({ since, projectId = null, changedAt, afterId, harvested = 'include' }) {
   return {
-    text: `${CHANGED_ROWS} and changed.changed_at = $3 and changed.id > $4 order by changed.id`,
+    text: `${changedRows(harvested)} and changed.changed_at = $3 and changed.id > $4 order by changed.id`,
     values: [since, projectId, changedAt, afterId],
   };
 }
 
-export function buildCountChanges({ since, projectId = null }) {
+export function buildCountChanges({ since, projectId = null, harvested = 'include' }) {
   return {
-    text: `select count(*) as total from (${CHANGED_ROWS})`,
+    text: `select count(*) as total from (${changedRows(harvested)})`,
     values: [since, projectId],
   };
 }
@@ -176,26 +185,38 @@ export function createMemoryChangesRepository(db) {
     // splitting a tie at the boundary. `until` is the last row's changed_at
     // (or `since` when nothing changed) — never the clock, so a write that
     // commits while this page is read is picked up by the next one.
-    async listChanges({ since, projectId = null, limit = CHANGES_DEFAULT_LIMIT }) {
+    //
+    // Unreviewed harvested candidates are left out unless `includeHarvested`;
+    // `hiddenHarvested` counts those changed in the window, so the delta can
+    // say so. A candidate a person later verifies (or refiles without the tag)
+    // is reported then, as `verified` or `updated`.
+    async listChanges({ since, projectId = null, limit = CHANGES_DEFAULT_LIMIT, includeHarvested = false }) {
       const bound = Math.min(Math.max(1, Math.trunc(Number(limit) || CHANGES_DEFAULT_LIMIT)), CHANGES_MAX_LIMIT);
-      const page = buildListChanges({ since, projectId, limit: bound + 1 });
+      const harvested = includeHarvested ? 'include' : 'exclude';
+      const page = buildListChanges({ since, projectId, limit: bound + 1, harvested });
       const first = await db.query(page.text, page.values);
       let rows = first.rows.slice(0, bound);
       if (first.rows.length > bound) {
         const last = rows[rows.length - 1];
         if (first.rows[bound].changed_at === last.changed_at) {
-          const rest = buildListTieRemainder({ since, projectId, changedAt: last.changed_at, afterId: last.id });
+          const rest = buildListTieRemainder({ since, projectId, changedAt: last.changed_at, afterId: last.id, harvested });
           const tie = await db.query(rest.text, rest.values);
           rows = rows.concat(tie.rows);
         }
       }
-      const count = buildCountChanges({ since, projectId });
+      const count = buildCountChanges({ since, projectId, harvested });
       const total = Number((await db.query(count.text, count.values)).rows[0]?.total ?? 0);
+      let hiddenHarvested = 0;
+      if (!includeHarvested) {
+        const hidden = buildCountChanges({ since, projectId, harvested: 'only' });
+        hiddenHarvested = Number((await db.query(hidden.text, hidden.values)).rows[0]?.total ?? 0);
+      }
       const items = rows.map((row) => normalizeChangeRow(row, since));
       return {
         items,
         until: items.length ? items[items.length - 1].changedAt : since,
         page: { returned: items.length, total, hasMore: total > items.length, limit: bound },
+        hiddenHarvested,
       };
     },
 

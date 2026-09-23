@@ -8,6 +8,7 @@
 // and swallow every failure (see recordQueryLater), so telemetry can never
 // slow or fail a recall. Growth is bounded by age and by row count.
 import { foldCase } from './db.js';
+import { redactSecrets } from './secretPatterns.js';
 
 export const QUERY_SOURCES = Object.freeze(['recall', 'search', 'context', 'mcp', 'assistant']);
 export const QUERY_MODES = Object.freeze(['semantic', 'hybrid', 'keyword', 'recency']);
@@ -32,6 +33,13 @@ export function querySourceFrom(headers = {}) {
   const raw = headers[QUERY_SOURCE_HEADER];
   const value = String(Array.isArray(raw) ? raw[0] : raw ?? '').trim().toLowerCase();
   return QUERY_SOURCES.includes(value) ? value : null;
+}
+
+// The query text as stored: credential spans redacted (an agent may paste a
+// token into a search), then trimmed and capped. Redaction runs on the whole
+// query before the cap, so a secret straddling the cut is still recognised.
+export function storedQueryText(query) {
+  return redactSecrets(String(query ?? '').trim()).trim().slice(0, MAX_QUERY_CHARS);
 }
 
 // Case-folded letter/digit runs joined by one space: "Postgres  backup?" and
@@ -158,7 +166,9 @@ export function createRecallTelemetry(db, {
       if (!enabled) return null;
       if (!QUERY_SOURCES.includes(source)) throw new Error(`unknown query source: ${source}`);
       if (!QUERY_MODES.includes(mode)) throw new Error(`unknown query mode: ${mode}`);
-      const text = String(query ?? '').trim().slice(0, MAX_QUERY_CHARS);
+      // Never the verbatim query: the grouping key is computed from the
+      // redacted text too, so no secret survives in either column.
+      const text = storedQueryText(query);
       const key = normalizeQueryKey(text);
       if (!key) return null;
       const ids = uniqueIds(hitIds);

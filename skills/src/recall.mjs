@@ -12,7 +12,7 @@ import { createCheckout } from '../../cli/lib/repoFiles.js';
 
 async function main() {
   const {
-    query, project, limit, recent, agent, budget, since: sinceArg, sinceLastSession,
+    query, project, limit, recent, agent, budget, since: sinceArg, sinceLastSession, includeHarvested = false,
   } = parseRecallArgs(process.argv.slice(2));
   const client = createClient({ agent });
   // A checkout only when this runs inside one: staleness is checked where the
@@ -28,7 +28,7 @@ async function main() {
       throw new UsageError('--since-last-session needs an agent id: pass --agent <id> or set PRAX_AGENT', RECALL_USAGE);
     }
     const result = await memoryDelta(client, {
-      since, sinceLastSession, project: project || undefined, limit, checkout,
+      since, sinceLastSession, project: project || undefined, limit, checkout, includeHarvested,
     });
     const planned = planDelta(result, budget ?? Infinity);
     console.log(planned.text);
@@ -40,7 +40,7 @@ async function main() {
     return;
   }
   const result = await recall(client, {
-    query, project, limit, recent, budget, checkout,
+    query, project, limit, recent, budget, checkout, includeHarvested,
   });
   console.log(formatRecall(result));
 }

@@ -14,8 +14,10 @@ import { createEmbeddingService } from './embeddingService.js';
 import { contentLength } from './contextPack.js';
 import {
   selectCandidates, findDuplicatePairs, clusterPairs, classifyClusters, buildProposalDocument,
-  EMBEDDING_MIN_SIM, SHINGLE_MIN_JACCARD,
+  clusteringFingerprint, EMBEDDING_MIN_SIM, SHINGLE_MIN_JACCARD,
 } from './librarian.js';
+
+const CLUSTER_CACHE_ENTRIES = 4;
 
 export const SCHEDULE_SETTING = 'librarian_schedule_enabled';
 export const LAST_SCHEDULED_RUN_SETTING = 'librarian_last_scheduled_run_at';
@@ -129,6 +131,8 @@ export async function registerLibrarianRoutes(app, options = {}) {
   // Cluster the library. Read-only unless `write`, which files one proposal
   // per new cluster. Serialized so two runs never propose the same cluster.
   let running = Promise.resolve();
+  // Recent clustering results by fingerprint (one per project scope in use).
+  const clusterCache = new Map();
   function runLibrarian(args) {
     const next = running.then(() => runLibrarianOnce(args));
     running = next.catch(() => {});
@@ -155,9 +159,23 @@ export async function registerLibrarianRoutes(app, options = {}) {
         log?.warn?.({ err }, 'librarian could not read vectors; using shingles');
       }
     }
-    const pairs = findDuplicatePairs(candidates, { embeddings, embeddingThreshold, shingleThreshold });
+    // Clustering is a pure function of the candidates, their vectors and the
+    // settings, so an unchanged library reuses the last result (the report
+    // behind `prax doctor` runs this on every call). Proposal status is
+    // classified afresh each time.
+    const fingerprint = clusteringFingerprint(candidates, { embeddings, embeddingThreshold, shingleThreshold });
+    let found = clusterCache.get(fingerprint);
+    const cached = Boolean(found);
+    if (!found) {
+      found = clusterPairs(findDuplicatePairs(candidates, { embeddings, embeddingThreshold, shingleThreshold }));
+      clusterCache.set(fingerprint, found);
+      while (clusterCache.size > CLUSTER_CACHE_ENTRIES) clusterCache.delete(clusterCache.keys().next().value);
+    } else {
+      clusterCache.delete(fingerprint);
+      clusterCache.set(fingerprint, found);
+    }
     const byId = new Map(candidates.map((doc) => [doc.id, doc]));
-    const clusters = classifyClusters(clusterPairs(pairs), await listProposals());
+    const clusters = classifyClusters(found, await listProposals());
     const created = [];
     if (write) {
       for (const cluster of clusters) {
@@ -180,6 +198,7 @@ export async function registerLibrarianRoutes(app, options = {}) {
       documentsEligible: eligible,
       documentsWithVectors: vectorCount,
       truncated,
+      cached,
       clusters: clusters.map((c) => ({
         key: c.key,
         status: c.status,

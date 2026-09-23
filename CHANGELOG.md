@@ -38,7 +38,10 @@ fresh empty `[Unreleased]` section is started.
   `prax-remember` block; a Stop hook (Claude Code, Codex, Copilot CLI; `install.sh --hooks`) files
   each proposal once as an unverified Inbox candidate with similar memories listed. Extraction
   reads only the agent's own messages, uses no model, and the hook never blocks an agent's exit.
-  `prax harvest --transcript <file>` covers CLIs without hooks.
+  `prax harvest --transcript <file>` covers CLIs without hooks. Until a person verifies or
+  re-files it, an unverified candidate tagged `harvested` is left out of agent-facing recall,
+  search, context packs, Ask, brief and the delta, with the number hidden stated in every result
+  (`--include-harvested` / `includeHarvested=true` to show); the web app still shows them.
 - **`prax check`**, a citation-drift gate for CI: memories whose cited lines a change touches are
   reported as drift (exit 1), stale or holding; `--comment` writes a merge-request comment. It
   skips with a warning when Prax is unreachable (`--strict` fails instead). Citations gain
@@ -51,7 +54,8 @@ fresh empty `[Unreleased]` section is started.
   documents into a bounded, separately marked block in agent instruction files.
 - **Librarian.** Recall, search and context requests from the CLI, skills, MCP and assistant are
   recorded locally (migration 0040; 90 days, capped; never in portable exports; `prax telemetry
-  clear`, `PRAX_RECALL_TELEMETRY=off`); person-driven Library searches are not. `prax used <id>`
+  clear`, `PRAX_RECALL_TELEMETRY=off`), with credential-shaped text in queries redacted before it is
+  stored; person-driven Library searches are not. `prax used <id>`
   marks a memory as used. A librarian pass clusters near-duplicate memories into unverified
   proposal documents (never superseding anything until a person approves), lists knowledge gaps,
   sorts the review queue by recall frequency on request, and `prax doctor` summarises Library

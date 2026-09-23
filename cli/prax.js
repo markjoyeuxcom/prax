@@ -41,7 +41,7 @@ import {
 // accumulate when repeated (`--check a --check b`) are `repeatable`; every
 // other flag is last-wins.
 const REPEATABLE_FLAGS = ['check'];
-const BOOLEAN_FLAGS = ['json', 'help', 'all', 'all-projects', 'memory', 'since-last-session', 'comment', 'strict', 'foreground', 'dry-run', 'handoff', ...MIRROR_BOOLEAN_FLAGS];
+const BOOLEAN_FLAGS = ['json', 'help', 'all', 'all-projects', 'memory', 'since-last-session', 'include-harvested', 'comment', 'strict', 'foreground', 'dry-run', 'handoff', ...MIRROR_BOOLEAN_FLAGS];
 // `--recent` takes a count only when the next word is one.
 const OPTIONAL_FLAGS = { recent: (next) => /^\d+$/.test(next) };
 const VALUE_FLAGS = [
@@ -64,13 +64,15 @@ const TASK_FIELD_FLAGS = ['priority', 'status', 'due', 'planned', 'label', 'desc
 const COMMANDS = {
   help: { flags: [], max: Infinity, usage: 'prax help' },
   init: { flags: [], max: 0, usage: 'prax init [--project <slug>]' },
-  context: { flags: ['limit', 'budget'], usage: 'prax context [query...] [--json] [--limit <n>] [--budget <tokens>]' },
-  search: { flags: ['all'], usage: 'prax search <query> [--all] [--json]' },
+  // --include-harvested: show unreviewed harvested candidates, which
+  // retrieval leaves out by default (server/harvestedCandidates.js).
+  context: { flags: ['limit', 'budget', 'include-harvested'], usage: 'prax context [query...] [--json] [--limit <n>] [--budget <tokens>] [--include-harvested]' },
+  search: { flags: ['all', 'include-harvested'], usage: 'prax search <query> [--all] [--include-harvested] [--json]' },
   recall: {
-    flags: ['limit', 'recent', 'budget', 'since', 'since-last-session'],
-    usage: 'prax recall [query...] [--project <slug>] [--limit <n>] [--budget <tokens>] [--recent [n] | --since-last-session | --since <iso>] [--json]',
+    flags: ['limit', 'recent', 'budget', 'since', 'since-last-session', 'include-harvested'],
+    usage: 'prax recall [query...] [--project <slug>] [--limit <n>] [--budget <tokens>] [--recent [n] | --since-last-session | --since <iso>] [--include-harvested] [--json]',
   },
-  brief: { flags: ['budget'], max: 1, usage: 'prax brief <task-id> [--budget <tokens>] [--json]' },
+  brief: { flags: ['budget', 'include-harvested'], max: 1, usage: 'prax brief <task-id> [--budget <tokens>] [--include-harvested] [--json]' },
   get: { flags: [], max: 1, usage: 'prax get <id> [--json]' },
   overview: { flags: [], max: 0, usage: 'prax overview [--project <slug>] [--json]' },
   remember: {
@@ -203,11 +205,11 @@ const HELP = `prax — shared project memory CLI
 
 Usage:
   prax init [--project <slug>]
-  prax context [query...] [--json] [--limit <n>] [--budget <tokens>]
-  prax search <query> [--all] [--json]
-  prax recall [query...] [--project <slug>] [--limit <n>] [--budget <tokens>] [--recent [n]] [--json]
-  prax recall --since-last-session | --since <iso> [--project <slug>] [--limit <n>] [--budget <tokens>] [--json]
-  prax brief <task-id> [--budget <tokens>] [--json]
+  prax context [query...] [--json] [--limit <n>] [--budget <tokens>] [--include-harvested]
+  prax search <query> [--all] [--include-harvested] [--json]
+  prax recall [query...] [--project <slug>] [--limit <n>] [--budget <tokens>] [--recent [n]] [--include-harvested] [--json]
+  prax recall --since-last-session | --since <iso> [--project <slug>] [--limit <n>] [--budget <tokens>] [--include-harvested] [--json]
+  prax brief <task-id> [--budget <tokens>] [--include-harvested] [--json]
   prax get <id> [--json]
   prax overview [--project <slug>] [--json]
   prax remember "<title>" --body <text> [--memory] [--type note|runbook|decision|known-issue|reference|post-mortem|template] [--tag a,b] [--ref <url>] [--cite <path[:start[-end]]>] [--id <uuid>]
@@ -230,6 +232,7 @@ ${MIRROR_HELP}
   prax telemetry <status|clear> [--json]
 
 Global flags: --project <slug>  --url <baseUrl>  --agent <id>  --json
+Retrieval (context, search, recall, brief) leaves out unreviewed harvested candidates (unverified, tagged harvested) and says how many; --include-harvested shows them.
 Env: PRAX_API_URL  PRAX_PROJECT  PRAX_API_TOKEN (or PRAX_TOKEN)  PRAX_AGENT  PRAX_TIMEOUT_MS (default 30000)
 App discovery: --url > PRAX_API_URL > the desktop app's saved port (webview-port) > http://127.0.0.1:3000
 Project detection: --project > PRAX_PROJECT > .prax/project.json in this repository > git remote match > .prax/project.json above the repository > repository folder name
@@ -299,6 +302,8 @@ async function main(argv) {
     return;
   }
 
+  const includeHarvested = Boolean(flags['include-harvested']);
+
   if (command === 'context') {
     const { project } = await resolveProjectName(flags, client);
     const query = positionals.slice(1).join(' ');
@@ -308,11 +313,15 @@ async function main(argv) {
     if (budget !== undefined) {
       // Filled here, not on the server: only this checkout can say whether
       // cited code still matches (the fill order's second tier).
-      const result = await budgetedContext(client, { project, query, limit, budget, checkout: createCheckout() });
+      const result = await budgetedContext(client, {
+        project, query, limit, budget, checkout: createCheckout(), includeHarvested,
+      });
       out(flags.json ? budgetedContextJson(result) : formatBudgetedContext(result));
       return;
     }
-    const pack = await client.contextPack(project, { query, format, limit, source: 'context' });
+    const pack = await client.contextPack(project, {
+      query, format, limit, source: 'context', includeHarvested,
+    });
     out(pack);
     return;
   }
@@ -322,7 +331,7 @@ async function main(argv) {
     const query = positionals.slice(1).join(' ');
     if (!query) throw new Error('search requires a query.');
     const envelope = await searchLibrary(client, {
-      project, query, all: Boolean(flags.all),
+      project, query, all: Boolean(flags.all), includeHarvested,
     });
     out(flags.json
       ? envelope
@@ -354,7 +363,7 @@ async function main(argv) {
         throw new CliUsageError('--since-last-session needs an agent id: pass --agent <id> or set PRAX_AGENT.');
       }
       const result = await memoryDelta(client, {
-        since, sinceLastSession, project, limit: limitFlag, checkout: createCheckout(),
+        since, sinceLastSession, project, limit: limitFlag, checkout: createCheckout(), includeHarvested,
       });
       const planned = planDelta(result, budget ?? Infinity);
       out(flags.json ? { ...result, budget: planned.summary, advance: sinceLastSession && planned.advance } : planned.text);
@@ -376,7 +385,9 @@ async function main(argv) {
     if (!recent && !query) throw new CliUsageError('recall requires a query (or use --recent).');
     // --recent is a chronological list; a query would be silently ignored.
     if (recent && query) throw new CliUsageError(`recall --recent lists the newest documents and takes no query (got "${query}").`);
-    const result = await recall(client, { query, project, limit, recent, budget, checkout: createCheckout() });
+    const result = await recall(client, {
+      query, project, limit, recent, budget, checkout: createCheckout(), includeHarvested,
+    });
     out(flags.json ? result : formatRecall(result));
     return;
   }
@@ -397,7 +408,9 @@ async function main(argv) {
     const id = positionals[1];
     if (!isTaskId(id)) throw new CliUsageError('brief requires a task uuid (prax task list shows them).');
     const budget = positiveIntFlag(flags, 'budget');
-    const brief = await buildBrief(client, { taskId: id, budget, checkout: createCheckout() });
+    const brief = await buildBrief(client, {
+      taskId: id, budget, checkout: createCheckout(), includeHarvested,
+    });
     out(flags.json ? briefJson(brief) : formatBrief(brief));
     return;
   }

@@ -25,7 +25,12 @@ function renderSources(sources) {
 
 function retrievalNotice(result) {
   const indexNotice = incompleteIndexNotice(result?.retrieval?.index);
-  const coverage = indexNotice ? `<div class="askprax__notice askprax__notice--retrieval">${escapeHtml(indexNotice)}</div>` : '';
+  const hidden = Number(result?.retrieval?.hiddenHarvested) || 0;
+  // Unreviewed harvested candidates never ground an answer; say they exist.
+  const harvested = hidden > 0
+    ? `<div class="askprax__notice askprax__notice--retrieval">${hidden} unreviewed harvested candidate${hidden === 1 ? ' was' : 's were'} left out of this answer until triaged in the Inbox.</div>`
+    : '';
+  const coverage = (indexNotice ? `<div class="askprax__notice askprax__notice--retrieval">${escapeHtml(indexNotice)}</div>` : '') + harvested;
   if (!result?.retrieval?.fallback) return coverage;
   const text = result.retrieval.reason === 'semantic-unavailable'
     ? 'Semantic retrieval was unavailable, so these results were retrieved with keyword search.'

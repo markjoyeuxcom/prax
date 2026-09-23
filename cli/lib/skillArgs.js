@@ -11,9 +11,9 @@ import { DOCUMENT_TYPE_VALUES, isDocumentType } from '../../public/js/documentTy
 import { sanitizeAgentId } from '../../server/instanceDiscovery.js';
 import { parseCommand } from './cliArgs.js';
 
-export const RECALL_USAGE = 'Usage: recall "<query>" [--project <slug>] [--limit <n>] [--budget <tokens>] [--agent <id>]\n'
-  + '       recall --recent [n] [--project <slug>]\n'
-  + '       recall --since-last-session | --since <iso> [--project <slug>] [--limit <n>] [--budget <tokens>] [--agent <id>]';
+export const RECALL_USAGE = 'Usage: recall "<query>" [--project <slug>] [--limit <n>] [--budget <tokens>] [--include-harvested] [--agent <id>]\n'
+  + '       recall --recent [n] [--project <slug>] [--include-harvested]\n'
+  + '       recall --since-last-session | --since <iso> [--project <slug>] [--limit <n>] [--budget <tokens>] [--include-harvested] [--agent <id>]';
 export const REMEMBER_USAGE = `Usage: remember "<title>" "<body>" [--tags a,b] [--type ${DOCUMENT_TYPE_VALUES.join('|')}]`
   + ' [--project <slug>] [--id <uuid>] [--ref <url>] [--cite <path[:start[-end]]>] [--agent <id>]';
 
@@ -39,7 +39,9 @@ const SKILL_MESSAGES = {
 export const RECALL_SPEC = {
   usage: RECALL_USAGE,
   value: ['project', 'limit', 'agent', 'budget', 'since'],
-  boolean: ['since-last-session'],
+  // --include-harvested shows unreviewed harvested candidates, which recall
+  // leaves out by default (server/harvestedCandidates.js).
+  boolean: ['since-last-session', 'include-harvested'],
   optional: { recent: (next) => !next.startsWith('--') },
 };
 // `prax remember` spells the tag flag --tag; an agent that learned that
@@ -88,6 +90,7 @@ export function parseRecallArgs(argv) {
     if (flags.limit === undefined) out.limit = 20;
   }
   if (flags['since-last-session']) out.sinceLastSession = true;
+  if (flags['include-harvested']) out.includeHarvested = true;
   if (flags.since !== undefined) {
     out.since = flags.since;
     if (out.sinceLastSession) throw fail('give one of --since <iso> or --since-last-session');

@@ -58,3 +58,16 @@ test('semantic Ask answers disclose incomplete index coverage', () => {
   const html=renderAskPraxHtml({askPraxOpen:true,askPraxQuery:'q',askPraxResult:{answer:'Answer',degraded:false,sources:[],retrieval:{mode:'semantic',fallback:false,index:{total:10,embedded:2,pending:8}}}});
   assert.match(html,/2 of 10 documents are current; 8 pending/);
 });
+
+test('an answer that left out unreviewed harvested candidates says so', () => {
+  const html = renderAskPraxHtml({
+    askPraxOpen: true,
+    askPraxResult: { answer: 'Rotate yearly.', degraded: false, sources: [], retrieval: { mode: 'semantic', hiddenHarvested: 2 } },
+  }, { bodyHtml: '<p>Rotate yearly.</p>' });
+  assert.match(html, /2 unreviewed harvested candidates were left out of this answer until triaged in the Inbox\./);
+  const none = renderAskPraxHtml({
+    askPraxOpen: true,
+    askPraxResult: { answer: 'Rotate yearly.', degraded: false, sources: [], retrieval: { mode: 'semantic' } },
+  }, { bodyHtml: '<p>Rotate yearly.</p>' });
+  assert.doesNotMatch(none, /harvested/);
+});

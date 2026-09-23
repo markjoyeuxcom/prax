@@ -45,6 +45,7 @@ import { isWritingAction, buildWritingMessages, stripCodeFence, WRITING_ACTIONS 
 import { DOCUMENT_TYPE_VALUES } from '../public/js/documentTypes.js';
 import { normalizeTitle } from './documentTitle.js';
 import { querySourceFrom, recordQueryLater } from './recallTelemetry.js';
+import { HIDDEN_HARVESTED_HEADER, includeHarvestedFrom, partitionHarvested } from './harvestedCandidates.js';
 
 // The taxonomy lives in the shared registry (public/js/documentTypes.js) —
 // the DB CHECK was dropped in migration 0010; this is the enforcement point.
@@ -192,6 +193,27 @@ export async function registerLibraryRoutes(app, options = {}) {
       request.log?.warn?.({ err }, 'recall telemetry not recorded');
     }
   }
+
+  // Unreviewed harvested candidates are left out of agent-facing retrieval
+  // unless the caller opts in with includeHarvested=true (see
+  // server/harvestedCandidates.js). One scope per request: `opts` goes to the
+  // repository rankers, `filter` applies the same rule to a listing, and
+  // `count` is how many were hidden, for the disclosure.
+  function harvestedScope(value) {
+    const include = includeHarvestedFrom(value);
+    const hidden = new Set();
+    return {
+      include,
+      opts: include ? {} : { excludeHarvested: true, hidden },
+      filter(docs) {
+        const { kept, hidden: dropped } = partitionHarvested(docs, { include });
+        for (const doc of dropped) hidden.add(doc.id);
+        return kept;
+      },
+      get count() { return hidden.size; },
+    };
+  }
+  const hiddenField = (scope) => (scope.count > 0 ? { hiddenHarvested: scope.count } : {});
 
   const packDocumentIds = (pack) => (pack?.sections || []).flatMap((section) => section.items.map((item) => item.id));
 
@@ -479,9 +501,15 @@ export async function registerLibraryRoutes(app, options = {}) {
       projectId = await resolveProjectId(request.query.project);
       if (projectId === null) { reply.code(400); return { message: 'project is invalid' }; }
     }
-    const documents = await repository.listDocuments({ ...request.query, status: status === 'all' ? undefined : status, projectId });
+    let documents = await repository.listDocuments({ ...request.query, status: status === 'all' ? undefined : status, projectId });
     // A keyword query from an agent client (the recall/search fallback).
     if (typeof request.query.q === 'string' && request.query.q.trim() && Array.isArray(documents)) {
+      // A keyword SEARCH is retrieval: unreviewed harvested candidates are
+      // left out unless asked for, and the header says how many. A plain
+      // listing (no q) is browsing and lists everything.
+      const harvested = harvestedScope(request.query.includeHarvested);
+      documents = harvested.filter(documents);
+      if (harvested.count > 0) reply.header(HIDDEN_HARVESTED_HEADER, String(harvested.count));
       noteRetrieval(request, {
         mode: 'keyword', query: request.query.q, projectId, hitIds: documents.map((d) => d.id), hitCount: documents.length,
       });
@@ -537,6 +565,7 @@ export async function registerLibraryRoutes(app, options = {}) {
       offset = requestedOffset;
     }
     let docs;
+    const harvested = harvestedScope(request.query.includeHarvested);
     try {
       const { vector } = await embedder.embed(String(q), { query: true });
       const searchOpts = {
@@ -547,6 +576,7 @@ export async function registerLibraryRoutes(app, options = {}) {
         model: embedder.model,
         ...relevanceCutoff(embedder),
         includeRetired,
+        ...harvested.opts,
       };
       // An injected or extension repository predating hybrid retrieval must
       // degrade to cosine, not 500.
@@ -565,6 +595,7 @@ export async function registerLibraryRoutes(app, options = {}) {
     }
     if (!paged) {
       noteRetrieval(request, { mode, query: q, projectId, hitIds: docs.map((d) => d.id), hitCount: docs.length });
+      if (harvested.count > 0) reply.header(HIDDEN_HARVESTED_HEADER, String(harvested.count));
       return docs.map(toRef);
     }
 
@@ -589,6 +620,7 @@ export async function registerLibraryRoutes(app, options = {}) {
         hasMore,
         nextOffset: hasMore ? offset + returned : null,
       },
+      ...hiddenField(harvested),
       ...(index ? { index, degraded: index.pending > 0, ...(index.pending > 0 ? { reason: 'index-incomplete' } : {}) } : {}),
     };
   });
@@ -618,8 +650,11 @@ export async function registerLibraryRoutes(app, options = {}) {
       const query = buildRelatedQuery(task);
       if (!query) return { suggestions: [] };
       const linked = new Set((await tasksRepository.listTaskDocuments(task.id)).map((doc) => doc.id));
+      const harvested = harvestedScope(request.query?.includeHarvested);
       const { vector } = await embedder.embed(query, { query: true });
-      const docs = await repository.searchDocumentsSemantic(vector, embedder.backend, { limit: 12, model: embedder.model, ...relevanceCutoff(embedder) });
+      const docs = await repository.searchDocumentsSemantic(vector, embedder.backend, {
+        limit: 12, model: embedder.model, ...relevanceCutoff(embedder), ...harvested.opts,
+      });
       const suggestions = docs
         .filter((doc) => !linked.has(doc.id))
         .slice(0, 5)
@@ -629,7 +664,7 @@ export async function registerLibraryRoutes(app, options = {}) {
           documentType: doc.documentType,
           similarity: Number.isFinite(doc.similarity) ? Number(doc.similarity.toFixed(3)) : null,
         }));
-      return { suggestions };
+      return { suggestions, ...hiddenField(harvested) };
     } catch (err) {
       request.log?.error?.({ err }, 'related-documents failed');
       return { suggestions: [], degraded: true, reason: 'search-failed' };
@@ -1238,12 +1273,14 @@ export async function registerLibraryRoutes(app, options = {}) {
       && !(await repository.hasCurrentEmbedding(request.params.id, embedder.backend, embedder.model))) {
       return { items: [], degraded: true, reason: 'not-indexed' };
     }
+    const harvested = harvestedScope(request.query?.includeHarvested);
     const docs = await repository.findSimilarDocuments(request.params.id, embedder.backend, {
       limit: 5,
       model: embedder.model,
       ...relevanceCutoff(embedder),
+      ...harvested.opts,
     });
-    return { items: docs.map(toRef), degraded: false };
+    return { items: docs.map(toRef), degraded: false, ...hiddenField(harvested) };
   });
 
   app.get('/api/library/documents/:id/export', async (request, reply) => {
@@ -1335,6 +1372,7 @@ export async function registerLibraryRoutes(app, options = {}) {
     const query = request.query.query ? String(request.query.query) : '';
 
     let docs = [];
+    const harvested = harvestedScope(request.query.includeHarvested);
     const embedder = query ? await resolveEmbedder() : null;
     const semanticReady = Boolean(query && embedder && await semanticEnabled());
     let retrieval = query
@@ -1352,6 +1390,7 @@ export async function registerLibraryRoutes(app, options = {}) {
           limit: 50,
           model: embedder.model,
           ...relevanceCutoff(embedder),
+          ...harvested.opts,
         });
         if (docs.length > 0) retrieval = { mode: 'semantic', fallback: false, reason: null };
         const index = await indexCoverage(embedder);
@@ -1364,10 +1403,10 @@ export async function registerLibraryRoutes(app, options = {}) {
       }
     }
     if (docs.length === 0) {
-      docs = await repository.listDocuments({ projectId: project.id, status: 'active' });
+      docs = harvested.filter(await repository.listDocuments({ projectId: project.id, status: 'active' }));
     }
 
-    const pack = buildContextPack(docs, { project, query, limit, retrieval });
+    const pack = buildContextPack(docs, { project, query, limit, retrieval, hiddenHarvested: harvested.count });
     if (query) {
       // A recency fallback matched nothing the query asked for: zero hits.
       const matched = retrieval.mode !== 'recency';
@@ -1400,6 +1439,7 @@ export async function registerLibraryRoutes(app, options = {}) {
     const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 50) : 12;
 
     let docs = [];
+    const harvested = harvestedScope(request.query.includeHarvested);
     let retrieval = { mode: 'keyword', fallback: true, reason: 'semantic-not-configured' };
     const embedder = await resolveEmbedder();
     const semanticReady = Boolean(embedder && await semanticEnabled());
@@ -1408,7 +1448,7 @@ export async function registerLibraryRoutes(app, options = {}) {
       try {
         const { vector } = await embedder.embed(query, { query: true });
         docs = await repository.searchDocumentsSemantic(vector, embedder.backend, {
-          projectId, limit: 50, model: embedder.model, ...relevanceCutoff(embedder),
+          projectId, limit: 50, model: embedder.model, ...relevanceCutoff(embedder), ...harvested.opts,
         });
         if (docs.length > 0) retrieval = { mode: 'semantic', fallback: false, reason: null };
         else retrieval = { mode: 'keyword', fallback: true, reason: 'semantic-no-match' };
@@ -1422,10 +1462,10 @@ export async function registerLibraryRoutes(app, options = {}) {
       }
     }
     if (docs.length === 0) {
-      docs = await repository.listDocuments({ projectId, status: 'active', q: query });
+      docs = harvested.filter(await repository.listDocuments({ projectId, status: 'active', q: query }));
     }
 
-    const pack = buildContextPack(docs, { project, query, limit, retrieval });
+    const pack = buildContextPack(docs, { project, query, limit, retrieval, hiddenHarvested: harvested.count });
     const hitIds = packDocumentIds(pack);
     noteRetrieval(request, { mode: retrieval.mode, query, projectId, hitIds, hitCount: hitIds.length });
     if (request.query.format === 'json') return pack;
@@ -1455,13 +1495,16 @@ export async function registerLibraryRoutes(app, options = {}) {
     const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 50) : 12;
 
     let docs = [];
+    // An answer is grounded only in memory: unreviewed harvested candidates
+    // stay out of its sources unless the caller opts in.
+    const harvested = harvestedScope(body.includeHarvested);
     let retrieval = { mode: 'keyword', fallback: false, reason: null };
     const embedder = await resolveEmbedder();
     if (embedder && await semanticEnabled()) {
       try {
         const { vector } = await embedder.embed(query, { query: true });
         docs = await repository.searchDocumentsSemantic(vector, embedder.backend, {
-          projectId, limit: 50, model: embedder.model, ...relevanceCutoff(embedder),
+          projectId, limit: 50, model: embedder.model, ...relevanceCutoff(embedder), ...harvested.opts,
         });
         if (docs.length > 0) retrieval = { mode: 'semantic', fallback: false, reason: null };
         else retrieval = { mode: 'keyword', fallback: true, reason: 'semantic-no-match' };
@@ -1474,10 +1517,11 @@ export async function registerLibraryRoutes(app, options = {}) {
       }
     }
     if (docs.length === 0) {
-      docs = await repository.listDocuments({ projectId, status: 'active', q: query });
+      docs = harvested.filter(await repository.listDocuments({ projectId, status: 'active', q: query }));
     }
+    if (harvested.count > 0) retrieval = { ...retrieval, hiddenHarvested: harvested.count };
 
-    const pack = buildContextPack(docs, { project, query, limit, retrieval });
+    const pack = buildContextPack(docs, { project, query, limit, retrieval, hiddenHarvested: harvested.count });
     const markdown = renderContextPackMarkdown(pack);
     // Generate from the FULL bodies of the top docs (not the snippet pack), so
     // the answer is grounded in complete content — runbook steps, commands, etc.

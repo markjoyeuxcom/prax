@@ -301,3 +301,40 @@ test('the librarian routes need the database and validate their input', async ()
   assert.equal((await real.inject({ method: 'POST', url: '/api/library/librarian/proposals/00000000-0000-4000-8000-000000000009/approve' })).statusCode, 404);
   await real.close();
 });
+
+test('the report reuses clustering for an unchanged library and recomputes after an edit', async () => {
+  const { app } = await makeApp();
+  const a = await createDoc(app, { title: 'Restore Postgres', body: RESTORE_A });
+  const b = await createDoc(app, { title: 'Postgres restore steps', body: RESTORE_B });
+  const dns = await createDoc(app, { title: 'DNS', body: UNRELATED });
+  const report = async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/library/librarian/report' });
+    assert.equal(res.statusCode, 200, res.body);
+    return res.json().clusters;
+  };
+  const members = (pass) => pass.clusters.map((c) => c.documents.map((d) => d.id).sort());
+  const first = await report();
+  assert.equal(first.cached, false);
+  assert.deepEqual(members(first), [[a.id, b.id].sort()]);
+  const second = await report();
+  assert.equal(second.cached, true, 'an unchanged library reuses the last clustering');
+  assert.deepEqual(second.clusters, first.clusters);
+
+  // Filing a proposal changes no candidate: the clusters are reused, and their
+  // status is still classified afresh.
+  const ran = (await run(app)).json();
+  assert.equal(ran.cached, true);
+  assert.equal(ran.created.length, 1);
+  assert.deepEqual((await report()).clusters.map((c) => c.status), ['proposed']);
+
+  // An edit changes the document's revision, so clustering runs again.
+  const edited = await app.inject({
+    method: 'POST', url: `/api/library/documents/${b.id}/update`, headers: HUMAN,
+    payload: { title: 'DNS notes', body: UNRELATED, operationId: crypto.randomUUID() },
+  });
+  assert.equal(edited.statusCode, 200, edited.body);
+  const after = await report();
+  assert.equal(after.cached, false);
+  assert.deepEqual(members(after), [[b.id, dns.id].sort()]);
+  await app.close();
+});

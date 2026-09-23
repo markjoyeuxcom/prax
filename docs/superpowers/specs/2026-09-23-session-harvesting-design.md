@@ -142,7 +142,8 @@ example does not create a candidate. Each run has these limits:
   `prax remember` instead.
 
 A candidate that looks like it contains a credential is **skipped**: a private-key block, an
-AWS access key id, or a GitHub, GitLab, Slack, OpenAI or Anthropic token prefix. Memory never
+AWS access key id (`AKIA`/`ASIA`), or a GitHub, GitLab, Slack, OpenAI or Anthropic token prefix.
+The shapes live in `server/secretPatterns.js`, shared with recall telemetry's query redaction. Memory never
 persists secrets. Within one run, candidates are de-duplicated by content hash and by
 normalised title.
 
@@ -182,11 +183,34 @@ characters. A `Harvest details` section follows a rule and lists:
   with project, type, trust and id. If recall fails, the section says that similar memories
   were not checked and gives the reason.
 
-Harvested candidates are active documents in Inbox. Recall searches all projects, so another
-agent can recall a candidate before a person reviews it. It appears there as `unverified` and
-`harvested`, as generated post-mortem drafts (tagged `draft`) already do. This is an accepted
-risk. Excluding `harvested` from default recall until triage is an open question for the recall
-owner.
+Harvested candidates are active documents in Inbox, but they are **not recalled until a person
+reviews them** (decided after Agy's review of 2026-09-23; this closes the earlier open question).
+A document that is unverified and tagged `harvested` is left out of every default agent-facing
+retrieval, server-side (`server/harvestedCandidates.js`), so the CLI, the skills, the MCP server
+and the in-app assistant all get the same rule:
+
+- semantic and hybrid search, keyword search (`GET /api/library/documents?q=`), both context
+  packs, Ask, similar documents, task-related documents and the memory-changes delta. Ranked
+  routes rank and cut off as if the candidates were absent. The delta filters in SQL, so its
+  paging and `until` are unaffected;
+- `prax recall --recent` reads the plain listing and applies the same rule client-side.
+
+The opt-in is explicit: `includeHarvested=true` on the routes, `--include-harvested` on `prax
+recall`, `search`, `context` and `brief` and on the recall skill, `includeHarvested: true` on the
+MCP `search_documents`, `search_documents_semantic` and `ask_library` tools. Every result that
+hid a candidate says how many (`hiddenHarvested`, a header on array routes, a line in the text
+output), so a thin or empty answer is not mistaken for a complete one (QINV-08).
+
+Not filtered: plain listings without a query (the Inbox, triage, the harvester's own title
+dedupe), `GET /api/library/documents/:id`, and the web UI's Library, Library search, similar
+documents and task-drawer suggestions, which opt in because a person is reading them. The
+app's Ask does not ground an answer on candidates and says so. The harvester's own "similar
+active memories" check opts in, so a near-duplicate proposal is shown to the person triaging.
+
+A candidate that a person verifies, or refiles without the `harvested` tag, is an ordinary
+document: recalled normally, and reported by the next delta as `verified` or `updated`. If an
+agent later edits a verified candidate that still carries the tag, the edit revokes the
+verification and the document is hidden again until it is re-reviewed.
 
 ## Exactly once: operation ids from the session and the candidate
 
@@ -273,6 +297,11 @@ installer reminds the person to trust the hook in Codex (`/hooks`).
   Against a real app on an in-memory database: candidates filed into Inbox with the stamps, a
   replay that creates nothing, an existing title skipped, fail-open with exit 0 on an
   unreachable server and on an exhausted budget, and the detached hook path.
+- `tests/backend/harvestedRetrieval.test.js`: every retrieval route hides an unreviewed
+  candidate by default, discloses the count, shows it with `includeHarvested=true`, and treats a
+  verified or re-tagged candidate normally; plain listings are unfiltered.
+  `tests/cli/harvestedRecall.test.js` and `tests/cli/commandLine.test.js`: the CLI, skill and MCP
+  opt-in and every disclosure line.
 - `tests/skills/installHooks.test.js`: `--hooks` with a temporary HOME writes all three vendor
   entries and preserves unrelated settings and a symlink. A re-install is idempotent,
   `--uninstall` restores the unrelated content, and malformed JSON is refused.

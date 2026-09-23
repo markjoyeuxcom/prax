@@ -7,6 +7,7 @@
 // unchanged and this module is not used.
 // See docs/superpowers/specs/2026-09-23-budgeted-context-and-brief-design.md.
 import { compactLine, fillOrder, oneLine, trustChip } from './budget.js';
+import { hiddenHarvestedNote } from '../../server/harvestedCandidates.js';
 import {
   budgetSummary, checkCitations, citationNotes, createRepoUrlLookup, renderBudgeted,
 } from './recall.js';
@@ -16,9 +17,11 @@ import {
 export const BUDGET_CANDIDATES = 50;
 
 export async function budgetedContext(client, {
-  project, query, limit, budget, checkout,
+  project, query, limit, budget, checkout, includeHarvested = false,
 } = {}) {
-  const pack = await client.contextPack(project, { query, format: 'json', limit: limit ?? BUDGET_CANDIDATES, source: 'context' });
+  const pack = await client.contextPack(project, {
+    query, format: 'json', limit: limit ?? BUDGET_CANDIDATES, source: 'context', ...(includeHarvested ? { includeHarvested } : {}),
+  });
   const repoUrlOf = createRepoUrlLookup(client);
   const projectId = pack?.project?.id ?? null;
   const items = [];
@@ -45,6 +48,8 @@ function packHeader(pack) {
       lines.push(`(index incomplete: ${index.pending} of ${index.total} documents have no current embedding — results may be missing)`);
     }
   }
+  const hidden = hiddenHarvestedNote(pack.hiddenHarvested);
+  if (hidden) lines.push(`(${hidden})`);
   return lines;
 }
 
