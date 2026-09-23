@@ -9,8 +9,12 @@
 // printed; `--recent` is active-only, so a retired memory can never be replayed
 // as current; every hit carries its trust label.
 
-import { checkCitation, describeCitationStatus } from './codeRefs.js';
+import { checkCitation, computeAnchors, describeCitationStatus } from './codeRefs.js';
 import { normalizeRepoUrl } from '../../server/repoUrl.js';
+import {
+  budgetLine, compactLine, estimateTokens, excerpt, fillOrder, oneLine, planBudget, trustChip,
+  omissionLine, EXCERPT_CHARS, LEAD_EXCERPT_CHARS, TOKEN_ESTIMATE, FILL_TIERS,
+} from './budget.js';
 
 const BODY_CHARS = 800;
 const RELATED_MAX = 5;
@@ -124,14 +128,17 @@ export function boundNote(result) {
 // page's metadata says whether more remained beyond the bound.
 export async function collectSemantic(client, project, query, limit, mode = 'hybrid') {
   const wanted = Math.max(1, Number(limit) || 1);
-  let res = await client.semanticSearch(project, query, { limit: wanted, mode });
+  // `source: 'recall'` has the server record this recall (first page only).
+  let res = await client.semanticSearch(project, query, { limit: wanted, mode, source: 'recall' });
   if (Array.isArray(res)) return res;
   const items = [...(res.items || [])];
   let page = res.page;
   let guard = 0;
   while (page?.hasMore && items.length < wanted && Number.isInteger(page.nextOffset) && guard < 100) {
     guard += 1;
-    const next = await client.semanticSearch(project, query, { limit: wanted - items.length, offset: page.nextOffset, mode });
+    const next = await client.semanticSearch(project, query, {
+      limit: wanted - items.length, offset: page.nextOffset, mode, source: 'recall',
+    });
     if (Array.isArray(next)) break;
     items.push(...(next.items || []));
     page = next.page;
@@ -168,7 +175,7 @@ export function coverageNote(result) {
 // checkout that declares no identity at all (tests, embedders) vouches for
 // itself. Returns null when the citation belongs here, else why it is not
 // checked.
-function repositoryMismatch(checkout, ref, projectRepoUrl) {
+export function repositoryMismatch(checkout, ref, projectRepoUrl) {
   if (checkout.repoUrl === undefined && checkout.hasCommit === undefined) return null;
   const here = normalizeRepoUrl(checkout.repoUrl);
   const there = normalizeRepoUrl(projectRepoUrl);
@@ -182,6 +189,19 @@ async function projectRepoUrl(client, projectId) {
   const projects = await client.listProjects().catch(() => null);
   const project = Array.isArray(projects) ? projects.find((p) => p && p.id === projectId) : null;
   return project?.repoUrl || null;
+}
+
+// One projects read for many citation checks (budgeted recall, the delta and
+// brief check every hit, not only the top one).
+export function createRepoUrlLookup(client) {
+  let projects;
+  return async (projectId) => {
+    if (!projectId || typeof client.listProjects !== 'function') return null;
+    projects ??= client.listProjects().catch(() => null);
+    const list = await projects;
+    const project = Array.isArray(list) ? list.find((p) => p && p.id === projectId) : null;
+    return project?.repoUrl || null;
+  };
 }
 
 const UNCHECKED_REASONS = {
@@ -200,7 +220,7 @@ const UNCHECKED_REASONS = {
 // why: silence must not read as "still true" (outside a checkout, in another
 // repository, or when the citations could not be read), and a file absent
 // from the wrong checkout must not read as "deleted".
-async function checkTopCitations(client, hit, checkout) {
+export async function checkTopCitations(client, hit, checkout, repoUrlOf = (projectId) => projectRepoUrl(client, projectId)) {
   const none = { citations: [], citationCheck: null };
   if (typeof client.listCodeRefs !== 'function') return none;
   let refs;
@@ -218,7 +238,7 @@ async function checkTopCitations(client, hit, checkout) {
   }
   const repoUrl = checkout.repoUrl === undefined && checkout.hasCommit === undefined
     ? null
-    : await projectRepoUrl(client, hit.projectId);
+    : await repoUrlOf(hit.projectId);
   const citations = [];
   const reasons = [];
   for (const ref of refs) {
@@ -227,6 +247,7 @@ async function checkTopCitations(client, hit, checkout) {
     let text = null;
     try { text = checkout.readFile(ref.path); } catch { text = null; }
     const result = checkCitation(ref, text);
+    await backfillAnchors(client, hit.id, ref, result, text);
     citations.push({ ...result, path: ref.path, note: describeCitationStatus(result, ref) });
   }
   // `reason` names the (first) cause; `reasons` lists every distinct one.
@@ -238,6 +259,28 @@ async function checkTopCitations(client, hit, checkout) {
     },
   };
 }
+
+// Lazy backfill of the hybrid anchors (migration 0039) for a citation pinned
+// before them. Only when the LINE hash settled the check: the lines in hand
+// are then exactly the pinned content, so their anchors are the pin's anchors.
+// `normalizedHash === null` (not undefined) is a server that has the columns;
+// an older server omits the key and is not asked. Best-effort and
+// compare-and-set on the server: a failure changes nothing about the recall.
+async function backfillAnchors(client, documentId, ref, result, text) {
+  if (typeof client.backfillCodeRefAnchors !== 'function' || !ref.id || ref.normalizedHash !== null) return;
+  if (!['current', 'moved'].includes(result.status) || result.anchor) return;
+  const anchors = computeAnchors(text, result.startLine, result.endLine, ref.path);
+  if (!anchors || anchors.contentHash !== ref.contentHash) return;
+  try {
+    await client.backfillCodeRefAnchors(documentId, ref.id, anchors);
+  } catch {
+    // the citation keeps checking by its line hash; nothing to report
+  }
+}
+
+// The same check for any hit; `repoUrlOf` (createRepoUrlLookup) shares one
+// projects read across hits.
+export const checkCitations = checkTopCitations;
 
 // One clause for citations that were not checked, or ''.
 export function citationCheckNote(check) {
@@ -273,11 +316,77 @@ export function rankKeywordMatches(docs, query) {
     .map((entry) => entry.doc);
 }
 
+// The matches for a query, before any rendering: semantic (hybrid) first,
+// keyword on a 409 (semantic search not configured), with the coverage facts
+// every caller must disclose. `keyword: true` marks the fallback, whose rows
+// are full documents (bodies included); semantic rows are refs.
+export async function searchCandidates(client, { query, project, limit = 5, mode = 'hybrid' } = {}) {
+  let res;
+  try {
+    res = await collectSemantic(client, project || undefined, query, limit, mode);
+  } catch (err) {
+    if (err && err.status === 409) {
+      // The same envelope `prax search` gives this state: degraded, with the
+      // reason, and a page that says how many matches the bound held back.
+      const ranked = rankKeywordMatches(await client.keywordSearch(project || undefined, query, { source: 'recall' }), query);
+      const kept = await withProjectSlugs(client, ranked.slice(0, limit));
+      return {
+        keyword: true,
+        degraded: true,
+        reason: 'semantic-not-configured',
+        index: null,
+        page: { returned: kept.length, total: ranked.length, hasMore: ranked.length > kept.length },
+        items: kept,
+      };
+    }
+    throw err;
+  }
+
+  // Three shapes reach here: the paged object (with coverage), the client's
+  // normalisation of an old server's bare array (`legacy: true`, reason
+  // `coverage-unknown`), and — from an injected client — the bare array itself.
+  const legacy = Array.isArray(res) || Boolean(res?.legacy) || res?.reason === 'coverage-unknown';
+  const list = Array.isArray(res) ? res : (Array.isArray(res?.items) ? res.items : []);
+  return {
+    keyword: false,
+    degraded: !legacy && Boolean(res?.degraded),
+    // An old server reports no coverage at all: that is "unknown", not
+    // "complete", and the output must not imply otherwise.
+    reason: legacy ? 'coverage-unknown' : (res?.reason || null),
+    index: legacy ? null : (res?.index || null),
+    // What remains beyond the requested bound after paging up to it.
+    page: legacy ? null : (res?.page || null),
+    items: list.length ? await withProjectSlugs(client, list.slice(0, limit)) : [],
+  };
+}
+
+export const coverageOf = (found) => ({
+  degraded: found.degraded, reason: found.reason, index: found.index, page: found.page,
+});
+const DOC_FIELDS = [
+  'body', 'verified', 'verifiedBy', 'status', 'updatedAt', 'updatedBy', 'updatedByAgent', 'projectSlug',
+];
+
+// Every candidate with its full record (body and trust, when `fetch`) and its
+// citations checked in this checkout — not only the top one: the fill order's
+// second tier needs each hit's citations. Fail-soft per hit, like the top hit.
+export async function enrichCandidates(client, items, checkout, { fetch = true } = {}) {
+  const repoUrlOf = createRepoUrlLookup(client);
+  return Promise.all((Array.isArray(items) ? items : []).map(async (item) => {
+    const doc = fetch ? await client.getDocument(item.id).catch(() => null) : null;
+    const merged = mergeDefined({ ...item, projectId: item.projectId ?? doc?.projectId }, doc, DOC_FIELDS);
+    const { citations, citationCheck } = await checkCitations(client, merged, checkout, repoUrlOf);
+    return { ...merged, citations, citationCheck };
+  }));
+}
+
 // `checkout` ({ readFile, repoUrl, hasCommit } from repoFiles.createCheckout)
 // is where citations are checked; a bare `readFile` is accepted as a checkout
-// that vouches for its own identity.
+// that vouches for its own identity. `budget` (tokens) switches to the
+// fill-ordered, budgeted block; without it the result is exactly the classic
+// top-plus-related shape.
 export async function recall(client, {
-  query, project, limit = 5, recent = false, mode = 'hybrid', readFile, checkout: givenCheckout,
+  query, project, limit = 5, recent = false, mode = 'hybrid', readFile, checkout: givenCheckout, budget, now = new Date(),
 } = {}) {
   const checkout = givenCheckout ?? (typeof readFile === 'function' ? { readFile } : null);
   if (recent) {
@@ -302,62 +411,126 @@ export async function recall(client, {
     return { kind: 'recent', project: project || '', items: await withProjectSlugs(client, items) };
   }
 
-  let res;
-  try {
-    res = await collectSemantic(client, project || undefined, query, limit, mode);
-  } catch (err) {
-    if (err && err.status === 409) {
-      // The same envelope `prax search` gives this state: degraded, with the
-      // reason, and a page that says how many matches the bound held back.
-      const ranked = rankKeywordMatches(await client.keywordSearch(project || undefined, query, {}), query);
-      const kept = await withProjectSlugs(client, ranked.slice(0, limit));
-      const fallback = {
-        degraded: true,
-        reason: 'semantic-not-configured',
-        index: null,
-        page: { returned: kept.length, total: ranked.length, hasMore: ranked.length > kept.length },
-      };
-      if (kept.length === 0) return { kind: 'empty', query, note: 'keyword', ...fallback };
-      const { citations, citationCheck } = await checkTopCitations(client, kept[0], checkout);
-      return {
-        kind: 'hit', note: 'semantic search disabled — keyword results', ...fallback,
-        top: { ...kept[0], citations, citationCheck }, related: kept.slice(1),
-      };
-    }
-    throw err;
+  const found = await searchCandidates(client, { query, project, limit, mode });
+  const kept = found.items;
+  if (kept.length === 0) return { kind: 'empty', query, note: found.keyword ? 'keyword' : null, ...coverageOf(found) };
+  const note = found.keyword ? 'semantic search disabled — keyword results' : null;
+
+  if (budget !== undefined) {
+    const ordered = fillOrder(await enrichCandidates(client, kept, checkout, { fetch: !found.keyword }));
+    const result = { kind: 'hit', note, ...coverageOf(found), top: ordered[0], related: ordered.slice(1) };
+    const plan = planRecallBudget(result, budget, now);
+    return { ...result, budget: plan.summary };
   }
 
-  // Three shapes reach here: the paged object (with coverage), the client's
-  // normalisation of an old server's bare array (`legacy: true`, reason
-  // `coverage-unknown`), and — from an injected client — the bare array itself.
-  const legacy = Array.isArray(res) || Boolean(res?.legacy) || res?.reason === 'coverage-unknown';
-  const list = Array.isArray(res) ? res : (Array.isArray(res?.items) ? res.items : []);
-  const coverage = {
-    degraded: !legacy && Boolean(res?.degraded),
-    // An old server reports no coverage at all: that is "unknown", not
-    // "complete", and the output must not imply otherwise.
-    reason: legacy ? 'coverage-unknown' : (res?.reason || null),
-    index: legacy ? null : (res?.index || null),
-    // What remains beyond the requested bound after paging up to it.
-    page: legacy ? null : (res?.page || null),
-  };
-  if (list.length === 0) return { kind: 'empty', query, note: null, ...coverage };
-  const kept = await withProjectSlugs(client, list.slice(0, limit));
+  if (found.keyword) {
+    const { citations, citationCheck } = await checkTopCitations(client, kept[0], checkout);
+    return {
+      kind: 'hit', note, ...coverageOf(found), top: { ...kept[0], citations, citationCheck }, related: kept.slice(1),
+    };
+  }
   const topDoc = await client.getDocument(kept[0].id).catch(() => null);
   const { citations, citationCheck } = await checkTopCitations(client, { ...kept[0], projectId: kept[0].projectId ?? topDoc?.projectId }, checkout);
   return {
     kind: 'hit',
-    note: null,
-    ...coverage,
-    top: mergeDefined({ ...kept[0], citations, citationCheck }, topDoc, [
-      'body', 'verified', 'verifiedBy', 'status', 'updatedAt', 'updatedBy', 'updatedByAgent', 'projectSlug',
-    ]),
+    note,
+    ...coverageOf(found),
+    top: mergeDefined({ ...kept[0], citations, citationCheck }, topDoc, DOC_FIELDS),
     related: kept.slice(1),
   };
 }
 
+// The notes a hit's trust line carries about its citations.
+export function citationNotes(item) {
+  return [
+    ...(item?.citations || []).map((c) => c.note).filter(Boolean),
+    citationCheckNote(item?.citationCheck),
+  ].filter(Boolean);
+}
+
+// The full form of one memory entry, shared by budgeted recall, the delta and
+// brief: a heading line with the trust chip and the whole trust line, then an
+// excerpt (the first entry in fill order gets more room). Ends with a blank
+// line when joined.
+export function memoryEntryFull(item, index, now = new Date(), { heading = '##', extra = [] } = {}) {
+  const trust = [projectLabel(item), ...extra, trustLabel(item, now), ...citationNotes(item)].filter(Boolean).join(' · ');
+  const head = `${heading} ${trustChip(item)} ${oneLine(item.title) || 'Untitled'}  (${item.documentType || 'note'} · ${item.id}${trust ? ` · ${trust}` : ''})`;
+  const text = excerpt(item.body ?? item.snippet, index === 0 ? LEAD_EXCERPT_CHARS : EXCERPT_CHARS);
+  return text ? `${head}\n\n${text}\n` : `${head}\n`;
+}
+
+// Render entries (already in fill order) under a budget. `fixedLines` always
+// print (disclosures first), then the budget line, then the planned entries
+// and the omission line. A non-finite budget prints every entry in full and
+// no budget line. Returns the text plus the decisions, for --json.
+// `order(plan)` may lay the chosen blocks out differently (the context pack
+// groups them under section headings); by default they print in fill order.
+export function renderBudgeted({
+  fixedLines = [], entries, budget, footerLines = [], order = null,
+}) {
+  const total = entries.length;
+  const limited = Number.isFinite(budget);
+  const compose = (used, plan) => {
+    const shown = plan.forms.filter(Boolean).length;
+    const head = limited ? [...fixedLines, budgetLine({ tokens: budget, used, total, shown })] : [...fixedLines];
+    const body = [];
+    if (order) body.push(...order(plan));
+    else {
+      entries.forEach((entry, i) => {
+        if (plan.forms[i]) body.push(plan.forms[i] === 'full' ? entry.full : entry.compact);
+      });
+    }
+    const tail = [omissionLine(plan.omitted), ...footerLines].filter(Boolean);
+    return [...head, ...(head.length ? [''] : []), ...body, ...tail].join('\n').replace(/\n+$/, '');
+  };
+  // The fixed cost counts the budget line at its widest (used = budget).
+  const fixed = [
+    ...fixedLines, ...(limited ? [budgetLine({ tokens: budget, used: budget, total, shown: total })] : []), '', ...footerLines,
+  ].join('\n');
+  const plan = planBudget(entries, { budget, fixed });
+  // `used` is measured on the printed text itself (two passes: the number is
+  // part of the text it measures).
+  const used = estimateTokens(compose(estimateTokens(compose(plan.used, plan)), plan));
+  return { text: compose(used, plan), used, plan };
+}
+
+export function budgetSummary(items, budget, used, plan) {
+  return {
+    tokens: budget,
+    used,
+    estimate: TOKEN_ESTIMATE,
+    fill: FILL_TIERS,
+    entries: items.map((item, i) => ({ id: item.id, tier: item.tier, form: plan.forms[i] || 'omitted' })),
+    omitted: plan.omitted,
+  };
+}
+
+// The disclosure lines a recall result must always print.
+export function disclosureLines(result) {
+  const lines = [];
+  if (result.note) lines.push(`(${result.note})`);
+  const coverage = coverageNote(result);
+  if (coverage) lines.push(`(${coverage} — results may be missing)`);
+  const bound = boundNote(result);
+  if (bound) lines.push(`(${bound})`);
+  return lines;
+}
+
+// Plan and render a budgeted recall result. Deterministic for a given `now`.
+export function planRecallBudget(result, budget, now = new Date()) {
+  const items = [result.top, ...(result.related || [])].filter(Boolean);
+  const entries = items.map((item, i) => ({
+    full: memoryEntryFull(item, i, now),
+    compact: compactLine(item),
+    unverified: !item.verified,
+  }));
+  const { text, used, plan } = renderBudgeted({ fixedLines: disclosureLines(result), entries, budget });
+  return { text, summary: budgetSummary(items, budget, used, plan) };
+}
+
 export function formatRecall(result, now = new Date()) {
   if (!result) return '';
+  if (result.kind === 'hit' && result.budget) return planRecallBudget(result, result.budget.tokens, now).text;
   if (result.kind === 'empty') {
     const notes = [];
     if (result.note === 'keyword') notes.push('keyword; semantic search is disabled');

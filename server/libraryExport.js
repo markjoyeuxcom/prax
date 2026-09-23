@@ -63,6 +63,39 @@ export function dedupeFilenames(entries) {
   }
 }
 
+// Where each exported document lands. `flat` is the ZIP layout (a folder per
+// project only for an all-projects export). `mirror` is the layout of
+// `prax mirror`: active documents at the folder root, superseded and
+// deprecated ones under `retired/`, and the mirror's own README.md reserved so
+// a document can never overwrite it (it takes the usual collision suffix).
+// Entries keep the documents' order, which decides who keeps a bare name.
+export const EXPORT_LAYOUTS = ['flat', 'mirror']
+export const MIRROR_RETIRED_FOLDER = 'retired/'
+export const MIRROR_RESERVED_NAMES = ['README.md']
+
+export function isRetiredStatus(status) {
+  return status === 'superseded' || status === 'deprecated'
+}
+
+export function buildExportEntries(documents, { isAll = false, layout = 'flat' } = {}) {
+  const mirror = layout === 'mirror'
+  const projectPath = (doc) => (isAll ? `${doc.projectSlug || 'unknown'}/` : '')
+  const entries = documents.map((doc) => ({
+    doc,
+    path: `${projectPath(doc)}${mirror && isRetiredStatus(doc.status) ? MIRROR_RETIRED_FOLDER : ''}`,
+    filename: documentFilename(doc),
+  }))
+  if (!mirror) {
+    dedupeFilenames(entries)
+    return entries
+  }
+  const roots = isAll ? [...new Set(documents.map(projectPath))] : ['']
+  const reserved = roots.flatMap((path) => MIRROR_RESERVED_NAMES.map((filename) => ({ reserved: true, path, filename })))
+  const all = [...reserved, ...entries]
+  dedupeFilenames(all)
+  return all.filter((entry) => !entry.reserved)
+}
+
 export function buildLinksFromGroups(groups, { scope, currentDocProjectSlug }) {
   const mapEntries = (entries) => (entries || []).map((e) => ({
     id: e.targetId,

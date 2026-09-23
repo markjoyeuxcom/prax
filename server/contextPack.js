@@ -40,6 +40,9 @@ function toItem(doc, { full = false } = {}) {
     updatedBy: doc.updatedBy || null,
     kind: doc.kind || 'source',
     stale: Boolean(doc.stale),
+    // When the current revision was written: a budgeted pack (prax context
+    // --budget) fills its last tier newest first.
+    updatedAt: doc.updatedAt || null,
     // Overview cards keep their (capped) formatted body; everything else gets a
     // tight single-line snippet.
     text: full ? (body.length > OVERVIEW_LEN ? `${body.slice(0, OVERVIEW_LEN)}…` : body) : snippet(body),

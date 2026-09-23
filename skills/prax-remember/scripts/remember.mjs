@@ -242,6 +242,11 @@ function createTransport({
 
 // cli/lib/apiClient.js
 var SEMANTIC_PAGE_MAX = 50;
+var CODE_REF_PATHS_PER_REQUEST = 50;
+var QUERY_SOURCES = Object.freeze(["recall", "search", "context"]);
+function querySourceHeaders(source) {
+  return QUERY_SOURCES.includes(source) ? { "x-prax-query-source": source, "x-prax-origin": "agent" } : void 0;
+}
 var parseResponse = (res) => (res.headers.get("content-type") || "").includes("application/json") ? res.json() : res.text();
 function createClient({
   baseUrl,
@@ -267,11 +272,13 @@ function createClient({
     body,
     agent: agentWrite = false,
     accept,
-    retryUnavailable = false
+    retryUnavailable = false,
+    headers
   } = {}) => transport.request(method, path, {
     body,
     agentWrite,
     accept,
+    headers,
     retry: retryUnavailable,
     parse: parseResponse
   });
@@ -281,7 +288,7 @@ function createClient({
     },
     candidates: transport.candidates,
     agent: transport.agent,
-    contextPack(project, { query, format = "md", limit } = {}) {
+    contextPack(project, { query, format = "md", limit, source } = {}) {
       const params = new URLSearchParams();
       if (query) params.set("query", query);
       if (format === "json") params.set("format", "json");
@@ -290,27 +297,35 @@ function createClient({
       return request(
         "GET",
         `/api/projects/${encodeURIComponent(project)}/context-pack${qs ? `?${qs}` : ""}`,
-        { accept: format === "json" ? "application/json" : "text/markdown" }
+        { accept: format === "json" ? "application/json" : "text/markdown", headers: querySourceHeaders(source) }
       );
     },
-    keywordSearch(project, q, { all = false } = {}) {
+    keywordSearch(project, q, { all = false, source } = {}) {
       const params = new URLSearchParams({ q });
       if (project) params.set("project", project);
       if (!all) params.set("status", "active");
-      return request("GET", `/api/library/documents?${params.toString()}`);
+      return request("GET", `/api/library/documents?${params.toString()}`, { headers: querySourceHeaders(source) });
     },
     // Paged mode so the response carries index coverage (`index`, `degraded`,
     // `reason: 'index-incomplete'`): the legacy array cannot say that pending
     // vectors were skipped, and a miss on an incomplete index is not an honest
     // miss. Older servers ignore `page` and return the array; normalise both.
-    async semanticSearch(project, q, { all = false, limit = SEMANTIC_PAGE_MAX, offset = 0, mode } = {}) {
+    async semanticSearch(project, q, {
+      all = false,
+      limit = SEMANTIC_PAGE_MAX,
+      offset = 0,
+      mode,
+      source
+    } = {}) {
       const params = new URLSearchParams({ q, page: "true" });
       if (mode) params.set("mode", String(mode));
       if (project) params.set("project", project);
       if (all) params.set("all", "true");
       params.set("limit", String(Math.min(Math.max(Number(limit) || SEMANTIC_PAGE_MAX, 1), SEMANTIC_PAGE_MAX)));
       if (Number(offset) > 0) params.set("offset", String(Math.trunc(Number(offset))));
-      const res = await request("GET", `/api/library/documents/semantic-search?${params.toString()}`);
+      const res = await request("GET", `/api/library/documents/semantic-search?${params.toString()}`, {
+        headers: querySourceHeaders(source)
+      });
       if (Array.isArray(res)) return { items: res, page: null, index: null, degraded: false, reason: "coverage-unknown", legacy: true };
       return {
         items: Array.isArray(res?.items) ? res.items : [],
@@ -396,6 +411,29 @@ function createClient({
         retryUnavailable: "connect-only"
       });
     },
+    // Citations on any of `paths` from live active documents (prax check),
+    // batched CODE_REF_PATHS_PER_REQUEST at a time.
+    async listCodeRefsByPath(paths, { project } = {}) {
+      const unique = [...new Set(paths)];
+      const items = [];
+      for (let at = 0; at < unique.length; at += CODE_REF_PATHS_PER_REQUEST) {
+        const params = new URLSearchParams();
+        for (const path of unique.slice(at, at + CODE_REF_PATHS_PER_REQUEST)) params.append("path", path);
+        if (project) params.set("project", project);
+        const res = await request("GET", `/api/library/code-refs?${params.toString()}`);
+        items.push(...Array.isArray(res?.items) ? res.items : []);
+      }
+      return items;
+    },
+    // Lazy anchor backfill for a pre-0039 citation. Compare-and-set on the
+    // server, so a retry that proves nothing reached it is safe.
+    backfillCodeRefAnchors(documentId, refId, anchors) {
+      return request("POST", `/api/library/documents/${encodeURIComponent(documentId)}/code-refs/${encodeURIComponent(refId)}/anchors`, {
+        body: anchors,
+        agent: true,
+        retryUnavailable: "connect-only"
+      });
+    },
     addExternalRef(documentId, { url, label } = {}) {
       return request("POST", `/api/library/documents/${encodeURIComponent(documentId)}/external-refs`, {
         body: { url, label },
@@ -472,6 +510,59 @@ function createClient({
         agent: true,
         retryUnavailable: "connect-only"
       });
+    },
+    // The Library export as rendered Markdown v3 in JSON (`prax mirror`).
+    exportLibrary(project, { format = "json", layout = "mirror" } = {}) {
+      const params = new URLSearchParams({ project, format, layout });
+      return request("GET", `/api/library/export?${params.toString()}`, { accept: "application/json" });
+    },
+    listTaskDocuments(taskId) {
+      return request("GET", `/api/tasks/${encodeURIComponent(taskId)}/documents`);
+    },
+    // Advisory: always 200, `{ suggestions, degraded?, reason? }`.
+    relatedTaskDocuments(taskId) {
+      return request("GET", `/api/tasks/${encodeURIComponent(taskId)}/related-documents`);
+    },
+    // ---- the since-last-session delta ------------------------------------
+    // Sent as an agent request so the server knows WHOSE marker to read; a
+    // read, so it is never retried after it may have reached the server.
+    memoryChanges({ since, sinceLastSession = false, project, limit } = {}) {
+      const params = new URLSearchParams();
+      if (sinceLastSession) params.set("sinceLastSession", "true");
+      else if (since) params.set("since", since);
+      if (project) params.set("project", project);
+      if (limit) params.set("limit", String(limit));
+      return request("GET", `/api/library/changes?${params.toString()}`, { agent: true });
+    },
+    // A monotonic setter (the server keeps max(stored, at)), so it is retried
+    // when no request provably reached the server.
+    advanceRecallMarker({ project, at } = {}) {
+      return request("PUT", "/api/library/recall-marker", {
+        body: { at, ...project ? { project } : {} },
+        agent: true,
+        retryUnavailable: "connect-only"
+      });
+    },
+    // ---- librarian (prax used / doctor / telemetry) -------------------------
+    // A used signal is a setter of "this happened": re-sending it after a
+    // lost response would count the use twice, so retry only when no request
+    // reached the server.
+    markUsed(documentId) {
+      return request("POST", "/api/library/telemetry/used", {
+        body: { documentId, source: "cli" },
+        agent: true,
+        retryUnavailable: "connect-only"
+      });
+    },
+    telemetryStatus() {
+      return request("GET", "/api/library/telemetry");
+    },
+    clearTelemetry() {
+      return request("DELETE", "/api/library/telemetry", { retryUnavailable: "connect-only" });
+    },
+    librarianReport(project) {
+      const qs = project ? `?${new URLSearchParams({ project }).toString()}` : "";
+      return request("GET", `/api/library/librarian/report${qs}`);
     },
     listDocuments(project, { status } = {}) {
       const params = new URLSearchParams();
@@ -858,9 +949,172 @@ function createRepoReader(root = repoRoot()) {
     }
   };
 }
+var GIT_MAX_BUFFER = 512 * 1024 * 1024;
 
 // cli/lib/codeRefs.js
 import { createHash } from "node:crypto";
+
+// cli/lib/symbols.js
+var JS_IDENT = "[A-Za-z_$][\\w$]*";
+var JS_KEYWORDS = /* @__PURE__ */ new Set([
+  "if",
+  "for",
+  "while",
+  "switch",
+  "catch",
+  "with",
+  "function",
+  "return",
+  "else",
+  "do",
+  "try",
+  "typeof",
+  "await",
+  "new",
+  "delete",
+  "void",
+  "yield",
+  "super",
+  "import",
+  "export"
+]);
+var PATTERNS = {
+  js: [
+    new RegExp(`^\\s*(?:export\\s+)?(?:default\\s+)?(?:declare\\s+)?(?:async\\s+)?function\\s*\\*?\\s*(?<name>${JS_IDENT})`),
+    new RegExp(`^\\s*(?:export\\s+)?(?:default\\s+)?(?:declare\\s+)?(?:abstract\\s+)?class\\s+(?<name>${JS_IDENT})`),
+    new RegExp(`^\\s*(?:export\\s+)?(?:declare\\s+)?(?:const\\s+)?(?:interface|enum|namespace)\\s+(?<name>${JS_IDENT})`),
+    new RegExp(`^\\s*(?:export\\s+)?(?:declare\\s+)?type\\s+(?<name>${JS_IDENT})\\s*(?:<[^=]*>)?\\s*=`),
+    // const f = function… | const f = x => … | const f = (a) => … | const f = async ( (params wrapped)
+    new RegExp(`^\\s*(?:export\\s+)?(?:const|let|var)\\s+(?<name>${JS_IDENT})\\s*(?::[^=]+)?=\\s*(?:async\\s*)?(?:function\\b|${JS_IDENT}\\s*=>|\\([^)]*\\)\\s*(?::[^=]+)?=>|\\([^)]*$)`),
+    // A method or object-literal method whose body opens on this line.
+    new RegExp(`^\\s*(?:(?:public|private|protected|static|readonly|override|abstract|async|get|set)\\s+)*\\*?\\s*(?<name>#?${JS_IDENT})\\s*(?:<[^>]*>)?\\s*\\([^;]*\\)\\s*(?::\\s*[^{;]+)?\\{\\s*$`)
+  ],
+  python: [
+    /^\s*(?:async\s+)?def\s+(?<name>\w+)/,
+    /^\s*class\s+(?<name>\w+)/
+  ],
+  rust: [
+    /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:default\s+)?(?:const\s+)?(?:async\s+)?(?:unsafe\s+)?(?:extern\s+"[^"]*"\s+)?fn\s+(?<name>\w+)/,
+    /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:struct|enum|trait|union|mod|type)\s+(?<name>\w+)/,
+    /^\s*(?:unsafe\s+)?impl(?:\s*<[^>]*>)?\s+(?:[\w:<>, ]+?\s+for\s+)?(?<name>\w+)/
+  ],
+  go: [
+    /^func\s+\(\s*\w*\s*\*?\s*(?<recv>\w+)[^)]*\)\s*(?<name>\w+)/,
+    /^func\s+(?<name>\w+)/,
+    /^type\s+(?<name>\w+)/
+  ],
+  swift: [
+    /^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:public|private|fileprivate|internal|open|static|class|final|override|mutating|nonmutating|convenience|required|indirect|lazy|dynamic|nonisolated|distributed)(?:\([^)]*\))?\s+)*func\s+(?<name>[^\s(<]+)/,
+    /^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:public|private|fileprivate|internal|open|override|convenience|required|nonisolated)\s+)*(?<name>init|deinit)\b/,
+    /^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:public|private|fileprivate|internal|open|final|indirect)\s+)*(?:class|struct|enum|protocol|extension|actor)\s+(?<name>[\w.]+)/
+  ],
+  shell: [
+    /^\s*function\s+(?<name>[A-Za-z_][\w.:-]*)/,
+    /^\s*(?<name>[A-Za-z_][\w.:-]*)\s*\(\s*\)/
+  ]
+};
+var EXTENSIONS = {
+  js: "js",
+  mjs: "js",
+  cjs: "js",
+  jsx: "js",
+  ts: "js",
+  tsx: "js",
+  mts: "js",
+  cts: "js",
+  py: "python",
+  pyi: "python",
+  rs: "rust",
+  go: "go",
+  swift: "swift",
+  sh: "shell",
+  bash: "shell",
+  zsh: "shell",
+  ksh: "shell"
+};
+function symbolLanguage(path, firstLine = "") {
+  const base = String(path || "").split("/").pop();
+  const dot = base.lastIndexOf(".");
+  if (dot > 0) return EXTENSIONS[base.slice(dot + 1).toLowerCase()] ?? null;
+  const shebang = /^#!\s*\S+(?:\s+(\S+))?/.exec(String(firstLine));
+  if (!shebang) return null;
+  const interpreter = (shebang[0].includes("/env") && shebang[1] ? shebang[1] : shebang[0]).split("/").pop();
+  if (/^(?:node|deno|bun)\b/.test(interpreter)) return "js";
+  if (/^python/.test(interpreter)) return "python";
+  if (/^(?:ba|z|k|da)?sh\b/.test(interpreter)) return "shell";
+  return null;
+}
+function indentOf(line) {
+  let width = 0;
+  for (const ch of line) {
+    if (ch === " ") width += 1;
+    else if (ch === "	") width += 4;
+    else break;
+  }
+  return width;
+}
+var isBlank = (line) => !/\S/.test(line);
+var isClosingLine = (line) => /^\s*[)\]}]/.test(line);
+function definitionName(line, language) {
+  const patterns = PATTERNS[language];
+  if (!patterns) return null;
+  for (const pattern of patterns) {
+    const match = pattern.exec(line);
+    if (!match) continue;
+    const { name, recv } = match.groups;
+    if (!name || language === "js" && JS_KEYWORDS.has(name)) continue;
+    return recv ? `${recv}.${name}` : name;
+  }
+  return null;
+}
+function linesOf(text) {
+  return Array.isArray(text) ? text : String(text ?? "").replace(/\r\n/g, "\n").split("\n");
+}
+function enclosingSymbol(text, line, path) {
+  const lines = linesOf(text);
+  const language = symbolLanguage(path, lines[0]);
+  if (!language || !Number.isInteger(line) || line < 1 || line > lines.length) return null;
+  if (isBlank(lines[line - 1])) return null;
+  let limit = Infinity;
+  for (let i = line - 1; i >= 0; i -= 1) {
+    const raw = lines[i];
+    if (isBlank(raw)) continue;
+    const indent = indentOf(raw);
+    if (i === line - 1) {
+      const own = definitionName(raw, language);
+      if (own) return own;
+      limit = indent;
+      continue;
+    }
+    if (indent >= limit || isClosingLine(raw)) continue;
+    const name = definitionName(raw, language);
+    if (name) return name;
+    limit = indent;
+  }
+  return null;
+}
+function citationSymbol(text, startLine, endLine, path) {
+  if (!startLine) return null;
+  const lines = linesOf(text);
+  const last = Math.min(endLine ?? startLine, lines.length);
+  let first = startLine;
+  while (first <= last && isBlank(lines[first - 1])) first += 1;
+  if (first > last) return null;
+  const enclosing = enclosingSymbol(lines, first, path);
+  if (enclosing) return enclosing;
+  const language = symbolLanguage(path, lines[0]);
+  if (!language) return null;
+  let outer = Infinity;
+  for (let i = first - 1; i < last; i += 1) if (!isBlank(lines[i])) outer = Math.min(outer, indentOf(lines[i]));
+  for (let i = first - 1; i < last; i += 1) {
+    if (isBlank(lines[i]) || indentOf(lines[i]) > outer) continue;
+    const name = definitionName(lines[i], language);
+    if (name) return name;
+  }
+  return null;
+}
+
+// cli/lib/codeRefs.js
 var CITATION_RE = /^(?<path>.+?)(?::(?<start>\d+)(?:-(?<end>\d+))?)?$/;
 var CitationError = class extends Error {
 };
@@ -893,6 +1147,20 @@ function sliceLines(text, startLine, endLine) {
 function hashCitation(text) {
   return createHash("sha256").update(toLines(text).join("\n"), "utf8").digest("hex");
 }
+var stripWhitespace = (text) => String(text).replace(/\s+/g, "");
+function hashNormalized(text) {
+  return createHash("sha256").update(stripWhitespace(text), "utf8").digest("hex");
+}
+var EMPTY_NORMALIZED_HASH = hashNormalized("");
+function computeAnchors(text, startLine, endLine, path) {
+  const cited = sliceLines(text, startLine, endLine);
+  if (cited === null) return null;
+  return {
+    contentHash: hashCitation(cited),
+    normalizedHash: hashNormalized(cited),
+    symbol: startLine ? citationSymbol(text, startLine, endLine, path) : null
+  };
+}
 function resolveCitation(spec, { readFile, headSha: headSha2 = null } = {}) {
   const { path, startLine, endLine } = parseCitation(spec);
   const text = readFile(path);
@@ -904,7 +1172,8 @@ function resolveCitation(spec, { readFile, headSha: headSha2 = null } = {}) {
     const total = toLines(text).length;
     throw new CitationError(`cannot cite ${path} lines ${startLine}-${endLine}: the file has only ${total}`);
   }
-  return { path, startLine, endLine, contentHash: hashCitation(cited), commitSha: headSha2 };
+  const { contentHash, normalizedHash, symbol } = computeAnchors(text, startLine, endLine, path);
+  return { path, startLine, endLine, contentHash, normalizedHash, symbol, commitSha: headSha2 };
 }
 
 // skills/src/remember.mjs

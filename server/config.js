@@ -119,6 +119,9 @@ export function loadConfig(env = process.env) {
     // desktop wrapper points this at the OS app-data directory.
     databaseFile: env.PRAX_DB_FILE || env.DATABASE_URL || 'prax.db',
     publicDir: env.PUBLIC_DIR || fileURLToPath(new URL('../public', import.meta.url)),
+    // Local-only recall telemetry (server/recallTelemetry.js). On unless the
+    // operator turns it off; clearing it is `prax telemetry clear`.
+    recallTelemetry: String(env.PRAX_RECALL_TELEMETRY || '').trim().toLowerCase() !== 'off',
     embeddingBackend: env.EMBEDDING_BACKEND || 'none',
     embeddingModel: env.EMBEDDING_MODEL || '',
     ollamaUrl: env.OLLAMA_URL || 'http://127.0.0.1:11434',

@@ -12,6 +12,51 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Added
+
+- **`prax triage`** walks the review queue in a terminal, in the Library review walk's order:
+  verify (`v`), edit in `$EDITOR` (`e`), supersede (`s`), archive (`r`), skip (`n`). Each
+  document shows its trust, citations with drift, similar memories and a body excerpt; a
+  truncated body must be read in full before `v` accepts it. All writes use the existing
+  receipted routes.
+- **Agents cannot verify memory.** `prax triage` and `prax verify` refuse to run under an agent
+  CLI (PRAX_AGENT, `--agent` or a known vendor environment) or without a terminal, before any
+  request, with no bypass flag.
+- **`prax overview`** prints the project card in one call: a verified `project-card` first, then
+  any `project-card`, then the "<Project> project overview" title, always stating its trust.
+- **`prax brief <task-id>`** assembles one task's briefing: header, numbered checklist, latest
+  handoff paragraph, linked and related documents with trust, and the top three related memories
+  with citation drift and index coverage.
+- **Budgeted context.** `prax context --budget <tokens>` and `prax recall --budget <tokens>` fill
+  verified memory first, then memory whose citations still match this checkout, then the most
+  recent, compacting to one labelled line per entry (a chars/4 estimate) and counting what was
+  left out. Without `--budget`, output is unchanged.
+- **Since-last-session delta.** `prax recall --since-last-session` (or `--since <iso>`) lists the
+  memory created, updated, verified, superseded, deprecated or archived since this agent last read
+  the delta. Markers are stored per agent (migration 0041) and only move after a complete read.
+- **Session harvesting.** An agent proposes a memory with a `Remember:` line or a
+  `prax-remember` block; a Stop hook (Claude Code, Codex, Copilot CLI; `install.sh --hooks`) files
+  each proposal once as an unverified Inbox candidate with similar memories listed. Extraction
+  reads only the agent's own messages, uses no model, and the hook never blocks an agent's exit.
+  `prax harvest --transcript <file>` covers CLIs without hooks.
+- **`prax check`**, a citation-drift gate for CI: memories whose cited lines a change touches are
+  reported as drift (exit 1), stale or holding; `--comment` writes a merge-request comment. It
+  skips with a warning when Prax is unreachable (`--strict` fails instead). Citations gain
+  whitespace-insensitive and enclosing-symbol anchors (migration 0039) so moved or reformatted
+  code is still found.
+- **Library git mirror.** `prax mirror` writes a project's Library into `.prax/library/` as
+  deterministic Markdown v3; `prax mirror import` treats git-sourced verification as a claim
+  (trusted verifier, unchanged content and an attended `VERIFY` confirmation); `prax mirror
+  --agents-block` and `install.sh --library-block` compile verified decisions and `convention`
+  documents into a bounded, separately marked block in agent instruction files.
+- **Librarian.** Recall, search and context requests from the CLI, skills, MCP and assistant are
+  recorded locally (migration 0040; 90 days, capped; never in portable exports; `prax telemetry
+  clear`, `PRAX_RECALL_TELEMETRY=off`); person-driven Library searches are not. `prax used <id>`
+  marks a memory as used. A librarian pass clusters near-duplicate memories into unverified
+  proposal documents (never superseding anything until a person approves), lists knowledge gaps,
+  sorts the review queue by recall frequency on request, and `prax doctor` summarises Library
+  health for CI.
+
 ### Changed
 
 - **Internal structure (no visible behaviour change).** The web app's 7,600-line `main.js` is now

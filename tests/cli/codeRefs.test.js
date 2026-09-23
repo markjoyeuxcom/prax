@@ -95,7 +95,7 @@ test('an empty file does not match a non-empty citation', () => {
 
 // --- resolving a citation at capture time -----------------------------------------
 
-import { resolveCitation, describeCitationStatus } from '../../cli/lib/codeRefs.js';
+import { resolveCitation, describeCitationStatus, hashNormalized } from '../../cli/lib/codeRefs.js';
 
 const reader = (files) => (path) => (path in files ? files[path] : null);
 
@@ -104,6 +104,9 @@ test('resolveCitation pins the cited content and records where it was taken', ()
   assert.deepEqual(pin, {
     path: 'f.js', startLine: 2, endLine: 3,
     contentHash: hashCitation('bravo\ncharlie'), commitSha: 'deadbeef',
+    // The hybrid anchors (migration 0039): whitespace-free content, and the
+    // enclosing symbol (none here: these lines define nothing).
+    normalizedHash: hashNormalized('bravo\ncharlie'), symbol: null,
   });
 });
 

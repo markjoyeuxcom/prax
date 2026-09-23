@@ -392,15 +392,11 @@ exec "${realGit}" "$@"
 
 function fakeAppBundle(base) {
   const app = join(base, 'Prax.app', 'Contents', 'Resources', 'resources', 'app');
-  for (const dir of ['skills', 'cli', 'mcp']) cpSync(join(root, dir), join(app, dir), { recursive: true });
-  // What cli/prax.js imports from outside cli/.
-  mkdirSync(join(app, 'public', 'js'), { recursive: true });
-  cpSync(join(root, 'public', 'js', 'documentTypes.js'), join(app, 'public', 'js', 'documentTypes.js'));
-  mkdirSync(join(app, 'server'), { recursive: true });
-  cpSync(join(root, 'server', 'repoUrl.js'), join(app, 'server', 'repoUrl.js'));
-  cpSync(join(root, 'server', 'instanceDiscovery.js'), join(app, 'server', 'instanceDiscovery.js'));
-  cpSync(join(root, 'server', 'localDay.js'), join(app, 'server', 'localDay.js'));
-  cpSync(join(root, 'server', 'praxTransport.js'), join(app, 'server', 'praxTransport.js'));
+  // The desktop payload ships these folders whole (scripts/prepare-sidecar.mjs),
+  // so the fake does too: a hand-picked file list broke every time the CLI
+  // gained an import from server/ or public/js.
+  for (const dir of ['skills', 'cli', 'mcp', 'server']) cpSync(join(root, dir), join(app, dir), { recursive: true });
+  cpSync(join(root, 'public', 'js'), join(app, 'public', 'js'), { recursive: true });
   writeFileSync(join(app, 'package.json'), JSON.stringify({ name: 'prax', version: '9.9.9', type: 'module' }));
   // The bundled runtime: the sidecar convention is a renamed Node binary.
   const macos = join(base, 'Prax.app', 'Contents', 'MacOS');

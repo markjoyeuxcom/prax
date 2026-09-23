@@ -406,7 +406,7 @@ export function buildListActiveDocumentsForExport({ projectId, includeArchived =
       from markdown_documents d
       join projects p on p.id = d.project_id
       ${where}
-      order by p.slug, d.title
+      order by p.slug, d.title, d.created_at, d.id
     `,
     values,
   };

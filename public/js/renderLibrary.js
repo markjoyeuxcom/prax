@@ -12,6 +12,7 @@ import {
   groupDocumentsByType,
   tagsForDocuments,
   docTypeKey as sharedDocTypeKey,
+  isReviewQueueDoc,
 } from './libraryFilters.js';
 import { DOCUMENT_TYPES, documentTypeLabel } from './documentTypes.js';
 import { normalizeLayout } from './libraryLayout.js';
@@ -93,14 +94,9 @@ function matchesQuery(doc, query) {
     .includes(query);
 }
 
-// The review queue (year-one shell spec, item 7): agent-written documents
-// nobody has verified yet. Recall labels unverified memory as unverified;
-// reviewing this queue adds a human trust signal. Superseded
-// and archived documents are out — they have been dealt with.
-export function isReviewQueueDoc(doc) {
-  return Boolean(doc) && TRUST_PREDICATES.agent(doc) && doc.verified !== true
-    && doc.status !== 'superseded' && !doc.archivedAt;
-}
+// The review queue predicate lives in libraryFilters.js, where `prax triage`
+// shares it; re-exported so the UI keeps importing it from here.
+export { isReviewQueueDoc };
 
 export function reviewQueue(documents) {
   return (Array.isArray(documents) ? documents : []).filter(isReviewQueueDoc);
@@ -175,7 +171,7 @@ export function buildLibraryModel(state, { limit = LIBRARY_RENDER_BATCH_SIZE } =
     if (projectIds.length) filtered = filtered.filter(doc => projectIds.includes(doc.projectId));
   }
   if (query && !semantic) filtered = filtered.filter((doc) => matchesQuery(doc, query));
-  filtered = sortDocuments(filtered, state.librarySortBy);
+  filtered = sortDocuments(filtered, state.librarySortBy, { recallCounts: state.recallCounts?.counts ?? null });
 
   const anyFilter = Boolean(query) || activeTags.length > 0
     || (facetsShown && (types.length > 0 || trust.length > 0 || projectIds.length > 0));
@@ -349,12 +345,27 @@ function renderSearchBar(state, semanticVisible) {
     </label>`;
 }
 
+// 'recalled' (most recalled first) is opt-in and offered in the review queue.
+export function librarySortLabel(sortBy) {
+  if (sortBy === 'title') return 'Title';
+  if (sortBy === 'recalled') return 'Most recalled';
+  return 'Updated';
+}
+
+// The sort cycler: Updated ↔ Title everywhere; the review queue adds Most
+// recalled, so the walk follows what agents lean on when asked to.
+export function nextLibrarySort(sortBy, { review = false } = {}) {
+  if (sortBy === 'updated' || !sortBy) return 'title';
+  if (sortBy === 'title' && review) return 'recalled';
+  return 'updated';
+}
+
 function renderToolbar(state, model, filtersHtml) {
   const isSemantic = Boolean(state.librarySemantic);
   const groupButton = model.archive || isSemantic
     ? ''
     : `<button class="btn-ghost" type="button" data-action="cycle-lib-group">Group: ${state.libraryGroupBy === 'none' ? 'None' : 'Type'}</button>`;
-  const controls = `<button class="btn-ghost" type="button" data-action="cycle-lib-sort">Sort: ${state.librarySortBy === 'title' ? 'Title' : 'Updated'}</button>${groupButton}${renderLayoutToggle(state, model)}`;
+  const controls = `<button class="btn-ghost" type="button" data-action="cycle-lib-sort">Sort: ${librarySortLabel(state.librarySortBy)}</button>${groupButton}${renderLayoutToggle(state, model)}`;
   return `
     <div class="lib-toolbar">
       <div class="lib-toolbar__filters">${filtersHtml}</div>

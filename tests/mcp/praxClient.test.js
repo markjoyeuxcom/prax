@@ -295,3 +295,25 @@ test('unreceipted setters retry a proven connection refusal but never an ambiguo
     }
   }
 });
+
+// Librarian spec 2026-09-23: MCP retrievals name their source so the server's
+// local recall telemetry can record them; other reads do not.
+test('retrieval reads carry x-prax-query-source (mcp by default, configurable); other reads do not', async () => {
+  const fetch = recordingFetch(jsonResponse(200, { items: [] }));
+  const client = createPraxClient({ baseUrl: BASE, fetch, agent: 'claude' });
+  await client.searchDocumentsSemantic('backup');
+  await client.listDocuments({ q: 'backup' });
+  await client.listDocuments({ project: 'homelab' });
+  const headers = fetch.calls.map((c) => c.options.headers || {});
+  assert.equal(headers[0]['x-prax-query-source'], 'mcp');
+  assert.equal(headers[0]['x-prax-agent'], 'claude');
+  assert.equal(headers[1]['x-prax-query-source'], 'mcp');
+  assert.equal(headers[2]['x-prax-query-source'], undefined, 'a listing without a query is not a retrieval');
+
+  const assistantFetch = recordingFetch(jsonResponse(200, { items: [] }));
+  await createPraxClient({ baseUrl: BASE, fetch: assistantFetch, querySource: 'assistant' }).searchDocumentsSemantic('x');
+  assert.equal(assistantFetch.calls[0].options.headers['x-prax-query-source'], 'assistant');
+  const silentFetch = recordingFetch(jsonResponse(200, { items: [] }));
+  await createPraxClient({ baseUrl: BASE, fetch: silentFetch, querySource: null }).searchDocumentsSemantic('x');
+  assert.equal(silentFetch.calls[0].options.headers['x-prax-query-source'], undefined);
+});

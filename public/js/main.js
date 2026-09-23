@@ -43,6 +43,7 @@ import {
 import {
   fetchDocuments, fetchDocument, createDocument, updateDocument, fetchDocumentLinks,
   fetchDocumentTaskBacklinks, fetchSimilarDocuments, fetchExternalRefs, semanticSearch, fetchRuns,
+  fetchRecallCounts,
 } from './libraryApi.js';
 import { normalizeTask } from './taskModel.js';
 import { apiStatus, designStatus, isOpen } from './statusMap.js';
@@ -103,7 +104,7 @@ import { renderTaskDrawerHtml, renderMissingTaskDrawerHtml } from './renderTaskD
 import { renderLinkPickerHtml } from './renderLinkPicker.js';
 import {
   LIBRARY_RENDER_BATCH_SIZE, renderLibraryHtml, buildLibraryModel, reviewQueue,
-  SEMANTIC_UNAVAILABLE_HINT,
+  SEMANTIC_UNAVAILABLE_HINT, nextLibrarySort,
 } from './renderLibrary.js';
 import { templateById } from './documentTemplates.js';
 import { renderEditorHtml, buildOutline, buildBacklinks } from './renderEditor.js';
@@ -3154,7 +3155,18 @@ async function handleAction(action, el, event) {
       libraryCollectionWindow.limit += LIBRARY_RENDER_BATCH_SIZE;
       renderApp();
       break;
-    case 'cycle-lib-sort': setState({ librarySortBy: state.librarySortBy === 'updated' ? 'title' : 'updated' }); renderApp(); break;
+    case 'cycle-lib-sort': {
+      const next = nextLibrarySort(state.librarySortBy, { review: state.libraryView === 'review' });
+      setState({ librarySortBy: next });
+      renderApp();
+      // Most recalled needs the counts; refresh them each time it is chosen.
+      if (next === 'recalled') {
+        fetchRecallCounts()
+          .then((recallCounts) => { setState({ recallCounts }); if (state.librarySortBy === 'recalled') renderApp(); })
+          .catch(() => { showToast('Recall counts are unavailable; the queue keeps its order.'); });
+      }
+      break;
+    }
     case 'toggle-lib-tag': {
       const tag = el.dataset.tag;
       const active = state.activeLibraryTags.includes(tag);

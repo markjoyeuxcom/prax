@@ -108,7 +108,8 @@ export const state = {
   libraryTrust: [],             // facet: active trust flags ('verified'/'stale'/'superseded')
   libraryProjects: [],          // facet: owning project ids (OR within project axis)
   librarySavedViews: [],
-  librarySortBy: 'updated',     // 'updated' | 'title' cycler
+  librarySortBy: 'updated',     // 'updated' | 'title' cycler; the review queue adds 'recalled'
+  recallCounts: null,           // { counts: { id: { hits, uses } }, since } for the 'recalled' sort
   libraryView: 'active',        // 'active' | 'archive' | 'review' (the agent-memory review queue)
   libraryLayout: 'cards',       // 'cards' | 'table' (localStorage)
   librarySelectedDocIds: [],    // table-mode multi-select for the bulk bar
@@ -166,6 +167,10 @@ export const state = {
 
   // ---- Library health view ----
   healthData: null,             // null = not loaded; { needsReview, empty, stale, counts }
+  healthReviewSort: 'default',  // 'default' | 'recall' (opt-in: most recalled first)
+  librarian: null,              // null = not loaded; { gaps, proposals, prune, settings } (each may be null)
+  librarianRunning: false,
+  librarianLastRun: null,       // the last Run librarian result, for its summary line
   healthLinkSuggestions: null,  // null = not loaded; [{ sourceId, sourceTitle, targetId, targetTitle, snippet }]
   healthLoading: false,
   healthAiReview: null,         // null = not run; the AI-review envelope { contradictions, gaps, ... }

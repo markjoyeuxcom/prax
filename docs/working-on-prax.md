@@ -34,15 +34,31 @@ refresh a semantic search. A failed save blocks navigation and retains the draft
 
 ## Begin and hand over work
 
-Find the project’s **Prax project overview** in its Library,
-then retrieve the material for the actual task:
+Print the project’s overview, then retrieve the material for the actual task:
 
 ```sh
-prax search "Prax project overview" --project prax
-prax get <matching-document-id>
-prax context "<task>" --project prax
-prax recall "Prax <task>"
+node cli/prax.js overview
+node cli/prax.js context "<task>"
+node cli/prax.js recall "Prax <task>"
+node cli/prax.js brief <task-id>      # one task: checklist, handoff, linked docs, top memories
 ```
+
+`overview` prefers a verified document tagged `project-card`, then any `project-card`, then one
+titled "Prax project overview", and always says which it found and whether it is verified.
+
+### Which `prax` to run
+
+- **In this checkout, `node cli/prax.js`.** It runs the code you are changing. `prax` on PATH
+  is the shim the skills installer writes (`~/.local/bin/prax`); it runs the *installed* desktop
+  bundle's CLI, so until the next release it lacks unreleased commands and fixes.
+- **Elsewhere, `prax`.** Other repositories want the released CLI.
+- **Sandboxed agents (Antigravity, Codex and similar).** `node` often resolves through mise
+  shims, which read `~/.config/mise/config.toml` outside the workspace. When the sandbox cannot
+  read it, `node cli/prax.js` fails or prompts. Either grant the sandbox read access to the mise
+  config, or run the checkout CLI on the desktop bundle's own Node, which needs no shim:
+  `/Applications/Prax.app/Contents/MacOS/prax-server cli/prax.js <args>`. Paths differ per
+  machine, so there is deliberately no committed wrapper. This repository's `mise.toml` pins
+  only Rust; Node comes from the global mise configuration.
 
 Document IDs belong to each library. Fresh installations can use this guide and create
 an overview from Library → New doc → Templates & guides; existing libraries should refine

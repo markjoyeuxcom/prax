@@ -131,6 +131,45 @@ test('task list shows open tasks by default; --all and --status include complete
   });
 });
 
+// People only (docs/superpowers/specs/2026-09-23-triage-tui-design.md): verify
+// and triage refuse in an agent CLI's shell, with --agent, and without a
+// terminal, before any request. spawnSync gives the child no TTY.
+const NO_AGENT = {
+  PRAX_AGENT: '', CLAUDECODE: '', CODEX_THREAD_ID: '', CODEX_SESSION_ID: '', COPILOT_CLI: '',
+  COPILOT_AGENT_SESSION_ID: '', ANTIGRAVITY_AGENT: '', ANTIGRAVITY_CONVERSATION_ID: '',
+};
+const DOC_ID = '12345678-1234-4234-8234-123456789012';
+
+test('verify and triage refuse an agent environment or --agent before any request', () => {
+  for (const [args, env] of [
+    [['verify', DOC_ID, '--as', 'Mark'], { ...NO_AGENT, CLAUDECODE: '1' }],
+    [['verify', DOC_ID, '--as', 'Mark'], { ...NO_AGENT, CODEX_THREAD_ID: 't-1' }],
+    [['verify', DOC_ID, '--as', 'Mark', '--agent', 'codex'], NO_AGENT],
+    [['triage', '--as', 'Mark'], { ...NO_AGENT, PRAX_AGENT: 'antigravity' }],
+    [['triage'], { ...NO_AGENT, COPILOT_CLI: '1' }],
+  ]) {
+    const { code, stderr } = run(args, env);
+    assert.notEqual(code, 0, args.join(' '));
+    assert.match(stderr, /is for a person, and this shell belongs to an agent CLI/, args.join(' '));
+    assert.doesNotMatch(stderr, /not reachable/, `${args.join(' ')} reached the network`);
+  }
+});
+
+test('verify and triage refuse without a terminal, and triage refuses --json and stray words', () => {
+  refusedWith(['verify', DOC_ID, '--as', 'Mark'], NO_AGENT, /verify requires an attended interactive terminal/);
+  refusedWith(['triage'], NO_AGENT, /triage requires an attended interactive terminal/);
+  refusedWith(['triage', '--json'], NO_AGENT, /triage is interactive and does not support --json/);
+  refusedWith(['triage', 'extra'], NO_AGENT, /triage: unexpected argument "extra"/);
+  refusedWith(['triage', '--all'], NO_AGENT, /triage does not take --all/);
+});
+
+function refusedWith(args, env, pattern) {
+  const { code, stderr } = run(args, env);
+  assert.notEqual(code, 0, args.join(' '));
+  assert.match(stderr, pattern, args.join(' '));
+  assert.doesNotMatch(stderr, /not reachable/, `${args.join(' ')} reached the network`);
+}
+
 test('parseArgs: a strict spec refuses unknown flags; the optional flag takes only a matching value', () => {
   const spec = { boolean: ['json'], optional: { recent: (v) => /^\d+$/.test(v) }, known: ['limit'] };
   assert.throws(() => parseArgs(['--nope'], spec), CliUsageError);
@@ -146,4 +185,29 @@ test('checkCommandArgs and positiveIntFlag', () => {
   assert.equal(positiveIntFlag({ limit: '7' }, 'limit'), 7);
   assert.equal(positiveIntFlag({}, 'limit'), undefined);
   assert.throws(() => positiveIntFlag({ limit: '0' }, 'limit'), /positive integer/);
+});
+
+test('budget, delta and brief flags are declared and their misuse is refused before any request', () => {
+  refused(['recall', 'postgres', '--budget', '0'], /--budget must be a positive integer/);
+  refused(['recall', '--recent', '--budget', '100'], /--budget does not apply to --recent/);
+  refused(['recall', '--since-last-session', 'postgres'], /takes no query/);
+  refused(['recall', '--since-last-session', '--since', '2026-09-20'], /give one of --since <iso> or --since-last-session/);
+  refused(['recall', '--since', 'last week'], /--since must be an ISO-8601 date/);
+  refused(['recall', '--since-last-session', '--recent'], /different lists/);
+  refused(['recall', '--since-last-session=yes'], /since-last-session/);
+  refused(['context', '--budget', 'lots'], /--budget must be a positive integer/);
+  refused(['search', 'x', '--budget', '10'], /search does not take --budget/);
+  refused(['brief', 'not-a-uuid'], /brief requires a task uuid/);
+  refused(['brief', '11111111-1111-4111-8111-111111111111', '--limit', '3'], /brief does not take --limit/);
+});
+
+test('--since-last-session needs an agent id and says how to give one', () => {
+  const noAgent = {
+    PRAX_AGENT: '', CLAUDECODE: '', CODEX_THREAD_ID: '', CODEX_SESSION_ID: '', COPILOT_CLI: '',
+    COPILOT_AGENT_SESSION_ID: '', ANTIGRAVITY_AGENT: '', ANTIGRAVITY_CONVERSATION_ID: '',
+  };
+  const { code, stderr } = run(['recall', '--since-last-session'], noAgent);
+  assert.notEqual(code, 0);
+  assert.match(stderr, /--since-last-session needs an agent id: pass --agent <id> or set PRAX_AGENT/);
+  assert.doesNotMatch(stderr, /not reachable/);
 });

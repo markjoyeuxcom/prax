@@ -7,7 +7,7 @@ export async function searchLibrary(client, { project, query, all = false } = {}
   let items;
   let retrieval = { mode: 'semantic', degraded: false, reason: null, index: null, page: null };
   try {
-    const res = await client.semanticSearch(project, query, { all });
+    const res = await client.semanticSearch(project, query, { all, source: 'search' });
     if (Array.isArray(res)) {
       items = res;
     } else {
@@ -22,7 +22,7 @@ export async function searchLibrary(client, { project, query, all = false } = {}
     }
   } catch (error) {
     if (error?.status !== 409) throw error;
-    items = await client.keywordSearch(project, query, { all });
+    items = await client.keywordSearch(project, query, { all, source: 'search' });
     retrieval = { mode: 'keyword', degraded: true, reason: 'semantic-not-configured', index: null, page: null };
   }
   return { schemaVersion: 1, retrieval, items };

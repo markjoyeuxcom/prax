@@ -11,8 +11,9 @@ import { DOCUMENT_TYPE_VALUES, isDocumentType } from '../../public/js/documentTy
 import { sanitizeAgentId } from '../../server/instanceDiscovery.js';
 import { parseCommand } from './cliArgs.js';
 
-export const RECALL_USAGE = 'Usage: recall "<query>" [--project <slug>] [--limit <n>] [--agent <id>]\n'
-  + '       recall --recent [n] [--project <slug>]';
+export const RECALL_USAGE = 'Usage: recall "<query>" [--project <slug>] [--limit <n>] [--budget <tokens>] [--agent <id>]\n'
+  + '       recall --recent [n] [--project <slug>]\n'
+  + '       recall --since-last-session | --since <iso> [--project <slug>] [--limit <n>] [--budget <tokens>] [--agent <id>]';
 export const REMEMBER_USAGE = `Usage: remember "<title>" "<body>" [--tags a,b] [--type ${DOCUMENT_TYPE_VALUES.join('|')}]`
   + ' [--project <slug>] [--id <uuid>] [--ref <url>] [--cite <path[:start[-end]]>] [--agent <id>]';
 
@@ -37,7 +38,8 @@ const SKILL_MESSAGES = {
 // it is another flag; a word that is not a positive count is then refused.
 export const RECALL_SPEC = {
   usage: RECALL_USAGE,
-  value: ['project', 'limit', 'agent'],
+  value: ['project', 'limit', 'agent', 'budget', 'since'],
+  boolean: ['since-last-session'],
   optional: { recent: (next) => !next.startsWith('--') },
 };
 // `prax remember` spells the tag flag --tag; an agent that learned that
@@ -72,10 +74,23 @@ const positiveCount = (value) => {
 
 export function parseRecallArgs(argv) {
   const { positionals, flags, fail } = parseSkillCommand(argv, RECALL_SPEC);
+  // `budget`, `since` and `sinceLastSession` appear only when given, so a
+  // plain recall parses to the same shape it always had.
   const out = { query: '', project: flags.project ?? '', limit: 5, recent: false, agent: undefined };
   if (flags.limit !== undefined) {
     out.limit = positiveCount(flags.limit);
     if (out.limit === null) throw fail('--limit must be a positive integer');
+  }
+  if (flags.budget !== undefined) {
+    out.budget = positiveCount(flags.budget);
+    if (out.budget === null) throw fail('--budget must be a positive number of tokens');
+    // A budget bounds the printed block, not the match count.
+    if (flags.limit === undefined) out.limit = 20;
+  }
+  if (flags['since-last-session']) out.sinceLastSession = true;
+  if (flags.since !== undefined) {
+    out.since = flags.since;
+    if (out.sinceLastSession) throw fail('give one of --since <iso> or --since-last-session');
   }
   if (flags.recent !== undefined) {
     out.recent = true;
@@ -86,7 +101,16 @@ export function parseRecallArgs(argv) {
   }
   out.agent = parseAgent(flags.agent, fail);
   out.query = positionals.join(' ').trim();
-  if (!out.recent && !out.query) throw fail('recall needs a query, or --recent for a chronological list');
+  const delta = out.sinceLastSession || out.since !== undefined;
+  if (delta) {
+    if (out.recent) throw fail('--recent and a delta (--since / --since-last-session) are different lists; give one');
+    if (out.query) throw fail(`a delta lists changed memory and takes no query (got "${out.query}")`);
+    // A delta page defaults to the server's size unless --limit says otherwise.
+    if (flags.limit === undefined) out.limit = undefined;
+    return out;
+  }
+  if (out.recent && out.budget !== undefined) throw fail('--budget does not apply to --recent');
+  if (!out.recent && !out.query) throw fail('recall needs a query, --recent for a chronological list, or --since-last-session for what changed');
   // --recent is chronological; a query next to it would be silently ignored.
   if (out.recent && out.query) throw fail(`--recent lists the newest documents and takes no query (got "${out.query}")`);
   return out;

@@ -63,6 +63,17 @@ export const TRUST_PREDICATES = {
   agent: (doc) => doc.kind === 'synthesized' || doc.updatedBy === 'agent',
 };
 
+// The review queue (year-one shell spec, item 7): agent-written documents
+// nobody has verified yet. Recall labels unverified memory as unverified;
+// reviewing this queue adds a human trust signal. Superseded
+// and archived documents are out — they have been dealt with. Shared by the
+// Library review queue and `prax triage` (cli/lib/triage.js), so the terminal
+// and the UI never disagree about what is waiting.
+export function isReviewQueueDoc(doc) {
+  return Boolean(doc) && TRUST_PREDICATES.agent(doc) && doc.verified !== true
+    && doc.status !== 'superseded' && !doc.archivedAt;
+}
+
 // OR within the trust axis: a document passes if it matches ANY selected facet
 // (an unselected/empty axis passes everything). AND-across-axes is composed by
 // the caller (tags AND type AND trust AND query).
@@ -72,10 +83,17 @@ export function filterDocumentsByTrust(documents = [], trust = []) {
   return documents.filter((doc) => active.some((key) => TRUST_PREDICATES[key](doc)));
 }
 
-export function sortDocuments(documents = [], sortBy = 'updated') {
+// `recallCounts` ({ id: { hits, uses } }) feeds the opt-in 'recalled' order:
+// most recalled first, then most used, then newest. Missing counts are 0.
+export function sortDocuments(documents = [], sortBy = 'updated', { recallCounts = null } = {}) {
   const copy = [...documents];
   const byStr = (a, b) => String(a || '').localeCompare(String(b || ''));
   if (sortBy === 'title') return copy.sort((a, b) => byStr(a.title, b.title));
+  if (sortBy === 'recalled') {
+    const hits = (doc) => Number(recallCounts?.[doc.id]?.hits) || 0;
+    const uses = (doc) => Number(recallCounts?.[doc.id]?.uses) || 0;
+    return copy.sort((a, b) => hits(b) - hits(a) || uses(b) - uses(a) || byStr(b.updatedAt, a.updatedAt));
+  }
   if (sortBy === 'created') return copy.sort((a, b) => byStr(b.createdAt, a.createdAt));
   if (sortBy === 'type') return copy.sort((a, b) => byStr(a.documentType, b.documentType) || byStr(a.title, b.title));
   return copy.sort((a, b) => byStr(b.updatedAt, a.updatedAt)); // 'updated' default, newest first

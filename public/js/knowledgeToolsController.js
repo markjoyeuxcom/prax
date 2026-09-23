@@ -8,6 +8,10 @@ import {
   askPrax as apiAskPrax, generateRunbook as apiGenerateRunbook, fetchHealth as apiFetchHealth,
   fetchLinkSuggestions as apiFetchLinkSuggestions, runAiReview as apiRunAiReview, narrateBrief as apiNarrateBrief,
   applyWikiLink as apiApplyWikiLink, generateWeeklyReview as apiGenerateWeeklyReview,
+  fetchKnowledgeGaps as apiFetchKnowledgeGaps, fetchLibrarianProposals as apiFetchLibrarianProposals,
+  fetchPruneCandidates as apiFetchPruneCandidates, fetchLibrarianSettings as apiFetchLibrarianSettings,
+  runLibrarian as apiRunLibrarian, decideLibrarianProposal as apiDecideLibrarianProposal,
+  saveLibrarianSettings as apiSaveLibrarianSettings,
 } from './libraryApi.js';
 import { buildDailyBrief } from './brief.js';
 
@@ -17,20 +21,88 @@ export function createKnowledgeToolsController({
   askPrax = apiAskPrax, generateRunbook = apiGenerateRunbook, fetchHealth = apiFetchHealth,
   fetchLinkSuggestions = apiFetchLinkSuggestions, runAiReview = apiRunAiReview, narrateBrief = apiNarrateBrief,
   applyWikiLink = apiApplyWikiLink, generateWeeklyReview = apiGenerateWeeklyReview,
+  fetchKnowledgeGaps = apiFetchKnowledgeGaps, fetchLibrarianProposals = apiFetchLibrarianProposals,
+  fetchPruneCandidates = apiFetchPruneCandidates, fetchLibrarianSettings = apiFetchLibrarianSettings,
+  runLibrarian = apiRunLibrarian, decideLibrarianProposal = apiDecideLibrarianProposal,
+  saveLibrarianSettings = apiSaveLibrarianSettings,
 }) {
   let askPraxToken = 0;             // stale/closed grounded-answer requests never install
 
   async function loadHealth() {
     setState({ healthLoading: true });
+    const sort = getState().healthReviewSort === 'recall' ? 'recall' : undefined;
     try {
-      const [healthData, healthLinkSuggestions] = await Promise.all([
-        fetchHealth(''),
+      const [healthData, healthLinkSuggestions, librarian] = await Promise.all([
+        fetchHealth('', sort ? { sort } : undefined),
         fetchLinkSuggestions('').catch(() => []), // suggestions are a bonus; never fail the page
+        loadLibrarian(),
       ]);
-      setState({ healthData, healthLinkSuggestions, healthLoading: false });
+      setState({ healthData, healthLinkSuggestions, librarian, healthLoading: false });
     } catch {
       setState({ healthData: null, healthLoading: false });
     }
+  }
+
+  // The Librarian card's data. Each part degrades to null on its own (an old
+  // server, telemetry off), so one failure never blanks the card or the page.
+  async function loadLibrarian() {
+    const [gaps, proposals, prune, settings] = await Promise.all([
+      fetchKnowledgeGaps().catch(() => null),
+      fetchLibrarianProposals('open').catch(() => null),
+      fetchPruneCandidates().catch(() => null),
+      fetchLibrarianSettings().catch(() => null),
+    ]);
+    return { gaps, proposals: proposals?.items ?? null, prune, settings };
+  }
+
+  async function runLibrarianPass() {
+    if (getState().librarianRunning) return;
+    setState({ librarianRunning: true });
+    renderApp();
+    try {
+      const result = await runLibrarian('');
+      const created = result.created?.length || 0;
+      setState({ librarianRunning: false, librarianLastRun: { created, clusters: result.clusters?.length || 0, method: result.method } });
+      showToast(created
+        ? `Librarian filed ${created === 1 ? '1 proposal' : `${created} proposals`} for review.`
+        : 'Librarian found nothing new to consolidate.');
+      if (created) await loadDocuments?.();
+      await loadHealth();
+    } catch {
+      setState({ librarianRunning: false });
+      showToast('The librarian could not run. Please try again.');
+    }
+    renderApp();
+  }
+
+  async function decideProposal(id, decision) {
+    try {
+      const result = await decideLibrarianProposal(id, decision);
+      if (decision === 'approve') {
+        const superseded = (result.results || []).filter((r) => r.outcome === 'superseded').length;
+        showToast(`Proposal approved — ${superseded === 1 ? '1 source' : `${superseded} sources`} superseded.`);
+      } else {
+        showToast('Proposal dismissed and archived.');
+      }
+      await loadDocuments?.();
+      await loadHealth();
+    } catch (error) {
+      showToast(error?.reason === 'verify-first'
+        ? 'Review and verify the proposal first, then approve it.'
+        : `Could not ${decision} the proposal.`);
+    }
+    renderApp();
+  }
+
+  async function toggleLibrarianSchedule() {
+    const current = Boolean(getState().librarian?.settings?.scheduleEnabled);
+    try {
+      const settings = await saveLibrarianSettings({ scheduleEnabled: !current });
+      setState({ librarian: { ...(getState().librarian || {}), settings } });
+    } catch {
+      showToast('Could not change the librarian schedule.');
+    }
+    renderApp();
   }
 
   // Generation token so an in-flight scan whose Health view was left and re-entered
@@ -304,10 +376,23 @@ export function createKnowledgeToolsController({
     'run-ai-review': async () => {
       await scanLibraryWithAi();
     },
+    'run-librarian': async () => {
+      await runLibrarianPass();
+    },
+    'decide-proposal': async (el) => {
+      await decideProposal(el.dataset.proposalId, el.dataset.decision);
+    },
+    'toggle-librarian-schedule': async () => {
+      await toggleLibrarianSchedule();
+    },
+    'toggle-health-review-sort': async () => {
+      setState({ healthReviewSort: getState().healthReviewSort === 'recall' ? 'default' : 'recall' });
+      await loadHealth(); renderApp();
+    },
   };
 
   return {
-    actions, input, loadHealth, goHealth, scanLibraryWithAi, runWeeklyReview, openDailyBrief, draftDailyBrief,
+    actions, input, loadHealth, goHealth, scanLibraryWithAi, runLibrarianPass, decideProposal, toggleLibrarianSchedule, runWeeklyReview, openDailyBrief, draftDailyBrief,
     copyDailyBrief, acceptLinkSuggestion, openAskPrax, closeAskPrax, runAskPrax, copyAskPrax,
     openGenerateRunbook, runGenerateRunbook,
   };

@@ -88,3 +88,31 @@ test('skills share the CLI grammar: --flag=value, and -- ends the flags', () => 
   assert.throws(() => parseRecallArgs(['--recent=0']), /--recent takes an optional positive count/);
   assert.throws(() => parseRecallArgs(['q', '--project']), (err) => err instanceof UsageError && /^--project needs a value\nUsage: recall/.test(err.message));
 });
+
+// Budgeted recall and the since-last-session delta: the skill takes the same
+// flags as `prax recall` and refuses the same combinations.
+test('recall: --budget is a positive token count and widens the match pool unless --limit is given', () => {
+  const a = parseRecallArgs(['postgres', '--budget', '400']);
+  assert.equal(a.budget, 400);
+  assert.equal(a.limit, 20);
+  assert.equal(parseRecallArgs(['postgres', '--budget=400', '--limit', '3']).limit, 3);
+  assert.equal(parseRecallArgs(['postgres']).budget, undefined);
+  assert.throws(() => parseRecallArgs(['postgres', '--budget', '0']), /--budget must be a positive number of tokens/);
+  assert.throws(() => parseRecallArgs(['postgres', '--budget', 'lots']), /--budget/);
+  assert.throws(() => parseRecallArgs(['--recent', '--budget', '100']), /--budget does not apply to --recent/);
+  assert.throws(() => parseRecallArgs(['postgres', '--budgte', '100']), /Unknown option "--budgte"/);
+});
+
+test('recall: a delta takes --since-last-session or --since, never both, no query and no --recent', () => {
+  const a = parseRecallArgs(['--since-last-session']);
+  assert.equal(a.sinceLastSession, true);
+  assert.equal(a.limit, undefined, 'the server sizes a delta page unless --limit is given');
+  assert.equal(parseRecallArgs(['--since', '2026-09-20', '--limit', '7']).limit, 7);
+  assert.equal(parseRecallArgs(['--since=2026-09-20']).since, '2026-09-20');
+  assert.equal(parseRecallArgs(['--since-last-session', '--budget', '300']).budget, 300);
+  assert.throws(() => parseRecallArgs(['--since-last-session', '--since', '2026-09-20']), /give one of/);
+  assert.throws(() => parseRecallArgs(['--since-last-session', 'postgres']), /takes no query/);
+  assert.throws(() => parseRecallArgs(['--since-last-session', '--recent']), /different lists/);
+  assert.throws(() => parseRecallArgs(['--since-last-session=yes']), /--since-last-session takes no value/);
+  assert.throws(() => parseRecallArgs(['--since']), /--since needs a value/);
+});

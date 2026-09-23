@@ -15,7 +15,7 @@ import { createDocumentLinksRepository, DOCUMENT_LINK_RELATIONS } from './docume
 import { addDaysUtc, compileWeeklyReview, isoWeekId, weekStartOf, weeklyReviewTitle } from './weeklyReview.js';
 import { buildRelatedQuery } from './relatedDocuments.js';
 import { createDocumentExternalRefsRepository, sanitizeUrl, sanitizeLabel } from './documentExternalRefsRepository.js';
-import { createDocumentCodeRefsRepository } from './documentCodeRefsRepository.js';
+import { createDocumentCodeRefsRepository, MAX_PATHS_PER_QUERY } from './documentCodeRefsRepository.js';
 import {
   createRunbookRunsRepository,
   RunbookRunConflictError,
@@ -24,7 +24,8 @@ import { parseRunbookSteps } from './runbookSteps.js';
 import {
   documentFilename,
   renderDocumentMarkdown,
-  dedupeFilenames,
+  buildExportEntries,
+  EXPORT_LAYOUTS,
   libraryArchiveFilename,
   buildLinksFromGroups,
   attachmentDisposition,
@@ -43,6 +44,7 @@ import {
 import { isWritingAction, buildWritingMessages, stripCodeFence, WRITING_ACTIONS } from './writingActions.js';
 import { DOCUMENT_TYPE_VALUES } from '../public/js/documentTypes.js';
 import { normalizeTitle } from './documentTitle.js';
+import { querySourceFrom, recordQueryLater } from './recallTelemetry.js';
 
 // The taxonomy lives in the shared registry (public/js/documentTypes.js) —
 // the DB CHECK was dropped in migration 0010; this is the enforcement point.
@@ -173,6 +175,25 @@ export async function registerLibraryRoutes(app, options = {}) {
   const chatProvider = options.chatProvider ?? app.chatProvider ?? null;
   const injectedChat = options.chat ?? null;
   const appSettings = options.appSettingsRepository || app.appSettingsRepository;
+  const recallTelemetry = options.recallTelemetry !== undefined ? options.recallTelemetry : (app.recallTelemetry ?? null);
+
+  // Recall telemetry (librarian spec): only a retrieval whose client names
+  // itself with x-prax-query-source is recorded, after the response, and a
+  // failure never reaches the caller. The web UI sends no source.
+  function noteRetrieval(request, { mode, query, projectId = null, hitIds = [], hitCount } = {}) {
+    try {
+      if (!recallTelemetry) return;
+      const source = querySourceFrom(request.headers);
+      if (!source) return;
+      recordQueryLater(recallTelemetry, {
+        source, mode, query, agent: agentFrom(request), projectId, hitIds, hitCount,
+      }, request.log);
+    } catch (err) {
+      request.log?.warn?.({ err }, 'recall telemetry not recorded');
+    }
+  }
+
+  const packDocumentIds = (pack) => (pack?.sections || []).flatMap((section) => section.items.map((item) => item.id));
 
   async function resolveEmbedder() {
     if (injectedEmbedder) return injectedEmbedder;
@@ -348,6 +369,16 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (request.query.includeArchived !== undefined && !['true', 'false'].includes(request.query.includeArchived)) {
       return reply.code(400).send({ message: 'includeArchived must be true or false' });
     }
+    // `format=json` returns the same rendered documents as JSON (the git
+    // mirror reads it); `layout=mirror` is the mirror's folder layout.
+    const format = request.query.format ?? 'zip';
+    if (!['zip', 'json'].includes(format)) {
+      return reply.code(400).send({ message: 'format must be zip or json' });
+    }
+    const layout = request.query.layout ?? 'flat';
+    if (!EXPORT_LAYOUTS.includes(layout)) {
+      return reply.code(400).send({ message: `layout must be ${EXPORT_LAYOUTS.join(' or ')}` });
+    }
     const projectParam = request.query.project;
     let projectId;
     let scope = 'all';
@@ -365,12 +396,7 @@ export async function registerLibraryRoutes(app, options = {}) {
     const documents = await decorateExportDocuments(app.db, await repository.listActiveDocumentsForExport({ projectId, includeArchived: request.query.includeArchived === 'true' }));
     const isAll = scope === 'all';
 
-    const entries = documents.map((doc) => ({
-      doc,
-      path: isAll ? `${doc.projectSlug || 'unknown'}/` : '',
-      filename: documentFilename(doc),
-    }));
-    dedupeFilenames(entries);
+    const entries = buildExportEntries(documents, { isAll, layout });
 
     const docIds = entries.map((e) => e.doc.id);
     const outboundByDocId = await documentLinksRepository.listOutboundLinksForDocuments(docIds);
@@ -385,6 +411,37 @@ export async function registerLibraryRoutes(app, options = {}) {
       list.map((link) => (entryPathById.has(link.id) ? { ...link, ref: entryPathById.get(link.id) } : link)),
     ]));
 
+    const rendered = entries.map((entry) => {
+      const groups = outboundByDocId.get(entry.doc.id) || { 'derived-from': [], supersedes: [] };
+      const links = resolveRefs(buildLinksFromGroups(groups, { scope: refScope, currentDocProjectSlug: entry.doc.projectSlug }));
+      return { entry, name: `${entry.path}${entry.filename}`, content: renderDocumentMarkdown(entry.doc, entry.doc.projectSlug, links) };
+    });
+
+    if (format === 'json') {
+      reply.header('Cache-Control', 'no-store');
+      return {
+        format: 'prax.library-export',
+        version: 1,
+        markdownVersion: 3,
+        scope,
+        layout,
+        includeArchived: request.query.includeArchived === 'true',
+        documents: rendered.map(({ entry: { doc }, name, content }) => ({
+          path: name,
+          id: doc.id,
+          title: doc.title,
+          documentType: doc.documentType || 'note',
+          status: doc.status || 'active',
+          tags: Array.isArray(doc.tags) ? doc.tags : [],
+          verified: Boolean(doc.verified),
+          verifiedBy: doc.verifiedBy ?? null,
+          verifiedAt: doc.verifiedAt ?? null,
+          contentHash: doc.contentHash || null,
+          markdown: content,
+        })),
+      };
+    }
+
     const filename = libraryArchiveFilename(scope);
     reply.header('Content-Type', 'application/zip');
     reply.header('Cache-Control', 'no-store');
@@ -395,11 +452,8 @@ export async function registerLibraryRoutes(app, options = {}) {
       request.log.error({ err }, 'library export archive error');
     });
 
-    for (const entry of entries) {
-      const groups = outboundByDocId.get(entry.doc.id) || { 'derived-from': [], supersedes: [] };
-      const links = resolveRefs(buildLinksFromGroups(groups, { scope: refScope, currentDocProjectSlug: entry.doc.projectSlug }));
-      const content = renderDocumentMarkdown(entry.doc, entry.doc.projectSlug, links);
-      archive.append(content, { name: `${entry.path}${entry.filename}` });
+    for (const { name, content } of rendered) {
+      archive.append(content, { name });
     }
     archive.finalize().catch((err) => {
       request.log.error({ err }, 'library export archive finalize rejected');
@@ -425,7 +479,14 @@ export async function registerLibraryRoutes(app, options = {}) {
       projectId = await resolveProjectId(request.query.project);
       if (projectId === null) { reply.code(400); return { message: 'project is invalid' }; }
     }
-    return repository.listDocuments({ ...request.query, status: status === 'all' ? undefined : status, projectId });
+    const documents = await repository.listDocuments({ ...request.query, status: status === 'all' ? undefined : status, projectId });
+    // A keyword query from an agent client (the recall/search fallback).
+    if (typeof request.query.q === 'string' && request.query.q.trim() && Array.isArray(documents)) {
+      noteRetrieval(request, {
+        mode: 'keyword', query: request.query.q, projectId, hitIds: documents.map((d) => d.id), hitCount: documents.length,
+      });
+    }
+    return documents;
   });
 
   app.get('/api/library/documents/semantic-search', async (request, reply) => {
@@ -502,7 +563,10 @@ export async function registerLibraryRoutes(app, options = {}) {
       reply.code(503);
       return { message: 'semantic search backend is unavailable' };
     }
-    if (!paged) return docs.map(toRef);
+    if (!paged) {
+      noteRetrieval(request, { mode, query: q, projectId, hitIds: docs.map((d) => d.id), hitCount: docs.length });
+      return docs.map(toRef);
+    }
 
     // Tolerate array-returning injected repositories in tests/extensions while
     // the built-in repository supplies the exact total in paged mode.
@@ -510,6 +574,8 @@ export async function registerLibraryRoutes(app, options = {}) {
     const total = Number.isInteger(docs?.total) && docs.total >= 0 ? docs.total : items.length;
     const returned = items.length;
     const hasMore = offset + returned < total;
+    // One recall is one query: later pages of the same search are not recorded.
+    if (offset === 0) noteRetrieval(request, { mode, query: q, projectId, hitIds: items.map((d) => d.id), hitCount: total });
     // Stale or model-mismatched vectors are never ranked (C10); say so. A
     // page that silently omits unindexed documents is misleading success.
     const index = await indexCoverage(embedder);
@@ -1302,6 +1368,12 @@ export async function registerLibraryRoutes(app, options = {}) {
     }
 
     const pack = buildContextPack(docs, { project, query, limit, retrieval });
+    if (query) {
+      // A recency fallback matched nothing the query asked for: zero hits.
+      const matched = retrieval.mode !== 'recency';
+      const hitIds = matched ? packDocumentIds(pack) : [];
+      noteRetrieval(request, { mode: retrieval.mode, query, projectId: project.id, hitIds, hitCount: hitIds.length });
+    }
     if (request.query.format === 'json') return pack;
     reply.header('Content-Type', 'text/markdown; charset=utf-8');
     return renderContextPackMarkdown(pack);
@@ -1354,6 +1426,8 @@ export async function registerLibraryRoutes(app, options = {}) {
     }
 
     const pack = buildContextPack(docs, { project, query, limit, retrieval });
+    const hitIds = packDocumentIds(pack);
+    noteRetrieval(request, { mode: retrieval.mode, query, projectId, hitIds, hitCount: hitIds.length });
     if (request.query.format === 'json') return pack;
     reply.header('Content-Type', 'text/markdown; charset=utf-8');
     return renderContextPackMarkdown(pack);
@@ -1548,8 +1622,54 @@ export async function registerLibraryRoutes(app, options = {}) {
       return { message: 'endLine must be an integer not before startLine' };
     }
     const commitSha = typeof body.commitSha === 'string' && body.commitSha.trim() ? body.commitSha.trim() : null;
-    return { citation: { path, startLine, endLine, commitSha, contentHash } };
+    const anchors = validateAnchors(body);
+    if (anchors.message) return anchors;
+    return { citation: { path, startLine, endLine, commitSha, contentHash, ...anchors.anchors } };
   }
+
+  // The hybrid anchors (migration 0039), both optional: an older client sends
+  // neither, and the citation is then checked by its line hash alone.
+  function validateAnchors(body) {
+    let normalizedHash = null;
+    if (body.normalizedHash !== undefined && body.normalizedHash !== null) {
+      if (typeof body.normalizedHash !== 'string' || !/^[0-9a-f]{64}$/i.test(body.normalizedHash.trim())) {
+        return { message: 'normalizedHash must be a sha256 hex digest' };
+      }
+      normalizedHash = body.normalizedHash.trim().toLowerCase();
+    }
+    let symbol = null;
+    if (body.symbol !== undefined && body.symbol !== null) {
+      if (typeof body.symbol !== 'string' || /[\r\n]/.test(body.symbol) || body.symbol.trim().length > 200) {
+        return { message: 'symbol must be a single line of at most 200 characters' };
+      }
+      symbol = body.symbol.trim() || null;
+    }
+    // normalizedHash marks the anchors as computed; a symbol without it would
+    // sit on a row still read as legacy, so the two travel together.
+    if (symbol && !normalizedHash) return { message: 'symbol needs normalizedHash' };
+    return { anchors: { normalizedHash, symbol } };
+  }
+
+  // Citations by the paths a change touched — what `prax check` asks. Only
+  // live active documents; `project` narrows to one. Read-only.
+  app.get('/api/library/code-refs', async (request, reply) => {
+    const raw = request.query.path;
+    const paths = [...new Set((Array.isArray(raw) ? raw : raw === undefined ? [] : [raw])
+      .map((p) => String(p).trim()).filter(Boolean))];
+    if (!paths.length) { reply.code(400); return { message: 'at least one path is required' }; }
+    if (paths.length > MAX_PATHS_PER_QUERY) {
+      reply.code(400); return { message: `at most ${MAX_PATHS_PER_QUERY} paths per request` };
+    }
+    if (paths.some((p) => p.startsWith('/') || p.split('/').includes('..'))) {
+      reply.code(400); return { message: 'paths must be relative to the repository root' };
+    }
+    let projectId;
+    if (request.query.project) {
+      projectId = await resolveProjectId(request.query.project);
+      if (projectId === null) { reply.code(400); return { message: 'project is invalid' }; }
+    }
+    return { items: await documentCodeRefsRepository.listCodeRefsByPath(paths, { projectId }) };
+  });
 
   app.get('/api/library/documents/:id/code-refs', async (request, reply) => {
     if (!isValidUuid(request.params.id)) { reply.code(400); return { message: 'document id is invalid' }; }
@@ -1566,6 +1686,27 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (!ref) { reply.code(404); return { message: 'document not found' }; } // absent or archived
     reply.code(201);
     return documentCodeRefsRepository.listCodeRefs(documentId);
+  });
+
+  // Lazy anchor backfill for a citation pinned before migration 0039. Recall
+  // sends it when the line hash proves the checkout holds the pinned content.
+  // Compare-and-set on contentHash; an already-anchored row is left alone.
+  app.post('/api/library/documents/:id/code-refs/:refId/anchors', async (request, reply) => {
+    const documentId = request.params.id;
+    if (!isValidUuid(documentId)) { reply.code(400); return { message: 'document id is invalid' }; }
+    if (!isValidUuid(request.params.refId)) { reply.code(400); return { message: 'ref id is invalid' }; }
+    const body = request.body;
+    if (!isPlainObject(body)) { reply.code(400); return { message: 'an anchors body is required' }; }
+    const contentHash = typeof body.contentHash === 'string' ? body.contentHash.trim() : '';
+    if (!contentHash) { reply.code(400); return { message: 'contentHash is required' }; }
+    const { message, anchors } = validateAnchors(body);
+    if (message) { reply.code(400); return { message }; }
+    if (!anchors.normalizedHash) { reply.code(400); return { message: 'normalizedHash is required' }; }
+    const { ref, updated } = await documentCodeRefsRepository.backfillCodeRefAnchors(documentId, request.params.refId, {
+      contentHash, ...anchors,
+    });
+    if (!ref) { reply.code(404); return { message: 'citation not found' }; }
+    return { updated, ref };
   });
 
   app.delete('/api/library/documents/:id/code-refs/:refId', async (request, reply) => {
@@ -1600,6 +1741,11 @@ export async function registerLibraryRoutes(app, options = {}) {
   // unverified drafts to review (esp. agent-written), stale derivations, and
   // empty stubs. A curation dashboard over signals the Library already tracks.
   app.get('/api/library/health', async (request, reply) => {
+    // `sort=recall` (opt-in) orders the review list by how often agents'
+    // recalls returned each document. The default order is unchanged: other
+    // consumers (the triage TUI, the review walk) rely on it.
+    const sort = request.query.sort;
+    if (sort !== undefined && sort !== 'recall') { reply.code(400); return { message: "sort must be 'recall'" }; }
     let projectId;
     if (request.query.project) {
       projectId = await resolveProjectId(request.query.project);
@@ -1614,7 +1760,8 @@ export async function registerLibraryRoutes(app, options = {}) {
       repository.listDocuments({ projectId, status: 'active' }),
       documentLinksRepository.listStaleDocuments(projectId),
     ]);
-    const needsReview = active.filter((d) => !d.verified).map(healthRef);
+    let needsReview = active.filter((d) => !d.verified).map(healthRef);
+    if (sort === 'recall') needsReview = await sortByRecall(needsReview, request);
     const empty = active.filter((d) => contentLength(d.body) === 0).map(healthRef);
     const sections = {
       needsReview,
@@ -1626,6 +1773,23 @@ export async function registerLibraryRoutes(app, options = {}) {
       counts: Object.fromEntries(Object.entries(sections).map(([k, v]) => [k, v.length])),
     };
   });
+
+  // Most-recalled first (hits, then used signals), ties in the given order.
+  // Telemetry that cannot be read leaves the order as it was, each row
+  // carrying recallHits: null so the client can say so.
+  async function sortByRecall(refs, request) {
+    let counts = null;
+    try {
+      counts = recallTelemetry ? (await recallTelemetry.recallCounts()).counts : null;
+    } catch (err) {
+      request.log?.warn?.({ err }, 'recall counts unavailable');
+    }
+    if (!counts) return refs.map((ref) => ({ ...ref, recallHits: null, recallUses: null }));
+    return refs
+      .map((ref, index) => ({ ref: { ...ref, recallHits: counts[ref.id]?.hits ?? 0, recallUses: counts[ref.id]?.uses ?? 0 }, index }))
+      .sort((a, b) => b.ref.recallHits - a.ref.recallHits || b.ref.recallUses - a.ref.recallUses || a.index - b.index)
+      .map((entry) => entry.ref);
+  }
 
   // Auto wiki-linking (Tier-2 #5): plain-text mentions of one doc's title inside
   // another that aren't yet [[linked]]. Deterministic; the human accepts each.

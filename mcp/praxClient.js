@@ -48,6 +48,10 @@ export function createPraxClient({
   // in the server, whose clock is not the user's, and forwards the
   // requester's own day instead.
   sendLocalDay = true,
+  // Names this client's retrievals for the server's local recall telemetry
+  // (librarian spec 2026-09-23): 'mcp' for the MCP server, 'assistant' for
+  // the in-app assistant; null records nothing.
+  querySource = 'mcp',
 } = {}) {
   const transport = createTransport({
     baseUrl, env, portFile, readPortFile, token, agent, fetch, sendLocalDay, timeoutMs, longTimeoutMs,
@@ -61,6 +65,12 @@ export function createPraxClient({
   } = {}) => transport.request(method, path, {
     query, body, headers, long, retry: retryUnavailable, parse: parseResponse,
   });
+
+  // Retrieval reads carry the source (and the agent origin, so the server
+  // can attribute the query to the agent id); every other read does not.
+  const retrievalHeaders = querySource
+    ? { 'x-prax-query-source': querySource, 'x-prax-origin': 'agent' }
+    : undefined;
 
   async function patchOrNull(path, patch, headers, retryUnavailable = false) {
     try {
@@ -82,17 +92,20 @@ export function createPraxClient({
 
   return {
     listDocuments: ({ q, project, documentType, kind, status } = {}) =>
-      request('GET', '/api/library/documents', { query: { q, project, documentType, kind, status } }),
+      request('GET', '/api/library/documents', {
+        query: { q, project, documentType, kind, status },
+        ...(q ? { headers: retrievalHeaders } : {}),
+      }),
 
     searchDocumentsSemantic: (query, project, { limit, offset } = {}) =>
       request('GET', '/api/library/documents/semantic-search', {
-        query: { q: query, project, page: true, limit, offset },
+        query: { q: query, project, page: true, limit, offset }, headers: retrievalHeaders,
       }),
 
     // Query-scoped, library-wide context pack (Markdown). request() wraps the
     // non-JSON markdown body as { message }, so unwrap it to the raw string.
     contextPack: async ({ q, project, limit } = {}) => {
-      const res = await request('GET', '/api/library/context-pack', { query: { q, project, limit } });
+      const res = await request('GET', '/api/library/context-pack', { query: { q, project, limit }, headers: retrievalHeaders });
       return typeof res === 'string' ? res : (res?.message ?? '');
     },
 
