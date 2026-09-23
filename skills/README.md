@@ -14,7 +14,11 @@ They talk to the Prax HTTP API of the running app (desktop or server) and find i
 their own: `PRAX_API_URL` → the desktop app's saved port → `http://127.0.0.1:3000`. Each run
 binds to the one instance it finds (a write probes `/readyz` first and never fails over), and
 the remember confirmation names the project and the base URL it wrote to. A request that gets
-no answer within 30 s (`PRAX_TIMEOUT_MS`) fails rather than hangs, and is never re-sent.
+no answer within 30 s (`PRAX_TIMEOUT_MS`) fails rather than hangs, and is never re-sent. The
+scripts use the `prax` CLI's client and argument engine, so discovery, tokens, timeouts and
+retries are the ones described in
+[Connecting to the app](../docs/agent-memory.md#connecting-to-the-app), and options accept
+`--flag=value` and a `--` terminator as the CLI's do.
 
 The layout follows the [Agent Skills](https://agentskills.io) standard, which both
 Claude Code and Codex read.

@@ -57,11 +57,15 @@ prax init --project homelab
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `PRAX_API_URL` | `http://127.0.0.1:3000` | Base URL of the Prax server |
+| `PRAX_API_URL` | discovery | Base URL of the Prax server; disables discovery (see [Finding the app](#finding-the-app)) |
 | `PRAX_PROJECT` | — | Default project slug (overrides folder-name detection) |
-| `PRAX_TOKEN` | — | Optional bearer token, forwarded as `Authorization: Bearer <token>`; the server does not require it under the no-auth model |
+| `PRAX_API_TOKEN` (or `PRAX_TOKEN`) | — | Optional bearer token, forwarded as `Authorization: Bearer <token>`; `PRAX_API_TOKEN` wins when both are set. The server does not require it under the no-auth model |
 | `PRAX_AGENT` | auto | Which agent CLI is writing (`claude`, `codex`, …), sent as `x-prax-agent` on agent writes. Detected from the Claude Code and Codex shell environments when unset; `--agent <id>` overrides |
 | `PRAX_TIMEOUT_MS` | `30000` | How long one request may take before the CLI gives up (the `/readyz` discovery probe gets 2 s). A request that times out is never re-sent; a timed-out write is reported as an unknown outcome to reconcile. Raise it for a slow embedding model. |
+
+The CLI, the skills and the MCP server share one transport; discovery, tokens, timeouts, error
+wording and retries are described once, in
+[Connecting to the app](agent-memory.md#connecting-to-the-app).
 
 Every request also carries the caller's calendar day — `x-prax-local-date` (this machine's local
 date) and `x-prax-time-zone` (its IANA zone), the same headers the web app sends — so
@@ -92,14 +96,13 @@ Every command accepts:
 
 ### Finding the app
 
-Without `--url` or `PRAX_API_URL` the CLI discovers the app by trying the desktop app's saved
-loopback port first (the `webview-port` file under its app-data folder) and then
-`http://127.0.0.1:3000`. Discovery **binds the process to one instance**: a read may probe both
-candidates and pins the first that answers; a write first probes `/readyz` to pin an instance and
-is then sent only there — it never fails over to the other candidate, so a lost response cannot
-land the same write in a second workspace. `remember` prints the base URL it wrote to
+Without `--url` or `PRAX_API_URL` the CLI discovers the app: the desktop app's saved loopback
+port (the `webview-port` file under its app-data folder), then `http://127.0.0.1:3000`. The
+first that answers a `/readyz` probe is pinned for the whole run and a write is never failed
+over to the other candidate. `remember` prints the base URL it wrote to
 (`… at http://127.0.0.1:<port>`). An explicit URL disables discovery entirely so a wrong address
-fails loudly.
+fails loudly. The full rules — shared with the skills and the MCP server — are in
+[Connecting to the app](agent-memory.md#connecting-to-the-app).
 
 ## Commands
 

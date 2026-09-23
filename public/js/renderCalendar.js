@@ -4,7 +4,7 @@
 // their due day; clicking a day opens a detail strip below the grid that
 // reuses the standard task-row rendering, so the drawer/multi-select/done
 // affordances all behave identically to the list views.
-import { escapeHtml } from './renderHelpers.js';
+import { escapeHtml } from './html.js';
 import { isOpen } from './statusMap.js';
 import { projectChipHtml, isSnoozed } from './renderToday.js';
 import { dueFlag } from './dueFlags.js';
@@ -109,8 +109,8 @@ function cellHtml(cell, selectedDay) {
   // data-actions, and a focusable cell would route Enter to the global
   // open-selected shortcut (reopening an unrelated task). The task chips
   // inside are real <button>s, so the tasks stay keyboard-reachable.
-  return `<div class="${classes.join(' ')}" data-action="calendar-select-day" data-day="${cell.iso}">`
-    + `<div class="cal-cell__num">${cell.dayNum}</div>`
+  return `<div class="${classes.join(' ')}" data-action="calendar-select-day" data-day="${escapeHtml(cell.iso)}">`
+    + `<div class="cal-cell__num">${escapeHtml(cell.dayNum)}</div>`
     + chips
     + overflow
     + '</div>';
@@ -139,7 +139,7 @@ export function renderCalendarHtml(state, model, { feedUrl = '' } = {}) {
     + '<button type="button" class="btn-ghost cal-nav__btn" data-action="calendar-next" aria-label="Next month">›</button>'
     + '</div>'
     + '</header>'
-    + `<p class="page-head__sub">${escapeHtml(model.label)} — ${model.monthTaskCount === 0 ? 'no dated tasks this month' : `${model.monthTaskCount} dated task${model.monthTaskCount === 1 ? '' : 's'}`}.</p>`;
+    + `<p class="page-head__sub">${escapeHtml(model.label)} — ${model.monthTaskCount === 0 ? 'no dated tasks this month' : `${escapeHtml(model.monthTaskCount)} dated task${model.monthTaskCount === 1 ? '' : 's'}`}.</p>`;
 
   const headRow = `<div class="cal-weekdays">${WEEKDAYS.map((d) => `<div class="cal-weekdays__day">${d}</div>`).join('')}</div>`;
   const grid = `<div class="cal-grid" role="grid" aria-label="${escapeHtml(model.label)}">`

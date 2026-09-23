@@ -4,7 +4,8 @@
 // Actions delegate in main.js: open-task / promote-task on backlog rows,
 // restore-task / delete-archived-task on archive rows.
 
-import { escapeHtml, prioDotClass } from './renderHelpers.js';
+import { escapeHtml } from './html.js';
+import { prioDotClass } from './renderHelpers.js';
 import { renderTaskCollectionProgressHtml } from './renderList.js';
 
 export function renderBacklogHtml(state, tasks = [], { collection = null } = {}) {

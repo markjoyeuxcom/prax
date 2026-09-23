@@ -1,9 +1,15 @@
 // cli/lib/skillArgs.js — argument parsing for the prax-recall / prax-remember
-// skill scripts. Strict on purpose: an unknown option is an error, never
-// silently dropped (the old wrappers swallowed `--ref`, so a memory lost its
-// reference without any warning).
+// skill scripts. Each script is one command, declared below as a spec for the
+// same engine the prax CLI uses (cli/lib/cliArgs.js), so the two grammars
+// cannot drift: `--flag value` and `--flag=value` are equivalent, a lone `--`
+// ends the flags, and an alias given together with its canonical spelling is
+// refused. Strict on purpose: an unknown option is an error, never silently
+// dropped (the old wrappers swallowed `--ref`, so a memory lost its reference
+// without any warning). The skills keep their own positional syntax
+// (`remember "<title>" "<body>"`) and their own wording.
 import { DOCUMENT_TYPE_VALUES, isDocumentType } from '../../public/js/documentTypes.js';
-import { sanitizeAgentId } from './apiClient.js';
+import { sanitizeAgentId } from '../../server/instanceDiscovery.js';
+import { parseCommand } from './cliArgs.js';
 
 export const RECALL_USAGE = 'Usage: recall "<query>" [--project <slug>] [--limit <n>] [--agent <id>]\n'
   + '       recall --recent [n] [--project <slug>]';
@@ -19,90 +25,103 @@ export class UsageError extends Error {
   }
 }
 
-function takeValue(argv, index, usage) {
-  const flag = argv[index];
-  const value = argv[index + 1];
-  if (value === undefined || value.startsWith('--')) throw new UsageError(`${flag} needs a value`, usage);
-  return value;
+// The skills' wording for the engine's refusals.
+const SKILL_MESSAGES = {
+  unknownFlag: (raw) => `Unknown option "--${raw}"`,
+  sameFlag: (earlier, raw) => `--${earlier} and --${raw} are the same option; give it once`,
+  takesNoValue: (key) => `--${key} takes no value`,
+  needsValue: (key) => `--${key} needs a value`,
+};
+
+// The declared commands. `--recent` takes the next word as its count unless
+// it is another flag; a word that is not a positive count is then refused.
+export const RECALL_SPEC = {
+  usage: RECALL_USAGE,
+  value: ['project', 'limit', 'agent'],
+  optional: { recent: (next) => !next.startsWith('--') },
+};
+// `prax remember` spells the tag flag --tag; an agent that learned that
+// syntax keeps its tags here too.
+export const REMEMBER_SPEC = {
+  usage: REMEMBER_USAGE,
+  value: ['tags', 'type', 'project', 'id', 'cite', 'ref', 'agent'],
+  aliases: { tag: 'tags' },
+  max: 2,
+  unexpected: (word) => `Unexpected argument "${word}" — quote the title and the body`,
+};
+
+function parseSkillCommand(argv, spec) {
+  const fail = (message) => new UsageError(message, spec.usage);
+  const parsed = parseCommand(argv, {
+    ...spec, messages: { ...SKILL_MESSAGES, ...(spec.unexpected ? { unexpected: spec.unexpected } : {}) }, fail,
+  });
+  return { ...parsed, fail };
 }
 
-function parseAgent(value, usage) {
+function parseAgent(value, fail) {
+  if (value === undefined) return undefined;
   const agent = sanitizeAgentId(value);
-  if (!agent) throw new UsageError(`--agent must be a short id like "claude" or "codex" (got "${value}")`, usage);
+  if (!agent) throw fail(`--agent must be a short id like "claude" or "codex" (got "${value}")`);
   return agent;
 }
 
+const positiveCount = (value) => {
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 1 ? n : null;
+};
+
 export function parseRecallArgs(argv) {
-  const out = { query: '', project: '', limit: 5, recent: false, agent: undefined };
-  const rest = [];
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-    if (arg === '--project') { out.project = takeValue(argv, i, RECALL_USAGE); i += 1; }
-    else if (arg === '--limit') {
-      const n = Number(takeValue(argv, i, RECALL_USAGE));
-      if (!Number.isInteger(n) || n < 1) throw new UsageError('--limit must be a positive integer', RECALL_USAGE);
-      out.limit = n; i += 1;
-    } else if (arg === '--recent') {
-      out.recent = true;
-      const next = argv[i + 1];
-      if (next !== undefined && !next.startsWith('--')) {
-        const n = Number(next);
-        if (!Number.isInteger(n) || n < 1) throw new UsageError('--recent takes an optional positive count', RECALL_USAGE);
-        out.limit = n; i += 1;
-      }
-    } else if (arg === '--agent') { out.agent = parseAgent(takeValue(argv, i, RECALL_USAGE), RECALL_USAGE); i += 1; }
-    else if (arg.startsWith('--')) throw new UsageError(`Unknown option "${arg}"`, RECALL_USAGE);
-    else rest.push(arg);
+  const { positionals, flags, fail } = parseSkillCommand(argv, RECALL_SPEC);
+  const out = { query: '', project: flags.project ?? '', limit: 5, recent: false, agent: undefined };
+  if (flags.limit !== undefined) {
+    out.limit = positiveCount(flags.limit);
+    if (out.limit === null) throw fail('--limit must be a positive integer');
   }
-  out.query = rest.join(' ').trim();
-  if (!out.recent && !out.query) throw new UsageError('recall needs a query, or --recent for a chronological list', RECALL_USAGE);
+  if (flags.recent !== undefined) {
+    out.recent = true;
+    if (flags.recent !== true) {
+      out.limit = positiveCount(flags.recent);
+      if (out.limit === null) throw fail('--recent takes an optional positive count');
+    }
+  }
+  out.agent = parseAgent(flags.agent, fail);
+  out.query = positionals.join(' ').trim();
+  if (!out.recent && !out.query) throw fail('recall needs a query, or --recent for a chronological list');
   // --recent is chronological; a query next to it would be silently ignored.
-  if (out.recent && out.query) throw new UsageError(`--recent lists the newest documents and takes no query (got "${out.query}")`, RECALL_USAGE);
+  if (out.recent && out.query) throw fail(`--recent lists the newest documents and takes no query (got "${out.query}")`);
   return out;
 }
 
 export function parseRememberArgs(argv) {
+  const { positionals, flags, fail } = parseSkillCommand(argv, REMEMBER_SPEC);
   // `projectExplicit` is what lets remember tell "the agent chose memory" from
   // "the agent said nothing": only the latter may update a same-title document
   // that lives in another project instead of duplicating it into memory.
-  const out = { title: '', body: '', tags: [], type: undefined, project: 'memory', projectExplicit: false, id: undefined, ref: undefined, cite: undefined, agent: undefined };
-  const rest = [];
-  let tagSpelling = null;
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-    if (arg === '--tags' || arg === '--tag') {
-      // `prax remember` spells it --tag; an agent that learned that syntax
-      // keeps its tags here too. Both spellings in one call are refused.
-      if (tagSpelling && tagSpelling !== arg) throw new UsageError(`${tagSpelling} and ${arg} are the same option; give it once`, REMEMBER_USAGE);
-      tagSpelling = arg;
-      out.tags = takeValue(argv, i, REMEMBER_USAGE).split(',').map((t) => t.trim()).filter(Boolean); i += 1;
-    } else if (arg === '--type') {
-      const type = takeValue(argv, i, REMEMBER_USAGE); i += 1;
-      if (!isDocumentType(type)) throw new UsageError(`Unknown --type "${type}". Types: ${DOCUMENT_TYPE_VALUES.join(', ')}.`, REMEMBER_USAGE);
-      out.type = type;
-    } else if (arg === '--project') { out.project = takeValue(argv, i, REMEMBER_USAGE) || 'memory'; out.projectExplicit = true; i += 1; }
-    else if (arg === '--id') {
-      // Target one document outright, wherever it lives (recall prints the id).
-      const id = takeValue(argv, i, REMEMBER_USAGE); i += 1;
-      if (!UUID_RE.test(id)) throw new UsageError(`--id must be a document uuid (got "${id}")`, REMEMBER_USAGE);
-      out.id = id.toLowerCase();
-    }
-    else if (arg === '--cite') {
-      // Pin the code this memory makes a claim about. Validated where it is
-      // resolved (against a working tree), not here.
-      out.cite = takeValue(argv, i, REMEMBER_USAGE); i += 1;
-    }
-    else if (arg === '--ref') {
-      const ref = takeValue(argv, i, REMEMBER_USAGE); i += 1;
-      if (!/^https?:\/\/\S+$/i.test(ref)) throw new UsageError(`--ref must be an http(s) URL (got "${ref}")`, REMEMBER_USAGE);
-      out.ref = ref;
-    } else if (arg === '--agent') { out.agent = parseAgent(takeValue(argv, i, REMEMBER_USAGE), REMEMBER_USAGE); i += 1; }
-    else if (arg.startsWith('--')) throw new UsageError(`Unknown option "${arg}"`, REMEMBER_USAGE);
-    else rest.push(arg);
+  const out = {
+    title: '', body: '', tags: [], type: undefined, project: 'memory', projectExplicit: false,
+    id: undefined, ref: undefined, cite: undefined, agent: undefined,
+  };
+  if (flags.tags !== undefined) out.tags = flags.tags.split(',').map((t) => t.trim()).filter(Boolean);
+  if (flags.type !== undefined) {
+    if (!isDocumentType(flags.type)) throw fail(`Unknown --type "${flags.type}". Types: ${DOCUMENT_TYPE_VALUES.join(', ')}.`);
+    out.type = flags.type;
   }
-  if (rest.length > 2) throw new UsageError(`Unexpected argument "${rest[2]}" — quote the title and the body`, REMEMBER_USAGE);
-  out.title = (rest[0] || '').trim();
-  out.body = (rest[1] || '').trim();
-  if (!out.title || !out.body) throw new UsageError('remember needs a title and a body', REMEMBER_USAGE);
+  if (flags.project !== undefined) { out.project = flags.project || 'memory'; out.projectExplicit = true; }
+  if (flags.id !== undefined) {
+    // Target one document outright, wherever it lives (recall prints the id).
+    if (!UUID_RE.test(flags.id)) throw fail(`--id must be a document uuid (got "${flags.id}")`);
+    out.id = flags.id.toLowerCase();
+  }
+  // --cite pins the code this memory makes a claim about. Validated where it
+  // is resolved (against a working tree), not here.
+  out.cite = flags.cite;
+  if (flags.ref !== undefined) {
+    if (!/^https?:\/\/\S+$/i.test(flags.ref)) throw fail(`--ref must be an http(s) URL (got "${flags.ref}")`);
+    out.ref = flags.ref;
+  }
+  out.agent = parseAgent(flags.agent, fail);
+  out.title = (positionals[0] || '').trim();
+  out.body = (positionals[1] || '').trim();
+  if (!out.title || !out.body) throw fail('remember needs a title and a body');
   return out;
 }

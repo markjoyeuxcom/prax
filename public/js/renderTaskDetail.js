@@ -1,4 +1,5 @@
-import { escapeHtml, chip, prioDotClass } from './renderHelpers.js';
+import { cssColor, escapeHtml } from './html.js';
+import { chip, prioDotClass } from './renderHelpers.js';
 import {
   DESIGN_STATUSES,
   designStatus,
@@ -61,7 +62,7 @@ function renderStatusPills(task, dis) {
 function renderPriorityPills(task, dis) {
   const current = designPriority(task.priority);
   return PRIORITY_PILLS.map(([key, label]) =>
-    `<button class="pill-btn${current === key ? ' is-active--outline' : ''}" type="button" data-action="set-task-priority" data-priority="${apiPriority(key)}" aria-pressed="${current === key}"${dis}><span class="${prioDotClass(apiPriority(key))}" aria-hidden="true"></span>${label}</button>`,
+    `<button class="pill-btn${current === key ? ' is-active--outline' : ''}" type="button" data-action="set-task-priority" data-priority="${escapeHtml(apiPriority(key))}" aria-pressed="${current === key}"${dis}><span class="${prioDotClass(apiPriority(key))}" aria-hidden="true"></span>${label}</button>`,
   ).join('');
 }
 
@@ -333,7 +334,7 @@ function renderFoot(state, task, readOnly) {
 
 function renderHead(state, task, context, isDone, readOnly) {
   const project = context.project || null;
-  const projectColor = escapeHtml((project && project.color) || 'var(--accent)');
+  const projectColor = cssColor(project && project.color, 'var(--accent)');
   const projectChip = project
     ? chip(project.name || 'Project', 'project',
         `style="--project-color:${projectColor}; background:color-mix(in oklab, ${projectColor} 13%, transparent);"`)

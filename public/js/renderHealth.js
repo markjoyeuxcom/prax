@@ -1,4 +1,4 @@
-import { escapeHtml } from './renderHelpers.js';
+import { escapeHtml } from './html.js';
 
 // Library health view — a curation dashboard of documents that may need
 // attention: unverified AI drafts to review, empty stubs, and stale
@@ -14,7 +14,7 @@ function docRow(doc, rowAction, showTrust) {
   return `<div class="health-row">
     <button class="health-row__title" type="button" data-action="open-health-doc" data-doc-id="${escapeHtml(doc.id || '')}">${escapeHtml(doc.title || 'Untitled')}</button>
     <span class="health-row__meta">${escapeHtml(doc.documentType || 'note')}${agent}${unver}</span>
-    ${rowAction ? rowAction(doc) : ''}
+    ${rowAction ? rowAction(doc) : '' /* html-safe: rowAction is verifyBtn below, which escapes */}
   </div>`;
 }
 

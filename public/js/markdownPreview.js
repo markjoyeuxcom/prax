@@ -1,10 +1,44 @@
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+import { escapeHtml } from './html.js';
+
+// Prax's small Markdown renderer. One renderer serves two kinds of text, so
+// every render names its mode:
+//
+//   'document'  — a person's own document in the editor preview. Remote
+//                 (http/https) images load, and task items toggle their
+//                 source line when the caller passes editable: true.
+//   'untrusted' — model output (assistant, Ask Prax, narratives, writing
+//                 previews) and anything else built from agent-written text.
+//                 Remote images stay inert placeholders: the browser fetches
+//                 an <img> on render with no click, so a prompt-injected
+//                 answer could carry workspace data out in the image URL. Task
+//                 items are inert: a data-line there would rewrite whichever
+//                 document happens to be open.
+//
+// Everything is escaped in both modes; links are limited to http(s), a
+// same-site path or a #fragment.
+export const MARKDOWN_MODES = Object.freeze({ document: 'document', untrusted: 'untrusted' });
+
+// Resolve the caller's options into one render context.
+//   { mode: 'document', editable, resolveWikiLink }
+//   { mode: 'untrusted', resolveWikiLink }
+// Without a mode, the older flags keep their exact meaning: remoteImages:
+// true (the editor preview, i.e. 'document') and taskToggles: true opt in
+// one by one; the default is 'untrusted'. An unknown mode is 'untrusted'.
+export function markdownRenderContext(options = {}) {
+  const resolveWikiLink = typeof options.resolveWikiLink === 'function' ? options.resolveWikiLink : null;
+  if (options.mode === undefined) {
+    const remoteImages = options.remoteImages === true;
+    return {
+      mode: remoteImages ? 'document' : 'untrusted',
+      remoteImages,
+      taskToggles: options.taskToggles === true,
+      resolveWikiLink,
+    };
+  }
+  if (options.mode === 'document') {
+    return { mode: 'document', remoteImages: true, taskToggles: options.editable === true, resolveWikiLink };
+  }
+  return { mode: 'untrusted', remoteImages: false, taskToggles: false, resolveWikiLink };
 }
 
 // A fenced code block with a bar: the language label (when present) and a Copy
@@ -21,25 +55,36 @@ function renderCodeBlock(code, language) {
     + '</div>';
 }
 
-// Set per-render by renderMarkdownHtml: (title) => { id, title } | null. Lets
-// renderInline (called deep in the parse) resolve [[wiki-links]] without
-// threading the document list through every call. Safe because rendering is
-// synchronous and single-threaded.
-let wikiResolver = null;
-// Set per-render like wikiResolver. Remote (http/https) images load only when
-// the caller opts in for a person's own document. Model output (assistant,
-// Ask Prax, narratives, writing previews) and anything else built from
-// agent-written text never load one: the browser fetches an <img> on render
-// with no click, so a prompt-injected answer could carry workspace data out
-// in the image URL.
-let remoteImages = false;
-// Set per-render like wikiResolver. Task items toggle their source line only
-// in a person's own editable document: model output shares this renderer, and
-// there a data-line would rewrite whichever document happens to be open.
-let taskToggles = false;
+// Inline tokens. The inline rules are regular expressions over one line of
+// text; HTML they generate (code spans, wiki-links, links, images) is held
+// out of that text as a token, \u0000<index>\u0000, so later rules cannot
+// rewrite it. Tokens cannot be forged: renderMarkdownHtml removes every
+// U+0000 from the source first (a browser drops it from text anyway), so the
+// only delimiters in the text are the ones added here, and each index names
+// an entry of this render's own table.
+const TOKEN = /\u0000(\d+)\u0000/g;
+
+function createTokens() {
+  const items = [];
+  return {
+    // html: what the token renders as; text: its escaped plain text, for an
+    // attribute value; source: the raw Markdown it came from.
+    hold(html, text, source) {
+      items.push({ html, text, source });
+      return `\u0000${items.length - 1}\u0000`;
+    },
+    // Tokens may hold tokens (a link's text may hold an image or a code
+    // span), so each is expanded recursively. Function replacers throughout:
+    // a string replacement would treat `$&`, `` $` ``, `$'` and `$$` in
+    // user content as patterns.
+    html(value) { return value.replace(TOKEN, (_match, index) => this.html(items[index].html)); },
+    text(value) { return value.replace(TOKEN, (_match, index) => this.text(items[index].text)); },
+    source(value) { return value.replace(TOKEN, (_match, index) => this.source(items[index].source)); },
+  };
+}
 
 // Bold, italic and strikethrough over already-escaped text whose generated
-// HTML (links, images, code, wiki-links) is held in tokens.
+// HTML is held in tokens.
 function renderEmphasis(text) {
   let html = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   html = html.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
@@ -50,96 +95,74 @@ function renderEmphasis(text) {
   return html.replace(/~~([^~]+)~~/g, '<del>$1</del>');
 }
 
-function renderInline(value) {
-  const codeSpans = [];
-  let text = String(value ?? '').replace(/`([^`]+)`/g, (_match, code) => {
-    const token = `\u0000CODE${codeSpans.length}\u0000`;
-    codeSpans.push(`<code>${escapeHtml(code)}</code>`);
-    return token;
+function renderInline(value, context) {
+  const tokens = createTokens();
+  let text = String(value ?? '').replace(/`([^`]+)`/g, (match, code) => (
+    tokens.hold(`<code>${escapeHtml(code)}</code>`, escapeHtml(code), match)
+  ));
+
+  // Wiki-links [[Title]] are resolved on the RAW text (before escaping) so
+  // the resolver sees the true title — titles with & ' " < > would otherwise
+  // never match. A code span inside the brackets counts as its source text.
+  text = text.replace(/\[\[([^\]\n]+)\]\]/g, (match, rawTitle) => {
+    const title = tokens.source(rawTitle).trim();
+    const doc = context.resolveWikiLink ? context.resolveWikiLink(title) : null;
+    // href="#" makes the link focusable and announced as a link; the app's
+    // click handler cancels the navigation and runs data-action instead.
+    const html = doc
+      ? `<a class="wikilink" data-action="open-doc" data-document-id="${escapeHtml(doc.id)}" href="#" title="Open ${escapeHtml(doc.title || title)}">${escapeHtml(title)}</a>`
+      : `<span class="wikilink wikilink--missing" title="No document named this yet">${escapeHtml(title)}</span>`;
+    return tokens.hold(html, escapeHtml(title), tokens.source(match));
   });
 
-  // Wiki-links [[Title]] are resolved on the RAW text (before escapeHtml) so
-  // the resolver sees the true title — titles with & ' \" < > would otherwise
-  // never match. The rendered HTML is protected by a token like code spans,
-  // and its display title / attributes are escaped explicitly.
-  const wikiSpans = [];
-  text = text.replace(/\[\[([^\]\n]+)\]\]/g, (_match, rawTitle) => {
-    const title = rawTitle.trim();
-    const doc = wikiResolver ? wikiResolver(title) : null;
-    const token = `\u0000WIKI${wikiSpans.length}\u0000`;
-    if (doc) {
-      // href="#" makes the link focusable and announced as a link; the app's
-      // click handler cancels the navigation and runs data-action instead.
-      wikiSpans.push(`<a class="wikilink" data-action="open-doc" data-document-id="${escapeHtml(doc.id)}" href="#" title="Open ${escapeHtml(doc.title || title)}">${escapeHtml(title)}</a>`);
-    } else {
-      wikiSpans.push(`<span class="wikilink wikilink--missing" title="No document named this yet">${escapeHtml(title)}</span>`);
-    }
-    return token;
-  });
-
+  // From here on the text is escaped: the captures below are escaped text
+  // (URLs included), and a URL never holds a token.
   text = escapeHtml(text);
-  // Generated links and images are protected by tokens (like code spans)
-  // before the emphasis rules run: those rules would otherwise rewrite the
-  // URL itself, e.g. `pkg/__init__.py` → `pkg/<strong>init</strong>.py`.
-  // A link's visible text still gets emphasis, rendered on its own.
-  const htmlSpans = [];
-  const protect = (html) => {
-    const token = `\u0000HTML${htmlSpans.length}\u0000`;
-    htmlSpans.push(html);
-    return token;
-  };
+
   // Images ![alt](src) — before links, so the link rule doesn't eat the [..](..)
   // and strand the leading "!". src is restricted to http(s)/relative (no
-  // javascript:) and alt is already escaped by escapeHtml above.
-  text = text.replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+|\/[^)\s]+)\)/g, (_match, alt, src) => {
+  // javascript:). The alt attribute gets the plain text of any code span or
+  // wiki-link inside it, never their HTML.
+  text = text.replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s\u0000]+|\/[^)\s\u0000]+)\)/g, (match, alt, src) => {
     // Same-origin only for a single leading slash: a browser resolves `//host`
     // and `/\host` (backslash counts as a slash) to another origin.
     const samePage = /^\/(?![/\\])/.test(src);
-    if (remoteImages || samePage) return protect(`<img src="${src}" alt="${alt}" loading="lazy">`);
+    const altText = tokens.text(alt);
+    if (context.remoteImages || samePage) {
+      return tokens.hold(`<img src="${src}" alt="${altText}" loading="lazy">`, altText, match); // html-safe: src and alt are escaped text
+    }
     const host = src.replace(/^(?:https?:)?[/\\]{2}/, '').split(/[/\\?#]/)[0];
-    return protect(`<span class="md-image-blocked" title="Remote image not loaded">[image${alt ? `: ${alt}` : ''} — ${host}, not loaded]</span>`);
+    const label = `[image${alt ? `: ${alt}` : ''} — ${host}, not loaded]`;
+    return tokens.hold(`<span class="md-image-blocked" title="Remote image not loaded">${label}</span>`, altText, match); // html-safe: alt and host are escaped text
   });
-  text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+|\/[^)\s]+|#[^)\s]+)\)/g, (_match, label, href) => (
-    protect(`<a href="${href}" rel="noreferrer">${renderEmphasis(label)}</a>`)
+  // A link's visible text still gets emphasis, rendered on its own.
+  text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s\u0000]+|\/[^)\s\u0000]+|#[^)\s\u0000]+)\)/g, (match, label, href) => (
+    tokens.hold(`<a href="${href}" rel="noreferrer">${renderEmphasis(label)}</a>`, tokens.text(label), match) // html-safe: href is escaped text; label is escaped text with emphasis
   ));
-  text = renderEmphasis(text);
-  // Function replacers: a string replacement arg would treat `$&`, `` $` ``,
-  // `$'`, `$$` in the HTML (reachable from user content with `$`) as
-  // replacement patterns and corrupt output; a function inserts it verbatim.
-  // Links first, newest first: a link's text may hold an image, code-span or
-  // wiki token.
-  for (let index = htmlSpans.length - 1; index >= 0; index -= 1) {
-    text = text.replace(`\u0000HTML${index}\u0000`, () => htmlSpans[index]);
-  }
-  codeSpans.forEach((code, index) => {
-    text = text.replace(`\u0000CODE${index}\u0000`, () => code);
-  });
-  wikiSpans.forEach((wiki, index) => {
-    text = text.replace(`\u0000WIKI${index}\u0000`, () => wiki);
-  });
-  return text;
+  return tokens.html(renderEmphasis(text));
 }
 
-function flushParagraph(output, paragraph) {
+function flushParagraph(output, paragraph, context) {
   if (!paragraph.length) return;
-  output.push(`<p>${renderInline(paragraph.join(' '))}</p>`);
+  output.push(`<p>${renderInline(paragraph.join(' '), context)}</p>`);
   paragraph.length = 0;
 }
 
-function renderListItem(item, childHtml) {
+function renderListItem(item, childHtml, context) {
   if (item.type === 'task') {
-    // With options.taskToggles, a task item holds a checkbox (its box and
-    // label; the <li> keeps list semantics): main.js dispatches
-    // toggle-md-check (click, Space or Enter) and rewrites `- [ ]`/`- [x]` at
-    // data-line in the markdown source. Otherwise it is inert.
+    // With task toggles, a task item holds a checkbox (its box and label; the
+    // <li> keeps list semantics): main.js dispatches toggle-md-check (click,
+    // Space or Enter) and rewrites `- [ ]`/`- [x]` at data-line in the
+    // markdown source. Otherwise it is inert.
+    const line = Number(item.line);
     const content = `<span class="task-item__box">${item.checked ? '✓' : ''}</span> `
-      + `<span class="task-item__label">${renderInline(item.text)}</span>`;
-    const body = taskToggles
-      ? `<span class="task-item__toggle" data-action="toggle-md-check" data-line="${item.line}" role="checkbox" tabindex="0" aria-checked="${item.checked ? 'true' : 'false'}" title="Toggle this item">${content}</span>`
+      + `<span class="task-item__label">${renderInline(item.text, context)}</span>`;
+    const body = context.taskToggles
+      ? `<span class="task-item__toggle" data-action="toggle-md-check" data-line="${line}" role="checkbox" tabindex="0" aria-checked="${item.checked ? 'true' : 'false'}" title="Toggle this item">${content}</span>`
       : content;
-    return `<li class="task-item${item.checked ? ' is-done' : ''}" data-md-check data-line="${item.line}">${body}${childHtml}</li>`;
+    return `<li class="task-item${item.checked ? ' is-done' : ''}" data-md-check data-line="${line}">${body}${childHtml}</li>`;
   }
-  return `<li>${renderInline(item.text)}${childHtml}</li>`;
+  return `<li>${renderInline(item.text, context)}${childHtml}</li>`;
 }
 
 // Turn each item's raw indent into a nesting depth (0,1,2,…). Depth only ever
@@ -158,7 +181,7 @@ function assignListLevels(items) {
 // one level is one list; deeper items nest inside the preceding <li>; a change
 // of ordered/unordered kind at the same level starts a sibling list. Returns
 // [html, nextIndex].
-function buildListTree(items, start, level) {
+function buildListTree(items, start, level, context) {
   let html = '';
   let i = start;
   while (i < items.length && items[i].level >= level) {
@@ -170,20 +193,20 @@ function buildListTree(items, start, level) {
       i += 1;
       let childHtml = '';
       if (i < items.length && items[i].level > level) {
-        const [nested, next] = buildListTree(items, i, level + 1);
-        childHtml = nested;
+        const [nestedHtml, next] = buildListTree(items, i, level + 1, context);
+        childHtml = nestedHtml;
         i = next;
       }
-      lis += renderListItem(item, childHtml);
+      lis += renderListItem(item, childHtml, context);
     }
     html += `<${tag}>${lis}</${tag}>`;
   }
   return [html, i];
 }
 
-function flushList(output, listItems) {
+function flushList(output, listItems, context) {
   if (!listItems.length) return;
-  output.push(buildListTree(assignListLevels(listItems), 0, 0)[0]);
+  output.push(buildListTree(assignListLevels(listItems), 0, 0, context)[0]);
   listItems.length = 0;
 }
 
@@ -195,54 +218,48 @@ function parseTableRow(line) {
   return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(cell => cell.trim());
 }
 
-function flushTable(output, tableRows) {
+function flushTable(output, tableRows, context) {
   if (tableRows.length < 2 || !isTableSeparator(tableRows[1])) return false;
   const headers = parseTableRow(tableRows[0]);
   const rows = tableRows.slice(2).map(parseTableRow);
-  output.push(`<table><thead><tr>${headers.map(cell => `<th>${renderInline(cell)}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${row.map(cell => `<td>${renderInline(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table>`);
+  const head = headers.map(cell => `<th>${renderInline(cell, context)}</th>`).join('');
+  const body = rows.map(row => `<tr>${row.map(cell => `<td>${renderInline(cell, context)}</td>`).join('')}</tr>`).join('');
+  output.push(`<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`);
   tableRows.length = 0;
   return true;
 }
 
-// options.remoteImages: true only for a person's own document (editor preview);
-// every other caller gets inert placeholders for remote images.
-// options.taskToggles: true only for that preview while the document is
-// editable; every other caller renders task items inert.
+// renderMarkdownHtml(markdown, { mode: 'document', editable, resolveWikiLink })
+// renderMarkdownHtml(markdown, { mode: 'untrusted', resolveWikiLink })
+// See markdownRenderContext for the older remoteImages/taskToggles flags.
 export function renderMarkdownHtml(markdown = '', options = {}) {
-  wikiResolver = typeof options.resolveWikiLink === 'function' ? options.resolveWikiLink : null;
-  remoteImages = options.remoteImages === true;
-  taskToggles = options.taskToggles === true;
-  try {
-    return renderMarkdownBody(markdown);
-  } finally {
-    wikiResolver = null;
-    remoteImages = false;
-    taskToggles = false;
-  }
+  // U+0000 is the inline token delimiter; content never carries one.
+  const source = String(markdown || '').replace(/\u0000/g, '');
+  return renderMarkdownBody(source, markdownRenderContext(options));
 }
 
-function renderMarkdownBody(markdown) {
-  const lines = String(markdown || '').split(/\r?\n/);
+function renderMarkdownBody(markdown, context) {
+  const lines = markdown.split(/\r?\n/);
   const output = [];
   const paragraph = [];
   const listItems = [];
   const tableRows = [];
   let codeLines = null;
   let codeLanguage = '';
+  const flushBlocks = () => {
+    flushParagraph(output, paragraph, context);
+    flushList(output, listItems, context);
+  };
 
   lines.forEach((line, lineIndex) => {
     if (line.trim().startsWith('```')) {
+      flushBlocks();
+      flushTable(output, tableRows, context);
       if (codeLines) {
-        flushParagraph(output, paragraph);
-        flushList(output, listItems);
-        flushTable(output, tableRows);
         output.push(renderCodeBlock(codeLines.join('\n'), codeLanguage));
         codeLines = null;
         codeLanguage = '';
       } else {
-        flushParagraph(output, paragraph);
-        flushList(output, listItems);
-        flushTable(output, tableRows);
         codeLines = [];
         codeLanguage = line.trim().slice(3).trim().split(/\s+/)[0] || '';
       }
@@ -258,20 +275,18 @@ function renderMarkdownBody(markdown) {
     // Leading-whitespace width (tabs → 4) drives list nesting depth.
     const indent = line.slice(0, line.length - line.trimStart().length).replace(/\t/g, '    ').length;
     if (!trimmed) {
-      flushParagraph(output, paragraph);
-      flushList(output, listItems);
-      if (tableRows.length && !flushTable(output, tableRows)) {
+      flushBlocks();
+      if (tableRows.length && !flushTable(output, tableRows, context)) {
         paragraph.push(...tableRows);
         tableRows.length = 0;
-        flushParagraph(output, paragraph);
+        flushParagraph(output, paragraph, context);
       }
       return;
     }
 
     if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
-      flushParagraph(output, paragraph);
-      flushList(output, listItems);
-      flushTable(output, tableRows);
+      flushBlocks();
+      flushTable(output, tableRows, context);
       output.push('<hr>');
       return;
     }
@@ -285,62 +300,59 @@ function renderMarkdownBody(markdown) {
     // (e.g. `- | negative` in a symbol table) keeps rendering as a table.
     const startsBlock = /^(#{1,6}\s|>|[-*+]\s|\d+\.\s)/.test(trimmed);
     if (trimmed.includes('|') && (tableRows.length || (!startsBlock && /^\|?.+\|.+/.test(trimmed)))) {
-      flushParagraph(output, paragraph);
-      flushList(output, listItems);
+      flushBlocks();
       tableRows.push(trimmed);
       return;
     }
 
-    if (tableRows.length && !flushTable(output, tableRows)) {
+    if (tableRows.length && !flushTable(output, tableRows, context)) {
       paragraph.push(...tableRows);
       tableRows.length = 0;
     }
 
     const heading = /^(#{1,6})\s+(.+)$/.exec(trimmed);
     if (heading) {
-      flushParagraph(output, paragraph);
-      flushList(output, listItems);
-      output.push(`<h${heading[1].length}>${renderInline(heading[2])}</h${heading[1].length}>`);
+      flushBlocks();
+      const level = heading[1].length;
+      output.push(`<h${level}>${renderInline(heading[2], context)}</h${level}>`);
       return;
     }
 
     const blockquote = /^>\s?(.+)$/.exec(trimmed);
     if (blockquote) {
-      flushParagraph(output, paragraph);
-      flushList(output, listItems);
-      output.push(`<blockquote><p>${renderInline(blockquote[1])}</p></blockquote>`);
+      flushBlocks();
+      output.push(`<blockquote><p>${renderInline(blockquote[1], context)}</p></blockquote>`);
       return;
     }
 
     const taskItem = /^[-*]\s+\[([ xX])\]\s+(.+)$/.exec(trimmed);
     if (taskItem) {
-      flushParagraph(output, paragraph);
+      flushParagraph(output, paragraph, context);
       listItems.push({ type: 'task', checked: taskItem[1].toLowerCase() === 'x', text: taskItem[2], line: lineIndex, indent });
       return;
     }
 
     const orderedItem = /^\d+\.\s+(.+)$/.exec(trimmed);
     if (orderedItem) {
-      flushParagraph(output, paragraph);
+      flushParagraph(output, paragraph, context);
       listItems.push({ type: 'ordered', text: orderedItem[1], indent });
       return;
     }
 
     const listItem = /^[-*+]\s+(.+)$/.exec(trimmed);
     if (listItem) {
-      flushParagraph(output, paragraph);
+      flushParagraph(output, paragraph, context);
       listItems.push({ type: 'unordered', text: listItem[1], indent });
       return;
     }
 
-    flushList(output, listItems);
+    flushList(output, listItems, context);
     paragraph.push(trimmed);
   });
 
   if (codeLines) output.push(renderCodeBlock(codeLines.join('\n'), ''));
-  if (tableRows.length && !flushTable(output, tableRows)) paragraph.push(...tableRows);
-  flushParagraph(output, paragraph);
-  flushList(output, listItems);
+  if (tableRows.length && !flushTable(output, tableRows, context)) paragraph.push(...tableRows);
+  flushBlocks();
 
   return output.join('');
 }

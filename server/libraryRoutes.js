@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createInFlightOperations, intentHash as ledgerIntentHash, judgeReceipt } from './operationLedger.js';
 import { ZipArchive } from 'archiver';
 import { decorateExportDocuments } from './libraryExportData.js';
 import {
@@ -81,9 +81,14 @@ function agentFrom(request) {
 }
 
 function generationIntentHash(operation, intent) {
-  return createHash('sha256')
-    .update(JSON.stringify({ operation, ...intent }))
-    .digest('hex');
+  return ledgerIntentHash({ operation, ...intent });
+}
+
+// Whether a generated document's creation receipt (repository shape
+// { operation, intentHash }) records this generation intent.
+function isSameGeneration(receipt, operation, intentHash) {
+  const row = receipt ? { creation_operation: receipt.operation, creation_intent_hash: receipt.intentHash } : null;
+  return judgeReceipt('document-generation', row, intentHash, operation) === 'replay';
 }
 
 function isValidTags(value) {
@@ -254,9 +259,7 @@ export async function registerLibraryRoutes(app, options = {}) {
     const document = await repository.getDocument(id);
     if (!document) return { state: 'new' };
     const receipt = await repository.getDocumentCreationReceipt(id);
-    if (receipt?.operation === operation && receipt.intentHash === intentHash) {
-      return { state: 'replay', document };
-    }
+    if (isSameGeneration(receipt, operation, intentHash)) return { state: 'replay', document };
     return { state: 'conflict' };
   }
 
@@ -272,43 +275,25 @@ export async function registerLibraryRoutes(app, options = {}) {
     });
     if (result.created) return result;
     const receipt = await repository.getDocumentCreationReceipt(id);
-    if (receipt?.operation === operation && receipt.intentHash === intentHash) return result;
+    if (isSameGeneration(receipt, operation, intentHash)) return result;
     return { conflict: true };
   }
 
-  // In-flight receipts for caller-stable generations. The durable receipt is
-  // written only when the document commits, and a generation can take a
-  // provider minutes; a replay arriving meanwhile (an agent whose client timed
-  // out and retried with the same id) must wait for THAT generation instead
-  // of finding no receipt and generating a second document. Per process,
-  // which is the whole server: SQLite is embedded and one process owns it.
-  // The claim is taken synchronously, before any await, so two arrivals can
-  // never both become the generator.
-  const generationsInFlight = new Map();
+  // In-flight operations for caller-stable generations. The durable receipt
+  // is written only when the document commits, and a generation can take a
+  // provider minutes; a replay arriving meanwhile (an agent whose client
+  // timed out and retried with the same id) must wait for THAT generation
+  // instead of finding no receipt and generating a second document.
+  const generationsInFlight = createInFlightOperations();
   const GENERATION_CONFLICT = { message: 'document id was already used for a different generation intent' };
-
-  function claimGeneration(id, intentHash) {
-    if (!id) return null;
-    const existing = generationsInFlight.get(id);
-    if (existing) return { follower: existing };
-    let settle;
-    const entry = { intentHash, outcome: new Promise((resolve) => { settle = resolve; }) };
-    generationsInFlight.set(id, entry);
-    return {
-      finish(outcome) {
-        generationsInFlight.delete(id);
-        settle(outcome);
-      },
-    };
-  }
 
   // Run one generation as the claim's leader (or unclaimed, with no id), or
   // wait for the leader's outcome and answer as a replay of it.
   async function generateOnce(reply, { id, intentHash, replayOf }, generate) {
-    const claim = claimGeneration(id, intentHash);
-    if (claim?.follower) {
-      if (claim.follower.intentHash !== intentHash) { reply.code(409); return GENERATION_CONFLICT; }
-      const outcome = await claim.follower.outcome;
+    const claim = id ? generationsInFlight.claim(id, intentHash) : null;
+    if (claim && !claim.leader) {
+      if (claim.conflict) { reply.code(409); return GENERATION_CONFLICT; }
+      const outcome = await claim.outcome;
       reply.code(outcome.code >= 400 ? outcome.code : 200);
       return outcome.code >= 400 ? outcome.body : replayOf(outcome.body);
     }
@@ -316,7 +301,7 @@ export async function registerLibraryRoutes(app, options = {}) {
     try {
       outcome = await generate();
     } finally {
-      claim?.finish(outcome);
+      claim?.resolve(outcome);
     }
     reply.code(outcome.code);
     return outcome.body;

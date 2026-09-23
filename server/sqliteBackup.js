@@ -13,6 +13,7 @@ import {
 } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { backup as sqliteBackup, DatabaseSync } from 'node:sqlite';
+import { assertKnownSchema, knownMigrations, orderedMigrations } from './migrate.js';
 
 function databaseArtifacts(databaseFile) {
   return [databaseFile, `${databaseFile}-wal`, `${databaseFile}-shm`];
@@ -80,6 +81,36 @@ function openReadOnlyWithoutSidecars(path) {
     // caller must clean any sidecars this open itself creates.
     return new DatabaseSync(path, { readOnly: true, timeout: 5000 });
   }
+}
+
+// The migrations recorded in a settled database file ([] for a database that
+// has none, such as a file no Prax ever opened).
+export function readSchemaVersions(databaseFile) {
+  const path = resolve(databaseFile || '');
+  const [, walPath, shmPath] = databaseArtifacts(path);
+  const preExistingSidecars = new Set([walPath, shmPath].filter(existsSync));
+  let db;
+  try {
+    db = openReadOnlyWithoutSidecars(path);
+    const table = db.prepare("select 1 from sqlite_master where type = 'table' and name = 'schema_migrations'").get();
+    return table ? db.prepare('select version from schema_migrations').all().map((row) => row.version) : [];
+  } finally {
+    if (db) db.close();
+    for (const sidecar of [walPath, shmPath]) {
+      if (!preExistingSidecars.has(sidecar) && existsSync(sidecar)) unlinkSync(sidecar);
+    }
+  }
+}
+
+// The last migration a database file records, by this build's ordering.
+export function finalSchemaVersion(databaseFile) {
+  return orderedMigrations(readSchemaVersions(databaseFile)).at(-1)?.version ?? null;
+}
+
+// Restore guard: a database a newer Prax has migrated is never restored into
+// this build, which would then run older code on the newer schema.
+export function assertRestorableSchema(databaseFile, { knownVersions = knownMigrations() } = {}) {
+  assertKnownSchema(knownVersions, readSchemaVersions(databaseFile), { subject: 'This backup' });
 }
 
 export function validateSqliteBackup(databaseFile, { projectId, handoffNotes } = {}) {
@@ -198,6 +229,7 @@ export function restoreDatabaseFromBackup(backupFile, targetFile, { ownerDirecto
   if (occupied) throw new Error(`Refusing to overwrite existing SQLite restore target: ${occupied}`);
 
   validateSqliteBackup(source, marker);
+  assertRestorableSchema(source);
   mkdirSync(dirname(target), { recursive: true });
   const staging = join(dirname(target), `.${basename(target)}.restore-${process.pid}-${Date.now()}.tmp`);
   if (databaseArtifacts(staging).some(existsSync)) {
@@ -224,6 +256,8 @@ export function restoreDatabaseFromBackup(backupFile, targetFile, { ownerDirecto
     }
     syncFile(staging);
     validateSqliteBackup(staging, marker);
+    // Again after the checkpoint: a raw copy may hold a newer migration in its WAL.
+    assertRestorableSchema(staging);
     // The read-write checkpoint open creates fresh 0-byte -wal / -shm
     // companions on a WAL-mode file. Drop them after the LAST open so the
     // rename leaves no orphaned staging sidecars behind.

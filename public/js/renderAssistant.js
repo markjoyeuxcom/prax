@@ -1,4 +1,4 @@
-import { escapeHtml } from './renderHelpers.js';
+import { escapeHtml } from './html.js';
 import { icon } from './icons.js';
 
 // The built-in AI assistant panel — an agentic, multi-turn chat over the whole
@@ -104,7 +104,7 @@ export function lineDiff(before, after) {
 }
 
 function unchangedLines(n) {
-  return n ? `<div class="asst__diff-ctx">${n} unchanged line${n === 1 ? '' : 's'}</div>` : '';
+  return n ? `<div class="asst__diff-ctx">${escapeHtml(n)} unchanged line${n === 1 ? '' : 's'}</div>` : '';
 }
 
 function renderBody(change) {
@@ -248,7 +248,7 @@ export function renderAssistantHtml(state, { renderMarkdown = (s) => escapeHtml(
   const composerDisabled = noModel || busy;
   const modelNote = status && status.available
     ? (status.supportsTools
-      ? `${escapeHtml(status.model || 'model')} · ${status.toolCount} tools`
+      ? `${escapeHtml(status.model || 'model')} · ${escapeHtml(status.toolCount)} tools`
       : `${escapeHtml(status.model || 'model')} · read-only · answers from a live snapshot`)
     : '';
 

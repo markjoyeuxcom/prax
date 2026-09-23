@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { toIso } from './columnTypes.js';
 import { fuseHybrid } from './hybridRanking.js';
 import { normalizeTitle } from './documentTitle.js';
-import { createWithReceipt, creationIntentHash } from './creationReceipts.js';
+import { GONE, buildReadReceipt, createRecordOnce, creationIntentHash, intentHash as ledgerIntentHash, runOnce, runOnceInTransaction, withOperationTransaction } from './operationLedger.js';
 
 const DEFAULT_MIN_SIMILARITY = 0.45;
 const DEFAULT_TOP_DROP = 0.20;
@@ -165,14 +165,14 @@ export function buildCreateDocument(document, { ignoreIdConflict = false } = {})
 // not intent: the same agent retrying the same remember is still a replay.
 export function upsertIntentHash(document) {
   const tags = Array.isArray(document.tags) ? document.tags : [];
-  return createHash('sha256').update(JSON.stringify([
+  return ledgerIntentHash([
     document.projectId,
     document.title,
     String(document.body ?? ''),
     tags,
     document.documentType ?? null,
     document.kind ?? null,
-  ])).digest('hex');
+  ]);
 }
 
 export function documentMatchesCreateFields(document, fields) {
@@ -309,11 +309,17 @@ export function buildGetDocument(id) {
   return { text: 'select * from markdown_documents where id = $1 limit 1', values: [id] };
 }
 
+// A generated document's creation receipt (the 'document-generation' ledger kind).
 export function buildGetDocumentCreationReceipt(id) {
-  return {
-    text: 'select creation_operation, creation_intent_hash from markdown_documents where id = $1 limit 1',
-    values: [id],
-  };
+  return buildReadReceipt('document-generation', id);
+}
+
+// A receipt's replay: the document it produced as it is now, or GONE after a
+// permanent delete.
+async function currentDocument(q, id, wrap) {
+  const query = buildGetDocument(id);
+  const row = (await q.query(query.text, query.values)).rows[0];
+  return row ? wrap(normalizeDocumentRow(row)) : GONE;
 }
 
 // `revision` binds the blessing to the exact title+body the person reviewed
@@ -841,8 +847,8 @@ export function createLibraryRepository(db) {
       if (!document?.id) throw new Error('Idempotent document creation requires an id');
       await ready();
       if (receipt) {
-        const result = await createWithReceipt(db, {
-          kind: 'document',
+        const result = await createRecordOnce(db, {
+          recordKind: 'document',
           id: document.id,
           intentHash: creationIntentHash('document', document.id, [
             ...CREATE_FIELDS.map(key => document[key] ?? null), document.kind ?? 'source', document.verified === false,
@@ -871,43 +877,28 @@ export function createLibraryRepository(db) {
       };
     },
 
-    // Reuse the durable document operation ledger, with a domain-separated
-    // intent hash. The receipt survives permanent deletion, unlike a row ID.
+    // Shares the upsert operation id space (the 'document-upsert' ledger kind)
+    // with a domain-separated intent hash. The receipt survives permanent
+    // deletion, unlike a row ID.
     async createDocumentExactlyOnce(document, operationId) {
       await ready();
-      const intentHash = createHash('sha256').update(JSON.stringify([
-        'create-document', document.id, ...CREATE_FIELDS.map(key => document[key] ?? null),
-        document.kind ?? 'source', document.verified === false,
-      ])).digest('hex');
-      const client = await db.connect();
-      try {
-        await client.query('begin immediate');
-        try {
-          const receipt = await client.query('select document_id, intent_hash from document_upsert_receipts where operation_id = $1', [operationId]);
-          let result;
-          if (receipt.rows[0]) {
-            const prior = receipt.rows[0];
-            if (prior.intent_hash !== intentHash) result = { conflict: true };
-            else {
-              const query = buildGetDocument(prior.document_id);
-              const rows = await client.query(query.text, query.values);
-              result = rows.rows[0]
-                ? { document: normalizeDocumentRow(rows.rows[0]), created: false, replayed: true }
-                : { gone: true };
-            }
-          } else {
-            const query = buildCreateDocument(document, { ignoreIdConflict: true });
-            const rows = await client.query(query.text, query.values);
-            if (!rows.rows[0]) result = { conflict: true };
-            else {
-              await client.query('insert into document_upsert_receipts (operation_id, document_id, intent_hash) values ($1, $2, $3)', [operationId, document.id, intentHash]);
-              result = { document: normalizeDocumentRow(rows.rows[0]), created: true };
-            }
-          }
-          await client.query('commit');
-          return result;
-        } catch (error) { await client.query('rollback').catch(() => {}); throw error; }
-      } finally { client.release(); }
+      return runOnceInTransaction(db, {
+        kind: 'document-upsert',
+        key: operationId,
+        intentHash: ledgerIntentHash([
+          'create-document', document.id, ...CREATE_FIELDS.map(key => document[key] ?? null),
+          document.kind ?? 'source', document.verified === false,
+        ]),
+        conflict: () => ({ conflict: true }),
+        replay: (receipt, q) => currentDocument(q, receipt.document_id, (row) => ({ document: row, created: false, replayed: true })),
+        async execute({ q, record }) {
+          const query = buildCreateDocument(document, { ignoreIdConflict: true });
+          const rows = await q.query(query.text, query.values);
+          if (!rows.rows[0]) return { conflict: true };
+          await record({ document_id: document.id });
+          return { document: normalizeDocumentRow(rows.rows[0]), created: true };
+        },
+      });
     },
 
     // Atomic "remember": create-or-update by EXACT title within a project, in
@@ -924,30 +915,9 @@ export function createLibraryRepository(db) {
       // The caller id is an OPERATION id, not only a create id: it also names
       // an update-in-place, so a lost-response retry of either is exact-once.
       const operationId = document.id || null;
-      const intentHash = operationId ? upsertIntentHash(document) : null;
-      const recordReceipt = (queryable, documentId) => queryable.query(
-        'insert into document_upsert_receipts (operation_id, document_id, intent_hash) values ($1, $2, $3)',
-        [operationId, documentId, intentHash],
-      );
-      const run = async (queryable) => {
-        // A receipt for this operation wins over the title lookup: replaying a
-        // completed remember returns what it produced and never re-applies its
-        // old body over a newer accepted write (QINV-03); the same id with
-        // different content is a conflict, never a second update.
-        if (operationId) {
-          const receipt = await queryable.query(
-            'select document_id, intent_hash from document_upsert_receipts where operation_id = $1 limit 1',
-            [operationId],
-          );
-          const claimed = receipt.rows[0];
-          if (claimed) {
-            if (claimed.intent_hash !== intentHash) return { document: null, created: false, conflict: true };
-            const getQuery = buildGetDocument(claimed.document_id);
-            const current = await queryable.query(getQuery.text, getQuery.values);
-            if (!current.rows[0]) return { document: null, created: false, replayed: true, gone: true };
-            return { document: normalizeDocumentRow(current.rows[0]), created: false, replayed: true };
-          }
-        }
+      // Without an id the write is not retry-safe and records nothing.
+      const unrecorded = async () => {};
+      const run = async (queryable, recordReceipt = unrecorded) => {
         const found = await queryable.query(
           `select * from markdown_documents
            where project_id = $1 and title = $2 and archived_at is null and status = 'active'
@@ -967,7 +937,7 @@ export function createLibraryRepository(db) {
             ...(document.kind ? { kind: document.kind } : {}),
           };
           const updated = await updateDocumentOn(queryable, row.id, fields);
-          if (operationId) await recordReceipt(queryable, updated.id);
+          await recordReceipt(updated.id);
           return { document: updated, created: false };
         }
         const candidate = { ...document, documentType: document.documentType || 'note' };
@@ -975,7 +945,7 @@ export function createLibraryRepository(db) {
           const createQuery = buildCreateDocument(candidate, { ignoreIdConflict: true });
           const created = await queryable.query(createQuery.text, createQuery.values);
           if (created.rows[0]) {
-            await recordReceipt(queryable, candidate.id);
+            await recordReceipt(candidate.id);
             return { document: normalizeDocumentRow(created.rows[0]), created: true };
           }
           // A document already carries this id without a receipt (created
@@ -984,28 +954,29 @@ export function createLibraryRepository(db) {
           const prior = await queryable.query(getQuery.text, getQuery.values);
           const existing = prior.rows[0] ? normalizeDocumentRow(prior.rows[0]) : null;
           if (!existing || !documentMatchesCreateFields(existing, candidate)) return { document: existing, created: false, conflict: true };
-          await recordReceipt(queryable, existing.id);
+          await recordReceipt(existing.id);
           return { document: existing, created: false, replayed: true };
         }
         const createQuery = buildCreateDocument(candidate);
         const created = await queryable.query(createQuery.text, createQuery.values);
         return { document: normalizeDocumentRow(created.rows[0]), created: true };
       };
-      if (typeof db.connect !== 'function') return run(db);
-      const client = await db.connect();
-      try {
-        await client.query('begin immediate');
-        try {
-          const result = await run(client);
-          await client.query('commit');
-          return result;
-        } catch (err) {
-          await client.query('rollback').catch(() => {});
-          throw err;
-        }
-      } finally {
-        client.release();
-      }
+      return withOperationTransaction(db, (queryable) => {
+        if (!operationId) return run(queryable);
+        // A receipt for this operation wins over the title lookup: replaying a
+        // completed remember returns what it produced and never re-applies its
+        // old body over a newer accepted write (QINV-03); the same id with
+        // different content is a conflict, never a second update.
+        return runOnce(queryable, {
+          kind: 'document-upsert',
+          key: operationId,
+          intentHash: upsertIntentHash(document),
+          conflict: () => ({ document: null, created: false, conflict: true }),
+          replay: (receipt, q) => currentDocument(q, receipt.document_id, (current) => ({ document: current, created: false, replayed: true })),
+          gone: () => ({ document: null, created: false, replayed: true, gone: true }),
+          execute: ({ q, record }) => run(q, (documentId) => record({ document_id: documentId })),
+        });
+      });
     },
 
     // Read-merge-write in one session so the baseline check (`ifRevision`)
@@ -1016,51 +987,27 @@ export function createLibraryRepository(db) {
     async updateDocument(id, fields, options = {}) {
       await ready();
       const { operationId } = options;
-      const intentHash = operationId ? createHash('sha256').update(JSON.stringify([
-        id,
-        // Baseline and actor are not new intent: an already committed update
-        // keeps its first attribution even if another client reconciles it.
-        Object.keys(fields).filter(key => Object.hasOwn(UPDATE_COLUMN_MAP, key)).sort().map(key => [key, fields[key]]),
-      ])).digest('hex') : null;
-      const run = async (queryable) => {
-        if (operationId) {
-          const receipt = await queryable.query(
-            'select document_id, intent_hash from document_update_receipts where operation_id = $1', [operationId],
-          );
-          if (receipt.rows[0]) {
-            if (receipt.rows[0].intent_hash !== intentHash) throw new DocumentUpdateConflictError('update-intent-mismatch');
-            const query = buildGetDocument(receipt.rows[0].document_id);
-            const current = await queryable.query(query.text, query.values);
-            if (!current.rows[0]) throw new DocumentUpdateConflictError('update-result-gone');
-            return { ...normalizeDocumentRow(current.rows[0]), replayed: true };
-          }
-        }
-        const document = await updateDocumentOn(queryable, id, fields, options);
-        if (document && operationId) {
-          await queryable.query(
-            'insert into document_update_receipts (operation_id, document_id, intent_hash) values ($1, $2, $3)',
-            [operationId, id, intentHash],
-          );
-        }
-        return document;
-      };
-      if (typeof db.connect !== 'function') {
-        return run(db);
-      }
-      const client = await db.connect();
-      try {
-        await client.query('begin immediate');
-        try {
-          const document = await run(client);
-          await client.query('commit');
-          return document;
-        } catch (err) {
-          await client.query('rollback').catch(() => {});
-          throw err;
-        }
-      } finally {
-        client.release();
-      }
+      return withOperationTransaction(db, (queryable) => {
+        if (!operationId) return updateDocumentOn(queryable, id, fields, options);
+        return runOnce(queryable, {
+          kind: 'document-update',
+          key: operationId,
+          intentHash: ledgerIntentHash([
+            id,
+            // Baseline and actor are not new intent: an already committed update
+            // keeps its first attribution even if another client reconciles it.
+            Object.keys(fields).filter(key => Object.hasOwn(UPDATE_COLUMN_MAP, key)).sort().map(key => [key, fields[key]]),
+          ]),
+          conflict: () => { throw new DocumentUpdateConflictError('update-intent-mismatch'); },
+          replay: (receipt, q) => currentDocument(q, receipt.document_id, (current) => ({ ...current, replayed: true })),
+          gone: () => { throw new DocumentUpdateConflictError('update-result-gone'); },
+          async execute({ q, record }) {
+            const document = await updateDocumentOn(q, id, fields, options);
+            if (document) await record({ document_id: id });
+            return document;
+          },
+        });
+      });
     },
 
     async archiveDocument(id) {

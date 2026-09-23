@@ -21,7 +21,10 @@ A saved undo receipt is retained; the tab's Undo button selection is separate br
    ```
 
    The destination and sidecars must not exist. The command checks SHA-256, SQLite integrity
-   and foreign keys, restores the database and restricts the file to its owner. To run it
+   and foreign keys, restores the database and restricts the file to its owner. It reads the
+   `manifest.json` beside `prax.db` (or pass `--manifest <path>`) and refuses a backup made by a
+   newer Prax, by its `praxVersion`, its `schema.finalMigration` and the database's own migration
+   history, before writing anything. To run it
    from the macOS app bundle, use its bundled Node executable and script:
 
    ```sh
@@ -31,7 +34,8 @@ A saved undo receipt is retained; the tab's Undo button selection is separate br
    Locate the existing app-data database path before choosing the destination; do not assume
    your terminal checkout's database is the installed app's database. On server deployments,
    use the configured `PRAX_DB_FILE`. Other desktop platforms package the same script.
-4. Start Prax using the restored database. Startup applies supported migrations. Check health,
+4. Start Prax using the restored database. Startup applies supported migrations, and refuses a
+   database that a newer Prax has already migrated rather than run older code on it. Check health,
    recent Memory/Inbox documents, tasks, references and run history. If validation fails, quit
    and restore the saved pre-restore files. Retain the rollback copy until accepted.
 

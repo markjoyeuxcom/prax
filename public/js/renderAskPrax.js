@@ -1,5 +1,5 @@
 import { incompleteIndexNotice } from './retrievalStatus.js';
-import { escapeHtml } from './renderHelpers.js';
+import { escapeHtml } from './html.js';
 import { icon } from './icons.js';
 
 // "Ask Prax" overlay — ask a question and get a grounded, cited answer

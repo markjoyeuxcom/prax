@@ -1,4 +1,4 @@
-import { escapeHtml } from './renderHelpers.js';
+import { escapeHtml } from './html.js';
 
 // Prax-native find/replace panel for the Markdown editor. It floats over the
 // editor (top-right) and drives CodeMirror's search *commands* through the

@@ -76,3 +76,15 @@ test('recall: --recent with a query is refused rather than ignoring the query', 
   assert.throws(() => parseRecallArgs(['--recent', '3', 'postgres']), /takes no query/);
   assert.throws(() => parseRecallArgs(['postgres', '--recent']), UsageError);
 });
+
+// The skills parse with the CLI's engine (cli/lib/cliArgs.js), so they share
+// its grammar: the = form, and a lone -- that ends the flags.
+test('skills share the CLI grammar: --flag=value, and -- ends the flags', () => {
+  assert.deepEqual(parseRememberArgs(['T', 'B', '--tags=a,b', '--project=ops']).tags, ['a', 'b']);
+  assert.equal(parseRememberArgs(['T', 'B', '--project=ops']).project, 'ops');
+  // A body that starts with -- passes intact after the terminator.
+  assert.equal(parseRememberArgs(['--type', 'note', '--', 'T', '--json is documented']).body, '--json is documented');
+  assert.equal(parseRecallArgs(['--recent=3']).limit, 3);
+  assert.throws(() => parseRecallArgs(['--recent=0']), /--recent takes an optional positive count/);
+  assert.throws(() => parseRecallArgs(['q', '--project']), (err) => err instanceof UsageError && /^--project needs a value\nUsage: recall/.test(err.message));
+});

@@ -1,4 +1,4 @@
-import { escapeHtml } from './renderHelpers.js';
+import { escapeHtml } from './html.js';
 import { localTimeOf } from './dateHelpers.js';
 
 // A bare checkmark (no surrounding box — the box is drawn by .run-step__box).
@@ -81,9 +81,9 @@ export function renderRunHtml(state, run, { docTitle = '', now = new Date() } = 
         <button class="btn-outline btn-outline--danger" type="button" data-action="abort-run" data-run-id="${escapeHtml(run.id)}"${pending ? ' disabled' : ''}>Abort</button>`;
   } else if (aborted) {
     footer = `<button class="btn-primary" type="button" data-action="resume-run" data-run-id="${escapeHtml(run.id)}"${pending ? ' disabled' : ''}>${pending ? 'Saving…' : 'Resume run'}</button>
-      <span class="view-hint">Run aborted${run.finishedAt ? ` at ${hm(run.finishedAt)}` : ''}${run.finishedBy ? ` by ${escapeHtml(run.finishedBy)}` : ''}.</span>`;
+      <span class="view-hint">Run aborted${run.finishedAt ? ` at ${escapeHtml(hm(run.finishedAt))}` : ''}${run.finishedBy ? ` by ${escapeHtml(run.finishedBy)}` : ''}.</span>`;
   } else {
-    footer = `<span class="view-hint">Run completed${run.finishedAt ? ` at ${hm(run.finishedAt)}` : ''}${run.finishedBy ? ` by ${escapeHtml(run.finishedBy)}` : ''}.</span>`;
+    footer = `<span class="view-hint">Run completed${run.finishedAt ? ` at ${escapeHtml(hm(run.finishedAt))}` : ''}${run.finishedBy ? ` by ${escapeHtml(run.finishedBy)}` : ''}.</span>`;
   }
 
   const events = Array.isArray(run.events) ? run.events : [];

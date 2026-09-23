@@ -66,139 +66,221 @@ function localDayHeaders(now = /* @__PURE__ */ new Date()) {
   return { [LOCAL_DATE_HEADER]: localToday(now), ...timeZone ? { [TIME_ZONE_HEADER]: timeZone } : {} };
 }
 
-// cli/lib/apiClient.js
-var SEMANTIC_PAGE_MAX = 50;
+// server/praxTransport.js
 var DEFAULT_TIMEOUT_MS = 3e4;
 var PROBE_TIMEOUT_MS = 2e3;
-function timeoutFromEnv(env = process.env) {
-  const raw = env.PRAX_TIMEOUT_MS;
+var TIMEOUT_ENV = "PRAX_TIMEOUT_MS";
+var LONG_TIMEOUT_ENV = "PRAX_MCP_TIMEOUT_MS";
+var PROVEN_UNSENT_CODES = ["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN"];
+var PraxUnavailableError = class extends Error {
+  constructor(message, { kind = "unreachable", timeoutMs } = {}) {
+    super(message);
+    this.name = "PraxUnavailableError";
+    this.kind = kind;
+    this.timedOut = kind === "timeout";
+    if (timeoutMs !== void 0) this.timeoutMs = timeoutMs;
+  }
+};
+var PraxApiError = class extends Error {
+  constructor(status, message) {
+    super(message);
+    this.name = "PraxApiError";
+    this.kind = "http";
+    this.status = status;
+  }
+};
+function tokenFromEnv(env = process.env) {
+  return env.PRAX_API_TOKEN || env.PRAX_TOKEN || env.MOOMORA_API_TOKEN || void 0;
+}
+function millisecondsFromEnv(name, env = process.env) {
+  const raw = env[name];
   if (raw === void 0 || raw === "") return void 0;
   const ms = Number(raw);
   if (!/^\d+$/.test(String(raw).trim()) || !Number.isSafeInteger(ms) || ms < 1) {
-    throw new TypeError(`PRAX_TIMEOUT_MS must be a positive number of milliseconds (got "${raw}")`);
+    throw new TypeError(`${name} must be a positive number of milliseconds (got "${raw}")`);
   }
   return ms;
 }
+var timeoutFromEnv = (env = process.env) => millisecondsFromEnv(TIMEOUT_ENV, env);
 function formatDuration(ms) {
   return ms >= 1e3 && ms % 1e3 === 0 ? `${ms / 1e3} s` : `${ms} ms`;
 }
-function isTimeout(err) {
+function isTimeoutError(err) {
   const name = err?.name || err?.cause?.name;
   return name === "TimeoutError" || name === "AbortError";
 }
+function isProvenUnsent(err) {
+  return PROVEN_UNSENT_CODES.includes(err?.cause?.code || err?.code);
+}
+var WRITE_UNKNOWN = "Write outcome unknown; reconcile before retrying. ";
+var stripSlash = (url) => String(url).replace(/\/+$/, "");
+function checkBound(name, value) {
+  if (!Number.isFinite(value) || value < 1) throw new TypeError(`${name} must be a positive finite number`);
+}
+function createTransport({
+  baseUrl,
+  bases,
+  env = process.env,
+  portFile,
+  readPortFile,
+  token,
+  agent,
+  fetch,
+  sendLocalDay = true,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  longTimeoutMs,
+  probeTimeoutMs = PROBE_TIMEOUT_MS
+} = {}) {
+  checkBound("timeoutMs", timeoutMs);
+  if (longTimeoutMs !== void 0) checkBound("longTimeoutMs", longTimeoutMs);
+  checkBound("probeTimeoutMs", probeTimeoutMs);
+  const send = fetch || ((...args) => globalThis.fetch(...args));
+  const bearer = token === void 0 ? tokenFromEnv(env) : token;
+  const agentId = agent === void 0 ? detectAgent(env) : sanitizeAgentId(agent);
+  const candidatesNow = () => (bases || resolveBaseUrls({ baseUrl, env, portFile, read: readPortFile })).map(stripSlash);
+  const candidates = candidatesNow();
+  let base = candidates.length === 1 ? candidates[0] : null;
+  let discovery = null;
+  const unreachable = (where, err) => new PraxUnavailableError(
+    `Prax not reachable at ${where} \u2014 is the app running? (${err?.message || "no candidate answered"})`
+  );
+  async function probe() {
+    const list = candidatesNow();
+    let lastError;
+    for (const candidate of list) {
+      try {
+        await send(`${candidate}/readyz`, { method: "GET", signal: AbortSignal.timeout(probeTimeoutMs) });
+        base ??= candidate;
+        return;
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    throw unreachable(list.join(" or "), lastError);
+  }
+  function ensurePinned() {
+    if (base) return Promise.resolve();
+    discovery ??= probe().finally(() => {
+      discovery = null;
+    });
+    return discovery;
+  }
+  async function request(method, path, {
+    query,
+    body,
+    headers: extraHeaders,
+    agentWrite = false,
+    accept,
+    retry = false,
+    long = false,
+    timeoutMs: requestTimeoutMs,
+    parse
+  } = {}) {
+    const headers = sendLocalDay ? localDayHeaders() : {};
+    if (body !== void 0) headers["content-type"] = "application/json";
+    if (agentWrite) headers["x-prax-origin"] = "agent";
+    if (accept) headers.accept = accept;
+    if (extraHeaders) Object.assign(headers, extraHeaders);
+    if (headers["x-prax-origin"] === "agent" && agentId) headers["x-prax-agent"] = agentId;
+    if (bearer) headers.authorization = `Bearer ${bearer}`;
+    const payload = body === void 0 ? void 0 : JSON.stringify(body);
+    const bound = requestTimeoutMs ?? (long ? longTimeoutMs : timeoutMs);
+    checkBound(long ? "longTimeoutMs" : "timeoutMs", bound);
+    const write = !["GET", "HEAD"].includes(method);
+    await ensurePinned();
+    const target = base;
+    const url = new URL(target + path);
+    for (const [key, value] of Object.entries(query || {})) {
+      if (value !== void 0 && value !== null && value !== "") url.searchParams.set(key, String(value));
+    }
+    const timedOut = (err) => new PraxUnavailableError(
+      `${write ? WRITE_UNKNOWN : ""}Prax at ${target} did not answer within ${formatDuration(bound)} \u2014 the request may still be processing; it was not re-sent. Set ${long ? LONG_TIMEOUT_ENV : TIMEOUT_ENV} to wait longer. (${err.message})`,
+      { kind: "timeout", timeoutMs: bound }
+    );
+    const signal = AbortSignal.timeout(bound);
+    const attempts = retry ? 2 : 1;
+    let response;
+    let lastError;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      try {
+        response = await send(url.toString(), { method, headers, body: payload, signal });
+        break;
+      } catch (err) {
+        lastError = err;
+        if (isTimeoutError(err)) break;
+        if (retry === "connect-only" && !isProvenUnsent(err)) break;
+      }
+    }
+    if (!response) {
+      if (isTimeoutError(lastError)) throw timedOut(lastError);
+      const error = unreachable(target, lastError);
+      if (write) error.message = `${WRITE_UNKNOWN}${error.message}`;
+      throw error;
+    }
+    let parsed;
+    try {
+      parsed = await parse(response);
+    } catch (err) {
+      if (isTimeoutError(err)) throw timedOut(err);
+      throw err;
+    }
+    if (!response.ok) {
+      throw new PraxApiError(response.status, parsed && parsed.message || `HTTP ${response.status}`);
+    }
+    return parsed;
+  }
+  return {
+    request,
+    // The pinned instance, or the first candidate before anything answered.
+    get base() {
+      return base ?? candidates[0];
+    },
+    candidates,
+    agent: agentId
+  };
+}
+
+// cli/lib/apiClient.js
+var SEMANTIC_PAGE_MAX = 50;
+var parseResponse = (res) => (res.headers.get("content-type") || "").includes("application/json") ? res.json() : res.text();
 function createClient({
   baseUrl,
   token,
   agent,
   env = process.env,
   bases,
+  fetch,
   timeoutMs = timeoutFromEnv(env) ?? DEFAULT_TIMEOUT_MS,
   probeTimeoutMs = PROBE_TIMEOUT_MS
 } = {}) {
-  for (const [name, value] of [["timeoutMs", timeoutMs], ["probeTimeoutMs", probeTimeoutMs]]) {
-    if (!Number.isFinite(value) || value < 1) throw new TypeError(`${name} must be a positive finite number`);
-  }
-  const candidates = bases || resolveBaseUrls({ baseUrl, env });
-  let base = candidates[0];
-  let pinned = candidates.length === 1;
-  let discovery = null;
-  const agentId = agent === void 0 ? detectAgent(env) : sanitizeAgentId(agent);
-  const bearer = token ?? env.PRAX_TOKEN;
-  function unreachable(lastError) {
-    const where = pinned ? base : candidates.join(" or ");
-    return new Error(`Prax not reachable at ${where} \u2014 is the app running? (${lastError.message})`);
-  }
-  async function probe() {
-    let lastError;
-    for (const candidate of candidates) {
-      try {
-        await fetch(`${candidate}/readyz`, { method: "GET", signal: AbortSignal.timeout(probeTimeoutMs) });
-        if (!pinned) {
-          base = candidate;
-          pinned = true;
-        }
-        return;
-      } catch (err) {
-        lastError = err;
-      }
-    }
-    throw unreachable(lastError);
-  }
-  function ensurePinned() {
-    if (pinned) return Promise.resolve();
-    if (!discovery) {
-      discovery = probe().catch((err) => {
-        discovery = null;
-        throw err;
-      });
-    }
-    return discovery;
-  }
-  async function request(method, path, {
+  const transport = createTransport({
+    baseUrl,
+    bases,
+    env,
+    token,
+    agent,
+    fetch,
+    timeoutMs,
+    probeTimeoutMs
+  });
+  const request = (method, path, {
     body,
     agent: agentWrite = false,
     accept,
     retryUnavailable = false
-  } = {}) {
-    const headers = localDayHeaders();
-    if (body !== void 0) headers["content-type"] = "application/json";
-    if (agentWrite) {
-      headers["x-prax-origin"] = "agent";
-      if (agentId) headers["x-prax-agent"] = agentId;
-    }
-    if (accept) headers["accept"] = accept;
-    if (bearer) headers["authorization"] = `Bearer ${bearer}`;
-    const payload = body === void 0 ? void 0 : JSON.stringify(body);
-    await ensurePinned();
-    const target = base;
-    let res;
-    let lastError;
-    const attempts = retryUnavailable ? 2 : 1;
-    const signal = AbortSignal.timeout(timeoutMs);
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
-      try {
-        res = await fetch(`${target}${path}`, { method, headers, body: payload, signal });
-        break;
-      } catch (err) {
-        lastError = err;
-        if (isTimeout(err)) break;
-        if (retryUnavailable === "connect-only" && !["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN"].includes(err?.cause?.code || err?.code)) break;
-      }
-    }
-    const write = !["GET", "HEAD"].includes(method);
-    const timedOut = (err) => {
-      const error = new Error(`${write ? "Write outcome unknown; reconcile before retrying. " : ""}Prax at ${target} did not answer within ${formatDuration(timeoutMs)} \u2014 the request may still be processing; it was not re-sent. Set PRAX_TIMEOUT_MS to wait longer. (${err.message})`);
-      error.timedOut = true;
-      return error;
-    };
-    if (!res) {
-      if (isTimeout(lastError)) throw timedOut(lastError);
-      const error = unreachable(lastError);
-      if (write) error.message = `Write outcome unknown; reconcile before retrying. ${error.message}`;
-      throw error;
-    }
-    const ct = res.headers.get("content-type") || "";
-    let parsed;
-    try {
-      parsed = ct.includes("application/json") ? await res.json() : await res.text();
-    } catch (err) {
-      if (isTimeout(err)) throw timedOut(err);
-      throw err;
-    }
-    if (!res.ok) {
-      const message = parsed && parsed.message ? parsed.message : `HTTP ${res.status}`;
-      const error = new Error(message);
-      error.status = res.status;
-      throw error;
-    }
-    return parsed;
-  }
+  } = {}) => transport.request(method, path, {
+    body,
+    agentWrite,
+    accept,
+    retry: retryUnavailable,
+    parse: parseResponse
+  });
   return {
     get base() {
-      return base;
+      return transport.base;
     },
-    candidates,
-    agent: agentId,
+    candidates: transport.candidates,
+    agent: transport.agent,
     contextPack(project, { query, format = "md", limit } = {}) {
       const params = new URLSearchParams();
       if (query) params.set("query", query);
@@ -442,8 +524,8 @@ function checkCitation(ref, currentText, { budgetLines = MOVED_SCAN_BUDGET_LINES
   const origin = Math.min(Math.max(startLine - 1, 0), lastFirst);
   const windows = Math.max(1, Math.floor(budgetLines / span));
   let tried = 0;
-  for (let distance = 0; tried < windows && (origin - distance >= 0 || origin + distance <= lastFirst); distance += 1) {
-    for (const from of distance === 0 ? [origin] : [origin - distance, origin + distance]) {
+  for (let distance2 = 0; tried < windows && (origin - distance2 >= 0 || origin + distance2 <= lastFirst); distance2 += 1) {
+    for (const from of distance2 === 0 ? [origin] : [origin - distance2, origin + distance2]) {
       if (from < 0 || from > lastFirst || tried >= windows) continue;
       tried += 1;
       if (hashWindow(lines, from, span) === contentHash) {
@@ -820,6 +902,146 @@ var DOCUMENT_TYPES = [
 var DOCUMENT_TYPE_VALUES = DOCUMENT_TYPES.map((t) => t.value);
 var BY_VALUE = new Map(DOCUMENT_TYPES.map((t) => [t.value, t]));
 
+// cli/lib/cliArgs.js
+var CliUsageError = class extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "CliUsageError";
+  }
+};
+var needsValue = (key) => `--${key} needs a value; for text that starts with "--" write --${key}="<text>".`;
+var CLI_MESSAGES = {
+  unknownFlag: (raw, hint) => `Unknown flag --${raw}${hint ? ` (did you mean --${hint}?)` : ""}.`,
+  // An alias and its canonical name together would be last-wins between two
+  // spellings of one intent; the engine refuses rather than pick one.
+  sameFlag: (earlier, raw) => `--${earlier} and --${raw} are the same flag; give it once.`,
+  takesNoValue: (key) => `--${key} takes no value.`,
+  needsValue
+};
+var cliFail = (message) => new CliUsageError(message);
+function distance(a, b) {
+  const row = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i += 1) {
+    let prev = row[0];
+    row[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const cur = row[j];
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = cur;
+    }
+  }
+  return row[b.length];
+}
+function suggestFlag(key, names) {
+  let best = null;
+  let bestScore = Infinity;
+  for (const name of names) {
+    const score = distance(key, name);
+    if (score < bestScore) {
+      best = name;
+      bestScore = score;
+    }
+  }
+  return best !== null && bestScore <= 2 ? best : null;
+}
+function parseArgs(argv, {
+  repeatable = [],
+  boolean = [],
+  optional = {},
+  known,
+  aliases = {},
+  messages: wording,
+  fail = cliFail
+} = {}) {
+  const say = { ...CLI_MESSAGES, ...wording };
+  const multi = new Set(repeatable);
+  const bools = new Set(boolean);
+  const strict = Array.isArray(known) || known instanceof Set;
+  const names = strict ? /* @__PURE__ */ new Set([...known, ...bools, ...multi, ...Object.keys(optional)]) : null;
+  const positionals = [];
+  const flags = {};
+  const spelledAs = /* @__PURE__ */ new Map();
+  const set = (key, value) => {
+    if (multi.has(key)) (flags[key] ||= []).push(value);
+    else flags[key] = value;
+  };
+  const resolve2 = (raw) => {
+    const key = Object.prototype.hasOwnProperty.call(aliases, raw) ? aliases[raw] : raw;
+    if (strict && !names.has(key)) {
+      const hint = suggestFlag(key, names);
+      throw fail(say.unknownFlag(raw, hint));
+    }
+    const earlier = spelledAs.get(key);
+    if (earlier !== void 0 && earlier !== raw) throw fail(say.sameFlag(earlier, raw));
+    spelledAs.set(key, raw);
+    return key;
+  };
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === "--") {
+      positionals.push(...argv.slice(i + 1));
+      break;
+    }
+    if (!arg.startsWith("--")) {
+      positionals.push(arg);
+      continue;
+    }
+    const eq = arg.indexOf("=");
+    if (eq > 2) {
+      const key2 = resolve2(arg.slice(2, eq));
+      if (strict && bools.has(key2)) throw fail(say.takesNoValue(key2));
+      set(key2, arg.slice(eq + 1));
+      continue;
+    }
+    const key = resolve2(arg.slice(2));
+    if (bools.has(key)) {
+      set(key, true);
+      continue;
+    }
+    const next = argv[i + 1];
+    if (optional[key]) {
+      if (next !== void 0 && optional[key](next)) {
+        set(key, next);
+        i += 1;
+      } else set(key, true);
+      continue;
+    }
+    if (next === void 0 || next.startsWith("--")) {
+      if (strict) throw fail(say.needsValue(key));
+      set(key, true);
+    } else {
+      set(key, next);
+      i += 1;
+    }
+  }
+  return { positionals, flags };
+}
+function parseCommand(argv, {
+  value = [],
+  boolean = [],
+  optional = {},
+  repeatable = [],
+  aliases = {},
+  max = Infinity,
+  messages: wording,
+  fail = cliFail
+} = {}) {
+  const parsed = parseArgs(argv, {
+    known: value,
+    boolean,
+    optional,
+    repeatable,
+    aliases,
+    messages: wording,
+    fail
+  });
+  if (parsed.positionals.length > max) {
+    const unexpected = wording?.unexpected || ((word) => `unexpected argument "${word}".`);
+    throw fail(unexpected(parsed.positionals[max]));
+  }
+  return parsed;
+}
+
 // cli/lib/skillArgs.js
 var RECALL_USAGE = 'Usage: recall "<query>" [--project <slug>] [--limit <n>] [--agent <id>]\n       recall --recent [n] [--project <slug>]';
 var REMEMBER_USAGE = `Usage: remember "<title>" "<body>" [--tags a,b] [--type ${DOCUMENT_TYPE_VALUES.join("|")}] [--project <slug>] [--id <uuid>] [--ref <url>] [--cite <path[:start[-end]]>] [--agent <id>]`;
@@ -830,48 +1052,54 @@ ${usage}`);
     this.name = "UsageError";
   }
 };
-function takeValue(argv, index, usage) {
-  const flag = argv[index];
-  const value = argv[index + 1];
-  if (value === void 0 || value.startsWith("--")) throw new UsageError(`${flag} needs a value`, usage);
-  return value;
+var SKILL_MESSAGES = {
+  unknownFlag: (raw) => `Unknown option "--${raw}"`,
+  sameFlag: (earlier, raw) => `--${earlier} and --${raw} are the same option; give it once`,
+  takesNoValue: (key) => `--${key} takes no value`,
+  needsValue: (key) => `--${key} needs a value`
+};
+var RECALL_SPEC = {
+  usage: RECALL_USAGE,
+  value: ["project", "limit", "agent"],
+  optional: { recent: (next) => !next.startsWith("--") }
+};
+function parseSkillCommand(argv, spec) {
+  const fail = (message) => new UsageError(message, spec.usage);
+  const parsed = parseCommand(argv, {
+    ...spec,
+    messages: { ...SKILL_MESSAGES, ...spec.unexpected ? { unexpected: spec.unexpected } : {} },
+    fail
+  });
+  return { ...parsed, fail };
 }
-function parseAgent(value, usage) {
+function parseAgent(value, fail) {
+  if (value === void 0) return void 0;
   const agent = sanitizeAgentId(value);
-  if (!agent) throw new UsageError(`--agent must be a short id like "claude" or "codex" (got "${value}")`, usage);
+  if (!agent) throw fail(`--agent must be a short id like "claude" or "codex" (got "${value}")`);
   return agent;
 }
+var positiveCount = (value) => {
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 1 ? n : null;
+};
 function parseRecallArgs(argv) {
-  const out = { query: "", project: "", limit: 5, recent: false, agent: void 0 };
-  const rest = [];
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-    if (arg === "--project") {
-      out.project = takeValue(argv, i, RECALL_USAGE);
-      i += 1;
-    } else if (arg === "--limit") {
-      const n = Number(takeValue(argv, i, RECALL_USAGE));
-      if (!Number.isInteger(n) || n < 1) throw new UsageError("--limit must be a positive integer", RECALL_USAGE);
-      out.limit = n;
-      i += 1;
-    } else if (arg === "--recent") {
-      out.recent = true;
-      const next = argv[i + 1];
-      if (next !== void 0 && !next.startsWith("--")) {
-        const n = Number(next);
-        if (!Number.isInteger(n) || n < 1) throw new UsageError("--recent takes an optional positive count", RECALL_USAGE);
-        out.limit = n;
-        i += 1;
-      }
-    } else if (arg === "--agent") {
-      out.agent = parseAgent(takeValue(argv, i, RECALL_USAGE), RECALL_USAGE);
-      i += 1;
-    } else if (arg.startsWith("--")) throw new UsageError(`Unknown option "${arg}"`, RECALL_USAGE);
-    else rest.push(arg);
+  const { positionals, flags, fail } = parseSkillCommand(argv, RECALL_SPEC);
+  const out = { query: "", project: flags.project ?? "", limit: 5, recent: false, agent: void 0 };
+  if (flags.limit !== void 0) {
+    out.limit = positiveCount(flags.limit);
+    if (out.limit === null) throw fail("--limit must be a positive integer");
   }
-  out.query = rest.join(" ").trim();
-  if (!out.recent && !out.query) throw new UsageError("recall needs a query, or --recent for a chronological list", RECALL_USAGE);
-  if (out.recent && out.query) throw new UsageError(`--recent lists the newest documents and takes no query (got "${out.query}")`, RECALL_USAGE);
+  if (flags.recent !== void 0) {
+    out.recent = true;
+    if (flags.recent !== true) {
+      out.limit = positiveCount(flags.recent);
+      if (out.limit === null) throw fail("--recent takes an optional positive count");
+    }
+  }
+  out.agent = parseAgent(flags.agent, fail);
+  out.query = positionals.join(" ").trim();
+  if (!out.recent && !out.query) throw fail("recall needs a query, or --recent for a chronological list");
+  if (out.recent && out.query) throw fail(`--recent lists the newest documents and takes no query (got "${out.query}")`);
   return out;
 }
 

@@ -1,5 +1,6 @@
 import { incompleteIndexNotice } from './retrievalStatus.js';
-import { escapeHtml, chip } from './renderHelpers.js';
+import { escapeHtml } from './html.js';
+import { chip } from './renderHelpers.js';
 import { icon } from './icons.js';
 import { DOCUMENT_TEMPLATES } from './documentTemplates.js';
 import {
@@ -258,8 +259,8 @@ function renderLibraryMenu(state, model) {
           ${item('generate-weekly-review', 'Weekly review', 'Compile last week into a Library doc (idempotent per week)')}
           ${item('import-documents', 'Import Markdown…', 'Choose Markdown files and their destination project', ' title="Choose Markdown files and their destination project"')}
           ${item('export-library', 'Export…', 'Choose scope and where to save the Markdown archive', ' title="Choose scope and where to save the Markdown archive"')}
-          ${item('toggle-library-view', model.archive ? 'Active' : 'Archive', model.archive ? 'Back to the browse view' : 'Archived documents: restore or delete', ` aria-pressed="${model.archive}"`)}
-          ${item('open-review-queue', `Review queue${model.queueCount ? ` <span class="menu__count">${model.queueCount}</span>` : ''}`, 'Agent-written documents awaiting your verification', ` aria-pressed="${model.review}"`)}
+          ${item('toggle-library-view', model.archive ? 'Active' : 'Archive', model.archive ? 'Back to the browse view' : 'Archived documents: restore or delete', ` aria-pressed="${escapeHtml(model.archive)}"`)}
+          ${item('open-review-queue', `Review queue${model.queueCount ? ` <span class="menu__count">${escapeHtml(model.queueCount)}</span>` : ''}`, 'Agent-written documents awaiting your verification', ` aria-pressed="${escapeHtml(model.review)}"`)}
         </div>` : ''}
       </div>`;
 }
@@ -482,7 +483,7 @@ function renderGroups(groups, state) {
 function renderCollectionProgress(model) {
   if (!model.hasMore) return '';
   return `<div class="collection-progress" role="status">`
-    + `<span>Showing ${model.renderedCount} of ${model.visibleCount} documents.</span>`
+    + `<span>Showing ${escapeHtml(model.renderedCount)} of ${escapeHtml(model.visibleCount)} documents.</span>`
     + `<button class="btn-ghost" type="button" data-action="show-more-library">Show ${Math.min(LIBRARY_RENDER_BATCH_SIZE, model.visibleCount - model.renderedCount)} more</button>`
     + '</div>';
 }
@@ -565,7 +566,7 @@ function renderSemanticEmpty(model) {
       <div class="empty" role="status">
         ${icon('spark', 24)}
         <h2 class="empty__title">Nothing is embedded yet</h2>
-        <p class="empty__sub">Semantic search only matches documents embedded with the active provider — ${model.totalCount ? `<strong>0 of ${model.totalCount}</strong> so far` : 'none so far'}. Re-index to build the index (needed after switching providers).</p>
+        <p class="empty__sub">Semantic search only matches documents embedded with the active provider — ${model.totalCount ? `<strong>0 of ${escapeHtml(model.totalCount)}</strong> so far` : 'none so far'}. Re-index to build the index (needed after switching providers).</p>
         <div class="empty__actions">
           <button class="btn-primary" type="button" data-action="reindex-embeddings">Re-index now</button>
           <button class="btn-ghost" type="button" data-action="nav-settings">Open Settings</button>
@@ -576,7 +577,7 @@ function renderSemanticEmpty(model) {
     <div class="empty" role="status">
       ${icon('spark', 24)}
       <h2 class="empty__title">No matches by meaning</h2>
-      <p class="empty__sub">None of your ${model.embeddedCount} embedded document${model.embeddedCount === 1 ? '' : 's'} matched. Try rephrasing, or turn off Semantic for a keyword search.</p>
+      <p class="empty__sub">None of your ${escapeHtml(model.embeddedCount)} embedded document${model.embeddedCount === 1 ? '' : 's'} matched. Try rephrasing, or turn off Semantic for a keyword search.</p>
     </div>`;
 }
 
@@ -687,12 +688,12 @@ function projectNameFor(doc, state) {
 function renderReviewBanner(model) {
   const summary = model.reviewSummary;
   if (!summary || !summary.total) return '';
-  const agents = summary.byAgent.map(({ agent, count }) => `${escapeHtml(agent)} ${count}`).join(' · ');
+  const agents = summary.byAgent.map(({ agent, count }) => `${escapeHtml(agent)} ${escapeHtml(count)}`).join(' · ');
   return `
     <div class="review-banner" role="status">
       ${chip(`${summary.total} to review`, 'unverified')}
       <span class="review-banner__text">Review agent-written memory to mark it verified. Agents can also recall unverified memory, labelled as unverified.</span>
-      <span class="review-banner__agents">${agents}${summary.stale ? ` · ${summary.stale} stale` : ''}</span>
+      <span class="review-banner__agents">${agents}${summary.stale ? ` · ${escapeHtml(summary.stale)} stale` : ''}</span>
       <span class="review-banner__actions">
         <button class="btn-ghost" type="button" data-action="select-visible-docs">Select shown</button>
         <button class="btn-primary" type="button" data-action="review-next">Review next</button>

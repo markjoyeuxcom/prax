@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { toIso } from './columnTypes.js';
-import { createWithReceipt, creationIntentHash } from './creationReceipts.js';
+import { createRecordOnce, creationIntentHash, readReceipt, recordReceipt, runOnce, withOperationTransaction } from './operationLedger.js';
 import { recurrenceAnchorDayFor } from './recurrence.js';
 import { foldCase } from './db.js';
 
@@ -626,8 +626,8 @@ export function createTasksRepository(db) {
     // compares its content, as it always did.
     async createTaskIdempotent(task) {
       if (!task?.id) throw new Error('Idempotent task creation requires an id');
-      const result = await createWithReceipt(db, {
-        kind: 'task',
+      const result = await createRecordOnce(db, {
+        recordKind: 'task',
         id: task.id,
         intentHash: creationIntentHash('task', task.id, ALLOWED_CREATE_FIELDS.map(field => task[field] ?? null)),
         async load(client) {
@@ -686,70 +686,50 @@ export function createTasksRepository(db) {
         throw new Error('Exact-once task import requires operation metadata');
       }
       if (!Array.isArray(tasks)) throw new Error('Task import records are invalid');
-      const client = await db.connect();
-      try {
-        await client.query('begin immediate');
-        try {
-          const existingSession = await client.query(
-            'select id, status from task_import_sessions where id = $1 limit 1',
-            [requestId],
-          );
-          if (existingSession.rows[0]) {
-            await client.query('commit');
-            return {
-              conflict: true,
-              message: `requestId is already reserved by a staged import session (${existingSession.rows[0].status})`,
-            };
-          }
-
-          const existing = await client.query(
-            'select payload_hash, result_json from task_import_operations where id = $1 limit 1',
-            [requestId],
-          );
-          if (existing.rows[0]) {
-            if (existing.rows[0].payload_hash !== payloadHash) {
-              await client.query('commit');
-              return { conflict: true };
-            }
-            const replayed = await replayImportReceipt(client, existing.rows[0].result_json);
-            await client.query('commit');
-            return { ...replayed, replayed: true };
-          }
-
-          let candidates = tasks;
-          let skipped = 0;
-          if (mode === 'skip') {
-            const existingRows = await client.query(
-              'select * from tasks where project_id = $1',
-              [projectId],
-            );
-            const filtered = filterTaskImportDuplicates(
-              tasks,
-              existingRows.rows.map(normalizeTaskRow),
-            );
-            candidates = filtered.tasks;
-            skipped = filtered.skipped;
-          }
-          const imported = await importTaskRecords(client, candidates, { replaceProjectId });
-          const result = {
-            mode,
-            imported: imported.length,
-            skipped,
-            tasks: imported,
+      return withOperationTransaction(db, async (client) => {
+        const existingSession = await client.query(
+          'select id, status from task_import_sessions where id = $1 limit 1',
+          [requestId],
+        );
+        if (existingSession.rows[0]) {
+          return {
+            conflict: true,
+            message: `requestId is already reserved by a staged import session (${existingSession.rows[0].status})`,
           };
-          await client.query(`
-            insert into task_import_operations (id, project_id, mode, payload_hash, result_json)
-            values ($1, $2, $3, $4, $5)
-          `, [requestId, projectId, mode, payloadHash, JSON.stringify(importReceipt(result))]);
-          await client.query('commit');
-          return { ...result, replayed: false };
-        } catch (err) {
-          await client.query('rollback').catch(() => {});
-          throw err;
         }
-      } finally {
-        client.release();
-      }
+        return runOnce(client, {
+          kind: 'task-import',
+          key: requestId,
+          intentHash: payloadHash,
+          conflict: () => ({ conflict: true }),
+          replay: async (receipt) => ({ ...await replayImportReceipt(client, receipt.result_json), replayed: true }),
+          execute: async ({ record }) => {
+            let candidates = tasks;
+            let skipped = 0;
+            if (mode === 'skip') {
+              const existingRows = await client.query(
+                'select * from tasks where project_id = $1',
+                [projectId],
+              );
+              const filtered = filterTaskImportDuplicates(
+                tasks,
+                existingRows.rows.map(normalizeTaskRow),
+              );
+              candidates = filtered.tasks;
+              skipped = filtered.skipped;
+            }
+            const imported = await importTaskRecords(client, candidates, { replaceProjectId });
+            const result = {
+              mode,
+              imported: imported.length,
+              skipped,
+              tasks: imported,
+            };
+            await record({ project_id: projectId, mode, result_json: JSON.stringify(importReceipt(result)) });
+            return { ...result, replayed: false };
+          },
+        });
+      });
     },
 
     async replaceProjectTasks(projectId, tasks) {
@@ -985,11 +965,8 @@ export function createTasksRepository(db) {
               return { conflict: true, message: 'session already exists with different project or mode' };
             }
             if (row.status === 'committed') {
-              const op = await client.query(
-                'select payload_hash, result_json from task_import_operations where id = $1 limit 1',
-                [requestId],
-              );
-              const result = op.rows[0] ? await replayImportReceipt(client, op.rows[0].result_json) : null;
+              const receipt = await readReceipt(client, 'task-import', requestId);
+              const result = receipt ? await replayImportReceipt(client, receipt.result_json) : null;
               await client.query('commit');
               return {
                 sessionId: requestId,
@@ -1014,11 +991,7 @@ export function createTasksRepository(db) {
             };
           }
 
-          const op = await client.query(
-            'select payload_hash, result_json from task_import_operations where id = $1 limit 1',
-            [requestId],
-          );
-          if (op.rows[0]) {
+          if (await readReceipt(client, 'task-import', requestId)) {
             await client.query('commit');
             return {
               conflict: true,
@@ -1192,11 +1165,8 @@ export function createTasksRepository(db) {
               await client.query('commit');
               return { conflict: true, message: `expected ${expectedChunkCount} chunks but committed session has ${session.chunk_count}` };
             }
-            const op = await client.query(
-              'select payload_hash, result_json from task_import_operations where id = $1 limit 1',
-              [requestId],
-            );
-            const replayed = op.rows[0] ? await replayImportReceipt(client, op.rows[0].result_json) : null;
+            const receipt = await readReceipt(client, 'task-import', requestId);
+            const replayed = receipt ? await replayImportReceipt(client, receipt.result_json) : null;
             await client.query('commit');
             if (replayed) return { ...replayed, replayed: true };
             return { conflict: true, message: 'import session was already committed' };
@@ -1265,11 +1235,9 @@ export function createTasksRepository(db) {
             }))
             .digest('hex');
 
-          await client.query(
-            `insert into task_import_operations (id, project_id, mode, payload_hash, result_json)
-             values ($1, $2, $3, $4, $5)`,
-            [requestId, session.project_id, session.mode, compositeHash, JSON.stringify(importReceipt(result))],
-          );
+          await recordReceipt(client, 'task-import', requestId, compositeHash, {
+            project_id: session.project_id, mode: session.mode, result_json: JSON.stringify(importReceipt(result)),
+          });
 
           await client.query(
             `update task_import_sessions set status = 'committed', chunk_count = $2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') where id = $1`,

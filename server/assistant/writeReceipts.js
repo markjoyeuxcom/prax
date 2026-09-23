@@ -1,10 +1,8 @@
-import { createHash } from 'node:crypto';
-function canonical(value) {
-  if (Array.isArray(value)) return value.map(canonical);
-  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map(key => [key,canonical(value[key])]));
-  return value;
-}
-export function assistantIntentHash(value) { return createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex'); }
+import { canonicalIntentHash, claimReceipt, createInFlightOperations, updateReceipt } from '../operationLedger.js';
+
+// Approval identity: tool name and input, with object keys sorted.
+export const assistantIntentHash = canonicalIntentHash;
+
 // What a completed receipt keeps: the outcome, never the tool's output. The
 // output can carry a document body or task text, and a receipt outlives a
 // permanent delete of that record. The first run still returns the full
@@ -24,37 +22,46 @@ function unknown() {
   error.code = 'WRITE_OUTCOME_UNKNOWN';
   return error;
 }
+
+// Approvals on the operation ledger ('assistant-write'). The receipt claims the
+// intent as 'executing' before the tool runs. No transaction is held while it
+// runs: the tool handlers need the same database gate. An 'executing' receipt
+// left by an interruption therefore marks an unknown outcome explicitly, across
+// restarts, and the approval is never blindly run again. Matching approvals
+// arriving while one runs share its result through the in-flight registry.
 export function createAssistantWriteReceipts(db) {
-  const active = new Map();
+  const inFlight = createInFlightOperations();
+  async function run(id, hash, work) {
+    const claim = await claimReceipt(db, 'assistant-write', id, hash, { status: 'executing' });
+    if (!claim.claimed) {
+      if (claim.state !== 'replay') throw conflict();
+      if (claim.receipt.status !== 'completed') throw unknown();
+      return JSON.parse(claim.receipt.result);
+    }
+    let result;
+    try { result = await work(); } catch { throw unknown(); }
+    try {
+      await updateReceipt(db, 'assistant-write', id, { status: 'completed', result: JSON.stringify(compactReceiptResult(result)) });
+    } catch { throw unknown(); }
+    return result;
+  }
   return {
     async execute(id, payload, work) {
       if (!db) throw new Error('Durable approval storage is unavailable; no action was run.');
       const hash = assistantIntentHash(payload);
-      if (active.has(id)) {
-        const item = active.get(id);
-        if (item.hash !== hash) throw conflict();
-        return item.promise;
+      const claim = inFlight.claim(id, hash);
+      if (!claim.leader) {
+        if (claim.conflict) throw conflict();
+        return claim.outcome;
       }
-      const promise = (async () => {
-        const claim = await db.query("insert into assistant_write_receipts (operation_id, request_hash, status) values ($1,$2,'executing') on conflict (operation_id) do nothing returning operation_id", [id,hash]);
-        if (!claim.rows.length) {
-          const record = (await db.query('select * from assistant_write_receipts where operation_id=$1',[id])).rows[0];
-          if (record?.request_hash !== hash) throw conflict();
-          if (record.status !== 'completed') throw unknown();
-          return JSON.parse(record.result);
-        }
-        // Do not hold a DB transaction while invoking HTTP tool handlers: those
-        // handlers need the same database gate. An interrupted executing row
-        // instead guards an unknown outcome explicitly across process restarts.
-        let result;
-        try { result = await work(); } catch { throw unknown(); }
-        try {
-          await db.query("update assistant_write_receipts set status='completed', result=$2 where operation_id=$1",[id,JSON.stringify(compactReceiptResult(result))]);
-        } catch { throw unknown(); }
+      try {
+        const result = await run(id, hash, work);
+        claim.resolve(result);
         return result;
-      })();
-      active.set(id,{hash,promise});
-      try { return await promise; } finally { if (active.get(id)?.promise === promise) active.delete(id); }
+      } catch (error) {
+        claim.reject(error);
+        throw error;
+      }
     },
   };
 }

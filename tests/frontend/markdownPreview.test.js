@@ -172,12 +172,22 @@ test('remote-image permission lasts for one render only', () => {
   assert.doesNotMatch(renderMarkdownHtml('![a](https://ex.com/y.png)'), /<img/);
 });
 
-test('only the document editor preview opts in to remote images', async () => {
-  const { readFile } = await import('node:fs/promises');
-  const source = await readFile(new URL('../../public/js/main.js', import.meta.url), 'utf8');
-  const optedIn = source.split('\n').filter((line) => line.includes('remoteImages: true'));
-  assert.equal(optedIn.length, 3, optedIn.join('\n'));
-  for (const line of optedIn) assert.match(line, /previewHtml: renderMarkdownHtml\(text,|updateDocumentLivePreview\(appRoot,/);
+test('every Markdown render names its mode, and only the editor preview is a document', async () => {
+  const { readdir, readFile } = await import('node:fs/promises');
+  const dir = new URL('../../public/js/', import.meta.url);
+  const calls = [];
+  for (const name of await readdir(dir)) {
+    if (!name.endsWith('.js') || name === 'markdownPreview.js' || name === 'documentLivePreview.js') continue;
+    const source = await readFile(new URL(name, dir), 'utf8');
+    for (const line of source.split('\n')) {
+      if (/renderMarkdownHtml\(|updateDocumentLivePreview\(/.test(line) && !/^\s*(\/\/|import )/.test(line)) calls.push(`${name}: ${line.trim()}`);
+    }
+  }
+  assert.ok(calls.length >= 9, calls.join('\n'));
+  for (const call of calls) assert.match(call, /mode: '(document|untrusted)'/, `explicit mode: ${call}`);
+  const documents = calls.filter((call) => call.includes("mode: 'document'"));
+  assert.equal(documents.length, 3, documents.join('\n'));
+  for (const call of documents) assert.match(call, /main\.js: (previewHtml: renderMarkdownHtml\(text,|updateDocumentLivePreview\(appRoot,)/);
 });
 
 test('renderMarkdownHtml does not create an image for a javascript: (or other) unsafe src', () => {
@@ -356,10 +366,11 @@ test('task items are inert unless the caller opts in to taskToggles', () => {
   assert.doesNotMatch(renderMarkdownHtml('- [ ] again'), /data-action/, 'the opt-in lasts for one render only');
 });
 
-test('only the editable document preview opts in to task toggles', async () => {
+test('only the editable document preview makes task items toggle', async () => {
   const { readFile } = await import('node:fs/promises');
   const source = await readFile(new URL('../../public/js/main.js', import.meta.url), 'utf8');
-  const optedIn = source.split('\n').filter((line) => line.includes('taskToggles:'));
-  assert.equal(optedIn.length, 3, optedIn.join('\n'));
-  for (const line of optedIn) assert.match(line, /remoteImages: true, taskToggles: (!doc\.archivedAt|editorTaskToggles\(\))/);
+  const editable = source.split('\n').filter((line) => line.includes('editable:'));
+  assert.equal(editable.length, 3, editable.join('\n'));
+  for (const line of editable) assert.match(line, /mode: 'document', editable: (!doc\.archivedAt|editorTaskToggles\(\))/);
+  assert.doesNotMatch(source, /remoteImages:|taskToggles:/, 'the legacy flags are no longer used by the app');
 });

@@ -176,7 +176,7 @@ Usage:
   prax task check <id> <n|label>      prax task uncheck <id> <n|label>
 
 Global flags: --project <slug>  --url <baseUrl>  --agent <id>  --json
-Env: PRAX_API_URL  PRAX_PROJECT  PRAX_TOKEN  PRAX_AGENT  PRAX_TIMEOUT_MS (default 30000)
+Env: PRAX_API_URL  PRAX_PROJECT  PRAX_API_TOKEN (or PRAX_TOKEN)  PRAX_AGENT  PRAX_TIMEOUT_MS (default 30000)
 App discovery: --url > PRAX_API_URL > the desktop app's saved port (webview-port) > http://127.0.0.1:3000
 Project detection: --project > PRAX_PROJECT > .prax/project.json in this repository > git remote match > .prax/project.json above the repository > repository folder name
 Provenance: writes are stamped updatedBy=agent plus the agent id (--agent, PRAX_AGENT, or auto: claude / codex / copilot / antigravity); --memory writes also carry kind=synthesized`;
@@ -191,7 +191,7 @@ async function main(argv) {
   if (agentFlag !== undefined && !agent) {
     throw new CliUsageError(`--agent must be a short id like "claude" or "codex" (got "${agentFlag}").`);
   }
-  const client = createClient({ baseUrl: flags.url, token: process.env.PRAX_TOKEN, agent });
+  const client = createClient({ baseUrl: flags.url, agent });
   const out = (text) => process.stdout.write(`${typeof text === 'string' ? text : JSON.stringify(text, null, 2)}\n`);
 
   if (!command || command === 'help' || flags.help) { out(HELP); return; }

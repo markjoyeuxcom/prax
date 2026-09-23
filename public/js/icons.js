@@ -24,13 +24,13 @@ const SHAPES = {
 
 export function icon(name, size = 15) {
   const shapes = SHAPES[name] || SHAPES.doc;
-  return `<svg width="${size}" height="${size}" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none" aria-hidden="true">${shapes}</svg>`;
+  return `<svg width="${Number(size)}" height="${Number(size)}" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none" aria-hidden="true">${shapes}</svg>`;
 }
 
 // Brand logo: rounded-square outline + 45°-rotated rounded square + lowercase "p",
 // all in the accent colour. Sizes used: 15 (palette footer), 25 (sidebar), 48 (empty states).
 export function logo(size = 25) {
-  return `<svg width="${size}" height="${size}" viewBox="0 0 28 28" fill="none" style="flex:none" aria-hidden="true">`
+  return `<svg width="${Number(size)}" height="${Number(size)}" viewBox="0 0 28 28" fill="none" style="flex:none" aria-hidden="true">`
     + '<rect x="1.5" y="1.5" width="25" height="25" rx="7.5" stroke="var(--accent)" stroke-width="2"/>'
     + '<rect x="8.2" y="8.2" width="11.6" height="11.6" rx="2.6" stroke="var(--accent)" stroke-width="1.7" transform="rotate(45 14 14)"/>'
     + '<text x="14" y="17.2" text-anchor="middle" font-family=\'"Instrument Sans", sans-serif\' font-size="9" font-weight="700" fill="var(--accent)">p</text>'

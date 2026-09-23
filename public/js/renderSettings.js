@@ -1,4 +1,4 @@
-import { escapeHtml } from './renderHelpers.js';
+import { escapeHtml } from './html.js';
 import {
   ACCENT_CSS,
   ACCENT_OPTIONS,

@@ -1,5 +1,6 @@
 import { deriveSlug } from './slug.js';
 import { toIso } from './columnTypes.js';
+import { buildForgetProjectReceipts } from './operationLedger.js';
 
 const UPDATE_COLUMN_MAP = {
   name: 'name',
@@ -81,7 +82,7 @@ export function buildDeleteProjectContents(id) {
   return [
     { text: `delete from task_import_session_chunks where session_id in (select id from task_import_sessions where project_id = $1)`, values: [id] },
     { text: `delete from task_import_sessions where project_id = $1`, values: [id] },
-    { text: `delete from task_import_operations where project_id = $1`, values: [id] },
+    buildForgetProjectReceipts('task-import', id),
     { text: `delete from tasks where project_id = $1`, values: [id] },
     { text: `delete from markdown_documents where project_id = $1`, values: [id] },
   ];

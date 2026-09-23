@@ -5,6 +5,7 @@ import { normalizeProjectRow } from './projectsRepository.js';
 import { planTaskRecurrenceTransition } from './recurrence.js';
 import { classifyPlanChange } from './planning.js';
 import { ageInDays, inboxSummary, isPendingInboxTask, isPendingInboxDocument, isWorkspaceReview } from '../public/js/inboxModel.js';
+import { NOW, intentHash, readReceipt, runOnceInTransaction, updateReceipt, withOperationTransaction } from './operationLedger.js';
 
 const TABLES = { task: 'tasks', document: 'markdown_documents' };
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -38,14 +39,6 @@ export function createInboxRepository(db) {
       related.push(rows.map(value => JSON.stringify(value)).sort());
     }
     return hash([inboxFingerprint(row), related]);
-  }
-  async function transaction(work) {
-    const client = await db.connect();
-    try {
-      await client.query('begin immediate');
-      try { const result = await work(client); await client.query('commit'); return result; }
-      catch (error) { await client.query('rollback').catch(() => {}); throw error; }
-    } finally { client.release(); }
   }
   async function outcome(client, receipt, replayed = false) {
     const row = await read(client, receipt.item_kind, receipt.item_id);
@@ -99,13 +92,16 @@ export function createInboxRepository(db) {
       } finally { client.release(); }
     },
     async apply(kind, id, input, actor = 'user', { today = null } = {}) {
-      return transaction(async client => {
-        const intent = hash({ kind, id, ...input, actor });
-        const priorReceipt = (await client.query('select * from inbox_action_receipts where operation_id = $1', [input.operationId])).rows[0];
-        if (priorReceipt) {
-          if (priorReceipt.intent_hash !== intent) fail(409, 'intent-mismatch', 'This operation ID belongs to a different decision.');
-          return outcome(client, priorReceipt, true);
-        }
+      return runOnceInTransaction(db, {
+        kind: 'inbox-action',
+        key: input.operationId,
+        intentHash: intentHash({ kind, id, ...input, actor }),
+        conflict: () => fail(409, 'intent-mismatch', 'This operation ID belongs to a different decision.'),
+        // outcome() refuses with 410 when the source was deleted since.
+        replay: (receipt, client) => outcome(client, receipt, true),
+        execute: ({ q: client, record: recordReceipt }) => decide(client, recordReceipt),
+      });
+      async function decide(client, recordReceipt) {
         const row = await read(client, kind, id);
         if (!row) fail(404, 'item-missing', 'This item no longer exists.');
         if (await fingerprint(client, kind, row) !== input.fingerprint) fail(409, 'item-changed', 'This item changed after you opened it. Reload it before deciding.');
@@ -160,17 +156,15 @@ export function createInboxRepository(db) {
             [id, destination.id, input.action === 'reference' ? 'reference' : input.documentType || row.document_type]);
         }
         for (const created of generated) created.fingerprint = await fingerprint(client, created.kind, await read(client, created.kind, created.id));
-        const receipt = { operation_id: input.operationId, intent_hash: intent, item_kind: kind, item_id: id,
-          action: input.action, before_fields: JSON.stringify(before), after_fingerprint: await fingerprint(client, kind, await read(client, kind, id)),
-          created_records: JSON.stringify(generated), undone_at: null };
-        await client.query('insert into inbox_action_receipts (operation_id, intent_hash, item_kind, item_id, action, before_fields, after_fingerprint, created_records) values ($1,$2,$3,$4,$5,$6,$7,$8)',
-          [receipt.operation_id, receipt.intent_hash, kind, id, input.action, receipt.before_fields, receipt.after_fingerprint, receipt.created_records]);
-        return outcome(client, receipt);
-      });
+        const fields = { item_kind: kind, item_id: id, action: input.action, before_fields: JSON.stringify(before),
+          after_fingerprint: await fingerprint(client, kind, await read(client, kind, id)), created_records: JSON.stringify(generated) };
+        await recordReceipt(fields);
+        return outcome(client, { operation_id: input.operationId, ...fields, undone_at: null });
+      }
     },
     async undo(operationId, actor = 'user') {
-      return transaction(async client => {
-        const receipt = (await client.query('select * from inbox_action_receipts where operation_id = $1', [operationId])).rows[0];
+      return withOperationTransaction(db, async client => {
+        const receipt = await readReceipt(client, 'inbox-action', operationId);
         if (!receipt) fail(404, 'operation-missing', 'No committed Inbox action has this ID.');
         if (receipt.undone_at) return outcome(client, receipt, true);
         const row = await read(client, receipt.item_kind, receipt.item_id);
@@ -184,7 +178,7 @@ export function createInboxRepository(db) {
         const before = Object.entries(JSON.parse(receipt.before_fields));
         await client.query(`update ${TABLES[receipt.item_kind]} set ${before.map(([column], index) => `${column} = $${index + 2}`).join(', ')}, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') where id = $1`, [receipt.item_id, ...before.map(([, value]) => value)]);
         if (receipt.item_kind === 'task') await activity(client, receipt.item_id, 'inbox-undo', 'Inbox decision undone; generated records retained in Archive', actor);
-        await client.query("update inbox_action_receipts set undone_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') where operation_id = $1", [operationId]);
+        await updateReceipt(client, 'inbox-action', operationId, { undone_at: NOW });
         return outcome(client, { ...receipt, undone_at: 'now' });
       });
     },

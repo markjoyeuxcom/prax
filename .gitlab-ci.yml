@@ -161,13 +161,8 @@ desktop-linux-x64:
     - node --version && npm --version && cargo --version
     - npm ci --prefer-offline --no-audit --no-fund
   script:
+    # The cargo build and test below need the staged resources and sidecar to exist.
     - npm run prepare:sidecar
-    - |
-      if [ -n "$CI_COMMIT_TAG" ]; then
-        npm run desktop:verify -- --tag "$CI_COMMIT_TAG"
-      else
-        npm run desktop:verify
-      fi
     # `include_image!` writes its decoded tray icon to a cache file and reads it
     # back with `include_bytes!`; building before `cargo test --lib` keeps the two
     # compilations from racing on that file.
@@ -175,6 +170,14 @@ desktop-linux-x64:
     - cargo build --locked --manifest-path src-tauri/Cargo.toml
     - cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
     - npx tauri build --bundles deb,appimage --verbose -- --locked
+    # After the build: tauri build re-stages the payload in its
+    # beforeBuildCommand, so desktop:verify checks the copies it bundled.
+    - |
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        npm run desktop:verify -- --tag "$CI_COMMIT_TAG"
+      else
+        npm run desktop:verify
+      fi
     - npm run desktop:smoke
     # A missing package is fatal: cp fails when a glob matches nothing.
     - mkdir -p release-assets
@@ -224,17 +227,20 @@ desktop-macos-arm64:
     - node --version && npm --version && cargo --version && xcode-select -p
     - npm ci --prefer-offline --no-audit --no-fund
   script:
+    # The cargo build and test below need the staged resources and sidecar to exist.
     - npm run prepare:sidecar
+    - cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+    - cargo build --locked --manifest-path src-tauri/Cargo.toml
+    - cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
+    - npx tauri build --bundles app,dmg -- --locked
+    # After the build: tauri build re-stages the payload in its
+    # beforeBuildCommand, so desktop:verify checks the copies it bundled.
     - |
       if [ -n "$CI_COMMIT_TAG" ]; then
         npm run desktop:verify -- --tag "$CI_COMMIT_TAG"
       else
         npm run desktop:verify
       fi
-    - cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-    - cargo build --locked --manifest-path src-tauri/Cargo.toml
-    - cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
-    - npx tauri build --bundles app,dmg -- --locked
     - npm run desktop:smoke
     - mkdir -p release-assets
     - tar -czf release-assets/Prax-macos-arm64.app.tar.gz -C src-tauri/target/release/bundle/macos Prax.app

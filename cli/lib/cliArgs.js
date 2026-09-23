@@ -1,4 +1,7 @@
-// cli/lib/cliArgs.js — argument parsing for the prax CLI entry point.
+// cli/lib/cliArgs.js — the one argument-parsing engine for the machine
+// clients: the prax CLI entry point (cli/prax.js) and the prax-recall /
+// prax-remember skill scripts (cli/lib/skillArgs.js) declare their flags as
+// specs and parse with it.
 //
 // `--flag value` and `--flag=value` are equivalent. The `=` form is the way to
 // pass a value that itself begins with `--` (a checklist item such as
@@ -14,6 +17,10 @@
 // the next word as their value; an `optional` flag takes it only when its
 // predicate accepts it (`--recent 5`, but not `--recent postgres`). Without a
 // spec every flag is value-taking and nothing is refused (the legacy shape).
+//
+// The refusals are worded by `messages` (CLI_MESSAGES by default) and thrown
+// as `fail(message)` (a CliUsageError by default), so a caller whose users
+// learned other wording — the skills say `Unknown option "--x"` — keeps it.
 export class CliUsageError extends Error {
   constructor(message) {
     super(message);
@@ -22,6 +29,16 @@ export class CliUsageError extends Error {
 }
 
 const needsValue = (key) => `--${key} needs a value; for text that starts with "--" write --${key}="<text>".`;
+
+export const CLI_MESSAGES = {
+  unknownFlag: (raw, hint) => `Unknown flag --${raw}${hint ? ` (did you mean --${hint}?)` : ''}.`,
+  // An alias and its canonical name together would be last-wins between two
+  // spellings of one intent; the engine refuses rather than pick one.
+  sameFlag: (earlier, raw) => `--${earlier} and --${raw} are the same flag; give it once.`,
+  takesNoValue: (key) => `--${key} takes no value.`,
+  needsValue,
+};
+const cliFail = (message) => new CliUsageError(message);
 
 // Levenshtein distance, for "did you mean" on a mistyped flag (--tpye).
 function distance(a, b) {
@@ -50,7 +67,9 @@ export function suggestFlag(key, names) {
 
 export function parseArgs(argv, {
   repeatable = [], boolean = [], optional = {}, known, aliases = {},
+  messages: wording, fail = cliFail,
 } = {}) {
+  const say = { ...CLI_MESSAGES, ...wording };
   const multi = new Set(repeatable);
   const bools = new Set(boolean);
   const strict = Array.isArray(known) || known instanceof Set;
@@ -66,14 +85,10 @@ export function parseArgs(argv, {
     const key = Object.prototype.hasOwnProperty.call(aliases, raw) ? aliases[raw] : raw;
     if (strict && !names.has(key)) {
       const hint = suggestFlag(key, names);
-      throw new CliUsageError(`Unknown flag --${raw}${hint ? ` (did you mean --${hint}?)` : ''}.`);
+      throw fail(say.unknownFlag(raw, hint));
     }
-    // An alias and its canonical name together would be last-wins between
-    // two spellings of one intent; refuse rather than pick one.
     const earlier = spelledAs.get(key);
-    if (earlier !== undefined && earlier !== raw) {
-      throw new CliUsageError(`--${earlier} and --${raw} are the same flag; give it once.`);
-    }
+    if (earlier !== undefined && earlier !== raw) throw fail(say.sameFlag(earlier, raw));
     spelledAs.set(key, raw);
     return key;
   };
@@ -84,7 +99,7 @@ export function parseArgs(argv, {
     const eq = arg.indexOf('=');
     if (eq > 2) {
       const key = resolve(arg.slice(2, eq));
-      if (strict && bools.has(key)) throw new CliUsageError(`--${key} takes no value.`);
+      if (strict && bools.has(key)) throw fail(say.takesNoValue(key));
       set(key, arg.slice(eq + 1));
       continue;
     }
@@ -98,7 +113,7 @@ export function parseArgs(argv, {
     if (next === undefined || next.startsWith('--')) {
       // A value-taking flag with nothing after it. Strict parsing refuses it
       // here; the legacy shape records `true` for flagValue to refuse.
-      if (strict) throw new CliUsageError(needsValue(key));
+      if (strict) throw fail(say.needsValue(key));
       set(key, true);
     } else {
       set(key, next);
@@ -106,6 +121,23 @@ export function parseArgs(argv, {
     }
   }
   return { positionals, flags };
+}
+
+// One command declared as a spec and parsed in one step — the shape the skill
+// scripts use (each script is a single command): its flag kinds as for
+// parseArgs, and `max` positionals, refused with `messages.unexpected(word)`.
+export function parseCommand(argv, {
+  value = [], boolean = [], optional = {}, repeatable = [], aliases = {}, max = Infinity,
+  messages: wording, fail = cliFail,
+} = {}) {
+  const parsed = parseArgs(argv, {
+    known: value, boolean, optional, repeatable, aliases, messages: wording, fail,
+  });
+  if (parsed.positionals.length > max) {
+    const unexpected = wording?.unexpected || ((word) => `unexpected argument "${word}".`);
+    throw fail(unexpected(parsed.positionals[max]));
+  }
+  return parsed;
 }
 
 // Per-command check after parsing: every given flag must belong to this

@@ -53,7 +53,10 @@ export function isImeComposing(event) {
   return Boolean(event?.isComposing) || event?.keyCode === 229;
 }
 
-export function installKeyboardShortcuts({ handlers }) {
+// The global-shortcut layer: returns the keydown handler the keyboard
+// dispatcher (keyboardDispatcher.js) runs last, after every surface-specific
+// layer let the key pass. It keeps the g-chord state between keys.
+export function createGlobalShortcuts({ handlers }) {
   let pending = '';
   let pendingTimer = null;
 
@@ -74,7 +77,7 @@ export function installKeyboardShortcuts({ handlers }) {
     return false;
   }
 
-  document.addEventListener('keydown', (event) => {
+  return function handleGlobalShortcut(event) {
     if (isImeComposing(event)) return;
     const metaOrCtrl = event.metaKey || event.ctrlKey;
     // ⌘K/⌘J work everywhere, Escape works everywhere; other shortcuts are
@@ -118,5 +121,10 @@ export function installKeyboardShortcuts({ handlers }) {
       case 'open-selected': handlers.openSelected(); break;
       default: break;
     }
-  });
+  };
+}
+
+// Standalone installation of the global layer on the document.
+export function installKeyboardShortcuts({ handlers }) {
+  document.addEventListener('keydown', createGlobalShortcuts({ handlers }));
 }

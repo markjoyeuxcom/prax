@@ -3,7 +3,8 @@ import { openSync, fsyncSync, closeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ZipArchive } from 'archiver';
-import { validateSqliteBackup } from './sqliteBackup.js';
+import { finalSchemaVersion, validateSqliteBackup } from './sqliteBackup.js';
+import { WORKSPACE_BACKUP_FORMAT, WORKSPACE_BACKUP_VERSION } from './backupManifest.js';
 import { readStarterContent } from './starterContent.js';
 
 export function registerWorkspaceBackupRoutes(app) {
@@ -33,7 +34,9 @@ export function registerWorkspaceBackupRoutes(app) {
       const fd = openSync(path, 'r'); try { fsyncSync(fd); } finally { closeSync(fd); }
       const proof = validateSqliteBackup(path);
       const packageInfo = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-      const manifest = { format: 'prax.workspace-backup', version: 1, praxVersion: packageInfo.version,
+      // schema.finalMigration lets a restore refuse a backup from a newer Prax.
+      const manifest = { format: WORKSPACE_BACKUP_FORMAT, version: WORKSPACE_BACKUP_VERSION, praxVersion: packageInfo.version,
+        schema: { finalMigration: finalSchemaVersion(path) },
         createdAt: new Date().toISOString(), database: { file: 'prax.db', sha256: proof.sha256, bytes: proof.bytes,
           integrityCheck: proof.integrityCheck, foreignKeyViolations: proof.foreignKeyViolations },
         includes: ['all committed SQLite tables', 'all projects and archived content', 'provider settings and saved credentials', 'bundled starter guides'],

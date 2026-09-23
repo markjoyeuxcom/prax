@@ -1,4 +1,5 @@
-import { escapeHtml, chip } from './renderHelpers.js';
+import { cssColor, escapeHtml } from './html.js';
+import { chip } from './renderHelpers.js';
 import { isOpen } from './statusMap.js';
 import { dueFlag, dueBucket } from './dueFlags.js';
 import { isoDate, addDays, nextWeekday } from './dateHelpers.js';
@@ -174,7 +175,7 @@ export function nextMondayIso(now = new Date()) {
 // design-system foreground because arbitrary project colors are not text-safe.
 // Exported so the Filter view renders the same cross-project chip.
 export function projectChipHtml(task) {
-  const color = escapeHtml(task.projColor || 'var(--ink3)');
+  const color = cssColor(task.projColor);
   return chip(task.projName || 'No project', 'project',
     `style="--project-color:${color};background:color-mix(in oklab, ${color} 13%, transparent)"`);
 }
@@ -184,7 +185,7 @@ function renderTriageBand(state, group, { overdueTotal, overdueExpanded, slipped
   const shown = group.tasks.length;
   const hidden = Math.max(0, overdueTotal - shown);
   const slipped = slippedCount > 0
-    ? `${slippedCount} of them ${slippedCount === 1 ? 'has' : 'have'} slipped at least twice. `
+    ? `${escapeHtml(slippedCount)} of them ${slippedCount === 1 ? 'has' : 'have'} slipped at least twice. `
     : '';
   const rows = group.tasks.map((task) => {
     const row = renderTaskRowHtml(state, task, { afterTitle: projectChipHtml(task) });
@@ -225,11 +226,11 @@ function renderWeekCard(tasks, now) {
   const total = days.reduce((sum, day) => sum + day.count, 0);
   const max = Math.max(1, ...days.map((day) => day.count));
   const bars = days.map((day) => (
-    `<div class="week-strip__day${day.isToday ? ' is-today' : ''}" title="${escapeHtml(day.label)}: ${day.count} due">`
-    + `<b>${day.count || ''}</b><i style="height:${Math.round((day.count / max) * 44) + 4}px"></i><small>${escapeHtml(day.label)}</small></div>`
+    `<div class="week-strip__day${day.isToday ? ' is-today' : ''}" title="${escapeHtml(day.label)}: ${escapeHtml(day.count)} due">`
+    + `<b>${escapeHtml(day.count || '')}</b><i style="height:${Math.round((day.count / max) * 44) + 4}px"></i><small>${escapeHtml(day.label)}</small></div>`
   )).join('');
   return `<section class="today-card" data-week-card>
-    <h3 class="today-card__title">This week<span class="today-card__meta">${total} due</span></h3>
+    <h3 class="today-card__title">This week<span class="today-card__meta">${escapeHtml(total)} due</span></h3>
     <div class="week-strip">${bars}</div>
   </section>`;
 }
@@ -247,7 +248,7 @@ function renderAgentsCard(documents, queueCount, now) {
     + '</button>'
   )).join('');
   const queue = queueCount > 0
-    ? `<button type="button" class="settings-link" data-action="open-review-queue">Review queue ${queueCount} →</button>`
+    ? `<button type="button" class="settings-link" data-action="open-review-queue">Review queue ${escapeHtml(queueCount)} →</button>`
     : '';
   return `<section class="today-card" data-today-agents>
     <h3 class="today-card__title">Agents since yesterday${queue ? `<span class="today-card__meta">${queue}</span>` : ''}</h3>
@@ -267,7 +268,7 @@ function renderOnCallCard(projects) {
       + '<button type="button" class="settings-link" data-action="nav-all">All projects →</button></section>'
     : '';
   return list.map((project) => {
-    const color = escapeHtml(project.color || 'var(--ink3)');
+    const color = cssColor(project.color);
     return `<section class="today-card" data-today-oncall>
     <h3 class="today-card__title"><span class="proj-dot" style="--dot:${color}"></span>On call · ${escapeHtml(project.name)}${project.onCall ? `<span class="today-card__meta">${escapeHtml(project.onCall)}</span>` : ''}</h3>
     ${project.handoffNotes ? `<p class="today-card__text">${escapeHtml(project.handoffNotes)}</p>` : '<p class="today-card__text">No handoff note.</p>'}
@@ -286,11 +287,11 @@ export function renderTodayHtml(state, groups, {
     weekday: 'long', month: 'long', day: 'numeric',
   });
   const snoozedNote = snoozedCount > 0
-    ? ` <span class="today-snoozed">· ${snoozedCount} snoozed</span>`
+    ? ` <span class="today-snoozed">· ${escapeHtml(snoozedCount)} snoozed</span>`
     : '';
   // The honest plan score: computed from data, no streaks, no gamification.
   const planNote = (plannedCount + plannedDone) > 0
-    ? ` <span class="today-planscore" data-plan-score>· planned ${plannedCount + plannedDone} — ${plannedDone} done</span>`
+    ? ` <span class="today-planscore" data-plan-score>· planned ${escapeHtml(plannedCount + plannedDone)} — ${escapeHtml(plannedDone)} done</span>`
     : '';
   const shutdownBtn = plannedCount > 0
     ? '<button class="btn-ghost" type="button" data-action="open-shutdown" title="Walk every unfinished planned item: carry, reschedule, or drop">Shut down</button>'
@@ -306,7 +307,7 @@ export function renderTodayHtml(state, groups, {
     + '</div></header>'
     + `<p class="page-head__sub">${escapeHtml(dateLabel)} — everything due or slipping across your projects, and the week ahead.${planNote}${snoozedNote}</p>`
     + (stalePlannedCount > 0
-      ? `<div class="today-staleplan" data-stale-plan role="status">${stalePlannedCount} item${stalePlannedCount === 1 ? ' was' : 's were'} planned on an earlier day and never shut down. `
+      ? `<div class="today-staleplan" data-stale-plan role="status">${escapeHtml(stalePlannedCount)} item${stalePlannedCount === 1 ? ' was' : 's were'} planned on an earlier day and never shut down. `
         + '<button class="settings-link" type="button" data-action="open-plan-mode">Review</button></div>'
       : '');
   // The week ahead folds into one collapsible section below the due groups.
@@ -332,7 +333,7 @@ export function renderTodayHtml(state, groups, {
     ? '<section class="today-week" data-today-week>'
       + `<button type="button" class="group-label group-label--toggle" data-action="toggle-section" data-section-key="${TODAY_WEEK_SECTION}" aria-expanded="${!weekCollapsed}">`
       + `<span class="side-section__chevron">${weekCollapsed ? '▸' : '▾'}</span>`
-      + `Next ${WEEK_DAYS} days <span class="group-label__count">${weekCount}</span></button>`
+      + `Next ${WEEK_DAYS} days <span class="group-label__count">${escapeHtml(weekCount)}</span></button>`
       + (weekCollapsed || !weekGroups.length ? '' : `<div class="today-week__days">${renderTaskGroupsHtml(state, weekGroups, { rowExtra: projectChipHtml })}</div>`)
       + '</section>'
     : '';
