@@ -172,7 +172,8 @@ export async function fetchTaskDocuments(taskId) {
 // Related-knowledge suggestions for the drawer. Advisory: always resolves
 // ({ suggestions, degraded?, reason? }); the caller renders quiet degrade.
 export async function fetchRelatedDocuments(taskId) {
-  const response = await fetch(`/api/tasks/${taskId}/related-documents`);
+  // Suggestions a person reads in the drawer include harvested candidates.
+  const response = await fetch(`/api/tasks/${taskId}/related-documents?includeHarvested=true`);
   if (!response.ok) return { suggestions: [], degraded: true, reason: 'search-failed' };
   return response.json();
 }

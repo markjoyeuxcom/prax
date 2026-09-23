@@ -118,6 +118,33 @@ test('a boolean flag never swallows the next word: search --json postgres backup
   });
 });
 
+test('--include-harvested reaches the server on recall, search and context; without it nothing is sent', async () => {
+  const body = {
+    items: [], page: null, index: null, degraded: false, reason: null, hiddenHarvested: 2,
+  };
+  await withServer(() => body, async (url, seen) => {
+    const plain = await runAsync(['search', 'tunnel'], url);
+    assert.equal(plain.code, 0);
+    assert.match(plain.stdout, /Note: 2 unreviewed harvested candidates hidden until a person triages them; --include-harvested to show\./);
+    assert.equal(seen.find((u) => u.pathname.endsWith('/semantic-search')).searchParams.get('includeHarvested'), null);
+
+    seen.length = 0;
+    assert.equal((await runAsync(['search', 'tunnel', '--include-harvested'], url)).code, 0);
+    assert.equal(seen.find((u) => u.pathname.endsWith('/semantic-search')).searchParams.get('includeHarvested'), 'true');
+
+    seen.length = 0;
+    const recall = await runAsync(['recall', 'tunnel', '--include-harvested'], url);
+    assert.equal(recall.code, 0, recall.stderr);
+    assert.equal(seen.find((u) => u.pathname.endsWith('/semantic-search')).searchParams.get('includeHarvested'), 'true');
+
+    seen.length = 0;
+    await runAsync(['context', 'tunnel', '--include-harvested'], url);
+    assert.equal(seen.find((u) => u.pathname.endsWith('/context-pack')).searchParams.get('includeHarvested'), 'true');
+  });
+  refused(['recall', 'x', '--include-harvested=yes'], /--include-harvested takes no value/);
+  refused(['remember', 'T', '--body', 'B', '--include-harvested'], /remember does not take --include-harvested/);
+});
+
 test('task list shows open tasks by default; --all and --status include completed ones', async () => {
   const tasks = [
     { id: 'a', title: 'Open one', status: 'planned', priority: 'medium' },

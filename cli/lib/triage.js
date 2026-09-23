@@ -14,9 +14,9 @@
 // All I/O — client, streams, environment, editor, checkout — is injected, so
 // the whole flow runs under test with fake streams.
 import { randomUUID } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { spawn as spawnChild } from 'node:child_process';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { constants as osConstants, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   createTransport, timeoutFromEnv, DEFAULT_TIMEOUT_MS,
@@ -158,8 +158,16 @@ export function createTerminal({ input, output }) {
   if (typeof input.setEncoding === 'function') input.setEncoding('utf8');
   input.on('data', onData);
   input.on('end', onEnd);
-  setRaw(true);
-  input.resume?.();
+  let suspended = false;
+  try {
+    setRaw(true);
+    input.resume?.();
+  } catch (err) {
+    input.off?.('data', onData);
+    input.off?.('end', onEnd);
+    setRaw(false);
+    throw err;
+  }
 
   const write = (text) => { output.write(text); };
   const nextKey = () => new Promise((resolve) => { waiter = resolve; flush(); });
@@ -194,23 +202,34 @@ export function createTerminal({ input, output }) {
   async function suspend(fn) {
     setRaw(false);
     input.pause?.();
+    suspended = true;
     try {
       return await fn();
     } finally {
+      suspended = false;
       setRaw(true);
       input.resume?.();
     }
   }
 
+  // Idempotent: raw mode off, no more reading.
   function close() {
     input.off?.('data', onData);
     input.off?.('end', onEnd);
     setRaw(false);
-    input.pause?.();
+    try { input.pause?.(); } catch { /* a closed terminal */ }
   }
 
   return {
-    write, nextKey, readLine, confirm, suspend, close, get columns() { return output.columns || 80; },
+    write,
+    nextKey,
+    readLine,
+    confirm,
+    suspend,
+    close,
+    get columns() { return output.columns || 80; },
+    // True while a child (the editor) owns the terminal.
+    get suspended() { return suspended; },
   };
 }
 
@@ -218,27 +237,117 @@ export function createTerminal({ input, output }) {
 // The editor: the body in a 0600 file inside a private temporary directory,
 // opened with $VISUAL, then $EDITOR, then vi. The file is removed only once the
 // edit is settled, so a conflict or an unknown outcome never loses typing.
+//
+// Signals while the editor runs (spec: Errors and interrupts):
+//   - SIGINT (Ctrl-C) belongs to the editor; triage ignores it.
+//   - SIGHUP (the terminal closed) and SIGTERM stop triage: the signal is
+//     passed to the editor, triage waits for it to exit, then keeps the draft
+//     directory when it may hold typing (the draft changed, or the editor left
+//     a swap or backup file there) and removes it otherwise. The promise
+//     rejects with the signal's exit status (128 + n) and a message naming
+//     what was kept, which the CLI prints on stderr.
+//   - An editor stopped by SIGHUP, SIGTERM or another signal (other than
+//     SIGINT) is not an abandonment either: the same keep-or-remove rule
+//     applies, and triage goes on.
+//   - A non-zero exit or a Ctrl-C'd editor is an abandonment: the draft goes.
+// The handlers are removed as soon as the editor has exited.
 // ---------------------------------------------------------------------------
-export function editInEditor(text, { env = process.env, spawn = spawnSync, platform = process.platform } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'prax-triage-'));
-  const file = join(dir, 'document.md');
-  writeFileSync(file, String(text ?? ''), { mode: 0o600 });
-  const cleanup = () => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } };
+export const EDITOR_STOP_SIGNALS = ['SIGHUP', 'SIGTERM'];
+
+function signalExitCode(signal) {
+  return 128 + (osConstants.signals?.[signal] ?? 0);
+}
+
+// Remove the draft directory unless it may hold typing. Returns the path to
+// report (the draft file, or the directory when only the editor's own files
+// changed) or null when nothing was kept.
+function keepDraftIfValuable(dir, file, original) {
+  let entries = [];
+  try { entries = readdirSync(dir); } catch { return null; }
+  let changed = false;
+  try { changed = readFileSync(file, 'utf8') !== original; } catch { /* deleted by the editor */ }
+  if (changed) return file;
+  if (entries.some((name) => name !== 'document.md')) return dir;
+  try { rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+  return null;
+}
+
+export function editInEditor(text, {
+  env = process.env, spawn = spawnChild, platform = process.platform, proc = process,
+} = {}) {
+  const original = String(text ?? '');
   const editor = String(env.VISUAL || env.EDITOR || 'vi').trim() || 'vi';
-  // Ctrl-C belongs to the editor while it runs.
-  const ignore = () => {};
-  process.on('SIGINT', ignore);
-  let result;
-  try {
-    result = platform === 'win32'
-      ? spawn(`${editor} "${file}"`, { stdio: 'inherit', shell: true })
-      : spawn('/bin/sh', ['-c', `${editor} "$1"`, 'prax-triage-editor', file], { stdio: 'inherit' });
-  } finally {
-    process.off('SIGINT', ignore);
-  }
-  if (result?.error) { cleanup(); return { cancelled: `could not start ${editor} (${result.error.message})` }; }
-  if (result?.status !== 0) { cleanup(); return { cancelled: `${editor} exited with status ${result?.status ?? 'unknown'}` }; }
-  return { text: readFileSync(file, 'utf8'), file, cleanup };
+
+  return new Promise((resolve, reject) => {
+    let dir = null;
+    let file = null;
+    const cleanup = () => { try { if (dir) rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } };
+    let child = null;
+    let stoppedBy = null;
+    let settled = false;
+    const ignore = () => {};
+    const handlers = EDITOR_STOP_SIGNALS.map((signal) => [signal, () => {
+      if (stoppedBy) return;
+      stoppedBy = signal;
+      try { child?.kill(signal); } catch { /* already gone */ }
+    }]);
+    proc.on('SIGINT', ignore);
+    for (const [signal, handler] of handlers) proc.on(signal, handler);
+    const release = () => {
+      proc.off('SIGINT', ignore);
+      for (const [signal, handler] of handlers) proc.off(signal, handler);
+    };
+    // The draft exists only once the handlers are in place, so no signal can
+    // leave it behind unhandled.
+    try {
+      dir = mkdtempSync(join(tmpdir(), 'prax-triage-'));
+      file = join(dir, 'document.md');
+      writeFileSync(file, original, { mode: 0o600 });
+    } catch (error) {
+      release();
+      cleanup();
+      reject(error);
+      return;
+    }
+
+    const finish = (code, signal, error) => {
+      if (settled) return;
+      settled = true;
+      release();
+      if (stoppedBy) {
+        const kept = keepDraftIfValuable(dir, file, original);
+        const err = new Error(`triage stopped by ${stoppedBy} while the editor was open; ${kept
+          ? `your draft is kept at ${kept}` : 'the unchanged draft was removed'}.`);
+        reject(Object.assign(err, { signal: stoppedBy, exitCode: signalExitCode(stoppedBy), draft: kept }));
+        return;
+      }
+      if (error) { cleanup(); resolve({ cancelled: `could not start ${editor} (${error.message})` }); return; }
+      if (signal && signal !== 'SIGINT') {
+        const kept = keepDraftIfValuable(dir, file, original);
+        resolve({ cancelled: `${editor} was stopped by ${signal}${kept ? `; your draft is kept at ${kept}` : ''}`, draft: kept });
+        return;
+      }
+      if (code !== 0) {
+        cleanup();
+        resolve({ cancelled: `${editor} ${signal ? `was stopped by ${signal}` : `exited with status ${code ?? 'unknown'}`}` });
+        return;
+      }
+      resolve({ text: readFileSync(file, 'utf8'), file, cleanup });
+    };
+
+    try {
+      child = platform === 'win32'
+        ? spawn(`${editor} "${file}"`, { stdio: 'inherit', shell: true })
+        : spawn('/bin/sh', ['-c', `${editor} "$1"`, 'prax-triage-editor', file], { stdio: 'inherit' });
+    } catch (error) {
+      finish(null, null, error);
+      return;
+    }
+    child.once('error', (error) => finish(null, null, error));
+    child.once('exit', (code, signal) => finish(code, signal, null));
+    // A signal that arrived before the child existed still reaches it.
+    if (stoppedBy) { try { child.kill(stoppedBy); } catch { /* already gone */ } }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -352,7 +461,7 @@ function summaryLine(counts, notReached) {
 }
 
 export async function runTriageSession({
-  client, terminal, as, project, checkout = null, edit = editInEditor, now = () => new Date(),
+  client, terminal, as, project, checkout = null, edit = editInEditor, now = () => new Date(), drafts = new Set(),
 }) {
   const { write } = terminal;
   const counts = { verified: 0, edited: 0, superseded: 0, archived: 0, skipped: 0, handled: 0 };
@@ -439,6 +548,17 @@ export async function runTriageSession({
     }
     const operationId = randomUUID();
     const kept = draft.file ? ` Your draft is kept at ${draft.file}.` : '';
+    // While the save is in flight the draft is unsettled: a signal that ends
+    // triage now reports its path (see triage() below).
+    if (draft.file) drafts.add(draft.file);
+    try {
+      return await saveDraft(doc, draft, { operationId, kept, settle });
+    } finally {
+      if (draft.file) drafts.delete(draft.file);
+    }
+  }
+
+  async function saveDraft(doc, draft, { operationId, kept, settle }) {
     try {
       const saved = await client.updateBody(doc.id, { body: draft.text, ifRevision: doc.revision, operationId });
       settle();
@@ -631,22 +751,43 @@ export async function runTriageSession({
 }
 
 // The command: the guard first (before any request), then the session on a
-// raw-mode terminal that is always restored.
+// raw-mode terminal that is always restored: in an unconditional finally (a
+// normal quit, a thrown error), on process exit (an uncaught exception), and
+// on SIGHUP, SIGTERM or an external SIGINT, which restore the terminal, name
+// any draft still being saved on stderr and exit with 128 + n. While the
+// editor runs it owns those signals (editInEditor). Triage never hides the cursor or switches screens
+// (it writes plain lines; untrusted escapes are neutralised), so raw mode is
+// the only terminal state to restore.
 export async function triage({
   input = process.stdin, output = process.stdout, env = process.env, client, as, project,
-  checkout = null, edit, now,
+  checkout = null, edit, now, proc = process, errorOutput = process.stderr,
 }) {
   assertAttendedHuman({ input, output, env, command: 'triage', raw: true });
   if (as !== undefined && !String(as).trim()) throw new Error('--as needs a non-empty name.');
-  const terminal = createTerminal({ input, output });
-  const restore = () => terminal.close();
-  process.once('exit', restore);
+  let terminal = null;
+  const drafts = new Set();
+  const restore = () => { terminal?.close(); };
+  // SIGINT here is an external kill -INT: in raw mode Ctrl-C arrives as a key.
+  const handlers = ['SIGINT', ...EDITOR_STOP_SIGNALS].map((signal) => [signal, () => {
+    if (terminal?.suspended) return;
+    restore();
+    try {
+      const pending = [...drafts];
+      errorOutput.write(`prax: triage stopped by ${signal}.${pending.length
+        ? ` The save in flight may not have finished; your draft is kept at ${pending.join(', ')}.` : ''}\n`);
+    } catch { /* the terminal may be gone */ }
+    proc.exit(signalExitCode(signal));
+  }]);
+  proc.once('exit', restore);
+  for (const [signal, handler] of handlers) proc.on(signal, handler);
   try {
+    terminal = createTerminal({ input, output });
     return await runTriageSession({
-      client, terminal, as, project, checkout, ...(edit ? { edit } : {}), ...(now ? { now } : {}),
+      client, terminal, as, project, checkout, drafts, ...(edit ? { edit } : {}), ...(now ? { now } : {}),
     });
   } finally {
-    process.off('exit', restore);
-    terminal.close();
+    proc.off('exit', restore);
+    for (const [signal, handler] of handlers) proc.off(signal, handler);
+    restore();
   }
 }

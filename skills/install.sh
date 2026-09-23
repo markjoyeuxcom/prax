@@ -300,13 +300,32 @@ if (markers.length && (markers.length !== 2 || a[1] !== 'start' || b[1] !== 'end
   console.error(`Malformed Prax instruction markers in ${file}; file left unchanged`);
   process.exit(1);
 }
+// Another managed block (the compiled prax-library block shares these files)
+// inside ours or around it, or marker-shaped text in the new body, would let
+// this edit replace or delete part of that block: refuse.
+const anyMarker = /<!-- [a-z][a-z0-9-]*:(start|end) -->/;
+const others = [...before.matchAll(/<!-- ([a-z][a-z0-9-]*):(start|end) -->/g)].filter((m) => m[1] !== 'prax-memory');
+if (markers.length && (anyMarker.test(before.slice(a.index + start.length, b.index))
+    || others.some((s) => s[2] === 'start' && s.index < a.index + start.length
+      && others.some((e) => e[1] === s[1] && e[2] === 'end' && e.index >= b.index)))) {
+  console.error(`The Prax instruction block in ${file} overlaps another managed block; file left unchanged`);
+  process.exit(1);
+}
+if (mode === 'write' && anyMarker.test(body)) {
+  console.error(`The new Prax instruction block holds marker-shaped text; ${file} left unchanged`);
+  process.exit(1);
+}
 let after;
 if (mode === 'remove') {
-  // The block and its own line ending; when it closed the file, also the
-  // blank line the installer put before it.
+  // The block and its own line ending, plus the blank line the installer put
+  // before it when a blank line or the end of the file follows (a block
+  // written after this one starts with its own separator).
   const tail = b.index + end.length + (before[b.index + end.length] === '\n' ? 1 : 0);
-  after = before.slice(0, a.index) + before.slice(tail);
-  if (tail === before.length && after.endsWith('\n\n')) after = after.slice(0, -1);
+  let head = before.slice(0, a.index);
+  let rest = before.slice(tail);
+  if (head.endsWith('\n\n') && (rest === '' || rest.startsWith('\n'))) head = head.slice(0, -1);
+  else if (head === '' && rest.startsWith('\n')) rest = rest.slice(1);
+  after = head + rest;
 } else {
   const block = `${start}\n${body}\n${end}`;
   after = markers.length

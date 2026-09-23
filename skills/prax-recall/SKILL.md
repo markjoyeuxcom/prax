@@ -12,8 +12,8 @@ retrieve → work → persist → supersede.
 ## Run
 
 ```bash
-node <skill-dir>/scripts/recall.mjs "<natural-language query>" [--project <slug>] [--limit <n>] [--budget <tokens>]
-node <skill-dir>/scripts/recall.mjs --recent [n] [--project <slug>]
+node <skill-dir>/scripts/recall.mjs "<natural-language query>" [--project <slug>] [--limit <n>] [--budget <tokens>] [--include-harvested]
+node <skill-dir>/scripts/recall.mjs --recent [n] [--project <slug>] [--include-harvested]
 node <skill-dir>/scripts/recall.mjs --since-last-session [--project <slug>] [--budget <tokens>]
 node <skill-dir>/scripts/recall.mjs --since <iso> [--project <slug>] [--budget <tokens>]
 ```
@@ -40,6 +40,10 @@ script is one self-contained file: Node 20+, no packages, no repository checkout
   at the start of a session. The first run only sets a baseline and says so. It needs an agent
   id (detected in Claude Code, Codex, Copilot CLI and Antigravity; otherwise `--agent <id>`).
   `--since <iso>` reads an explicit window instead. Neither takes a query.
+- Unreviewed **harvested candidates** (proposals a session hook filed in the Inbox, unverified
+  and tagged `harvested`) are not memory yet, so recall leaves them out and says how many it
+  hid (`2 unreviewed harvested candidates hidden …`). `--include-harvested` shows them. Once a
+  person verifies one, or refiles it without the tag, it is recalled like any other memory.
 
 ## Finding the app
 

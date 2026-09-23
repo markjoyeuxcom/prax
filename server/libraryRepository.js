@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { toIso } from './columnTypes.js';
 import { fuseHybrid } from './hybridRanking.js';
 import { normalizeTitle } from './documentTitle.js';
+import { isUnreviewedHarvested } from './harvestedCandidates.js';
 import { GONE, buildReadReceipt, createRecordOnce, creationIntentHash, intentHash as ledgerIntentHash, runOnce, runOnceInTransaction, withOperationTransaction } from './operationLedger.js';
 
 const DEFAULT_MIN_SIMILARITY = 0.45;
@@ -646,6 +647,19 @@ export function applyRelevanceCutoff(rows, { minSimilarity = DEFAULT_MIN_SIMILAR
   return rows.filter((r) => Number(r.similarity) >= threshold);
 }
 
+// A ranked list cut to its relevant rows, leaving out unreviewed harvested
+// candidates when `opts.excludeHarvested` is set. The cutoff is recomputed
+// without them, so the rest ranks exactly as if they were not in the Library;
+// the candidates the cutoff WOULD have kept are added to `opts.hidden` (a Set of
+// ids, when given) so the route can disclose them.
+export function cutoffExcludingHarvested(ranked, opts, cutoff) {
+  const all = cutoff(ranked);
+  if (!opts?.excludeHarvested) return all;
+  const hidden = all.filter(isUnreviewedHarvested);
+  if (opts.hidden instanceof Set) for (const row of hidden) opts.hidden.add(row.id);
+  return hidden.length ? cutoff(ranked.filter((row) => !isUnreviewedHarvested(row))) : all;
+}
+
 // Rows written before migration 0023 have no stored revision. SQLite cannot
 // hash, so the repository computes and stores the token on first use (one
 // session transaction, idempotent, no updated_at bump, no FTS trigger — title
@@ -732,7 +746,8 @@ export function createLibraryRepository(db) {
       ranked.push({ ...r, similarity });
     }
     ranked.sort((a, b) => b.similarity - a.similarity);
-    return applyRelevanceCutoff(ranked, { minSimilarity: opts.minSimilarity, topDrop: opts.topDrop })
+    const cutoff = (rows) => applyRelevanceCutoff(rows, { minSimilarity: opts.minSimilarity, topDrop: opts.topDrop });
+    return cutoffExcludingHarvested(ranked, opts, cutoff)
       .map((r) => ({ ...normalizeDocumentRow(r), similarity: r.similarity }));
   }
 
@@ -1120,7 +1135,8 @@ export function createLibraryRepository(db) {
         ranked.push({ ...row, similarity });
       }
       ranked.sort((a, b) => b.similarity - a.similarity);
-      const kept = applyRelevanceCutoff(ranked, { minSimilarity: opts.minSimilarity, topDrop: opts.topDrop });
+      const cutoff = (rows) => applyRelevanceCutoff(rows, { minSimilarity: opts.minSimilarity, topDrop: opts.topDrop });
+      const kept = cutoffExcludingHarvested(ranked, opts, cutoff);
       const items = kept.slice(offset, offset + limit)
         .map((row) => ({ ...normalizeDocumentRow(row), similarity: row.similarity }));
       return opts.page ? { items, total: kept.length } : items;
@@ -1144,8 +1160,8 @@ export function createLibraryRepository(db) {
       });
       if (keywordQuery) {
         const kw = await db.query(keywordQuery.text, keywordQuery.values);
-        keyword = keywordRelevanceCutoff(kw.rows, { dropFraction: opts.keywordDropFraction })
-          .map(normalizeDocumentRow);
+        const cutoff = (rows) => keywordRelevanceCutoff(rows, { dropFraction: opts.keywordDropFraction });
+        keyword = cutoffExcludingHarvested(kw.rows, opts, cutoff).map(normalizeDocumentRow);
       }
 
       const fused = fuseHybrid({ semantic, keyword }, {
@@ -1181,7 +1197,8 @@ export function createLibraryRepository(db) {
         ranked.push({ ...row, similarity });
       }
       ranked.sort((a, b) => b.similarity - a.similarity);
-      const kept = applyRelevanceCutoff(ranked.slice(0, limit), { minSimilarity: opts.minSimilarity, topDrop: opts.topDrop });
+      const cutoff = (rows) => applyRelevanceCutoff(rows.slice(0, limit), { minSimilarity: opts.minSimilarity, topDrop: opts.topDrop });
+      const kept = cutoffExcludingHarvested(ranked, opts, cutoff);
       return kept.map((row) => ({ ...normalizeDocumentRow(row), similarity: row.similarity }));
     },
 

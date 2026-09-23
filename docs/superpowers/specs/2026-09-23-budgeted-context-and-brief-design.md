@@ -164,8 +164,12 @@ A read-only composition over existing routes, for an agent starting a task:
    (`GET /api/tasks/:id/related-documents`), one line each with the trust chip, type, id,
    project and trust line. Trust comes from each document's full record; a record that cannot be
    read prints `[trust unknown]`, never a guessed label. At most 20 linked documents are read
-   individually; the rest are listed with `[trust unknown]` and counted. Related suggestions
-   already shown under Memory are not repeated. A degraded related route says why
+   individually; the rest are listed with `[trust unknown]` and counted. A related suggestion is
+   left out of Related only when the Memory section **as rendered** prints it (full or compact):
+   `--budget` can omit a memory match, and a suggestion deduplicated against an omitted entry
+   would appear nowhere (Agy's review, 2026-09-23). The split is recomputed from the rendered
+   plan whenever the brief is formatted (`splitRelated` in `cli/lib/brief.js`), so it always
+   follows the rendering. A degraded related route says why
    (`related documents unavailable: semantic-off`).
 5. **Memory** — the top 3 recall matches for the task's title and description (at most 500
    characters of query), cross-project, excluding documents already linked to the task. Every
@@ -175,7 +179,8 @@ A read-only composition over existing routes, for an agent starting a task:
    this section only; the task's own text always prints in full.
 
 `--json` returns `{ schemaVersion: 1, task, project, checklist, handoff: { paragraph,
-paragraphs }, linked, related: { items, alsoUnderMemory, degraded, reason }, memory: { query,
+paragraphs }, linked, related: { items, underMemory, alsoUnderMemory, degraded, reason,
+hiddenHarvested }, memory: { query,
 keyword, note, degraded, reason, index, page, items, budget } }`, where `memory.items` carry their
 `tier` and `memory.budget` the planner's decisions (or `null` without `--budget`). A task that does
 not exist is an error, as for `prax task show`. In keyword mode (no embedder) every word of the

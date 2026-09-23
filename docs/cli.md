@@ -124,7 +124,7 @@ the existing project instead of creating a folder-named duplicate) > an existing
 the folder name. Inside a git repository it also registers the remote URL on the project. The
 file is safe to commit to the repo.
 
-### `context [query...] [--json] [--limit <n>] [--budget <tokens>]`
+### `context [query...] [--json] [--limit <n>] [--budget <tokens>] [--include-harvested]`
 
 The headline command. Pulls a bounded, trust-aware Markdown briefing assembled from the
 project's active documents. With a query the server ranks documents by semantic similarity
@@ -147,13 +147,15 @@ Flags:
   for up to `--limit` candidates (50 when no limit is given), checks their code citations in
   this checkout and renders the pack itself; sections keep their order and unverified entries
   stay quarantined last. Without `--budget` the output is exactly the server's pack.
+- `--include-harvested` — include [unreviewed harvested candidates](#unreviewed-harvested-candidates),
+  which the pack leaves out by default (and counts).
 
 The Markdown output groups documents into labelled sections — see [Output shape](#context-output-shape) below.
 Both Markdown and JSON name the retrieval mode. Query fallback is explicit (for example,
 `recency fallback (semantic-unavailable)`), so a machine never mistakes fallback context for a
 semantic match.
 
-### `search <query> [--all] [--json]`
+### `search <query> [--all] [--include-harvested] [--json]`
 
 Search the project library. Attempts semantic (embedding) search first and falls back to
 keyword search only when the server explicitly reports that semantic search is not configured.
@@ -174,13 +176,15 @@ Flags:
   (`semantic-not-configured` for the keyword fallback, `index-incomplete` when some documents have
   no current embedding), plus `index` (`{ total, embedded, pending }`) and `page` for semantic
   results. Semantic search is requested in pages of up to 50; when more results exist the
-  envelope says so (`page.hasMore`) rather than silently stopping.
+  envelope says so (`page.hasMore`) rather than silently stopping. `retrieval.hiddenHarvested`
+  (present only when non-zero) counts the unreviewed harvested candidates the server left out.
+- `--include-harvested` — include [unreviewed harvested candidates](#unreviewed-harvested-candidates).
 
 Each result shows the document title, a trust tag (`[verified]`, `[unverified]`, or
 `[superseded]`), the document id, and a short snippet. A degraded result is always labelled in
 the human-readable output too.
 
-### `recall [query...] [--project <slug>] [--limit <n>] [--budget <tokens>] [--recent [n] | --since-last-session | --since <iso>] [--json]`
+### `recall [query...] [--project <slug>] [--limit <n>] [--budget <tokens>] [--recent [n] | --since-last-session | --since <iso>] [--include-harvested] [--json]`
 
 Cross-project, active-only recall distilled to one block: the top hit's title, type, trust
 label and id, its body trimmed to about 800 characters, then a short `Related:` list. This is
@@ -209,6 +213,9 @@ prax recall --recent 5
   that predates coverage reporting is labelled `index coverage unknown`, never assumed complete.
 - `--limit <n>` must be a positive integer; `--recent` takes an optional count and no query
   (a query next to it is refused, not ignored).
+- [Unreviewed harvested candidates](#unreviewed-harvested-candidates) are left out of the hit,
+  `--recent` and delta lists, and the output says how many were hidden;
+  `--include-harvested` shows them.
 - On a server with semantic search not configured, recall falls back to keyword search, says so,
   and returns the same envelope as `prax search` in that state (`degraded: true`,
   `reason: "semantic-not-configured"`, and `page: { returned, total, hasMore }`). Keyword matches
@@ -277,7 +284,7 @@ what changed, retired ones as a single line naming their replacement (`supersede
   envelope with each item's `tier`, the `budget` decisions and `advance` (whether the marker is
   advanced after output; stderr confirms it).
 
-### `brief <task-id> [--budget <tokens>] [--json]`
+### `brief <task-id> [--budget <tokens>] [--include-harvested] [--json]`
 
 Everything an agent needs to start a task, in one read-only call:
 
@@ -293,15 +300,21 @@ prax brief 2234a575-027e-4218-892a-b74d2b5c7f8c --budget 500 --json
 - **Linked documents** and **related documents** (the app's meaning-based suggestions), one line
   each with the trust chip, type, id, project and trust line. A document whose record could not
   be read prints `[trust unknown]`; only the first 20 linked documents are read. A degraded
-  related list says why (`related documents unavailable: semantic-off`), and suggestions already
-  shown under Memory are not repeated.
+  related list says why (`related documents unavailable: semantic-off`). A suggestion is left
+  out of Related only when the Memory section actually prints it (in full or as one line); one
+  the budget leaves out of Memory stays under Related, so no linked or related document is ever
+  dropped from both.
 - **Memory**: the top 3 recall matches for the task's title and description (across projects,
   excluding documents already linked), every match's citations checked, in the budget fill
   order, with the same index-coverage and keyword-fallback disclosures as `recall`. In keyword
   mode every word of the task text must match, so this section is often empty there.
 - `--budget <tokens>` bounds the memory section only; the task's own text always prints.
+- Memory and Related leave out [unreviewed harvested candidates](#unreviewed-harvested-candidates)
+  and say how many; `--include-harvested` shows them. Linked documents are always listed.
 - `--json` returns `{ schemaVersion, task, project, checklist, handoff: { paragraph,
-  paragraphs }, linked, related: { items, alsoUnderMemory, degraded, reason }, memory }`.
+  paragraphs }, linked, related: { items, underMemory, alsoUnderMemory, degraded, reason,
+  hiddenHarvested }, memory }`. `related.underMemory` lists the suggestions that are also memory
+  matches; `alsoUnderMemory` counts those the Memory section printed (the rest are in `items`).
 
 ### `overview [--project <slug>] [--json]`
 
@@ -756,6 +769,21 @@ its `checks` array (`{ id, level, count, message }`) and still sets the exit cod
 are stored, and the bounds. `clear` deletes every recorded query, hit and used signal in the
 workspace (`DELETE /api/library/telemetry`).
 
+## Unreviewed harvested candidates
+
+A [harvested](#harvest---transcript-file---session-id---dry-run---budget-ms-n---json) proposal
+is an unverified Inbox document tagged `harvested`. It is not memory until a person reviews it,
+so agent retrieval leaves it out by default: `recall` (including `--recent` and the
+`--since-last-session` / `--since` delta), `search`, `context` (with or without `--budget`),
+`brief` (memory and related sections), the prax-recall skill, the MCP search and context tools,
+and Ask. Every result that hid one says so, for example
+`(1 unreviewed harvested candidate hidden until a person triages it; --include-harvested to show)`.
+`--include-harvested` on `recall`, `search`, `context` and `brief` (and on the recall skill)
+shows them. A candidate a person verifies, or refiles without the `harvested` tag, is recalled
+like any other memory; the delta reports it then (`verified` or `updated`). Plain listings
+(`GET /api/library/documents` without `q`), triage and the web UI's Library, Inbox and search
+are not filtered.
+
 ## Recall telemetry
 
 Prax keeps a local record of the retrievals agent clients make so the librarian can list
@@ -766,7 +794,12 @@ so it never slows or fails a recall. It stays in the workspace's database: it is
 anywhere and never included in the portable Library export, but a full workspace backup (the
 whole database) carries it. Rows are kept 90 days, at most 20,000 queries and 20,000 used
 signals. `prax telemetry clear` deletes it; `PRAX_RECALL_TELEMETRY=off` in the server's
-environment stops recording. Queries are stored as typed, so keep secrets out of them.
+environment stops recording. Before a query is stored, credential-shaped spans are replaced by
+`[redacted]`: private-key blocks, AWS access key ids, GitHub, GitLab, Slack, OpenAI and
+Anthropic tokens, JWTs, `Bearer`/`Basic` values, `password=`/`secret=`/`token=`/`api_key=`-style
+assignments and passwords in URLs. The rest of the query is kept, and the grouping key is
+computed from the redacted text. Redaction catches known shapes only, so still keep secrets out
+of queries.
 
 ## Trust model
 

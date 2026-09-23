@@ -13,8 +13,9 @@ Migration `0040_recall_telemetry_and_librarian.sql` adds three telemetry tables 
 proposal table below.
 
 - `recall_queries`: `id`, `occurred_at`, `source` (`recall`, `search`, `context`, `mcp`,
-  `assistant`), `mode` (`semantic`, `hybrid`, `keyword`, `recency`), `query` (verbatim, first
-  500 characters), `query_key` (case-folded, punctuation-free, for aggregation), `agent`
+  `assistant`), `mode` (`semantic`, `hybrid`, `keyword`, `recency`), `query` (credential spans
+  redacted, then the first 500 characters; see the privacy stance), `query_key` (case-folded,
+  punctuation-free, computed from the redacted text, for aggregation), `agent`
   (the `x-prax-agent` id when the request is agent-origin, else null), `project_id` (the scope
   asked for; null = all projects; `on delete set null`) and `hit_count`.
 - `recall_query_hits`: `(query_id, document_id, rank)`, at most 50 per query. Both keys
@@ -53,8 +54,23 @@ the full workspace backup, because that backup is the whole database; restoring 
 restores the telemetry it held. `prax telemetry clear` (`DELETE /api/library/telemetry`) deletes
 every query, hit and used row; `prax telemetry status` shows the counts. Setting
 `PRAX_RECALL_TELEMETRY=off` in the server's environment stops recording (clear, used and
-reports keep working; used signals are refused with 409). Query text is stored verbatim, so
-agents must not put secrets in recall queries, as they already must not put them in memory.
+reports keep working; used signals are refused with 409).
+
+**Query redaction.** An agent may paste a token into a search, so a query is never stored
+verbatim (Agy's review, 2026-09-23). `storedQueryText` in `server/recallTelemetry.js` runs
+`redactSecrets` (`server/secretPatterns.js`) over the whole query, then applies the 500-character
+cap, so a secret that straddles the cut is still recognised. Each credential span becomes
+`[redacted]` and the rest of the query is kept, so gaps stay readable and groupable; `query_key`
+is computed from the redacted text, so no secret reaches either column. Redacted shapes: the
+harvester's credential set (private-key blocks from header to END line, or to the end when the
+END line is missing; AWS `AKIA`/`ASIA` key ids; GitHub `ghp_`/`gho_`/`ghu_`/`ghs_`/`ghr_`/
+`github_pat_`, GitLab `glpat-`, Slack `xox?-`, OpenAI and Anthropic `sk-` tokens) plus contextual
+forms that only redaction uses because they can match harmless text: JWTs, `Bearer`/`Basic`
+values, `password=`/`secret=`/`token=`/`api_key=`/`access_key=`-style assignments (the label is
+kept) and the password in `scheme://user:password@host`. The module lives under `server/`
+because the server must not import from `cli/`; the harvester and the skill bundles import it
+from there. Redaction recognises known shapes only, so agents still must not put secrets in
+recall queries, as they must not put them in memory.
 
 ## Near-duplicate clustering and proposals
 
@@ -71,6 +87,37 @@ agents must not put secrets in recall queries, as they already must not put them
   an inverted index that ignores shingles present in more than 50 documents.
 - Edges are joined by union-find into clusters of two or more documents (at most 8 listed per
   cluster). A cluster's key is a hash of its sorted document ids.
+
+**Bounding the pair work.** Both finders are exact: they find the same pairs, with the same
+similarities, as an unfiltered pass (a test holds them to the original code on a synthetic
+library across several thresholds).
+
+- *Shingles:* only pairs that share a shingle held by at most 50 documents are compared. Partners
+  are gathered per document through the inverted index with an integer stamp array, so the work is
+  the sum of C(df, 2) over those rare shingles (at most 25 partner visits per shingle occurrence),
+  never all pairs, and each nominated pair gets one exact Jaccard. A pair whose shared shingles
+  are all boilerplate (held by more than 50 documents) is not compared; with embeddings, cosine
+  still covers it.
+- *Embeddings:* cosine stays exact. Each vector is normalised once, and a pair's dot product is
+  summed in blocks of 16 dimensions; after each block, Cauchy-Schwarz bounds what the remaining
+  dimensions can add, and the pair is dropped once it can no longer reach the threshold. An
+  unrelated pair is dropped after a small share of its dimensions, and a surviving pair is scored
+  with the original `cosineSimilarity`. The pair loop is still quadratic within a project, which
+  we accept at the declared limit: at most 2,000 candidates (about two million pairs). Lossy
+  prefilters (top-k, LSH) were rejected because they could change which clusters are found.
+- *Measured:* 2,000 documents in one project with 768-dimension vectors cluster in about 0.3 s on
+  a laptop (the unfiltered cosine pass took about 2.4 s), and fewer than one pair in 50 needs a
+  full cosine. `tests/backend/librarianScale.test.js` asserts those work counts and a generous
+  8-second bound.
+
+**Reusing the last clustering.** The report behind `prax doctor` clusters the library on every
+call, so each run fingerprints what clustering reads: the settings, and for each candidate in
+order its id, project, revision (the token over title and body) and the exact bytes of its
+vector. The routes keep the clusters for the last four fingerprints in memory; an equal
+fingerprint reuses them (`cached: true` in the run result) and any change recomputes. Proposal
+status is always classified afresh, so a newly filed or dismissed proposal shows at once. The
+cache lives in the app process only and is lost on restart. Documents and vectors are still read
+on every call; that read is cheap next to clustering.
 
 A proposal is one new document per cluster, created by `POST /api/library/librarian/run`:
 
@@ -147,10 +194,14 @@ agents and sources, most asked first (at most 50).
 
 ## Evidence
 
+`tests/backend/secretPatterns.test.js` (token shapes, span redaction, the key computed from the
+redacted text, redaction before the cap, nothing secret stored through the store or a route),
 `tests/backend/recallTelemetry.test.js` (recording from each route, header opt-in, first-page
 only, fire-and-forget failures, bounds, clear, disabled mode), `tests/backend/librarian.test.js`
 (shingle and embedding clustering with the fake embedder, proposal shape, idempotent runs, the
-proposal-only invariant, approval rules, the schedule), `tests/cli/librarian.test.js` (`prax used`,
+proposal-only invariant, approval rules, the schedule, the clustering cache),
+`tests/backend/librarianScale.test.js` (exactness against the unfiltered passes, 2,000 documents
+within a time bound), `tests/cli/librarian.test.js` (`prax used`,
 `prax telemetry`, doctor exit codes against a real server), the MCP source header in
 `tests/mcp/praxClient.test.js`, `tests/frontend/librarian.test.js` (the card, the recall sort,
 the controller) and `tests/e2e/librarian.spec.js` (Run librarian → review queue → verify →

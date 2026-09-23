@@ -240,6 +240,39 @@ function createTransport({
   };
 }
 
+// server/harvestedCandidates.js
+var HARVEST_TAG = "harvested";
+var HIDDEN_HARVESTED_HEADER = "x-prax-hidden-harvested";
+function tagList(tags) {
+  if (Array.isArray(tags)) return tags;
+  if (typeof tags === "string" && tags) {
+    try {
+      const parsed = JSON.parse(tags);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+function isUnreviewedHarvested(doc) {
+  if (!doc || doc.verified === true || Number(doc.verified) === 1) return false;
+  return tagList(doc.tags).some((tag) => String(tag ?? "").trim().toLowerCase() === HARVEST_TAG);
+}
+function partitionHarvested(docs, { include = false } = {}) {
+  const list = Array.isArray(docs) ? docs : [];
+  if (include) return { kept: list, hidden: [] };
+  const kept = [];
+  const hidden = [];
+  for (const doc of list) (isUnreviewedHarvested(doc) ? hidden : kept).push(doc);
+  return { kept, hidden };
+}
+function hiddenHarvestedNote(count, { hint = "--include-harvested" } = {}) {
+  const n = Number(count) || 0;
+  if (n <= 0) return "";
+  return `${n} unreviewed harvested candidate${n === 1 ? "" : "s"} hidden until a person triages ${n === 1 ? "it" : "them"}; ${hint} to show`;
+}
+
 // cli/lib/apiClient.js
 var SEMANTIC_PAGE_MAX = 50;
 var CODE_REF_PATHS_PER_REQUEST = 50;
@@ -273,14 +306,15 @@ function createClient({
     agent: agentWrite = false,
     accept,
     retryUnavailable = false,
-    headers
+    headers,
+    parse = parseResponse
   } = {}) => transport.request(method, path, {
     body,
     agentWrite,
     accept,
     headers,
     retry: retryUnavailable,
-    parse: parseResponse
+    parse
   });
   return {
     get base() {
@@ -288,11 +322,21 @@ function createClient({
     },
     candidates: transport.candidates,
     agent: transport.agent,
-    contextPack(project, { query, format = "md", limit, source } = {}) {
+    // Unreviewed harvested candidates are left out of every retrieval read
+    // unless `includeHarvested` (server/harvestedCandidates.js); each read
+    // reports how many it hid as `hiddenHarvested`.
+    contextPack(project, {
+      query,
+      format = "md",
+      limit,
+      source,
+      includeHarvested = false
+    } = {}) {
       const params = new URLSearchParams();
       if (query) params.set("query", query);
       if (format === "json") params.set("format", "json");
       if (limit) params.set("limit", String(limit));
+      if (includeHarvested) params.set("includeHarvested", "true");
       const qs = params.toString();
       return request(
         "GET",
@@ -300,11 +344,28 @@ function createClient({
         { accept: format === "json" ? "application/json" : "text/markdown", headers: querySourceHeaders(source) }
       );
     },
-    keywordSearch(project, q, { all = false, source } = {}) {
+    // The listing's body is a bare array, so the hidden count travels in a
+    // header: `envelope: true` returns `{ items, hiddenHarvested }`, otherwise
+    // the array as before.
+    async keywordSearch(project, q, {
+      all = false,
+      source,
+      includeHarvested = false,
+      envelope = false
+    } = {}) {
       const params = new URLSearchParams({ q });
       if (project) params.set("project", project);
       if (!all) params.set("status", "active");
-      return request("GET", `/api/library/documents?${params.toString()}`, { headers: querySourceHeaders(source) });
+      if (includeHarvested) params.set("includeHarvested", "true");
+      let hiddenHarvested = 0;
+      const items = await request("GET", `/api/library/documents?${params.toString()}`, {
+        headers: querySourceHeaders(source),
+        parse: (res) => {
+          hiddenHarvested = Number(res.headers.get(HIDDEN_HARVESTED_HEADER)) || 0;
+          return parseResponse(res);
+        }
+      });
+      return envelope ? { items: Array.isArray(items) ? items : [], hiddenHarvested } : items;
     },
     // Paged mode so the response carries index coverage (`index`, `degraded`,
     // `reason: 'index-incomplete'`): the legacy array cannot say that pending
@@ -315,9 +376,11 @@ function createClient({
       limit = SEMANTIC_PAGE_MAX,
       offset = 0,
       mode,
-      source
+      source,
+      includeHarvested = false
     } = {}) {
       const params = new URLSearchParams({ q, page: "true" });
+      if (includeHarvested) params.set("includeHarvested", "true");
       if (mode) params.set("mode", String(mode));
       if (project) params.set("project", project);
       if (all) params.set("all", "true");
@@ -332,7 +395,8 @@ function createClient({
         page: res?.page || null,
         index: res?.index || null,
         degraded: Boolean(res?.degraded),
-        reason: res?.reason || null
+        reason: res?.reason || null,
+        hiddenHarvested: Number(res?.hiddenHarvested) || 0
       };
     },
     getDocument(id) {
@@ -520,18 +584,26 @@ function createClient({
       return request("GET", `/api/tasks/${encodeURIComponent(taskId)}/documents`);
     },
     // Advisory: always 200, `{ suggestions, degraded?, reason? }`.
-    relatedTaskDocuments(taskId) {
-      return request("GET", `/api/tasks/${encodeURIComponent(taskId)}/related-documents`);
+    relatedTaskDocuments(taskId, { includeHarvested = false } = {}) {
+      const qs = includeHarvested ? "?includeHarvested=true" : "";
+      return request("GET", `/api/tasks/${encodeURIComponent(taskId)}/related-documents${qs}`);
     },
     // ---- the since-last-session delta ------------------------------------
     // Sent as an agent request so the server knows WHOSE marker to read; a
     // read, so it is never retried after it may have reached the server.
-    memoryChanges({ since, sinceLastSession = false, project, limit } = {}) {
+    memoryChanges({
+      since,
+      sinceLastSession = false,
+      project,
+      limit,
+      includeHarvested = false
+    } = {}) {
       const params = new URLSearchParams();
       if (sinceLastSession) params.set("sinceLastSession", "true");
       else if (since) params.set("since", since);
       if (project) params.set("project", project);
       if (limit) params.set("limit", String(limit));
+      if (includeHarvested) params.set("includeHarvested", "true");
       return request("GET", `/api/library/changes?${params.toString()}`, { agent: true });
     },
     // A monotonic setter (the server keeps max(stored, at)), so it is retried
@@ -1114,9 +1186,14 @@ function boundNote(result) {
   const total = Number.isInteger(page.total) ? page.total : null;
   return `${page.returned} of ${total ?? "more"} matches shown \u2014 raise --limit for the rest`;
 }
-async function collectSemantic(client, project, query, limit, mode = "hybrid") {
+async function collectSemantic(client, project, query, limit, mode = "hybrid", { includeHarvested = false } = {}) {
   const wanted = Math.max(1, Number(limit) || 1);
-  let res = await client.semanticSearch(project, query, { limit: wanted, mode, source: "recall" });
+  let res = await client.semanticSearch(project, query, {
+    limit: wanted,
+    mode,
+    source: "recall",
+    ...includeHarvested ? { includeHarvested } : {}
+  });
   if (Array.isArray(res)) return res;
   const items = [...res.items || []];
   let page = res.page;
@@ -1127,7 +1204,8 @@ async function collectSemantic(client, project, query, limit, mode = "hybrid") {
       limit: wanted - items.length,
       offset: page.nextOffset,
       mode,
-      source: "recall"
+      source: "recall",
+      ...includeHarvested ? { includeHarvested } : {}
     });
     if (Array.isArray(next)) break;
     items.push(...next.items || []);
@@ -1255,13 +1333,25 @@ function rankKeywordMatches(docs, query) {
   };
   return list.map((doc, index) => ({ doc, index, score: score(doc) })).sort((a, b) => b.score - a.score || a.index - b.index).map((entry) => entry.doc);
 }
-async function searchCandidates(client, { query, project, limit = 5, mode = "hybrid" } = {}) {
+async function searchCandidates(client, {
+  query,
+  project,
+  limit = 5,
+  mode = "hybrid",
+  includeHarvested = false
+} = {}) {
   let res;
   try {
-    res = await collectSemantic(client, project || void 0, query, limit, mode);
+    res = await collectSemantic(client, project || void 0, query, limit, mode, { includeHarvested });
   } catch (err) {
     if (err && err.status === 409) {
-      const ranked = rankKeywordMatches(await client.keywordSearch(project || void 0, query, { source: "recall" }), query);
+      const found = await client.keywordSearch(project || void 0, query, {
+        source: "recall",
+        includeHarvested,
+        envelope: true
+      });
+      const rows = Array.isArray(found) ? found : Array.isArray(found?.items) ? found.items : [];
+      const ranked = rankKeywordMatches(rows, query);
       const kept = await withProjectSlugs(client, ranked.slice(0, limit));
       return {
         keyword: true,
@@ -1269,6 +1359,7 @@ async function searchCandidates(client, { query, project, limit = 5, mode = "hyb
         reason: "semantic-not-configured",
         index: null,
         page: { returned: kept.length, total: ranked.length, hasMore: ranked.length > kept.length },
+        hiddenHarvested: Number(found?.hiddenHarvested) || 0,
         items: kept
       };
     }
@@ -1285,6 +1376,7 @@ async function searchCandidates(client, { query, project, limit = 5, mode = "hyb
     index: legacy ? null : res?.index || null,
     // What remains beyond the requested bound after paging up to it.
     page: legacy ? null : res?.page || null,
+    hiddenHarvested: Number(res?.hiddenHarvested) || 0,
     items: list.length ? await withProjectSlugs(client, list.slice(0, limit)) : []
   };
 }
@@ -1292,7 +1384,8 @@ var coverageOf = (found) => ({
   degraded: found.degraded,
   reason: found.reason,
   index: found.index,
-  page: found.page
+  page: found.page,
+  ...found.hiddenHarvested > 0 ? { hiddenHarvested: found.hiddenHarvested } : {}
 });
 var DOC_FIELDS = [
   "body",
@@ -1322,12 +1415,15 @@ async function recall(client, {
   readFile,
   checkout: givenCheckout,
   budget,
-  now = /* @__PURE__ */ new Date()
+  now = /* @__PURE__ */ new Date(),
+  includeHarvested = false
 } = {}) {
   const checkout = givenCheckout ?? (typeof readFile === "function" ? { readFile } : null);
   if (recent) {
     const docs = await client.listDocuments(project || void 0, { status: "active" });
-    const items = (Array.isArray(docs) ? docs : []).filter((d) => (d.status ?? "active") === "active").slice().sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))).slice(0, limit).map((d) => ({
+    const newest = (Array.isArray(docs) ? docs : []).filter((d) => (d.status ?? "active") === "active").slice().sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
+    const hiddenHarvested = partitionHarvested(newest.slice(0, limit), { include: includeHarvested }).hidden.length;
+    const items = partitionHarvested(newest, { include: includeHarvested }).kept.slice(0, limit).map((d) => ({
       title: d.title || "Untitled",
       id: d.id,
       verified: Boolean(d.verified),
@@ -1339,9 +1435,20 @@ async function recall(client, {
       projectSlug: d.projectSlug ?? null,
       snippet: snippetOf(d, 100)
     }));
-    return { kind: "recent", project: project || "", items: await withProjectSlugs(client, items) };
+    return {
+      kind: "recent",
+      project: project || "",
+      items: await withProjectSlugs(client, items),
+      ...hiddenHarvested > 0 ? { hiddenHarvested } : {}
+    };
   }
-  const found = await searchCandidates(client, { query, project, limit, mode });
+  const found = await searchCandidates(client, {
+    query,
+    project,
+    limit,
+    mode,
+    includeHarvested
+  });
   const kept = found.items;
   if (kept.length === 0) return { kind: "empty", query, note: found.keyword ? "keyword" : null, ...coverageOf(found) };
   const note = found.keyword ? "semantic search disabled \u2014 keyword results" : null;
@@ -1436,6 +1543,8 @@ function disclosureLines(result) {
   if (coverage) lines.push(`(${coverage} \u2014 results may be missing)`);
   const bound = boundNote(result);
   if (bound) lines.push(`(${bound})`);
+  const hidden = hiddenHarvestedNote(result.hiddenHarvested);
+  if (hidden) lines.push(`(${hidden})`);
   return lines;
 }
 function planRecallBudget(result, budget, now = /* @__PURE__ */ new Date()) {
@@ -1454,27 +1563,25 @@ function formatRecall(result, now = /* @__PURE__ */ new Date()) {
   if (result.kind === "empty") {
     const notes = [];
     if (result.note === "keyword") notes.push("keyword; semantic search is disabled");
-    const coverage2 = coverageNote(result);
-    if (coverage2) notes.push(`${coverage2} \u2014 this may not be a true miss`);
+    const coverage = coverageNote(result);
+    if (coverage) notes.push(`${coverage} \u2014 this may not be a true miss`);
+    const hidden = hiddenHarvestedNote(result.hiddenHarvested);
+    if (hidden) notes.push(hidden);
     const suffix = notes.length ? ` (${notes.join("; ")})` : "";
     return `No relevant memory found for: "${result.query}"${suffix}`;
   }
   if (result.kind === "recent") {
-    if (!result.items.length) return "No documents yet.";
+    const hidden = hiddenHarvestedNote(result.hiddenHarvested);
+    if (!result.items.length) return hidden ? `No documents yet (${hidden}).` : "No documents yet.";
     const scope = result.project ? ` in "${result.project}"` : "";
     const head = `Most recent ${result.items.length} active document(s)${scope}:`;
     const lines2 = result.items.map((d) => {
       const label = [projectLabel(d), trustLabel(d, now)].filter(Boolean).join(" \xB7 ");
       return `- ${d.title} \u2014 ${d.id}${label ? ` (${label})` : ""}${d.snippet ? ` \u2014 ${d.snippet}` : ""}`;
     });
-    return [head, ...lines2].join("\n");
+    return [head, ...lines2, ...hidden ? [`(${hidden})`] : []].join("\n");
   }
-  const lines = [];
-  if (result.note) lines.push(`(${result.note})`);
-  const coverage = coverageNote(result);
-  if (coverage) lines.push(`(${coverage} \u2014 results may be missing)`);
-  const bound = boundNote(result);
-  if (bound) lines.push(`(${bound})`);
+  const lines = disclosureLines(result);
   const top = result.top;
   const citationNotes2 = [
     ...(top.citations || []).map((c) => c.note).filter(Boolean),
@@ -1512,7 +1619,8 @@ async function memoryDelta(client, {
   sinceLastSession = false,
   project,
   limit,
-  checkout
+  checkout,
+  includeHarvested = false
 } = {}) {
   if (Boolean(since) === Boolean(sinceLastSession)) throw new DeltaError("give exactly one of --since <iso> or --since-last-session.");
   if (sinceLastSession && !client.agent) {
@@ -1520,7 +1628,13 @@ async function memoryDelta(client, {
   }
   let res;
   try {
-    res = await client.memoryChanges({ since, sinceLastSession, project, limit });
+    res = await client.memoryChanges({
+      since,
+      sinceLastSession,
+      project,
+      limit,
+      ...includeHarvested ? { includeHarvested } : {}
+    });
   } catch (err) {
     if (err && err.status === 404) err.message = `this Prax predates the memory delta (GET /api/library/changes answered 404). ${err.message}`;
     throw err;
@@ -1540,6 +1654,9 @@ async function memoryDelta(client, {
     since: res.since ?? null,
     until: res.until,
     page: res.page ?? null,
+    // Unreviewed harvested candidates changed in the window and left out; a
+    // candidate a person verifies later appears in that later delta.
+    hiddenHarvested: Number(res.hiddenHarvested) || 0,
     items: fillOrder(byChange, { recencyOf: (item) => item.changedAt })
   };
 }
@@ -1571,6 +1688,8 @@ function planDelta(result, budget, now = /* @__PURE__ */ new Date()) {
       lines.push(`(${result.page.returned} of ${result.page.total} changes shown, oldest first \u2014 run the delta again for the rest)`);
     }
     if (!result.items.length) lines.push("No memory changed in this window.");
+    const hidden = hiddenHarvestedNote(result.hiddenHarvested);
+    if (hidden) lines.push(`(${hidden})`);
     lines.push("(unverifications and permanent deletions are not tracked by the delta)");
   }
   const items = result.items || [];
@@ -1758,7 +1877,7 @@ function parseCommand(argv, {
 }
 
 // cli/lib/skillArgs.js
-var RECALL_USAGE = 'Usage: recall "<query>" [--project <slug>] [--limit <n>] [--budget <tokens>] [--agent <id>]\n       recall --recent [n] [--project <slug>]\n       recall --since-last-session | --since <iso> [--project <slug>] [--limit <n>] [--budget <tokens>] [--agent <id>]';
+var RECALL_USAGE = 'Usage: recall "<query>" [--project <slug>] [--limit <n>] [--budget <tokens>] [--include-harvested] [--agent <id>]\n       recall --recent [n] [--project <slug>] [--include-harvested]\n       recall --since-last-session | --since <iso> [--project <slug>] [--limit <n>] [--budget <tokens>] [--include-harvested] [--agent <id>]';
 var REMEMBER_USAGE = `Usage: remember "<title>" "<body>" [--tags a,b] [--type ${DOCUMENT_TYPE_VALUES.join("|")}] [--project <slug>] [--id <uuid>] [--ref <url>] [--cite <path[:start[-end]]>] [--agent <id>]`;
 var UsageError = class extends Error {
   constructor(message, usage) {
@@ -1776,7 +1895,9 @@ var SKILL_MESSAGES = {
 var RECALL_SPEC = {
   usage: RECALL_USAGE,
   value: ["project", "limit", "agent", "budget", "since"],
-  boolean: ["since-last-session"],
+  // --include-harvested shows unreviewed harvested candidates, which recall
+  // leaves out by default (server/harvestedCandidates.js).
+  boolean: ["since-last-session", "include-harvested"],
   optional: { recent: (next) => !next.startsWith("--") }
 };
 function parseSkillCommand(argv, spec) {
@@ -1811,6 +1932,7 @@ function parseRecallArgs(argv) {
     if (flags.limit === void 0) out.limit = 20;
   }
   if (flags["since-last-session"]) out.sinceLastSession = true;
+  if (flags["include-harvested"]) out.includeHarvested = true;
   if (flags.since !== void 0) {
     out.since = flags.since;
     if (out.sinceLastSession) throw fail("give one of --since <iso> or --since-last-session");
@@ -1953,7 +2075,8 @@ async function main() {
     agent,
     budget,
     since: sinceArg,
-    sinceLastSession
+    sinceLastSession,
+    includeHarvested = false
   } = parseRecallArgs(process.argv.slice(2));
   const client = createClient({ agent });
   const checkout = createCheckout();
@@ -1970,7 +2093,8 @@ async function main() {
       sinceLastSession,
       project: project || void 0,
       limit,
-      checkout
+      checkout,
+      includeHarvested
     });
     const planned = planDelta(result2, budget ?? Infinity);
     console.log(planned.text);
@@ -1986,7 +2110,8 @@ async function main() {
     limit,
     recent,
     budget,
-    checkout
+    checkout,
+    includeHarvested
   });
   console.log(formatRecall(result));
 }

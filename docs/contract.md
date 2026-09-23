@@ -484,8 +484,8 @@ required/optional status, and enum option sets. Shared enums: `STATUS`
 | `get_task` | `id` | yes |
 | `create_task` | `title`, `project`, `id?`, `description?`, `priority?:PRIORITY`, `status?:STATUS`, `dueDate?`, `dueTime?`, `recurrence?`, `labels?` | — |
 | `update_task` | `id`, `title?`, `description?`, `notes?`, `priority?:PRIORITY`, `status?:STATUS`, `project?`, `dueDate?`, `dueTime?`, `recurrence?`, `labels?` | — |
-| `search_documents` | `query?`, `project?`, `documentType?:DOCUMENT_TYPE`, `tags?`, `kind?:KIND`, `status?:{active\|superseded\|deprecated\|all}`, `limit?`, `offset?` | yes |
-| `ask_library` | `query`, `project?`, `limit?` → Markdown context pack (semantic when configured, keyword otherwise) | yes |
+| `search_documents` | `query?`, `project?`, `documentType?:DOCUMENT_TYPE`, `tags?`, `kind?:KIND`, `status?:{active\|superseded\|deprecated\|all}`, `includeHarvested?:boolean`, `limit?`, `offset?` | yes |
+| `ask_library` | `query`, `project?`, `limit?`, `includeHarvested?:boolean` → Markdown context pack (semantic when configured, keyword otherwise) | yes |
 | `get_document` | `id` | yes |
 | `create_document` | `title`, `body`, `documentType:DOCUMENT_TYPE`, `project`, `id?`, `tags?`, `kind?:KIND` | — |
 | `update_document` | `id`, `title?`, `body?`, `documentType?:DOCUMENT_TYPE`, `project?`, `tags?`, `kind?:KIND` | — |
@@ -505,7 +505,7 @@ required/optional status, and enum option sets. Shared enums: `STATUS`
 | `add_external_ref` | `documentId`, `url`, `label?` | — |
 | `remove_external_ref` | `documentId`, `refId` | — |
 | `list_stale_documents` | `project?`, `limit?`, `offset?` | yes |
-| `search_documents_semantic` | `query`, `project?`, `limit?`, `offset?` | yes |
+| `search_documents_semantic` | `query`, `project?`, `includeHarvested?:boolean`, `limit?`, `offset?` | yes |
 | `start_runbook_run` | `documentId`, `title?`, `runId?` | — |
 | `list_runbook_runs` | `documentId`, `limit?`, `offset?` | yes |
 | `get_runbook_run` | `runId` | yes |
@@ -855,6 +855,30 @@ JSON pack items carry `updatedAt` (the current revision's time), which the CLI's
 client, which alone can check code citations against its checkout (see
 [Budgets and the fill order](cli.md#budgets-and-the-fill-order)).
 
+### Unreviewed harvested candidates
+
+A document that is **unverified and tagged `harvested`** (case-insensitive) is a session-harvest
+proposal awaiting triage (`server/harvestedCandidates.js`). Retrieval routes leave it out unless
+the request opts in with `includeHarvested=true` (a JSON body field `includeHarvested: true` for
+`POST /api/library/ask`); any other value, or none, excludes. Verification, or tags without
+`harvested`, makes it an ordinary document again. Each route discloses what it hid:
+
+| Route | Excluded by default | Disclosure |
+|-------|---------------------|------------|
+| `GET /api/library/documents/semantic-search` (semantic and hybrid) | yes; ranking and the relevance cutoff are computed as if the candidates were absent, and `page.total` counts only what may be shown | `hiddenHarvested: n` in the paged envelope; `x-prax-hidden-harvested: n` header on the legacy array |
+| `GET /api/library/documents?q=` (keyword search) | yes, only when `q` is non-blank | `x-prax-hidden-harvested: n` header (the body stays an array) |
+| `GET /api/library/documents` without `q` (a listing) | no | — |
+| `GET /api/projects/:idOrSlug/context-pack`, `GET /api/library/context-pack` | yes (semantic, keyword and recency candidates) | JSON `hiddenHarvested: n`; Markdown line `_n unreviewed harvested candidate(s) hidden …; --include-harvested (includeHarvested=true) to show._` |
+| `POST /api/library/ask` | yes; never an answer source | `retrieval.hiddenHarvested: n`, and the pack Markdown line |
+| `GET /api/library/documents/:id/similar` | yes | `hiddenHarvested: n` |
+| `GET /api/tasks/:id/related-documents` | yes | `hiddenHarvested: n` |
+| `GET /api/library/changes` | yes (a SQL filter, so paging and `until` are unaffected) | `hiddenHarvested: n`: candidates changed in the window |
+
+`hiddenHarvested` is present only when non-zero; for ranked routes it counts the candidates the
+relevance cutoff would have returned. The web UI opts in for its Library search, similar
+documents and the task drawer's suggestions; its Ask does not. The CLI (`--include-harvested`),
+the recall skill and the MCP tools (`includeHarvested`) send the opt-in only when asked.
+
 ### Memory changes and recall markers
 
 The since-last-session delta (`prax recall --since-last-session | --since <iso>`). Design:
@@ -874,8 +898,13 @@ unknown). Returns:
                "createdAt", "updatedAt", "archivedAt", "supersededBy": ["<id>"],
                "changes": ["created"|"updated"|"verified"|"superseded"|"deprecated"|"archived"],
                "changedAt": "<iso>", "snippet": "<first 800 characters>" } ],
-  "page": { "returned", "total", "hasMore", "limit" } }
+  "page": { "returned", "total", "hasMore", "limit" },
+  "hiddenHarvested": <n, only when non-zero> }
 ```
+
+`includeHarvested=true` includes [unreviewed harvested candidates](#unreviewed-harvested-candidates);
+without it they are left out and `hiddenHarvested` (present only when non-zero) counts those
+changed in the window.
 
 A document is included when its `created_at`, `updated_at`, `verified_at` (while verified) or
 `archived_at` is later than `since`; archived documents appear only when archived in the window.
@@ -1040,6 +1069,12 @@ stored), and `GET /api/projects/:idOrSlug/context-pack?query=` / `GET /api/libra
 is scheduled after the response and every failure is swallowed: the response body and status are
 identical with telemetry on, off, or failing. Rows are deleted after 90 days and each table keeps
 at most 20,000 rows. `PRAX_RECALL_TELEMETRY=off` turns recording off.
+
+**Redaction.** `query` is never stored verbatim: credential spans are replaced by `[redacted]`
+(`server/secretPatterns.js`: private-key blocks, AWS access key ids, GitHub, GitLab, Slack,
+OpenAI and Anthropic tokens, JWTs, `Bearer`/`Basic` values, `password=`/`secret=`/`token=`/
+`api_key=`-style assignments, URL passwords) over the whole query before the 500-character cap,
+and `query_key` is computed from the redacted text.
 
 | Route | Result |
 |-------|--------|

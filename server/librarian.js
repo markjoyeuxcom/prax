@@ -75,49 +75,132 @@ function byProject(docs) {
 }
 
 // Shingle-Jaccard pairs within each project. Candidate pairs come from an
-// inverted index; a shingle held by more than `maxDf` documents is boilerplate
-// and does not nominate pairs. `eligible(a, b)` narrows which pairs count.
+// inverted index: two documents are compared only when they share a shingle
+// held by at most `maxDf` documents (a shingle held by more is boilerplate and
+// nominates nothing). Candidates are gathered per document with an integer
+// stamp array, so the work is bounded by the sum of C(df, 2) over the rare
+// shingles (at most maxDf / 2 partner visits per shingle occurrence), never all
+// pairs, and each nominated pair gets one exact Jaccard. Pairs come out in
+// (i, j) input order. `eligible(a, b)` narrows which pairs count; `stats`
+// (optional) receives the candidate and compared pair counts.
 export function findShinglePairs(docs, {
-  threshold = SHINGLE_MIN_JACCARD, k = SHINGLE_SIZE, maxDf = SHINGLE_MAX_DF, eligible = () => true,
+  threshold = SHINGLE_MIN_JACCARD, k = SHINGLE_SIZE, maxDf = SHINGLE_MAX_DF, eligible = () => true, stats = null,
 } = {}) {
   const pairs = [];
+  let candidates = 0;
+  let compared = 0;
   for (const group of byProject(Array.isArray(docs) ? docs : [])) {
     const sets = group.map((doc) => shingleSet(docText(doc), k));
     const index = new Map();
     sets.forEach((set, i) => {
       for (const s of set) {
-        if (!index.has(s)) index.set(s, []);
-        index.get(s).push(i);
+        const holders = index.get(s);
+        if (holders) holders.push(i); else index.set(s, [i]);
       }
     });
-    const seen = new Set();
-    for (const holders of index.values()) {
-      if (holders.length < 2 || holders.length > maxDf) continue;
-      for (let x = 0; x < holders.length; x += 1) {
-        for (let y = x + 1; y < holders.length; y += 1) {
-          const i = holders[x];
-          const j = holders[y];
-          const key = i < j ? `${i}|${j}` : `${j}|${i}`;
-          if (seen.has(key)) continue;
-          seen.add(key);
-          const a = group[i];
-          const b = group[j];
-          if (!eligible(a, b)) continue;
-          const similarity = jaccard(sets[i], sets[j]);
-          if (similarity >= threshold) pairs.push({ a: a.id, b: b.id, similarity, method: 'shingle' });
+    const stamp = new Int32Array(group.length).fill(-1);
+    for (let i = 0; i < group.length; i += 1) {
+      const found = [];
+      for (const s of sets[i]) {
+        const holders = index.get(s);
+        if (holders.length < 2 || holders.length > maxDf) continue;
+        // Holders are ascending: walk back over the partners after i only, so
+        // each pair is nominated from its lower index once.
+        for (let h = holders.length - 1; h >= 0 && holders[h] > i; h -= 1) {
+          const j = holders[h];
+          if (stamp[j] === i) continue;
+          stamp[j] = i;
+          found.push(j);
         }
+      }
+      candidates += found.length;
+      found.sort((x, y) => x - y);
+      for (const j of found) {
+        const a = group[i];
+        const b = group[j];
+        if (!eligible(a, b)) continue;
+        compared += 1;
+        const similarity = jaccard(sets[i], sets[j]);
+        if (similarity >= threshold) pairs.push({ a: a.id, b: b.id, similarity, method: 'shingle' });
       }
     }
   }
+  if (stats) Object.assign(stats, { shingleCandidates: candidates, shingleCompared: compared });
   return pairs;
 }
 
 // Cosine pairs within each project over documents that carry a `vector`.
-export function findEmbeddingPairs(docs, { threshold = EMBEDDING_MIN_SIM } = {}) {
+//
+// Exact, with a cheap bound that drops most pairs early. Each vector is
+// normalised once. A pair's dot product is summed in blocks of
+// EMBEDDING_BLOCK dimensions, and after each block Cauchy-Schwarz bounds what
+// the remaining dimensions can add (|rest of u| x |rest of v|). Once the
+// partial dot plus that bound is below the threshold (less a rounding margin
+// far above float error), the pair cannot match and is dropped; an unrelated
+// pair is usually dropped after a fraction of its dimensions. A pair that
+// survives is scored with cosineSimilarity exactly as before, so the pairs
+// and similarities are identical to the all-pairs pass, in the same (i, j)
+// order. Vectors cosineSimilarity refuses (a non-finite entry, a zero norm, a
+// different length) never pair, as before. The pair loop itself stays
+// quadratic within a project; the candidate cap (MAX_CLUSTER_DOCS) bounds it,
+// and tests/backend/librarianScale.test.js holds the time at that cap.
+// `stats` (optional) receives the pairs visited and the pairs scored in full.
+const EMBEDDING_BLOCK = 16;
+const BOUND_MARGIN = 1e-9;
+
+function unitVector(vector) {
+  const n = vector.length;
+  if (!n) return null;
+  let norm = 0;
+  for (let i = 0; i < n; i += 1) {
+    const x = vector[i];
+    if (typeof x !== 'number' || !Number.isFinite(x)) return null;
+    norm += x * x;
+  }
+  norm = Math.sqrt(norm);
+  if (!norm || !Number.isFinite(norm)) return null;
+  const unit = new Float64Array(n);
+  for (let i = 0; i < n; i += 1) unit[i] = vector[i] / norm;
+  // tails[c]: the norm of the unit vector from block c on (tails[blocks] = 0).
+  const blocks = Math.ceil(n / EMBEDDING_BLOCK);
+  const tails = new Float64Array(blocks + 1);
+  let rest = 0;
+  for (let c = blocks - 1; c >= 0; c -= 1) {
+    for (let i = c * EMBEDDING_BLOCK; i < Math.min(n, (c + 1) * EMBEDDING_BLOCK); i += 1) rest += unit[i] * unit[i];
+    tails[c] = Math.sqrt(rest);
+  }
+  return { unit, tails };
+}
+
+function mayReach(u, v, floor) {
+  const a = u.unit;
+  const b = v.unit;
+  const n = a.length;
+  let dot = 0;
+  for (let c = 0, i = 0; i < n; c += 1) {
+    const stop = Math.min(n, i + EMBEDDING_BLOCK);
+    for (; i < stop; i += 1) dot += a[i] * b[i];
+    if (dot + u.tails[c + 1] * v.tails[c + 1] < floor) return false;
+  }
+  return true;
+}
+
+export function findEmbeddingPairs(docs, { threshold = EMBEDDING_MIN_SIM, stats = null } = {}) {
   const pairs = [];
+  let visited = 0;
+  let scored = 0;
+  const floor = threshold - BOUND_MARGIN;
   for (const group of byProject((Array.isArray(docs) ? docs : []).filter((d) => Array.isArray(d.vector)))) {
+    const prepared = group.map((doc) => unitVector(doc.vector));
     for (let i = 0; i < group.length; i += 1) {
+      const u = prepared[i];
+      if (!u) continue;
       for (let j = i + 1; j < group.length; j += 1) {
+        const v = prepared[j];
+        if (!v || v.unit.length !== u.unit.length) continue;
+        visited += 1;
+        if (!mayReach(u, v, floor)) continue;
+        scored += 1;
         const similarity = cosineSimilarity(group[i].vector, group[j].vector);
         if (similarity !== null && Number.isFinite(similarity) && similarity >= threshold) {
           pairs.push({ a: group[i].id, b: group[j].id, similarity, method: 'embedding' });
@@ -125,21 +208,49 @@ export function findEmbeddingPairs(docs, { threshold = EMBEDDING_MIN_SIM } = {})
       }
     }
   }
+  if (stats) Object.assign(stats, { embeddingPairsVisited: visited, embeddingPairsScored: scored });
   return pairs;
 }
 
 // Embedding edges between documents that both have a current vector; shingle
 // edges for any pair where either side has none (or for every pair when no
 // embedder is available).
-export function findDuplicatePairs(docs, { embeddings = false, embeddingThreshold, shingleThreshold } = {}) {
+export function findDuplicatePairs(docs, {
+  embeddings = false, embeddingThreshold, shingleThreshold, stats = null,
+} = {}) {
   const list = Array.isArray(docs) ? docs : [];
-  if (!embeddings) return findShinglePairs(list, { threshold: shingleThreshold });
-  const vectorPairs = findEmbeddingPairs(list, { threshold: embeddingThreshold });
+  if (!embeddings) return findShinglePairs(list, { threshold: shingleThreshold, stats });
+  const vectorPairs = findEmbeddingPairs(list, { threshold: embeddingThreshold, stats });
   const shinglePairs = findShinglePairs(list, {
     threshold: shingleThreshold,
+    stats,
     eligible: (a, b) => !Array.isArray(a.vector) || !Array.isArray(b.vector),
   });
   return [...vectorPairs, ...shinglePairs];
+}
+
+// A fingerprint of everything clustering reads: the settings, and for each
+// candidate in order its id, project, revision (the token over title and body)
+// and the exact bytes of its vector. Equal fingerprints give equal clusters, so
+// a caller can reuse the last result (the report behind `prax doctor` does).
+export function clusteringFingerprint(candidates, {
+  embeddings = false, embeddingThreshold = EMBEDDING_MIN_SIM, shingleThreshold = SHINGLE_MIN_JACCARD,
+} = {}) {
+  const hash = createHash('sha256');
+  hash.update(JSON.stringify(['librarian-clusters-v1', Boolean(embeddings), embeddingThreshold, shingleThreshold,
+    SHINGLE_SIZE, SHINGLE_MAX_DF, MAX_CLUSTER_SIZE]));
+  for (const doc of Array.isArray(candidates) ? candidates : []) {
+    const content = doc.revision ? { revision: doc.revision } : { title: doc.title ?? '', body: doc.body ?? '' };
+    hash.update(`\n${JSON.stringify([doc.id, doc.projectId ?? null, content])}`);
+    if (Array.isArray(doc.vector)) {
+      const bytes = Float64Array.from(doc.vector, (x) => (typeof x === 'number' ? x : Number.NaN));
+      hash.update(`|v${doc.vector.length}|`);
+      hash.update(new Uint8Array(bytes.buffer));
+    } else {
+      hash.update('|none');
+    }
+  }
+  return hash.digest('hex');
 }
 
 export function clusterKey(ids) {

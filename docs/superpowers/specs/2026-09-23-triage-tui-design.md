@@ -190,13 +190,37 @@ routes set a state and are safe to replay. A conflict is always shown and never 
   A `404` means the document was deleted meanwhile, so triage counts it as handled and moves
   on. An unknown outcome is reconciled as shown above. What cannot be reconciled is reported
   as unknown and never retried by triage.
-- **Editor:** raw mode is switched off and SIGINT ignored while the editor runs, then restored.
-  A non-zero editor exit discards the edit. The draft is a `0600` file in a private temporary
-  directory. Triage removes it after a confirmed save, and keeps it (printing the path) after
-  a conflict or an unknown outcome, so no typing is lost.
-- **Terminal state:** raw mode is always restored on quit, on error and on process exit.
-  Ctrl-C in raw mode arrives as a key, not a signal, and quits cleanly with the summary.
-  During a text prompt, Ctrl-C cancels the prompt only.
+- **Editor:** raw mode is switched off while the editor runs, then restored. The editor is
+  started asynchronously, so triage's signal handlers run while it is open; they are removed as
+  soon as it exits. The draft is a `0600` file in a private temporary directory, created only
+  once those handlers are in place. Triage removes it after a confirmed save, and keeps it
+  (printing the path) after a conflict or an unknown outcome, so no typing is lost.
+- **Signals while the editor runs.** The rule: an abandonment removes the draft; an interruption
+  that may have cut off typing keeps it and says where.
+
+  | Event while the editor is open | Triage | Draft |
+  | --- | --- | --- |
+  | Editor exits 0 | Goes on (save, no change or blank, as above) | Settled as above |
+  | Editor exits non-zero, or is stopped by Ctrl-C (SIGINT) | "Edit discarded" | Removed (abandonment) |
+  | Editor stopped by another signal (SIGHUP, SIGTERM, …) that triage did not receive | "Edit discarded", goes on | Kept and named if it may hold typing, else removed |
+  | Triage receives SIGINT | Ignored: Ctrl-C belongs to the editor | — |
+  | Triage receives SIGHUP (terminal or window closed) or SIGTERM | Passes the signal to the editor, waits for it to exit, stops with status 128 + n and a message on stderr | Kept and named if it may hold typing, else removed |
+
+  "May hold typing" means the draft file differs from the text it was opened with, or the editor
+  left another file in the draft directory (a swap or backup file, such as Vim's `.swp`, which
+  holds unsaved typing); the path printed is the draft, or the directory when only the editor's
+  files changed. We chose to keep rather than delete on SIGHUP: a closed window is the likeliest
+  way to lose a long edit, the text may be valuable, and the draft sits in a private `0600`
+  directory under the system temporary folder, which the OS clears. The path goes to stderr; if
+  the terminal is gone the message is lost, but the draft is still in its `prax-triage-*`
+  directory. An unchanged draft with no editor files is removed, since it holds nothing new.
+- **Terminal state:** raw mode is restored in an unconditional `finally` at the triage entry
+  point (a quit, or any thrown error), on process exit (an uncaught exception) and on SIGHUP,
+  SIGTERM or an external SIGINT outside the editor, which also names any draft whose save was in
+  flight and exits with status 128 + n. Triage never hides the cursor or switches screens (it
+  writes plain lines, and escapes in agent text are neutralised), so raw mode is the only terminal
+  state to restore. Ctrl-C in raw mode arrives as a key, not a signal, and quits cleanly with the
+  summary. During a text prompt, Ctrl-C cancels the prompt only.
 
 ## Code layout
 
@@ -220,6 +244,12 @@ routes set a state and are safe to replay. A conflict is always shown and never 
   queue ordering and parity with `buildLibraryModel`, already-handled skipping, conflict
   reload, unknown-outcome reconciliation, control-character sanitising and human-origin
   headers.
+- `tests/cli/triageSignals.test.js`: the editor's signal handlers exist only while it runs;
+  SIGHUP and SIGTERM keep a changed draft (or a directory holding a swap file) and remove an
+  unchanged one, with status 129 and 143; SIGINT is left to the editor; a non-zero exit or Ctrl-C
+  removes the draft; a real child process with a real editor process and real signals; raw mode
+  restored and handlers removed after an uncaught error, and after SIGTERM outside the editor,
+  which names a draft whose save is in flight.
 - `tests/cli/verify.test.js`: guard parity with `detectAgent`, and refusals.
 - `tests/cli/commandLine.test.js`: `prax verify` and `prax triage` refuse under an agent
   environment and without a TTY before any network request, and `triage --json` is refused.

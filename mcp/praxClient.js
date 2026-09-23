@@ -9,6 +9,7 @@
 // 204 is null, a JSON body is parsed, any other body becomes { message }.
 import { randomUUID } from 'node:crypto';
 import { PraxApiError, PraxUnavailableError } from './errors.js';
+import { HIDDEN_HARVESTED_HEADER } from '../server/harvestedCandidates.js';
 import {
   createTransport, longTimeoutFromEnv, timeoutFromEnv, DEFAULT_LONG_TIMEOUT_MS, MCP_TIMEOUT_MS,
 } from '../server/praxTransport.js';
@@ -61,10 +62,13 @@ export function createPraxClient({
   // transport adds x-prax-agent when known); `long` selects the chat-model
   // bound; `retryUnavailable` is the transport's retry rule.
   const request = (method, path, {
-    query, body, headers, retryUnavailable = false, long = false,
+    query, body, headers, retryUnavailable = false, long = false, parse = parseResponse,
   } = {}) => transport.request(method, path, {
-    query, body, headers, long, retry: retryUnavailable, parse: parseResponse,
+    query, body, headers, long, retry: retryUnavailable, parse,
   });
+  // Retrieval leaves unreviewed harvested candidates out unless asked
+  // (server/harvestedCandidates.js); only an explicit true is sent.
+  const harvestedQuery = (includeHarvested) => (includeHarvested ? 'true' : undefined);
 
   // Retrieval reads carry the source (and the agent origin, so the server
   // can attribute the query to the agent id); every other read does not.
@@ -91,21 +95,54 @@ export function createPraxClient({
   }
 
   return {
-    listDocuments: ({ q, project, documentType, kind, status } = {}) =>
-      request('GET', '/api/library/documents', {
-        query: { q, project, documentType, kind, status },
-        ...(q ? { headers: retrievalHeaders } : {}),
-      }),
+    listDocuments: ({
+      q, project, documentType, kind, status, includeHarvested,
+    } = {}) => request('GET', '/api/library/documents', {
+      query: {
+        q, project, documentType, kind, status, includeHarvested: harvestedQuery(includeHarvested),
+      },
+      ...(q ? { headers: retrievalHeaders } : {}),
+    }),
 
-    searchDocumentsSemantic: (query, project, { limit, offset } = {}) =>
+    // A keyword search: the listing with `q`, plus how many unreviewed
+    // harvested candidates it left out (the array body cannot say; a header
+    // does). Returns `{ items, hiddenHarvested }`.
+    searchDocumentsKeyword: async ({
+      q, project, documentType, kind, status, includeHarvested,
+    } = {}) => {
+      let hiddenHarvested = 0;
+      const items = await request('GET', '/api/library/documents', {
+        query: {
+          q, project, documentType, kind, status, includeHarvested: harvestedQuery(includeHarvested),
+        },
+        headers: retrievalHeaders,
+        parse: (response) => {
+          hiddenHarvested = Number(response.headers?.get?.(HIDDEN_HARVESTED_HEADER)) || 0;
+          return parseResponse(response);
+        },
+      });
+      return { items: Array.isArray(items) ? items : [], hiddenHarvested };
+    },
+
+    searchDocumentsSemantic: (query, project, { limit, offset, includeHarvested } = {}) =>
       request('GET', '/api/library/documents/semantic-search', {
-        query: { q: query, project, page: true, limit, offset }, headers: retrievalHeaders,
+        query: {
+          q: query, project, page: true, limit, offset, includeHarvested: harvestedQuery(includeHarvested),
+        },
+        headers: retrievalHeaders,
       }),
 
     // Query-scoped, library-wide context pack (Markdown). request() wraps the
     // non-JSON markdown body as { message }, so unwrap it to the raw string.
-    contextPack: async ({ q, project, limit } = {}) => {
-      const res = await request('GET', '/api/library/context-pack', { query: { q, project, limit }, headers: retrievalHeaders });
+    contextPack: async ({
+      q, project, limit, includeHarvested,
+    } = {}) => {
+      const res = await request('GET', '/api/library/context-pack', {
+        query: {
+          q, project, limit, includeHarvested: harvestedQuery(includeHarvested),
+        },
+        headers: retrievalHeaders,
+      });
       return typeof res === 'string' ? res : (res?.message ?? '');
     },
 

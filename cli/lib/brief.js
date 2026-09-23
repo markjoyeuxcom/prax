@@ -6,6 +6,7 @@
 // `recall --budget` (cli/lib/budget.js), so there is one ranking, not two.
 // See docs/superpowers/specs/2026-09-23-budgeted-context-and-brief-design.md.
 import { compactLine, fillOrder, oneLine, trustChip } from './budget.js';
+import { hiddenHarvestedNote } from '../../server/harvestedCandidates.js';
 import {
   budgetSummary, coverageOf, coverageNote, enrichCandidates, formatRecall, memoryEntryFull,
   projectLabel, renderBudgeted, searchCandidates, trustLabel,
@@ -44,8 +45,38 @@ function withTrust(ref, doc, slugOf) {
   return out;
 }
 
+// Split the related suggestions against the memory section AS RENDERED: a
+// suggestion is left out of Related only when the memory section prints it
+// (in full or compact). One the budget left out of Memory stays in Related,
+// so a document is never dropped from both. `underMemory` lists every
+// suggestion that is also a memory match, whatever the budget did; `memory.items`
+// carry the full record, so a suggestion moved back keeps its trust. Idempotent,
+// so a brief built at one time can be re-split when rendered at another.
+function splitRelated(brief, now) {
+  const rendered = renderedMemoryIds(brief, now);
+  const underMemory = new Set(brief.related.underMemory || []);
+  const base = brief.related.items.filter((item) => !underMemory.has(item.id));
+  const back = brief.memory.items
+    .filter((item) => underMemory.has(item.id) && !rendered.has(item.id))
+    .map((item) => ({ ...item, trustKnown: true }));
+  return {
+    ...brief.related,
+    items: [...base, ...back],
+    alsoUnderMemory: [...underMemory].filter((id) => rendered.has(id)).length,
+  };
+}
+
+function renderedMemoryIds(brief, now) {
+  const { summary } = planBriefMemory(brief, now);
+  if (!summary) return new Set(brief.memory.items.map((item) => item.id));
+  return new Set(summary.entries.filter((entry) => entry.form !== 'omitted').map((entry) => entry.id));
+}
+
+// Unreviewed harvested candidates stay out of the memory and related sections
+// unless `includeHarvested` (server/harvestedCandidates.js); each section says
+// how many it hid. Linked documents are the task's own and are always listed.
 export async function buildBrief(client, {
-  taskId, budget, checkout, memoryHits = BRIEF_MEMORY_HITS,
+  taskId, budget, checkout, memoryHits = BRIEF_MEMORY_HITS, includeHarvested = false, now = new Date(),
 } = {}) {
   const task = await client.getTask(taskId);
   const checklist = await client.listChecklist(taskId);
@@ -55,7 +86,7 @@ export async function buildBrief(client, {
   const linkedRefs = await client.listTaskDocuments(taskId);
   let related;
   try {
-    related = await client.relatedTaskDocuments(taskId);
+    related = await client.relatedTaskDocuments(taskId, { includeHarvested });
   } catch (err) {
     // An older server without the route, or a failure: say so, never guess.
     related = { suggestions: [], degraded: true, reason: err && err.status === 404 ? 'not-supported' : 'unavailable' };
@@ -68,7 +99,7 @@ export async function buildBrief(client, {
   let memory;
   if (query) {
     const found = await searchCandidates(client, {
-      query, limit: Math.min(memoryHits + linkedIds.size, SEARCH_MAX),
+      query, limit: Math.min(memoryHits + linkedIds.size, SEARCH_MAX), includeHarvested,
     });
     const hits = found.items.filter((d) => !linkedIds.has(d.id)).slice(0, memoryHits);
     const items = fillOrder(await enrichCandidates(client, hits, checkout, { fetch: !found.keyword }));
@@ -93,7 +124,7 @@ export async function buildBrief(client, {
     .filter((s) => !memoryIds.has(s.id))
     .map(async (ref) => withTrust(ref, await read(ref.id), slugOf)));
 
-  return {
+  const brief = {
     schemaVersion: 1,
     task,
     project: task?.projectId ? { id: task.projectId, slug: slugOf(task.projectId) } : null,
@@ -102,12 +133,17 @@ export async function buildBrief(client, {
     linked,
     related: {
       items: relatedItems,
-      alsoUnderMemory: suggestions.length - relatedItems.length,
+      // Suggestions that are also memory matches, before the budget decides
+      // which of them the memory section prints (splitRelated).
+      underMemory: suggestions.filter((s) => memoryIds.has(s.id)).map((s) => s.id),
+      alsoUnderMemory: 0,
       degraded: Boolean(related?.degraded),
       reason: related?.reason ?? null,
+      hiddenHarvested: Number(related?.hiddenHarvested) || 0,
     },
     memory: { ...memory, budget: budget ?? null },
   };
+  return { ...brief, related: splitRelated(brief, now) };
 }
 
 function docLine(doc, now) {
@@ -133,6 +169,8 @@ export function planBriefMemory(brief, now = new Date()) {
   if (memory.note) fixedLines.push(`(${memory.note})`);
   const coverage = coverageNote(memory);
   if (coverage) fixedLines.push(`(${coverage} — results may be missing)`);
+  const hidden = hiddenHarvestedNote(memory.hiddenHarvested);
+  if (hidden) fixedLines.push(`(${hidden})`);
   const entries = memory.items.map((item, i) => ({
     full: memoryEntryFull(item, i, now, { heading: '###' }),
     compact: compactLine(item),
@@ -143,7 +181,9 @@ export function planBriefMemory(brief, now = new Date()) {
   return { text, summary: Number.isFinite(budget) ? budgetSummary(memory.items, budget, used, plan) : null };
 }
 
-export function formatBrief(brief, now = new Date()) {
+export function formatBrief(given, now = new Date()) {
+  // Related is re-split against the memory section as rendered at this `now`.
+  const brief = { ...given, related: splitRelated(given, now) };
   const { task } = brief;
   const lines = [`# Brief: ${oneLine(task.title) || 'Untitled'}`];
   const meta = [task.status, task.priority];
@@ -191,6 +231,8 @@ export function formatBrief(brief, now = new Date()) {
   if (brief.related.alsoUnderMemory > 0) {
     lines.push(`(${brief.related.alsoUnderMemory} more shown under Memory)`);
   }
+  const hiddenRelated = hiddenHarvestedNote(brief.related.hiddenHarvested);
+  if (hiddenRelated) lines.push(`(${hiddenRelated})`);
 
   const shown = oneLine(brief.memory.query);
   const label = shown.length > 80 ? `${shown.slice(0, 80).trimEnd()}…` : shown;
@@ -201,5 +243,5 @@ export function formatBrief(brief, now = new Date()) {
 // The --json shape: the brief plus the memory section's fill decisions.
 export function briefJson(brief, now = new Date()) {
   const { summary } = planBriefMemory(brief, now);
-  return { ...brief, memory: { ...brief.memory, budget: summary } };
+  return { ...brief, related: splitRelated(brief, now), memory: { ...brief.memory, budget: summary } };
 }

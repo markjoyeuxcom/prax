@@ -148,6 +148,16 @@ instruction file (default: the repository root's `AGENTS.md`, else `CLAUDE.md`, 
   is atomic, only one marker pair is allowed, and malformed or duplicated markers refuse the edit
   without changing the file. An unchanged block is not rewritten. `--remove` deletes the block
   only; `--print` writes it to stdout without touching a file.
+- **Coexistence with the skills' block.** Both blocks often share a file, in either order. Each
+  editor matches only its own marker name, so a malformed block of one kind refuses that kind's
+  edits and never stops or changes the other. An edit refuses when its block's span holds any
+  other marker-shaped line, when its block sits between another block's start and end (nested or
+  interleaved blocks), and when the new body holds marker-shaped text: each of those would let
+  one edit replace or delete part of the other block. Removal takes the block, its line ending
+  and the blank line the writer put before it when a blank line or the end of the file follows,
+  so writing and removing the two blocks in any order gives the original bytes back (before
+  this rule, removing the first of two blocks left an extra blank line, and `--uninstall` with the
+  compiled block first did not restore the file).
 - **Installer.** `install.sh --library-block` runs the pack's CLI to compile the `memory`
   project (override with `PRAX_LIBRARY_BLOCK_PROJECT`) into the same four global instruction
   files as `--instructions`. It needs the app payload (`cli/` beside `skills/`) and a running
@@ -172,6 +182,11 @@ instruction file (default: the repository root's `AGENTS.md`, else `CLAUDE.md`, 
 - `tests/backend/libraryExportRoute.test.js`: `format=json`, `layout=mirror` and validation.
 - `tests/contract/libraryMirror.test.js`: a real app on SQLite, mirrored, imported into a second
   app, re-mirrored; the portable fields round-trip and the trust rule holds.
+- `tests/skills/managedBlocksCoexist.test.js`: the two blocks in either order through both
+  routines and the real entry points (`install.sh --instructions`, `--uninstall` from the bundle
+  and piped, `prax mirror --agents-block` and `--remove`): refresh and removal leave the other
+  block byte-for-byte, removal in any order restores the original file, a malformed block refuses
+  only its own edits, and nested or interleaved blocks refuse every edit.
 - `tests/skills/installLibraryBlock.test.js`: `--library-block` write beside the skills' block,
   verified-only, idempotence, unreachable app, uninstall, and a payload-less uninstall that
   refuses to guess.

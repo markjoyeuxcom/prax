@@ -76,7 +76,8 @@ The librarian keeps the Library consolidated without ever acting on its own
 
 - **Recall telemetry.** Recall, search and context requests from agent clients (the CLI, the
   skills, the MCP server; they send `x-prax-query-source`) are recorded after the response:
-  query text, agent id, mode and the ids returned. `prax used <id>` records a used signal. The
+  query text with credential-shaped spans replaced by `[redacted]` (tokens, keys, bearer values,
+  `password=…`), agent id, mode and the ids returned. `prax used <id>` records a used signal. The
   web UI's searches are not recorded. Telemetry is local only: it never leaves the workspace's
   database and is not in the portable Library export, though a full workspace backup carries it.
   It is kept 90 days (20,000 rows per table at most), `prax telemetry clear` deletes it, and
@@ -153,9 +154,15 @@ it, refile it with its owner, or archive it during Inbox triage.
   exists as an active document anywhere is skipped, never overwritten.
 - **Never in the agent's way.** The hook hands its input to a detached worker and exits 0 at
   once, with no output, whether or not Prax is running. The worker works within a 20 s budget.
-- **Not a memory yet.** Candidates are active, unverified documents, so another agent's recall
-  can already surface them with that label. Findings the agent is sure of still go through
-  `remember`.
+- **Not a memory yet.** Until a person verifies a candidate, or refiles it without the
+  `harvested` tag, agent retrieval leaves it out: `prax recall` (also `--recent` and the
+  `--since-last-session` delta), `search`, `context`, `brief`, the skills, the MCP search and
+  context tools and Ask. Each says how many it hid (`1 unreviewed harvested candidate hidden
+  until a person triages it; --include-harvested to show`), so a thin answer is never mistaken
+  for a complete one. `--include-harvested` (MCP: `includeHarvested: true`; HTTP:
+  `includeHarvested=true`) shows them. The web UI's Library, Inbox, Library search, similar
+  documents and the task drawer's suggestions always show them; Ask in the app does not ground
+  an answer on them and says so. Findings the agent is sure of still go through `remember`.
 
 ## Namespace & provenance
 

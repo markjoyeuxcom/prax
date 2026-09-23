@@ -258,6 +258,8 @@ test('semanticSearch requests an exact paged envelope', async () => {
   assert.equal(url.searchParams.get('page'), 'true');
   assert.equal(url.searchParams.get('limit'), '10');
   assert.equal(url.searchParams.get('offset'), '20');
+  // A person's Library search shows unreviewed harvested candidates.
+  assert.equal(url.searchParams.get('includeHarvested'), 'true');
   assert.equal(result.page.total, 20);
 });
 

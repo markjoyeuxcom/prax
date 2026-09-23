@@ -1,4 +1,5 @@
 import { normalizeTitle } from './documentTitle.js';
+import { hiddenHarvestedNote } from './harvestedCandidates.js';
 
 const DEFAULT_LIMIT = 12;
 const SNIPPET_LEN = 200;
@@ -54,8 +55,10 @@ function toItem(doc, { full = false } = {}) {
 // given, recency otherwise); order is preserved within each section.
 // `limit` is a single pack-wide budget, spent in section order (overview →
 // relevant → runbooks → unverified) so the pack can never exceed it.
+// `hiddenHarvested` is how many unreviewed harvested candidates retrieval left
+// out (server/harvestedCandidates.js); the pack carries it so its reader is told.
 export function buildContextPack(docs, {
-  project = null, query = '', limit = DEFAULT_LIMIT, retrieval = null,
+  project = null, query = '', limit = DEFAULT_LIMIT, retrieval = null, hiddenHarvested = 0,
 } = {}) {
   const active = (Array.isArray(docs) ? docs : [])
     .filter((d) => (d.status || 'active') === 'active')
@@ -91,6 +94,7 @@ export function buildContextPack(docs, {
     retrieval,
     sections,
     omitted,
+    ...(hiddenHarvested > 0 ? { hiddenHarvested } : {}),
   };
 }
 
@@ -121,5 +125,7 @@ export function renderContextPackMarkdown(pack) {
     const unverifiedNote = omitted.unverified > 0 ? ` (${omitted.unverified} unverified)` : '';
     lines.push(`\n_${omitted.total} more document${omitted.total === 1 ? '' : 's'}${unverifiedNote} left out by the document limit._`);
   }
+  const hidden = hiddenHarvestedNote(pack.hiddenHarvested, { hint: '--include-harvested (includeHarvested=true)' });
+  if (hidden) lines.push(`\n_${hidden}._`);
   return `${lines.join('\n')}\n`;
 }

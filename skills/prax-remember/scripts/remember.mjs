@@ -240,6 +240,9 @@ function createTransport({
   };
 }
 
+// server/harvestedCandidates.js
+var HIDDEN_HARVESTED_HEADER = "x-prax-hidden-harvested";
+
 // cli/lib/apiClient.js
 var SEMANTIC_PAGE_MAX = 50;
 var CODE_REF_PATHS_PER_REQUEST = 50;
@@ -273,14 +276,15 @@ function createClient({
     agent: agentWrite = false,
     accept,
     retryUnavailable = false,
-    headers
+    headers,
+    parse = parseResponse
   } = {}) => transport.request(method, path, {
     body,
     agentWrite,
     accept,
     headers,
     retry: retryUnavailable,
-    parse: parseResponse
+    parse
   });
   return {
     get base() {
@@ -288,11 +292,21 @@ function createClient({
     },
     candidates: transport.candidates,
     agent: transport.agent,
-    contextPack(project, { query, format = "md", limit, source } = {}) {
+    // Unreviewed harvested candidates are left out of every retrieval read
+    // unless `includeHarvested` (server/harvestedCandidates.js); each read
+    // reports how many it hid as `hiddenHarvested`.
+    contextPack(project, {
+      query,
+      format = "md",
+      limit,
+      source,
+      includeHarvested = false
+    } = {}) {
       const params = new URLSearchParams();
       if (query) params.set("query", query);
       if (format === "json") params.set("format", "json");
       if (limit) params.set("limit", String(limit));
+      if (includeHarvested) params.set("includeHarvested", "true");
       const qs = params.toString();
       return request(
         "GET",
@@ -300,11 +314,28 @@ function createClient({
         { accept: format === "json" ? "application/json" : "text/markdown", headers: querySourceHeaders(source) }
       );
     },
-    keywordSearch(project, q, { all = false, source } = {}) {
+    // The listing's body is a bare array, so the hidden count travels in a
+    // header: `envelope: true` returns `{ items, hiddenHarvested }`, otherwise
+    // the array as before.
+    async keywordSearch(project, q, {
+      all = false,
+      source,
+      includeHarvested = false,
+      envelope = false
+    } = {}) {
       const params = new URLSearchParams({ q });
       if (project) params.set("project", project);
       if (!all) params.set("status", "active");
-      return request("GET", `/api/library/documents?${params.toString()}`, { headers: querySourceHeaders(source) });
+      if (includeHarvested) params.set("includeHarvested", "true");
+      let hiddenHarvested = 0;
+      const items = await request("GET", `/api/library/documents?${params.toString()}`, {
+        headers: querySourceHeaders(source),
+        parse: (res) => {
+          hiddenHarvested = Number(res.headers.get(HIDDEN_HARVESTED_HEADER)) || 0;
+          return parseResponse(res);
+        }
+      });
+      return envelope ? { items: Array.isArray(items) ? items : [], hiddenHarvested } : items;
     },
     // Paged mode so the response carries index coverage (`index`, `degraded`,
     // `reason: 'index-incomplete'`): the legacy array cannot say that pending
@@ -315,9 +346,11 @@ function createClient({
       limit = SEMANTIC_PAGE_MAX,
       offset = 0,
       mode,
-      source
+      source,
+      includeHarvested = false
     } = {}) {
       const params = new URLSearchParams({ q, page: "true" });
+      if (includeHarvested) params.set("includeHarvested", "true");
       if (mode) params.set("mode", String(mode));
       if (project) params.set("project", project);
       if (all) params.set("all", "true");
@@ -332,7 +365,8 @@ function createClient({
         page: res?.page || null,
         index: res?.index || null,
         degraded: Boolean(res?.degraded),
-        reason: res?.reason || null
+        reason: res?.reason || null,
+        hiddenHarvested: Number(res?.hiddenHarvested) || 0
       };
     },
     getDocument(id) {
@@ -520,18 +554,26 @@ function createClient({
       return request("GET", `/api/tasks/${encodeURIComponent(taskId)}/documents`);
     },
     // Advisory: always 200, `{ suggestions, degraded?, reason? }`.
-    relatedTaskDocuments(taskId) {
-      return request("GET", `/api/tasks/${encodeURIComponent(taskId)}/related-documents`);
+    relatedTaskDocuments(taskId, { includeHarvested = false } = {}) {
+      const qs = includeHarvested ? "?includeHarvested=true" : "";
+      return request("GET", `/api/tasks/${encodeURIComponent(taskId)}/related-documents${qs}`);
     },
     // ---- the since-last-session delta ------------------------------------
     // Sent as an agent request so the server knows WHOSE marker to read; a
     // read, so it is never retried after it may have reached the server.
-    memoryChanges({ since, sinceLastSession = false, project, limit } = {}) {
+    memoryChanges({
+      since,
+      sinceLastSession = false,
+      project,
+      limit,
+      includeHarvested = false
+    } = {}) {
       const params = new URLSearchParams();
       if (sinceLastSession) params.set("sinceLastSession", "true");
       else if (since) params.set("since", since);
       if (project) params.set("project", project);
       if (limit) params.set("limit", String(limit));
+      if (includeHarvested) params.set("includeHarvested", "true");
       return request("GET", `/api/library/changes?${params.toString()}`, { agent: true });
     },
     // A monotonic setter (the server keeps max(stored, at)), so it is retried

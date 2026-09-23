@@ -12,6 +12,7 @@ import {
   ALL_PROJECTS_SCOPE, CHANGES_DEFAULT_LIMIT, CHANGES_MAX_LIMIT, createMemoryChangesRepository,
 } from './memoryChangesRepository.js';
 import { createProjectsRepository } from './projectsRepository.js';
+import { includeHarvestedFrom } from './harvestedCandidates.js';
 
 const AGENT_ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const ISO_RE = /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/;
@@ -89,9 +90,18 @@ export async function registerMemoryChangesRoutes(app, options = {}) {
       if (!since) { reply.code(400); return { message: 'since must be an ISO-8601 date or date-time' }; }
     }
 
-    const page = await repository.listChanges({ since, projectId: project ? project.id : null, limit });
+    const includeHarvested = includeHarvestedFrom(query.includeHarvested);
+    const page = await repository.listChanges({ since, projectId: project ? project.id : null, limit, includeHarvested });
     return {
-      agent, project: projectRef(project), baseline, since, until: page.until, items: page.items, page: page.page,
+      agent,
+      project: projectRef(project),
+      baseline,
+      since,
+      until: page.until,
+      items: page.items,
+      page: page.page,
+      // Unreviewed harvested candidates changed in the window and left out.
+      ...(page.hiddenHarvested > 0 ? { hiddenHarvested: page.hiddenHarvested } : {}),
     };
   });
 

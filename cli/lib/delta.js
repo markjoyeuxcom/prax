@@ -10,6 +10,7 @@
 // explicit --since never does either.
 // See docs/superpowers/specs/2026-09-23-budgeted-context-and-brief-design.md.
 import { compactLine, fillOrder, isRetired } from './budget.js';
+import { hiddenHarvestedNote } from '../../server/harvestedCandidates.js';
 import {
   budgetSummary, checkCitations, createRepoUrlLookup, memoryEntryFull, renderBudgeted,
 } from './recall.js';
@@ -27,7 +28,7 @@ export function parseSince(value) {
 export class DeltaError extends Error {}
 
 export async function memoryDelta(client, {
-  since, sinceLastSession = false, project, limit, checkout,
+  since, sinceLastSession = false, project, limit, checkout, includeHarvested = false,
 } = {}) {
   if (Boolean(since) === Boolean(sinceLastSession)) throw new DeltaError('give exactly one of --since <iso> or --since-last-session.');
   if (sinceLastSession && !client.agent) {
@@ -35,7 +36,9 @@ export async function memoryDelta(client, {
   }
   let res;
   try {
-    res = await client.memoryChanges({ since, sinceLastSession, project, limit });
+    res = await client.memoryChanges({
+      since, sinceLastSession, project, limit, ...(includeHarvested ? { includeHarvested } : {}),
+    });
   } catch (err) {
     if (err && err.status === 404) err.message = `this Prax predates the memory delta (GET /api/library/changes answered 404). ${err.message}`;
     throw err;
@@ -58,6 +61,9 @@ export async function memoryDelta(client, {
     since: res.since ?? null,
     until: res.until,
     page: res.page ?? null,
+    // Unreviewed harvested candidates changed in the window and left out; a
+    // candidate a person verifies later appears in that later delta.
+    hiddenHarvested: Number(res.hiddenHarvested) || 0,
     items: fillOrder(byChange, { recencyOf: (item) => item.changedAt }),
   };
 }
@@ -95,6 +101,8 @@ export function planDelta(result, budget, now = new Date()) {
       lines.push(`(${result.page.returned} of ${result.page.total} changes shown, oldest first — run the delta again for the rest)`);
     }
     if (!result.items.length) lines.push('No memory changed in this window.');
+    const hidden = hiddenHarvestedNote(result.hiddenHarvested);
+    if (hidden) lines.push(`(${hidden})`);
     lines.push('(unverifications and permanent deletions are not tracked by the delta)');
   }
   const items = result.items || [];

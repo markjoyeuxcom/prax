@@ -2,12 +2,20 @@
 // says semantic search is not configured (409). The envelope names the mode and
 // every way the result is less than complete: a keyword fallback, an incomplete
 // embedding index (`reason: 'index-incomplete'`, with `index` counts), or a page
-// bound (`page.hasMore`). A machine consumer never has to guess (QINV-08).
-export async function searchLibrary(client, { project, query, all = false } = {}) {
+// bound (`page.hasMore`), and unreviewed harvested candidates the server left
+// out (`hiddenHarvested`; `includeHarvested` shows them). A machine consumer
+// never has to guess (QINV-08).
+import { hiddenHarvestedNote } from '../../server/harvestedCandidates.js';
+
+export async function searchLibrary(client, {
+  project, query, all = false, includeHarvested = false,
+} = {}) {
   let items;
   let retrieval = { mode: 'semantic', degraded: false, reason: null, index: null, page: null };
+  // Present only when the server hid something, so a complete answer keeps its shape.
+  const hiddenOf = (res) => (Number(res?.hiddenHarvested) > 0 ? { hiddenHarvested: Number(res.hiddenHarvested) } : {});
   try {
-    const res = await client.semanticSearch(project, query, { all, source: 'search' });
+    const res = await client.semanticSearch(project, query, { all, source: 'search', ...(includeHarvested ? { includeHarvested } : {}) });
     if (Array.isArray(res)) {
       items = res;
     } else {
@@ -18,12 +26,23 @@ export async function searchLibrary(client, { project, query, all = false } = {}
         reason: res?.reason || null,
         index: res?.index || null,
         page: res?.page || null,
+        ...hiddenOf(res),
       };
     }
   } catch (error) {
     if (error?.status !== 409) throw error;
-    items = await client.keywordSearch(project, query, { all, source: 'search' });
-    retrieval = { mode: 'keyword', degraded: true, reason: 'semantic-not-configured', index: null, page: null };
+    const res = await client.keywordSearch(project, query, {
+      all, source: 'search', includeHarvested, envelope: true,
+    });
+    items = Array.isArray(res) ? res : (Array.isArray(res?.items) ? res.items : []);
+    retrieval = {
+      mode: 'keyword',
+      degraded: true,
+      reason: 'semantic-not-configured',
+      index: null,
+      page: null,
+      ...hiddenOf(res),
+    };
   }
   return { schemaVersion: 1, retrieval, items };
 }
@@ -44,5 +63,7 @@ export function describeRetrieval(retrieval) {
   if (retrieval.page?.hasMore) {
     lines.push(`Note: showing the first ${retrieval.page.returned} of ${retrieval.page.total} matches.`);
   }
+  const hidden = hiddenHarvestedNote(retrieval.hiddenHarvested);
+  if (hidden) lines.push(`Note: ${hidden}.`);
   return lines.join('\n');
 }
