@@ -41,7 +41,7 @@ import {
 // accumulate when repeated (`--check a --check b`) are `repeatable`; every
 // other flag is last-wins.
 const REPEATABLE_FLAGS = ['check'];
-const BOOLEAN_FLAGS = ['json', 'help', 'all', 'all-projects', 'memory', 'since-last-session', 'include-harvested', 'comment', 'strict', 'foreground', 'dry-run', 'handoff', ...MIRROR_BOOLEAN_FLAGS];
+const BOOLEAN_FLAGS = ['json', 'help', 'all', 'all-projects', 'memory', 'since-last-session', 'include-harvested', 'comment', 'strict', 'foreground', 'dry-run', 'handoff'];
 // `--recent` takes a count only when the next word is one.
 const OPTIONAL_FLAGS = { recent: (next) => /^\d+$/.test(next) };
 const VALUE_FLAGS = [
@@ -109,6 +109,42 @@ const TASK_COMMANDS = {
   uncheck: { flags: [], usage: 'prax task uncheck <id> <n|label>' },
 };
 
+// Flag kinds are chosen per command. `--check <item>` is a repeatable
+// checklist item for `task add`, while `mirror --check` is a boolean; one
+// global grammar held both kinds, the boolean won, and every
+// `task add --check` was refused (v0.39.0). A name with two kinds in one
+// command's grammar is a programming error, so every grammar is checked when
+// the CLI loads and a collision stops every command, not just the one hit.
+function grammarFor(command) {
+  const mirror = command === 'mirror';
+  const repeatable = mirror ? [] : REPEATABLE_FLAGS;
+  const boolean = [...BOOLEAN_FLAGS, ...MIRROR_BOOLEAN_FLAGS.filter((name) => mirror || !repeatable.includes(name))];
+  const kindOf = new Map();
+  for (const [kind, names] of [['repeatable', repeatable], ['boolean', boolean], ['value', VALUE_FLAGS], ['optional', Object.keys(OPTIONAL_FLAGS)]]) {
+    for (const name of names) {
+      if (kindOf.has(name) && kindOf.get(name) !== kind) {
+        throw new Error(`prax: --${name} is declared both ${kindOf.get(name)} and ${kind} for ${command || 'the CLI'}`);
+      }
+      kindOf.set(name, kind);
+    }
+  }
+  return { repeatable, boolean };
+}
+for (const command of [undefined, ...Object.keys(COMMANDS)]) grammarFor(command);
+
+// The command word, read before its grammar is chosen: the first word that is
+// neither a flag nor the value of a value-taking flag (`--project demo task`).
+function commandWord(argv) {
+  const takesValue = new Set([...VALUE_FLAGS, ...Object.keys(FLAG_ALIASES)]);
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === '--') return argv[i + 1];
+    if (!arg.startsWith('--')) return arg;
+    if (!arg.includes('=') && takesValue.has(arg.slice(2))) i += 1;
+  }
+  return undefined;
+}
+
 // The usage line for whatever command argv names, for a refusal message.
 function usageFor(argv) {
   const words = argv.filter((a) => !a.startsWith('--'));
@@ -122,8 +158,7 @@ function parseCommandLine(argv) {
   let parsed;
   try {
     parsed = parseArgs(argv, {
-      repeatable: REPEATABLE_FLAGS,
-      boolean: BOOLEAN_FLAGS,
+      ...grammarFor(commandWord(argv)),
       optional: OPTIONAL_FLAGS,
       known: VALUE_FLAGS,
       aliases: FLAG_ALIASES,
