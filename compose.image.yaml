@@ -3,5 +3,5 @@
 # Own Image"), or pulling it fails.
 services:
   app:
-    image: registry.gitlab.com/markjoyeuxcom/apps/prax:v0.39.0
+    image: registry.gitlab.com/markjoyeuxcom/apps/prax:v0.39.1
     build: !reset null

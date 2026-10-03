@@ -12,6 +12,8 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.39.1] - 2026-10-03
+
 ### Fixed
 
 - **`prax task add --check` works again.** Since v0.39.0 every `task add` with a checklist was
@@ -2203,7 +2205,8 @@ and onboarding features with the corrected installation guide.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.39.0...HEAD
+[Unreleased]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.39.1...HEAD
+[0.39.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.39.0...v0.39.1
 [0.39.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.38.0...v0.39.0
 [0.38.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.37.1...v0.38.0
 [0.37.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.37.0...v0.37.1
