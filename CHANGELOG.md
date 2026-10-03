@@ -12,7 +12,17 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Security
+
+- **Dependency updates for new advisories.** `brace-expansion` 5.0.12 (high: three
+  denial-of-service advisories, via `@fastify/static`), `fastify` 5.12.5, `fast-uri` 3.1.8 and
+  `ip-address` 10.7.3 (moderate). All are patch updates within the existing version ranges; they
+  were published after v0.39.0 and stopped the v0.39.1 release at the `npm audit` gate.
+
 ## [0.39.1] - 2026-10-03
+
+Not published: its tag pipeline stopped at the `npm audit` gate (see 0.39.2). Its fix ships in
+0.39.2.
 
 ### Fixed
 
