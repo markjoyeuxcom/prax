@@ -143,7 +143,7 @@ The image override (like the Kubernetes manifests) names this checkout's version
 release script bumps every release; use it as `<tag>` above:
 
 ```text
-registry.gitlab.com/markjoyeuxcom/apps/prax:v0.39.1
+registry.gitlab.com/markjoyeuxcom/apps/prax:v0.39.2
 ```
 
 Use source-build Compose for development, and the self-built image when you want to test the same artifact Kubernetes will run.

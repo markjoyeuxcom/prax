@@ -12,12 +12,22 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.39.2] - 2026-10-03
+
 ### Security
 
 - **Dependency updates for new advisories.** `brace-expansion` 5.0.12 (high: three
   denial-of-service advisories, via `@fastify/static`), `fastify` 5.12.5, `fast-uri` 3.1.8 and
   `ip-address` 10.7.3 (moderate). All are patch updates within the existing version ranges; they
   were published after v0.39.0 and stopped the v0.39.1 release at the `npm audit` gate.
+
+### Fixed
+
+- **`prax task add --check` works again** (first published here; see 0.39.1). Since v0.39.0 every
+  `task add` with a checklist was refused because `check` was declared both as `task add`'s
+  repeatable checklist flag and as `mirror --check`'s boolean in one global flag grammar. Flag
+  kinds are now chosen per command, and the CLI refuses to start if any command's grammar
+  declares a flag with two kinds.
 
 ## [0.39.1] - 2026-10-03
 
@@ -2215,7 +2225,8 @@ and onboarding features with the corrected installation guide.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.39.1...HEAD
+[Unreleased]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.39.2...HEAD
+[0.39.2]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.39.1...v0.39.2
 [0.39.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.39.0...v0.39.1
 [0.39.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.38.0...v0.39.0
 [0.38.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.37.1...v0.38.0
