@@ -12,6 +12,14 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`prax task add --check` works again.** Since v0.39.0 every `task add` with a checklist was
+  refused (`--check needs a value`, or `--check takes no value` for `--check=<item>`), because
+  `check` was declared both as `task add`'s repeatable checklist flag and as `mirror --check`'s
+  boolean in one global flag grammar. Flag kinds are now chosen per command, and the CLI refuses
+  to start if any command's grammar declares a flag with two kinds.
+
 ## [0.39.0] - 2026-09-23
 
 ### Added
