@@ -14,6 +14,23 @@ fresh empty `[Unreleased]` section is started.
 
 ### Changed
 
+- **Repository and pipelines back on GitHub.** The project lives at
+  `https://github.com/markjoyeuxcom/prax` again (the move to GitLab on 2026-09-07 was about
+  GitHub-hosted macOS minutes; both builds now run on the project's own runners, so the
+  reason is gone). `.github/workflows/` replaces the GitLab pipeline: `ci.yml` runs the checks,
+  unit + contract suite, dependency audit and browser suite on every pull request and push to
+  `main`; `desktop.yml` builds both desktop packages by hand; `release.yml` turns a `vX.Y.Z`
+  tag into one GitHub release with every package, `SHA256SUMS` and the changelog section as its
+  body, a candidate marked as a prerelease. Every job runs on a self-hosted runner (`homelab`
+  for Linux, in the `node:24-bookworm` container; the Apple Silicon Mac for macOS) with the
+  same pinned, checksummed Node and pinned Rust as before; no container image is published.
+  `tests/contract/desktopReleaseWorkflow.test.js` pins the workflows instead of the pipeline.
+  The skills installer, plugin manifest, README, `SECURITY.md` (private vulnerability
+  reporting), deploy manifests (`ghcr.io/markjoyeuxcom/prax` for self-built images), the
+  changelog links and `scripts/prepare-release.mjs` name GitHub again, and the `gh` CLI
+  replaces `glab` for fetching the installer. Dependabot is back (weekly npm and actions
+  groups). The GitLab project is archived read-only with a pointer to GitHub.
+
 - **Shorter standing instruction block.** `skills/install.sh --instructions` now writes a block
   of about 40 lines (was 54) into each agent CLI's global instructions file: the `remember` flag
   catalogue defers to `prax remember --help`, the recall-interpretation and proposal paragraphs
@@ -2236,63 +2253,63 @@ and onboarding features with the corrected installation guide.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.39.2...HEAD
-[0.39.2]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.39.1...v0.39.2
-[0.39.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.39.0...v0.39.1
-[0.39.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.38.0...v0.39.0
-[0.38.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.37.1...v0.38.0
-[0.37.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.37.0...v0.37.1
-[0.37.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.36.1...v0.37.0
-[0.36.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.36.0...v0.36.1
-[0.36.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.35.1...v0.36.0
-[0.35.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.35.0...v0.35.1
-[0.35.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.34.0...v0.35.0
-[0.34.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.33.0...v0.34.0
-[0.33.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.32.1...v0.33.0
-[0.32.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.32.0...v0.32.1
-[0.32.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.31.1...v0.32.0
-[0.31.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.31.0...v0.31.1
-[0.31.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.30.0...v0.31.0
-[0.30.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.21.0...v0.30.0
-[0.21.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.20.0...v0.21.0
-[0.20.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.19.2...v0.20.0
-[0.19.2]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.19.1...v0.19.2
-[0.19.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.19.0...v0.19.1
-[0.19.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.18.0...v0.19.0
-[0.18.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.17.1...v0.18.0
-[0.17.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.17.0...v0.17.1
-[0.17.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.16.0...v0.17.0
-[0.16.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.15.1...v0.16.0
-[0.15.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.15.0...v0.15.1
-[0.15.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.14.2...v0.15.0
-[0.14.2]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.14.1...v0.14.2
-[0.14.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.14.0...v0.14.1
-[0.14.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.13.1...v0.14.0
-[0.13.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.13.0...v0.13.1
-[0.13.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.12.2...v0.13.0
-[0.12.2]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.12.1...v0.12.2
-[0.12.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.12.0...v0.12.1
-[0.12.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.11.1...v0.12.0
-[0.11.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.11.0...v0.11.1
-[0.11.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.10.0...v0.11.0
-[0.10.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.9.0...v0.10.0
-[0.9.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.8.0...v0.9.0
-[0.8.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.7.7...v0.8.0
-[0.7.7]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.7.6...v0.7.7
-[0.7.6]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.7.5...v0.7.6
-[0.7.5]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.7.4...v0.7.5
-[0.7.4]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.7.3...v0.7.4
-[0.7.3]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.7.2...v0.7.3
-[0.7.2]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.7.1...v0.7.2
-[0.7.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.7.0...v0.7.1
-[0.7.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.6.1...v0.7.0
-[0.6.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.6.0...v0.6.1
-[0.6.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.5.1...v0.6.0
-[0.5.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.5.0...v0.5.1
-[0.5.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.4.1...v0.5.0
-[0.4.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.4.0...v0.4.1
-[0.4.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.3.0...v0.4.0
-[0.3.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.2.0...v0.3.0
-[0.2.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.1.1...v0.2.0
-[0.1.1]: https://gitlab.com/markjoyeuxcom/apps/prax/-/compare/v0.1.0...v0.1.1
-[0.1.0]: https://gitlab.com/markjoyeuxcom/apps/prax/-/tags/v0.1.0
+[Unreleased]: https://github.com/markjoyeuxcom/prax/compare/v0.39.2...HEAD
+[0.39.2]: https://github.com/markjoyeuxcom/prax/compare/v0.39.1...v0.39.2
+[0.39.1]: https://github.com/markjoyeuxcom/prax/compare/v0.39.0...v0.39.1
+[0.39.0]: https://github.com/markjoyeuxcom/prax/compare/v0.38.0...v0.39.0
+[0.38.0]: https://github.com/markjoyeuxcom/prax/compare/v0.37.1...v0.38.0
+[0.37.1]: https://github.com/markjoyeuxcom/prax/compare/v0.37.0...v0.37.1
+[0.37.0]: https://github.com/markjoyeuxcom/prax/compare/v0.36.1...v0.37.0
+[0.36.1]: https://github.com/markjoyeuxcom/prax/compare/v0.36.0...v0.36.1
+[0.36.0]: https://github.com/markjoyeuxcom/prax/compare/v0.35.1...v0.36.0
+[0.35.1]: https://github.com/markjoyeuxcom/prax/compare/v0.35.0...v0.35.1
+[0.35.0]: https://github.com/markjoyeuxcom/prax/compare/v0.34.0...v0.35.0
+[0.34.0]: https://github.com/markjoyeuxcom/prax/compare/v0.33.0...v0.34.0
+[0.33.0]: https://github.com/markjoyeuxcom/prax/compare/v0.32.1...v0.33.0
+[0.32.1]: https://github.com/markjoyeuxcom/prax/compare/v0.32.0...v0.32.1
+[0.32.0]: https://github.com/markjoyeuxcom/prax/compare/v0.31.1...v0.32.0
+[0.31.1]: https://github.com/markjoyeuxcom/prax/compare/v0.31.0...v0.31.1
+[0.31.0]: https://github.com/markjoyeuxcom/prax/compare/v0.30.0...v0.31.0
+[0.30.0]: https://github.com/markjoyeuxcom/prax/compare/v0.21.0...v0.30.0
+[0.21.0]: https://github.com/markjoyeuxcom/prax/compare/v0.20.0...v0.21.0
+[0.20.0]: https://github.com/markjoyeuxcom/prax/compare/v0.19.2...v0.20.0
+[0.19.2]: https://github.com/markjoyeuxcom/prax/compare/v0.19.1...v0.19.2
+[0.19.1]: https://github.com/markjoyeuxcom/prax/compare/v0.19.0...v0.19.1
+[0.19.0]: https://github.com/markjoyeuxcom/prax/compare/v0.18.0...v0.19.0
+[0.18.0]: https://github.com/markjoyeuxcom/prax/compare/v0.17.1...v0.18.0
+[0.17.1]: https://github.com/markjoyeuxcom/prax/compare/v0.17.0...v0.17.1
+[0.17.0]: https://github.com/markjoyeuxcom/prax/compare/v0.16.0...v0.17.0
+[0.16.0]: https://github.com/markjoyeuxcom/prax/compare/v0.15.1...v0.16.0
+[0.15.1]: https://github.com/markjoyeuxcom/prax/compare/v0.15.0...v0.15.1
+[0.15.0]: https://github.com/markjoyeuxcom/prax/compare/v0.14.2...v0.15.0
+[0.14.2]: https://github.com/markjoyeuxcom/prax/compare/v0.14.1...v0.14.2
+[0.14.1]: https://github.com/markjoyeuxcom/prax/compare/v0.14.0...v0.14.1
+[0.14.0]: https://github.com/markjoyeuxcom/prax/compare/v0.13.1...v0.14.0
+[0.13.1]: https://github.com/markjoyeuxcom/prax/compare/v0.13.0...v0.13.1
+[0.13.0]: https://github.com/markjoyeuxcom/prax/compare/v0.12.2...v0.13.0
+[0.12.2]: https://github.com/markjoyeuxcom/prax/compare/v0.12.1...v0.12.2
+[0.12.1]: https://github.com/markjoyeuxcom/prax/compare/v0.12.0...v0.12.1
+[0.12.0]: https://github.com/markjoyeuxcom/prax/compare/v0.11.1...v0.12.0
+[0.11.1]: https://github.com/markjoyeuxcom/prax/compare/v0.11.0...v0.11.1
+[0.11.0]: https://github.com/markjoyeuxcom/prax/compare/v0.10.0...v0.11.0
+[0.10.0]: https://github.com/markjoyeuxcom/prax/compare/v0.9.0...v0.10.0
+[0.9.0]: https://github.com/markjoyeuxcom/prax/compare/v0.8.0...v0.9.0
+[0.8.0]: https://github.com/markjoyeuxcom/prax/compare/v0.7.7...v0.8.0
+[0.7.7]: https://github.com/markjoyeuxcom/prax/compare/v0.7.6...v0.7.7
+[0.7.6]: https://github.com/markjoyeuxcom/prax/compare/v0.7.5...v0.7.6
+[0.7.5]: https://github.com/markjoyeuxcom/prax/compare/v0.7.4...v0.7.5
+[0.7.4]: https://github.com/markjoyeuxcom/prax/compare/v0.7.3...v0.7.4
+[0.7.3]: https://github.com/markjoyeuxcom/prax/compare/v0.7.2...v0.7.3
+[0.7.2]: https://github.com/markjoyeuxcom/prax/compare/v0.7.1...v0.7.2
+[0.7.1]: https://github.com/markjoyeuxcom/prax/compare/v0.7.0...v0.7.1
+[0.7.0]: https://github.com/markjoyeuxcom/prax/compare/v0.6.1...v0.7.0
+[0.6.1]: https://github.com/markjoyeuxcom/prax/compare/v0.6.0...v0.6.1
+[0.6.0]: https://github.com/markjoyeuxcom/prax/compare/v0.5.1...v0.6.0
+[0.5.1]: https://github.com/markjoyeuxcom/prax/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/markjoyeuxcom/prax/compare/v0.4.1...v0.5.0
+[0.4.1]: https://github.com/markjoyeuxcom/prax/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/markjoyeuxcom/prax/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/markjoyeuxcom/prax/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/markjoyeuxcom/prax/compare/v0.1.1...v0.2.0
+[0.1.1]: https://github.com/markjoyeuxcom/prax/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/markjoyeuxcom/prax/releases/tag/v0.1.0

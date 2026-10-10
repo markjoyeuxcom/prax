@@ -14,8 +14,8 @@ repo — this tree is here as a reference starting point.
   an embedding provider. `PRAX_ALLOW_UNAUTHENTICATED_NETWORK=true` acknowledges the pod-network
   listener; it does not claim the Service is authenticated.
 - `overlays/<env>/kustomization.yaml` → the image name and `newTag`. **No image is published for
-  you.** The pipeline builds desktop packages only, and the last container image it pushed was
-  `v0.30.0`. The `registry.gitlab.com/markjoyeuxcom/apps/prax:v<version>` references in these
+  you.** The pipeline builds desktop packages only, and the last container image published was
+  `v0.30.0`, to the GitLab registry before the move back to GitHub. The `ghcr.io/markjoyeuxcom/prax:v<version>` references in these
   manifests follow this checkout's version (the release script bumps them) and name the image you
   build from `deploy/Dockerfile` and push to a registry you control; point `images:` at it.
 - `base/networkpolicy.yaml` admits traffic to Prax only from pods in its own namespace. An

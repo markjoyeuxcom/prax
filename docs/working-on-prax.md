@@ -109,7 +109,7 @@ Tauri desktop host. The desktop runs the same application payload on its bundled
 | Frontend state, events and rendering | `public/js/main.js`, `state.js`, `*Controller.js` (features), `keyboardDispatcher.js`, `render*.js` |
 | Memory commands and retrieval | `cli/prax.js`, `cli/lib/`, `server/libraryRoutes.js`, `server/contextPack.js` |
 | Portable agent skills | `skills/src/`, `skills/prax-*/SKILL.md`, `skills/install.sh` |
-| Desktop lifecycle and packaging | `src-tauri/src/`, `scripts/prepare-sidecar.mjs`, `.gitlab-ci.yml` |
+| Desktop lifecycle and packaging | `src-tauri/src/`, `scripts/prepare-sidecar.mjs`, `.github/workflows/` |
 | Regression evidence | `tests/backend/`, `tests/frontend/`, `tests/cli/`, `tests/contract/`, `tests/e2e/` |
 
 Use [README](../README.md) for setup, [API/data contracts](contract.md) for boundaries,

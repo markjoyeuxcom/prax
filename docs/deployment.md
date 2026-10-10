@@ -140,8 +140,8 @@ PRAX_DB_FILE=./prax.db npm run migrate
 ## Build and Publish Image
 
 ```bash
-docker build -f deploy/Dockerfile -t registry.gitlab.com/markjoyeuxcom/apps/prax:<tag> .
-docker push registry.gitlab.com/markjoyeuxcom/apps/prax:<tag>
+docker build -f deploy/Dockerfile -t ghcr.io/markjoyeuxcom/prax:<tag> .
+docker push ghcr.io/markjoyeuxcom/prax:<tag>
 ```
 
 Update the `newTag` in each overlay's `kustomization.yaml` to deploy a new version.

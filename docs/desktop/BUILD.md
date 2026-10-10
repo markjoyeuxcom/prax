@@ -22,7 +22,7 @@ Windows, Intel Mac and Linux ARM64 installers are not built or released (Linux A
   version you intend to ship)
 - Rust (stable) — `rustup.rs`
 - Platform toolchains: Xcode Command Line Tools (macOS Apple Silicon), or GTK/WebKitGTK
-  development libraries (Linux; see the `apt-get install` list in `.gitlab-ci.yml`)
+  development libraries (Linux; see the `apt-get install` list in `.github/workflows/desktop-build.yml`)
 
 ## Develop
 
@@ -74,22 +74,20 @@ Outputs land under `src-tauri/target/release/bundle/`:
 Cross-compilation is not supported — build each platform on that platform. The pipeline builds
 both on self-hosted group runners, so neither costs compute minutes:
 
-| Job | Runner tag | Host | What the job installs itself |
+| Job | Runner labels | Host | What the job installs itself |
 |---|---|---|---|
-| `desktop-linux-x64` | `homelab` | Linux amd64, runs the job in the `node:24-bookworm` image for its Debian userland | WebKitGTK/GTK toolchain, an official Node `$NODE_VERSION` (pinned + checksummed; the image's own Node is not used), Rust `$RUST_VERSION` (rustup), xvfb/dbus smoke harness |
-| `desktop-macos-arm64` | `macos` | Apple Silicon Mac, runs the job in a throwaway Tart VM cloned from `$MACOS_IMAGE` | an official Node `$NODE_VERSION` (pinned + checksummed) and Rust `$RUST_VERSION` (rustup); the VM image supplies the Xcode command line tools |
+| `desktop-linux-x64` | `self-hosted`, `homelab` | Linux amd64 with Docker; the job runs in the `node:24-bookworm` container for its Debian userland | WebKitGTK/GTK toolchain, an official Node `$NODE_VERSION` (pinned + checksummed; the image's own Node is not used), Rust `$RUST_VERSION` (rustup), xvfb/dbus smoke harness |
+| `desktop-macos-arm64` | `self-hosted`, `macOS`, `ARM64` | Apple Silicon Mac running the GitHub Actions runner, on the host or inside a long-lived Tart VM | an official Node `$NODE_VERSION` (pinned + checksummed, under `$RUNNER_TEMP`) and Rust `$RUST_VERSION` (rustup); the machine supplies the Xcode command line tools |
 
-The `macos` runner uses gitlab-runner's custom executor with
-[gitlab-tart-executor](https://github.com/cirruslabs/gitlab-tart-executor), which clones a fresh
-macOS VM per job from the job's `image:` and throws it away afterwards. That makes the macOS job's
-`image:` mandatory: a job without one fails in the executor's prepare stage with
-`CUSTOM_ENV_CI_JOB_ID is missing and no --default-image was set`, which despite the wording means
-the job named no image. `$MACOS_IMAGE` pins `ghcr.io/cirruslabs/macos-tahoe-base` by digest, and
-the runner's `config.toml` repeats it as `--default-image` so the same mistake in another job
-cannot take the runner down; `--allow-image "ghcr.io/cirruslabs/macos-*"` keeps a merge request
-from running some other image on that Mac. Because the VM is discarded, the job installs its
-own toolchain and names every path explicitly — the job's shell is not a login shell, so nothing
-from the image's profile is on PATH by default.
+Both runners are registered with the `markjoyeuxcom` organisation (Settings ▸ Actions ▸ Runners);
+the Linux one carries the extra `homelab` label and needs Docker, because its jobs run in a
+container. GitHub's runner has no throwaway-VM executor, so the macOS job assumes a persistent
+machine: it installs the pinned Node under `$RUNNER_TEMP` and the pinned Rust toolchain through
+rustup, names every path it needs explicitly, and never relies on what an earlier job left on
+PATH. Running that runner inside a long-lived Tart VM cloned from
+`ghcr.io/cirruslabs/macos-tahoe-base` keeps the builder separate from the Mac's own toolchain,
+and a pull request from a fork never reaches a self-hosted runner without approval (the
+organisation's Actions settings require it for outside collaborators).
 
 **The macOS job must build with an official nodejs.org Node, and the pipeline pins which one.**
 `scripts/prepare-sidecar.mjs` stages the sidecar by copying `process.execPath` verbatim, so the
@@ -112,11 +110,11 @@ build bundled (`npm run desktop:verify`), runs the packaged-runtime smoke, check
 The release job verifies those checksums after artifact storage, then publishes one `SHA256SUMS`
 covering exactly the attached files. Tagged releases attach both platforms' installers, and the
 release is only created once every package is present.
-GitLab's hosted macOS and Linux ARM64 runners (`saas-macos-medium-m1`, `saas-linux-medium-arm64`)
-are not assignable on the project's Free plan, which is why the self-hosted runners exist and why
-Linux ARM64 is no longer a supported target. If a self-hosted runner is offline the tag pipeline
-waits for it rather than releasing without its package; bring the runner back (or replace it,
-keeping the tag) and the pending job starts.
+GitHub-hosted macOS runners are billed at ten times the Linux rate and exhausted the Actions
+allowance in September 2026, which is why every job runs on the project's self-hosted runners and
+why Linux ARM64 (no self-hosted runner) is not a supported target. If a self-hosted runner is
+offline the job queues for it rather than releasing without its package; bring the runner back
+within GitHub's queue limit (24 hours) and the pending job starts, or re-run the workflow.
 
 To build a package by hand instead, for example on a Mac:
 
@@ -283,17 +281,17 @@ The launched app does open a window briefly on that machine's desktop.
 
 ## Releases and updates
 
-CI runs on GitLab (`.gitlab-ci.yml`), and every job runs on the project's self-hosted runners
-(`homelab` by default, `macos` for the macOS build); none uses GitLab's shared runners. Every merge
-request and push to `main` runs the Node checks, the unit and contract suite, the dependency audit
-and the browser suite; the two desktop jobs are **manual** there (each takes ten to fifteen minutes)
-and automatic on release tags. A release tag `vX.Y.Z` or `vX.Y.Z-rc.N` is the distribution gate:
-the quality gate and both desktop builds with their packaged-runtime smoke must succeed before one
-GitLab release is created with every package, `SHA256SUMS`, and the changelog section as its body.
-A missing package is fatal. The pipeline builds and publishes **no container image**;
-`deploy/Dockerfile` is for building your own (see `deploy/README.md`). GitLab releases have no
-prerelease flag, so a release candidate is listed like any other release; its notes say it is a
-candidate.
+CI runs on GitHub Actions (`.github/workflows/`), and every job runs on the project's self-hosted
+runners (`homelab` for Linux, the `macOS`/`ARM64` Mac for the macOS build); none uses a
+GitHub-hosted runner. Every pull request and push to `main` runs the Node checks, the unit and
+contract suite, the dependency audit and the browser suite (`ci.yml`); the two desktop builds are
+**manual** there (the `Desktop builds` workflow, run from the Actions tab; each takes ten to
+fifteen minutes) and automatic on release tags. A release tag `vX.Y.Z` or `vX.Y.Z-rc.N` is the
+distribution gate (`release.yml`): the quality gate and both desktop builds with their
+packaged-runtime smoke must succeed before one GitHub release is created with every package,
+`SHA256SUMS`, and the changelog section as its body. A missing package is fatal. The workflow
+builds and publishes **no container image**; `deploy/Dockerfile` is for building your own (see
+`deploy/README.md`). A release candidate is published as a GitHub prerelease.
 
 Prax currently uses a deliberate installer update, not an in-app updater:
 

@@ -1,0 +1,230 @@
+name: Desktop packages
+
+# The two supported desktop packages, built on the project's self-hosted
+# runners. Called by desktop.yml (by hand, for a branch) and by release.yml (on
+# a release tag, which passes the tag so each payload is verified against it).
+#
+# Each job installs the pinned, checksummed Node that ships inside the package
+# and the pinned Rust toolchain, builds --locked against src-tauri/Cargo.lock,
+# verifies the payload tauri build bundled, runs the packaged-runtime smoke,
+# checksums its packages where it built them, and uploads them as an artifact.
+# A missing package fails the job; nothing here is optional.
+#
+# - desktop-linux-x64 runs on the Linux runner (labels `self-hosted`, `homelab`)
+#   inside the node:24-bookworm container for its Debian userland, and installs
+#   the WebKitGTK toolchain, Node, Rust and the xvfb/dbus smoke harness itself.
+# - desktop-macos-arm64 runs on the Apple Silicon Mac (labels `self-hosted`,
+#   `macOS`, `ARM64`). GitHub's runner has no throwaway-VM executor, so the job
+#   assumes a persistent machine: it installs Node under $RUNNER_TEMP, Rust
+#   through rustup, and names every path explicitly rather than trusting what an
+#   earlier job left on PATH. The machine supplies the Xcode command line tools.
+#
+# Contract: tests/contract/desktopReleaseWorkflow.test.js pins these rules.
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: "The git ref to build (empty: the caller's ref)"
+        type: string
+        default: ""
+      tag:
+        description: "The release tag the payload must match (empty outside a release)"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  # The Node that Prax ships. scripts/prepare-sidecar.mjs copies the building
+  # Node binary into each package as the sidecar, so both jobs install this
+  # exact official nodejs.org build, verify its checksum, and refuse to
+  # continue if `node --version` reports anything else. It must be an official
+  # build: Homebrew's node@24 links against @rpath/libnode.<abi>.dylib and a
+  # dozen Cellar dylibs, and a .dmg built with it aborts with "Library not
+  # loaded" on every Mac but the builder's (prepare-sidecar refuses it now).
+  # Bump all three together from https://nodejs.org/dist/v<version>/SHASUMS256.txt.
+  NODE_VERSION: "24.21.0"
+  NODE_DARWIN_ARM64_SHA256: "6239d4cf92d864487ec8cd3615038f7b67e7f58b77b21cd2f09ea9fbd68065fe"
+  NODE_LINUX_X64_SHA256: "fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6"
+  # The Rust toolchain both jobs build with (rustup installs exactly this, and
+  # RUSTUP_TOOLCHAIN makes cargo use it); cargo builds are --locked to
+  # src-tauri/Cargo.lock, so a release never resolves new crate versions.
+  RUST_VERSION: "1.98.1"
+  # The tag the staged payload must match; empty outside a release.
+  RELEASE_TAG: ${{ inputs.tag }}
+
+jobs:
+  desktop-linux-x64:
+    name: Linux x64
+    runs-on: [self-hosted, homelab]
+    container:
+      image: node:24-bookworm
+    env:
+      # Cargo strips Prax; linuxdeploy must preserve modern system-library ELF sections.
+      NO_STRIP: "true"
+      # AppImage tooling cannot mount FUSE inside a container.
+      APPIMAGE_EXTRACT_AND_RUN: "1"
+      CARGO_HOME: ${{ github.workspace }}/.cargo
+      RUSTUP_HOME: ${{ github.workspace }}/.rustup
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Install the WebKitGTK toolchain and the smoke harness
+        run: |
+          apt-get update -qq
+          apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev \
+            patchelf xvfb xauth dbus-x11 build-essential pkg-config libssl-dev curl file ca-certificates xz-utils
+
+      - name: Install the pinned Node (not the image's)
+        run: |
+          node_dir="node-v$NODE_VERSION-linux-x64"
+          curl --fail --location --silent --show-error --output "/opt/$node_dir.tar.xz" "https://nodejs.org/dist/v$NODE_VERSION/$node_dir.tar.xz"
+          echo "$NODE_LINUX_X64_SHA256  /opt/$node_dir.tar.xz" | sha256sum -c -
+          tar -xJf "/opt/$node_dir.tar.xz" -C /opt
+          echo "/opt/$node_dir/bin" >> "$GITHUB_PATH"
+
+      - name: Cache cargo downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            .cargo/registry
+            .cargo/git
+          key: cargo-linux-x64-${{ hashFiles('src-tauri/Cargo.lock') }}
+
+      - name: Install the pinned Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain "$RUST_VERSION" --component rustfmt --no-modify-path
+          echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
+          echo "RUSTUP_TOOLCHAIN=$RUST_VERSION" >> "$GITHUB_ENV"
+
+      - name: Refuse any Node but the one the package ships
+        run: |
+          test "$(node --version)" = "v$NODE_VERSION"
+          node --version && npm --version && cargo --version
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      # The cargo build and test below need the staged resources and sidecar to exist.
+      - name: Stage the sidecar and payload
+        run: npm run prepare:sidecar
+
+      # `include_image!` writes its decoded tray icon to a cache file and reads it
+      # back with `include_bytes!`; building before `cargo test --lib` keeps the two
+      # compilations from racing on that file.
+      - name: Check and test the Rust source
+        run: |
+          cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+          cargo build --locked --manifest-path src-tauri/Cargo.toml
+          cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
+
+      - name: Build the packages
+        run: npx tauri build --bundles deb,appimage --verbose -- --locked
+
+      # After the build: tauri build re-stages the payload in its
+      # beforeBuildCommand, so desktop:verify checks the copies it bundled.
+      - name: Verify the payload the build bundled
+        run: |
+          if [ -n "$RELEASE_TAG" ]; then
+            npm run desktop:verify -- --tag "$RELEASE_TAG"
+          else
+            npm run desktop:verify
+          fi
+
+      - name: Smoke the packaged runtime
+        run: npm run desktop:smoke
+
+      # A missing package is fatal: cp fails when a glob matches nothing.
+      # Checksums are taken here, where the packages were built and smoke-tested;
+      # the release verifies them after artifact storage.
+      - name: Collect and checksum the packages
+        run: |
+          mkdir -p release-assets
+          cp src-tauri/target/release/bundle/deb/*.deb src-tauri/target/release/bundle/appimage/*.AppImage release-assets/
+          (cd release-assets && sha256sum -- * > ../SHA256SUMS.linux-x64) && mv SHA256SUMS.linux-x64 release-assets/
+          ls -la release-assets && cat release-assets/SHA256SUMS.linux-x64
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: prax-linux-x64
+          path: release-assets/
+          if-no-files-found: error
+          retention-days: 14
+
+  desktop-macos-arm64:
+    name: macOS Apple Silicon
+    runs-on: [self-hosted, macOS, ARM64]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Install the pinned Node (not the machine's)
+        run: |
+          node_dir="node-v$NODE_VERSION-darwin-arm64"
+          curl --fail --location --silent --show-error --output "$RUNNER_TEMP/$node_dir.tar.xz" "https://nodejs.org/dist/v$NODE_VERSION/$node_dir.tar.xz"
+          echo "$NODE_DARWIN_ARM64_SHA256  $RUNNER_TEMP/$node_dir.tar.xz" | shasum -a 256 -c -
+          tar -xJf "$RUNNER_TEMP/$node_dir.tar.xz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/$node_dir/bin" >> "$GITHUB_PATH"
+
+      # A machine provisioned by hand keeps its rustup, but still builds with
+      # the pinned toolchain.
+      - name: Install the pinned Rust
+        run: |
+          if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain "$RUST_VERSION" --component rustfmt --no-modify-path
+          fi
+          "$HOME/.cargo/bin/rustup" toolchain install "$RUST_VERSION" --profile minimal --component rustfmt
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          echo "RUSTUP_TOOLCHAIN=$RUST_VERSION" >> "$GITHUB_ENV"
+
+      - name: Refuse any Node but the one the package ships
+        run: |
+          test "$(node --version)" = "v$NODE_VERSION"
+          node --version && npm --version && cargo --version && xcode-select -p
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Stage the sidecar and payload
+        run: npm run prepare:sidecar
+
+      - name: Check and test the Rust source
+        run: |
+          cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+          cargo build --locked --manifest-path src-tauri/Cargo.toml
+          cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
+
+      - name: Build the packages
+        run: npx tauri build --bundles app,dmg -- --locked
+
+      - name: Verify the payload the build bundled
+        run: |
+          if [ -n "$RELEASE_TAG" ]; then
+            npm run desktop:verify -- --tag "$RELEASE_TAG"
+          else
+            npm run desktop:verify
+          fi
+
+      - name: Smoke the packaged runtime
+        run: npm run desktop:smoke
+
+      - name: Collect and checksum the packages
+        run: |
+          mkdir -p release-assets
+          tar -czf release-assets/Prax-macos-arm64.app.tar.gz -C src-tauri/target/release/bundle/macos Prax.app
+          cp src-tauri/target/release/bundle/dmg/*.dmg release-assets/
+          (cd release-assets && shasum -a 256 -- * > ../SHA256SUMS.macos-arm64) && mv SHA256SUMS.macos-arm64 release-assets/
+          ls -la release-assets && cat release-assets/SHA256SUMS.macos-arm64
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: prax-macos-arm64
+          path: release-assets/
+          if-no-files-found: error
+          retention-days: 14

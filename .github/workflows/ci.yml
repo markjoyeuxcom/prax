@@ -1,0 +1,93 @@
+name: CI
+
+# Prax checks on GitHub Actions (the repository moved back here from GitLab on
+# 2026-10-10). Every job runs on the project's self-hosted Linux runner (labels
+# `self-hosted`, `homelab`; Docker available) inside the node:24-bookworm
+# container, so nothing here spends GitHub-hosted minutes. Pull requests and
+# pushes to main run the Node check, the unit + contract suite, the dependency
+# audit and the Chromium browser suite. Desktop packages are not built here:
+# run the "Desktop builds" workflow by hand (desktop.yml) or push a release tag
+# (release.yml).
+#
+# Contract: tests/contract/desktopReleaseWorkflow.test.js pins these rules.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node-checks:
+    name: Node checks
+    runs-on: [self-hosted, homelab]
+    container:
+      image: node:24-bookworm
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cache npm downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: |
+          node --version && npm --version
+          npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Syntax check and skill bundles
+        run: npm run check
+
+      - name: Unit and contract suite
+        run: npm test
+
+      - name: Audit npm dependencies
+        run: npm audit --audit-level=high
+
+  browser-tests:
+    name: Browser tests
+    runs-on: [self-hosted, homelab]
+    container:
+      image: node:24-bookworm
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cache npm downloads and the Chromium build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm
+            .playwright-browsers
+          key: browser-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: browser-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser suite
+        env:
+          CI: "1"
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

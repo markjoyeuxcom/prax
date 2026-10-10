@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Assemble the GitLab release body for a tag from CHANGELOG.md: the container
+// Assemble the GitHub release body for a tag from CHANGELOG.md: the container
 // image line, the desktop package guidance (installers are unsigned), the list
 // of packages the pipeline actually attached — naming any supported platform it
 // could not build, so a reader never assumes a missing package exists — and the
@@ -68,10 +68,10 @@ export function packagesSection(assets) {
 export function releaseNotes({ changelog, tag, image = null, assets = null }) {
   const { version, prerelease } = parseTag(tag);
   const section = changelogSection(changelog, version);
-  // GitLab releases have no prerelease flag and release-cli sets none, so a
-  // candidate is listed like any release; the notes are what say otherwise.
+  // The release workflow marks a candidate as a GitHub prerelease; the notes
+  // say so too, so a reader of the body alone is not misled.
   const candidate = prerelease
-    ? `This is a release candidate (\`${prerelease}\`) for ${version}, not the final ${version} release. GitLab lists it like any other release${image ? ', and the container is not tagged `latest`' : ''}.\n\n`
+    ? `This is a release candidate (\`${prerelease}\`) for ${version}, not the final ${version} release. It is published as a prerelease${image ? ', and the container is not tagged `latest`' : ''}.\n\n`
     : '';
   const packages = assets ? `${packagesSection(assets)}\n\n` : '';
   const container = image ? `## Container\n\n\`\`\`text\n${image}:${tag}\n\`\`\`\n\n` : '';

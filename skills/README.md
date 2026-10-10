@@ -53,41 +53,41 @@ agents run them with `node`.
 
 One command, both tools. It needs `git`, `node` **20 or newer** (the installer checks and
 refuses older runtimes), and access to this repository. The repository is **private**: your
-GitLab account must have been granted access to `markjoyeuxcom/apps/prax` — logging in alone is
-not enough. Then fetch the installer through the GitLab CLI (`glab auth login` once):
+GitHub account must have been granted access to `markjoyeuxcom/prax` — logging in alone is
+not enough. Then fetch the installer through the GitHub CLI (`gh auth login` once):
 
 ```bash
-glab api "projects/markjoyeuxcom%2Fapps%2Fprax/repository/files/skills%2Finstall.sh/raw?ref=main" | sh
+gh api -H "Accept: application/vnd.github.raw" repos/markjoyeuxcom/prax/contents/skills/install.sh | sh
 ```
 
-Without the GitLab CLI, fetch the installer with whatever access you do have:
+Without the GitHub CLI, fetch the installer with whatever access you do have:
 
 - **SSH key only** — check out just the `skills/` folder and run the installer from it:
 
   ```bash
-  git clone --depth 1 --filter=blob:none --sparse git@gitlab.com:markjoyeuxcom/apps/prax.git /tmp/prax-skills \
+  git clone --depth 1 --filter=blob:none --sparse git@github.com:markjoyeuxcom/prax.git /tmp/prax-skills \
     && git -C /tmp/prax-skills sparse-checkout set --no-cone skills \
     && PRAX_SKILLS_REPO=/tmp/prax-skills sh /tmp/prax-skills/skills/install.sh \
     && rm -rf /tmp/prax-skills
   ```
 
-- **A personal access token** (scope `read_api` + `read_repository`):
+- **A personal access token** (fine-grained, with read access to this repository's contents):
 
   ```bash
-  curl -fsSL -H "PRIVATE-TOKEN: $GITLAB_TOKEN" \
-    "https://gitlab.com/api/v4/projects/markjoyeuxcom%2Fapps%2Fprax/repository/files/skills%2Finstall.sh/raw?ref=main" \
-    | PRAX_SKILLS_REPO="https://oauth2:$GITLAB_TOKEN@gitlab.com/markjoyeuxcom/apps/prax.git" sh
+  curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github.raw" \
+    https://api.github.com/repos/markjoyeuxcom/prax/contents/skills/install.sh \
+    | PRAX_SKILLS_REPO="https://oauth2:$GITHUB_TOKEN@github.com/markjoyeuxcom/prax.git" sh
   ```
 
 If the repository is ever made public, the plain form works too:
-`curl -fsSL https://gitlab.com/markjoyeuxcom/apps/prax/-/raw/main/skills/install.sh | sh`.
+`curl -fsSL https://raw.githubusercontent.com/markjoyeuxcom/prax/main/skills/install.sh | sh`.
 
-How it reaches the repository: when `PRAX_SKILLS_REPO` is unset and `glab auth status` succeeds,
-the installer clones over **HTTPS** using `glab`'s stored credentials (`glab auth git-credential`,
+How it reaches the repository: when `PRAX_SKILLS_REPO` is unset and `gh auth status` succeeds,
+the installer clones over **HTTPS** using `gh`'s stored credentials (`gh auth git-credential`,
 passed to that one `git` invocation — your git configuration is not modified). Without a
-working `glab` login it falls back to **SSH** (`git@gitlab.com:markjoyeuxcom/apps/prax.git`), which
-needs an SSH key registered with GitLab. To force a transport, set `PRAX_SKILLS_REPO` yourself
-(for example `https://gitlab.com/markjoyeuxcom/apps/prax.git` after `glab auth setup-git`).
+working `gh` login it falls back to **SSH** (`git@github.com:markjoyeuxcom/prax.git`), which
+needs an SSH key registered with GitHub. To force a transport, set `PRAX_SKILLS_REPO` yourself
+(for example `https://github.com/markjoyeuxcom/prax.git` after `gh auth setup-git`).
 
 It clones only the `skills/` folder into a temporary directory, copies the two
 skills to `~/.agents/skills/` (where Codex looks), links them into `~/.claude/skills/`
@@ -96,7 +96,7 @@ and deletes the temporary clone. Re-run it to update. To
 uninstall without a checkout, pipe the same installer with the flag:
 
 ```bash
-glab api "projects/markjoyeuxcom%2Fapps%2Fprax/repository/files/skills%2Finstall.sh/raw?ref=main" | sh -s -- --uninstall
+gh api -H "Accept: application/vnd.github.raw" repos/markjoyeuxcom/prax/contents/skills/install.sh | sh -s -- --uninstall
 ```
 
 (From a checkout, `sh skills/install.sh --uninstall` does the same.)
@@ -112,7 +112,7 @@ are left alone; unrelated text is preserved; malformed or ambiguous markers stop
 its mode is kept, and a missing or duplicated marker leaves the file unchanged and fails the run:
 
 ```bash
-glab api "projects/markjoyeuxcom%2Fapps%2Fprax/repository/files/skills%2Finstall.sh/raw?ref=main" | sh -s -- --instructions
+gh api -H "Accept: application/vnd.github.raw" repos/markjoyeuxcom/prax/contents/skills/install.sh | sh -s -- --instructions
 ```
 
 | Tool | File written | Note |
@@ -132,7 +132,7 @@ block or switch its command form; no uninstall is required. Environment override
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `PRAX_SKILLS_REPO` | `https://gitlab.com/markjoyeuxcom/apps/prax.git` with a `glab` login, else `git@gitlab.com:markjoyeuxcom/apps/prax.git` | repository to fetch from (a local path works too) |
+| `PRAX_SKILLS_REPO` | `https://github.com/markjoyeuxcom/prax.git` with a `gh` login, else `git@github.com:markjoyeuxcom/prax.git` | repository to fetch from (a local path works too) |
 | `PRAX_SKILLS_REF` | `main` | branch or tag |
 | `PRAX_SKILLS_DIR` | `~/.agents/skills` | where the real copies live |
 | `PRAX_CLAUDE_SKILLS_DIR` | `~/.claude/skills` | where the Claude Code symlinks are created |
@@ -182,11 +182,10 @@ under
 ### Claude Code only: plugin install
 
 The repository is also a Claude Code plugin marketplace, so Claude Code can install
-the skills through its plugin manager from the repository's git URL (same git credentials
-apply):
+the skills through its plugin manager (same `gh` or git credentials apply):
 
 ```bash
-claude plugin marketplace add git@gitlab.com:markjoyeuxcom/apps/prax.git
+claude plugin marketplace add markjoyeuxcom/prax
 claude plugin install prax@prax
 ```
 
@@ -194,8 +193,9 @@ The skills are then available as `prax:prax-recall` and `prax:prax-remember`.
 
 ### Codex only
 
-Codex's bundled `skill-installer` skill takes GitHub `owner/repo` shorthand, which does not
-reach a GitLab project; use the installer above, which places the skills where Codex looks.
+Codex's bundled `skill-installer` skill takes GitHub `owner/repo` shorthand, but the installer
+above remains the supported route: it places the skills where Codex looks, links them for the
+other tools and writes the standing instructions.
 
 ## Inside this repository
 

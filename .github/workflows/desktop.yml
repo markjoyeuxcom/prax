@@ -1,0 +1,18 @@
+name: Desktop builds
+
+# Manual, non-blocking desktop packages for a branch, outside the release
+# workflow: run it from the Actions tab against the branch under review (the
+# equivalent of the manual desktop jobs a merge request used to offer). Each
+# build takes ten to fifteen minutes on the self-hosted runners. Tagged
+# distribution is owned by release.yml, so a release cannot race ahead with a
+# missing package.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  packages:
+    uses: ./.github/workflows/desktop-build.yml

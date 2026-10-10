@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-export const IMAGE = 'registry.gitlab.com/markjoyeuxcom/apps/prax';
+export const IMAGE = 'ghcr.io/markjoyeuxcom/prax';
 
 const SEMVER = String.raw`\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?`;
 
