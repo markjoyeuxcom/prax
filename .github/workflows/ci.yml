@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Cache npm downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.npm
           key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
@@ -65,7 +65,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Cache npm downloads and the Chromium build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.npm
