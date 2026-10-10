@@ -89,7 +89,7 @@ test('--hooks adds one Prax handler per agent CLI, keeps every other setting, is
   // The standing block teaches the markers, because a hook now reads them.
   const block = readFileSync(join(home, '.claude', 'CLAUDE.md'), 'utf8');
   assert.match(block, /\*\*Propose what you are unsure of\.\*\*/);
-  assert.match(block, /`prax-remember` block/);
+  assert.match(block, /start\na line of your reply with `Remember:`/);
 
   // The installed command runs and fails open: nothing listens, it still exits 0 silently.
   const hook = spawnSync('sh', ['-c', handler.command], {

@@ -12,6 +12,17 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Changed
+
+- **Shorter standing instruction block.** `skills/install.sh --instructions` now writes a block
+  of about 40 lines (was 54) into each agent CLI's global instructions file: the `remember` flag
+  catalogue defers to `prax remember --help`, the recall-interpretation and proposal paragraphs
+  are condensed, and the project-specific "Track the work" paragraph is gone (it belongs in a
+  project's own `AGENTS.md`). The `Remember:` proposal marker is still taught when a harvest
+  hook is installed. Re-run the installer with `--instructions` to refresh existing blocks.
+- **`AGENTS.md` trimmed to Prax-specific guidance.** The repository guide no longer repeats the
+  memory convention that the global block and `docs/agent-memory.md` already state.
+
 ## [0.39.2] - 2026-10-03
 
 ### Security
