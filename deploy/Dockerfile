@@ -1,10 +1,10 @@
-FROM node:24-alpine AS deps
+FROM node:25-alpine AS deps
 
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-FROM node:24-alpine AS runtime
+FROM node:25-alpine AS runtime
 
 WORKDIR /app
 ENV NODE_ENV=production
