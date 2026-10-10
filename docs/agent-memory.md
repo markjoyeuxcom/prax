@@ -347,7 +347,7 @@ the update instead of guessing. Re-running switches command form without uninsta
 `--hooks` adds the [session-harvesting](#session-harvesting-proposals-into-the-inbox) hook to
 Claude Code (`~/.claude/settings.json`), Codex (`~/.codex/hooks.json`) and Copilot CLI
 (`~/.copilot/hooks/prax-harvest.json`). It keeps every other setting and hook, and it teaches the
-proposal markers in the standing block. `--uninstall` removes the skills, the links, the
+`Remember:` proposal marker in the standing block (the fenced block form is documented above). `--uninstall` removes the skills, the links, the
 instruction blocks, the shim and Prax's hook handlers; it edits a symlinked instruction file at its target (the link stays a link,
 the mode is kept) and leaves a file with malformed markers unchanged, failing the run. See
 [`skills/README.md`](../skills/README.md).

@@ -179,17 +179,13 @@ CMDS
 remember_commands() {
   if [ "$CLI_FORM" = 1 ]; then
     cat <<'CMDS'
-# Knowledge about one project:
-prax remember "<title>" --body "<body>" --project <slug> [--type note|runbook|decision|known-issue|reference|post-mortem|template] [--tag a,b] [--ref <url>] [--cite <path[:start[-end]]>]
-# Knowledge useful across projects:
-prax remember "<title>" --body "<body>" --memory [--type note|runbook|decision|known-issue|reference|post-mortem|template] [--tag a,b] [--ref <url>]
+prax remember "<title>" --body "<body>" --project <slug> [--type decision|runbook|…] [--tag a,b] [--cite <path[:start[-end]]>]
+prax remember "<title>" --body "<body>" --memory       # useful across projects; --help lists every flag
 CMDS
   else
     cat <<'CMDS'
-# Knowledge about one project:
-node "__SKILLS_DIR__/prax-remember/scripts/remember.mjs" "<title>" "<body>" --project <slug> [--type note|runbook|decision|known-issue|reference|post-mortem|template] [--tags a,b] [--ref <url>] [--cite <path[:start[-end]]>]
-# Knowledge useful across projects:
-node "__SKILLS_DIR__/prax-remember/scripts/remember.mjs" "<title>" "<body>" --project memory [--type note|runbook|decision|known-issue|reference|post-mortem|template] [--tags a,b] [--ref <url>]
+node "__SKILLS_DIR__/prax-remember/scripts/remember.mjs" "<title>" "<body>" --project <slug> [--type decision|runbook|…] [--tags a,b] [--cite <path[:start[-end]]>]
+node "__SKILLS_DIR__/prax-remember/scripts/remember.mjs" "<title>" "<body>" --project memory   # useful across projects
 CMDS
   fi
 }
@@ -208,11 +204,9 @@ NOTE
 harvest_note() {
   [ "$HARVEST_FORM" = 1 ] || return 0
   cat <<'NOTE'
-**Propose what you are unsure of.** A session hook on this machine files proposals as unverified
-Inbox candidates for a person to review. When a finding might be durable but you are not sure,
-start a line of your reply with `Remember:` and one self-contained sentence, or write a fenced
-`prax-remember` block (a `title:` line, optional `type:`, `project:` and `tags:` lines, a blank
-line, then the body). A proposal is not a memory: remember what you are sure of directly.
+**Propose what you are unsure of.** When a finding might be durable but you are not sure, start
+a line of your reply with `Remember:` and one self-contained sentence; a hook on this machine
+files it as an unverified Inbox candidate for review. Remember what you are sure of directly.
 
 NOTE
 }
@@ -224,9 +218,8 @@ instruction_block() {
     cat <<'BLOCK'
 ## Long-term memory (Prax)
 
-Prax is the shared, local-first long-term memory for every agent CLI on this machine
-(Claude Code, Codex, Copilot CLI and Antigravity all read and write the same library). Use it
-in every project.
+Prax is the shared, local-first long-term memory that every agent CLI on this machine reads
+and writes. Use it in every project.
 
 **Recall first.** Read the repository's startup guide and its Prax project overview when
 available, then retrieve knowledge relevant to the task:
@@ -237,19 +230,16 @@ BLOCK
     cat <<'BLOCK'
 ```
 
-Every hit says which project it lives in (`in homelab`), its trust (`verified by …` or
-`unverified`), its age and who wrote it. Treat `unverified` hits as leads, not gospel; weigh a
-months-old agent note accordingly. A miss with complete index coverage means start fresh;
-an incomplete-index or keyword-only result needs a recent/keyword check. If Prax is
-unreachable, report that and use repository documentation; never invent memory.
+Each hit shows its project, trust (`verified by …` or `unverified`), age and author. Treat
+unverified hits as leads, not gospel. A miss with an incomplete index needs a keyword or recent
+check. If Prax is unreachable, say so and use repository documentation; never invent memory.
 
-**File by subject.** Project-specific architecture, decisions, runbooks and findings belong
-in that project's Library. Reserve the `memory` project for preferences, conventions and
-procedures useful across projects. Documents in every project are shared with all agents;
-the author's identity is recorded separately. Recall searches across projects by default.
+**File by subject.** Project knowledge (architecture, decisions, runbooks, findings) belongs in
+that project's Library; the `memory` project holds preferences, conventions and procedures
+useful across projects. Recall searches every project by default.
 
-**Remember durable findings.** When you learn something that outlives this session — how a
-system works, a decision or convention, a reusable runbook — persist it:
+**Remember durable findings.** Persist what outlives this session (how a system works, a
+decision or convention, a reusable runbook):
 
 ```bash
 BLOCK
@@ -261,15 +251,9 @@ BLOCK
     remember_note
     harvest_note
     cat <<'BLOCK'
-Re-running with the same title refines the memory in place; without `--project`, a title that
-already lives in another project is refined there, never duplicated. Use `--cite` when the claim
-is about specific code (run it from inside the checkout). Keep entries concise and supersede
-obsolete guidance. Agent-written revisions remain unverified until a person reviews them.
-
-**Track the work.** Put unfinished implementation state, branch/commit, test results and the
-next action in the relevant task's notes/checklist or linked handoff. Update it before handing
-over; close the task when its acceptance checks pass. Keep reusable findings in the Library,
-and retire temporary handoffs when finished. Never persist secrets.
+Re-remembering a title refines that memory in place. Use `--cite` for claims about specific
+code (run it inside the checkout). Supersede obsolete guidance; agent-written memory stays
+unverified until a person reviews it. Never persist secrets.
 BLOCK
   } | subst_paths
 }
