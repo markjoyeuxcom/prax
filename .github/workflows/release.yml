@@ -1,0 +1,191 @@
+name: Release
+
+# Tags vX.Y.Z or vX.Y.Z-pre: quality gate → both desktop packages
+# (desktop-build.yml, with the tag so each payload is verified against it) →
+# one GitHub release with every package, SHA256SUMS and the CHANGELOG section
+# as its body. A release candidate is published as a prerelease. No container
+# image is built or published: the desktop app is the product, and
+# deploy/Dockerfile stays for self-builds. A missing package fails the release.
+# Every job runs on the self-hosted runners; if one is offline the job queues
+# for it rather than releasing without its package.
+#
+# Contract: tests/contract/desktopReleaseWorkflow.test.js pins these rules.
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Existing release tag, for example v0.40.0"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.inputs.version || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve release
+    runs-on: [self-hosted, homelab]
+    container:
+      image: node:24-bookworm
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+    steps:
+      - name: Resolve and validate the version
+        id: release
+        shell: bash
+        env:
+          VERSION_INPUT: ${{ github.event.inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          version="${VERSION_INPUT:-$REF_NAME}"
+          if [[ ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Release version must match vMAJOR.MINOR.PATCH, optionally with a prerelease suffix." >&2
+            exit 1
+          fi
+          prerelease=false
+          if [[ "$version" == *-* ]]; then
+            prerelease=true
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+
+  # The same gates CI applies to main: a tag must not publish a revision whose
+  # checks, browser suite or dependency audit is red, and the tag must match
+  # every version site in the tree.
+  quality:
+    name: Release quality gate
+    needs: resolve
+    runs-on: [self-hosted, homelab]
+    container:
+      image: node:24-bookworm
+    env:
+      RELEASE_TAG: ${{ needs.resolve.outputs.version }}
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.version }}
+
+      - name: Cache npm downloads and the Chromium build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm
+            .playwright-browsers
+          key: browser-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: browser-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Verify the tag against the version sites
+        run: node scripts/verify-desktop-release.mjs --tag "$RELEASE_TAG"
+
+      - name: Syntax check and skill bundles
+        run: npm run check
+
+      - name: Unit and contract suite
+        run: npm test
+
+      - name: Audit npm dependencies
+        run: npm audit --audit-level=high
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser suite
+        env:
+          CI: "1"
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+  desktop:
+    name: Desktop packages
+    needs: [resolve, quality]
+    uses: ./.github/workflows/desktop-build.yml
+    with:
+      ref: ${{ needs.resolve.outputs.version }}
+      tag: ${{ needs.resolve.outputs.version }}
+
+  publish:
+    name: Publish the release
+    needs: [resolve, quality, desktop]
+    runs-on: [self-hosted, homelab]
+    container:
+      image: node:24-bookworm
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ needs.resolve.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.version }}
+
+      - name: Download both packages
+        uses: actions/download-artifact@v8
+        with:
+          pattern: prax-*
+          path: downloaded
+
+      # Keep each platform's upload separate until here, then flatten without
+      # overwriting: a filename collision would silently hide one package.
+      - name: Flatten the packages and reject filename collisions
+        run: |
+          mkdir release-assets
+          find downloaded -type f -exec cp -n {} release-assets/ \;
+          test "$(find downloaded -type f | wc -l)" -eq "$(find release-assets -type f | wc -l)"
+          test -z "$(ls release-assets | sort | uniq -d)"
+
+      # Every supported package must be present. Each desktop job checksummed
+      # its packages where it built them; verify those sums now, after artifact
+      # storage, and publish them as one list that covers exactly the files
+      # being attached. One test per line: errexit ignores a failure before the
+      # last `&&`.
+      - name: Require every supported package and verify its checksum
+        run: |
+          cd release-assets
+          test -n "$(ls *_amd64.deb 2>/dev/null)"
+          test -n "$(ls *_amd64.AppImage 2>/dev/null)"
+          test -n "$(ls *.dmg 2>/dev/null)"
+          test -n "$(ls *.app.tar.gz 2>/dev/null)"
+          test -f SHA256SUMS.linux-x64
+          test -f SHA256SUMS.macos-arm64
+          sha256sum -c --strict SHA256SUMS.linux-x64 SHA256SUMS.macos-arm64
+          cat SHA256SUMS.linux-x64 SHA256SUMS.macos-arm64 | sort -k 2 > SHA256SUMS
+          rm SHA256SUMS.linux-x64 SHA256SUMS.macos-arm64
+          test "$(ls | grep -vx SHA256SUMS | sort)" = "$(awk '{print $2}' SHA256SUMS | sort)"
+          cat SHA256SUMS
+
+      - name: Assemble the release notes from CHANGELOG.md
+        run: |
+          node scripts/release-notes.mjs --tag "$RELEASE_TAG" --assets-dir release-assets > release-notes.md
+          test -s release-notes.md
+
+      # The body comes from CHANGELOG.md via scripts/release-notes.mjs and
+      # states that the installers are unsigned (docs/desktop/BUILD.md).
+      - name: Create the GitHub release with every package
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.resolve.outputs.version }}
+          name: ${{ needs.resolve.outputs.version }}
+          prerelease: ${{ needs.resolve.outputs.prerelease == 'true' }}
+          body_path: release-notes.md
+          files: release-assets/*
+          fail_on_unmatched_files: true

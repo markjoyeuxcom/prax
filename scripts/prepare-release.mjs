@@ -12,7 +12,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { RELEASE_SITES, assertReleaseSitesAgree } from './release-sites.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-export const REPO_URL = 'https://gitlab.com/markjoyeuxcom/apps/prax';
+export const REPO_URL = 'https://github.com/markjoyeuxcom/prax';
 // Keep a Changelog's subsection order; anything else keeps first-seen order after these.
 export const CHANGELOG_ORDER = ['Added', 'Changed', 'Deprecated', 'Removed', 'Fixed', 'Security'];
 const RELEASE_VERSION = /^\d+\.\d+\.\d+$/;
@@ -89,10 +89,10 @@ export function cutChangelog(text, version, date, { repo = REPO_URL } = {}) {
     const previous = unreleasedLink[2];
     out = out.replace(
       unreleasedLink[0],
-      `[Unreleased]: ${repo}/-/compare/v${version}...HEAD\n[${version}]: ${repo}/-/compare/v${previous}...v${version}`,
+      `[Unreleased]: ${repo}/compare/v${version}...HEAD\n[${version}]: ${repo}/compare/v${previous}...v${version}`,
     );
   } else {
-    out = `${out.replace(/\s*$/, '')}\n\n[Unreleased]: ${repo}/-/compare/v${version}...HEAD\n[${version}]: ${repo}/-/tags/v${version}\n`;
+    out = `${out.replace(/\s*$/, '')}\n\n[Unreleased]: ${repo}/compare/v${version}...HEAD\n[${version}]: ${repo}/releases/tag/v${version}\n`;
   }
   return out;
 }

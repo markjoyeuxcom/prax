@@ -14,15 +14,15 @@
 #   sh "/Applications/Prax.app/Contents/Resources/resources/app/skills/install.sh" --instructions --cli
 #
 # Piped from the repository it clones the skills/ folder instead (private
-# repository: an account with access, via glab login or an SSH key):
+# repository: an account with access, via gh login or an SSH key):
 #
-#   glab api "projects/markjoyeuxcom%2Fapps%2Fprax/repository/files/skills%2Finstall.sh/raw?ref=main" | sh
-#   glab api "projects/markjoyeuxcom%2Fapps%2Fprax/repository/files/skills%2Finstall.sh/raw?ref=main" | sh -s -- --uninstall
+#   gh api -H "Accept: application/vnd.github.raw" repos/markjoyeuxcom/prax/contents/skills/install.sh | sh
+#   gh api -H "Accept: application/vnd.github.raw" repos/markjoyeuxcom/prax/contents/skills/install.sh | sh -s -- --uninstall
 #
 # Transport for the clone: an explicit PRAX_SKILLS_REPO (git URL or local path)
-# is used as given. Otherwise, when the GitLab CLI is logged in, the clone goes
-# over HTTPS with glab's credential helper for this one command (no git config
-# is changed); without glab it falls back to SSH. PRAX_SKILLS_SOURCE=clone forces
+# is used as given. Otherwise, when the GitHub CLI is logged in, the clone goes
+# over HTTPS with gh's credential helper for this one command (no git config
+# is changed); without gh it falls back to SSH. PRAX_SKILLS_SOURCE=clone forces
 # a clone even when a local pack is present.
 #
 # Overrides: PRAX_SKILLS_REPO, PRAX_SKILLS_REF (branch/tag, default main),
@@ -74,8 +74,8 @@ BIN_DIR="${PRAX_BIN_DIR:-$HOME/.local/bin}"
 SOURCE="${PRAX_SKILLS_SOURCE:-auto}"
 CLI_FORM=0
 SKILLS="prax-recall prax-remember"
-HTTPS_REPO="https://gitlab.com/markjoyeuxcom/apps/prax.git"
-SSH_REPO="git@gitlab.com:markjoyeuxcom/apps/prax.git"
+HTTPS_REPO="https://github.com/markjoyeuxcom/prax.git"
+SSH_REPO="git@github.com:markjoyeuxcom/prax.git"
 MIN_NODE_MAJOR=20
 
 # Standing-instruction files (see --instructions in the header).
@@ -571,14 +571,14 @@ if [ -n "$PACK_DIR" ] && [ "$SOURCE" != "clone" ] && [ -z "${PRAX_SKILLS_REPO:-}
   fi
 else
   command -v git >/dev/null 2>&1 || { echo "install.sh: git is required to fetch the skills (or run this installer from the Prax app bundle, which needs no git)" >&2; exit 1; }
-  # Pick the repository and, for the glab path, a one-command credential helper.
+  # Pick the repository and, for the gh path, a one-command credential helper.
   CREDENTIAL_ARGS=""
   if [ -n "${PRAX_SKILLS_REPO:-}" ]; then
     REPO="$PRAX_SKILLS_REPO"
     TRANSPORT="explicit"
-  elif command -v glab >/dev/null 2>&1 && glab auth status >/dev/null 2>&1; then
+  elif command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
     REPO="$HTTPS_REPO"
-    TRANSPORT="https (glab credentials)"
+    TRANSPORT="https (gh credentials)"
     CREDENTIAL_ARGS="yes"
   else
     REPO="$SSH_REPO"
@@ -588,13 +588,13 @@ else
   TMP="$(mktemp -d)"
   trap 'rm -rf "$TMP"' EXIT INT TERM
 
-  # Every git command that may talk to the remote goes through here, so the glab
+  # Every git command that may talk to the remote goes through here, so the gh
   # credential helper applies to the clone AND to the sparse checkout that
   # fetches the skills blobs afterwards (a blobless clone defers them). An empty
-  # helper value resets git's inherited helper list; the next one is glab's.
+  # helper value resets git's inherited helper list; the next one is gh's.
   run_git() {
     if [ -n "$CREDENTIAL_ARGS" ]; then
-      git -c credential.helper= -c 'credential.helper=!glab auth git-credential' "$@"
+      git -c credential.helper= -c 'credential.helper=!gh auth git-credential' "$@"
     else
       git "$@"
     fi
@@ -607,7 +607,7 @@ else
   if ! run_git clone --quiet --no-local --depth 1 --branch "$REF" --filter=blob:none --sparse "$REPO" "$TMP/prax" 2>"$TMP/clone.err"; then
     cat "$TMP/clone.err" >&2
     echo "install.sh: could not clone $REPO@$REF over $TRANSPORT." >&2
-    echo "install.sh: the repository is private. Log in with 'glab auth login' (HTTPS), register an SSH key on GitLab (SSH)," >&2
+    echo "install.sh: the repository is private. Log in with 'gh auth login' (HTTPS), register an SSH key on GitHub (SSH)," >&2
     echo "install.sh: or point PRAX_SKILLS_REPO at a URL or local path you can reach." >&2
     exit 1
   fi

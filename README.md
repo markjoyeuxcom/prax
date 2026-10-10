@@ -7,7 +7,7 @@ Run it with plain Node (zero external dependencies — the database is an embedd
 ## Install
 
 **Desktop (recommended):** download the installer for your platform from the
-[GitLab Releases page](https://gitlab.com/markjoyeuxcom/apps/prax/-/releases) — `.dmg` (macOS
+[GitHub Releases page](https://github.com/markjoyeuxcom/prax/releases) — `.dmg` (macOS
 Apple Silicon), `.deb`/`.AppImage` (Linux x64).
 Windows, Intel Mac and Linux ARM64 installers are not built or released. Zero external
 dependencies: the database is an embedded file, created on first launch. Tagged releases include
@@ -84,7 +84,7 @@ Regenerate these from a seeded demo server with `node scripts/capture-readme-scr
 Clone the repo:
 
 ```bash
-git clone git@gitlab.com:markjoyeuxcom/apps/prax.git
+git clone git@github.com:markjoyeuxcom/prax.git
 cd prax
 ```
 
@@ -135,7 +135,7 @@ pushed was `v0.30.0`), so pulling a newer tag from the registry fails. To run a 
 container, build and tag it yourself from `deploy/Dockerfile`, then use the image override:
 
 ```bash
-docker build -f deploy/Dockerfile -t registry.gitlab.com/markjoyeuxcom/apps/prax:<tag> .
+docker build -f deploy/Dockerfile -t ghcr.io/markjoyeuxcom/prax:<tag> .
 docker compose -f compose.yaml -f compose.image.yaml up
 ```
 
@@ -143,7 +143,7 @@ The image override (like the Kubernetes manifests) names this checkout's version
 release script bumps every release; use it as `<tag>` above:
 
 ```text
-registry.gitlab.com/markjoyeuxcom/apps/prax:v0.39.2
+ghcr.io/markjoyeuxcom/prax:v0.39.2
 ```
 
 Use source-build Compose for development, and the self-built image when you want to test the same artifact Kubernetes will run.
@@ -383,10 +383,10 @@ MIT. See [LICENSE](LICENSE).
 
 ## Repository
 
-GitLab (moved from GitHub on 2026-09-07; the GitHub copy is retained read-only):
+GitHub (moved back from GitLab on 2026-10-10; the GitLab project is archived read-only):
 
 ```text
-https://gitlab.com/markjoyeuxcom/apps/prax
+https://github.com/markjoyeuxcom/prax
 ```
 
 ### Templates and repository setup

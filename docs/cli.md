@@ -628,48 +628,54 @@ git diff --name-only origin/main... | prax check
     including where the enclosing function is now), then stale and still-holding sections, then
     how to fix them.
 
-#### GitLab CI example
+#### GitHub Actions example
 
 Not part of Prax's own pipeline, whose runners cannot reach a developer's desktop app. For a
 project whose runner can reach a Prax instance:
 
 ```yaml
 prax-check:
-  stage: test
-  image: node:24-bookworm
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-  variables:
-    GIT_DEPTH: "0"                  # the merge base must be in the clone
+  if: github.event_name == 'pull_request'
+  runs-on: ubuntu-latest
+  permissions:
+    contents: read
+    pull-requests: write            # to post the comment
+  env:
     PRAX_API_URL: "https://prax.internal.example:3000"
     PRAX_TIMEOUT_MS: "5000"
     PRAX_REF: "main"                # better: the release tag that matches the instance
-    # PRAX_API_TOKEN: a masked CI/CD variable, when the instance requires one
-  script:
-    - git clone --quiet --depth 1 --branch "$PRAX_REF" https://gitlab.com/<group>/prax.git /tmp/prax
+    # PRAX_API_TOKEN: ${{ secrets.PRAX_API_TOKEN }}   # when the instance requires one
+  steps:
+    - uses: actions/checkout@v7
+      with:
+        fetch-depth: 0              # the merge base must be in the clone
+    - uses: actions/setup-node@v7
+      with:
+        node-version: 24
     # the CLI needs Node only: no npm install
-    - set +e
-    - node /tmp/prax/cli/prax.js check --diff "$CI_MERGE_REQUEST_DIFF_BASE_SHA..$CI_COMMIT_SHA" --comment > prax-check.md
-    - status=$?
-    - set -e
-    - cat prax-check.md
-    - |
-      # Post the comment only when there is something to act on. PRAX_MR_TOKEN is a
-      # project access token with the api scope, stored as a masked variable.
-      if [ "$status" -eq 1 ] && [ -n "$PRAX_MR_TOKEN" ]; then
-        curl --fail --silent --show-error --request POST \
-          --header "PRIVATE-TOKEN: $PRAX_MR_TOKEN" \
-          --data-urlencode "body@prax-check.md" \
-          "$CI_API_V4_URL/projects/$CI_PROJECT_ID/merge_requests/$CI_MERGE_REQUEST_IID/notes"
-      fi
-    - exit $status
-  artifacts:
-    when: always
-    paths: [prax-check.md]
+    - run: git clone --quiet --depth 1 --branch "$PRAX_REF" https://github.com/<owner>/prax.git /tmp/prax
+    - id: check
+      shell: bash
+      run: |
+        set +e
+        node /tmp/prax/cli/prax.js check --diff "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}" --comment > prax-check.md
+        echo "status=$?" >> "$GITHUB_OUTPUT"
+        cat prax-check.md
+    # Post the comment only when there is something to act on.
+    - if: steps.check.outputs.status == '1'
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: gh pr comment "${{ github.event.pull_request.number }}" --body-file prax-check.md
+    - if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: prax-check
+        path: prax-check.md
+    - run: exit "${{ steps.check.outputs.status }}"
 ```
 
-Exit `2` fails the job as well. To report a broken gate without blocking the merge, add
-`allow_failure: { exit_codes: [2] }`.
+Exit `2` fails the job as well. To report a broken gate without blocking the merge, mark the
+final step `continue-on-error: true` and read the status from the uploaded report instead.
 
 ### `harvest [--transcript <file>] [--session <id>] [--dry-run] [--budget-ms <n>] [--json]`
 

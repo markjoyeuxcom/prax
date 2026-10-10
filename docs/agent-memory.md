@@ -325,13 +325,12 @@ the agents run the skill scripts with `node`.
   install — and `--mcp` prints the MCP registration command for each tool (registration stays
   opt-in). On Linux the same script sits beside the installed payload; only the leading path
   differs.
-- **On any other machine:** `glab api "projects/markjoyeuxcom%2Fapps%2Fprax/repository/files/skills%2Finstall.sh/raw?ref=main" | sh`
+- **On any other machine:** `gh api -H "Accept: application/vnd.github.raw" repos/markjoyeuxcom/prax/contents/skills/install.sh | sh`
   installs the pack without keeping a checkout. The repository is private, so the
-  account must have been granted access; with `glab auth login` done the installer clones over
-  HTTPS using `glab`'s credentials, otherwise it needs an SSH key registered with GitLab. Claude
+  account must have been granted access; with `gh auth login` done the installer clones over
+  HTTPS using `gh`'s credentials, otherwise it needs an SSH key registered with GitHub. Claude
   Code can alternatively install it as a plugin:
-  `claude plugin marketplace add git@gitlab.com:markjoyeuxcom/apps/prax.git` then
-  `claude plugin install prax@prax`.
+  `claude plugin marketplace add markjoyeuxcom/prax` then `claude plugin install prax@prax`.
 
 On every route, `--instructions` adds or refreshes the standing "recall first / file by project"
 rule in each tool's global instructions file, between markers. Paired with

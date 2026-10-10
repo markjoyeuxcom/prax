@@ -3,5 +3,5 @@ kind: Kustomization
 resources:
   - ../../base
 images:
-  - name: registry.gitlab.com/markjoyeuxcom/apps/prax
+  - name: ghcr.io/markjoyeuxcom/prax
     newTag: v0.39.2

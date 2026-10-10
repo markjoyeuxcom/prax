@@ -36,11 +36,11 @@ const SAMPLE = `# Changelog
 `;
 
 test('cutChangelog renames Unreleased, merges duplicate headings in Keep a Changelog order, and rewires the links', () => {
-  const out = cutChangelog(SAMPLE, '0.21.0', '2026-09-06', { repo: 'https://gitlab.com/markjoyeuxcom/apps/prax' });
+  const out = cutChangelog(SAMPLE, '0.21.0', '2026-09-06', { repo: 'https://github.com/markjoyeuxcom/prax' });
   assert.match(out, /^## \[Unreleased\]\n\n## \[0\.21\.0\] - 2026-09-06\n\n### Added\n\n- One addition\.\n\n### Fixed\n\n- One fix\.\n\n- A second fix under a duplicate heading\.\n\n## \[0\.20\.0\] - 2026-06-11/m);
   assert.equal((out.match(/^### Fixed$/gm) || []).length, 1, 'the two Fixed headings merged into one');
-  assert.match(out, /^\[Unreleased\]: https:\/\/gitlab\.com\/markjoyeuxcom\/apps\/prax\/-\/compare\/v0\.21\.0\.\.\.HEAD$/m);
-  assert.match(out, /^\[0\.21\.0\]: https:\/\/gitlab\.com\/markjoyeuxcom\/apps\/prax\/-\/compare\/v0\.20\.0\.\.\.v0\.21\.0$/m);
+  assert.match(out, /^\[Unreleased\]: https:\/\/github\.com\/markjoyeuxcom\/prax\/compare\/v0\.21\.0\.\.\.HEAD$/m);
+  assert.match(out, /^\[0\.21\.0\]: https:\/\/github\.com\/markjoyeuxcom\/prax\/compare\/v0\.20\.0\.\.\.v0\.21\.0$/m);
   assert.match(out, /^\[0\.20\.0\]: https:\/\/github\.com\/old\/name\/compare\/v0\.19\.2\.\.\.v0\.20\.0$/m, 'older links are left alone');
 });
 
@@ -65,9 +65,9 @@ test('parseArgs accepts a plain version and refuses prerelease versions and bad 
 
 test('release notes name the container tag, state that installers are unsigned, and embed the changelog section', () => {
   const changelog = cutChangelog(SAMPLE, '0.21.0', '2026-09-06');
-  const notes = releaseNotes({ changelog, tag: 'v0.21.0-rc.1', image: 'registry.gitlab.com/markjoyeuxcom/apps/prax' });
+  const notes = releaseNotes({ changelog, tag: 'v0.21.0-rc.1', image: 'ghcr.io/markjoyeuxcom/prax' });
   assert.match(notes, /^This is a release candidate \(`rc\.1`\) for 0\.21\.0/);
-  assert.match(notes, /registry\.gitlab\.com\/markjoyeuxcom\/apps\/prax:v0\.21\.0-rc\.1/);
+  assert.match(notes, /ghcr\.io\/markjoyeuxcom\/prax:v0\.21\.0-rc\.1/);
   assert.match(notes, /\*\*All installers are unsigned and not notarized\*\*/);
   assert.match(notes, /## Changes in 0\.21\.0\n\n### Added\n\n- One addition\./);
   assert.doesNotMatch(notes, /Older\./, 'only the tagged version\'s section is included');
@@ -98,19 +98,19 @@ test('assertReleaseSitesAgree names every drifted site', () => {
     () => assertReleaseSitesAgree(current, { read: (file) => texts.get(file) }),
     (error) => error.message.includes('compose.image.yaml: published image tag is 0.0.1') && !error.message.includes('package.json'),
   );
-  assert.equal(IMAGE, 'registry.gitlab.com/markjoyeuxcom/apps/prax');
+  assert.equal(IMAGE, 'ghcr.io/markjoyeuxcom/prax');
 });
 
-test('the current changelog section, which becomes the release body, carries no GitHub-era commands', () => {
+test('the current changelog section, which becomes the release body, carries no GitLab-era commands', () => {
   const changelog = readFileSync(join(root, 'CHANGELOG.md'), 'utf8');
   const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
   const notes = releaseNotes({ changelog, tag: `v${version}` });
   const staleClaims = ['allowed to fail on tags', 'by hand and attached', 'Linux x64 or ARM64', 'built on an ARM64 Linux machine'];
-  for (const stale of ['gh api', 'gh auth', 'ghcr.io', 'marketplace add markjoyeuxcom/prax', 'GitHub release body', 'github.com/markjoyeuxcom', ...staleClaims]) {
+  for (const stale of ['glab api', 'glab auth', 'registry.gitlab.com', 'marketplace add git@gitlab.com', 'GitLab release body', 'gitlab.com/markjoyeuxcom', ...staleClaims]) {
     assert.doesNotMatch(notes, new RegExp(stale.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `release body must not tell readers to use "${stale}"`);
   }
   // The pipeline publishes no image, so the body must not promise one.
-  assert.doesNotMatch(notes, /## Container|registry\.gitlab\.com/);
+  assert.doesNotMatch(notes, /## Container|ghcr\.io/);
 });
 
 test('release notes carry a container section only when an image is named explicitly', () => {
@@ -120,9 +120,7 @@ test('release notes carry a container section only when an image is named explic
   const withImage = releaseNotes({ changelog, tag: 'v0.21.0', image: 'example.test/prax' });
   assert.match(withImage, /## Container\n\n```text\nexample\.test\/prax:v0\.21\.0\n```/);
   const rc = releaseNotes({ changelog, tag: 'v0.21.0-rc.1' });
-  assert.match(rc, /release candidate \(`rc\.1`\) for 0\.21\.0, not the final 0\.21\.0 release\. GitLab lists it like any other release\./, 'without an image the rc note says nothing about a latest tag');
-  // release-cli sets no prerelease flag, so the notes must not claim one.
-  assert.doesNotMatch(rc, /published as a prerelease/);
+  assert.match(rc, /release candidate \(`rc\.1`\) for 0\.21\.0, not the final 0\.21\.0 release\. It is published as a prerelease\./, 'without an image the rc note says nothing about a latest tag');
 });
 
 test('release notes list exactly the packages the pipeline attached and name every platform it could not build', () => {
