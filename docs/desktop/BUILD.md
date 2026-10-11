@@ -14,7 +14,7 @@ SQLite file — a packaged install has **zero external dependencies**.
 
 Supported desktop builds and releases target **macOS Apple Silicon** and **Linux x64**.
 Windows, Intel Mac and Linux ARM64 installers are not built or released (Linux ARM64 was dropped on
-2026-09-07 when the pipeline moved to the project's own runners).
+2026-09-07 and has not been reinstated).
 
 ## Prerequisites
 
@@ -72,22 +72,17 @@ Outputs land under `src-tauri/target/release/bundle/`:
 - Linux x64: `.deb` and `.AppImage`
 
 Cross-compilation is not supported — build each platform on that platform. The pipeline builds
-both on self-hosted group runners, so neither costs compute minutes:
+both on GitHub-hosted runners with pinned images (never `-latest`, which moves under a release):
 
-| Job | Runner labels | Host | What the job installs itself |
+| Job | `runs-on` | Where it runs | What the job installs itself |
 |---|---|---|---|
-| `desktop-linux-x64` | `self-hosted`, `homelab` | Linux amd64 with Docker; the job runs in the `node:24-bookworm` container for its Debian userland | WebKitGTK/GTK toolchain, an official Node `$NODE_VERSION` (pinned + checksummed; the image's own Node is not used), Rust `$RUST_VERSION` (rustup), xvfb/dbus smoke harness |
-| `desktop-macos-arm64` | `self-hosted`, `macOS`, `ARM64` | Apple Silicon Mac running the GitHub Actions runner, on the host or inside a long-lived Tart VM | an official Node `$NODE_VERSION` (pinned + checksummed, under `$RUNNER_TEMP`) and Rust `$RUST_VERSION` (rustup); the machine supplies the Xcode command line tools |
+| `desktop-linux-x64` | `ubuntu-24.04` | inside the `node:24-bookworm` container, for the Debian userland the package is built against | WebKitGTK/GTK toolchain, an official Node `$NODE_VERSION` (pinned + checksummed; the image's own Node is not used), Rust `$RUST_VERSION` (rustup), xvfb/dbus smoke harness |
+| `desktop-macos-arm64` | `macos-15` | directly on the Apple Silicon image | an official Node `$NODE_VERSION` (pinned + checksummed, under `$RUNNER_TEMP`) and Rust `$RUST_VERSION` through the image's rustup; the image supplies the Xcode command line tools |
 
-Both runners are registered with the `markjoyeuxcom` organisation (Settings ▸ Actions ▸ Runners);
-the Linux one carries the extra `homelab` label and needs Docker, because its jobs run in a
-container. GitHub's runner has no throwaway-VM executor, so the macOS job assumes a persistent
-machine: it installs the pinned Node under `$RUNNER_TEMP` and the pinned Rust toolchain through
-rustup, names every path it needs explicitly, and never relies on what an earlier job left on
-PATH. Running that runner inside a long-lived Tart VM cloned from
-`ghcr.io/cirruslabs/macos-tahoe-base` keeps the builder separate from the Mac's own toolchain,
-and a pull request from a fork never reaches a self-hosted runner without approval (the
-organisation's Actions settings require it for outside collaborators).
+Every job names the Node and Rust it builds with and the paths it uses, so a change to the
+hosted image's preinstalled toolchain cannot change what ships. Bumping the image (`ubuntu-24.04`,
+`macos-15`) is a deliberate edit to `desktop-build.yml`, `ci.yml` and `release.yml`, pinned by
+`tests/contract/desktopReleaseWorkflow.test.js`.
 
 **The macOS job must build with an official nodejs.org Node, and the pipeline pins which one.**
 `scripts/prepare-sidecar.mjs` stages the sidecar by copying `process.execPath` verbatim, so the
@@ -110,11 +105,14 @@ build bundled (`npm run desktop:verify`), runs the packaged-runtime smoke, check
 The release job verifies those checksums after artifact storage, then publishes one `SHA256SUMS`
 covering exactly the attached files. Tagged releases attach both platforms' installers, and the
 release is only created once every package is present.
-GitHub-hosted macOS runners are billed at ten times the Linux rate and exhausted the Actions
-allowance in September 2026, which is why every job runs on the project's self-hosted runners and
-why Linux ARM64 (no self-hosted runner) is not a supported target. If a self-hosted runner is
-offline the job queues for it rather than releasing without its package; bring the runner back
-within GitHub's queue limit (24 hours) and the pending job starts, or re-run the workflow.
+GitHub-hosted macOS minutes are billed at ten times the Linux rate (that exhausted the Actions
+allowance once, in September 2026, and sent the project to GitLab and then to self-hosted runners
+for a month). The workflows spend macOS minutes only where a package needs them: the macOS job
+runs on manual desktop builds and release tags, never on pull requests or pushes to `main`. A
+release costs roughly 20 Linux minutes plus 5 macOS minutes (billed as 50); watch the usage in the
+organisation's billing page, and if the allowance runs out before a release, the self-hosted
+runner setup that preceded this (labels `self-hosted, homelab` and `self-hosted, macOS, ARM64`,
+in git history before 2026-10-11) is the fallback.
 
 To build a package by hand instead, for example on a Mac:
 
@@ -281,9 +279,9 @@ The launched app does open a window briefly on that machine's desktop.
 
 ## Releases and updates
 
-CI runs on GitHub Actions (`.github/workflows/`), and every job runs on the project's self-hosted
-runners (`homelab` for Linux, the `macOS`/`ARM64` Mac for the macOS build); none uses a
-GitHub-hosted runner. Every pull request and push to `main` runs the Node checks, the unit and
+CI runs on GitHub Actions (`.github/workflows/`), and every job runs on a GitHub-hosted runner
+with a pinned image (`ubuntu-24.04` in the `node:24-bookworm` container; `macos-15` for the macOS
+package). Every pull request and push to `main` runs the Node checks, the unit and
 contract suite, the dependency audit and the browser suite (`ci.yml`); the two desktop builds are
 **manual** there (the `Desktop builds` workflow, run from the Actions tab; each takes ten to
 fifteen minutes) and automatic on release tags. A release tag `vX.Y.Z` or `vX.Y.Z-rc.N` is the

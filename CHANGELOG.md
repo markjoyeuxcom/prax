@@ -63,14 +63,15 @@ fresh empty `[Unreleased]` section is started.
   the Docker image.
 - **Repository and pipelines back on GitHub.** The project lives at
   `https://github.com/markjoyeuxcom/prax` again (the move to GitLab on 2026-09-07 was about
-  GitHub-hosted macOS minutes; both builds now run on the project's own runners, so the
-  reason is gone). `.github/workflows/` replaces the GitLab pipeline: `ci.yml` runs the checks,
-  unit + contract suite, dependency audit and browser suite on every pull request and push to
-  `main`; `desktop.yml` builds both desktop packages by hand; `release.yml` turns a `vX.Y.Z`
-  tag into one GitHub release with every package, `SHA256SUMS` and the changelog section as its
-  body, a candidate marked as a prerelease. Every job runs on a self-hosted runner (`homelab`
-  for Linux, in the `node:24-bookworm` container; the Apple Silicon Mac for macOS) with the
-  same pinned, checksummed Node and pinned Rust as before; no container image is published.
+  GitHub-hosted macOS minutes). `.github/workflows/` replaces the GitLab pipeline: `ci.yml` runs
+  the checks, unit + contract suite, dependency audit and browser suite on every pull request
+  and push to `main`; `desktop.yml` builds both desktop packages by hand; `release.yml` turns a
+  `vX.Y.Z` tag into one GitHub release with every package, `SHA256SUMS` and the changelog
+  section as its body, a candidate marked as a prerelease. Every job runs on a GitHub-hosted
+  runner with a pinned image (`ubuntu-24.04` in the `node:24-bookworm` container; `macos-15`
+  for the macOS package, spent only on manual desktop builds and release tags) with the same
+  pinned, checksummed Node and pinned Rust as before; no container image is published. The
+  self-hosted runner setup that was in place for a day on 2026-10-10 is in git history.
   `tests/contract/desktopReleaseWorkflow.test.js` pins the workflows instead of the pipeline.
   The skills installer, plugin manifest, README, `SECURITY.md` (private vulnerability
   reporting), deploy manifests (the GitHub container registry image name, for self-built images), the

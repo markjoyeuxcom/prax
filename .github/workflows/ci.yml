@@ -1,13 +1,13 @@
 name: CI
 
 # Prax checks on GitHub Actions (the repository moved back here from GitLab on
-# 2026-10-10). Every job runs on the project's self-hosted Linux runner (labels
-# `self-hosted`, `homelab`; Docker available) inside the node:24-bookworm
-# container, so nothing here spends GitHub-hosted minutes. Pull requests and
-# pushes to main run the Node check, the unit + contract suite, the dependency
-# audit and the Chromium browser suite. Desktop packages are not built here:
-# run the "Desktop builds" workflow by hand (desktop.yml) or push a release tag
-# (release.yml).
+# 2026-10-10). Every job runs on a GitHub-hosted Linux runner (a pinned
+# ubuntu-24.04 image, not `-latest`) inside the node:24-bookworm container, so
+# the userland is the same Debian the desktop package is built in. Pull
+# requests and pushes to main run the Node check, the unit + contract suite,
+# the dependency audit and the Chromium browser suite. Desktop packages are
+# not built here: run the "Desktop builds" workflow by hand (desktop.yml) or
+# push a release tag (release.yml).
 #
 # Contract: tests/contract/desktopReleaseWorkflow.test.js pins these rules.
 
@@ -27,7 +27,7 @@ concurrency:
 jobs:
   node-checks:
     name: Node checks
-    runs-on: [self-hosted, homelab]
+    runs-on: ubuntu-24.04
     container:
       image: node:24-bookworm
     steps:
@@ -56,7 +56,7 @@ jobs:
 
   browser-tests:
     name: Browser tests
-    runs-on: [self-hosted, homelab]
+    runs-on: ubuntu-24.04
     container:
       image: node:24-bookworm
     env:

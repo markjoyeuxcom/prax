@@ -13,8 +13,8 @@ Prax ships as a desktop app for **macOS on Apple Silicon** and **Linux x64**. Wi
 Mac and Linux ARM64 installers are not built. Every release on the
 [GitHub Releases page](https://github.com/markjoyeuxcom/prax/releases) attaches
 `Prax_<version>_aarch64.dmg`, `Prax_<version>_amd64.deb`, `Prax_<version>_amd64.AppImage`,
-`Prax-macos-arm64.app.tar.gz` and `SHA256SUMS`, all built and smoke-tested on the project's own
-runners; a release exists only when every package is present. The installers are **unsigned and
+`Prax-macos-arm64.app.tar.gz` and `SHA256SUMS`, all built and smoke-tested by the release
+workflow on GitHub-hosted runners; a release exists only when every package is present. The installers are **unsigned and
 not notarized**, so each platform asks you to approve the app once.
 
 **1. Download and verify.** Fetch the package for your platform and `SHA256SUMS` from the
