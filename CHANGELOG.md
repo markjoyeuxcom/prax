@@ -12,6 +12,8 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.40.0] - 2026-10-11
+
 ### Added
 
 - **Agents can archive, restore and delete from the CLI.** `prax archive <id>` takes one
@@ -22,11 +24,6 @@ fresh empty `[Unreleased]` section is started.
   archive and restore routes now stamp who did it (`updatedBy` / `updatedByAgent`), as every
   other document write does. Design note: `docs/design/agent-archive-delete.md`. The MCP server
   still exposes no archive or delete tool.
-
-## [0.40.0] - 2026-10-11
-
-### Added
-
 - **Session-start recall hook.** `skills/install.sh --hooks` now installs a second hook beside
   harvesting: `prax session-start --hook <vendor>` on Claude Code and Codex `SessionStart` and
   Copilot CLI `sessionStart`. It opens every session with a budgeted context pack for the
