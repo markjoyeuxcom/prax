@@ -5,8 +5,9 @@ import { readFileSync } from 'node:fs';
 // The GitHub Actions workflows are the distribution gate (docs/desktop/BUILD.md).
 // These pins keep a release from being created without its quality gate and
 // both supported desktop packages with their runtime smoke, keep every job on
-// the self-hosted runners (no GitHub-hosted minutes), and keep the desktop
-// builds off pull requests unless someone asks for them.
+// a GitHub-hosted runner with a pinned image (no self-hosted machine, no
+// `-latest` that moves under a release), and keep the desktop builds off pull
+// requests unless someone asks for them.
 
 const read = (name) => readFileSync(new URL(`../../.github/workflows/${name}`, import.meta.url), 'utf8');
 const ci = read('ci.yml');
@@ -22,15 +23,19 @@ function job(workflow, name) {
   return match[1];
 }
 
-test('every workflow runs on the self-hosted runners only, with no container image anywhere', () => {
+test('every workflow runs on pinned GitHub-hosted images only, with no container image anywhere', () => {
   for (const [file, text] of Object.entries(all)) {
-    assert.doesNotMatch(text, /runs-on:.*(ubuntu|macos|windows)-(latest|\d)/, `${file} uses no GitHub-hosted runner`);
+    assert.doesNotMatch(text, /self-hosted/, `${file} uses no self-hosted runner`);
+    assert.doesNotMatch(text, /runs-on:.*-latest/, `${file} pins its runner images: -latest moves under a release`);
+    for (const [, image] of text.matchAll(/runs-on: (.+)/g)) {
+      assert.match(image, /^(ubuntu-24\.04|macos-15)$/, `${file} runs on ubuntu-24.04 or macos-15, got ${image}`);
+    }
     assert.doesNotMatch(text, /docker login|docker buildx|docker\/(login|build-push|setup-buildx)-action|ghcr\.io\/markjoyeuxcom/, `${file} builds or publishes no container image`);
     assert.doesNotMatch(text, /continue-on-error: true/, `${file} treats nothing as optional`);
   }
   for (const text of [ci, release]) {
     for (const body of text.split(/^  [\w-]+:$/m).slice(1)) {
-      if (/runs-on:/.test(body)) assert.match(body, /runs-on: \[self-hosted, homelab\]\n    container:\n      image: node:24-bookworm/, 'every Linux job runs on the homelab runner in the Node image');
+      if (/runs-on:/.test(body)) assert.match(body, /runs-on: ubuntu-24\.04\n    container:\n      image: node:24-bookworm/, 'every Linux job runs on ubuntu-24.04 in the Node image');
     }
   }
 });
@@ -107,18 +112,18 @@ test('both desktop jobs verify the payload tauri build bundled, after the build 
   }
 });
 
-test('exactly two desktop jobs exist, one per supported target, on their self-hosted runners', () => {
+test('exactly two desktop jobs exist, one per supported target, on pinned hosted images', () => {
   const desktopJobs = [...build.matchAll(/^  (desktop-[\w-]+):$/gm)].map((m) => m[1]);
   assert.deepEqual(desktopJobs, ['desktop-linux-x64', 'desktop-macos-arm64'], 'the supported targets are Linux x64 and macOS Apple Silicon, one job each');
   const linux = job(build, 'desktop-linux-x64');
-  assert.match(linux, /runs-on: \[self-hosted, homelab\]\n    container:\n      image: node:24-bookworm/, 'the x64 build runs on the homelab runner in the Node image');
+  assert.match(linux, /runs-on: ubuntu-24\.04\n    container:\n      image: node:24-bookworm/, 'the x64 build runs on ubuntu-24.04 in the Node image');
   assert.match(linux, /npx tauri build --bundles deb,appimage/);
   assert.match(linux, /npm run desktop:smoke/);
   assert.match(linux, /xvfb xauth dbus-x11/, 'the smoke needs xvfb and xauth in the container');
   assert.match(linux, /cp src-tauri\/target\/release\/bundle\/deb\/\*\.deb src-tauri\/target\/release\/bundle\/appimage\/\*\.AppImage release-assets\//);
   const mac = job(build, 'desktop-macos-arm64');
-  assert.match(mac, /runs-on: \[self-hosted, macOS, ARM64\]/, 'the macOS build runs on the self-hosted Apple Silicon runner');
-  assert.doesNotMatch(mac, /container:/, 'and directly on that machine');
+  assert.match(mac, /runs-on: macos-15/, 'the macOS build runs on the Apple Silicon macos-15 image');
+  assert.doesNotMatch(mac, /container:/, 'and directly on that image');
   assert.match(mac, /npx tauri build --bundles app,dmg/);
   assert.match(mac, /npm run desktop:smoke/);
   assert.match(mac, /Prax-macos-arm64\.app\.tar\.gz/);

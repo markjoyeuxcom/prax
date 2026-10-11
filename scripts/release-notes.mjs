@@ -77,7 +77,7 @@ export function releaseNotes({ changelog, tag, image = null, assets = null }) {
   const container = image ? `## Container\n\n\`\`\`text\n${image}:${tag}\n\`\`\`\n\n` : '';
   return `${candidate}${container}## Desktop packages
 
-The packages listed below were built and smoke-tested by the pipeline on the project's own
+The packages listed below were built and smoke-tested by the release workflow on GitHub-hosted
 runners and are attached with \`SHA256SUMS\`; the release is created only once every supported
 package is present. **All installers are unsigned and not notarized**: verify each download
 against its checksum before installing, and expect macOS to ask for approval under System

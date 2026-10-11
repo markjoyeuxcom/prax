@@ -6,8 +6,8 @@ name: Release
 # as its body. A release candidate is published as a prerelease. No container
 # image is built or published: the desktop app is the product, and
 # deploy/Dockerfile stays for self-builds. A missing package fails the release.
-# Every job runs on the self-hosted runners; if one is offline the job queues
-# for it rather than releasing without its package.
+# Every job runs on a GitHub-hosted runner with a pinned image (ubuntu-24.04
+# in the node:24-bookworm container; macos-15 for the macOS package).
 #
 # Contract: tests/contract/desktopReleaseWorkflow.test.js pins these rules.
 
@@ -32,7 +32,7 @@ concurrency:
 jobs:
   resolve:
     name: Resolve release
-    runs-on: [self-hosted, homelab]
+    runs-on: ubuntu-24.04
     container:
       image: node:24-bookworm
     outputs:
@@ -64,7 +64,7 @@ jobs:
   quality:
     name: Release quality gate
     needs: resolve
-    runs-on: [self-hosted, homelab]
+    runs-on: ubuntu-24.04
     container:
       image: node:24-bookworm
     env:
@@ -126,7 +126,7 @@ jobs:
   publish:
     name: Publish the release
     needs: [resolve, quality, desktop]
-    runs-on: [self-hosted, homelab]
+    runs-on: ubuntu-24.04
     container:
       image: node:24-bookworm
     permissions:
