@@ -20,6 +20,21 @@ fresh empty `[Unreleased]` section is started.
 
 ### Added
 
+- **Session-start recall hook.** `skills/install.sh --hooks` now installs a second hook beside
+  harvesting: `prax session-start --hook <vendor>` on Claude Code and Codex `SessionStart` and
+  Copilot CLI `sessionStart`. It opens every session with a budgeted context pack for the
+  project the session's directory belongs to, what changed in memory since that agent's last
+  session (advancing the delta marker), and the two commands that close the loop. It fails open
+  on everything (Prax down, no project, a deadline) and prints nothing. Design note:
+  `docs/design/session-start-recall.md`.
+- **`prax used` is taught.** The standing instruction block (CLI form), the recall skill and
+  every `prax recall` hit block now say when to run `prax used <id>`, so the librarian can tell
+  answered questions from knowledge gaps; before this nothing named the command and no used
+  signal was ever recorded.
+- **`prax doctor` reports repo-URL drift.** A `repo-url` check warns when the project detected
+  for the current directory is registered to a repo URL that no longer matches the checkout's
+  origin (the GitLab-to-GitHub move case), which silently breaks remote-based detection and
+  `--cite` checks; `info` when nothing is registered yet.
 - **`prax move <id> --to <project-slug>`.** Refiles one document or one task under another
   project from the command line, the way the Inbox lets a person refile a candidate with its
   owner. The id is tried as a document, then as a task; the target project must exist, only an

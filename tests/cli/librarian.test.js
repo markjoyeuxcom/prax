@@ -7,8 +7,35 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createClient } from '../../cli/lib/apiClient.js';
 import {
-  markUsed, doctorExitCode, formatDoctor, formatTelemetryStatus, DOCTOR_EXIT,
+  markUsed, doctorExitCode, formatDoctor, formatTelemetryStatus, DOCTOR_EXIT, repoUrlCheck,
 } from '../../cli/lib/librarian.js';
+
+// The repo-URL drift check (docs/design/session-start-recall.md, C).
+test('repoUrlCheck warns when the detected project is registered to another repository', async () => {
+  const projects = [
+    { id: 'p', slug: 'parley', repoUrl: 'https://gitlab.com/markjoyeuxcom/apps/parley' },
+    { id: 'q', slug: 'other', repoUrl: null },
+  ];
+  const client = { listProjects: async () => projects };
+  const moved = await repoUrlCheck({ client, repoUrl: 'git@github.com:markjoyeuxcom/parley.git', detected: { project: 'parley', source: 'folder' } });
+  assert.equal(moved.id, 'repo-url');
+  assert.equal(moved.level, 'warn');
+  assert.match(moved.message, /registered to https:\/\/gitlab\.com\/markjoyeuxcom\/apps\/parley/);
+  assert.match(moved.message, /origin is git@github\.com:markjoyeuxcom\/parley\.git/);
+  assert.match(moved.message, /prax init/);
+  // A different spelling of the same repository is not drift.
+  assert.equal(await repoUrlCheck({ client, repoUrl: 'git@gitlab.com:markjoyeuxcom/apps/parley.git', detected: { project: 'parley', source: 'file' } }), null);
+  // No registered URL and no match anywhere: an info with the fix.
+  const unregistered = await repoUrlCheck({ client, repoUrl: 'https://github.com/x/other.git', detected: { project: 'other', source: 'folder' } });
+  assert.equal(unregistered.level, 'info');
+  assert.match(unregistered.message, /has no registered repo URL/);
+  // Outside a repository, or when the project list is unavailable: nothing.
+  assert.equal(await repoUrlCheck({ client, repoUrl: null, detected: { project: 'parley' } }), null);
+  assert.equal(await repoUrlCheck({ client: { listProjects: async () => { throw new Error('down'); } }, repoUrl: 'x', detected: { project: 'parley' } }), null);
+  // --project names the project explicitly.
+  const explicit = await repoUrlCheck({ client, project: 'parley', repoUrl: 'https://github.com/markjoyeuxcom/parley', detected: { project: 'something-else' } });
+  assert.equal(explicit.level, 'warn');
+});
 import { createDb } from '../../server/db.js';
 import { runMigrations } from '../../server/migrate.js';
 import { buildApp } from '../../server/index.js';

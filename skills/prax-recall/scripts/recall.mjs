@@ -1554,7 +1554,12 @@ function planRecallBudget(result, budget, now = /* @__PURE__ */ new Date()) {
     compact: compactLine(item),
     unverified: !item.verified
   }));
-  const { text, used, plan } = renderBudgeted({ fixedLines: disclosureLines(result), entries, budget });
+  const { text, used, plan } = renderBudgeted({
+    fixedLines: disclosureLines(result),
+    entries,
+    budget,
+    footerLines: ["", usedHint(result.top?.id)]
+  });
   return { text, summary: budgetSummary(items, budget, used, plan) };
 }
 function formatRecall(result, now = /* @__PURE__ */ new Date()) {
@@ -1601,7 +1606,11 @@ function formatRecall(result, now = /* @__PURE__ */ new Date()) {
       lines.push(`- ${r.title || "Untitled"} \u2014 ${r.id}${label ? ` (${label})` : ""}${snippet ? ` \u2014 ${snippet}` : ""}`);
     }
   }
+  lines.push("", usedHint(top.id));
   return lines.join("\n");
+}
+function usedHint(id) {
+  return `Acted on one of these? \`prax used ${id}\` (or the id you used) records it.`;
 }
 
 // cli/lib/delta.js

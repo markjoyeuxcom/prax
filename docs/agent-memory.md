@@ -127,6 +127,19 @@ The client binds to one Prax instance for the whole run and never fails a write 
 (see [Connecting to the app](#connecting-to-the-app)); the confirmation line names the base URL
 it wrote to.
 
+## Session start: the briefing hook
+
+Recall used to depend on the agent obeying its standing instructions. The second hook that
+`skills/install.sh --hooks` installs removes that dependency: `prax session-start --hook
+<vendor>` runs on Claude Code and Codex `SessionStart` and Copilot CLI `sessionStart`, and
+prints one block of context before the first prompt: a budgeted context pack
+(`prax context --budget 1200`) for the project the session's directory belongs to, what changed
+in memory since that agent's last session (`recall --since-last-session`, advancing the marker),
+and the two commands that close the loop (`prax used <id>`, `prax remember`). It fails open on
+everything, so a session never waits on memory, and it writes nothing but the delta marker. The
+agent still recalls for the specific task; the briefing is the project's standing memory, not
+an answer to the question at hand. Design: [session-start recall](design/session-start-recall.md).
+
 ## Session harvesting: proposals into the Inbox
 
 Some findings might be durable, but the agent is not sure enough to run `remember` in the
