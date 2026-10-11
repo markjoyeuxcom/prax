@@ -76,7 +76,7 @@ jobs:
           ref: ${{ needs.resolve.outputs.version }}
 
       - name: Cache npm downloads and the Chromium build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.npm

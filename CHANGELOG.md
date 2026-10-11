@@ -12,6 +12,12 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Security
+
+- **Dependency updates for new advisories.** `proxy-addr` 2.0.8 (critical: IP spoofing via an
+  IPv4-mapped IPv6 trust subnet, GHSA-jqcg-44mw-7w3h, via `fastify`) and
+  `@modelcontextprotocol/sdk` 1.32.1 (high). `npm audit --audit-level=high` is clean again.
+
 ### Added
 
 - **`prax move <id> --to <project-slug>`.** Refiles one document or one task under another
@@ -24,6 +30,14 @@ fresh empty `[Unreleased]` section is started.
 
 ### Changed
 
+- **Dependency floors raised to the current minor and patch releases** (the Dependabot
+  groups opened after the move back to GitHub, applied on `main` directly): `@fastify/static`
+  10.1.6, `zod` 4.6.5, `@codemirror/*` (commands 6.11.1, language 6.13.1, state 6.7.6, view
+  6.43.14), `@playwright/test` 1.64.0, `@tauri-apps/cli` 2.12.2; the desktop crate's
+  `Cargo.lock` takes the cargo minor-and-patch group (brotli, cssparser, dom_query, html5ever
+  and the rest); the workflows use `actions/cache` v6. Node stays on the 24 LTS line: the
+  deploy image's Node 25 bump was declined and Dependabot now ignores major `node` bumps for
+  the Docker image.
 - **Repository and pipelines back on GitHub.** The project lives at
   `https://github.com/markjoyeuxcom/prax` again (the move to GitLab on 2026-09-07 was about
   GitHub-hosted macOS minutes; both builds now run on the project's own runners, so the
