@@ -12,6 +12,17 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Added
+
+- **Agents can archive, restore and delete from the CLI.** `prax archive <id>` takes one
+  document out of recall, context packs and the mirror (or one task out of every open list)
+  reversibly; `prax restore <id>` undoes it; `prax delete <id> --yes` is permanent and guarded:
+  the record must already be archived, a verified document is never deleted by an agent, and
+  `--yes` must be given. The id is tried as a document first, then as a task. The document
+  archive and restore routes now stamp who did it (`updatedBy` / `updatedByAgent`), as every
+  other document write does. Design note: `docs/design/agent-archive-delete.md`. The MCP server
+  still exposes no archive or delete tool.
+
 ## [0.40.0] - 2026-10-11
 
 ### Added

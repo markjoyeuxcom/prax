@@ -32,6 +32,7 @@ import {
 } from './lib/mirrorCommand.js';
 import { runHarvest } from './lib/harvestCommand.js';
 import { runSessionStart } from './lib/sessionStart.js';
+import { archiveRecord, restoreRecord, deleteRecord, formatLifecycle } from './lib/lifecycle.js';
 import { repoUrlCheck } from './lib/librarian.js';
 import {
   markUsed, doctorExitCode, formatDoctor, formatTelemetryStatus, DOCTOR_EXIT,
@@ -44,7 +45,7 @@ import {
 // accumulate when repeated (`--check a --check b`) are `repeatable`; every
 // other flag is last-wins.
 const REPEATABLE_FLAGS = ['check'];
-const BOOLEAN_FLAGS = ['json', 'help', 'all', 'all-projects', 'memory', 'since-last-session', 'include-harvested', 'comment', 'strict', 'foreground', 'dry-run', 'handoff'];
+const BOOLEAN_FLAGS = ['json', 'help', 'yes', 'all', 'all-projects', 'memory', 'since-last-session', 'include-harvested', 'comment', 'strict', 'foreground', 'dry-run', 'handoff'];
 // `--recent` takes a count only when the next word is one.
 const OPTIONAL_FLAGS = { recent: (next) => /^\d+$/.test(next) };
 const VALUE_FLAGS = [
@@ -99,6 +100,9 @@ const COMMANDS = {
     usage: 'prax harvest [--transcript <file>] [--session <id>] [--dry-run] [--budget-ms <n>] [--json]   (or --hook claude|codex|copilot, reading hook JSON on stdin)',
   },
   // Librarian (docs/design/librarian.md).
+  archive: { flags: [], max: 1, usage: 'prax archive <id> [--json]    (a document or a task; reversible with restore)' },
+  restore: { flags: [], max: 1, usage: 'prax restore <id> [--json]' },
+  delete: { flags: ['yes'], max: 1, usage: 'prax delete <id> --yes [--json]    (permanent; the record must be archived, and a verified document is never deleted)' },
   'session-start': {
     flags: ['hook', 'budget'], max: 0,
     usage: 'prax session-start --hook claude|codex|copilot [--budget <tokens>]   (the SessionStart hook: reads hook JSON on stdin, prints a briefing as context)',
@@ -261,6 +265,8 @@ Usage:
   prax unverify <id>
   prax supersede <oldId> --with <newId>
   prax move <id> --to <project-slug> [--json]    (refile one document or task under another project)
+  prax archive <id> [--json]    prax restore <id> [--json]    (a document or a task; archive is reversible)
+  prax delete <id> --yes [--json]    (permanent: only an archived record, never a verified document)
   prax task add <title> [--priority high|medium|low] [--status planned|in-progress|...] [--due YYYY-MM-DD] [--planned YYYY-MM-DD] [--label a,b] [--description <text>] [--notes <text>] [--check <item>]...
   prax task list [--status <status>] [--all] [--all-projects] [--query <text>] [--json]
   prax task show <id> [--json]
@@ -605,6 +611,15 @@ async function main(argv) {
     if (!oldId || !newId) throw new Error('supersede requires <oldId> --with <newId>.');
     const doc = await client.supersede(oldId, newId);
     out(flags.json ? doc : `Superseded ${oldId} with ${newId}.`);
+    return;
+  }
+
+  if (command === 'archive' || command === 'restore' || command === 'delete') {
+    const id = positionals[1];
+    const result = command === 'archive' ? await archiveRecord(client, id)
+      : command === 'restore' ? await restoreRecord(client, id)
+        : await deleteRecord(client, id, { yes: Boolean(flags.yes) });
+    out(flags.json ? result : formatLifecycle(result));
     return;
   }
 

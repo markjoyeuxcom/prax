@@ -70,6 +70,10 @@ script is one self-contained file: Node 20+, no packages, no repository checkout
 - **A superseded memory stays retired.** Remembering a title that was superseded
   creates a new active memory; the old one keeps its body. To replace one memory
   with a different one, use `prax supersede <oldId> --with <newId>`.
+- **Wrong memory is archived, not overwritten.** When the `prax` CLI is on this machine,
+  `prax archive <id>` takes a memory out of recall reversibly (`prax restore <id>` undoes it), and
+  `prax delete <id> --yes` permanently removes one that is already archived and not verified. A
+  verified memory is never deleted by an agent. Stop at archive when unsure.
 - **Provenance.** Every write is stamped `updatedBy: agent`, `kind: synthesized`,
   plus which agent CLI wrote it: `claude`, `codex`, `copilot`, and `antigravity` are detected automatically;
   `--agent <id>` or `PRAX_AGENT` sets it explicitly. Agent memory lands

@@ -64,7 +64,11 @@ retrieve  →  work  →  persist  →  supersede  →  report use
 4. **Supersede** — re-remembering an existing title updates it in place (no duplicate). When one
    memory replaces another distinct one, run `prax supersede <oldId> --with <newId>` — it records
    the `supersedes` link and retires the old document from default retrieval. A retired title is
-   never revived by a later remember: that becomes a new active document.
+   never revived by a later remember: that becomes a new active document. Memory that should
+   not have been written at all is a different case: `prax archive <id>` takes it out of recall
+   reversibly, `prax restore <id>` brings it back, and `prax delete <id> --yes` removes an
+   archived, unverified record for good. An agent that is not sure stops at archive
+   ([design](design/agent-archive-delete.md)).
 5. **Report use** — when a recalled memory actually informed the work, run `prax used <id>`.
    That is the signal the librarian uses to tell an answered question from one that only
    returned hits (see [The librarian](#the-librarian)).
