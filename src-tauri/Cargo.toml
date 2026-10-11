@@ -1,6 +1,6 @@
 [package]
 name = "prax"
-version = "0.39.2"
+version = "0.40.0"
 description = "Prax — tasks, notes, and runbooks in a calm desktop app"
 authors = ["Mark Joyeux"]
 license = "MIT"

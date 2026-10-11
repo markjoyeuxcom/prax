@@ -12,11 +12,7 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
-### Security
-
-- **Dependency updates for new advisories.** `proxy-addr` 2.0.8 (critical: IP spoofing via an
-  IPv4-mapped IPv6 trust subnet, GHSA-jqcg-44mw-7w3h, via `fastify`) and
-  `@modelcontextprotocol/sdk` 1.32.1 (high). `npm audit --audit-level=high` is clean again.
+## [0.40.0] - 2026-10-11
 
 ### Added
 
@@ -45,6 +41,12 @@ fresh empty `[Unreleased]` section is started.
 
 ### Changed
 
+- **The README explains the whole install.** Download and checksum verification, the
+  per-platform steps (the unsigned-app approval on macOS, `apt install` for the `.deb`, FUSE for
+  the AppImage), first launch and where the database lives, the one-line CLI and skills install
+  from the bundle on macOS and Linux, update and uninstall. The v0.39.2 packages built on GitLab
+  were verified against their `SHA256SUMS` and published as the GitHub release for the existing
+  tag, so the download link works again (v0.21 to v0.39.1 remain on GitLab only).
 - **Documentation consolidated.** `docs/` now holds one guide per subject plus an index
   (`docs/README.md`): the quality scorecards and the manual activation drills are one document
   (`docs/quality.md`), the roadmap folded into the README, the skills installation guide lives
@@ -71,7 +73,7 @@ fresh empty `[Unreleased]` section is started.
   same pinned, checksummed Node and pinned Rust as before; no container image is published.
   `tests/contract/desktopReleaseWorkflow.test.js` pins the workflows instead of the pipeline.
   The skills installer, plugin manifest, README, `SECURITY.md` (private vulnerability
-  reporting), deploy manifests (`ghcr.io/markjoyeuxcom/prax` for self-built images), the
+  reporting), deploy manifests (the GitHub container registry image name, for self-built images), the
   changelog links and `scripts/prepare-release.mjs` name GitHub again, and the `gh` CLI
   replaces `glab` for fetching the installer. Dependabot is back (weekly npm and actions
   groups). The GitLab project is archived read-only with a pointer to GitHub.
@@ -91,6 +93,12 @@ fresh empty `[Unreleased]` section is started.
   work that the guides now describe, the September 2026 review transcripts and their logs, the
   2026-07 desktop design prompts and prototype, and `docs/ROADMAP.md` were removed from the tree;
   git history keeps them. Comments that cited them now point at the guide or say nothing.
+
+### Security
+
+- **Dependency updates for new advisories.** `proxy-addr` 2.0.8 (critical: IP spoofing via an
+  IPv4-mapped IPv6 trust subnet, GHSA-jqcg-44mw-7w3h, via `fastify`) and
+  `@modelcontextprotocol/sdk` 1.32.1 (high). `npm audit --audit-level=high` is clean again.
 
 ## [0.39.2] - 2026-10-03
 
@@ -2305,7 +2313,8 @@ and onboarding features with the corrected installation guide.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/markjoyeuxcom/prax/compare/v0.39.2...HEAD
+[Unreleased]: https://github.com/markjoyeuxcom/prax/compare/v0.40.0...HEAD
+[0.40.0]: https://github.com/markjoyeuxcom/prax/compare/v0.39.2...v0.40.0
 [0.39.2]: https://github.com/markjoyeuxcom/prax/compare/v0.39.1...v0.39.2
 [0.39.1]: https://github.com/markjoyeuxcom/prax/compare/v0.39.0...v0.39.1
 [0.39.0]: https://github.com/markjoyeuxcom/prax/compare/v0.38.0...v0.39.0

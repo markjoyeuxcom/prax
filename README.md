@@ -9,14 +9,69 @@ provenance.
 
 ## Install
 
-**Desktop (recommended).** Download the installer for your platform from the
-[GitHub Releases page](https://github.com/markjoyeuxcom/prax/releases): `.dmg` for macOS Apple
-Silicon, `.deb` or `.AppImage` for Linux x64. Windows, Intel Mac and Linux ARM64 installers are
-not built. The database is an embedded file created on first launch. Tagged releases include
-SHA-256 checksums, both packages are built and smoke-tested on the project's own runners, and a
-release is created only once every package is present. Update by quitting Prax and installing
-the newer package; the app-data directory stays in place. Building, backup-before-update,
-rollback and the unsigned-installer notes: [docs/desktop/BUILD.md](docs/desktop/BUILD.md).
+Prax ships as a desktop app for **macOS on Apple Silicon** and **Linux x64**. Windows, Intel
+Mac and Linux ARM64 installers are not built. Every release on the
+[GitHub Releases page](https://github.com/markjoyeuxcom/prax/releases) attaches
+`Prax_<version>_aarch64.dmg`, `Prax_<version>_amd64.deb`, `Prax_<version>_amd64.AppImage`,
+`Prax-macos-arm64.app.tar.gz` and `SHA256SUMS`, all built and smoke-tested on the project's own
+runners; a release exists only when every package is present. The installers are **unsigned and
+not notarized**, so each platform asks you to approve the app once.
+
+**1. Download and verify.** Fetch the package for your platform and `SHA256SUMS` from the
+release, then check the download before installing it:
+
+```bash
+cd ~/Downloads
+shasum -a 256 --ignore-missing -c SHA256SUMS     # macOS
+sha256sum --ignore-missing -c SHA256SUMS         # Linux
+```
+
+**2. Install.**
+
+- *macOS.* Open the `.dmg` and drag Prax into Applications. The first launch is refused
+  because the app is not notarized: Control-click `Prax.app`, choose **Open**, then **Open**
+  again in the dialog; or open System Settings ▸ Privacy & Security and choose **Open Anyway**
+  beside the Prax notice. From a terminal, `xattr -d com.apple.quarantine /Applications/Prax.app`
+  does the same. This is needed once per install.
+- *Debian or Ubuntu.* `sudo apt install ./Prax_<version>_amd64.deb`. It pulls in WebKitGTK
+  (`libwebkit2gtk-4.1-0`), GTK 3 and the Ayatana app-indicator library, installs the app under
+  `/usr/lib/Prax`, and adds a **Prax** entry to the application menu.
+- *Any other Linux x64.* `chmod +x Prax_<version>_amd64.AppImage` and run it. An AppImage needs
+  FUSE 2 (`libfuse2` on Debian-family systems); without it, run the file with
+  `--appimage-extract-and-run`.
+
+**3. First launch.** Prax opens its window and puts an icon in the menu bar or system tray.
+There is no account, no sign-in and nothing to configure: the database is one embedded file,
+created on first launch at `~/Library/Application Support/com.moomora.prax/prax.db` on macOS or
+`~/.local/share/com.moomora.prax/prax.db` on Linux, next to the app's log. Settings ▸ Intelligence
+turns on semantic search and AI answers if you want them; both are off by default.
+
+**4. The `prax` CLI and the agent skills (optional).** The bundle ships the installer for the
+command-line client and the `prax-recall` / `prax-remember` skills, so one command gives every
+agent CLI on the machine long-term memory, with no checkout and no separate Node install:
+
+```bash
+# macOS
+sh "/Applications/Prax.app/Contents/Resources/resources/app/skills/install.sh" --instructions --cli --hooks
+# Linux (.deb)
+sh /usr/lib/Prax/resources/app/skills/install.sh --instructions --cli --hooks
+```
+
+`--cli` puts `prax` on your PATH, `--instructions` writes the standing memory rule into each
+agent's global instructions, and `--hooks` opens every agent session with a Prax briefing and
+harvests what agents propose. Details and the other flags: [skills/README.md](skills/README.md).
+
+**Update.** Quit Prax, back up the database (Library ▸ Export ▸ Full workspace backup, or copy
+the data directory), install the newer package over the old one, and launch. The data directory
+is never replaced; if something is wrong, reinstall the previous package and restore the backup
+([docs/backup-restore.md](docs/backup-restore.md)). There is no in-app updater by design.
+
+**Uninstall.** Delete `Prax.app`, or `sudo apt remove prax`, or delete the AppImage; then delete
+the data directory above if you also want the database gone. `sh …/skills/install.sh --uninstall`
+removes the CLI shim, the skills, the instruction blocks and the hooks.
+
+Building from source, the lifecycle guarantees and the release process are in
+[docs/desktop/BUILD.md](docs/desktop/BUILD.md).
 
 **Menu bar and quick capture.** The desktop app lives in the menu bar: closing the main window
 hides it and keeps Prax running; reopen it from the Dock or the menu-bar icon and quit from
@@ -101,7 +156,7 @@ with the image override. The override and the Kubernetes manifests name this che
 version, which the release script bumps:
 
 ```bash
-docker build -f deploy/Dockerfile -t ghcr.io/markjoyeuxcom/prax:v0.39.2 .
+docker build -f deploy/Dockerfile -t ghcr.io/markjoyeuxcom/prax:v0.40.0 .
 docker compose -f compose.yaml -f compose.image.yaml up
 ```
 
