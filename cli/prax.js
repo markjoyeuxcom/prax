@@ -31,6 +31,8 @@ import {
   MIRROR_BOOLEAN_FLAGS, MIRROR_COMMAND, MIRROR_HELP, MIRROR_VALUE_FLAGS, runMirror,
 } from './lib/mirrorCommand.js';
 import { runHarvest } from './lib/harvestCommand.js';
+import { runSessionStart } from './lib/sessionStart.js';
+import { repoUrlCheck } from './lib/librarian.js';
 import {
   markUsed, doctorExitCode, formatDoctor, formatTelemetryStatus, DOCTOR_EXIT,
 } from './lib/librarian.js';
@@ -97,6 +99,10 @@ const COMMANDS = {
     usage: 'prax harvest [--transcript <file>] [--session <id>] [--dry-run] [--budget-ms <n>] [--json]   (or --hook claude|codex|copilot, reading hook JSON on stdin)',
   },
   // Librarian (docs/design/librarian.md).
+  'session-start': {
+    flags: ['hook', 'budget'], max: 0,
+    usage: 'prax session-start --hook claude|codex|copilot [--budget <tokens>]   (the SessionStart hook: reads hook JSON on stdin, prints a briefing as context)',
+  },
   used: { flags: [], max: 1, usage: 'prax used <id> [--json]' },
   doctor: { flags: [], max: 0, usage: 'prax doctor [--project <slug>] [--json]' },
   telemetry: { flags: [], max: 1, usage: 'prax telemetry <status|clear> [--json]' },
@@ -264,6 +270,7 @@ Usage:
 ${MIRROR_HELP}
   prax check [--diff <range> | --files <a,b,…>] [--project <slug>] [--comment] [--strict] [--json]
   prax harvest [--transcript <file>] [--session <id>] [--dry-run] [--budget-ms <n>] [--json]
+  prax session-start --hook claude|codex|copilot [--budget <tokens>]    (the SessionStart hook: hook JSON on stdin, a briefing as context)
   prax harvest --hook claude|codex|copilot      (agent CLI hook: hook JSON on stdin; always exits 0)
   prax used <id>                      (after acting on a recalled memory)
   prax doctor [--project <slug>] [--json]   (exit 0 ok, 2 warnings, 1 could not run)
@@ -293,6 +300,13 @@ async function main(argv) {
 
   if (command === 'harvest') {
     return runHarvest({ flags, agent, out, createClient: (options) => createClient({ ...options, agent: options.agent ?? agent }) });
+  }
+
+  if (command === 'session-start') {
+    process.exitCode = await runSessionStart({
+      flags, agent, out, createClient: (options) => createClient({ ...options, baseUrl: flags.url, agent: options.agent ?? agent }),
+    });
+    return;
   }
 
   if (command === 'init') {
@@ -702,6 +716,10 @@ async function main(argv) {
       process.exitCode = DOCTOR_EXIT.failed;
       return;
     }
+    // A CLI-side check: only this checkout can say whether the project's
+    // registered repo URL still matches the origin here.
+    const drift = await repoUrlCheck({ client, project, repoUrl: detectRepoUrl({}), detected: detectProject({ flag: project, env: process.env.PRAX_PROJECT }) });
+    if (drift) report = { ...report, checks: [...(report.checks || []), drift], status: drift.level === 'warn' ? 'warn' : report.status };
     out(flags.json ? report : formatDoctor(report, { base: client.base }));
     process.exitCode = doctorExitCode(report);
     return;

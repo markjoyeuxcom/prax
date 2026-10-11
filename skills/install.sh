@@ -54,14 +54,17 @@
 # files, in a second marked block of its own (`prax mirror --agents-block`).
 # It runs the payload's CLI, so it needs cli/ beside the pack and a running app;
 # an unreachable app is reported and leaves the files as they were.
-# --hooks adds the session-harvesting hook (`prax harvest --hook <vendor>` on
-# the payload's CLI and runtime) to each agent CLI that has hooks:
-#   Claude Code  Stop in $PRAX_CLAUDE_SETTINGS (default ~/.claude/settings.json)
-#   Codex        Stop in $PRAX_CODEX_HOOKS (default ${CODEX_HOME:-~/.codex}/hooks.json)
-#   Copilot CLI  agentStop in $PRAX_COPILOT_HOOKS_DIR/prax-harvest.json
+# --hooks adds two hooks, both on the payload's CLI and runtime, to each agent
+# CLI that has hooks: session-start recall (`prax session-start --hook <vendor>`,
+# which prints a budgeted briefing and the since-last-session delta as context)
+# and session harvesting (`prax harvest --hook <vendor>`):
+#   Claude Code  SessionStart + Stop in $PRAX_CLAUDE_SETTINGS (default ~/.claude/settings.json)
+#   Codex        SessionStart + Stop in $PRAX_CODEX_HOOKS (default ${CODEX_HOME:-~/.codex}/hooks.json)
+#   Copilot CLI  sessionStart + agentStop in $PRAX_COPILOT_HOOKS_DIR/prax-harvest.json
 #                (default ${COPILOT_HOME:-~/.copilot}/hooks), a file the installer owns
-# Only Prax's own handler is added, replaced or removed; every other setting
-# and hook is kept. See docs/design/session-harvesting.md.
+# Only Prax's own handlers are added, replaced or removed; every other setting
+# and hook is kept. See docs/design/session-start-recall.md and
+# docs/design/session-harvesting.md.
 # --uninstall removes the skills, their links, the instruction blocks (both
 # kinds), the shim and the harvest hooks, and leaves everything else alone.
 set -eu
@@ -190,6 +193,16 @@ CMDS
   fi
 }
 
+# Only the CLI has `used`; the skill scripts do not, so the script form says nothing.
+used_note() {
+  [ "$CLI_FORM" = 1 ] || return 0
+  cat <<'NOTE'
+When a hit informed your work, run `prax used <id>`: it is how Prax learns which memory answers
+questions and which questions have no answer yet.
+
+NOTE
+}
+
 # The CLI shim has an absolute fallback when the shell's PATH differs.
 remember_note() {
   [ "$CLI_FORM" = 1 ] || return 0
@@ -207,6 +220,8 @@ harvest_note() {
 **Propose what you are unsure of.** When a finding might be durable but you are not sure, start
 a line of your reply with `Remember:` and one self-contained sentence; a hook on this machine
 files it as an unverified Inbox candidate for review. Remember what you are sure of directly.
+A session-start hook opens each session with a budgeted briefing and what changed since your
+last session; still recall for the specific task.
 
 NOTE
 }
@@ -234,6 +249,9 @@ Each hit shows its project, trust (`verified by …` or `unverified`), age and a
 unverified hits as leads, not gospel. A miss with an incomplete index needs a keyword or recent
 check. If Prax is unreachable, say so and use repository documentation; never invent memory.
 
+BLOCK
+    used_note
+    cat <<'BLOCK'
 **File by subject.** Project knowledge (architecture, decisions, runbooks, findings) belongs in
 that project's Library; the `memory` project holds preferences, conventions and procedures
 useful across projects. Recall searches every project by default.
@@ -373,8 +391,11 @@ edit_hook_settings() {
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync, renameSync, unlinkSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 const [mode, vendor, file, runtime, cli] = process.argv.slice(2);
-const LABEL = { claude: 'Claude Code Stop', codex: 'Codex Stop', copilot: 'Copilot CLI agentStop' }[vendor];
-const OURS = /prax(?:\.js)?'?\s+harvest\s+--hook(?:\s+|=)'?(?:claude|codex|copilot)\b/;
+const LABEL = {
+  claude: 'Claude Code SessionStart + Stop', codex: 'Codex SessionStart + Stop', copilot: 'Copilot CLI sessionStart + agentStop',
+}[vendor];
+// Both of Prax's handlers: session-start recall and harvest.
+const OURS = /prax(?:\.js)?'?\s+(?:harvest|session-start)\s+--hook(?:\s+|=)'?(?:claude|codex|copilot)\b/;
 const isOurs = (handler) => Boolean(handler) && typeof handler === 'object'
   && [handler.command, handler.bash].some((c) => typeof c === 'string' && OURS.test(c));
 const plain = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -385,6 +406,7 @@ const refuse = (why) => { console.error(`install.sh: ${why} in ${file}; file lef
 // POSIX single quotes: literal under sh -c, and under shell-style splitting.
 const quote = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 const command = mode === 'install' ? `${quote(runtime)} ${quote(cli)} harvest --hook ${vendor}` : null;
+const startCommand = mode === 'install' ? `${quote(runtime)} ${quote(cli)} session-start --hook ${vendor}` : null;
 // Nothing of Prax's in the file: there is nothing to remove, whatever its shape.
 if (mode === 'remove' && !OURS.test(before)) process.exit(0);
 
@@ -395,7 +417,12 @@ if (vendor === 'copilot') {
     if (before) { unlinkSync(path); console.log(`harvest hook removed: ${file}`); }
     process.exit(0);
   }
-  after = `${JSON.stringify({ version: 1, hooks: { agentStop: [{ type: 'command', bash: command, timeoutSec: 30 }] } }, null, 2)}\n`;
+  // sessionStart: only its JSON `additionalContext` is consumed; 20 s because a
+  // session-start hook delays the first response.
+  after = `${JSON.stringify({ version: 1, hooks: {
+    sessionStart: [{ type: 'command', bash: startCommand, timeoutSec: 20 }],
+    agentStop: [{ type: 'command', bash: command, timeoutSec: 30 }],
+  } }, null, 2)}\n`;
 } else {
   let settings = {};
   if (before.trim()) {
@@ -428,12 +455,15 @@ if (vendor === 'copilot') {
     // returns in tens of milliseconds, and an async handler was killed before
     // it could hand off when `claude -p` exited (verified 2026-09-23).
     hooks.Stop = [...(hooks.Stop || []), { hooks: [{ type: 'command', command, timeout: 30 }] }];
+    // No matcher: startup, resume, clear and compact all lose the briefing
+    // otherwise. The command fails open and holds its own 8 s deadline.
+    hooks.SessionStart = [...(hooks.SessionStart || []), { hooks: [{ type: 'command', command: startCommand, timeout: 20 }] }];
   }
   if (Object.keys(hooks).length) settings.hooks = hooks;
   else delete settings.hooks;
   after = `${JSON.stringify(settings, null, 2)}\n`;
 }
-if (after === before) { console.log(`harvest hook already current in ${file} (${LABEL})`); process.exit(0); }
+if (after === before) { console.log(`Prax hooks already current in ${file} (${LABEL})`); process.exit(0); }
 const temporary = `${path}.prax-tmp.${randomUUID()}`;
 try {
   writeFileSync(temporary, after, { flag: 'wx', mode: existsSync(path) ? statSync(path).mode & 0o777 : 0o600 });
@@ -442,7 +472,7 @@ try {
 } finally {
   if (existsSync(temporary)) unlinkSync(temporary);
 }
-console.log(`harvest hook ${mode === 'remove' ? 'removed from' : before ? 'updated in' : 'added in'} ${file} (${LABEL})`);
+console.log(`Prax hooks ${mode === 'remove' ? 'removed from' : before ? 'updated in' : 'added in'} ${file} (${LABEL})`);
 NODE
 }
 
@@ -453,7 +483,8 @@ install_hooks() {
     mkdir -p "$(dirname "$file")"
     edit_hook_settings install "$vendor" "$file" "$RUNTIME" "$APP_DIR/cli/prax.js" || HOOK_FAILED=1
   done
-  echo "Codex runs a new hook only after you trust it: open Codex, run /hooks and trust the Prax harvest hook."
+  echo "Codex runs a new hook only after you trust it: open Codex, run /hooks and trust both Prax hooks."
+  echo "Session start: each agent session opens with a budgeted Prax briefing and what changed since its last session."
   echo "Harvest: agents propose memories with 'Remember:' lines or prax-remember blocks; candidates land unverified in the Inbox."
 }
 
@@ -464,8 +495,8 @@ remove_hooks() {
     file="${pair#*:}"
     [ -e "$file" ] || continue
     if ! command -v node >/dev/null 2>&1; then
-      if grep -q 'harvest --hook' "$file"; then
-        echo "install.sh: node is needed to remove the Prax harvest hook from $file safely; left unchanged" >&2
+      if grep -qE '(harvest|session-start) --hook' "$file"; then
+        echo "install.sh: node is needed to remove the Prax hooks from $file safely; left unchanged" >&2
         REMOVE_FAILED=1
       fi
       continue

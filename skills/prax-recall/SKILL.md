@@ -57,6 +57,9 @@ In order: `PRAX_API_URL` if set → the desktop app's saved loopback port
   and trust line, its body trimmed to about 800 characters, then a short `Related:` list
   (`title — id (in <project> · trust) — snippet`). Fetch a full document only when you need
   it: `GET $PRAX_API_URL/api/library/documents/<id>`.
+- When a hit informed your work and the `prax` CLI is on this machine, run `prax used <id>`:
+  it records a used signal, which is how Prax tells an answered question from a knowledge gap.
+  The block ends with that command for the top hit.
 - The project matters when you re-remember: recall is cross-project, and a hit that says
   `in homelab` is a homelab document. `prax-remember` without `--project` refines it there
   rather than duplicating it into `memory`; `--id <its id>` targets it outright.

@@ -556,7 +556,9 @@ export function planRecallBudget(result, budget, now = new Date()) {
     compact: compactLine(item),
     unverified: !item.verified,
   }));
-  const { text, used, plan } = renderBudgeted({ fixedLines: disclosureLines(result), entries, budget });
+  const { text, used, plan } = renderBudgeted({
+    fixedLines: disclosureLines(result), entries, budget, footerLines: ['', usedHint(result.top?.id)],
+  });
   return { text, summary: budgetSummary(items, budget, used, plan) };
 }
 
@@ -607,5 +609,12 @@ export function formatRecall(result, now = new Date()) {
       lines.push(`- ${r.title || 'Untitled'} — ${r.id}${label ? ` (${label})` : ''}${snippet ? ` — ${snippet}` : ''}`);
     }
   }
+  lines.push('', usedHint(top.id));
   return lines.join('\n');
+}
+
+// The one line that closes the loop: a used signal is how the librarian
+// tells an answered question from a knowledge gap.
+export function usedHint(id) {
+  return `Acted on one of these? \`prax used ${id}\` (or the id you used) records it.`;
 }

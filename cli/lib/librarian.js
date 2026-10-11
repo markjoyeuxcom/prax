@@ -1,3 +1,5 @@
+import { matchProjectByRepoUrl, normalizeRepoUrl } from '../../server/repoUrl.js';
+
 // cli/lib/librarian.js — `prax used`, `prax doctor` and `prax telemetry`
 // (spec: docs/design/librarian.md). Pure of I/O:
 // takes an injected client, returns structured results and text.
@@ -16,6 +18,36 @@ export function isDocumentId(value) {
 export async function markUsed(client, id) {
   if (!isDocumentId(id)) throw new Error('used requires a document uuid (the id recall prints).');
   return client.markUsed(id);
+}
+
+// The repo-URL drift check (docs/design/session-start-recall.md, C): a project
+// whose registered repo URL no longer matches this checkout's origin silently
+// loses remote-based detection and makes every --cite claim "cited in another
+// repository". Computed here because only the CLI sees the checkout. Returns a
+// doctor check, or null outside a repository / when nothing is registered.
+//   { client, project?, repoUrl, detected: detectProject(...) result }
+export async function repoUrlCheck({ client, project, repoUrl, detected }) {
+  if (!repoUrl) return null;
+  let projects;
+  try { projects = await client.listProjects(); } catch { return null; }
+  const match = matchProjectByRepoUrl(projects, repoUrl);
+  const slug = project || detected?.project || null;
+  const record = slug ? projects.find((p) => p.slug === slug) : null;
+  if (record?.repoUrl && normalizeRepoUrl(record.repoUrl) !== normalizeRepoUrl(repoUrl)) {
+    return {
+      id: 'repo-url', level: 'warn', count: 1,
+      message: `project "${record.slug}" is registered to ${record.repoUrl} but this checkout's origin is ${repoUrl}; `
+        + 'remote-based detection and --cite checks miss here. If the repository moved, run `prax init` in it to re-register.',
+    };
+  }
+  if (!match && record && !record.repoUrl) {
+    return {
+      id: 'repo-url', level: 'info', count: 1,
+      message: `project "${record.slug}" has no registered repo URL; this checkout's origin ${repoUrl} matches no project. `
+        + '`prax init` registers it so other checkouts and worktrees detect the project.',
+    };
+  }
+  return null;
 }
 
 export function doctorExitCode(report) {

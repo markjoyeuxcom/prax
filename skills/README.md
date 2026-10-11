@@ -40,7 +40,7 @@ there — no clone, and the skills always match the installed app. The extra fla
 |---|---|
 | `--instructions` | writes the standing recall/remember rule into each tool's global instructions file (below) |
 | `--cli` | writes a `prax` shim into `~/.local/bin` (`PRAX_BIN_DIR`) that runs the bundle's `cli/prax.js` on the app's **own** Node runtime — no Node install needed for it; from a checkout it runs `cli/prax.js` on `node`. Installed from the app bundle, the shim tracks the **installed** desktop version, so it lags a development checkout until the next release (use `node cli/prax.js` there). Combined with `--instructions`, the standing rule is written in `prax …` form |
-| `--hooks` | adds the session-harvesting hook (`prax harvest --hook <vendor>` on the bundle's CLI and runtime) to Claude Code, Codex and Copilot CLI, so the proposals an agent writes as `Remember:` lines or `prax-remember` blocks are filed once as unverified Inbox candidates (see [below](#session-harvesting-hooks---hooks)) |
+| `--hooks` | adds two hooks to Claude Code, Codex and Copilot CLI, both on the bundle's CLI and runtime: session-start recall (`prax session-start --hook <vendor>`, a budgeted briefing plus what changed since the agent's last session, as context before the first prompt) and session harvesting (`prax harvest --hook <vendor>`, which files the proposals an agent writes as `Remember:` lines or `prax-remember` blocks once as unverified Inbox candidates); see [below](#session-hooks---hooks) |
 | `--mcp` | prints the `mcp add prax …` command for Claude Code, Codex, Copilot CLI and Antigravity, pointing at the bundle's `mcp/server.js` on that same runtime (registration stays opt-in). No `PRAX_API_URL` is needed: the MCP server finds the running app the way the CLI does |
 | `--library-block` | compiles the **verified** decisions (and verified documents tagged `convention`) of the `memory` project into each tool's global instructions file, in a second marked block (`<!-- prax-library:start -->` … `end`) beside the standing rule. It runs the pack's `prax mirror --agents-block`, so it needs the app payload beside the pack and a running app; when the app is unreachable it says so and leaves the files unchanged. Unverified memory is never compiled. Re-run to refresh; see [the CLI guide](../docs/cli.md#mirror---out-dir---check---force-mirror-import-dir-mirror---agents-block) |
 
@@ -152,22 +152,27 @@ still created (in `PRAX_CLAUDE_SKILLS_DIR` and `PRAX_GEMINI_SKILLS_DIR`); an arb
 discovers skills on its own, so keep the default unless you also point Codex at it. Nothing
 else is downloaded.
 
-### Session-harvesting hooks: `--hooks`
+### Session hooks: `--hooks`
 
 `--hooks` needs the app payload (run the installer from the bundle or a checkout, as for
-`--cli`). It installs one hook per agent CLI that has hooks. The hook command runs the payload's
-`cli/prax.js` on the same runtime as the shim, so it works whatever the agent's `PATH` is:
+`--cli`). It installs two hooks per agent CLI that has hooks: **session-start recall**
+(`prax session-start --hook <vendor>`), which opens every session with a budgeted context pack
+for the project the session's directory belongs to plus what changed in memory since that
+agent's last session, and **session harvesting** (`prax harvest --hook <vendor>`). Both commands
+run the payload's `cli/prax.js` on the same runtime as the shim, so they work whatever the
+agent's `PATH` is, and both fail open: Prax down, no project, a slow request, and the hook prints
+nothing and exits 0.
 
-| Tool | File | Hook |
+| Tool | File | Hooks |
 |---|---|---|
-| Claude Code | `~/.claude/settings.json` | `Stop` |
-| Codex | `~/.codex/hooks.json` | `Stop`. Codex runs a new hook only after you trust it: open Codex, run `/hooks`, trust it |
-| Copilot CLI | `~/.copilot/hooks/prax-harvest.json` | `agentStop`, in a file the installer owns |
-| Antigravity | — | no hooks; run `prax harvest --transcript <file>` on an exported conversation |
+| Claude Code | `~/.claude/settings.json` | `SessionStart` (no matcher: startup, resume, clear and compact) and `Stop` |
+| Codex | `~/.codex/hooks.json` | `SessionStart` and `Stop`. Codex runs a new hook only after you trust it: open Codex, run `/hooks`, trust both |
+| Copilot CLI | `~/.copilot/hooks/prax-harvest.json` | `sessionStart` and `agentStop`, in a file the installer owns |
+| Antigravity | — | no hooks; the standing block is the only prompt to recall, and `prax harvest --transcript <file>` reads an exported conversation |
 
-The settings edit follows the same rules as the instruction blocks. Only Prax's own handler (a
-command running `prax.js harvest --hook <vendor>`) is added, replaced or removed. Every other key
-and hook stays in place and in order. A symlinked file is edited at its target and keeps its
+The settings edit follows the same rules as the instruction blocks. Only Prax's own handlers
+(commands running `prax.js session-start --hook <vendor>` and `prax.js harvest --hook <vendor>`)
+are added, replaced or removed. Every other key and hook stays in place and in order. A symlinked file is edited at its target and keeps its
 mode, and the write is atomic. Invalid JSON, or a `hooks` value of the wrong shape, leaves the
 file unchanged and fails the run. A re-run is idempotent. `--uninstall` removes Prax's handlers,
 prunes only the containers that held nothing else, and never deletes a settings file.

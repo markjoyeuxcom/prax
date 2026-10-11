@@ -59,8 +59,8 @@ test('--hooks adds one Prax handler per agent CLI, keeps every other setting, is
 
   const install = run('--hooks', '--instructions');
   assert.equal(install.status, 0, install.stderr);
-  assert.match(install.stdout, /harvest hook updated in .*settings\.json \(Claude Code Stop\)/);
-  assert.match(install.stdout, /run \/hooks and trust the Prax harvest hook/);
+  assert.match(install.stdout, /Prax hooks updated in .*settings\.json \(Claude Code SessionStart \+ Stop\)/);
+  assert.match(install.stdout, /run \/hooks and trust both Prax hooks/);
 
   const claude = JSON.parse(readFileSync(target, 'utf8'));
   assert.ok(lstatSync(join(home, '.claude', 'settings.json')).isSymbolicLink(), 'the link stays a link');
@@ -75,14 +75,25 @@ test('--hooks adds one Prax handler per agent CLI, keeps every other setting, is
   assert.equal(handler.async, undefined, 'synchronous: it hands off to a detached worker and returns at once');
   assert.equal(handler.timeout, 30);
   assert.equal(handler.command, `'${process.execPath}' '${join(root, 'cli', 'prax.js')}' harvest --hook claude`);
+  // The session-start hook: no matcher (startup, resume, clear and compact all
+  // lose the briefing otherwise), its own shorter timeout.
+  assert.equal(claude.hooks.SessionStart.length, 1);
+  assert.equal(claude.hooks.SessionStart[0].matcher, undefined);
+  const start = claude.hooks.SessionStart[0].hooks[0];
+  assert.equal(start.timeout, 20);
+  assert.equal(start.command, `'${process.execPath}' '${join(root, 'cli', 'prax.js')}' session-start --hook claude`);
 
   const codex = JSON.parse(readFileSync(join(home, '.codex', 'hooks.json'), 'utf8'));
-  assert.deepEqual(codex.hooks.SessionStart, codexOwn.hooks.SessionStart);
+  assert.equal(codex.hooks.SessionStart.length, 2, 'the person\'s own SessionStart hook stays first');
+  assert.deepEqual(codex.hooks.SessionStart[0], codexOwn.hooks.SessionStart[0]);
+  assert.match(codex.hooks.SessionStart[1].hooks[0].command, / session-start --hook codex$/);
   assert.match(codex.hooks.Stop[0].hooks[0].command, / harvest --hook codex$/);
 
   const copilotFile = join(home, '.copilot', 'hooks', 'prax-harvest.json');
   const copilot = JSON.parse(readFileSync(copilotFile, 'utf8'));
   assert.equal(copilot.version, 1);
+  assert.match(copilot.hooks.sessionStart[0].bash, / session-start --hook copilot$/);
+  assert.equal(copilot.hooks.sessionStart[0].timeoutSec, 20);
   assert.match(copilot.hooks.agentStop[0].bash, / harvest --hook copilot$/);
   assert.equal(statSync(copilotFile).mode & 0o777, 0o600, 'a new hook file is private');
 
@@ -90,8 +101,9 @@ test('--hooks adds one Prax handler per agent CLI, keeps every other setting, is
   const block = readFileSync(join(home, '.claude', 'CLAUDE.md'), 'utf8');
   assert.match(block, /\*\*Propose what you are unsure of\.\*\*/);
   assert.match(block, /start\na line of your reply with `Remember:`/);
+  assert.match(block, /A session-start hook opens each session with a budgeted briefing/);
 
-  // The installed command runs and fails open: nothing listens, it still exits 0 silently.
+  // Both installed commands run and fail open: nothing listens, they still exit 0 silently.
   const hook = spawnSync('sh', ['-c', handler.command], {
     input: JSON.stringify({ session_id: 's', hook_event_name: 'Stop', last_assistant_message: 'Remember: nothing is listening on this port.' }),
     env: { PATH: process.env.PATH, HOME: home, PRAX_API_URL: 'http://127.0.0.1:9' },
@@ -99,12 +111,19 @@ test('--hooks adds one Prax handler per agent CLI, keeps every other setting, is
   });
   assert.equal(hook.status, 0, hook.stderr);
   assert.equal(hook.stdout, '');
+  const startHook = spawnSync('sh', ['-c', start.command], {
+    input: JSON.stringify({ session_id: 's', hook_event_name: 'SessionStart', source: 'startup', cwd: home }),
+    env: { PATH: process.env.PATH, HOME: home, PRAX_API_URL: 'http://127.0.0.1:9', PRAX_SESSION_START_MS: '3000' },
+    encoding: 'utf8',
+  });
+  assert.equal(startHook.status, 0, startHook.stderr);
+  assert.equal(startHook.stdout, '');
 
   // Re-running changes nothing.
   const snapshot = [target, join(home, '.codex', 'hooks.json'), copilotFile].map((f) => readFileSync(f, 'utf8'));
   const again = run('--hooks');
   assert.equal(again.status, 0, again.stderr);
-  assert.match(again.stdout, /harvest hook already current in .*settings\.json/);
+  assert.match(again.stdout, /Prax hooks already current in .*settings\.json/);
   assert.deepEqual([target, join(home, '.codex', 'hooks.json'), copilotFile].map((f) => readFileSync(f, 'utf8')), snapshot);
 
   // --uninstall removes only Prax's handlers and file.

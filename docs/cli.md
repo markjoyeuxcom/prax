@@ -756,6 +756,24 @@ temporary file. It then returns at once, printing nothing and always exiting 0, 
 is down or the input is malformed, so a hook never blocks or fails the agent. `--foreground`
 runs the worker inline, for debugging. Set `PRAX_HARVEST_LOG` to get one line per run.
 
+### `session-start --hook claude|codex|copilot [--budget <tokens>]`
+
+The SessionStart hook that `skills/install.sh --hooks` installs
+([design](design/session-start-recall.md)). It reads the vendor's hook JSON on stdin (bounded
+in size and time), finds the project from the hook's `cwd` (marker file, then the registered
+repo URL, then the folder name), and prints one block of additional context in the envelope the
+vendor consumes: `prax context --budget <tokens>` for that project (default 1200), the agent's
+`recall --since-last-session` (400 tokens; the marker advances only when the whole delta was
+printed), and the two commands that close the loop (`prax used <id>`, `prax remember`). Claude
+Code and Codex read `hookSpecificOutput.additionalContext`; Copilot CLI reads a top-level
+`additionalContext`. The agent id is the vendor name unless `--agent` or `PRAX_AGENT` says
+otherwise.
+
+It fails open, always: Prax not running, no project, an older Prax without the delta, or the
+deadline (`PRAX_SESSION_START_MS`, default 8000 ms) and it prints nothing and exits 0, so a
+session never waits on memory. Each request has a 5 s timeout. It writes nothing but the delta
+marker.
+
 ### `used <id> [--json]`
 
 Report that you acted on a recalled memory, after recall or search returned it and you relied on
@@ -781,11 +799,18 @@ proposals is the **Run librarian** action in Library health.
 | Exit | Meaning |
 |------|---------|
 | `0` | Every check is `ok` or `info` |
-| `2` | A `warn` check: incomplete embedding index, stale derivations, empty documents, or duplicate clusters with no proposal |
+| `2` | A `warn` check: incomplete embedding index, stale derivations, empty documents, duplicate clusters with no proposal, or a registered repo URL that no longer matches this checkout's origin |
 | `1` | The report could not be fetched (Prax not reachable, HTTP error) |
 
 The whole workspace is checked unless `--project` names one. `--json` prints the report with
 its `checks` array (`{ id, level, count, message }`) and still sets the exit code.
+
+One check is computed in the CLI, because only the CLI sees the checkout: `repo-url` warns
+when the project detected for the current directory (or named by `--project`) is registered to
+a repo URL that does not match this checkout's `origin`, which silently breaks remote-based
+project detection and makes every `--cite` claim report "cited in another repository". The
+message names both URLs and the fix (`prax init` after the move). It is `info` when the project
+has no registered URL and the origin matches no project, and absent outside a repository.
 
 ### `telemetry <status|clear> [--json]`
 

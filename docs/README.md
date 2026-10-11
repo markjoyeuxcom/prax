@@ -34,6 +34,7 @@ code before relying on a detail.
 | [Budgeted context and brief](design/budgeted-context-and-brief.md) | Token budgets for `context`, `recall` and `brief`, and the since-last-session memory delta |
 | [Librarian](design/librarian.md) | Recall telemetry, near-duplicate and stale detection, and the librarian review surface |
 | [Session harvesting](design/session-harvesting.md) | Turning an agent's `Remember:` proposals into unverified Inbox candidates through vendor hooks |
+| [Session-start recall](design/session-start-recall.md) | The SessionStart hook that opens every agent session with a budgeted briefing and the delta, the taught `prax used` signal, and the repo-URL drift check in doctor |
 | [Triage TUI](design/triage-tui.md) | The attended-terminal review queue and the human-only guard on verification |
 | [Library git mirror](design/library-git-mirror.md) | `prax mirror`: the Library as reviewable Markdown in the repository and the compiled instruction block |
 | [`prax check`](design/prax-check.md) | Checking a diff or file set against the project's memory |

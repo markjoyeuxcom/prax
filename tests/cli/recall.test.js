@@ -68,7 +68,8 @@ test('formatRecall trims the hit body to 800 chars with an ellipsis', () => {
   const big = 'x'.repeat(900);
   const out = formatRecall({ kind: 'hit', note: null, top: { id: 't', title: 'T', documentType: 'note', body: big }, related: [] });
   assert.ok(out.includes('…'));
-  assert.ok(out.length < 900);
+  assert.ok(!out.includes('x'.repeat(850)), 'the body is cut, not printed whole');
+  assert.match(out, /`prax used t`/, 'the block ends by naming the used signal for the top hit');
 });
 
 test('formatRecall renders the Related list for hits', () => {
