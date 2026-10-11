@@ -1,5 +1,0 @@
-{"name":"project_debounce_discards_prior_field","onCall":null,"handoffNotes":"Second field"}
-{"name":"body_only_edit_overwrites_remote_title","expectedTitle":"New remote title","savedTitle":"Original title","body":"Local body edit"}
-{"name":"ephemeral_desktop_origin_loses_local_state","firstOrigin":"http://127.0.0.1:50063","nextOrigin":"http://127.0.0.1:50064","first":{"theme":"dark","draft":true},"second":{"theme":"light","draft":null}}
-{"name":"capture_success_discards_newer_input","typed":"Second unsaved capture","current":"","draft":null}
-{"name":"capture_reload_forgets_retry_identity","taskCount":2}

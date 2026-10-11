@@ -1,5 +1,0 @@
-{"name":"idempotent_import_never_notifies_calendar","imported":1,"notifications":0}
-{"name":"callback_renders_unescaped_query_html","status":200,"rawMarkupAccepted":true,"csp":"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"}
-{"name":"deduplicated_export_link_points_to_wrong_document","targetId":"7a1dd7a3-680d-474a-801c-dd8377dfdcc7","exportedLink":"same.md","actualTargetFile":"same-2.md","wrongFileBody":"First body"}
-{"name":"google_all_day_event_has_empty_interval","start":{"date":"2026-09-04"},"end":{"date":"2026-09-04"}}
-{"name":"weekly_shipped_uses_edit_time","stats":{"shipped":1,"stalled":0,"slipped":0,"inboxAging":0,"silentProjects":0,"nextWeek":0},"shippedTitle":"Completed last year; notes edited this week"}

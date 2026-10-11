@@ -38,7 +38,7 @@ test('verification requires the exact document-specific phrase', async () => {
   }), /verification cancelled/);
 });
 
-// The attended-human guard (docs/superpowers/specs/2026-09-23-triage-tui-design.md):
+// The attended-human guard (docs/design/triage-tui.md):
 // shared by `prax verify` and `prax triage`, run before any request.
 const tty = () => { const s = new PassThrough(); s.isTTY = true; s.setRawMode = () => s; return s; };
 

@@ -1,40 +1,15 @@
 # Working on Prax
 
 The **Prax** project in the app owns work and knowledge about developing and maintaining
-Prax. The **memory** project owns reusable guidance across projects. Both are available to
+Prax; the **memory** project owns reusable guidance across projects. Both are available to
 every agent through recall; filing follows the subject, while provenance records the author.
-
-**Inbox** is the default system home for captures whose owner is not yet clear
-and for workspace weekly reviews. Inbox and Memory are protected from project
-rename, archive and deletion. File known work directly in its owning project;
-move unassigned Inbox tasks and notes there during triage. Saved weekly reviews
-can remain in Inbox. Clearing capture does not require deleting the project.
-
-Use **Inbox → To process** for oldest-first tasks and loose notes, or **Process Inbox**
-from any Inbox tab for a guided pass. Choose the owning project, optionally plan a task's
-work date, then file it. Complete finished tasks; keep useful capture text as a reference;
-archive unwanted captures; skip decisions that need more context. Task-to-reference keeps
-notes and checklists, links the new unverified document and archives the original task.
-**Undo last decision** restores only an unchanged result; generated copies stay in Archive.
-
-**Reviews** holds saved documents tagged `weekly-review` and does not inflate the pending
-count. New weekly reviews include a **Process Inbox** link. Age indicators use capture time;
-filing and planning do not reset that age. Known work should still go directly to its owner.
-
-**Suggest filing with AI** uses the configured answer model and reports the projects,
-possible matches and source text coverage it considered. Inspect its destination/type and
-possible duplicates; **Use suggestion in form** only prepares your choice. Apply an explicit
-filing action to make changes. Duplicate review never merges or deletes automatically.
-Manual processing works without AI. Close retains an unfinished decision in the same browser
-tab; after an interrupted request, retry that decision to check its receipt before proceeding.
-
-The editor's Back button and breadcrumb return to the originating Inbox tab or Library view.
-Library return keeps filters, query, layout, loaded results and scroll; content/trust changes
-refresh a semantic search. A failed save blocks navigation and retains the draft and origin.
+**Inbox** is the system home for captures whose owner is not yet clear. File known work
+directly in its owning project and move unassigned Inbox items there during triage
+(Inbox → To process, or Process Inbox for a guided pass).
 
 ## Begin and hand over work
 
-Print the project’s overview, then retrieve the material for the actual task:
+Print the project's overview, then retrieve the material for the actual task:
 
 ```sh
 node cli/prax.js overview
@@ -45,6 +20,15 @@ node cli/prax.js brief <task-id>      # one task: checklist, handoff, linked doc
 
 `overview` prefers a verified document tagged `project-card`, then any `project-card`, then one
 titled "Prax project overview", and always says which it found and whether it is verified.
+Context packs contain bounded excerpts and label unverified entries; read full documents before
+relying on their details. A fresh installation can create an overview from Library → New doc →
+Templates & guides; an agent-written overview remains unverified until a person reviews it.
+
+Use one task per concrete outcome. Include acceptance checks and link supporting Library
+documents. Task notes carry implementation state, branch/commit, validation performed and
+the next action. Check current code and the working tree before resuming. Update the task
+before handing over; finish it only when acceptance checks pass. Keep temporary handoffs
+with the task and retire them after completion.
 
 ### Which `prax` to run
 
@@ -59,18 +43,6 @@ titled "Prax project overview", and always says which it found and whether it is
   `/Applications/Prax.app/Contents/MacOS/prax-server cli/prax.js <args>`. Paths differ per
   machine, so there is deliberately no committed wrapper. This repository's `mise.toml` pins
   only Rust; Node comes from the global mise configuration.
-
-Document IDs belong to each library. Fresh installations can use this guide and create
-an overview from Library → New doc → Templates & guides; existing libraries should refine
-their established overview. Context packs contain bounded excerpts and label unverified entries;
-read full documents before relying on their details. A `project-card` tag gives a verified
-overview its own section; an agent-written overview remains unverified until human review.
-
-Use one task per concrete outcome. Include acceptance checks and link supporting Library
-documents. Task notes carry implementation state, branch/commit, validation performed and
-the next action. Check current code and the working tree before resuming. Update the task
-before handing over; finish it only when acceptance checks pass. Keep temporary handoffs
-with the task and retire them after completion.
 
 ## File useful knowledge
 
@@ -112,11 +84,11 @@ Tauri desktop host. The desktop runs the same application payload on its bundled
 | Desktop lifecycle and packaging | `src-tauri/src/`, `scripts/prepare-sidecar.mjs`, `.github/workflows/` |
 | Regression evidence | `tests/backend/`, `tests/frontend/`, `tests/cli/`, `tests/contract/`, `tests/e2e/` |
 
-Use [README](../README.md) for setup, [API/data contracts](contract.md) for boundaries,
-[desktop build and recovery](desktop/BUILD.md) for packaging, and
-[agent memory](agent-memory.md) for retrieval and persistence semantics. Design rationale
-and implementation plans live under `docs/superpowers/`; dated plans describe their own
-milestone and must be checked against current code. The [roadmap](ROADMAP.md) records direction.
+[The docs index](README.md) lists every guide. Use the [README](../README.md) for setup,
+[data formats](contract.md) for boundaries, [the desktop guide](desktop/BUILD.md) for packaging,
+and [agent memory](agent-memory.md) for retrieval and persistence semantics. The design notes
+under [`design/`](README.md#design-notes) explain the rationale of the current subsystems; each
+names its date and must be checked against current code. Direction is summarised in the README.
 
 ## HTML escaping
 
@@ -162,6 +134,6 @@ value, escape it; use `html-safe` only when the value is HTML that another build
 Run `npm test` and `npm run check`. After `skills/src/` or `cli/lib/` changes, run
 `npm run skills:build` and include the rebuilt bundles. Exercise affected browser journeys
 with `npm run test:e2e`; use the desktop and release checks when those surfaces change.
-Follow the [product quality standard](superpowers/specs/2026-07-13-exceptional-prax-quality-standard.md):
-Gate A applies to every change; Gate B applies to activated surfaces. Record actual test
-results in the task, including any untested acceptance criteria.
+Follow the [product quality standard](design/quality-standard.md): Gate A applies to every
+change; Gate B applies to activated surfaces ([quality.md](quality.md) records the evidence
+state). Record actual test results in the task, including any untested acceptance criteria.

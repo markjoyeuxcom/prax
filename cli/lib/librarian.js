@@ -1,5 +1,5 @@
 // cli/lib/librarian.js — `prax used`, `prax doctor` and `prax telemetry`
-// (spec: docs/superpowers/specs/2026-09-23-librarian-design.md). Pure of I/O:
+// (spec: docs/design/librarian.md). Pure of I/O:
 // takes an injected client, returns structured results and text.
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

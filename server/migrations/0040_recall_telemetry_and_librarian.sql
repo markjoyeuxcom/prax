@@ -1,4 +1,4 @@
--- Librarian (docs/superpowers/specs/2026-09-23-librarian-design.md).
+-- Librarian (docs/design/librarian.md).
 --
 -- Recall telemetry: a local-only record of the retrieval queries agent
 -- clients make (they opt in with x-prax-query-source), the documents each

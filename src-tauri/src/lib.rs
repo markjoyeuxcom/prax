@@ -1,4 +1,4 @@
-// Prax desktop shell (docs/desktop/checklist.md Phase 3).
+// Prax desktop shell (see docs/desktop/BUILD.md).
 //
 // Lifecycle: let the bundled Node/Fastify sidecar bind an OS-assigned
 // localhost port → consume its structured readiness line → probe /readyz →

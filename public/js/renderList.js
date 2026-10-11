@@ -7,8 +7,8 @@ import { icon, logo } from './icons.js';
 import { isCollapsed } from './collapsed.js';
 import { isoDate, nextWeekday } from './dateHelpers.js';
 
-// Project ▸ List tab — grouped task rows (docs/desktop/design-handoff.md §1).
-// Pure render module (phase1-actions.md): state → HTML string, events are
+// Project ▸ List tab — grouped task rows.
+// Pure render module: state → HTML string, events are
 // delegated in main.js via data-action attributes. Tasks keep API field names
 // (status 'high-priority', priority 'medium', dueDate, archivedAt); statusMap/
 // dueFlags translate for display.

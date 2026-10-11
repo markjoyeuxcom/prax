@@ -48,7 +48,7 @@ including execution of the selected local CLI, and database backups are secrets.
 ## Product quality
 
 The active quality policy is
-[Exceptional Prax — Product Quality Standard](docs/superpowers/specs/2026-07-13-exceptional-prax-quality-standard.md).
+[Exceptional Prax — Product Quality Standard](docs/design/quality-standard.md).
 Its Gate A invariants apply to every change. Do not leave an invariant violation in a proposed
 release, and add regression evidence for confirmed defect classes where practical.
 
@@ -56,4 +56,5 @@ release, and add regression evidence for confirmed defect classes where practica
 
 - Run `npm test` and `npm run check` before proposing a change. After editing `skills/src/` or
   `cli/lib/`, run `npm run skills:build` and commit the rebuilt bundles.
-- Specs and plans live under `docs/superpowers/` (spec → plan → review).
+- Design notes for current subsystems live under `docs/design/`; file a new one there when a design
+  is adopted. Implementation plans and review evidence live with the Prax task, not in the tree.

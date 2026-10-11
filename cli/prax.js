@@ -96,7 +96,7 @@ const COMMANDS = {
     max: 0,
     usage: 'prax harvest [--transcript <file>] [--session <id>] [--dry-run] [--budget-ms <n>] [--json]   (or --hook claude|codex|copilot, reading hook JSON on stdin)',
   },
-  // Librarian (docs/superpowers/specs/2026-09-23-librarian-design.md).
+  // Librarian (docs/design/librarian.md).
   used: { flags: [], max: 1, usage: 'prax used <id> [--json]' },
   doctor: { flags: [], max: 0, usage: 'prax doctor [--project <slug>] [--json]' },
   telemetry: { flags: [], max: 1, usage: 'prax telemetry <status|clear> [--json]' },

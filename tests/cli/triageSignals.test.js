@@ -1,4 +1,4 @@
-// `prax triage` interrupts (docs/superpowers/specs/2026-09-23-triage-tui-design.md,
+// `prax triage` interrupts (docs/design/triage-tui.md,
 // "Errors and interrupts"): the editor draft is cleaned up on abandonment,
 // kept (and named) when a hangup or termination may have cut off typing, the
 // signal handlers are gone once the editor returns, and the terminal leaves

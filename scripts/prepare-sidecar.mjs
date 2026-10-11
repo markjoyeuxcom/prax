@@ -1,4 +1,4 @@
-// Stage the Prax desktop sidecar (docs/desktop/checklist.md Phase 3):
+// Stage the Prax desktop sidecar (docs/desktop/BUILD.md):
 //   src-tauri/resources/app/   — the Fastify server, static frontend, MCP
 //                                server, CLI, the agent-skills pack (so a
 //                                dmg-only machine can run skills/install.sh

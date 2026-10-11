@@ -1,4 +1,4 @@
-// The design ↔ API translation seam (docs/desktop/phase1-architecture.md).
+// The design ↔ API translation seam.
 // All view modules speak the Prax design vocabulary; only the API boundary
 // (payload builders in main.js) translates. The HTTP API enum is unchanged:
 // ['high-priority', 'in-progress', 'planned', 'completed', 'notes'].

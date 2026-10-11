@@ -30,6 +30,12 @@ fresh empty `[Unreleased]` section is started.
 
 ### Changed
 
+- **Documentation consolidated.** `docs/` now holds one guide per subject plus an index
+  (`docs/README.md`): the quality scorecards and the manual activation drills are one document
+  (`docs/quality.md`), the roadmap folded into the README, the skills installation guide lives
+  only in `skills/README.md`, and the design notes still describing current subsystems moved
+  from `docs/superpowers/specs/` to `docs/design/` under plain names. The README is half its
+  former length and links to the guides instead of restating them.
 - **Dependency floors raised to the current minor and patch releases** (the Dependabot
   groups opened after the move back to GitHub, applied on `main` directly): `@fastify/static`
   10.1.6, `zod` 4.6.5, `@codemirror/*` (commands 6.11.1, language 6.13.1, state 6.7.6, view
@@ -63,6 +69,13 @@ fresh empty `[Unreleased]` section is started.
   hook is installed. Re-run the installer with `--instructions` to refresh existing blocks.
 - **`AGENTS.md` trimmed to Prax-specific guidance.** The repository guide no longer repeats the
   memory convention that the global block and `docs/agent-memory.md` already state.
+
+### Removed
+
+- **Historical planning and review material.** The implementation plans, the specs for shipped
+  work that the guides now describe, the September 2026 review transcripts and their logs, the
+  2026-07 desktop design prompts and prototype, and `docs/ROADMAP.md` were removed from the tree;
+  git history keeps them. Comments that cited them now point at the guide or say nothing.
 
 ## [0.39.2] - 2026-10-03
 
@@ -611,7 +624,7 @@ and onboarding features with the corrected installation guide.
   and the fields sit on their own row beneath it; a field without a value is a small `＋ Field`
   button instead of an empty input. Inline editing and the debounced save are unchanged. First
   item of the year-one shell spec
-  (`docs/superpowers/specs/2026-09-19-year-one-shell-design.md`).
+  (`docs/design/year-one-shell.md`).
 - **Any project can be deleted, and `memory` is the only protected one.** Permanent delete used
   to refuse every project that still held a task or a document (`409`), which in practice meant
   no real project could ever be removed, while the Inbox project was reserved outright. Delete
@@ -947,7 +960,7 @@ and onboarding features with the corrected installation guide.
   Open Prax / Quit; the main window now closes to the tray, macOS dock-reopen and second
   launches resurface it, and if another app owns the shortcut the tray tooltip says so —
   the tray path keeps working (degraded, never broken). First item of the
-  [workflow & self-organisation roadmap](docs/superpowers/plans/2026-07-18-workflow-selforganisation-roadmap.md).
+  2026-07-18 workflow & self-organisation roadmap.
 
 - **Google Calendar push sync (Phase 2) — live incremental push + reconcile sweep.** Task
   changes now reach Google **within seconds, automatically** — no Sync now click. Every task
@@ -984,7 +997,7 @@ and onboarding features with the corrected installation guide.
 
 - **Exceptional-quality baseline — the product-wide quality program.** *(Entry added
   retroactively for the `400452f` commit, which shipped without one.)* Adopts
-  [Exceptional Prax — Product Quality Standard](docs/superpowers/specs/2026-07-13-exceptional-prax-quality-standard.md)
+  [Exceptional Prax — Product Quality Standard](docs/design/quality-standard.md)
   (product promise, two-speed Gate A/B ratchet, invariants, critical journeys, scorecards) and
   lands its infrastructure in one pass: fixes for a prior external review's findings; **MCP
   pagination** (paged envelopes with `total`/`hasMore`/`nextOffset` replace the silent 20-item
@@ -1469,7 +1482,7 @@ and onboarding features with the corrected installation guide.
 - **Quality-baseline remediation, Wave 1 — data loss and trust integrity.** Seven confirmed
   defects from the 2026-07-18 adversarial review of the quality-baseline commit, each fixed with
   its executed reproduction landed as a permanent regression test
-  (plan: `docs/superpowers/plans/2026-07-18-quality-baseline-remediation.md`):
+  (plan: the 2026-07-18 quality-baseline remediation):
   - **Restoring a raw file-copy backup no longer discards WAL-resident transactions.** The
     restore validated the backup *through* its `-wal` sidecar but copied only the main db file —
     committed data vanished while the restore reported checksummed success. Restore now copies

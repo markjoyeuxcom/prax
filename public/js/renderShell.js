@@ -1,7 +1,7 @@
 // Prax application shell — titlebar, sidebar, icon rail, statusbar.
 // Pure `state → HTML string` renderers (no DOM access, no main.js import);
-// events are delegated in main.js via data-action attributes
-// (docs/desktop/phase1-actions.md). Classes come from public/prax.css.
+// events are delegated in main.js via data-action attributes.
+// Classes come from public/prax.css.
 
 import { cssColor, escapeHtml } from './html.js';
 import { icon, logo } from './icons.js';

@@ -5,7 +5,7 @@ import { chip, prioDotClass } from './renderHelpers.js';
 import { DOCUMENT_INFO_FIELD_LABELS } from './documentInfoDraft.js';
 import { localDateOf } from './dateHelpers.js';
 
-// Prax document editor — pure render module (docs/desktop/phase1-actions.md).
+// Prax document editor — pure render module.
 // `renderEditorHtml(state, doc, model)` returns an HTML string; no DOM access.
 // Events are delegated from main.js via data-action attributes. CodeMirror is
 // mounted by main.js into [data-code-editor]; markdownPreview.renderMarkdownHtml

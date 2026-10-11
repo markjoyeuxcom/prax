@@ -550,7 +550,7 @@ prax task done 2234a575-…
 A one-way git mirror of the resolved project's Library, and a compiled block of its verified
 decisions for the workspace instruction file. Prax stays the single source of truth: the mirror
 never writes to it, and an import never writes over an existing document. Design:
-[the mirror spec](superpowers/specs/2026-09-23-library-git-mirror-design.md).
+[the mirror spec](design/library-git-mirror.md).
 
 ```bash
 prax mirror                          # writes .prax/library/ at the repository root
@@ -700,7 +700,7 @@ final step `continue-on-error: true` and read the status from the uploaded repor
 Harvests the memories an agent **proposed** in a session and files each one once, as an
 unverified candidate in the **Inbox**, for a person to review. The design, and what each vendor's
 hook contract is known to provide, are in
-[the session-harvesting spec](superpowers/specs/2026-09-23-session-harvesting-design.md).
+[the session-harvesting spec](design/session-harvesting.md).
 
 An agent proposes a memory in its own reply, with either:
 
@@ -888,7 +888,7 @@ prepended when the project has any verified document tagged `project-card`.
 
 `recall --budget`, `context --budget`, the delta and `brief`'s memory section share one fill
 order and one compaction (`cli/lib/budget.js`). The design is in
-[the spec](superpowers/specs/2026-09-23-budgeted-context-and-brief-design.md).
+[the spec](design/budgeted-context-and-brief.md).
 
 **Estimate.** `tokens ≈ ceil(characters / 4)` over the exact text printed. It is a heuristic,
 not a tokenizer: prose runs close to it, code and non-Latin text run above it. The budget line

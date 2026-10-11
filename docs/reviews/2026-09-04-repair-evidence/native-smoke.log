@@ -1,5 +1,0 @@
-
-> prax@0.20.0 desktop:smoke
-> node scripts/verify-desktop-runtime.mjs --binary src-tauri/target/debug/prax
-
-[desktop-smoke] packaged runtime launched twice, preserved data across 25 migrations and the same browser storage origin, and exited cleanly

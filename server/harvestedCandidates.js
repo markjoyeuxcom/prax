@@ -1,5 +1,4 @@
-// Unreviewed harvested candidates (docs/superpowers/specs/2026-09-23-session-
-// harvesting-design.md): session harvesting files an agent's proposed memory in
+// Unreviewed harvested candidates (docs/design/session-harvesting.md): session harvesting files an agent's proposed memory in
 // the Inbox as an unverified document tagged `harvested`. Until a person
 // verifies it (or refiles it without the tag), it is a proposal, not memory, so
 // agent-facing retrieval leaves it out by default: semantic and hybrid search,

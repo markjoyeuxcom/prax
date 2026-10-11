@@ -72,7 +72,7 @@ retrieve  →  work  →  persist  →  supersede  →  report use
 ## The librarian
 
 The librarian keeps the Library consolidated without ever acting on its own
-([design](superpowers/specs/2026-09-23-librarian-design.md)).
+([design](design/librarian.md)).
 
 - **Recall telemetry.** Recall, search and context requests from agent clients (the CLI, the
   skills, the MCP server; they send `x-prax-query-source`) are recorded after the response:
@@ -144,7 +144,7 @@ it, refile it with its owner, or archive it during Inbox triage.
   (`agentStop`) passes the transcript path. Antigravity has no hooks; run
   `prax harvest --transcript <file>` on an exported conversation instead. The spec records what
   was verified live and what is taken from vendor documentation:
-  [session harvesting](superpowers/specs/2026-09-23-session-harvesting-design.md).
+  [session harvesting](design/session-harvesting.md).
 - **Deterministic.** Only the agent's own messages are read. User messages, tool calls and tool
   results never are, so a page an agent fetched cannot plant a candidate. No model summarises
   the session. Fenced examples, credential-shaped text and oversized bodies are skipped.
@@ -282,7 +282,7 @@ one marker; pass `--since` when they must not.
 
 Recall needs a running Prax. Two outputs carry a project's knowledge into the repository for
 teammates and agents without it; both are one-way projections, and SQLite stays the single
-source of truth ([spec](superpowers/specs/2026-09-23-library-git-mirror-design.md)).
+source of truth ([spec](design/library-git-mirror.md)).
 
 - **`prax mirror`** writes the project's Library as Markdown v3 into `.prax/library/` with stable
   names and byte-identical output when nothing changed, so knowledge changes are reviewed like
@@ -304,52 +304,11 @@ source of truth ([spec](superpowers/specs/2026-09-23-library-git-mirror-design.m
 
 ### Installing the skills
 
-The installer covers four agent CLIs: it copies the skills to `~/.agents/skills/` (where **Codex**
-and **Copilot CLI** look) and links them into `~/.claude/skills/` (**Claude Code**) and
-`~/.gemini/config/skills/` (**Antigravity**). Node 20+ must be on `PATH` on every route, because
-the agents run the skill scripts with `node`.
-
-- **In a checkout of this repo:** nothing to do. `.claude/skills/` and `.agents/skills/` link to
-  `skills/`, so Claude Code and Codex see `prax-recall` and `prax-remember` with no install.
-- **On a machine that installed the desktop app (dmg or package), with no checkout:** the bundle
-  ships the pack next to the app's CLI and MCP server, so neither git nor repository access is
-  needed, and the skills always match the installed app:
-
-  ```bash
-  sh "/Applications/Prax.app/Contents/Resources/resources/app/skills/install.sh" --instructions --cli
-  ```
-
-  Run from inside a pack (the bundle, or a checkout) the installer copies the skills from there
-  instead of cloning. `--cli` also writes a `prax` shim into `~/.local/bin` that runs the bundle's
-  `cli/prax.js` on the app's **own** bundled Node runtime — so the CLI itself needs no Node
-  install — and `--mcp` prints the MCP registration command for each tool (registration stays
-  opt-in). On Linux the same script sits beside the installed payload; only the leading path
-  differs.
-- **On any other machine:** `gh api -H "Accept: application/vnd.github.raw" repos/markjoyeuxcom/prax/contents/skills/install.sh | sh`
-  installs the pack without keeping a checkout. The repository is private, so the
-  account must have been granted access; with `gh auth login` done the installer clones over
-  HTTPS using `gh`'s credentials, otherwise it needs an SSH key registered with GitHub. Claude
-  Code can alternatively install it as a plugin:
-  `claude plugin marketplace add markjoyeuxcom/prax` then `claude plugin install prax@prax`.
-
-On every route, `--instructions` adds or refreshes the standing "recall first / file by project"
-rule in each tool's global instructions file, between markers. Paired with
-`--cli` it writes that rule in `prax …` form; on its own it names the installed skill scripts by
-absolute path, so the block never teaches a command the machine cannot run. The files:
-`~/.claude/CLAUDE.md` (Claude Code), `~/.codex/AGENTS.md` (Codex), `~/.gemini/GEMINI.md`
-(Antigravity) and
-`~/.copilot/instructions/AGENTS.md` (Copilot CLI, which reads it only when your shell exports
-`COPILOT_CUSTOM_INSTRUCTIONS_DIRS="$HOME/.copilot/instructions"` — the installer prints the
-line). Project-specific startup guidance belongs in the workspace's instruction file.
-Updating an existing block preserves surrounding text; malformed or ambiguous markers stop
-the update instead of guessing. Re-running switches command form without uninstalling first.
-`--hooks` adds the [session-harvesting](#session-harvesting-proposals-into-the-inbox) hook to
-Claude Code (`~/.claude/settings.json`), Codex (`~/.codex/hooks.json`) and Copilot CLI
-(`~/.copilot/hooks/prax-harvest.json`). It keeps every other setting and hook, and it teaches the
-`Remember:` proposal marker in the standing block (the fenced block form is documented above). `--uninstall` removes the skills, the links, the
-instruction blocks, the shim and Prax's hook handlers; it edits a symlinked instruction file at its target (the link stays a link,
-the mode is kept) and leaves a file with malformed markers unchanged, failing the run. See
-[`skills/README.md`](../skills/README.md).
+[`skills/README.md`](../skills/README.md) is the installation guide: from the desktop bundle (no
+checkout, no git), from GitHub without a checkout, or as a Claude Code plugin; the installer's
+flags (`--instructions`, `--cli`, `--hooks`, `--mcp`, `--library-block`, `--uninstall`); and which
+instruction file each agent CLI reads. In a checkout of this repository nothing needs installing:
+`.claude/skills/` and `.agents/skills/` link to `skills/`.
 
 ### Connecting to the app
 

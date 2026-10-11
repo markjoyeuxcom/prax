@@ -8,7 +8,7 @@
 // repository. It is honoured only for a trusted verifier (a list the operator
 // passes, never read from the mirror), over a body that still hashes to the
 // claimed content hash, and after a person confirms in an attended terminal.
-// See docs/superpowers/specs/2026-09-23-library-git-mirror-design.md#trust-rule.
+// See docs/design/library-git-mirror.md#trust-rule.
 import { readFileSync } from 'node:fs';
 import { createInterface } from 'node:readline/promises';
 import { join } from 'node:path';

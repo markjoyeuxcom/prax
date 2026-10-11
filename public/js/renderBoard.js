@@ -14,7 +14,7 @@ import { slippageChips } from './slippageFlags.js';
 import { icon } from './icons.js';
 import { TASK_RENDER_BATCH_SIZE, doneWithinWeek } from './renderList.js';
 
-// Column labels + dot tones in design vocabulary (Prax.dc.html colDefs).
+// Column labels + dot tones in design vocabulary.
 const COLUMN_META = {
   priority: { label: 'Priority', tone: 'hi' },
   inprogress: { label: 'In progress', tone: 'accent' },

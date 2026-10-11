@@ -158,7 +158,7 @@ test('task list shows open tasks by default; --all and --status include complete
   });
 });
 
-// People only (docs/superpowers/specs/2026-09-23-triage-tui-design.md): verify
+// People only (docs/design/triage-tui.md): verify
 // and triage refuse in an agent CLI's shell, with --agent, and without a
 // terminal, before any request. spawnSync gives the child no TTY.
 const NO_AGENT = {

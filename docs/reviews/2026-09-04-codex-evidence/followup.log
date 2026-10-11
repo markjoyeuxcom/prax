@@ -1,3 +1,0 @@
-{"name":"concurrent_task_counter_candidate_not_reproduced","successfulChanges":2,"deferralCount":2,"carryCount":2}
-{"name":"health_verification_blesses_unseen_new_content","verified":true,"body":"New agent content never shown to the reviewer","shown":false}
-{"name":"committed_archive_reported_as_failure","archived":true,"notice":"Prax could not archive the selected task."}
