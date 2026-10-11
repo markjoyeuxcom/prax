@@ -480,6 +480,24 @@ prax supersede c58d3108-4f93-4a50-ac42-0c1d61e61b08 \
   --with  d72e4219-5a04-4b61-bd53-1e2e72f7c219
 ```
 
+### `move <id> --to <project-slug> [--json]`
+
+Refile one document or one task under another project: the command-line form of the Inbox's
+"refile with its owner", for an agent that `remember`ed a note under the wrong project (a
+re-`remember` refines a title where it already lives and never moves it). The id is tried as a
+document first, then as a task. The target project must already exist (a typo never creates
+one); only an active document moves, so a superseded or archived one keeps its place in
+history; a record already under the target is reported rather than rewritten. The write is
+stamped as an agent write like every other CLI update.
+
+```bash
+prax move c58d3108-4f93-4a50-ac42-0c1d61e61b08 --to homelab
+# Moved document "Proxmox backup runbook" (c58d3108-…) from memory to homelab.
+```
+
+`--json` prints `{ kind, id, title, from, to, record }`, where `record` is the updated document
+or task.
+
 ### `task <add|list|show|update|done|check|uncheck>`
 
 Tasks from any shell, for handoff notes, acceptance checklists and agent work orders. The

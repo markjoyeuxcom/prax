@@ -13,6 +13,7 @@ import { buildBrief, formatBrief, briefJson } from './lib/brief.js';
 import { remember } from './lib/remember.js';
 import { projectOverview, overviewCaveat } from './lib/overview.js';
 import { assertAttendedHuman, confirmDocumentVerification } from './lib/verify.js';
+import { formatMove, moveRecord } from './lib/move.js';
 import { createTriageClient, triage } from './lib/triage.js';
 import { searchLibrary, describeRetrieval } from './lib/search.js';
 import { createCheckout, createRepoReader, headSha } from './lib/repoFiles.js';
@@ -45,7 +46,7 @@ const BOOLEAN_FLAGS = ['json', 'help', 'all', 'all-projects', 'memory', 'since-l
 // `--recent` takes a count only when the next word is one.
 const OPTIONAL_FLAGS = { recent: (next) => /^\d+$/.test(next) };
 const VALUE_FLAGS = [
-  'project', 'url', 'agent', 'limit', 'body', 'type', 'tag', 'ref', 'cite', 'id', 'as', 'with',
+  'project', 'url', 'agent', 'limit', 'body', 'type', 'tag', 'ref', 'cite', 'id', 'as', 'with', 'to',
   'priority', 'status', 'due', 'planned', 'label', 'description', 'notes', 'query', 'title', 'append-notes',
   ...MIRROR_VALUE_FLAGS,
   'diff', 'files',
@@ -84,6 +85,7 @@ const COMMANDS = {
   triage: { flags: ['as'], max: 0, usage: 'prax triage [--as <human-name>] [--project <slug>]' },
   unverify: { flags: [], max: 1, usage: 'prax unverify <id>' },
   supersede: { flags: ['with'], max: 1, usage: 'prax supersede <oldId> --with <newId>' },
+  move: { flags: ['to'], max: 1, usage: 'prax move <id> --to <project-slug> [--json]' },
   task: { flags: [], max: Infinity, usage: 'prax task <add|list|show|update|done|check|uncheck> …' },
   mirror: MIRROR_COMMAND,
   check: { flags: ['diff', 'files', 'comment', 'strict'], max: 0, usage: CHECK_USAGE },
@@ -252,6 +254,7 @@ Usage:
   prax triage [--as <human-name>] [--project <slug>]    (interactive review queue; people only)
   prax unverify <id>
   prax supersede <oldId> --with <newId>
+  prax move <id> --to <project-slug> [--json]    (refile one document or task under another project)
   prax task add <title> [--priority high|medium|low] [--status planned|in-progress|...] [--due YYYY-MM-DD] [--planned YYYY-MM-DD] [--label a,b] [--description <text>] [--notes <text>] [--check <item>]...
   prax task list [--status <status>] [--all] [--all-projects] [--query <text>] [--json]
   prax task show <id> [--json]
@@ -588,6 +591,12 @@ async function main(argv) {
     if (!oldId || !newId) throw new Error('supersede requires <oldId> --with <newId>.');
     const doc = await client.supersede(oldId, newId);
     out(flags.json ? doc : `Superseded ${oldId} with ${newId}.`);
+    return;
+  }
+
+  if (command === 'move') {
+    const result = await moveRecord(client, positionals[1], flagValue(flags, 'to'));
+    out(flags.json ? { kind: result.kind, id: result.id, title: result.title, from: result.from, to: result.to, record: result.record } : formatMove(result));
     return;
   }
 

@@ -12,6 +12,16 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Added
+
+- **`prax move <id> --to <project-slug>`.** Refiles one document or one task under another
+  project from the command line, the way the Inbox lets a person refile a candidate with its
+  owner. The id is tried as a document, then as a task; the target project must exist, only an
+  active document moves, and a record already under the target is reported, not rewritten.
+  `--json` prints the outcome with the updated record. The server routes already accepted a
+  `project` slug; the CLI never exposed it, and a re-`remember` deliberately refines a title in
+  place rather than moving it.
+
 ### Changed
 
 - **Repository and pipelines back on GitHub.** The project lives at
