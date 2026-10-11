@@ -1,55 +1,61 @@
 # Prax
 
-Prax (by Moomora) is a local-first app for tasks, runbooks, and Markdown notes, wearing a calm, native-feeling desktop design. It pairs a project-scoped task list and board with a full-text Markdown library — import, export, tags, and archive — all backed by a single embedded SQLite file. An optional local MCP server exposes the same data to Claude Code, turning your tasks and notes into working context for AI-assisted work.
-
-Run it with plain Node (zero external dependencies — the database is an embedded file), with Docker Compose, or on Kubernetes; or try it instantly with the in-memory demo server.
+Prax (by Moomora) is a local-first app for tasks, runbooks and Markdown notes with a calm,
+native-feeling desktop design. A project-scoped task list, board and Today view sit beside a
+full-text Markdown library, all in one embedded SQLite file. The same data is shared long-term
+memory for AI agents: the `prax` CLI, two portable skills and an optional MCP server let Claude
+Code, Codex, Copilot CLI and Antigravity recall prior findings by meaning and file new ones with
+provenance.
 
 ## Install
 
-**Desktop (recommended):** download the installer for your platform from the
-[GitHub Releases page](https://github.com/markjoyeuxcom/prax/releases) — `.dmg` (macOS
-Apple Silicon), `.deb`/`.AppImage` (Linux x64).
-Windows, Intel Mac and Linux ARM64 installers are not built or released. Zero external
-dependencies: the database is an embedded file, created on first launch. Tagged releases include
-SHA-256 checksums. Both packages are built and smoke-tested by the pipeline on the project's own
-runners (a Mac and a Linux x64 machine), and a release is only created once every package is
-present; the release body lists exactly what was attached (see BUILD.md). Update by quitting
-Prax and installing the newer package; the OS app-data directory remains in place. Building,
-backup-before-update, rollback, and signing details:
-[docs/desktop/BUILD.md](docs/desktop/BUILD.md).
+**Desktop (recommended).** Download the installer for your platform from the
+[GitHub Releases page](https://github.com/markjoyeuxcom/prax/releases): `.dmg` for macOS Apple
+Silicon, `.deb` or `.AppImage` for Linux x64. Windows, Intel Mac and Linux ARM64 installers are
+not built. The database is an embedded file created on first launch. Tagged releases include
+SHA-256 checksums, both packages are built and smoke-tested on the project's own runners, and a
+release is created only once every package is present. Update by quitting Prax and installing
+the newer package; the app-data directory stays in place. Building, backup-before-update,
+rollback and the unsigned-installer notes: [docs/desktop/BUILD.md](docs/desktop/BUILD.md).
 
-**Menu bar and quick capture:** the desktop app lives in the menu bar. Closing the main window
-hides it and keeps Prax running; reopen it from the Dock or the menu-bar icon, and quit from
-the menu-bar icon or ⌘Q. **Capture task** (or ⌘⇧Space) opens a small bar from any app: Enter
-saves the text to the Inbox project, with `#project`, `@label`, `!high` and a date word to route
-it. See [docs/desktop/BUILD.md](docs/desktop/BUILD.md#menu-bar-quick-capture-and-closing-the-window).
+**Menu bar and quick capture.** The desktop app lives in the menu bar: closing the main window
+hides it and keeps Prax running; reopen it from the Dock or the menu-bar icon and quit from
+there or with ⌘Q. **Capture task** (⌘⇧Space) opens a small bar from any app; Enter saves the
+text to the Inbox project, with `#project`, `@label`, `!high` and a date word to route it. See
+[the desktop guide](docs/desktop/BUILD.md#menu-bar-quick-capture-and-closing-the-window).
 
-**Web server:** run it with plain Node or Docker Compose — see
-[Local Install](#local-install) below.
+**Web server.** Run it with plain Node or Docker Compose; see [Run from source](#run-from-source).
 
-## What It Does
+## What it does
 
-- Organises work into user-creatable **Projects** (active / on-hold / completed / archived) that group both tasks and documents, with an **All projects** overview and a cross-project **Today** view of everything due or slipping.
-- Tracks tasks across Tasks, Board, Backlog, and Archive views, with create, edit, archive, restore, permanent delete, and drag/drop board reordering.
-- Surfaces at-a-glance board signals: a priority dot, overdue / due-soon date flags, and a project chip on each card in the All-projects view.
-- Shows dated tasks on a month **Calendar** (Monday-start grid, day detail strip, month paging) and serves them as an **ICS feed** (`GET /api/calendar.ics`) that Apple Calendar or Thunderbird can subscribe to — all-day and timed events, project categories, `?project=` scoping.
-- Links tasks to library runbooks and notes, so operational work points at the documents that support it.
-- Provides a cross-project Markdown Library with project-owned runbooks and notes, visible/filterable ownership, destination-selecting import and export dialogs, tags, saved tag views, type/sort/group controls, and full-text search.
-- Executes runbooks as durable, resumable operational records with snapshotted steps and an actor-attributed event chronicle that survives source deletion.
-- Includes an Obsidian-style editor workspace with edit, preview, split, focus mode, live preview updates, CodeMirror editing, and Markdown helper buttons.
-- Ships light ("Porcelain") and dark ("Deep Fern") themes with four accent colours and a reading-size control; fully keyboard-driven — **⌘K command palette**, **quick capture (N)**, list navigation, and undo toasts.
-- Moves content through Settings: JSON task import/export (append / skip duplicates / replace-project modes) and scoped Markdown library export. Desktop and supporting browsers let you choose the ZIP destination; full workspace recovery uses the validated backup ZIP and bundled restore command.
-- Exposes the API to Claude Code through an optional local MCP server for interactive, subscription-backed task and document workflows.
-- Acts as **shared long-term memory for AI agents**: the portable `prax-recall` / `prax-remember` skills (Claude Code, Codex, Copilot CLI and Antigravity) and the `prax` CLI recall prior findings by meaning and persist new ones with agent provenance — see [skills/README.md](skills/README.md) and [docs/agent-memory.md](docs/agent-memory.md).
-- Includes protected **Inbox** and **Memory** system projects. Inbox receives unassigned
-  captures and workspace weekly reviews; Memory holds shared guidance. Upgrades restore
-  a missing Inbox while preserving any existing Inbox contents.
-- Processes Inbox captures into owning projects with optional planning dates, completion,
-  linked reference creation, archive, skip and guarded undo. Pending tasks and notes are
-  separate from saved reviews; age indicators and weekly-review links support regular triage.
-  Optional AI suggestions fill a reviewable form, with possible duplicates and clear coverage.
-- Returns from a document to the same Library filters, search, layout and scroll position.
-- Runs locally with plain Node or Docker Compose, or deploys to Kubernetes — the embedded SQLite database needs no separate server.
+- **Projects** (active, on hold, completed, archived) group tasks and documents, with an
+  All-projects overview and a cross-project **Today** view of what is due or slipping. The
+  protected **Inbox** and **Memory** system projects hold unassigned captures and shared guidance.
+- **Tasks** across list, board, backlog and archive views: create, edit, recurrence, snooze,
+  archive, restore, permanent delete and drag-and-drop board ordering, with priority, due-date
+  and project signals on each card.
+- **Calendar**: a month grid of dated tasks, an ICS feed (`GET /api/calendar.ics`) that Apple
+  Calendar or Thunderbird can subscribe to, and optional one-way push to a Google Calendar
+  ([docs/google-calendar.md](docs/google-calendar.md)).
+- **Library**: project-owned runbooks, notes, decisions and references with tags, saved views,
+  full-text and optional semantic search, typed links between documents, and an Obsidian-style
+  editor (edit, preview, split, focus mode, CodeMirror).
+- **Runbook runs**: durable, resumable operational records with snapshotted steps and an
+  actor-attributed chronicle that survives deletion of the source document.
+- **Inbox processing**: file captures into their owning project, plan them, complete them, turn
+  them into references, archive or skip, with guarded undo and optional AI filing suggestions.
+- **Trust**: documents written by agents are unverified until a person verifies them; retrieval
+  labels unverified memory and keeps it in its own section.
+- **AI, optional and local-first**: Ask Prax (cited, trust-aware answers), editor writing
+  actions, runbook and post-mortem generation, knowledge-base health scans and natural-language
+  capture, over OpenAI, Claude, Gemini, Ollama or llama.cpp.
+- **Import, export and backup**: portable JSON task exports, one-way Markdown library export, a
+  validated full-workspace backup ZIP and an online SQLite backup command
+  ([docs/backup-restore.md](docs/backup-restore.md)).
+- **Templates and starter guides** for repository setup, project overviews and onboarding tasks
+  ([docs/templates-and-starter-guides.md](docs/templates-and-starter-guides.md)).
+- Light ("Porcelain") and dark ("Deep Fern") themes, four accents, a reading-size control, and
+  full keyboard operation: ⌘K command palette, N capture, list navigation, undo toasts.
 
 ## Screenshots
 
@@ -65,334 +71,138 @@ it. See [docs/desktop/BUILD.md](docs/desktop/BUILD.md#menu-bar-quick-capture-and
 
 Regenerate these from a seeded demo server with `node scripts/capture-readme-screenshots.mjs`.
 
-## Stack
+## Run from source
 
-- Node.js
-- Fastify
-- Embedded SQLite via `node:sqlite` (no native modules, no database server)
-- Static frontend with plain JavaScript modules
-- CodeMirror for Markdown editing
-- Example Kubernetes manifests under `deploy/` (Kustomize base + overlays)
-
-## Requirements
-
-- Node.js 24 or newer (Prax uses the built-in `node:sqlite` runtime and its online-backup API)
-- npm
-
-## Local Install
-
-Clone the repo:
+Requirements: Node.js 24 or newer (Prax uses the built-in `node:sqlite` and its online-backup
+API) and npm. The stack is Fastify, embedded SQLite, a static plain-JavaScript frontend with
+CodeMirror, and a Tauri 2 shell for the desktop.
 
 ```bash
 git clone git@github.com:markjoyeuxcom/prax.git
 cd prax
-```
-
-Install dependencies:
-
-```bash
 npm ci
+npm run demo        # in-memory seed data at http://127.0.0.1:3100/; resets on restart
 ```
 
-Run the demo server with in-memory seed data:
-
-```bash
-npm run demo
-```
-
-Open:
-
-```text
-http://127.0.0.1:3100/
-```
-
-Demo mode is for local UI testing. Data resets when the process restarts.
-
-## Local Persistent Install
-
-Use Docker Compose when you want the app containerised with a persistent data volume:
-
-```bash
-docker compose up --build
-```
-
-then open http://localhost:3100. Compose provides:
-
-- `app`: the Prax server on host-loopback port `3100` (not published to the LAN)
-- `prax-data`: named volume holding `prax.db` (plus its WAL files)
-
-The app applies database migrations automatically on startup, so a fresh volume is
-initialised on first run. To reset local data:
-
-```bash
-docker compose down -v
-```
-
-## Run Your Own Image
-
-The pipeline builds desktop packages only — no container image is published (the last one
-pushed was `v0.30.0`), so pulling a newer tag from the registry fails. To run a release-style
-container, build and tag it yourself from `deploy/Dockerfile`, then use the image override:
-
-```bash
-docker build -f deploy/Dockerfile -t ghcr.io/markjoyeuxcom/prax:<tag> .
-docker compose -f compose.yaml -f compose.image.yaml up
-```
-
-The image override (like the Kubernetes manifests) names this checkout's version, which the
-release script bumps every release; use it as `<tag>` above:
-
-```text
-ghcr.io/markjoyeuxcom/prax:v0.39.2
-```
-
-Use source-build Compose for development, and the self-built image when you want to test the same artifact Kubernetes will run.
-
-## Run With Persistence
-
-Prax stores everything in one SQLite file. Choose where it lives (defaults to
-`./prax.db` in the working directory):
+**Persistent server.** Everything lives in one SQLite file (default `./prax.db`). Migrations
+run on startup; `npm run migrate` applies them by hand.
 
 ```bash
 export PRAX_DB_FILE="$HOME/.local/share/prax/prax.db"
+HOST=127.0.0.1 PORT=3100 npm start
 ```
 
-Migrations run automatically on startup; run them manually with:
+**Docker Compose.** `docker compose up --build` serves Prax on host-loopback port 3100 with
+`prax.db` in the `prax-data` volume; `docker compose down -v` resets it.
+
+**Your own image.** The pipeline builds desktop packages only: no container image is published
+(the last one pushed was `v0.30.0`). Build and tag one from `deploy/Dockerfile` and start it
+with the image override. The override and the Kubernetes manifests name this checkout's
+version, which the release script bumps:
 
 ```bash
-PRAX_DB_FILE="$HOME/.local/share/prax/prax.db" npm run migrate
+docker build -f deploy/Dockerfile -t ghcr.io/markjoyeuxcom/prax:v0.39.2 .
+docker compose -f compose.yaml -f compose.image.yaml up
 ```
 
-Start the server:
+**Kubernetes.** `deploy/` holds sanitized Kustomize examples (base plus dev, staging and prod
+overlays) that keep the database on a PersistentVolumeClaim with a single replica;
+`kubectl kustomize deploy/overlays/dev` renders one locally. Any network exposure needs an
+authentication boundary in front of Prax: see [docs/deployment.md](docs/deployment.md).
 
-```bash
-HOST=127.0.0.1 PORT=3100 PRAX_DB_FILE="$HOME/.local/share/prax/prax.db" npm start
-```
+## Configuration
 
-Prax has no built-in authentication. A non-loopback `HOST` fails closed unless the operator also
-sets `PRAX_ALLOW_UNAUTHENTICATED_NETWORK=true`. That acknowledgement does not add protection; use it
-only on a deliberately trusted network or behind an authenticated TLS proxy. The normal local and
-desktop paths need no acknowledgement because they listen on loopback. A loopback bind also refuses
-requests whose `Host` header is not a loopback name (`403`) — the DNS-rebinding defence described in
-`SECURITY.md` — so a reverse proxy on the same machine that forwards the public host name needs the
-same `PRAX_ALLOW_UNAUTHENTICATED_NETWORK=true` acknowledgement, or that name in
-`PRAX_ALLOWED_HOSTS` to keep the check for every other name (see `docs/deployment.md`).
+**Network bind.** Prax has no built-in authentication. A non-loopback `HOST` fails closed
+unless the operator also sets `PRAX_ALLOW_UNAUTHENTICATED_NETWORK=true`, which acknowledges the
+exposure without adding protection; use it only on a trusted network or behind an authenticated
+TLS proxy. A loopback bind also refuses requests whose `Host` header is not a loopback name
+(the DNS-rebinding defence in `SECURITY.md`), so a same-machine reverse proxy that forwards a
+public host name needs the same acknowledgement or that name in `PRAX_ALLOWED_HOSTS`.
 
-Choose **Full workspace backup** in the Library export dialog, or use the validated SQLite
-snapshot command, for an authoritative backup. JSON/Markdown exports are portable content formats — see
-[docs/backup-restore.md](docs/backup-restore.md).
-
-## Semantic Search (optional)
-
-Semantic (embedding-based) library search is **off by default**. Environment variables provide
-deployment defaults; the single-user Settings screen can also choose a provider, model, URL, and
-key at runtime. UI-provided keys are stored in the local SQLite database and are never returned by
-the API, so protect the database and its backups as secrets. Embeddings are stored in SQLite and
-cosine-ranked in process; no vector extension or separate database service is required. Keyword
-full-text search (FTS5) remains available when embeddings are off or unreachable.
+**Semantic search** is off by default. The Settings screen can choose a provider, model, URL and
+key at runtime (keys are stored in the database and never returned by the API, so treat the
+database and its backups as secrets); environment variables set deployment defaults. Embeddings
+are stored in SQLite and ranked in process; keyword search (FTS5) always remains available.
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `EMBEDDING_BACKEND` | `none` | `none` (off), `ollama`, `openai`, `llamacpp`, `gemini`, `voyage`, or `fake` (tests) |
-| `EMBEDDING_MODEL` | — | model name for the chosen backend (e.g. `qwen3-embedding:0.6b`, `text-embedding-3-small`) |
-| `OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama base URL (when `EMBEDDING_BACKEND=ollama`) |
-| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible base URL incl. `/v1` — real OpenAI, llama.cpp, vLLM, LiteLLM, … |
+| `EMBEDDING_BACKEND` | `none` | `none`, `ollama`, `openai`, `llamacpp`, `gemini`, `voyage`, or `fake` (tests) |
+| `EMBEDDING_MODEL` | — | model name for the chosen backend |
+| `OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama base URL |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible base URL including `/v1` (OpenAI, llama.cpp, vLLM, LiteLLM) |
 | `OPENAI_API_KEY` | — | bearer key for `openai`; omit for keyless local servers |
-| `EMBEDDING_QUERY_PREFIX` | — | prepended to **search-query** embeddings only (instruct-tuned models); e.g. `nomic`'s `search_query: ` |
+| `EMBEDDING_QUERY_PREFIX` | — | prepended to search-query embeddings only (instruct-tuned models) |
 | `EMBEDDING_SEARCH_MIN_SIMILARITY` | `0.45` | relevance-cutoff floor (cosine similarity) |
 | `EMBEDDING_SEARCH_TOP_DROP` | `0.20` | keep results within this of the best match |
 
-Example (OpenAI-compatible server, e.g. a local llama.cpp started with `--embeddings`):
-
-```bash
-EMBEDDING_BACKEND=openai OPENAI_BASE_URL=http://127.0.0.1:8001/v1 EMBEDDING_MODEL=nomic-embed-text npm start
-```
+**Health checks.** `GET /healthz` confirms the process is alive; `GET /readyz` confirms the
+database answers queries.
 
 ## Scripts
 
-```bash
-npm run demo
-npm start
-npm test
-npm run check
-npm run migrate
-npm run backup -- --output /safe/path/prax-backup.db
-npm run fixture:quality -- --profile ci --output /tmp/prax-quality-ci.db
-npm run verify:portable
-npm run verify:restore
-npm run build:codemirror
-```
+| Command | Does |
+|---|---|
+| `npm run demo`, `npm start` | in-memory demo server; SQLite-backed server |
+| `npm test`, `npm run check`, `npm run test:e2e` | unit and contract suite; syntax and bundle check; Playwright journeys |
+| `npm run migrate` | apply pending database migrations |
+| `npm run backup -- --output <file>` | validated online SQLite backup; refuses to overwrite |
+| `npm run fixture:quality`, `npm run verify:portable`, `npm run verify:restore` | deterministic workspace fixture and the portability and restore drills ([docs/quality-fixture.md](docs/quality-fixture.md)) |
+| `npm run build:codemirror` | rebuild the bundled editor asset |
 
-- `npm run demo` starts the in-memory local demo server.
-- `npm start` starts the SQLite-backed server.
-- `npm test` runs backend and frontend unit tests.
-- `npm run check` syntax-checks key server and browser entry points.
-- `npm run migrate` applies pending database migrations.
-- `npm run backup -- --output <file>` creates and validates a coherent online SQLite backup; it
-  refuses to overwrite an existing destination.
-- `npm run fixture:quality` creates or verifies a deterministic mature-workspace fixture; see
-  [docs/quality-fixture.md](docs/quality-fixture.md).
-- `npm run verify:portable` proves the complete task/checklist portable contract against a fresh
-  instance using that mature fixture.
-- `npm run verify:restore` destroys and restores disposable `large`/historical mature workspaces,
-  then verifies integrity, semantics, migration, the latest WAL write, and production app boot.
-- `npm run build:codemirror` rebuilds the bundled CodeMirror editor asset.
+## Agent memory
 
-An optional local MCP server lives in `mcp/` — it exposes the Prax API to Claude Code so
-you can query and edit tasks and documents interactively on a Claude subscription. See
-[mcp/README.md](mcp/README.md).
-
-## Shared Memory CLI
-
-The `prax` CLI lets any shell-capable AI tool or human pull a bounded, trust-aware context
-pack from project memory, search and read documents, write new memory, and verify or supersede
-it. `npm link` in the repo gives a global `prax` command. See [docs/cli.md](docs/cli.md)
-for the full guide.
+The `prax` CLI lets any shell-capable AI tool or person pull a bounded, trust-aware briefing from
+project memory, search and read documents, write new memory, and verify or supersede it. The
+full guide is [docs/cli.md](docs/cli.md); the convention (what to remember, provenance, trust,
+harvesting) is [docs/agent-memory.md](docs/agent-memory.md).
 
 ```bash
 prax context "how do we restore postgres"          # this project's briefing
 prax recall "how do we restore postgres"           # cross-project distilled recall
-prax remember "Postgres restore drill" --body "…" --project homelab  # file with the owning project
-prax remember "Agent working conventions" --body "…" --memory       # reusable across projects
+prax remember "Postgres restore drill" --body "…" --project homelab   # file with the owning project
+prax remember "Agent working conventions" --body "…" --memory        # reusable across projects
 ```
 
-Documents written by agents (via the CLI or MCP) are **unverified** by default. A human
-clears the review queue with `prax triage` or `prax verify <id> --as <name>` in an attended
-terminal, or in the Library UI. Both commands refuse to run in an agent CLI's shell.
-Retrieval is active-only and keeps unverified memory in a
-clearly-labelled section so AI tools can see it while treating it with appropriate caution.
-Project knowledge stays with its project; all projects participate in shared recall. For work
-on Prax itself, see [Working on Prax](docs/working-on-prax.md).
+Agent-written documents are unverified until a person clears them with `prax triage`,
+`prax verify <id> --as <name>` or the Library UI; both commands refuse to run from an agent's
+shell. The same loop ships as the portable `prax-recall` and `prax-remember` skills, one
+dependency-free script each, installed from the desktop bundle, from GitHub or as a Claude Code
+plugin: see [skills/README.md](skills/README.md). The optional MCP server in `mcp/` exposes the
+API to Claude Code as tools: see [mcp/README.md](mcp/README.md). For work on Prax itself, start
+with [Working on Prax](docs/working-on-prax.md).
 
-### Agent memory skills
+## Documentation
 
-For agent CLIs the same memory loop ships as two portable skills, `prax-recall` and
-`prax-remember`, which Claude Code, Codex, Copilot CLI and Antigravity load on demand. Each is one
-dependency-free Node script that talks to the running app; a checkout of this repo already has
-them linked in, a machine that installed the desktop app runs the installer straight from the
-bundle (no checkout, no git), and any other machine installs them with one command. See
-[skills/README.md](skills/README.md) for installation and [docs/agent-memory.md](docs/agent-memory.md)
-for the memory convention (what to remember, provenance, supersede).
+[docs/README.md](docs/README.md) indexes every guide: CLI, agent memory, data formats, backup and
+restore, desktop build, deployment, Google Calendar, templates, quality evidence, and the design
+notes for the current subsystems.
 
-## Backup & Restore
+## Project direction
 
-See [docs/backup-restore.md](docs/backup-restore.md) for backup, restore, and upgrade procedures.
-The reproducible workspace and semantic verifier used by restore drills are documented in
-[docs/quality-fixture.md](docs/quality-fixture.md).
+Product work follows the [product quality standard](docs/design/quality-standard.md): a
+regression and invariant ratchet on every change, per-surface excellence gates, ranked critical
+journeys, and evidence requirements for people and machine consumers
+([docs/quality.md](docs/quality.md) records where that evidence stands). Substantial work starts
+as a design note under `docs/design/` and a task in the Prax project. Still open, at a glance:
 
-## Import And Export
-
-Portable task exports use the current Prax format (they carry tasks and checklists, not history,
-links, or project metadata — an authoritative backup is a SQLite snapshot, see
-[docs/backup-restore.md](docs/backup-restore.md)):
-
-```json
-{
-  "format": "moomora.tasks",
-  "version": 1,
-  "project": "homelab",
-  "tasks": []
-}
-```
-
-Import modes:
-
-- `skip`: default mode, skips duplicate tasks by title, project, status, and due date.
-- `append`: imports everything as new tasks.
-- `replace`: clears the selected project and imports the file after confirmation.
-
-Settings names the task destination explicitly. Browser imports use an exact-once operation UUID,
-so retrying after a lost response cannot duplicate an append or repeat a replacement.
-
-Library Markdown export is currently one-way. **Import Markdown…** opens a dialog where the
-destination project is selected explicitly before one or more files are submitted. Each file becomes
-a project-owned source note; intake preserves its body and filename but does not restore Prax front
-matter, type, provenance, trust, or document links. Interrupted per-file creates can be retried
-without duplication. Use the SQLite backup/restore runbook for full-fidelity workspace recovery.
-
-Legacy TaskBoard export envelopes are not supported. This project is treated as a greenfield Prax app.
-
-## Data Formats
-
-The portable task format (`moomora.tasks`), one-way library `.md` export front matter, and the
-MCP tool surface are documented in [docs/contract.md](docs/contract.md). Prax is
-pre-1.0 and these shapes are still evolving; a regression-test suite under `tests/contract/`
-locks the current shapes so changes are made deliberately rather than by accident. The HTTP API
-is internal and may change between releases — for durable integration prefer the export formats
-or the MCP server.
-
-## Kubernetes Deployment
-
-Deployment manifests use a Kustomize **base + overlays** layout under `deploy/`, designed for GitOps
-with Argo CD:
-
-```text
-deploy/base/                          # env-agnostic manifests (no namespace or exposure)
-deploy/overlays/{dev,staging,prod}/   # per-env image tag
-```
-
-These are **sanitized example manifests**. A GitOps tool such as Argo CD renders `deploy/overlays/<env>`
-into a namespace like `prax-<env>`; no manifest hard-codes a namespace.
-
-Each environment provisions a `PersistentVolumeClaim` (`prax-data`) that holds the embedded
-SQLite database at `/data/prax.db` (`PRAX_DB_FILE`); the Deployment uses a `Recreate` strategy
-and a single replica because SQLite is single-writer. The rendered base creates only a ClusterIP
-Service. The opt-in `HTTPRoute` example must be placed behind authentication and TLS before use.
-
-Render any environment locally (no cluster needed):
-
-```bash
-kubectl kustomize deploy/overlays/dev
-```
-
-See [docs/deployment.md](docs/deployment.md) for the full notes, including the required
-authentication boundary for any network exposure.
-
-## Health Checks
-
-- `GET /healthz` confirms the Node process is alive.
-- `GET /readyz` confirms the embedded database answers queries.
-
-## Project Direction
-
-Product work is governed by the
-[Exceptional Prax quality standard](docs/superpowers/specs/2026-07-13-exceptional-prax-quality-standard.md),
-which defines the immediate regression/invariant ratchet, per-surface excellence gates, ranked
-critical journeys, and evidence requirements for both people and machine consumers.
-
-The detailed, living backlog lives in [docs/ROADMAP.md](docs/ROADMAP.md). The shared-memory
-direction (trust loop in the UI and MCP, the retrieval eval harness, external references,
-repo-URL project detection, and the portable memory skills) has shipped. What remains, at a glance:
-
-- an optional "Ask Project" RAG layer, kept separate from the retrieval-only default
-- a `main`/SHA-tagged container image on merge so a dev environment can track a live build
-- app-level authentication, only if a multi-tenant or token model is ever wanted (none by design today)
+- an optional "Ask Project" retrieval-plus-generation layer, kept separate from the
+  retrieval-only default;
+- a `main`/SHA-tagged container image on merge so a dev environment can track a live build;
+- app-level authentication, only if a multi-tenant or token model is ever wanted (none by design).
 
 ## Security
 
 See [SECURITY.md](SECURITY.md) for the security model (no built-in auth; trusted-network by
 design) and how to report a vulnerability.
 
-## Changelog
+## Changelog and license
 
-See [CHANGELOG.md](CHANGELOG.md) for the release history.
-
-## License
-
-MIT. See [LICENSE](LICENSE).
+[CHANGELOG.md](CHANGELOG.md) is the release history. MIT, see [LICENSE](LICENSE).
 
 ## Repository
 
-GitHub (moved back from GitLab on 2026-10-10; the GitLab project is archived read-only):
+GitHub, moved back from GitLab on 2026-10-10 (the GitLab project is archived read-only):
 
 ```text
 https://github.com/markjoyeuxcom/prax
 ```
-
-### Templates and repository setup
-
-Library → New doc → Templates & guides includes repository setup, project overview,
-onboarding task and shared agent-memory starters. They ship with desktop and container
-packages and work without AI. Create a copy in its owning project; upgrades preserve your
-edits. Save your own masters with the Template document type. See
-[Templates and starter guides](docs/templates-and-starter-guides.md).

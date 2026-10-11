@@ -1,5 +1,4 @@
-// The since-last-session memory delta (docs/superpowers/specs/2026-09-23-
-// budgeted-context-and-brief-design.md):
+// The since-last-session memory delta (docs/design/budgeted-context-and-brief.md):
 //
 //   GET /api/library/changes?since=<iso>|sinceLastSession=true[&project=][&limit=]
 //   GET /api/library/recall-marker[?project=]

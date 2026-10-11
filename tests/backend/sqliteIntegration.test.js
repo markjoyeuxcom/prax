@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { buildApp } from '../../server/index.js';
 import { loadConfig } from '../../server/config.js';
 
-// The engine-swap acceptance net (docs/desktop/checklist.md Phase 2): a real
+// The engine-swap acceptance net: a real
 // Fastify app over a real in-memory SQLite database — real migrations, real
 // repositories, real routes — driven through the HTTP API. The fake-db unit
 // tests assert SQL text; this file proves the SQL actually runs.

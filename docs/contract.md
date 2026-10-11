@@ -882,7 +882,7 @@ the recall skill and the MCP tools (`includeHarvested`) send the opt-in only whe
 ### Memory changes and recall markers
 
 The since-last-session delta (`prax recall --since-last-session | --since <iso>`). Design:
-[the spec](superpowers/specs/2026-09-23-budgeted-context-and-brief-design.md).
+[the spec](design/budgeted-context-and-brief.md).
 
 `GET /api/library/changes?since=<iso>|sinceLastSession=true[&project=<slug|id>][&limit=<n>]`
 
@@ -1054,7 +1054,7 @@ Event shape (one `VEVENT` per task instance; serialization in `server/icsFeed.js
 
 ## Recall telemetry and the librarian
 
-Design: [2026-09-23 librarian](superpowers/specs/2026-09-23-librarian-design.md). Migration
+Design: [2026-09-23 librarian](design/librarian.md). Migration
 `0040_recall_telemetry_and_librarian.sql` adds `recall_queries`, `recall_query_hits`,
 `recall_uses` and `librarian_proposals`.
 

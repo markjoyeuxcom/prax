@@ -73,7 +73,6 @@ export const RELEASE_SITES = [
   textSite('deploy/overlays/prod/kustomization.yaml', 'prod overlay newTag', new RegExp(String.raw`newTag: v(${SEMVER})`, 'g'), (v) => `newTag: v${v}`),
   textSite('README.md', 'published image example', new RegExp(String.raw`${IMAGE.replace(/[.]/g, '\\.')}:v(${SEMVER})`, 'g'), (v) => `${IMAGE}:v${v}`),
   textSite('docs/deployment.md', 'overlay pin statement', new RegExp(String.raw`Overlays are currently pinned to \x60v(${SEMVER})\x60`, 'g'), (v) => `Overlays are currently pinned to \`v${v}\``),
-  textSite('docs/ROADMAP.md', 'current release statement', new RegExp(String.raw`\*\*Current release:\*\* \x60v(${SEMVER})\x60`, 'g'), (v) => `**Current release:** \`v${v}\``),
 ];
 
 // Read every site; throw naming each one that disagrees with `version`.

@@ -1,6 +1,5 @@
 /* ============================================================================
-   Prax design system — ported from docs/desktop/design-handoff.md and the
-   Prax.dc.html prototype. Two first-class themes: light "Porcelain" (default)
+   Prax design system — Two first-class themes: light "Porcelain" (default)
    and dark "Deep Fern" via [data-theme="dark"]. Accent is user-swappable by
    overriding --accent inline on <body>.
    ========================================================================== */

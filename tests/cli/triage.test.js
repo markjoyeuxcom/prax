@@ -1,4 +1,4 @@
-// `prax triage` (docs/superpowers/specs/2026-09-23-triage-tui-design.md): the
+// `prax triage` (docs/design/triage-tui.md): the
 // guard, the review-walk ordering, and the keyboard flow over a fake client
 // and fake TTY streams, plus one end-to-end pass against a real app.
 import test from 'node:test';

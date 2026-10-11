@@ -8,8 +8,8 @@ import { renderTaskCollectionProgressHtml, renderTaskGroupsHtml, renderTaskRowHt
 import { TRUST_PREDICATES } from './libraryFilters.js';
 
 // Today — cross-project Planned / Overdue / Today, then the week ahead as one
-// group per calendar day inside a collapsible "Next 7 days" section
-// (docs/desktop/design-handoff.md §5). Pure render module: rows reuse the
+// group per calendar day inside a collapsible "Next 7 days" section.
+// Pure render module: rows reuse the
 // list-row markup from renderList.js plus a project chip after the title.
 // badge = overdue + today (+ planned) count, consumed by the sidebar Today item;
 // the week ahead is informational and never counts toward it.

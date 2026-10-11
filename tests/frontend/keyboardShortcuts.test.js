@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { installKeyboardShortcuts, isImeComposing, isInteractiveShortcutTarget, matchShortcut } from '../../public/js/keyboardShortcuts.js';
 
-// The Prax keymap (docs/desktop/design-handoff.md §Interactions): ⌘K palette,
+// The Prax keymap: ⌘K palette,
 // ⌘J theme, N capture, E done, ↑↓/↵ list navigation, Esc cascade, '/' palette,
 // plus the legacy g-chord view navigation.
 

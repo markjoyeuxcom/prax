@@ -517,7 +517,7 @@ export async function supersedeDocument(id, supersededBy) {
   return response.json();
 }
 
-// ---- Librarian (docs/superpowers/specs/2026-09-23-librarian-design.md) --------
+// ---- Librarian (docs/design/librarian.md) --------
 
 async function librarianJson(res, fallback) {
   if (!res.ok) {

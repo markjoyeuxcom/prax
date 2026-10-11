@@ -1,5 +1,5 @@
 // Librarian — pure parts of the consolidation pass (spec:
-// docs/superpowers/specs/2026-09-23-librarian-design.md). Near-duplicate
+// docs/design/librarian.md). Near-duplicate
 // detection (embedding cosine, with a title/body shingle fallback), clustering,
 // and the proposal document's shape. No IO here: the routes read documents
 // and vectors, and write proposals. Nothing in this module can retire a

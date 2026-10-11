@@ -1,5 +1,5 @@
 // skills/install.sh --hooks: the session-harvesting hook in each agent CLI's
-// own settings (docs/superpowers/specs/2026-09-23-session-harvesting-design.md).
+// own settings (docs/design/session-harvesting.md).
 // Every run gets a throwaway HOME, so the real ~/.claude, ~/.codex and
 // ~/.copilot are never touched. The installer runs from this checkout, which
 // is an app payload (cli/ next to skills/), as --hooks requires.

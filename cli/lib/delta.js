@@ -8,7 +8,7 @@
 // after a --since-last-session delta has been printed (recordDelta), so the
 // delta is a lossless change feed: plain recalls never move it, and an
 // explicit --since never does either.
-// See docs/superpowers/specs/2026-09-23-budgeted-context-and-brief-design.md.
+// See docs/design/budgeted-context-and-brief.md.
 import { compactLine, fillOrder, isRetired } from './budget.js';
 import { hiddenHarvestedNote } from '../../server/harvestedCandidates.js';
 import {

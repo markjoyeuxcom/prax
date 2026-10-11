@@ -1,7 +1,7 @@
 // cli/lib/triage.js — `prax triage`: a keyboard pass over the review queue in
 // a terminal. One document at a time, one key per decision: verify, edit,
 // supersede, archive or skip. The design is in
-// docs/superpowers/specs/2026-09-23-triage-tui-design.md.
+// docs/design/triage-tui.md.
 //
 // For people only. The session starts only after assertAttendedHuman (no
 // agent CLI environment, an interactive terminal in raw mode), and this module

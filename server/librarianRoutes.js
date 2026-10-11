@@ -1,4 +1,4 @@
-// Librarian routes (spec: docs/superpowers/specs/2026-09-23-librarian-design.md):
+// Librarian routes (spec: docs/design/librarian.md):
 // recall telemetry (used signals, status, clear), the knowledge-gaps queue,
 // recall counts, prune candidates, the consolidation pass that drafts
 // proposals, the human decisions on them, the read-only report behind

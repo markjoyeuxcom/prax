@@ -4,7 +4,7 @@
 // related documents with their trust, and the top recall matches for the task
 // — through the same fill order, compaction and trust chips as
 // `recall --budget` (cli/lib/budget.js), so there is one ranking, not two.
-// See docs/superpowers/specs/2026-09-23-budgeted-context-and-brief-design.md.
+// See docs/design/budgeted-context-and-brief.md.
 import { compactLine, fillOrder, oneLine, trustChip } from './budget.js';
 import { hiddenHarvestedNote } from '../../server/harvestedCandidates.js';
 import {

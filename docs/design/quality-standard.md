@@ -215,7 +215,7 @@ rule.
 | `tests/e2e/library-editor-reflow.spec.js` | Active/archive/semantic Library and editor reflow at 320 CSS px, ordered vertical split panes, bounded outline, document-info reachability, and exact narrow draft persistence. |
 | `tests/e2e/remaining-human-surfaces-reflow.spec.js` | Active/terminal runbook, every Settings section, parsed Markdown import, and Library export reflow at 320 CSS px, including a canonical run-step mutation and reachable dialog actions. |
 | `npm run measure:performance` | Versioned candidate p50/p95 HTTP/browser/resource baseline against the deterministic `large` fixture; not an activated numerical budget. |
-| `docs/manual-activation.md`, `npm run verify:manual-activation` | Reproducible, human-attested screen-reader/cognitive/real-touch/native matrix; prepared templates and validation do not count as completed human evidence. |
+| `docs/quality.md`, `npm run verify:manual-activation` | Reproducible, human-attested screen-reader/cognitive/real-touch/native matrix; prepared templates and validation do not count as completed human evidence. |
 | `npm run verify:performance-budget` | Separates raw candidate measurements, proposed thresholds, and explicitly human-approved compatible reference-hardware gates. |
 
 Evidence is selected by risk:
@@ -260,7 +260,7 @@ Initial profiles:
 Scale targets are fixture definitions, not performance budgets. Budgets activate only after the
 measurement harness exists. The generated SQLite artifact and neighbouring
 `prax.quality-fixture` v1 manifest are temporary; generation and post-copy verification commands
-are documented in [`docs/quality-fixture.md`](../../quality-fixture.md).
+are documented in [`docs/quality-fixture.md`](../quality-fixture.md).
 
 ## Performance-budget activation
 
@@ -369,7 +369,7 @@ Automate these first:
     **Automated baseline:** no-model/provider/citation failures, explicit embedding fallback,
     browser/CLI/MCP unreachable and lost-response outcomes, and unavailable/unsafe filesystem
     destinations have linked executable evidence in
-    [`docs/quality-scorecards.md`](../../quality-scorecards.md). Provider soak, physical disk
+    [`docs/quality.md`](../quality.md). Provider soak, physical disk
     exhaustion, and platform-manual drills remain Gate-B activation work.
 14. Use MCP/CLI/skills to enumerate, read, mutate, and reconcile data without silent omission or
     misleading success. **Automated:** owner-aware collections distinguish missing from empty;
@@ -517,7 +517,7 @@ categories 4 for a product release.
    import/export dialogs; a long real run-step mutation remains canonical within that narrow state.
    Gate-B activation still requires manual assistive-technology/platform drills and human-approved
    performance budgets; those constraints are recorded in
-   [`docs/quality-scorecards.md`](../../quality-scorecards.md).
+   [`docs/quality.md`](../quality.md).
    The manual drill matrix, privacy-safe evidence schema, and threshold validator are now prepared.
    The 2026-07-14 large-fixture boundary has explicit human approval, but its first fresh enforcing
    run failed Library p50 (862.93 ms versus 850 ms), so performance activation remains held alongside

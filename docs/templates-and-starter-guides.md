@@ -36,10 +36,6 @@ the current packaged starters. Only choosing Use template/Create task writes to 
 An upgrade updates the bundled originals; your copies, edits, verification and archives stay
 under your control. Existing projects and personal notes still require your database/backup.
 
-The recent repository organisation guidance is also recorded in [Working on Prax](working-on-prax.md),
-[agent memory](agent-memory.md), the CLI documentation, root agent instructions and portable
-skill instructions. The personalised Library cleanup and historical release evidence are
-user data; they are not universal product defaults.
 
 ## Recovery and contracts
 

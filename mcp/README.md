@@ -5,9 +5,6 @@ Prax's HTTP API to Claude Code as tools, so you can search, read, create, edit, 
 cross-link tasks and library documents interactively — running on your Claude Pro/Max
 subscription rather than the Anthropic API.
 
-Internal design spec (for contributors with the repo checked out):
-`docs/superpowers/specs/2026-05-20-prax-mcp-design.md`.
-
 The MCP tool surface (tool names, inputs, output shapes) is documented in
 [`docs/contract.md`](../docs/contract.md). It's pre-1.0 and still evolving; a regression suite
 under `tests/contract/` locks the current shapes so changes are made deliberately.
