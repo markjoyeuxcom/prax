@@ -46,6 +46,11 @@ updates:
       - dependencies
       - docker
     open-pull-requests-limit: 5
+    # Prax ships Node 24 (NODE_VERSION in .github/workflows/desktop-build.yml)
+    # and the image follows the LTS line; odd-numbered majors are not proposed.
+    ignore:
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: docker-compose
     directory: /
