@@ -498,6 +498,25 @@ prax move c58d3108-4f93-4a50-ac42-0c1d61e61b08 --to homelab
 `--json` prints `{ kind, id, title, from, to, record }`, where `record` is the updated document
 or task.
 
+### `archive <id>`, `restore <id>`, `delete <id> --yes`
+
+The lifecycle of one document or one task ([design](design/agent-archive-delete.md)); the id is
+tried as a document first, then as a task. `archive` is reversible: the document leaves recall,
+context packs and the mirror (the task leaves every open list) until `restore` brings it back.
+`delete` is permanent and guarded three ways: the record must already be archived (two deliberate
+steps, never one), a verified document is never deleted by an agent, archived or not, and `--yes`
+must be given; without it the command names what would go and exits 1. There is no prompt. Every
+request carries the agent origin and id, and the document's `updatedBy` / `updatedByAgent` say who
+archived or restored it. Use `supersede` for memory that was replaced; use `archive` for memory
+that should not have been written; stop at archive when unsure.
+
+```bash
+prax archive 7c1e… 
+# Archived document "Wrong note about the proxy" (7c1e…). Restore it with `prax restore 7c1e…`.
+prax delete 7c1e… --yes
+# Permanently deleted document "Wrong note about the proxy" (7c1e…).
+```
+
 ### `task <add|list|show|update|done|check|uncheck>`
 
 Tasks from any shell, for handoff notes, acceptance checklists and agent work orders. The

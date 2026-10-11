@@ -892,7 +892,7 @@ export async function registerLibraryRoutes(app, options = {}) {
       return { message: 'document id is invalid' };
     }
 
-    const document = await repository.restoreDocument(request.params.id);
+    const document = await repository.restoreDocument(request.params.id, { updatedBy: originFrom(request), updatedByAgent: agentFrom(request) });
     if (!document) {
       reply.code(404);
       return { message: 'document not found' };
@@ -983,7 +983,8 @@ export async function registerLibraryRoutes(app, options = {}) {
       return { message: 'document id is invalid' };
     }
 
-    const document = await repository.archiveDocument(request.params.id);
+    // Attributable (QINV-11): the archive carries the caller's origin and agent.
+    const document = await repository.archiveDocument(request.params.id, { updatedBy: originFrom(request), updatedByAgent: agentFrom(request) });
     if (!document) {
       reply.code(404);
       return { message: 'document not found' };

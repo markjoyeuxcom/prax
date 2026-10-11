@@ -268,27 +268,40 @@ export function buildUpdateDocument(id, fields, { revision, expectRevision } = {
   };
 }
 
-export function buildArchiveDocument(id) {
+// Archive and restore are attributable (QINV-11): when the caller names the
+// actor, `updated_by` / `updated_by_agent` record who did it, as every other
+// document write does, so the delta and the Library say who archived what.
+// Without an actor the lifecycle columns alone change.
+function actorClause(actor, from) {
+  if (!actor || !actor.updatedBy) return { set: '', values: [] };
+  const agent = actor.updatedBy === 'agent' && typeof actor.updatedByAgent === 'string' && actor.updatedByAgent
+    ? actor.updatedByAgent : null;
+  return { set: `, updated_by = $${from}, updated_by_agent = $${from + 1}`, values: [actor.updatedBy, agent] };
+}
+
+export function buildArchiveDocument(id, actor = null) {
+  const stamp = actorClause(actor, 2);
   return {
     text: `
       update markdown_documents
-      set archived_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+      set archived_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')${stamp.set}
       where id = $1 and archived_at is null
       returning *
     `,
-    values: [id],
+    values: [id, ...stamp.values],
   };
 }
 
-export function buildRestoreDocument(id) {
+export function buildRestoreDocument(id, actor = null) {
+  const stamp = actorClause(actor, 2);
   return {
     text: `
       update markdown_documents
-      set archived_at = null, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+      set archived_at = null, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')${stamp.set}
       where id = $1 and archived_at is not null
       returning *
     `,
-    values: [id],
+    values: [id, ...stamp.values],
   };
 }
 
@@ -1025,16 +1038,16 @@ export function createLibraryRepository(db) {
       });
     },
 
-    async archiveDocument(id) {
+    async archiveDocument(id, actor = null) {
       await ready();
-      const query = buildArchiveDocument(id);
+      const query = buildArchiveDocument(id, actor);
       const result = await db.query(query.text, query.values);
       return result.rows[0] ? normalizeDocumentRow(result.rows[0]) : null;
     },
 
-    async restoreDocument(id) {
+    async restoreDocument(id, actor = null) {
       await ready();
-      const query = buildRestoreDocument(id);
+      const query = buildRestoreDocument(id, actor);
       const result = await db.query(query.text, query.values);
       if (!result.rows[0]) return null;
       // RETURNING reflects only this statement's write — the 0018 restore

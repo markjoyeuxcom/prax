@@ -261,6 +261,28 @@ export function createClient({
     getTask(id) {
       return request('GET', `/api/tasks/${encodeURIComponent(id)}`);
     },
+    // Lifecycle (prax archive / restore / delete). Each is idempotent on the
+    // server (archiving an archived record, restoring an active one and
+    // deleting a deleted one change nothing more), so a retry is allowed only
+    // when no request provably reached the server.
+    archiveDocument(id) {
+      return request('DELETE', `/api/library/documents/${encodeURIComponent(id)}`, { agent: true, retryUnavailable: 'connect-only' });
+    },
+    restoreDocument(id) {
+      return request('PATCH', `/api/library/documents/${encodeURIComponent(id)}/restore`, { agent: true, retryUnavailable: 'connect-only' });
+    },
+    deleteDocument(id) {
+      return request('DELETE', `/api/library/documents/${encodeURIComponent(id)}/permanent`, { agent: true, retryUnavailable: 'connect-only' });
+    },
+    archiveTask(id) {
+      return request('DELETE', `/api/tasks/${encodeURIComponent(id)}`, { agent: true, retryUnavailable: 'connect-only' });
+    },
+    restoreTask(id) {
+      return request('PATCH', `/api/tasks/${encodeURIComponent(id)}/restore`, { agent: true, retryUnavailable: 'connect-only' });
+    },
+    deleteTask(id) {
+      return request('DELETE', `/api/tasks/${encodeURIComponent(id)}/permanent`, { agent: true, retryUnavailable: 'connect-only' });
+    },
     // Exact-once when the payload carries a requestId: the server records the
     // result under it and replays it, so one lost response is safe to retry.
     importTasks(payload) {

@@ -218,6 +218,14 @@ test('archive and restore are archived-state scoped; permanent delete removes an
   assert.deepEqual(archive.values, [DOCUMENT_ID]);
   assert.deepEqual(restore.values, [DOCUMENT_ID]);
   assert.deepEqual(remove.values, [DOCUMENT_ID]);
+  assert.doesNotMatch(archive.text, /updated_by/, 'no actor, no stamp');
+
+  // With an actor the archive and restore are attributable (QINV-11).
+  const byAgent = buildArchiveDocument(DOCUMENT_ID, { updatedBy: 'agent', updatedByAgent: 'codex' });
+  assert.match(byAgent.text, /updated_by = \$2, updated_by_agent = \$3/);
+  assert.deepEqual(byAgent.values, [DOCUMENT_ID, 'agent', 'codex']);
+  const byUser = buildRestoreDocument(DOCUMENT_ID, { updatedBy: 'user', updatedByAgent: 'ignored' });
+  assert.deepEqual(byUser.values, [DOCUMENT_ID, 'user', null], 'an agent id is recorded only for an agent');
 });
 
 test('listDocuments uses FTS5 full-text search with quoted prefix phrases when q is present', async () => {
