@@ -176,7 +176,7 @@ export function renderReviewDeskHtml(state) {
   const ready = Boolean(loaded);
   const actions = '<div class="rq-actions" role="group" aria-label="Decision">'
     + `<button type="button" class="btn-primary rq-act" data-action="review-desk-verify"${ready ? '' : ' disabled'}>✓ Verify<span class="kbd">V</span></button>`
-    + `<button type="button" class="btn-ghost rq-act" data-action="review-doc" data-document-id="${escapeHtml(currentId)}">Edit, then verify<span class="kbd">E</span></button>`
+    + `<button type="button" class="btn-ghost rq-act" data-action="review-doc" data-document-id="${escapeHtml(currentId)}" title="Open it in the editor, fix it, then verify there">Edit<span class="kbd">E</span></button>`
     + `<button type="button" class="btn-ghost rq-act" data-action="review-desk-supersede-pick">Supersede…<span class="kbd">M</span></button>`
     + '<span class="rq-actions__gap"></span>'
     + `<button type="button" class="btn-ghost rq-act rq-act--reject" data-action="review-desk-reject" title="Archive it: out of recall and the queue, restorable from the archive">Reject<span class="kbd">R</span></button>`

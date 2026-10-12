@@ -203,6 +203,7 @@ export function renderTitlebarHtml(state) {
     + '</div>';
   const actions = state.editorFocus ? '' : '<div class="titlebar__actions">'
     + `<button type="button" class="btn-ghost titlebar__ask${state.navType === 'ask' ? ' is-active' : ''}" data-action="open-ask-page" title="Ask Prax: cited answers from your library">${icon('spark', 13)}<span>Ask</span></button>`
+    + `<button type="button" class="btn-icon" data-action="open-assistant" title="Assistant: can change tasks and documents, with your approval (⌘I)" aria-label="Assistant">${icon('chat', 14)}</button>`
     + renderNewMenuHtml(state)
     + `<button type="button" class="btn-icon" data-action="toggle-theme" title="Toggle theme (⌘J)" aria-label="Toggle theme">${icon('contrast', 14)}</button>`
     + (isMac || state.desktopShell ? '' : WIN_CONTROLS)
@@ -620,7 +621,7 @@ const STATUS_HINTS = {
   library: [['/', 'search'], ['↑↓', 'move'], ['↵', 'open']],
   desk: [['v', 'verify'], ['e', 'edit'], ['r', 'reject'], ['j', 'skip']],
   ask: [['↵', 'ask'], ['⌘K', 'command'], ['⌘I', 'assistant']],
-  other: [['⌘K', 'command'], ['n', 'new task'], ['⌘I', 'ask']],
+  other: [['⌘K', 'command'], ['n', 'new task'], ['⌘I', 'assistant']],
 };
 
 export function statusbarHints(state) {

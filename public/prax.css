@@ -3922,7 +3922,7 @@ button.rq-item:hover { background: color-mix(in oklab, var(--ink) 5%, transparen
 .rq-overlap__text strong { font-size: 13px; color: var(--ink); }
 
 .rq-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding-top: 16px; border-top: 1px solid var(--line); }
-.rq-act { height: 44px; padding: 0 13px; font-size: 13.5px; font-weight: 600; gap: 9px; display: inline-flex; align-items: center; }
+.rq-act { height: 40px; padding: 0 10px; font-size: 13px; font-weight: 600; gap: 7px; display: inline-flex; align-items: center; }
 .rq-actions { gap: 8px; }
 .rq-act .kbd { background: transparent; }
 .btn-primary.rq-act .kbd { color: #10130F; border-color: rgba(16, 19, 15, .35); }

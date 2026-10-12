@@ -34,7 +34,17 @@ fresh empty `[Unreleased]` section is started.
 - **Library ▸ Tags**: every tag with its usage, last use and who added it; filters for possible
   duplicates, used once and agent-only; suggested merges that re-tag documents as a human edit.
 - With a filter active, the Library panel lists only the tags present in the results.
-- The review queue is a place in the sidebar (`nav-review`).
+- **Review desk.** The review queue is a place in the sidebar and opens one document at a
+  time: the queue, the memory, and its provenance (agent, cited commits and code, recall
+  counts, links). V verify, E edit, M supersede, R reject (archive), J skip; Verify binds to the
+  revision on screen. The table and bulk verify are one click away.
+- **Ask Prax page.** Questions get a full page: numbered citations matched to a sources rail,
+  a warning when a cited source is unverified, a project scope, earlier questions on this
+  device, and Save answer as note.
+- **Editor selection bar.** Selecting text offers Summarize, Rewrite for clarity, Notes →
+  checklist and Ask Prax… beside the selection.
+- `[[` link completion shows each document's type and trust and ranks verified documents
+  first.
 
 ### Fixed
 

@@ -68,6 +68,48 @@ visual language, keeping every `data-action`, every view and every behaviour con
   conservative merge suggestions. A merge is confirmed, then re-tags each document through the
   ordinary human PATCH, so revision and verification rules apply as for a hand edit.
 
+### Review desk
+
+- **One at a time.** `nav-review` opens the desk (`renderReviewDesk.js`): the queue oldest
+  first, the memory itself, and its provenance (agent, when, commits and code refs it cites,
+  recall counts, links). The table with bulk verify stays one click away (`reviewLayout`).
+- **Verify binds to the revision shown.** The desk fetches the saved document and passes its
+  revision to `changeDocumentVerification`, the editor's QINV-04 rule; a changed document is
+  refused and reloaded rather than verified unseen.
+- **Decisions.** V verify, E edit then verify, M supersede (pick a replacement, or the
+  overlapping verified document semantic search found), R reject (archives it, restorable),
+  J skip. The mockup's "merge" is supersede: Prax has no body-merge operation, and supersede
+  is the existing, reversible way to retire one document in favour of another.
+- **Not shown:** the mockup's session id and "anchor matches HEAD" check. Documents do not
+  record a session, and code refs are not compared with the working tree; the desk shows the
+  commits the refs cite instead.
+
+### Ask Prax page
+
+- **A page, not a modal.** `navType: 'ask'` (`renderAskPage.js`): earlier questions (kept on
+  this device, `prax.askHistory.v1`, 30 entries), the thread, a composer with a project scope,
+  and the sources rail. The command bar and ⌘I still open it; the assistant panel is a link.
+- **Numbered citations.** The server validates `[Title]` citations against the sources it
+  used; the page numbers those sources and swaps each title for its number, rendered after the
+  untrusted markdown pass so chips cannot be injected. Cited unverified sources raise a warning
+  that links to the review queue.
+- **Save answer as note** creates a note tagged `ask-prax` in the scoped project or the Inbox.
+- **Not done:** the mockup's suggested tasks. Nothing in the ask contract proposes tasks, and
+  inventing them client-side would bypass the grounding rules.
+
+### Editor
+
+- **Selection bar.** The CodeMirror bundle reports selection changes with measured
+  coordinates (`onSelectionChange`); main.js positions a `.selbar` under the selection with the
+  writing actions that take a selection (Summarize, Rewrite for clarity, Notes → checklist) and
+  Ask Prax…, which opens the Ask page with the selection as the question. The bar is
+  imperative so a selection never forces a full render; mousedown is swallowed so the
+  selection survives a click.
+- **[[ picker.** Completions carry the document type and trust, verified documents rank first
+  among equal matches, and trust colours the detail. The mockup's "create new note" row is not
+  built: a link to a missing title renders as a missing link, and creating from the picker is
+  left for a follow-up.
+
 ## Not done (deliberately)
 
 - **Library reader pane.** The mockup's list | reader | context layout would change what a
@@ -79,5 +121,8 @@ visual language, keeping every `data-action`, every view and every behaviour con
 
 - Unit: `renderShell`, `renderTaskDetail` (docking), `renderBoard`, `tagStats`,
   `renderTagsManager`, `tagNormalization`, preferences and settings.
-- e2e: `console-inspector.spec.js`, `console-tags.spec.js`; existing specs updated for the
-  places and the queue title. The axe audit covers all ten accents in both themes.
+- Unit: `renderReviewDesk`, `renderAskPage` (citation numbering, untrusted rendering), state
+  for the desk and ask history.
+- e2e: `console-inspector.spec.js`, `console-tags.spec.js`, `console-review-desk.spec.js`,
+  `console-ask.spec.js`, `console-editor.spec.js`; existing specs updated for the places, the
+  queue title and the desk (review walks open the table first). The axe audit covers all ten accents in both themes.
