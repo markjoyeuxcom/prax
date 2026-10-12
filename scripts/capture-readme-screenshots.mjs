@@ -118,19 +118,20 @@ async function capture() {
     await page.locator('.board').waitFor();
     await shot('prax-board');
 
-    await page.locator('.rail [data-action="nav-today"]').click();
+    await page.locator('.places [data-action="nav-today"]').click();
     await page.locator('[data-triage]').waitFor();
     await shot('prax-today');
 
-    await page.locator('.rail [data-action="nav-library"]').click();
+    await page.locator('.places [data-action="nav-library"]').click();
     await page.locator('.doc-card').first().waitFor();
     await shot('prax-library');
 
-    await page.locator('.rail [data-action="nav-settings"]').click();
+    await page.locator('.panel__foot [data-action="nav-settings"]').click();
     await page.locator('.settings-card__title').first().waitFor();
-    // The Deep Fern theme: the same toggle the titlebar offers.
+    // The light Paper theme (Graphite is the default): the same toggle the
+    // titlebar offers.
     await page.locator('[data-action="toggle-theme"]').click();
-    await page.waitForFunction(() => document.body.getAttribute('data-theme') === 'dark');
+    await page.waitForFunction(() => document.body.getAttribute('data-theme') === 'light');
     await shot('prax-settings');
   } finally {
     await browser.close();

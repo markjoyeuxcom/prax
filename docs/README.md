@@ -31,6 +31,7 @@ code before relying on a detail.
 | --- | --- |
 | [Quality standard](design/quality-standard.md) | The product quality policy: promise, Gate A/B ratchet, invariants, critical journeys, evidence requirements |
 | [Year-one shell](design/year-one-shell.md) | The shell redesign for a year of heavy use: header, navigation, palette scopes, Library table mode, Today |
+| [Console shell](design/console-shell.md) | The Console layout and visual language: one sidebar, command bar, status line, docked inspector, tags at scale |
 | [Budgeted context and brief](design/budgeted-context-and-brief.md) | Token budgets for `context`, `recall` and `brief`, and the since-last-session memory delta |
 | [Librarian](design/librarian.md) | Recall telemetry, near-duplicate and stale detection, and the librarian review surface |
 | [Session harvesting](design/session-harvesting.md) | Turning an agent's `Remember:` proposals into unverified Inbox candidates through vendor hooks |
