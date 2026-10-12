@@ -1,13 +1,13 @@
 export const LOCAL_STORAGE_KEY = 'prax.preferences';
 
-// Prax appearance preferences. Theme is light "Porcelain" / dark "Deep Fern";
-// accent is one of nine oklch swatches applied as a --accent-choice override;
+// Prax appearance preferences. Theme is dark "Graphite" (the Console default)
+// or light "Paper"; accent is one of ten oklch swatches applied as a --accent-choice override;
 // CSS derives a light- or dark-theme-safe --accent from that vivid choice. The
 // reading scale (0.85–1.25) applies to editor/preview prose only; chromeOS
 // picks macOS traffic lights vs Windows controls in the titlebar.
 export const DEFAULT_PREFERENCES = Object.freeze({
-  theme: 'light',
-  accent: 'fern',
+  theme: 'dark',
+  accent: 'lime',
   chromeOS: 'mac',
   readingScale: 1,
   lineNumbers: false,
@@ -37,20 +37,21 @@ export const WIP_LIMIT_OPTIONS = Object.freeze([0, 3, 4, 5]);
 export const THEME_OPTIONS = Object.freeze(['light', 'dark']);
 // CodeMirror's text font: proportional prose or aligned monospace code.
 export const EDITOR_FONT_OPTIONS = Object.freeze(['proportional', 'monospace']);
-// The rendered-preview body font. Serif (Source Serif 4) is the reading default;
+// The rendered-preview body font. Serif (Newsreader) is the reading default;
 // sans matches the app chrome; mono suits code-heavy runbooks. Headings stay the
 // clean sans face in every mode.
 export const PREVIEW_FONT_OPTIONS = Object.freeze(['serif', 'sans', 'mono']);
-export const ACCENT_OPTIONS = Object.freeze(['fern', 'teal', 'sky', 'indigo', 'plum', 'rose', 'amber', 'clay', 'moss']);
+export const ACCENT_OPTIONS = Object.freeze(['lime', 'fern', 'teal', 'sky', 'indigo', 'plum', 'rose', 'amber', 'clay', 'moss']);
 export const CHROME_OPTIONS = Object.freeze(['mac', 'win']);
 export const READING_SCALE_MIN = 0.85;
 export const READING_SCALE_MAX = 1.25;
 
-// Fern is the token default in prax.css (per theme); the others override --accent
+// Lime is the token default in prax.css (per theme); the others override --accent
 // with a single oklch tuned to read on both light and dark. A full spread from
 // green through blue/violet to red so "colour mode" is a real choice.
 export const ACCENT_CSS = Object.freeze({
-  fern: null,
+  lime: null,
+  fern: 'oklch(0.60 0.09 175)',
   teal: 'oklch(0.62 0.10 200)',
   sky: 'oklch(0.60 0.13 240)',
   indigo: 'oklch(0.60 0.11 265)',

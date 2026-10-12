@@ -71,9 +71,14 @@ test('normalizePreferences preserves valid theme, accent, and chrome values', ()
   );
 });
 
+test('the Console defaults: Graphite theme and the lime accent', () => {
+  assert.equal(DEFAULT_PREFERENCES.theme, 'dark');
+  assert.equal(DEFAULT_PREFERENCES.accent, 'lime');
+});
+
 test('the option sets are the design set', () => {
   assert.deepEqual([...THEME_OPTIONS], ['light', 'dark']);
-  assert.deepEqual([...ACCENT_OPTIONS], ['fern', 'teal', 'sky', 'indigo', 'plum', 'rose', 'amber', 'clay', 'moss']);
+  assert.deepEqual([...ACCENT_OPTIONS], ['lime', 'fern', 'teal', 'sky', 'indigo', 'plum', 'rose', 'amber', 'clay', 'moss']);
   assert.deepEqual([...CHROME_OPTIONS], ['mac', 'win']);
 });
 
@@ -166,11 +171,11 @@ test('applyPreferences writes the preview-font attribute (drives --prose-font)',
   assert.equal(body.getAttribute('data-preview-font'), 'serif');
 });
 
-test('applyPreferences clears the accent-choice override for the default fern accent', () => {
+test('applyPreferences clears the accent-choice override for the default lime accent', () => {
   const body = bodyStub();
 
   applyPreferences({ theme: 'light', accent: 'indigo' }, body);
-  applyPreferences({ theme: 'light', accent: 'fern' }, body);
+  applyPreferences({ theme: 'light', accent: 'lime' }, body);
 
   assert.equal(body.style.getPropertyValue('--accent-choice'), undefined);
 });
