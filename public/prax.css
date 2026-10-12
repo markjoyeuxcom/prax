@@ -3872,3 +3872,10 @@ body[data-density="compact"] .task-row__open { padding-top: 5px; padding-bottom:
 .tag-table__dim { font-family: var(--font-mono); font-size: 11.5px; color: var(--ink2); white-space: nowrap; }
 .tag-table__agent { color: var(--agent); }
 .tag-table__more { display: block; width: 100%; min-height: 34px; font-family: var(--font-mono); font-size: 11.5px; color: var(--ink2); background: var(--bg); }
+
+/* ---- Console: review queue, Ask Prax, palette ---------------------------- */
+.review-banner { background: var(--agent-soft); border-color: color-mix(in oklab, var(--agent) 35%, transparent); }
+.asst__title svg { color: var(--agent); }
+.palette { border-radius: 12px; }
+.palette__prompt { font-family: var(--font-mono); font-size: 17px; font-weight: 600; color: var(--accent); width: 15px; text-align: center; }
+.palette__input { font-size: 16px; }

@@ -237,7 +237,7 @@ export function renderPaletteHtml(state, model = { groups: [], flat: [] }) {
     <div class="overlay-center" data-overlay="palette" data-action="close-palette">
       <div class="palette" role="dialog" aria-label="Command palette">
         <div class="palette__input-row">
-          ${icon('search')}
+          <span class="palette__prompt" aria-hidden="true">›</span>
           <input class="palette__input" type="text" data-palette-input placeholder="Type a command, task, or document…" value="${escapeHtml(state?.paletteQuery ?? '')}" autocomplete="off" spellcheck="false">
           <span class="kbd">esc</span>
         </div>

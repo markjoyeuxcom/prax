@@ -45,7 +45,7 @@ for (const action of ['skip', 'back']) {
         await expect(page.locator('.review-walk')).toContainText('2 of 3');
       } else {
         await page.locator('.review-walk [data-action="back-to-library"]').click();
-        await expect(page.locator('.page-head__sub')).toHaveText('Review queue');
+        await expect(page.locator('.page-head__title')).toHaveText('Review queue');
       }
     } finally { release.resolve(); }
     await expect(page.locator('.toast')).toContainText('Document verified');

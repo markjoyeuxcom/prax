@@ -271,11 +271,11 @@ function renderPageHead(state, model) {
   const sub = model.archive
     ? '<span class="page-head__sub">Archive</span>'
     : (model.review
-      ? '<span class="page-head__sub">Review queue</span>'
+      ? '<span class="page-head__sub">Agent memory waiting for a person</span>'
       : (count ? `<span class="page-head__sub page-head__meta">${count === 1 ? '1 document' : `${count} documents`} · ${Number(model.verifiedCount) || 0} verified</span>` : ''));
   return `
     <header class="page-head">
-      <h1 class="page-head__title">Library</h1>
+      <h1 class="page-head__title">${model.review ? 'Review queue' : 'Library'}</h1>
       ${sub}
       <div class="page-head__actions">
         <button class="btn-ghost" type="button" data-action="open-ask-prax" title="Ask Prax a question, answered from your library">${icon('spark', 13)}<span>Ask Prax</span></button>

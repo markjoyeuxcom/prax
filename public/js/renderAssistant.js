@@ -256,7 +256,7 @@ export function renderAssistantHtml(state, { renderMarkdown = (s) => escapeHtml(
     <div class="overlay-scrim asst-scrim" data-overlay="assistant" data-action="close-assistant">
       <aside class="asst" role="dialog" aria-label="Prax assistant">
         <header class="asst__head">
-          <div class="asst__title">${icon('chat', 14)}<span>Assistant</span>${modelNote ? `<span class="asst__model">${modelNote}</span>` : ''}</div>
+          <div class="asst__title">${icon('spark', 14)}<span>Ask Prax</span>${modelNote ? `<span class="asst__model">${modelNote}</span>` : ''}</div>
           <div class="asst__head-actions">
             ${items.length ? '<button type="button" class="btn-ghost btn-ghost--sm" data-action="assistant-clear">New chat</button>' : ''}
             <button type="button" class="btn-icon" data-action="close-assistant" title="Close (Esc)">✕</button>
