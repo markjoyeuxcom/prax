@@ -45,7 +45,7 @@ test('Review next walks the queue: verify and next, verify and finish, back on t
   await strip.locator('[data-action="review-walk-verify"]').click();
 
   // Back on the queue, with the summary; both documents are verified for real.
-  await expect(page.locator('.page-head__sub')).toHaveText('Review queue');
+  await expect(page.locator('.page-head__title')).toHaveText('Review queue');
   await expect(page.locator('.toast')).toContainText('Queue walked — 2 documents verified.');
   for (const doc of [first, second]) {
     const saved = await (await request.get(`/api/library/documents/${doc.id}`)).json();
@@ -90,6 +90,6 @@ test('Skip moves on without verifying, and Back to queue leaves the walk', async
   await expect(strip.locator('[data-action="review-walk-skip"]')).toHaveText('Skip and finish');
 
   await strip.locator('[data-action="back-to-library"]').click();
-  await expect(page.locator('.page-head__sub')).toHaveText('Review queue');
+  await expect(page.locator('.page-head__title')).toHaveText('Review queue');
   await expect(page.locator('.review-walk')).toHaveCount(0);
 });

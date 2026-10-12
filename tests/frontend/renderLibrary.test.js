@@ -827,7 +827,8 @@ test('the review view narrows the model to the queue, forces the table layout, a
 
 test('renderLibraryHtml in the review view: sub-line, banner with counts, table with Review buttons, no layout toggle', () => {
   const html = render({ documents: [...DOCS, ...AGENT_DOCS], libraryView: 'review' });
-  assert.match(html, /class="page-head__sub">Review queue</);
+  assert.match(html, /<h1 class="page-head__title">Review queue<\/h1>/);
+  assert.match(html, /class="page-head__sub">Agent memory waiting for a person</);
   assert.match(html, /class="review-banner" role="status"/);
   assert.match(html, /chip chip--unverified">2 to review</);
   assert.match(html, /class="review-banner__agents">claude 1 · codex 1 · 1 stale</);
@@ -919,6 +920,6 @@ test('the header names how much there is and how much is verified, except in the
   assert.match(render(), /class="page-head__sub page-head__meta">3 documents · 0 verified</);
   assert.match(render({ documents: [{ ...DOCS[0], verified: true }] }), /1 document · 1 verified</);
   assert.doesNotMatch(render({ libraryView: 'archive' }), /page-head__meta/);
-  assert.match(render({ libraryView: 'review' }), /class="page-head__sub">Review queue</);
+  assert.match(render({ libraryView: 'review' }), /<h1 class="page-head__title">Review queue<\/h1>/);
   assert.doesNotMatch(render({ documents: [] }), /page-head__meta/);
 });
