@@ -3814,3 +3814,61 @@ body[data-density="compact"] .task-row__open { padding-top: 5px; padding-bottom:
 .task-check { z-index: 0; }
 .task-check::before { z-index: -1; }
 .group-label__toggle { min-height: 24px; }
+
+/* ---- Console Library: quiet chips, mono metadata, violet agent trust ----- */
+/* Type badges are a bordered mono label; colour is reserved for trust. */
+[class*="chip--type-"] {
+  background: transparent !important; color: var(--ink2) !important;
+  border: 1px solid var(--line2); border-radius: 4px; padding: 1px 5px;
+  font-family: var(--font-mono); font-weight: 500;
+}
+.chip--tag { background: transparent; color: var(--ink2); font-family: var(--font-mono); font-weight: 400; padding: 0; }
+.chip--verified { background: transparent; color: var(--accent); font-family: var(--font-mono); padding: 0; }
+.chip--verified::before { content: "✓ "; }
+.doc-card { border-radius: 8px; background: color-mix(in oklab, var(--card) 70%, var(--surface)); }
+.doc-card:hover { border-color: var(--line2); box-shadow: none; }
+.doc-card__title { letter-spacing: -0.01em; }
+.doc-card__excerpt { font-family: var(--font-prose); font-size: 14px; color: var(--ink2); }
+
+/* ---- Library ▸ Tags ------------------------------------------------------- */
+.tags-page { max-width: 1100px; }
+.tags-page__facts { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 6px; font-family: var(--font-mono); font-size: 11.5px; color: var(--ink3); }
+.tags-page__facts b { color: var(--ink); font-weight: 500; }
+.tags-page__warn b { color: var(--med); }
+.tags-page__rule { margin: 10px 0 0; font-size: 12.5px; color: var(--ink3); }
+.tags-page__section { margin-top: 18px; }
+.tag-merges { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr)); gap: 10px; }
+.tag-merge {
+  display: flex; flex-direction: column; gap: 8px; padding: 12px 14px;
+  border: 1px solid color-mix(in oklab, var(--med) 30%, transparent); border-radius: 8px;
+  background: color-mix(in oklab, var(--med) 5%, transparent);
+}
+.tag-merge__tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.tag-merge__arrow { color: var(--med); font-family: var(--font-mono); }
+.tag-merge__why { margin: 0; font-size: 12.5px; color: var(--ink2); }
+.tag-merge__go { align-self: flex-start; }
+.tagx {
+  display: inline-flex; align-items: center; height: 22px; padding: 0 7px; border-radius: 5px;
+  border: 1px solid var(--line2); background: var(--card); font-family: var(--font-mono); font-size: 11.5px; color: var(--ink);
+}
+.tagx--from { color: var(--ink3); text-decoration: line-through; text-decoration-color: var(--ink3); }
+.tagx--into { border-color: color-mix(in oklab, var(--accent) 45%, transparent); color: var(--accent); }
+.tagx--link { cursor: pointer; min-height: 24px; }
+.tagx--link:hover { border-color: var(--accent); }
+.tags-page__toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; }
+.tag-filter { background: transparent; color: var(--ink2); border-color: var(--line2); min-height: 26px; }
+.tag-filter.is-active { background: color-mix(in oklab, var(--ink) 9%, transparent); color: var(--ink); }
+.tag-filter__n { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink3); }
+.tags-page__find { margin: 0 0 0 auto; width: 220px; }
+.tag-table-wrap { border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; }
+.tag-table { width: 100%; min-width: 720px; border-collapse: collapse; font-size: 12.5px; }
+.tag-table th { text-align: left; font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--ink3); padding: 9px 14px; border-bottom: 1px solid var(--line); background: var(--bg); }
+.tag-table td { padding: 6px 14px; border-bottom: 1px solid var(--line); }
+.tag-table__row:hover { background: color-mix(in oklab, var(--ink) 4%, transparent); }
+.tag-table__count { display: flex; align-items: center; gap: 10px; font-family: var(--font-mono); }
+.tag-table__count > span:first-child { width: 26px; text-align: right; }
+.tag-table__bar { flex: 1; max-width: 120px; height: 4px; border-radius: 2px; background: var(--line); }
+.tag-table__bar span { display: block; height: 4px; border-radius: 2px; background: color-mix(in oklab, var(--ink) 35%, transparent); }
+.tag-table__dim { font-family: var(--font-mono); font-size: 11.5px; color: var(--ink2); white-space: nowrap; }
+.tag-table__agent { color: var(--agent); }
+.tag-table__more { display: block; width: 100%; min-height: 34px; font-family: var(--font-mono); font-size: 11.5px; color: var(--ink2); background: var(--bg); }

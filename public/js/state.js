@@ -110,7 +110,11 @@ export const state = {
   librarySavedViews: [],
   librarySortBy: 'updated',     // 'updated' | 'title' cycler; the review queue adds 'recalled'
   recallCounts: null,           // { counts: { id: { hits, uses } }, since } for the 'recalled' sort
-  libraryView: 'active',        // 'active' | 'archive' | 'review' (the agent-memory review queue)
+  libraryView: 'active',        // 'active' | 'archive' | 'review' (the agent-memory review queue) | 'tags'
+  tagsFilter: 'all',            // Library ▸ Tags: 'all' | 'duplicates' | 'once' | 'agents'
+  tagsQuery: '',                // Library ▸ Tags find box
+  tagsShowAll: false,           // Library ▸ Tags: past the first TAG_TABLE_LIMIT rows
+  pendingTagMerge: null,        // { into, from[] } while the merge confirm is open
   libraryLayout: 'cards',       // 'cards' | 'table' (localStorage)
   librarySelectedDocIds: [],    // table-mode multi-select for the bulk bar
   reviewWalk: null,             // { ids, index, verified } while reviewing the queue one document at a time

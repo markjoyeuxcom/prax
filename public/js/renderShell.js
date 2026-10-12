@@ -11,7 +11,7 @@ import { isCollapsed } from './collapsed.js';
 import { buildTodayGroups, weeklyReviewStatus } from './renderToday.js';
 import { buildCalendarModel, monthKeyOf } from './renderCalendar.js';
 import { DOCUMENT_TYPES } from './documentTypes.js';
-import { libraryFacetCounts, TRUST_FACETS, TAG_ROW_LIMIT } from './renderLibrary.js';
+import { libraryFacetCounts, TRUST_FACETS, TAG_ROW_LIMIT, buildLibraryModel } from './renderLibrary.js';
 import { tagsForDocuments } from './libraryFilters.js';
 import { isOpen } from './statusMap.js';
 
@@ -106,6 +106,7 @@ export function buildBreadcrumb(state) {
     case 'library':
       if (state.libraryView === 'archive') return [{ label: 'Library', action: 'nav-library' }, { label: 'Archive' }];
       if (state.libraryView === 'review') return [{ label: 'Library', action: 'nav-library' }, { label: 'Review queue' }];
+      if (state.libraryView === 'tags') return [{ label: 'Library', action: 'nav-library' }, { label: 'Tags' }];
       return [{ label: 'Library' }];
     case 'editor':
       return [{ label: state.editorReturnView?.kind === 'inbox' ? 'Inbox' : 'Library', action: 'back-to-library' }, { label: documentTitle(state, state.editorDocId) }];
@@ -603,7 +604,7 @@ export function statusbarMode(state) {
     case 'all': return 'PROJECTS';
     case 'filter': return 'FILTER';
     case 'project': return ({ board: 'BOARD', backlog: 'BACKLOG', archive: 'ARCHIVE', inbox: 'INBOX', reviews: 'REVIEWS' })[state.tab] || 'TASKS';
-    case 'library': return state.libraryView === 'review' ? 'REVIEW' : (state.libraryView === 'archive' ? 'ARCHIVE' : 'LIBRARY');
+    case 'library': return ({ review: 'REVIEW', archive: 'ARCHIVE', tags: 'TAGS' })[state.libraryView] || 'LIBRARY';
     case 'editor': return 'EDIT';
     case 'run': return 'RUN';
     case 'health': return 'HEALTH';
@@ -755,7 +756,7 @@ function renderLibraryPanel(state, navCounts = {}) {
   const documents = (state.documents || []).filter((doc) => !doc.archivedAt);
   // Facets apply while browsing and inside the review queue, not in the
   // archive or a semantic result list.
-  const browsing = state.libraryView !== 'archive' && !state.librarySemantic;
+  const browsing = state.libraryView !== 'archive' && state.libraryView !== 'tags' && !state.librarySemantic;
   const counts = libraryFacetCounts(documents);
   const facetRow = (action, key, label, count, active, extraClass = '') => (
     `<button type="button" class="side-item${extraClass}${active ? ' is-active' : ''}" data-action="${action}" data-facet="${escapeHtml(key)}" aria-pressed="${active}">`
@@ -783,27 +784,39 @@ function renderLibraryPanel(state, navCounts = {}) {
     .map(([key, label]) => facetRow('toggle-lib-trust', key, label, counts.trust[key], activeTrust.has(key)))
     .join('');
 
-  // Tags: most-used first (tagsForDocuments sorts by count), folded past
-  // TAG_ROW_LIMIT unless expanded or narrowed by the panel-local tag box. An
-  // active tag always shows — a filter the user cannot see cannot be cleared.
+  // Tags. With 100+ tags a flat list is a scroll, so once anything narrows
+  // the collection the section lists only the tags present in the CURRENT
+  // results, with how many results carry each (Console redesign, 2026-10);
+  // with nothing active it is the library's tags, most-used first. Either way
+  // the list folds past TAG_ROW_LIMIT unless expanded or narrowed by the
+  // panel-local tag box, and an active tag always shows — a filter the user
+  // cannot see cannot be cleared.
   const activeTags = new Set((state.activeLibraryTags || []).map((tag) => String(tag).trim().toLowerCase()).filter(Boolean));
   const tagFilter = String(state.libraryTagFilter || '').trim().toLowerCase().replace(/^#/, '');
   const allTags = tagsForDocuments(documents);
-  const matching = tagFilter ? allTags.filter(({ tag }) => tag.includes(tagFilter)) : allTags;
+  const resultModel = browsing ? buildLibraryModel(state, { limit: 0 }) : null;
+  const narrowing = Boolean(resultModel?.anyFilter);
+  const baseTags = narrowing
+    ? [...allTags.filter(({ tag }) => activeTags.has(tag)), ...resultModel.narrowTags]
+    : allTags;
+  const matching = tagFilter ? baseTags.filter(({ tag }) => tag.includes(tagFilter)) : baseTags;
   const expanded = Boolean(state.libraryTagsExpanded) || Boolean(tagFilter);
   const shownTags = expanded ? matching : matching.filter(({ tag }, index) => index < TAG_ROW_LIMIT || activeTags.has(tag));
   const hiddenTags = matching.length - shownTags.length;
+  const silent = narrowing ? allTags.length - baseTags.length : 0;
   const tagRows = shownTags.map(({ tag, count }) => (
     `<button type="button" class="side-item side-item--tag${activeTags.has(tag) ? ' is-active' : ''}" data-action="toggle-lib-tag" data-tag="${escapeHtml(tag)}" aria-pressed="${activeTags.has(tag)}">`
-    + `<span class="side-item__label">#${escapeHtml(tag)}</span><span class="side-item__count">${escapeHtml(count)}</span></button>`
+    + `<span class="side-item__label">#${escapeHtml(tag)}</span><span class="side-item__count">${activeTags.has(tag) ? '×' : escapeHtml(count)}</span></button>`
   )).join('')
     + (hiddenTags > 0
       ? `<button type="button" class="side-item side-item--more" data-action="toggle-lib-tags" aria-expanded="false"><span class="side-item__label">${hiddenTags} more, by use</span></button>`
-      : (state.libraryTagsExpanded && !tagFilter && allTags.length > TAG_ROW_LIMIT
+      : (state.libraryTagsExpanded && !tagFilter && matching.length > TAG_ROW_LIMIT
         ? '<button type="button" class="side-item side-item--more" data-action="toggle-lib-tags" aria-expanded="true"><span class="side-item__label">Show fewer</span></button>'
         : ''))
+    + (silent > 0 && !tagFilter ? `<div class="panel__empty">${escapeHtml(silent)} other tag${silent === 1 ? ' matches' : 's match'} nothing here.</div>` : '')
     + (tagFilter && !matching.length ? '<div class="panel__empty">No matching tags.</div>' : '')
-    + (activeTags.size ? '<button type="button" class="side-item side-item--more" data-action="save-library-view"><span class="side-item__label">＋ Save view</span></button>' : '');
+    + (activeTags.size ? '<button type="button" class="side-item side-item--more" data-action="save-library-view"><span class="side-item__label">＋ Save view</span></button>' : '')
+    + '<button type="button" class="side-item side-item--more" data-action="open-tags"><span class="side-item__label">Manage tags…</span></button>';
   const tagBox = allTags.length > TAG_ROW_LIMIT
     ? `<input class="panel__filter" type="text" data-library-tag-filter placeholder="Find a tag…" value="${escapeHtml(state.libraryTagFilter || '')}" autocomplete="off" aria-label="Find a tag">`
     : '';
@@ -814,7 +827,7 @@ function renderLibraryPanel(state, navCounts = {}) {
     ? '<div class="side-section"><span>Type</span></div>' + typeRows
       + (projectRows ? '<div class="side-section"><span>Project</span></div>' + projectRows : '')
       + (trustRows ? '<div class="side-section"><span>Trust</span></div>' + trustRows : '')
-      + (allTags.length ? `<div class="side-section"><span>Tags</span><span class="side-section__count">${allTags.length}</span></div>${tagBox}${tagRows}` : '')
+      + (allTags.length ? `<div class="side-section"><span>${narrowing ? `Tags in ${escapeHtml(resultModel.visibleCount)} result${resultModel.visibleCount === 1 ? '' : 's'}` : 'Tags'}</span><span class="side-section__count">${allTags.length}</span></div>${tagBox}${tagRows}` : '')
     : `<div class="panel__empty">${state.librarySemantic ? 'Semantic search ranks the whole library; facets apply while browsing.' : 'Facets apply to the browse view.'}</div>`;
 
   const savedViews = (state.librarySavedViews || []).map((view, index) => {

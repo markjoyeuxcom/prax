@@ -1,3 +1,4 @@
+import { narrowingTags } from './tagStats.js';
 import { incompleteIndexNotice } from './retrievalStatus.js';
 import { escapeHtml } from './html.js';
 import { chip } from './renderHelpers.js';
@@ -210,6 +211,10 @@ export function buildLibraryModel(state, { limit = LIBRARY_RENDER_BATCH_SIZE } =
     reviewSummary: review ? reviewQueueSummary(documents) : null,
     queueCount: reviewQueue(documents).length,
     visibleCount: filtered.length,
+    // Tags still able to narrow the current results (the panel's tag list
+    // while anything is filtering); anyFilter says whether that applies.
+    anyFilter,
+    narrowTags: anyFilter ? narrowingTags(filtered, activeTags) : [],
     renderedCount: collection.shown,
     hasMore: collection.hasMore,
     // A brand-new library (no documents at all, no filters/search active) gets

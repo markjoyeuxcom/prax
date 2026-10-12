@@ -101,6 +101,8 @@ import { loadLayout, saveLayout } from './libraryLayout.js';
 import { renderBoardHtml, buildBoardColumns, limitBoardColumns } from './renderBoard.js';
 import { renderBacklogHtml, renderArchiveHtml } from './renderBacklog.js';
 import { renderTaskDrawerHtml, renderMissingTaskDrawerHtml, inspectorDocked } from './renderTaskDetail.js';
+import { renderTagsManagerHtml } from './renderTagsManager.js';
+import { normalizeTagKey } from './tagStats.js';
 import { renderLinkPickerHtml } from './renderLinkPicker.js';
 import {
   LIBRARY_RENDER_BATCH_SIZE, renderLibraryHtml, buildLibraryModel, reviewQueue,
@@ -2238,6 +2240,7 @@ function renderMainHtml() {
       return renderAllProjectsHtml(state, groups, projectColor);
     }
     case 'library': {
+      if (state.libraryView === 'tags') return renderTagsManagerHtml(state);
       const collectionKey = JSON.stringify([
         state.libraryView, state.libraryQuery, state.librarySemantic, state.librarySortBy,
         state.activeLibraryTags, state.libraryTypes, state.libraryTrust, state.libraryProjects,
@@ -2898,6 +2901,47 @@ async function handleAction(action, el, event) {
       break;
     case 'nav-library': await goLibrary(); break;
     case 'nav-review': await goLibrary({ libraryView: 'review' }); break;
+    // Library ▸ Tags (Console redesign): usage, suggested merges, filters.
+    case 'open-tags': await goLibrary({ libraryView: 'tags', tagsFilter: 'all', tagsQuery: '', tagsShowAll: false }); break;
+    case 'set-tags-filter': setState({ tagsFilter: el.dataset.filter || 'all', tagsShowAll: false }); renderApp(); break;
+    case 'tags-show-all': setState({ tagsShowAll: true }); renderApp(); break;
+    case 'filter-by-tag': await goLibrary({ activeLibraryTags: [normalizeTagKey(el.dataset.tag)] }); break;
+    case 'merge-tags': {
+      const into = normalizeTagKey(el.dataset.into);
+      const from = String(el.dataset.from || '').split(',').map(normalizeTagKey).filter((tag) => tag && tag !== into);
+      if (!into || !from.length) break;
+      const affected = (state.documents || []).filter((doc) => !doc.archivedAt
+        && (doc.tags || []).some((tag) => from.includes(normalizeTagKey(tag))));
+      setState({ pendingTagMerge: { into, from } });
+      openConfirm({
+        message: `Re-tag ${affected.length} document${affected.length === 1 ? '' : 's'}: ${from.map((tag) => `#${tag}`).join(', ')} becomes #${into}. Each document is saved as your edit.`,
+        okLabel: `Merge into #${into}`,
+        action: 'confirm-merge-tags',
+      });
+      break;
+    }
+    case 'confirm-merge-tags': {
+      const merge = state.pendingTagMerge;
+      setState({ confirm: null, pendingTagMerge: null });
+      renderApp();
+      if (!merge) break;
+      const affected = (state.documents || []).filter((doc) => !doc.archivedAt
+        && (doc.tags || []).some((tag) => merge.from.includes(normalizeTagKey(tag))));
+      let saved = 0;
+      for (const doc of affected) {
+        const tags = [...new Set((doc.tags || []).map((tag) => {
+          const key = normalizeTagKey(tag);
+          return merge.from.includes(key) ? merge.into : key;
+        }).filter(Boolean))];
+        try { await updateDocument(doc.id, { tags }); saved += 1; } catch { /* reported below */ }
+      }
+      await loadDocuments().catch(() => false);
+      renderApp();
+      showToast(saved === affected.length
+        ? `Merged into #${merge.into}: ${saved} document${saved === 1 ? '' : 's'} re-tagged.`
+        : `Merged ${saved} of ${affected.length} documents into #${merge.into}. The rest could not be saved; try again.`);
+      break;
+    }
     // Today's agent card shows a few rows; the rest are the Library's
     // agent-written facet, newest first.
     case 'open-agent-memory': await goLibrary({ libraryTrust: ['agent'], librarySortBy: 'updated' }); break;
@@ -3586,6 +3630,18 @@ function bindEvents() {
       setState({ panelFilter: target.value });
       renderApp();
       const next = appRoot.querySelector('[data-panel-filter]');
+      if (next) {
+        next.focus();
+        if (caret != null) next.setSelectionRange(caret, caret);
+      }
+      return;
+    }
+    if (target.matches?.('[data-tags-query]')) {
+      // Library ▸ Tags find box: same re-render + focus/caret restore.
+      const caret = target.selectionStart;
+      setState({ tagsQuery: target.value, tagsShowAll: false });
+      renderApp();
+      const next = appRoot.querySelector('[data-tags-query]');
       if (next) {
         next.focus();
         if (caret != null) next.setSelectionRange(caret, caret);
