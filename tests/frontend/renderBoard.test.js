@@ -264,6 +264,16 @@ test('renderBoardHtml renders a project-color wash without using an arbitrary co
   assert.equal((html.match(/chip--project/g) || []).length, 1);
 });
 
+test('a project\'s own board does not repeat its name on every card', () => {
+  const projectsById = { p1: { id: 'p1', name: 'Homelab', color: '#7c9c8e' }, p2: { id: 'p2', name: 'Work' } };
+  const html = renderAll(baseState({ navType: 'project', navId: 'p1' }), [
+    { id: 'a', title: 'Own', status: 'planned', projectId: 'p1' },
+    { id: 'b', title: 'Elsewhere', status: 'planned', projectId: 'p2' },
+  ], projectsById);
+  assert.doesNotMatch(html, />Homelab</);
+  assert.match(html, /chip chip--project"[^>]*>Work</);
+});
+
 test('renderBoardHtml renders checklist, docs, and activity signals from extras', () => {
   const state = baseState({
     taskBoardExtras: {

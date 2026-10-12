@@ -3758,3 +3758,59 @@ body.is-desktop-mac .titlebar { padding-left: 84px; }
 .statusbar__keys b { font-weight: 500; color: var(--ink2); }
 .statusbar__saved { flex: none; }
 @media (max-width: 1100px) { .statusbar__keys { display: none; } .statusbar__saved { margin-left: auto; } }
+
+/* ---- Console inspector: the task drawer docked beside the list ----------- */
+:root { --inspector-w: 400px; }
+.window__body--inspector { padding-right: var(--inspector-w); }
+.drawer--docked {
+  top: 48px; right: 0; bottom: 26px;
+  width: var(--inspector-w); max-width: none;
+  border: none; border-left: 1px solid var(--line2); border-radius: 0;
+  background: var(--bg); box-shadow: none; animation: none; z-index: 20;
+}
+.drawer--docked .drawer__head { padding: 18px 20px 14px; }
+.drawer--docked .drawer__scroll { padding-left: 4px; padding-right: 4px; }
+/* The selected row is the inspected one: a quiet lift plus the accent caret. */
+.window__body--inspector .task-row.is-selected { box-shadow: inset 2px 0 0 var(--accent); }
+body.is-desktop-mac .drawer--docked, body.is-desktop .drawer--docked { top: 48px; }
+
+/* ---- Console task rows: flat, dense, mono metadata ----------------------- */
+.rows { background: transparent; border: none; border-radius: 0; overflow: visible; }
+.task-row { border-radius: 6px; padding-left: 8px; }
+.task-row:hover { background: color-mix(in oklab, var(--ink) 4%, transparent); }
+.task-row.is-selected { background: color-mix(in oklab, var(--ink) 7%, transparent); }
+.task-row__open { padding: 8px 12px 8px 4px; }
+body[data-density="compact"] .task-row__open { padding-top: 5px; padding-bottom: 5px; }
+.task-check { width: 16px; height: 16px; border-radius: 4px; border-color: color-mix(in oklab, var(--ink) 28%, transparent); margin: 0 4px; }
+.task-check:hover { border-color: var(--accent); }
+.task-check.is-done { background: var(--accent-vivid); border-color: var(--accent-vivid); color: #10130F; }
+/* Due dates and signals read as a right-hand mono column, not pills. */
+.task-row__meta { font-family: var(--font-mono); gap: 12px; }
+.task-row__meta .chip,
+.board-card .chip[class*="chip--due-"],
+.board-card .chip[class*="chip--slip-"] {
+  background: transparent; padding: 0; border-radius: 0;
+  font-family: var(--font-mono); font-size: 11.5px; font-weight: 500;
+}
+.task-row__meta .chip[class*="chip--due-"] { min-width: 112px; justify-content: flex-end; }
+.task-row__meta .chip--due-today, .board-card .chip--due-today { color: var(--accent); }
+.task-row__meta .chip--due-later, .task-row__meta .chip--due-done { color: var(--ink3); }
+.task-row__signal { font-family: var(--font-mono); color: var(--ink3); }
+/* Group headers: a mono label, its count, then a hairline to the edge. */
+.group-label { margin: 18px 4px 4px; }
+.group-label::after { content: ""; flex: 1; height: 1px; background: var(--line); order: 5; }
+.group-label__action { order: 6; }
+
+/* WCAG 2.2 target size: the done box draws 16px but keeps a 24px target;
+   group toggles keep 24px of height. */
+.task-check { width: 24px; height: 24px; margin: 0; border: none; position: relative; background: transparent; }
+.task-check::before {
+  content: ""; position: absolute; inset: 4px; border-radius: 4px;
+  border: 1.5px solid color-mix(in oklab, var(--ink) 28%, transparent);
+}
+.task-check:hover::before { border-color: var(--accent); }
+.task-check.is-done { background: transparent; color: #10130F; }
+.task-check.is-done::before { background: var(--accent-vivid); border-color: var(--accent-vivid); }
+.task-check { z-index: 0; }
+.task-check::before { z-index: -1; }
+.group-label__toggle { min-height: 24px; }

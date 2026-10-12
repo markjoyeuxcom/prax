@@ -6,12 +6,12 @@ import { escapeHtml } from './renderHelpers.js';
 
 // The shell renderApp installs into #app: window chrome, navigation, the main
 // view, then the overlay root (modals render there in stacking order).
-export function renderAppFrameHtml({ titlebarHtml = '', navHtml = '', mainHtml = '', flatMain = false, statusbarHtml = '', overlaysHtml = '' } = {}) {
+export function renderAppFrameHtml({ titlebarHtml = '', navHtml = '', mainHtml = '', flatMain = false, statusbarHtml = '', overlaysHtml = '', inspector = false } = {}) {
   return `
     <div class="desk">
       <div class="window">
         ${titlebarHtml}
-        <div class="window__body">
+        <div class="window__body${inspector ? ' window__body--inspector' : ''}">
           ${navHtml}
           <main class="main"><div class="main__scroll${flatMain ? ' main__scroll--flat' : ''}">${mainHtml}</div></main>
         </div>

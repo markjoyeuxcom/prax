@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { renderTaskDrawerHtml } from '../../public/js/renderTaskDetail.js';
+import { renderTaskDrawerHtml, inspectorDocked, INSPECTOR_MIN_WIDTH } from '../../public/js/renderTaskDetail.js';
 
 const NOW = new Date('2026-07-06T09:00:00');
 
@@ -35,6 +35,27 @@ function makeContext(overrides = {}) {
 function render({ state = makeState(), task = makeTask(), context = makeContext() } = {}) {
   return renderTaskDrawerHtml(state, task, context);
 }
+
+test('the inspector docks only on wide windows in task contexts, never over the editor', () => {
+  assert.equal(INSPECTOR_MIN_WIDTH, 1360);
+  for (const navType of ['project', 'today', 'filter', 'calendar']) {
+    assert.equal(inspectorDocked({ winW: 1440, navType }), true, navType);
+    assert.equal(inspectorDocked({ winW: 1280, navType }), false, `${navType} narrow`);
+  }
+  for (const navType of ['library', 'editor', 'settings', 'all']) {
+    assert.equal(inspectorDocked({ winW: 1600, navType }), false, navType);
+  }
+  assert.equal(inspectorDocked({ winW: 1600, navType: 'project', editorFocus: true }), false);
+});
+
+test('a docked inspector is a non-modal pane: no scrim, no aria-modal, same controls', () => {
+  const html = render({ state: makeState({ winW: 1440, navType: 'project' }) });
+  assert.doesNotMatch(html, /class="scrim"/);
+  assert.doesNotMatch(html, /aria-modal/);
+  assert.match(html, /<aside class="drawer drawer--docked" aria-label="Task inspector" data-task-id="t1">/);
+  assert.match(html, /class="drawer__close"[^>]*data-action="close-drawer"/);
+  assert.match(html, /data-task-title/);
+});
 
 test('drawer renders a scrim and a dialog panel that both close via close-drawer', () => {
   const html = render();

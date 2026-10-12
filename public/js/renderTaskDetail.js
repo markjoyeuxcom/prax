@@ -354,8 +354,22 @@ function renderHead(state, task, context, isDone, readOnly) {
       </div>`;
 }
 
+// Console inspector (2026-10): on wide windows in task contexts the drawer
+// docks beside the list as a NON-modal pane — the list stays live, ↑↓ moves
+// the selection and the inspector follows it. Narrower windows, and every
+// other context (the editor, the Library), keep the modal drawer.
+export const INSPECTOR_MIN_WIDTH = 1360;
+const INSPECTOR_CONTEXTS = new Set(['project', 'today', 'filter', 'calendar']);
+
+export function inspectorDocked(state) {
+  return Number(state?.winW) >= INSPECTOR_MIN_WIDTH
+    && INSPECTOR_CONTEXTS.has(state?.navType)
+    && !state?.editorFocus;
+}
+
 export function renderTaskDrawerHtml(state, task, context = {}) {
   if (!task) return '';
+  const docked = inspectorDocked(state);
   const readOnly = Boolean(context.readOnly);
   const dis = readOnly ? ' disabled' : '';
   const ro = readOnly ? ' readonly' : '';
@@ -364,9 +378,12 @@ export function renderTaskDrawerHtml(state, task, context = {}) {
   const checklist = Array.isArray(context.checklist) ? context.checklist : [];
   const activity = Array.isArray(context.activity) ? context.activity : [];
 
+  const shell = docked
+    ? `<aside class="drawer drawer--docked" aria-label="Task inspector" data-task-id="${escapeHtml(task.id)}">`
+    : `<div class="scrim" data-action="close-drawer"></div>
+    <aside class="drawer" role="dialog" aria-modal="true" aria-label="Task detail" data-task-id="${escapeHtml(task.id)}">`;
   return `
-    <div class="scrim" data-action="close-drawer"></div>
-    <aside class="drawer" role="dialog" aria-modal="true" aria-label="Task detail" data-task-id="${escapeHtml(task.id)}">${renderHead(state, task, context, isDone, readOnly)}
+    ${shell}${renderHead(state, task, context, isDone, readOnly)}
       <div class="drawer__scroll">${renderFieldRows(state, task, context, dis, ro)}${renderNotesSection(state, task, dis)}${renderChecklistSection(checklist, readOnly, dis)}${renderDocsSection(documents, readOnly)}${renderRelatedSection(state, task, readOnly)}${renderActivitySection(activity)}
       </div>${renderFoot(state, task, readOnly)}
     </aside>`;
