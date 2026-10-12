@@ -125,7 +125,8 @@ test('titlebar renders the command bar, Ask, new task, and theme toggle actions'
   // Console shell: the command bar is the centre of the titlebar.
   assert.match(html, /<div class="titlebar__command"><button type="button" class="searchpill cmdbar" data-action="open-palette"/);
   assert.match(html, /Search or jump to… run a command, or ask/);
-  assert.match(html, /class="btn-ghost titlebar__ask" data-action="open-assistant"[^>]*>[\s\S]*?<span>Ask<\/span>/);
+  assert.match(html, /class="btn-ghost titlebar__ask" data-action="open-ask-page"[^>]*>[\s\S]*?<span>Ask<\/span>/);
+  assert.match(renderTitlebarHtml(makeState({ navType: 'ask' })), /class="btn-ghost titlebar__ask is-active" data-action="open-ask-page"/);
   assert.match(html, /class="titlebar__brand"><svg[^>]*>[\s\S]*?<\/svg><span class="titlebar__wordmark">prax<\/span>/);
   assert.match(html, /class="kbd">⌘K</);
   // New is one menu button: task (quick capture), document, project.
@@ -363,6 +364,8 @@ test('the status line names the mode and only offers keys that work in it', () =
   assert.equal(statusbarMode(makeState({ navType: 'project', tab: 'list' })), 'TASKS');
   assert.equal(statusbarMode(makeState({ navType: 'library', libraryView: 'review' })), 'REVIEW');
   assert.equal(statusbarMode(makeState({ navType: 'editor' })), 'EDIT');
+  assert.equal(statusbarMode(makeState({ navType: 'ask' })), 'ASK');
+  assert.match(renderStatusbarHtml(makeState({ navType: 'ask' })), /statusbar__mode--agent">ASK</);
   assert.match(renderStatusbarHtml(makeState({ navType: 'library', libraryView: 'review' })), /class="statusbar__mode statusbar__mode--agent">REVIEW</);
   assert.deepEqual(statusbarHints(makeState({ navType: 'library', libraryView: 'review' })).map(([key]) => key), ['v', 'e', 'r', 'j']);
   const listKeys = statusbarHints(makeState({ navType: 'project', tab: 'list' })).map(([key]) => key);

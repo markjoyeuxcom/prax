@@ -103,6 +103,7 @@ import { renderBacklogHtml, renderArchiveHtml } from './renderBacklog.js';
 import { renderTaskDrawerHtml, renderMissingTaskDrawerHtml, inspectorDocked } from './renderTaskDetail.js';
 import { renderTagsManagerHtml } from './renderTagsManager.js';
 import { renderReviewDeskHtml, reviewDeskQueue, reviewDeskCurrentId } from './renderReviewDesk.js';
+import { renderAskPageHtml } from './renderAskPage.js';
 import { normalizeTagKey } from './tagStats.js';
 import { renderLinkPickerHtml } from './renderLinkPicker.js';
 import {
@@ -425,6 +426,8 @@ const transfer = createLibraryTransferController({
 const knowledge = createKnowledgeToolsController({
   getState: () => state, setState, renderApp, showToast, announce, copyToClipboard, getRoot: () => appRoot,
   prepareEditorNavigation, openDocumentInEditor, loadDocuments, captureProjectChoices, inboxSlug: INBOX_SLUG,
+  openAskPage: () => { void openAskPage(); },
+  onAskResult: (query, result) => rememberAskResult(query, result),
 });
 const writing = createWritingController({
   getState: () => state, setState, renderApp, showToast, copyToClipboard, getEditor: () => documentEditorController,
@@ -2236,6 +2239,11 @@ function renderMainHtml() {
         queueCount: reviewQueue(state.documents).length,
       });
     }
+    case 'ask':
+      return renderAskPageHtml(state, {
+        resolveWikiLink,
+        projects: (state.projects || []).filter((project) => project?.slug !== INBOX_SLUG && project?.status === 'active'),
+      });
     case 'all': {
       const groups = buildProjectGroups(state.managedProjects, state.tasks);
       return renderAllProjectsHtml(state, groups, projectColor);
@@ -2416,7 +2424,7 @@ function renderOverlaysHtml() {
       libraryExportDestinationMode({ desktopShell: state.desktopShell }),
     );
   }
-  if (state.askPraxOpen) {
+  if (state.askPraxOpen && state.navType !== 'ask') {
     const r = state.askPraxResult;
     // Render the written answer when there is one, else the retrieved pack.
     const md = r ? ((typeof r.answer === 'string' && r.answer.trim()) ? r.answer : (r.markdown || '')) : '';
@@ -2648,6 +2656,57 @@ function renderApp() {
   if (scroll && (returning || retainedLibraryScroll != null)) scroll.scrollTop = returning ? returning.top : retainedLibraryScroll;
   pendingLibraryScroll = null;
   lastLibraryRenderKey = currentLibraryKey;
+}
+
+// ---------------------------------------------------------------------------
+// Ask Prax page (Console redesign): history is per device, newest first.
+// ---------------------------------------------------------------------------
+
+const ASK_HISTORY_KEY = 'prax.askHistory.v1';
+const ASK_HISTORY_LIMIT = 30;
+
+function loadAskHistory() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(ASK_HISTORY_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed.filter((entry) => entry && typeof entry.query === 'string').slice(0, ASK_HISTORY_LIMIT) : [];
+  } catch { return []; }
+}
+
+function rememberAskResult(query, result) {
+  // The written answer and its sources are what a reread needs; the raw
+  // context pack is kept only when there is no written answer.
+  const kept = {
+    query, answer: result?.answer ?? null, degraded: Boolean(result?.degraded), reason: result?.reason ?? null,
+    markdown: result?.answer ? null : (result?.markdown ?? null), sources: result?.sources || [],
+    retrieval: { mode: result?.retrieval?.mode || 'keyword' }, model: result?.model ?? null,
+  };
+  const history = [{ query, at: new Date().toISOString(), result: kept },
+    ...(state.askHistory || []).filter((entry) => entry.query !== query)].slice(0, ASK_HISTORY_LIMIT);
+  setState({ askHistory: history });
+  try { localStorage.setItem(ASK_HISTORY_KEY, JSON.stringify(history)); } catch { /* per-device convenience */ }
+}
+
+async function openAskPage() {
+  if (!(await navigateTopLevel({ navType: 'ask', paletteOpen: false, askPraxOpen: false }))) return;
+  appRoot.querySelector('[data-ask-prax-input]')?.focus();
+}
+
+async function saveAskAsNote() {
+  const r = state.askPraxResult;
+  if (!r?.answer) return;
+  const sources = (r.sources || []).map((source) => `- [[${source.title}]]`).join('\n');
+  const project = state.askScope && state.askScope !== 'all' ? state.askScope : inboxProjectId();
+  try {
+    const doc = await createDocument({
+      title: `Answer: ${String(r.query || state.askPraxQuery || '').slice(0, 110)}`,
+      body: `# Answer: ${r.query || ''}\n\n${r.answer}\n\n## Sources\n\n${sources}\n`,
+      documentType: 'note', project, tags: ['ask-prax'],
+    });
+    await loadDocuments().catch(() => false);
+    showToast('Answer saved as a note.', () => { dismissToast(); void openDocumentInEditor(doc.id); }, 7000, 'Open');
+  } catch (error) {
+    showToast(error?.message ? `Could not save the answer: ${error.message}` : 'Could not save the answer.');
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -3018,6 +3077,18 @@ async function handleAction(action, el, event) {
       if (await navigateTopLevel({ navType: 'all' })) openConfirm(newProjectDialog());
       break;
     case 'nav-library': await goLibrary(); break;
+    case 'open-ask-page': await openAskPage(); break;
+    case 'ask-new':
+      setState({ askPraxResult: null, askPraxQuery: '', askPraxError: false, askPraxLoading: false });
+      renderApp();
+      appRoot.querySelector('[data-ask-prax-input]')?.focus();
+      break;
+    case 'ask-history-open': {
+      const entry = (state.askHistory || [])[Number(el.dataset.index)];
+      if (entry) { setState({ askPraxQuery: entry.query, askPraxResult: { ...entry.result, query: entry.query }, askPraxError: false, askPraxLoading: false }); renderApp(); }
+      break;
+    }
+    case 'save-ask-note': await saveAskAsNote(); break;
     case 'nav-review': await goLibrary({ libraryView: 'review', reviewLayout: 'desk', reviewDeskId: null, reviewDeskDone: [] }); break;
     case 'review-desk-select': setState({ reviewDeskId: el.dataset.documentId || null }); renderApp(); break;
     case 'review-desk-verify': await reviewDeskDecide('verify'); break;
@@ -3893,6 +3964,7 @@ function bindEvents() {
 
   appRoot.addEventListener('change', (event) => {
     const target = event.target;
+    if (target.matches?.('[data-ask-scope]')) { setState({ askScope: target.value || 'all' }); return; }
     if (target.matches?.('[data-inbox-field]')) { inboxController.change(target.dataset.inboxField, target.value); return; }
     if (target.matches?.('[data-template-field]')) { templateStudio.updateTemplateStudio(target.dataset.templateField, target.value); return; }
     if (documentInfo.mirrorInput(target)) return;
@@ -4165,7 +4237,7 @@ async function init() {
   // macOS merges the native titlebar into the app's top bar (overlay style) —
   // inset the bar so the traffic lights sit inside it.
   document.body.classList.toggle('is-desktop-mac', desktopShell && desktopPlatform === 'macos');
-  setState({ preferences, librarySavedViews: loadSavedViews(), taskSmartViews: loadSmartViews(), pinned: loadPinned(), recentProjects: loadRecent(), recentDocuments: loadRecentDocuments(), libraryLayout: loadLayout(), collapsedSections: loadCollapsed(), winW: window.innerWidth, desktopShell, desktopPlatform });
+  setState({ preferences, librarySavedViews: loadSavedViews(), taskSmartViews: loadSmartViews(), pinned: loadPinned(), askHistory: loadAskHistory(), recentProjects: loadRecent(), recentDocuments: loadRecentDocuments(), libraryLayout: loadLayout(), collapsedSections: loadCollapsed(), winW: window.innerWidth, desktopShell, desktopPlatform });
   applyPreferences(preferences);
   appRoot.innerHTML = renderBootLoadingHtml();
   try {

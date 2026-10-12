@@ -118,6 +118,8 @@ export const state = {
   libraryLayout: 'cards',       // 'cards' | 'table' (localStorage)
   librarySelectedDocIds: [],    // table-mode multi-select for the bulk bar
   reviewWalk: null,             // { ids, index, verified } while reviewing the queue one document at a time
+  askHistory: [],               // Ask Prax page: [{ query, at, result }] newest first (localStorage)
+  askScope: 'all',              // Ask Prax page: 'all' or a project id
   reviewLayout: 'desk',         // review queue: 'desk' (one memory at a time) | 'table' (bulk)
   reviewDeskId: null,           // the desk's current document (null = first in the queue)
   reviewDeskDoc: null,          // that document's saved revision, fetched fresh; Verify binds to it

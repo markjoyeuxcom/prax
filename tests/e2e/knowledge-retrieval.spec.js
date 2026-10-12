@@ -136,7 +136,7 @@ test('a stale Ask Prax answer cannot overwrite the newer answer and its source o
   await input.fill('first slow question');
   await input.press('Enter');
   await firstStarted;
-  await expect(page.getByText(/Reading the most relevant docs/)).toBeVisible();
+  await expect(page.getByText(/Reading the most relevant doc/)).toBeVisible();
 
   await input.fill('second current question');
   await input.press('Enter');
