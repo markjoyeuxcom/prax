@@ -118,6 +118,12 @@ export const state = {
   libraryLayout: 'cards',       // 'cards' | 'table' (localStorage)
   librarySelectedDocIds: [],    // table-mode multi-select for the bulk bar
   reviewWalk: null,             // { ids, index, verified } while reviewing the queue one document at a time
+  reviewLayout: 'desk',         // review queue: 'desk' (one memory at a time) | 'table' (bulk)
+  reviewDeskId: null,           // the desk's current document (null = first in the queue)
+  reviewDeskDoc: null,          // that document's saved revision, fetched fresh; Verify binds to it
+  reviewDeskContext: null,      // { id, codeRefs, links, similar, similarReason }
+  reviewDeskDone: [],           // [{ id, title, outcome }] decided at the desk this session
+  supersedeSourceId: null,      // the document the supersede picker replaces, outside the editor
   markdownImportOpen: false,
   markdownImportProjectId: null, // explicit destination selected inside the import dialog
   markdownImportFiles: [],       // retained [{ id, name, title, body }] after native input rerenders

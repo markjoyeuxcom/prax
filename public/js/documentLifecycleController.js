@@ -88,13 +88,16 @@ export function createDocumentLifecycleController({
       : `Prax could not ${action.toLowerCase()}.`, null, 5000);
   }
 
-  async function changeDocumentVerification(id, verified, { offerUndo = true } = {}) {
+  async function changeDocumentVerification(id, verified, { offerUndo = true, reviewedRevision: deskRevision = null } = {}) {
     const state = getState();
     const editorVersion = state.editorContextVersion;
     const editorUnchanged = () => state.editorContextVersion === editorVersion
       && state.navType === 'editor' && state.editorDocId === id && state.documentDraftId === id;
     let reviewedRevision = null;
-    if (verified) {
+    // The review desk shows one saved revision and verifies exactly that one:
+    // a change since then is refused by the server (revision mismatch).
+    if (verified && deskRevision) reviewedRevision = deskRevision;
+    else if (verified) {
       if (state.navType !== 'editor' || state.documentDraftId !== id) { await verifyHealthDoc(id); return false; }
       const reviewed = state.documentDraftBase;
       if (state.isDocumentDirty || pendingDocumentSave() || !reviewed?.revision

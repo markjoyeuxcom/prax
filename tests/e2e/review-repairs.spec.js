@@ -19,6 +19,8 @@ async function openQueue(page, prefix, count) {
   await page.goto('/');
   await page.locator('.places [data-action="nav-library"]').click();
   await page.locator('.panel [data-action="nav-review"]').click();
+  // The queue opens on the one-at-a-time desk; the walk starts from the table.
+  await page.locator('[data-action="review-desk-table"]').click();
   await page.locator('[data-library-search]').fill(prefix);
   await expect(page.locator('.doc-table--review .doc-table__row')).toHaveCount(count);
   const ids = await page.locator('.doc-table--review .doc-table__row').evaluateAll(rows => rows.map(row => row.dataset.documentId));

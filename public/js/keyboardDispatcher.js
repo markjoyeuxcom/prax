@@ -21,6 +21,9 @@
 //      AI parse), filter ⌘Enter, Ask Prax, assistant, project rename,
 //      Markdown checkboxes, checklist, labels, library search, the fallback
 //      editor's formatting shortcuts.
+//   5b. Review desk (main.js, #app and <body> targets) — V verify, E edit,
+//      M supersede, R reject, J skip, ↑↓ move, while the desk is open and the
+//      key is not typed into a field. Consumes what it handles.
 //   6. Global shortcuts (keyboardShortcuts.js) — ⌘K / ⌘I / ⌘J / ⌘/, N, E,
 //      ↑↓ ↵, '/', the g-chords, and the Escape cascade. One-key commands never
 //      act from a typing target or a focused button (Enter on a button stays

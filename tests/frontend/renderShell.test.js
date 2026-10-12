@@ -364,6 +364,7 @@ test('the status line names the mode and only offers keys that work in it', () =
   assert.equal(statusbarMode(makeState({ navType: 'library', libraryView: 'review' })), 'REVIEW');
   assert.equal(statusbarMode(makeState({ navType: 'editor' })), 'EDIT');
   assert.match(renderStatusbarHtml(makeState({ navType: 'library', libraryView: 'review' })), /class="statusbar__mode statusbar__mode--agent">REVIEW</);
+  assert.deepEqual(statusbarHints(makeState({ navType: 'library', libraryView: 'review' })).map(([key]) => key), ['v', 'e', 'r', 'j']);
   const listKeys = statusbarHints(makeState({ navType: 'project', tab: 'list' })).map(([key]) => key);
   assert.deepEqual(listKeys, ['↑↓', '↵', 'e', 'n']);
   for (const state of [makeState({ navType: 'project', tab: 'board' }), makeState({ navType: 'settings' }), makeState({ navType: 'library' })]) {

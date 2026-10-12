@@ -20,6 +20,8 @@ test('Review next walks the queue: verify and next, verify and finish, back on t
   await page.goto('/');
   await page.locator('.places [data-action="nav-library"]').click();
   await page.locator('.panel [data-action="nav-review"]').click();
+  // The queue opens on the one-at-a-time desk; the walk starts from the table.
+  await page.locator('[data-action="review-desk-table"]').click();
   await expect(page.locator('.doc-table--review')).toBeVisible();
 
   // Narrow the queue to this spec's two documents; the walk is a snapshot of
@@ -67,6 +69,8 @@ test('Skip moves on without verifying, and Back to queue leaves the walk', async
   await page.goto('/');
   await page.locator('.places [data-action="nav-library"]').click();
   await page.locator('.panel [data-action="nav-review"]').click();
+  // The queue opens on the one-at-a-time desk; the walk starts from the table.
+  await page.locator('[data-action="review-desk-table"]').click();
   await page.locator('[data-library-search]').fill(prefix);
   await expect(page.locator('.doc-table--review .doc-table__row')).toHaveCount(2);
 
