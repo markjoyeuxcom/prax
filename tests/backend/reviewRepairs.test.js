@@ -74,11 +74,11 @@ test('R01: receipt guards metadata-only updates, concurrent replay, changed inte
   const payload = { operationId: randomUUID(), tags: ['original operation'], ifRevision: doc.revision };
   const responses = await Promise.all([1, 2, 3].map(() => ok(app, 'POST', path, payload, agent)));
   assert.equal(responses.filter(r => r.replayed).length, 2);
-  await ok(app, 'PATCH', `/api/library/documents/${doc.id}`, { tags: ['newer metadata'] });
+  await ok(app, 'PATCH', `/api/library/documents/${doc.id}`, { tags: ['newer-metadata'] });
   const replay = await ok(app, 'POST', path, payload, agent);
-  assert.deepEqual(replay.tags, ['newer metadata']);
+  assert.deepEqual(replay.tags, ['newer-metadata']);
   const otherClient = await ok(app, 'POST', path, { ...payload, ifRevision: '0'.repeat(64) }, { 'x-prax-origin': 'agent', 'x-prax-agent': 'claude' });
-  assert.deepEqual(otherClient.tags, ['newer metadata']);
+  assert.deepEqual(otherClient.tags, ['newer-metadata']);
   assert.equal(otherClient.updatedBy, 'user', 'reconciliation never restamps the newer writer');
   const conflict = await app.inject({ method: 'POST', url: path, payload: { ...payload, tags: ['different intent'] }, headers: agent });
   assert.equal(conflict.statusCode, 409);
@@ -194,17 +194,17 @@ for (const kind of ['CLI', 'MCP']) {
 test('R03: production listing supports cross-project deduplication, type/tag preservation and ambiguity', async t => {
   const app = await boot(t);
   const doc = await document(app, 'Cross-project procedure');
-  await ok(app, 'PATCH', `/api/library/documents/${doc.id}`, { documentType: 'runbook', tags: ['human tag'] });
+  await ok(app, 'PATCH', `/api/library/documents/${doc.id}`, { documentType: 'runbook', tags: ['human-tag'] });
   t.mock.method(globalThis, 'fetch', transport(app));
   const client = createClient({ baseUrl: 'http://fixture.invalid' });
   const listed = await client.listDocuments(undefined, { status: 'active' });
   assert.equal(listed.find(d => d.id === doc.id).projectSlug, 'homelab');
-  const result = await remember(client, { title: doc.title, body: 'refined', project: 'memory', crossProject: true, tags: ['agent tag'] });
+  const result = await remember(client, { title: doc.title, body: 'refined', project: 'memory', crossProject: true, tags: ['agent-tag'] });
   assert.equal(result.action, 'updated');
   assert.equal(result.project, 'homelab');
   assert.equal(result.doc.id, doc.id);
   assert.equal(result.doc.documentType, 'runbook');
-  assert.deepEqual(result.doc.tags, ['human tag', 'agent tag']);
+  assert.deepEqual(result.doc.tags, ['human-tag', 'agent-tag']);
   assert.equal((await client.listDocuments('memory')).some(d => d.title === doc.title), false);
   const other = await ok(app, 'POST', '/api/projects', { name: 'Second owner' });
   await ok(app, 'POST', '/api/library/documents', { title: doc.title, body: 'other', documentType: 'note', project: other.id });

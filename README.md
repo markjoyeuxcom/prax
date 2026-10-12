@@ -109,8 +109,14 @@ text to the Inbox project, with `#project`, `@label`, `!high` and a date word to
   ([docs/backup-restore.md](docs/backup-restore.md)).
 - **Templates and starter guides** for repository setup, project overviews and onboarding tasks
   ([docs/templates-and-starter-guides.md](docs/templates-and-starter-guides.md)).
-- Light ("Porcelain") and dark ("Deep Fern") themes, four accents, a reading-size control, and
-  full keyboard operation: ⌘K command palette, N capture, list navigation, undo toasts.
+- The Console interface: one labelled sidebar, a ⌘K command bar at the centre of the window, a
+  status line that names the current mode and the keys that work in it, and on wide windows a
+  task inspector docked beside the list. Dark "Graphite" (default) and light "Paper" themes, ten
+  accents (lime by default), a reading-size control, and full keyboard operation: ⌘K command
+  bar, N capture, list navigation, undo toasts.
+- **Tags at scale**: tags are normalised on every write, the Library panel narrows to the tags
+  in the current results, and Library ▸ Tags shows usage and suggests merging spellings of one
+  subject.
 
 ## Screenshots
 
@@ -122,7 +128,7 @@ text to the Inbox project, with `#project`, `@label`, `!high` and a date word to
 
 ![Library with facets in the panel, the review queue, tags, and trust chips](docs/images/prax-library.png)
 
-![Settings in the dark Deep Fern theme](docs/images/prax-settings.png)
+![Settings in the light Paper theme](docs/images/prax-settings.png)
 
 Regenerate these from a seeded demo server with `node scripts/capture-readme-screenshots.mjs`.
 

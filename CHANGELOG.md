@@ -12,6 +12,35 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Changed
+
+- **The Console interface.** A new layout and visual language
+  ([design note](docs/design/console-shell.md)). Wide windows have one labelled sidebar
+  (places, then the current context, Settings at the foot) instead of an icon rail beside a
+  panel; the titlebar centres a ⌘K command bar; a status line names the mode and the keys that
+  work in it. Dark "Graphite" is the default theme and light "Paper" replaces Porcelain; lime is
+  the default accent; Schibsted Grotesk, JetBrains Mono and Newsreader replace Instrument Sans
+  and Source Serif 4. Agent-written content is violet everywhere.
+- **Docked task inspector.** At 1360px and wider, in project, Today, Filter and Calendar views,
+  the task drawer docks beside the list as a non-modal pane; ↑↓ moves the selection and the
+  inspector follows. Narrower windows keep the modal drawer.
+- Task rows are flat and denser, with due dates as a right-hand mono column. A project's own
+  board no longer repeats its name on every card.
+- **Tags are normalised on every write** (lowercase, no leading `#`, spaces become hyphens,
+  duplicates collapse) by the document API, so the app, CLI, MCP and agents agree on spelling.
+
+### Added
+
+- **Library ▸ Tags**: every tag with its usage, last use and who added it; filters for possible
+  duplicates, used once and agent-only; suggested merges that re-tag documents as a human edit.
+- With a filter active, the Library panel lists only the tags present in the results.
+- The review queue is a place in the sidebar (`nav-review`).
+
+### Fixed
+
+- A chosen accent no longer sits on the default accent's wash: the derived accent tokens now
+  re-resolve on `body`.
+
 ## [0.40.0] - 2026-10-11
 
 ### Added
