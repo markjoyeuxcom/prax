@@ -12,6 +12,14 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Fixed
+
+- The Ask page composer empties once a question is asked (the thread keeps the question) and
+  takes new lines with Shift+Enter; typing a follow-up no longer cancels the answer in
+  progress.
+- The Library header no longer repeats Ask Prax; the titlebar's Ask and the palette open the
+  same page.
+
 ## [0.41.0] - 2026-10-12
 
 ### Added

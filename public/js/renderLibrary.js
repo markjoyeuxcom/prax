@@ -241,8 +241,9 @@ function renderNewDocMenu(state) {
       </div>`;
 }
 
-// The header keeps three things (year-one shell spec, item 3): Ask Prax, the
-// ＋ New doc template menu, and an overflow holding the occasional actions —
+// The header keeps two things: the ＋ New doc template menu and an overflow
+// holding the occasional actions (Ask Prax moved to the titlebar in the
+// Console redesign, so the Library no longer repeats it) —
 // every one of them keeps its data-action, so nothing else needs to change.
 function renderLibraryMenu(state, model) {
   const open = Boolean(state.libraryMenuOpen);
@@ -278,7 +279,6 @@ function renderPageHead(state, model) {
       <h1 class="page-head__title">${model.review ? 'Review queue' : 'Library'}</h1>
       ${sub}
       <div class="page-head__actions">
-        <button class="btn-ghost" type="button" data-action="open-ask-prax" title="Ask Prax a question, answered from your library">${icon('spark', 13)}<span>Ask Prax</span></button>
         ${renderNewDocMenu(state)}
         ${renderLibraryMenu(state, model)}
       </div>

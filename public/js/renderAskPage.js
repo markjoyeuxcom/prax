@@ -138,11 +138,14 @@ export function renderAskPageHtml(state, { resolveWikiLink, projects = [] } = {}
     .map(([value, label]) => `<option value="${escapeHtml(value)}"${value === scope ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('');
   const composer = '<div class="ask-composer">'
     + '<label class="visually-hidden" for="ask-page-input">Question for Prax</label>'
-    + `<input id="ask-page-input" class="ask-composer__input" type="text" data-ask-prax-input placeholder="${r ? 'Ask a follow-up…' : 'Ask Prax about your library…'}" value="${escapeHtml(state.askPraxQuery || '')}" autocomplete="off" spellcheck="false">`
+    // A textarea: Enter asks, Shift+Enter is a new line. Its own draft
+    // (askDraft), so asking clears it while the thread keeps the question.
+    + `<textarea id="ask-page-input" class="ask-composer__input" data-ask-page-input rows="${escapeHtml(Math.min(8, String(state.askDraft || '').split('\n').length))}" placeholder="${r ? 'Ask a follow-up…' : 'Ask Prax about your library…'}" autocomplete="off" spellcheck="false">${escapeHtml(state.askDraft || '')}</textarea>`
     + '<div class="ask-composer__row">'
     + `<label class="ask-chip"><span class="visually-hidden">Scope</span><select data-ask-scope aria-label="Scope">${scopeOptions}</select></label>`
     + '<span class="ask-composer__gap"></span>'
-    + `<button type="button" class="btn-primary ask-composer__go" data-action="run-ask-prax"${String(state.askPraxQuery || '').trim() ? '' : ' disabled'}>Ask<span class="kbd">↵</span></button>`
+    + '<span class="ask-composer__hint">⇧↵ new line</span>'
+    + `<button type="button" class="btn-primary ask-composer__go" data-action="run-ask-prax"${String(state.askDraft || '').trim() ? '' : ' disabled'}>Ask<span class="kbd">↵</span></button>`
     + '</div></div>';
 
   return '<div class="ask-page">'
