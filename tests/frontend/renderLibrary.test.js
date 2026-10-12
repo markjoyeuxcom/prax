@@ -235,7 +235,8 @@ test('semantic results render match cards when there are hits', () => {
 test('header keeps Ask Prax, ＋ New doc and a closed ⋯ overflow; the rest waits inside it', () => {
   const html = render();
   assert.match(html, /class="page-head__title">Library</);
-  assert.match(html, /data-action="open-ask-prax"/);
+  // Console redesign: Ask lives in the titlebar; the Library no longer repeats it.
+  assert.doesNotMatch(html, /data-action="open-ask-prax"/);
   // ＋ New doc is a template chooser: the button toggles the menu; the menu's
   // items carry the actual new-document action (only when open).
   assert.match(html, /class="btn-primary"[^>]*data-action="toggle-new-doc-menu"[^>]*>＋ New doc</);

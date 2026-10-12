@@ -37,7 +37,7 @@ test('the page shows the question, a cited answer, the sources rail and an unver
   assert.match(html, /class="ask-hist__item is-current" data-action="ask-history-open" data-index="0"/);
   assert.match(html, /&lt;b&gt;older&lt;\/b&gt;/);
   assert.match(html, /<option value="p1">Homelab<\/option>/);
-  assert.match(html, /data-ask-prax-input/);
+  assert.match(html, /<textarea[^>]*data-ask-page-input/);
 });
 
 test('without a model the page shows the retrieved pack and says why; idle shows the intro', () => {
@@ -48,4 +48,14 @@ test('without a model the page shows the retrieved pack and says why; idle shows
   const idle = renderAskPageHtml({});
   assert.match(idle, /<h1 class="ask-intro__title">Ask Prax<\/h1>/);
   assert.match(idle, /data-action="run-ask-prax" disabled/);
+});
+
+test('the composer is its own draft: asking clears it while the thread keeps the question', () => {
+  const html = renderAskPageHtml({ askPraxQuery: 'why is B2 failing', askDraft: '', askPraxLoading: true });
+  assert.match(html, /<div class="ask-q">why is B2 failing<\/div>/);
+  assert.match(html, /data-ask-page-input[^>]*><\/textarea>/);
+  assert.match(html, /data-action="run-ask-prax" disabled/);
+  const drafting = renderAskPageHtml({ askDraft: 'line one\nline two' });
+  assert.match(drafting, /rows="2"[^>]*>line one\nline two<\/textarea>/);
+  assert.doesNotMatch(drafting, /data-action="run-ask-prax" disabled/);
 });

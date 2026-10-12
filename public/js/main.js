@@ -2734,7 +2734,7 @@ async function openAskPage() {
     : { navType: state.navType, navId: state.navId, tab: state.tab, editorDocId: state.navType === 'editor' ? state.editorDocId : null };
   if (!(await navigateTopLevel({ navType: 'ask', paletteOpen: false, askPraxOpen: false }))) return;
   askReturn = from;
-  appRoot.querySelector('[data-ask-prax-input]')?.focus();
+  focusInputAtEnd(appRoot.querySelector('[data-ask-page-input]'));
 }
 
 async function closeAskPage() {
@@ -3138,9 +3138,9 @@ async function handleAction(action, el, event) {
     case 'nav-library': await goLibrary(); break;
     case 'open-ask-page': await openAskPage(); break;
     case 'ask-new':
-      setState({ askPraxResult: null, askPraxQuery: '', askPraxError: false, askPraxLoading: false });
+      setState({ askPraxResult: null, askPraxQuery: '', askDraft: '', askPraxError: false, askPraxLoading: false });
       renderApp();
-      appRoot.querySelector('[data-ask-prax-input]')?.focus();
+      appRoot.querySelector('[data-ask-page-input]')?.focus();
       break;
     case 'ask-history-open': {
       const entry = (state.askHistory || [])[Number(el.dataset.index)];
@@ -3152,7 +3152,7 @@ async function handleAction(action, el, event) {
     case 'selbar-ask': {
       const text = String(documentEditorController?.getSelectionText?.() || '').replace(/\s+/g, ' ').trim().slice(0, 300);
       if (!text) break;
-      setState({ askPraxQuery: text, askPraxResult: null, askPraxError: false });
+      setState({ askDraft: text, askPraxResult: null, askPraxError: false });
       await openAskPage();
       break;
     }
@@ -4154,6 +4154,11 @@ function workspaceKeydown(event) {
     return KEY_HANDLED;
   }
   if (capture.keydown(event)) return KEY_HANDLED;
+  if (target.matches?.('[data-ask-page-input]') && event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault();
+    if (!event.isComposing) knowledge.runAskPrax(target.value);
+    return KEY_HANDLED;
+  }
   if (target.matches?.('[data-ask-prax-input]') && event.key === 'Enter') {
     event.preventDefault();
     knowledge.runAskPrax(target.value);

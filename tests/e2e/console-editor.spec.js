@@ -25,7 +25,7 @@ test('selecting text shows the action bar, and Ask Prax carries the selection', 
   await expect(bar.locator('[data-action="write-action"][data-write="rewrite"]')).toBeVisible();
   await bar.locator('[data-action="selbar-ask"]').click();
   await expect(page.locator('.ask-page')).toBeVisible();
-  await expect(page.locator('[data-ask-prax-input]')).toHaveValue(/Take an etcd snapshot/);
+  await expect(page.locator('[data-ask-page-input]')).toHaveValue(/Take an etcd snapshot/);
 });
 
 test('[[ suggests titles with their type and trust', async ({ page }) => {

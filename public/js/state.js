@@ -166,6 +166,7 @@ export const state = {
   // ---- "Ask Prax" (grounded, cited answer over the library) ----
   askPraxOpen: false,
   askPraxQuery: '',
+  askDraft: '', // the Ask page composer (Console redesign)
   askPraxResult: null,          // null = not run; { answer, degraded, reason, markdown, sources, model }
   askPraxLoading: false,
   askPraxError: false,

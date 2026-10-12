@@ -235,7 +235,9 @@ export function createKnowledgeToolsController({
     const isCurrent = () => token === askPraxToken
       && (state.askPraxOpen || state.navType === 'ask')
       && state.askPraxQuery === query;
-    setState({ askPraxQuery: query, askPraxLoading: true, askPraxError: false, askPraxResult: null });
+    // On the Ask page the composer is a draft of the next question: asking
+    // empties it, and the thread above shows the question being answered.
+    setState({ askPraxQuery: query, askPraxLoading: true, askPraxError: false, askPraxResult: null, ...(state.navType === 'ask' ? { askDraft: '' } : {}) });
     renderApp();
     try {
       const result = await askPrax(query, state.navType === 'ask' ? (state.askScope || 'all') : 'all');
@@ -306,6 +308,15 @@ export function createKnowledgeToolsController({
   // Delegated `input` of the Ask Prax field. Returns true when handled.
   function input(target) {
     const state = getState();
+    if (target.matches?.('[data-ask-page-input]')) {
+      // Typing a follow-up never cancels the answer being written.
+      setState({ askDraft: target.value });
+      target.style.height = 'auto';
+      target.style.height = `${Math.min(target.scrollHeight, 220)}px`;
+      const submit = getRoot().querySelector('[data-action="run-ask-prax"]');
+      if (submit) submit.disabled = !target.value.trim();
+      return true;
+    }
     if (target.matches?.('[data-ask-prax-input]')) {
       const wasLoading = state.askPraxLoading;
       if (wasLoading) askPraxToken += 1;
@@ -325,14 +336,11 @@ export function createKnowledgeToolsController({
   }
 
   const actions = {
-    'open-ask-prax': () => {
-      openAskPrax();
-    },
     'close-ask-prax': () => {
       closeAskPrax();
     },
     'run-ask-prax': () => {
-      runAskPrax(getRoot().querySelector('[data-ask-prax-input]')?.value);
+      runAskPrax(getRoot().querySelector('[data-ask-page-input], [data-ask-prax-input]')?.value);
     },
     'open-ask-source': async (el) => {
       const documentId = el.dataset.documentId;

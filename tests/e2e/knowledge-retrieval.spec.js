@@ -131,7 +131,7 @@ test('a stale Ask Prax answer cannot overwrite the newer answer and its source o
 
   await page.goto('/');
   await page.locator('[data-action="nav-library"]').first().click();
-  await page.getByRole('button', { name: 'Ask Prax' }).click();
+  await page.locator('.titlebar [data-action="open-ask-page"]').click();
   const input = page.getByRole('textbox', { name: 'Question for Prax' });
   await input.fill('first slow question');
   await input.press('Enter');
