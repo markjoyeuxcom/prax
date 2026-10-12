@@ -146,16 +146,16 @@ test('year-one surfaces (Today triage, Library table and review queue, palette s
   }, { origin: 'agent' });
 
   await page.goto('/');
-  await page.locator('.rail [data-action="nav-today"]').click();
+  await page.locator('.places [data-action="nav-today"]').click();
   await expect(page.locator('[data-triage]')).toBeVisible();
   await audit(page, 'today-triage');
 
-  await page.locator('.rail [data-action="nav-library"]').click();
+  await page.locator('.places [data-action="nav-library"]').click();
   await page.locator('[data-action="set-library-layout"][data-layout="table"]').click();
   await expect(page.locator('.doc-table')).toBeVisible();
   await audit(page, 'library-table');
 
-  await page.locator('.panel [data-action="open-review-queue"]').click();
+  await page.locator('.panel [data-action="nav-review"]').click();
   await expect(page.locator('.doc-table--review')).toBeVisible();
   await expect(page.locator('.review-banner')).toBeVisible();
   await audit(page, 'library-review-queue');

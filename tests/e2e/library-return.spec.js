@@ -5,7 +5,7 @@ import { createDocument } from './helpers/seed.js';
 for (const returnButton of ['back', 'breadcrumb']) test(`Library ${returnButton} restores tags, project, trust, type, query, sort and layout`, async ({ page, request }) => {
   const tag = `return-${randomUUID()}`;
   const doc = await createDocument(request, { title: `Return view ${tag}`, body: 'Preserve my filters', tags: [tag], documentType: 'note', project: 'work' }, { origin: 'agent' });
-  await page.goto('/'); await page.locator('.rail [data-action="nav-library"]').click();
+  await page.goto('/'); await page.locator('.places [data-action="nav-library"]').click();
   await page.locator('[data-library-search]').fill('Return view');
   // Earlier tests leave many tags; use the sidebar's real overflow search.
   const tagSearch = page.getByRole('textbox', { name: 'Find a tag', exact: true });
@@ -31,7 +31,7 @@ for (const returnButton of ['back', 'breadcrumb']) test(`Library ${returnButton}
 test('Library return keeps the expanded result window and scroll position', async ({ page, request }) => {
   const tag = `window-${randomUUID()}`;
   for (let i = 0; i < 65; i++) await createDocument(request, { title: `${tag} ${String(i).padStart(2, '0')}`, body: 'Window test', tags: [tag], documentType: 'note', project: 'work' });
-  await page.goto('/'); await page.locator('.rail [data-action="nav-library"]').click();
+  await page.goto('/'); await page.locator('.places [data-action="nav-library"]').click();
   await page.locator('[data-library-search]').fill(tag);
   await page.locator('[data-action="show-more-library"]').click();
   await expect(page.locator('.doc-card')).toHaveCount(65);
@@ -47,7 +47,7 @@ test('Library return keeps the expanded result window and scroll position', asyn
 test('failed editor save blocks Back, preserving the draft and Library origin until saved', async ({ page, request }) => {
   const tag = `draft-${randomUUID()}`;
   const doc = await createDocument(request, { title: tag, body: 'Original', tags: [tag], documentType: 'note', project: 'work' });
-  await page.goto('/'); await page.locator('.rail [data-action="nav-library"]').click();
+  await page.goto('/'); await page.locator('.places [data-action="nav-library"]').click();
   await page.locator('[data-library-search]').fill(tag);
   await page.locator(`[data-action="open-doc"][data-document-id="${doc.id}"]`).click();
   await page.locator('[data-action="set-editor-mode"][data-mode="edit"]').click();
@@ -67,7 +67,7 @@ test('archived and linked documents preserve their Library origin', async ({ pag
   const tag = `linked-${randomUUID()}`;
   const target = await createDocument(request, { title: `${tag} target`, body: 'Linked target', documentType: 'note', project: 'work' });
   const source = await createDocument(request, { title: `${tag} source`, body: `[[${target.title}]]`, documentType: 'note', tags: [tag], project: 'work' });
-  await page.goto('/'); await page.locator('.rail [data-action="nav-library"]').click();
+  await page.goto('/'); await page.locator('.places [data-action="nav-library"]').click();
   await page.locator('[data-library-search]').fill(source.title);
   await page.locator(`[data-action="open-doc"][data-document-id="${source.id}"]`).click();
   await page.locator(`a[data-document-id="${target.id}"]`).click();
@@ -94,7 +94,7 @@ test('semantic return retains loaded matches and refreshes changed source conten
       const current = await (await request.get(`/api/library/documents/${doc.id}`)).json();
       await route.fulfill({ json: { items: [{ ...current, snippet: current.body, similarity: 0.9 }], page: { offset: 0, limit: 20, returned: 1, total: 1, hasMore: false, nextOffset: null } } });
     });
-    await page.goto('/'); await page.locator('.rail [data-action="nav-library"]').click();
+    await page.goto('/'); await page.locator('.places [data-action="nav-library"]').click();
     await page.locator('[data-action="set-search-mode"][data-mode="semantic"]').click();
     await page.locator('[data-library-search]').fill('semantic return'); await page.locator('[data-library-search]').press('Enter');
     await page.locator('.sem-card').click();

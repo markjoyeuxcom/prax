@@ -2605,8 +2605,9 @@ function renderApp() {
   const chrome = !state.editorFocus;
   const counts = sidebarCounts();
   const nav = chrome
-    ? renderRailHtml(state, counts, { showProjects: narrow })
-      + (narrow ? '' : renderPanelHtml(state, counts))
+    // Console shell: wide windows get the one labelled sidebar (places +
+    // the current context); narrow windows keep the icon rail alone.
+    ? (narrow ? renderRailHtml(state, counts, { showProjects: true }) : renderPanelHtml(state, counts))
     : '';
   // The main-content fade-in is a *view-transition* cue. renderApp rebuilds the
   // DOM on every state change, so without this the fade replays on same-view
@@ -2893,6 +2894,7 @@ async function handleAction(action, el, event) {
       if (await navigateTopLevel({ navType: 'all' })) openConfirm(newProjectDialog());
       break;
     case 'nav-library': await goLibrary(); break;
+    case 'nav-review': await goLibrary({ libraryView: 'review' }); break;
     // Today's agent card shows a few rows; the rest are the Library's
     // agent-written facet, newest first.
     case 'open-agent-memory': await goLibrary({ libraryTrust: ['agent'], librarySortBy: 'updated' }); break;

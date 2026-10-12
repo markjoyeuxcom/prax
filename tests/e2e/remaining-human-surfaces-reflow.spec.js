@@ -78,8 +78,8 @@ test('every Settings section keeps its controls inside the 400%-equivalent viewp
 
   await page.locator('[data-action="set-settings-tab"][data-tab="appearance"]').tap();
   const accents = page.locator('[data-action="set-accent"]');
-  await expect(accents).toHaveCount(9);
-  for (const title of ['Fern (default)', 'Teal', 'Sky', 'Indigo', 'Plum', 'Rose', 'Amber', 'Clay', 'Moss']) {
+  await expect(accents).toHaveCount(10);
+  for (const title of ['Lime (default)', 'Fern', 'Teal', 'Sky', 'Indigo', 'Plum', 'Rose', 'Amber', 'Clay', 'Moss']) {
     await expect(page.getByTitle(title)).toBeVisible();
   }
   const lineNumbers = page.getByRole('switch', { name: 'Editor line numbers' });

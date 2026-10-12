@@ -6,7 +6,7 @@ import { createDocument, resolveProjectId } from './helpers/seed.js';
 test.beforeEach(async ({ page }) => { await page.emulateMedia({ reducedMotion: 'reduce' }); });
 
 async function openStudio(page) {
-  await page.locator('.rail [data-action="nav-library"]').click();
+  await page.locator('.places [data-action="nav-library"]').click();
   await page.locator('[data-action="toggle-new-doc-menu"]').click();
   await page.locator('[data-action="open-template-studio"]').click();
   await expect(page.getByRole('dialog', { name: 'Templates & guides' })).toBeVisible();
@@ -45,7 +45,7 @@ test('custom template copy preserves the verified original and permits another p
   const master = await createDocument(request, { title, body: '# Reusable procedure\n\n- [ ] Check the result', documentType: 'template', project: 'homelab', tags: ['ops'] });
   const verify = await request.post(`/api/library/documents/${master.id}/verify`, { data: { verified: true, revision: master.revision } }); expect(verify.ok()).toBe(true);
   const before = await (await request.get(`/api/library/documents/${master.id}`)).json();
-  await page.goto('/'); await page.locator('.rail [data-action="nav-library"]').click();
+  await page.goto('/'); await page.locator('.places [data-action="nav-library"]').click();
   await page.locator('[data-library-search]').fill(title);
   await page.locator('.doc-card', { hasText: title }).click();
   await page.locator('[data-action="use-document-template"]').click();
@@ -108,11 +108,11 @@ test('late catalogue response does not reopen a chooser after navigation away', 
     const response = await route.fetch(); received(); await held; await route.fulfill({ response });
   });
   await page.goto('/');
-  await page.locator('.rail [data-action="nav-library"]').click();
+  await page.locator('.places [data-action="nav-library"]').click();
   await page.locator('[data-action="toggle-new-doc-menu"]').click();
   await page.locator('[data-action="open-template-studio"]').click();
   await requested;
-  try { await page.locator('.rail [data-action="nav-today"]').click(); }
+  try { await page.locator('.places [data-action="nav-today"]').click(); }
   finally { release(); }
   await expect(page.locator('.page-head__title')).toHaveText('Today');
   await expect(page.getByRole('dialog', { name: 'Templates & guides' })).toHaveCount(0);

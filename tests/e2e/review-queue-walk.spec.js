@@ -18,8 +18,8 @@ test('Review next walks the queue: verify and next, verify and finish, back on t
   }, { origin: 'agent' });
 
   await page.goto('/');
-  await page.locator('.rail [data-action="nav-library"]').click();
-  await page.locator('.panel [data-action="open-review-queue"]').click();
+  await page.locator('.places [data-action="nav-library"]').click();
+  await page.locator('.panel [data-action="nav-review"]').click();
   await expect(page.locator('.doc-table--review')).toBeVisible();
 
   // Narrow the queue to this spec's two documents; the walk is a snapshot of
@@ -65,8 +65,8 @@ test('Skip moves on without verifying, and Back to queue leaves the walk', async
   }, { origin: 'agent' });
 
   await page.goto('/');
-  await page.locator('.rail [data-action="nav-library"]').click();
-  await page.locator('.panel [data-action="open-review-queue"]').click();
+  await page.locator('.places [data-action="nav-library"]').click();
+  await page.locator('.panel [data-action="nav-review"]').click();
   await page.locator('[data-library-search]').fill(prefix);
   await expect(page.locator('.doc-table--review .doc-table__row')).toHaveCount(2);
 
