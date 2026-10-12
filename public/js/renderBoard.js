@@ -111,7 +111,10 @@ function renderCard(state, task, projectsById, now) {
 
   const chips = [];
   const project = lookupProject(projectsById, task.projectId);
-  if (project && project.name) {
+  // Inside a project's own board every card would repeat that project's
+  // name; the chip only earns its place on a board that mixes projects.
+  const ownProject = state.navType === 'project' && state.navId === task.projectId;
+  if (project && project.name && !ownProject) {
     const color = cssColor(project.color, 'var(--accent)');
     chips.push(chip(
       project.name,

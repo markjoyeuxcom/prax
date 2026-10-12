@@ -100,7 +100,7 @@ import { loadRecent, saveRecent, pushRecent, loadRecentDocuments, saveRecentDocu
 import { loadLayout, saveLayout } from './libraryLayout.js';
 import { renderBoardHtml, buildBoardColumns, limitBoardColumns } from './renderBoard.js';
 import { renderBacklogHtml, renderArchiveHtml } from './renderBacklog.js';
-import { renderTaskDrawerHtml, renderMissingTaskDrawerHtml } from './renderTaskDetail.js';
+import { renderTaskDrawerHtml, renderMissingTaskDrawerHtml, inspectorDocked } from './renderTaskDetail.js';
 import { renderLinkPickerHtml } from './renderLinkPicker.js';
 import {
   LIBRARY_RENDER_BATCH_SIZE, renderLibraryHtml, buildLibraryModel, reviewQueue,
@@ -2626,6 +2626,9 @@ function renderApp() {
       flatMain,
       statusbarHtml: chrome ? renderStatusbarHtml(state) : '',
       overlaysHtml: renderOverlaysHtml(),
+      // The docked inspector takes the right of the window; the body makes
+      // room so the list never runs underneath it.
+      inspector: Boolean(state.drawerTaskId && taskById(state.drawerTaskId) && inspectorDocked(state)),
     });
   } finally {
     renderingApp = false;
@@ -3723,8 +3726,9 @@ function bindEvents() {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
       const wasNarrow = state.winW < 940;
+      const wasDocked = inspectorDocked(state);
       setState({ winW: window.innerWidth });
-      if ((window.innerWidth < 940) !== wasNarrow) renderApp();
+      if ((window.innerWidth < 940) !== wasNarrow || inspectorDocked(state) !== wasDocked) renderApp();
     }, 150);
   });
 }
@@ -3883,24 +3887,30 @@ function installKeyboard() {
         capture.openFreshCapture();
       },
       toggleDoneSelected() {
-        if (state.selectedTaskId && !state.paletteOpen && !state.captureOpen && !state.drawerTaskId) {
+        const drawerBlocks = state.drawerTaskId && !inspectorDocked(state);
+        if (state.selectedTaskId && !state.paletteOpen && !state.captureOpen && !drawerBlocks) {
           toggleTaskDone(state.selectedTaskId);
         }
       },
       navigate(direction) {
         const listContext = (state.navType === 'project' && (state.tab === 'list' || state.tab === 'board'))
           || state.navType === 'today' || state.navType === 'filter';
-        if (!listContext || state.paletteOpen || state.captureOpen || state.drawerTaskId) return;
+        const docked = Boolean(state.drawerTaskId) && inspectorDocked(state);
+        if (!listContext || state.paletteOpen || state.captureOpen || (state.drawerTaskId && !docked)) return;
         if (!flatIds.length) return;
         const current = flatIds.indexOf(state.selectedTaskId);
         const next = direction > 0
           ? Math.min(flatIds.length - 1, current + 1)
           : Math.max(0, current < 0 ? 0 : current - 1);
+        // The docked inspector follows the selection (openTaskDrawer flushes
+        // the current draft first and refuses to switch if that fails).
+        if (docked && flatIds[next] !== state.drawerTaskId) { openTaskDrawer(flatIds[next]); return; }
         setState({ selectedTaskId: flatIds[next] });
         renderApp();
       },
       openSelected() {
-        if (state.selectedTaskId && !state.paletteOpen && !state.captureOpen && !state.drawerTaskId) {
+        const drawerBlocks = state.drawerTaskId && !inspectorDocked(state);
+        if (state.selectedTaskId && !state.paletteOpen && !state.captureOpen && !drawerBlocks) {
           openTaskDrawer(state.selectedTaskId);
         }
       },
