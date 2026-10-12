@@ -47,6 +47,7 @@ test('Run librarian proposes, the queue sorts by recall, approval needs verifica
   await page.locator('[data-action="back-to-library"]').click();
   await page.locator('[data-action="toggle-library-menu"]').click();
   await page.locator('[data-action="open-review-queue"]').first().click();
+  await page.locator('[data-action="review-desk-table"]').click(); // the desk opens first; sorting is a table feature
   await expect(page.locator('.doc-table--review')).toContainText(`Restore ${tag}`);
   const sort = page.locator('[data-action="cycle-lib-sort"]');
   await sort.click();

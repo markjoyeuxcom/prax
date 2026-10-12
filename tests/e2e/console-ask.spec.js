@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { createDocument, resolveProjectId } from './helpers/seed.js';
 
-// Ask Prax as a page (Console redesign, 2026-10). The e2e server has no chat
-// model, so the page shows the retrieved sources and says why there is no
+// Ask Prax as a page (Console redesign, 2026-10). With no chat model the page
+// shows the retrieved sources and says why there is no
 // written answer; the question lands in the per-device history.
 test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -13,6 +13,18 @@ test('Ask opens a page: question, sources rail, honest no-model notice, history'
     title: `Zircon failover ${stamp}`, body: `# Zircon failover ${stamp}\n\nPromote the replica, then repoint the app.`, documentType: 'runbook', project: projectId,
   });
 
+  // The full suite may have enabled its fake model in an earlier spec.
+  const previousBackend = (await (await request.get('/api/settings/ai-answers')).json()).backend;
+  expect((await request.put('/api/settings/ai-answers', { data: { backend: 'none' } })).ok()).toBe(true);
+  test.info().annotations.push({ type: 'fixture', description: `Restores answer backend ${previousBackend}` });
+  try {
+    await askWithoutModel(page, stamp);
+  } finally {
+    expect((await request.put('/api/settings/ai-answers', { data: { backend: previousBackend } })).ok()).toBe(true);
+  }
+});
+
+async function askWithoutModel(page, stamp) {
   await page.goto('/');
   await page.locator('.titlebar [data-action="open-ask-page"]').click();
   await expect(page.locator('.ask-intro__title')).toHaveText('Ask Prax');
@@ -34,7 +46,7 @@ test('Ask opens a page: question, sources rail, honest no-model notice, history'
   await page.locator('.titlebar [data-action="open-ask-page"]').click();
   await page.locator('.ask-hist__item', { hasText: `zircon failover ${stamp}` }).click();
   await expect(page.locator('.ask-q')).toHaveText(`zircon failover ${stamp}`);
-});
+}
 
 test('the Library and the palette open the same page', async ({ page }) => {
   await page.goto('/');
