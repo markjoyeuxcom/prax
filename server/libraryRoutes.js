@@ -124,9 +124,17 @@ function validateDocumentPayload(payload, { partial = false } = {}) {
   return null;
 }
 
+// Tags are normalised at the API boundary, so the app, the CLI, the MCP server
+// and every agent write one spelling: lowercase, no leading #, whitespace runs
+// become one hyphen, duplicates collapse (Console redesign, 2026-10). Deeper
+// merges (plurals, aliases) are a human decision on Library ▸ Tags.
+export function normalizeTag(tag) {
+  return String(tag).trim().replace(/^#+/, '').toLowerCase().replace(/\s+/g, '-').replace(/-{2,}/g, '-');
+}
+
 function cleanTags(tags) {
   if (!Array.isArray(tags)) return [];
-  return tags.map(tag => tag.trim()).filter(Boolean);
+  return [...new Set(tags.map(normalizeTag).filter(Boolean))];
 }
 
 function cleanDocumentPayload(payload) {

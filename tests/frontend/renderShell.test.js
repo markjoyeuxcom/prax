@@ -696,20 +696,36 @@ test('Library panel: Project and Trust facets with counts, only where they have 
   assert.doesNotMatch(html, /data-facet="agent"/);
 });
 
-test('Library panel: tags by use with a fold, a tag box past the limit, active tags always shown, Save view when active', () => {
+test('Library panel: tags by use with a fold, a tag box past the limit; with a filter, only the tags in the results', () => {
   const documents = Array.from({ length: 14 }, (_, index) => ({
     id: `d${index}`, title: `Doc ${index}`, documentType: 'note',
     // tag0 is on every doc, tag1 on all but one, … so counts descend by index.
     tags: Array.from({ length: 14 - index }, (_, tagIndex) => `tag${tagIndex}`),
   }));
-  const html = renderPanelHtml(makeState({ navType: 'library', documents, activeLibraryTags: ['tag13'] }), {});
+  const html = renderPanelHtml(makeState({ navType: 'library', documents }), {});
   assert.match(html, /<span>Tags<\/span><span class="side-section__count">14</);
   assert.match(html, /data-library-tag-filter[^>]*placeholder="Find a tag…"/);
   assert.match(html, /class="side-item side-item--tag" data-action="toggle-lib-tag" data-tag="tag0" aria-pressed="false">[\s\S]*?#tag0[\s\S]*?side-item__count">14/);
-  assert.match(html, /class="side-item side-item--tag is-active" data-action="toggle-lib-tag" data-tag="tag13" aria-pressed="true"/, 'the active tag ranks last but is shown');
   assert.doesNotMatch(html, /data-tag="tag11"/, 'past the fold');
-  assert.match(html, /data-action="toggle-lib-tags" aria-expanded="false"[^>]*>[\s\S]*?3 more, by use/);
-  assert.match(html, /data-action="save-library-view"/);
+  assert.match(html, /data-action="toggle-lib-tags" aria-expanded="false"[^>]*>[\s\S]*?4 more, by use/);
+  assert.match(html, /data-action="open-tags"[^>]*>[\s\S]*?Manage tags…/);
+
+  // A filter narrows the list to tags present in the results, counted there;
+  // the active tag stays (it is the filter) and Save view appears.
+  const filtered = renderPanelHtml(makeState({ navType: 'library', documents, activeLibraryTags: ['tag12'] }), {});
+  assert.match(filtered, /<span>Tags in 2 results<\/span>/);
+  assert.match(filtered, /class="side-item side-item--tag is-active" data-action="toggle-lib-tag" data-tag="tag12" aria-pressed="true">[\s\S]*?side-item__count">×/);
+  assert.match(filtered, /data-tag="tag0"[^>]*>[\s\S]*?side-item__count">2</);
+  assert.match(filtered, /data-action="save-library-view"/);
+  // Tags the results do not carry drop out, and the panel says how many.
+  const split = [
+    { id: 'a', title: 'A', documentType: 'note', tags: ['backup', 'postgres'] },
+    { id: 'b', title: 'B', documentType: 'note', tags: ['dns', 'cloudflare'] },
+  ];
+  const narrowed2 = renderPanelHtml(makeState({ navType: 'library', documents: split, activeLibraryTags: ['backup'] }), {});
+  assert.match(narrowed2, /data-tag="postgres"/);
+  assert.doesNotMatch(narrowed2, /data-tag="dns"/);
+  assert.match(narrowed2, /2 other tags match nothing here\./);
 
   const expanded = renderPanelHtml(makeState({ navType: 'library', documents, libraryTagsExpanded: true }), {});
   assert.match(expanded, /data-tag="tag11"/);
