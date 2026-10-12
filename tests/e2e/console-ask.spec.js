@@ -55,3 +55,20 @@ test('the Library and the palette open the same page', async ({ page }) => {
   await expect(page.locator('.ask-page')).toBeVisible();
   await expect(page.locator('[data-overlay="askprax"]')).toHaveCount(0);
 });
+
+test('closing Ask returns to where it was opened, by button or Esc', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('.places [data-action="nav-library"]').click();
+  await page.locator('.titlebar [data-action="open-ask-page"]').click();
+  await expect(page.locator('.ask-page')).toBeVisible();
+  await page.getByRole('button', { name: 'Close Ask Prax' }).click();
+  await expect(page.locator('.ask-page')).toHaveCount(0);
+  await expect(page.locator('[data-library-search]')).toBeVisible();
+
+  await page.locator('.places [data-action="nav-today"]').click();
+  await page.locator('.titlebar [data-action="open-ask-page"]').click();
+  await expect(page.locator('[data-ask-prax-input]')).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.ask-page')).toHaveCount(0);
+  await expect(page.locator('.statusbar__mode')).not.toHaveText('ASK');
+});

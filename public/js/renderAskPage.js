@@ -147,7 +147,9 @@ export function renderAskPageHtml(state, { resolveWikiLink, projects = [] } = {}
 
   return '<div class="ask-page">'
     + renderHistory(state)
-    + `<section class="ask-thread" aria-label="Answer" aria-busy="${Boolean(state.askPraxLoading)}"><div class="ask-thread__scroll">${thread}</div>${composer}</section>` // html-safe: thread and composer are built from escaped values and renderCitedAnswer
+    + `<section class="ask-thread" aria-label="Answer" aria-busy="${Boolean(state.askPraxLoading)}">`
+    + '<button type="button" class="btn-icon ask-close" data-action="close-ask-page" aria-label="Close Ask Prax" title="Close (Esc)">×</button>'
+    + `<div class="ask-thread__scroll">${thread}</div>${composer}</section>` // html-safe: thread and composer are built from escaped values and renderCitedAnswer
     + renderSourcesRail(sources, cited)
     + '</div>';
 }
