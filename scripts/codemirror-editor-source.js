@@ -57,18 +57,26 @@ const operatorTheme = EditorView.theme({
   '.cm-selectionMatch': { backgroundColor: 'color-mix(in srgb, var(--accent) 14%, transparent)' },
   // Autocomplete popup (slash menu + wiki-links), themed to the Prax palette.
   '.cm-tooltip.cm-tooltip-autocomplete': {
-    backgroundColor: 'var(--surface)',
+    backgroundColor: 'var(--card)',
     border: '1px solid var(--line2)',
     borderRadius: '10px',
     boxShadow: 'var(--pop, 0 12px 32px rgba(0,0,0,.18))',
     overflow: 'hidden',
+    padding: '4px',
     fontFamily: 'var(--font-ui, system-ui)',
   },
-  '.cm-tooltip-autocomplete ul': { fontFamily: 'var(--font-ui, system-ui)', maxHeight: '15em' },
-  '.cm-tooltip-autocomplete ul li': { padding: '4px 10px', color: 'var(--text-body)', lineHeight: '1.5' },
-  '.cm-tooltip-autocomplete ul li[aria-selected]': { backgroundColor: 'color-mix(in srgb, var(--accent) 16%, transparent)', color: 'var(--text-body)' },
-  '.cm-completionLabel': { fontSize: '12.5px' },
-  '.cm-completionDetail': { color: 'var(--text-dimmer)', fontStyle: 'normal', marginLeft: '10px', fontSize: '11px' },
+  // "> ul" matches the base theme's specificity so the UI font wins over its monospace.
+  '.cm-tooltip.cm-tooltip-autocomplete > ul': { fontFamily: 'var(--font-ui, system-ui)', maxHeight: '18em', minWidth: '340px', maxWidth: 'min(560px, 80vw)' },
+  '.cm-tooltip.cm-tooltip-autocomplete > ul > li': {
+    display: 'flex', alignItems: 'center', gap: '12px', minHeight: '30px', padding: '0 10px',
+    borderRadius: '6px', color: 'var(--text-body)', lineHeight: '1.4',
+  },
+  '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]': { backgroundColor: 'var(--accent-soft, color-mix(in srgb, var(--accent) 16%, transparent))', color: 'var(--text-body)' },
+  '.cm-completionLabel': { fontSize: '13px', flex: '1 1 auto', minWidth: '0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  '.cm-completionMatchedText': { textDecoration: 'none', color: 'var(--accent)', fontWeight: '600' },
+  '.cm-completionDetail': { color: 'var(--text-dimmer)', fontStyle: 'normal', marginLeft: 'auto', fontSize: '11px', fontFamily: 'var(--font-mono, monospace)', whiteSpace: 'nowrap' },
+  '.cm-opt--verified .cm-completionDetail': { color: 'var(--accent)' },
+  '.cm-opt--unverified .cm-completionDetail': { color: 'var(--agent, var(--text-dimmer))' },
 }, { dark: true });
 
 const operatorHighlight = HighlightStyle.define([
@@ -196,6 +204,12 @@ function makeWikiCompletionSource(documentsProvider) {
       .slice(0, 200)
       .map((doc) => ({
         label: doc.title,
+        // Console redesign: the type and trust ride along, and verified
+        // documents rank first among equal matches.
+        detail: [doc.documentType ? String(doc.documentType).replace(/-/g, ' ') : '', doc.verified === true ? '✓' : (doc.verified === false ? '◌' : '')]
+          .filter(Boolean).join(' '),
+        boost: doc.verified === true ? 1 : 0,
+        trust: doc.verified === true ? 'verified' : (doc.verified === false ? 'unverified' : ''),
         type: 'text',
         apply: (view, _completion, fromPos, toPos) => {
           const after = view.state.sliceDoc(toPos, Math.min(view.state.doc.length, toPos + 2));
@@ -251,6 +265,7 @@ export function mountCodeMirrorEditor({
   onChange,
   onSave,
   documentsProvider,
+  onSelectionChange,
   lineNumbers: showLineNumbers = false,
   cursorToEnd = true,
 } = {}) {
@@ -281,10 +296,26 @@ export function mountCodeMirrorEditor({
         // CM's panel exists only to keep highlighting alive (see openSearchPanel
         // below).
         search({ createPanel: hiddenSearchPanel }),
-        autocompletion({ override: [slashCompletionSource, wikiCompletionSource], icons: false, defaultKeymap: true }),
+        autocompletion({ override: [slashCompletionSource, wikiCompletionSource], icons: false, defaultKeymap: true, optionClass: (option) => (option.trust ? `cm-opt--${option.trust}` : '') }),
         EditorView.lineWrapping,
         EditorView.contentAttributes.of({ 'aria-label': 'Markdown document body' }),
         EditorView.updateListener.of((update) => {
+          // Selection reporting (the Console editor's floating action bar):
+          // measured in CodeMirror's read phase, never during the update.
+          if (onSelectionChange && (update.selectionSet || update.docChanged || update.focusChanged || update.geometryChanged)) {
+            const sel = update.state.selection.main;
+            update.view.requestMeasure({
+              read(view) {
+                if (sel.empty) return null;
+                const a = view.coordsAtPos(sel.from);
+                const b = view.coordsAtPos(sel.to, -1);
+                return a && b ? { top: Math.min(a.top, b.top), bottom: Math.max(a.bottom, b.bottom), left: a.left, right: b.right } : null;
+              },
+              write(rect, view) {
+                onSelectionChange({ from: sel.from, to: sel.to, empty: sel.empty, rect, focused: view.hasFocus });
+              },
+            });
+          }
           if (!update.docChanged) return;
           onChange?.(update.state.doc.toString());
           // Slash menu ("/" at line start) and wiki-link ("[[") triggers aren't

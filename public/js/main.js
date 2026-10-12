@@ -111,7 +111,8 @@ import {
   SEMANTIC_UNAVAILABLE_HINT, nextLibrarySort,
 } from './renderLibrary.js';
 import { templateById } from './documentTemplates.js';
-import { renderEditorHtml, buildOutline, buildBacklinks } from './renderEditor.js';
+import { renderEditorHtml, buildOutline, buildBacklinks, WRITE_ACTIONS } from './renderEditor.js';
+import { escapeHtml } from './html.js';
 import { renderRunHtml } from './renderRun.js';
 import { renderAskPraxHtml } from './renderAskPrax.js';
 import { renderGenerateRunbookHtml } from './renderGenerateRunbook.js';
@@ -1316,7 +1317,43 @@ function resolveWikiLink(title) {
 function wikiLinkDocuments() {
   return (state.documents || [])
     .filter((d) => d && !d.archivedAt && d.title && d.id !== state.editorDocId)
-    .map((d) => ({ id: d.id, title: d.title }));
+    .map((d) => ({ id: d.id, title: d.title, documentType: d.documentType, verified: d.verified === true }));
+}
+
+// The floating action bar over a selection in the editor (Console redesign):
+// the writing actions that work on a selection, and Ask Prax about it. It is
+// placed imperatively — a full render on every selection change would remount
+// the editor — and dispatches ordinary data-actions through the app's click
+// delegation, so it adds no new paths into the writing controller.
+function updateSelectionBar(selection) {
+  const pane = appRoot.querySelector('[data-code-editor]')?.closest('.pane');
+  if (!pane) return;
+  let bar = pane.querySelector('.selbar');
+  const canWrite = Boolean(state.chatStatus?.available);
+  const show = selection && !selection.empty && selection.rect && selection.to - selection.from > 1
+    && !state.writeLoading && !state.writeResult && state.navType === 'editor';
+  if (!show) { if (bar) bar.hidden = true; return; }
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.className = 'selbar';
+    bar.setAttribute('role', 'toolbar');
+    bar.setAttribute('aria-label', 'Selection actions');
+    bar.addEventListener('mousedown', (event) => event.preventDefault()); // keep the editor's selection and focus
+    pane.style.position = pane.style.position || 'relative';
+    pane.appendChild(bar);
+  }
+  bar.innerHTML = '<span class="selbar__spark" aria-hidden="true">✦</span>'
+    + WRITE_ACTIONS.filter(([action]) => action !== 'draft')
+      .map(([action, label]) => `<button type="button" class="selbar__btn" data-action="write-action" data-write="${escapeHtml(action)}"${canWrite ? '' : ' disabled title="Set an AI model in Settings ▸ Intelligence"'}>${escapeHtml(label)}</button>`).join('')
+    + '<span class="selbar__sep" aria-hidden="true"></span>'
+    + '<button type="button" class="selbar__btn selbar__btn--ask" data-action="selbar-ask">Ask Prax…</button>';
+  const paneRect = pane.getBoundingClientRect();
+  const top = selection.rect.bottom;
+  bar.hidden = false;
+  const width = bar.offsetWidth || 420;
+  const left = Math.max(8, Math.min(paneRect.width - width - 8, selection.rect.left - paneRect.left));
+  bar.style.left = `${left}px`;
+  bar.style.top = `${top - paneRect.top + pane.scrollTop + 6}px`;
 }
 
 function seedEditorDraft(doc) {
@@ -1702,6 +1739,7 @@ function mountEditorIfNeeded() {
       lineNumbers: Boolean(state.preferences.lineNumbers),
       cursorToEnd: true,
       documentsProvider: wikiLinkDocuments,
+      onSelectionChange: (selection) => updateSelectionBar(selection),
       onChange: (value) => {
         if (fallback) fallback.value = value;
         handleDocumentDraftBodyChange(value);
@@ -3089,6 +3127,13 @@ async function handleAction(action, el, event) {
       break;
     }
     case 'save-ask-note': await saveAskAsNote(); break;
+    case 'selbar-ask': {
+      const text = String(documentEditorController?.getSelectionText?.() || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+      if (!text) break;
+      setState({ askPraxQuery: text, askPraxResult: null, askPraxError: false });
+      await openAskPage();
+      break;
+    }
     case 'nav-review': await goLibrary({ libraryView: 'review', reviewLayout: 'desk', reviewDeskId: null, reviewDeskDone: [] }); break;
     case 'review-desk-select': setState({ reviewDeskId: el.dataset.documentId || null }); renderApp(); break;
     case 'review-desk-verify': await reviewDeskDecide('verify'); break;

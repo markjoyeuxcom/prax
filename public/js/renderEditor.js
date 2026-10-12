@@ -159,6 +159,13 @@ export function renderReviewWalkHtml(state, doc) {
     </div>`;
 }
 
+// How connected the document is, at a glance (Console redesign): the typed
+// links already loaded for the editor's links section.
+function linkCountChip(state) {
+  const count = Array.isArray(state.documentLinks) ? state.documentLinks.length : 0;
+  return count ? chip(`${count} link${count === 1 ? '' : 's'}`, 'meta') : '';
+}
+
 function renderHead(state, doc, { mode, readOnly, project }) {
   const tags = (Array.isArray(doc.tags) ? doc.tags : []).filter(Boolean);
   const title = state.documentDraftId === doc.id ? state.documentDraftTitle : doc.title;
@@ -171,7 +178,7 @@ function renderHead(state, doc, { mode, readOnly, project }) {
     <header class="editor-head">
       <button class="editor-head__back" type="button" data-action="back-to-library" title="Back to ${state.editorReturnView?.kind === 'inbox' ? 'Inbox' : 'library'}" aria-label="Back to ${state.editorReturnView?.kind === 'inbox' ? 'Inbox' : 'library'}">←</button>
       <input class="editor-head__title" type="text" data-doc-title value="${escapeHtml(title || '')}" aria-label="Document title" autocomplete="off" spellcheck="false"${readOnly ? ' readonly' : ''}>
-      <div class="editor-head__tags">${projectChip(project?.name, project?.color)}${tags.map((tag) => chip(`#${tag}`, 'tag')).join('')}${trustChips(doc)}</div>
+      <div class="editor-head__tags">${projectChip(project?.name, project?.color)}${tags.map((tag) => chip(`#${tag}`, 'tag')).join('')}${trustChips(doc)}${linkCountChip(state)}</div>
       <button class="btn-ghost btn-ghost--toggle${state.outlineOpen ? ' is-on' : ''}" type="button" data-action="toggle-outline" aria-pressed="${Boolean(state.outlineOpen)}">Outline</button>
       ${!readOnly && doc.documentType === 'runbook' ? `<button class="btn-primary btn-primary--sm" type="button" data-action="start-run" title="Start a run — track each step with a timestamp"${state.runStartPending ? ' disabled' : ''}>${state.runStartPending ? 'Starting…' : '▶ Run'}</button>` : ''}
       ${!readOnly && doc.documentType === 'template' && (doc.status || 'active') === 'active' ? '<button class="btn-primary btn-primary--sm" type="button" data-action="use-document-template">Use template</button>' : ''}
