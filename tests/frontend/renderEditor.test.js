@@ -474,3 +474,38 @@ test('the last document offers Verify and finish; a verified one offers Next or 
   const alreadyLast = render({ reviewWalk: { ids: ['doc-1'], index: 0, verified: 0 } }, { verified: true });
   assert.match(alreadyLast, /data-action="review-walk-skip">Finish</);
 });
+
+// ---- Write with AI (Console redesign) -----------------------------------------
+
+test('Write with AI sits in the editor head, not the formatting toolbar', () => {
+  const html = render({ chatStatus: { available: true, model: 'qwen3:14b' } });
+  const head = html.slice(html.indexOf('<header class="editor-head">'), html.indexOf('</header>'));
+  assert.match(head, /data-action="toggle-write-menu"[^>]*>.*Write with AI/s);
+  const toolbar = html.slice(html.indexOf('class="toolbar"'));
+  assert.doesNotMatch(toolbar.slice(0, toolbar.indexOf('</div>')), /toggle-write-menu/);
+});
+
+test('the open menu names its scope, each action, and the model', () => {
+  const whole = render({ writeMenuOpen: true, chatStatus: { available: true, model: 'qwen3:14b' } });
+  assert.match(whole, /Works on the whole document/);
+  assert.match(whole, /qwen3:14b/);
+  for (const action of ['draft', 'summarize', 'rewrite', 'checklist']) {
+    assert.match(whole, new RegExp(`data-write="${action}"(?! disabled)`));
+  }
+  const selected = render({ writeMenuOpen: true, writeSelection: { from: 0, to: 6, text: 'Steps.' }, chatStatus: { available: true } });
+  assert.match(selected, /Works on your selection \(6 characters\)/);
+});
+
+test('without a chat model the button still opens and points at the setting', () => {
+  const closed = render({ chatStatus: { available: false } });
+  assert.doesNotMatch(closed, /data-action="toggle-write-menu"[^>]*disabled/);
+  const open = render({ writeMenuOpen: true, chatStatus: { available: false } });
+  assert.match(open, /No AI model is set/);
+  assert.match(open, /data-action="open-ai-settings"/);
+  assert.match(open, /data-write="rewrite" disabled/);
+});
+
+test('a read-only document has no Write with AI', () => {
+  const html = render({ chatStatus: { available: true } }, { archivedAt: '2026-10-01T00:00:00Z' });
+  assert.doesNotMatch(html, /Write with AI/);
+});

@@ -105,6 +105,12 @@ visual language, keeping every `data-action`, every view and every behaviour con
   Ask Prax…, which opens the Ask page with the selection as the question. The bar is
   imperative so a selection never forces a full render; mousedown is swallowed so the
   selection survives a click.
+- **Write with AI.** The four writing actions moved to a head button. The menu states its
+  scope (the selection captured when it opened, or the whole document) and the model, and
+  without a model it stays clickable and links to Settings ▸ Intelligence. The preview-then-
+  apply flow is unchanged. The mockup's ⌘J is not used (it toggles the theme), and its actions
+  (Tighten, Turn into steps, Add verify step, Explain) map to the existing Rewrite and Notes →
+  checklist; Add verify step and Explain would be new server prompts.
 - **[[ picker.** Completions carry the document type and trust, verified documents rank first
   among equal matches, and trust colours the detail. The mockup's "create new note" row is not
   built: a link to a missing title renders as a missing link, and creating from the picker is

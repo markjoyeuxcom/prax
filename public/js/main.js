@@ -1331,7 +1331,7 @@ function updateSelectionBar(selection) {
   let bar = pane.querySelector('.selbar');
   const canWrite = Boolean(state.chatStatus?.available);
   const show = selection && !selection.empty && selection.rect && selection.to - selection.from > 1
-    && !state.writeLoading && !state.writeResult && state.navType === 'editor';
+    && !state.writeLoading && !state.writeResult && !state.writeMenuOpen && state.navType === 'editor';
   if (!show) { if (bar) bar.hidden = true; return; }
   if (!bar) {
     bar = document.createElement('div');
@@ -3222,6 +3222,17 @@ async function handleAction(action, el, event) {
     }
     case 'nav-filter': await goFilter(); break;
     case 'nav-settings': await settings.goSettings(); settings.loadCaptureShortcut(); break;
+    case 'open-ai-settings': {
+      // From the editor's Write with AI menu when no chat model is set.
+      setState({ writeMenuOpen: false, writeSelection: null });
+      if (await settings.goSettings()) {
+        settings.loadCaptureShortcut();
+        setState({ settingsTab: 'intelligence' });
+        renderApp();
+        requestAnimationFrame(() => appRoot.querySelector('[data-settings-card="intelligence"]')?.scrollIntoView({ block: 'start' }));
+      }
+      break;
+    }
     case 'toggle-section': {
       setState({ collapsedSections: saveCollapsed(toggleCollapsed(state.collapsedSections, el.dataset.sectionKey)) });
       renderApp();
