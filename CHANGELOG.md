@@ -41,6 +41,11 @@ fresh empty `[Unreleased]` section is started.
 - **Ask Prax page.** Questions get a full page: numbered citations matched to a sources rail,
   a warning when a cited source is unverified, a project scope, earlier questions on this
   device, and Save answer as note.
+- **Write with AI in the editor head.** The writing actions (Draft from title, Summarize,
+  Rewrite for clarity, Notes → checklist) moved from the end of the formatting toolbar to a
+  "Write with AI" button. The menu says whether it will work on the selection or the whole
+  document and what each action does; without a model it links to Settings ▸ Intelligence
+  instead of being greyed out.
 - **Editor selection bar.** Selecting text offers Summarize, Rewrite for clarity, Notes →
   checklist and Ask Prax… beside the selection.
 - `[[` link completion shows each document's type and trust and ranks verified documents

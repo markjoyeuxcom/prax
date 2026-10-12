@@ -183,6 +183,7 @@ function renderHead(state, doc, { mode, readOnly, project }) {
       ${!readOnly && doc.documentType === 'runbook' ? `<button class="btn-primary btn-primary--sm" type="button" data-action="start-run" title="Start a run — track each step with a timestamp"${state.runStartPending ? ' disabled' : ''}>${state.runStartPending ? 'Starting…' : '▶ Run'}</button>` : ''}
       ${!readOnly && doc.documentType === 'template' && (doc.status || 'active') === 'active' ? '<button class="btn-primary btn-primary--sm" type="button" data-action="use-document-template">Use template</button>' : ''}
       <button class="btn-ghost" type="button" data-action="export-doc" title="Download this document as .md">Export</button>
+      ${renderWriteMenu(state, { readOnly })}
       ${seg}
       <button class="btn-ghost${state.editorFocus ? ' is-on' : ''}" type="button" data-action="toggle-focus" title="Focus mode (Esc to exit)" aria-pressed="${Boolean(state.editorFocus)}">Focus</button>
       ${renderDocMenu(state, doc, { readOnly })}
@@ -264,19 +265,48 @@ export const WRITE_ACTIONS = [
   ['checklist', 'Notes → checklist'],
 ];
 
-function renderToolbar(state) {
+// What each writing action does, shown under its label in the menu.
+const WRITE_HINTS = {
+  draft: 'A first draft from the title and type',
+  summarize: 'A short TL;DR added at the top',
+  rewrite: 'Clearer wording, same facts and commands',
+  checklist: 'One "- [ ]" step per action, in order',
+};
+
+// "Write with AI" (Console redesign): the writing actions live in the editor
+// head, not the end of the formatting toolbar. The menu says what it will work
+// on (the selection captured when it opened, or the whole document), and
+// without a chat model it says so and links to the setting instead of being a
+// greyed-out button nobody can explain.
+function renderWriteMenu(state, { readOnly }) {
+  if (readOnly) return '';
   const canWrite = Boolean(state.chatStatus?.available);
-  const aiMenu = `<div class="menu toolbar__ai">
-      <button class="btn-ghost toolbar__ai-btn" type="button" data-action="toggle-write-menu" aria-haspopup="true" aria-expanded="${Boolean(state.writeMenuOpen)}"${canWrite ? '' : ' disabled title="Set an AI model in Settings ▸ Intelligence"'}>✦ AI</button>
-      ${state.writeMenuOpen && canWrite ? `<div class="menu__panel" role="menu">
-        ${WRITE_ACTIONS.map(([action, label]) => `<button role="menuitem" class="menu__item" type="button" data-action="write-action" data-write="${action}">${label}</button>`).join('')}
-      </div>` : ''}
+  const open = Boolean(state.writeMenuOpen);
+  const selection = state.writeSelection?.text ? String(state.writeSelection.text) : '';
+  const scope = selection
+    ? `Works on your selection (${selection.length} character${selection.length === 1 ? '' : 's'}). Draft always uses the title.`
+    : 'Works on the whole document. Select text first to work on part of it.';
+  const items = WRITE_ACTIONS.map(([action, label]) => (
+    `<button role="menuitem" class="menu__item write-menu__item" type="button" data-action="write-action" data-write="${escapeHtml(action)}"${canWrite ? '' : ' disabled'}>`
+    + `<span class="write-menu__label">${escapeHtml(label)}</span><span class="write-menu__hint">${escapeHtml(WRITE_HINTS[action] || '')}</span></button>`
+  )).join('');
+  const panel = !open ? '' : `<div class="menu__panel write-menu" role="menu" aria-label="Write with AI">
+        <div class="menu__meta">${canWrite ? escapeHtml(scope) : 'No AI model is set, so writing actions are off.'}${canWrite && state.chatStatus?.model ? `<span class="write-menu__model">${escapeHtml(state.chatStatus.model)}</span>` : ''}</div>
+        ${canWrite ? '' : '<button role="menuitem" class="menu__item write-menu__setup" type="button" data-action="open-ai-settings">Set up a model in Settings ▸ Intelligence</button>'}
+        ${items}
+        <p class="write-menu__foot">You see the result first. Nothing changes until you apply it, and applying leaves the document unsaved for you to review.</p>
+      </div>`;
+  return `<div class="menu editor-head__ai">
+      <button class="btn-ghost write-btn" type="button" data-action="toggle-write-menu" aria-haspopup="true" aria-expanded="${open ? 'true' : 'false'}" title="${canWrite ? 'Draft, summarize, rewrite or turn notes into a checklist' : 'Set an AI model in Settings ▸ Intelligence'}"><span class="write-btn__spark" aria-hidden="true">✦</span>Write with AI</button>
+      ${panel}
     </div>`;
+}
+
+function renderToolbar() {
   return `
     <div class="toolbar" aria-label="Markdown formatting">
       ${MARKDOWN_TOOLS.map((tool) => `<button type="button" data-action="md-format" data-md-action="${tool.action}" title="${escapeHtml(tool.title)}" aria-label="${escapeHtml(tool.title)}">${escapeHtml(tool.label)}</button>`).join('')}
       <span class="toolbar__hint">⌘B bold · ⌘I italic · ⌘E code</span>
-      ${aiMenu}
     </div>`;
 }
 
@@ -468,7 +498,7 @@ export function renderEditorHtml(state, doc, model = {}) {
   const outlineHtml = state.outlineOpen && !focus
     ? renderOutlineRail(outline)
     : '';
-  const toolbarHtml = showEdit && !readOnly && !focus ? renderToolbar(state) : '';
+  const toolbarHtml = showEdit && !readOnly && !focus ? renderToolbar() : '';
 
   let panesHtml;
   if (split) {
