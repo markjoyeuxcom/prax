@@ -11,7 +11,7 @@ import { isCollapsed } from './collapsed.js';
 import { buildTodayGroups, weeklyReviewStatus } from './renderToday.js';
 import { buildCalendarModel, monthKeyOf } from './renderCalendar.js';
 import { DOCUMENT_TYPES } from './documentTypes.js';
-import { libraryFacetCounts, TRUST_FACETS, TAG_ROW_LIMIT, reviewQueue } from './renderLibrary.js';
+import { libraryFacetCounts, TRUST_FACETS, TAG_ROW_LIMIT } from './renderLibrary.js';
 import { tagsForDocuments } from './libraryFilters.js';
 import { isOpen } from './statusMap.js';
 
@@ -187,22 +187,30 @@ export function renderTitlebarHtml(state) {
   // macOS the native titlebar is merged into this bar (overlay style), so it
   // renders no left ornament at all: the real traffic lights occupy that
   // space and the bar itself is the drag region.
-  const left = state.desktopShell ? '' : (isMac ? TRAFFIC_LIGHTS : logo(15));
+  const left = state.desktopShell || !isMac ? '' : TRAFFIC_LIGHTS;
   const drag = state.desktopShell ? ' data-tauri-drag-region' : '';
+  // Console shell (2026-10): the brand and the path sit left, the command bar
+  // is the centre of the window — the one way in to search, jump, run a
+  // command or ask — and the right holds Ask, New and the theme toggle.
+  const brand = `<div class="titlebar__brand"${drag}>${logo(state.desktopShell ? 18 : 15)}<span class="titlebar__wordmark">prax</span></div>`;
 
-  // In editor focus mode the right-hand chrome (incl. Windows controls,
-  // matching the prototype) is hidden; traffic lights / logo + crumb stay.
+  // In editor focus mode the command bar and the right-hand chrome (incl.
+  // Windows controls, matching the prototype) are hidden; brand + crumb stay.
+  const command = state.editorFocus ? '' : '<div class="titlebar__command">'
+    + `<button type="button" class="searchpill cmdbar" data-action="open-palette" title="Command bar (⌘K)"><span class="cmdbar__prompt" aria-hidden="true">›</span><span class="cmdbar__text">Search or jump to… run a command, or ask</span><span class="kbd">⌘K</span></button>`
+    + '</div>';
   const actions = state.editorFocus ? '' : '<div class="titlebar__actions">'
-    + `<button type="button" class="searchpill" data-action="open-palette">${icon('search', 13)}<span>Search or jump to…</span><span class="kbd">⌘K</span></button>`
-    + `<button type="button" class="btn-icon" data-action="open-assistant" title="Assistant (⌘I)">${icon('chat', 14)}</button>`
+    + `<button type="button" class="btn-ghost titlebar__ask" data-action="open-assistant" title="Ask Prax (⌘I)">${icon('spark', 13)}<span>Ask</span></button>`
     + renderNewMenuHtml(state)
-    + '<button type="button" class="btn-icon" data-action="toggle-theme" title="Toggle theme (⌘J)">◐</button>'
+    + `<button type="button" class="btn-icon" data-action="toggle-theme" title="Toggle theme (⌘J)" aria-label="Toggle theme">${icon('contrast', 14)}</button>`
     + (isMac || state.desktopShell ? '' : WIN_CONTROLS)
     + '</div>';
 
   return `<div class="titlebar"${drag}>`
     + left
+    + brand
     + `<div class="titlebar__crumb-wrap"${drag}><nav class="titlebar__crumb" aria-label="Breadcrumb"${drag}>${renderBreadcrumbHtml(state)}</nav></div>`
+    + command
     + actions
     + '</div>';
 }
@@ -478,11 +486,42 @@ function panelViewRows(state, filter) {
   return pinnedSectionHtml(pinnedRows, restRows);
 }
 
-function panelBrand(state) {
-  return '<div class="sidebar__brand">'
-    + logo(state.desktopShell ? 20 : 25)
-    + '<span class="sidebar__wordmark">prax</span>'
-    + '<span class="sidebar__byline">by moomora</span>'
+// Places (Console shell, 2026-10): the rail's destinations as labelled rows
+// at the top of the one sidebar, so wide windows need no icon rail. Same
+// data-actions as the rail; the narrow (<940px) layout still uses the rail.
+function placeCount(count, variant) {
+  if (!(count > 0)) return '';
+  return `<span class="side-item__count${variant ? ` side-item__count--${escapeHtml(variant)}` : ''}">${count > 99 ? '99+' : escapeHtml(count)}</span>`;
+}
+
+export function renderPlacesHtml(state, counts = {}) {
+  const inbox = inboxProject(state);
+  const inLibrary = isLibraryNav(state);
+  const places = [
+    { label: 'Today', iconName: 'check', action: 'nav-today', active: state.navType === 'today', count: counts.todayBadge, variant: 'hi' },
+    ...(inbox ? [{ label: 'Inbox', iconName: 'inbox', action: 'nav-project', projectId: inbox.id, active: isCurrentProject(state, inbox.id), count: counts?.projectOpen?.[inbox.id] || 0 }] : []),
+    { label: 'Calendar', iconName: 'month', action: 'nav-calendar', active: state.navType === 'calendar' },
+    { label: 'All projects', iconName: 'grid', action: 'nav-all', active: state.navType === 'all' },
+    { label: 'Library', iconName: 'book', action: 'nav-library', active: inLibrary && state.libraryView !== 'review' },
+    // Agent memory waiting for a human: its own place, counted in violet.
+    { label: 'Review queue', iconName: 'spark', action: 'nav-review', active: state.navType === 'library' && state.libraryView === 'review', count: counts.reviewQueue, variant: 'agent' },
+    { label: 'Filter', iconName: 'filter', action: 'nav-filter', active: state.navType === 'filter' },
+  ];
+  return '<nav class="places" aria-label="Places">'
+    + places.map(({ label, iconName, action, projectId, active, count, variant }) => (
+      `<button type="button" class="side-item places__item${active ? ' is-active' : ''}" data-action="${escapeHtml(action)}"${projectId ? ` data-project-id="${escapeHtml(projectId)}"` : ''}${active ? ' aria-current="true"' : ''}>`
+      + icon(iconName)
+      + `<span class="side-item__label">${escapeHtml(label)}</span>`
+      + placeCount(count, variant)
+      + '</button>'
+    )).join('')
+    + '</nav>';
+}
+
+function panelFootHtml(state) {
+  const active = state.navType === 'settings';
+  return '<div class="panel__foot">'
+    + `<button type="button" class="side-item${active ? ' is-active' : ''}" data-action="nav-settings"${active ? ' aria-current="true"' : ''}>${icon('sliders')}<span class="side-item__label">Settings</span></button>`
     + '</div>';
 }
 
@@ -493,11 +532,14 @@ function panelBrand(state) {
 // re-arrange already-loaded state over existing data-actions; they never
 // fetch and never invent affordances the main views lack.
 export function renderPanelHtml(state, counts = {}) {
-  if (state.navType === 'today') return renderTodayPanel(state, counts);
-  if (state.navType === 'calendar') return renderCalendarPanel(state);
-  if (isLibraryNav(state)) return renderLibraryPanel(state);
-  if (state.navType === 'settings') return renderSettingsPanel(state);
-  return renderBrowserPanel(state, counts);
+  let html;
+  if (state.navType === 'today') html = renderTodayPanel(state, counts);
+  else if (state.navType === 'calendar') html = renderCalendarPanel(state, counts);
+  else if (isLibraryNav(state)) html = renderLibraryPanel(state, counts);
+  else if (state.navType === 'settings') html = renderSettingsPanel(state, counts);
+  else html = renderBrowserPanel(state, counts);
+  // Settings anchors the bottom of the one sidebar on every context.
+  return html.replace(/<\/aside>$/, `${panelFootHtml(state)}</aside>`);
 }
 
 function renderBrowserPanel(state, counts = {}) {
@@ -507,7 +549,7 @@ function renderBrowserPanel(state, counts = {}) {
   const viewCount = (state.taskSmartViews || []).length + BUILT_IN_SMART_VIEWS.length
     + (state.librarySavedViews || []).length;
 
-  const brand = panelBrand(state);
+  const brand = renderPlacesHtml(state, counts);
 
   // The ＋ lives BESIDE the tablist, not inside it — role="tablist" allows
   // only tab children (axe: aria-required-children).
@@ -551,10 +593,46 @@ export function statusbarFacts(state) {
   return [plural(projects, 'project'), plural(openTasks, 'open task'), plural(documents, 'document')];
 }
 
+// The status line (Console shell): a mode block naming where you are, the
+// workspace facts, and at most four keys that work HERE — contextual, so they
+// stay true, unlike the fixed cheat-sheet strip the year-one shell removed.
+export function statusbarMode(state) {
+  switch (state.navType) {
+    case 'today': return 'TODAY';
+    case 'calendar': return 'CALENDAR';
+    case 'all': return 'PROJECTS';
+    case 'filter': return 'FILTER';
+    case 'project': return ({ board: 'BOARD', backlog: 'BACKLOG', archive: 'ARCHIVE', inbox: 'INBOX', reviews: 'REVIEWS' })[state.tab] || 'TASKS';
+    case 'library': return state.libraryView === 'review' ? 'REVIEW' : (state.libraryView === 'archive' ? 'ARCHIVE' : 'LIBRARY');
+    case 'editor': return 'EDIT';
+    case 'run': return 'RUN';
+    case 'health': return 'HEALTH';
+    case 'settings': return 'SETTINGS';
+    default: return 'PRAX';
+  }
+}
+
+const STATUS_HINTS = {
+  list: [['↑↓', 'move'], ['↵', 'open'], ['e', 'done'], ['n', 'new']],
+  library: [['/', 'search'], ['↑↓', 'move'], ['↵', 'open']],
+  other: [['⌘K', 'command'], ['n', 'new task'], ['⌘I', 'ask']],
+};
+
+export function statusbarHints(state) {
+  if (state.navType === 'today' || state.navType === 'filter'
+    || (state.navType === 'project' && ['list', 'backlog', 'archive', 'inbox'].includes(state.tab || 'list'))) return STATUS_HINTS.list;
+  if (state.navType === 'library') return STATUS_HINTS.library;
+  return STATUS_HINTS.other;
+}
+
 export function renderStatusbarHtml(state) {
+  const mode = statusbarMode(state);
+  const agentMode = mode === 'REVIEW';
   return '<footer class="statusbar">'
-    + '<span class="statusbar__saved">Saved locally</span>'
+    + `<span class="statusbar__mode${agentMode ? ' statusbar__mode--agent' : ''}">${escapeHtml(mode)}</span>`
     + `<span class="statusbar__facts">${statusbarFacts(state).map((fact) => `<span>${escapeHtml(fact)}</span>`).join('<span class="statusbar__dot" aria-hidden="true">·</span>')}</span>`
+    + `<span class="statusbar__keys" aria-hidden="true">${statusbarHints(state).map(([key, label]) => `<span><b>${escapeHtml(key)}</b> ${escapeHtml(label)}</span>`).join('')}</span>`
+    + '<span class="statusbar__saved">Saved locally</span>'
     + '<button type="button" class="statusbar__shortcuts" data-action="open-shortcuts" title="Keyboard shortcuts (⌘/)"><span class="kbd">⌘/</span> shortcuts</button>'
     + '</footer>';
 }
@@ -577,7 +655,6 @@ function panelTaskRow(task) {
 // working set itself. Counts mirror the Today view exactly (planned rows are
 // not double-counted into the due buckets).
 function renderTodayPanel(state, counts = {}) {
-  void counts;
   const now = new Date();
   const built = buildTodayGroups(state.tasks || [], state.projects || [], { now });
   const overdue = built.groups.find((group) => group.key === 'overdue')?.tasks.length || 0;
@@ -610,7 +687,7 @@ function renderTodayPanel(state, counts = {}) {
     + `<button type="button" class="side-item" data-action="open-daily-brief">${icon('spark')}<span class="side-item__label">Brief me</span></button>`
     + `<button type="button" class="side-item" data-action="open-health">${icon('book')}<span class="side-item__label">Library health</span></button>`;
   return `<aside class="panel" aria-label="Today">`
-    + panelBrand(state)
+    + renderPlacesHtml(state, counts)
     + `<div class="side-section"><span>Today · ${escapeHtml(dateLabel)}</span></div>`
     + score
     + actions
@@ -628,7 +705,7 @@ function renderTodayPanel(state, counts = {}) {
 // Calendar — a Monday-start mini month with load dots; the selected (or
 // current) day's tasks preview underneath. Day clicks and month arrows are
 // the SAME actions the big calendar uses.
-function renderCalendarPanel(state) {
+function renderCalendarPanel(state, counts = {}) {
   const now = new Date();
   const model = buildCalendarModel(state.tasks || [], state.projects || [], {
     month: state.calendarMonth || monthKeyOf(now),
@@ -654,7 +731,7 @@ function renderCalendarPanel(state) {
       : '<div class="panel__empty">Nothing due.</div>');
 
   return `<aside class="panel" aria-label="Calendar">`
-    + panelBrand(state)
+    + renderPlacesHtml(state, counts)
     + '<div class="panel__month-head">'
     + `<span>${escapeHtml(model.label)}</span>`
     + '<span class="panel__month-nav">'
@@ -674,7 +751,7 @@ function renderCalendarPanel(state) {
 // semantic modes the panel says so instead of showing dead toggles. No
 // duplicate search box — the main view owns search; the tag box below is a
 // panel-local filter over the tag list, not a document search.
-function renderLibraryPanel(state) {
+function renderLibraryPanel(state, navCounts = {}) {
   const documents = (state.documents || []).filter((doc) => !doc.archivedAt);
   // Facets apply while browsing and inside the review queue, not in the
   // archive or a semantic result list.
@@ -731,17 +808,8 @@ function renderLibraryPanel(state) {
     ? `<input class="panel__filter" type="text" data-library-tag-filter placeholder="Find a tag…" value="${escapeHtml(state.libraryTagFilter || '')}" autocomplete="off" aria-label="Find a tag">`
     : '';
 
-  // The review queue leads the panel whenever there is one (or while it is
-  // open): a destination, not a facet — agent memory waiting for a human.
-  const queueCount = reviewQueue(documents).length;
-  const reviewActive = state.libraryView === 'review';
-  const reviewRow = queueCount || reviewActive
-    ? `<button type="button" class="side-item side-item--review${reviewActive ? ' is-active' : ''}" data-action="open-review-queue" aria-pressed="${reviewActive}">`
-      + icon('check')
-      + `<span class="side-item__label">Review queue</span>`
-      + `<span class="side-item__count">${queueCount || ''}</span>`
-      + '</button>'
-    : '';
+  // The review queue is a place (renderPlacesHtml, violet count) — the panel
+  // no longer repeats it above the facets.
   const facets = browsing
     ? '<div class="side-section"><span>Type</span></div>' + typeRows
       + (projectRows ? '<div class="side-section"><span>Project</span></div>' + projectRows : '')
@@ -770,9 +838,8 @@ function renderLibraryPanel(state) {
       + '</button>').join('');
 
   return `<aside class="panel" aria-label="Library">`
-    + panelBrand(state)
+    + renderPlacesHtml(state, navCounts)
     + '<div class="panel__scroll">'
-    + reviewRow
     + facets
     + (savedViews ? `<div class="side-section"><span>Saved views</span></div>${savedViews}` : '')
     + (recent ? `<div class="side-section"><span>Recent</span></div>${recent}` : '')
@@ -793,7 +860,7 @@ function relativeTime(iso, now = new Date()) {
   return `${Math.round(hours / 24)}d ago`;
 }
 
-function renderSettingsPanel(state) {
+function renderSettingsPanel(state, counts = {}) {
   const tabs = [
     ['appearance', 'Appearance', 'sliders'],
     ['intelligence', 'Intelligence', 'spark'],
@@ -825,7 +892,7 @@ function renderSettingsPanel(state) {
   }
 
   return `<aside class="panel" aria-label="Settings">`
-    + panelBrand(state)
+    + renderPlacesHtml(state, counts)
     + '<div class="side-section"><span>Settings</span></div>'
     + rows
     + (status.length ? `<div class="side-section"><span>Status</span></div>${status.join('')}` : '')

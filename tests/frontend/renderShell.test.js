@@ -10,6 +10,8 @@ import {
   RECENT_MIN_PROJECTS,
   ON_HOLD_SECTION,
   statusbarFacts,
+  statusbarHints,
+  statusbarMode,
   RAIL_PROJECT_LIMIT,
 } from '../../public/js/renderShell.js';
 
@@ -118,10 +120,13 @@ test('titlebar shows small logo + windows controls when chromeOS is win', () => 
 // Titlebar — actions
 // ---------------------------------------------------------------------------
 
-test('titlebar renders search pill, new task, and theme toggle actions', () => {
+test('titlebar renders the command bar, Ask, new task, and theme toggle actions', () => {
   const html = renderTitlebarHtml(makeState());
-  assert.match(html, /class="searchpill" data-action="open-palette"/);
-  assert.match(html, /Search or jump to…/);
+  // Console shell: the command bar is the centre of the titlebar.
+  assert.match(html, /<div class="titlebar__command"><button type="button" class="searchpill cmdbar" data-action="open-palette"/);
+  assert.match(html, /Search or jump to… run a command, or ask/);
+  assert.match(html, /class="btn-ghost titlebar__ask" data-action="open-assistant"[^>]*>[\s\S]*?<span>Ask<\/span>/);
+  assert.match(html, /class="titlebar__brand"><svg[^>]*>[\s\S]*?<\/svg><span class="titlebar__wordmark">prax<\/span>/);
   assert.match(html, /class="kbd">⌘K</);
   // New is one menu button: task (quick capture), document, project.
   assert.match(html, /class="btn-primary" data-action="toggle-new-menu" aria-haspopup="true" aria-expanded="false"[^>]*>[\s\S]*?<span>New<\/span><span class="btn-primary__chevron" aria-hidden="true">▾/);
@@ -132,7 +137,7 @@ test('titlebar renders search pill, new task, and theme toggle actions', () => {
   assert.match(open, /class="menu__item" type="button" data-action="open-capture">New task<span class="menu__item-sub">Quick capture · N/);
   assert.match(open, /class="menu__item" type="button" data-action="new-document">New document/);
   assert.match(open, /class="menu__item" type="button" data-action="new-project">New project/);
-  assert.match(html, /class="btn-icon" data-action="toggle-theme"[^>]*>◐/);
+  assert.match(html, /class="btn-icon" data-action="toggle-theme"[^>]*aria-label="Toggle theme"><svg/);
 });
 
 test('titlebar hides right actions (incl. win controls) in editor focus mode', () => {
@@ -213,10 +218,18 @@ test('rail project tiles in narrow mode: current, pinned and recent only, letter
 // Browser panel — Projects tab
 // ---------------------------------------------------------------------------
 
-test('panel renders brand, both tab counts, the filter box, and manage-projects on the Projects tab', () => {
+test('panel renders the places, both tab counts, the filter box, and manage-projects on the Projects tab', () => {
   const html = renderPanelHtml(makeState({ projects: PROJECTS }), {});
-  assert.match(html, /class="sidebar__wordmark">prax</);
-  assert.match(html, /class="sidebar__byline">by moomora</);
+  // Console shell: the rail's destinations lead the one sidebar as labelled
+  // rows, and Settings anchors its foot; the brand moved to the titlebar.
+  assert.match(html, /<aside class="panel" aria-label="Browser"><nav class="places" aria-label="Places">/);
+  for (const action of ['nav-today', 'nav-calendar', 'nav-library', 'nav-review', 'nav-filter']) {
+    assert.match(html, new RegExp(`class="side-item places__item" data-action="${action}"`), action);
+  }
+  // makeState sits on All projects: that place is the current one.
+  assert.match(html, /class="side-item places__item is-active" data-action="nav-all" aria-current="true"/);
+  assert.match(html, /<div class="panel__foot"><button type="button" class="side-item" data-action="nav-settings">/);
+  assert.doesNotMatch(html, /sidebar__brand/);
   assert.match(html, /data-action="set-panel-tab" data-tab="projects" aria-selected="true">Projects <span class="panel__tabcount">2</);
   assert.match(html, /data-action="set-panel-tab" data-tab="views" aria-selected="false">Views <span class="panel__tabcount">1</); // built-in Stale
   assert.match(html, /data-panel-filter[^>]*placeholder="Filter 2 projects…"/);
@@ -233,7 +246,9 @@ test('panel project rows keep dots, counts, active state, and exclude the pinned
   // On-hold projects live in a folded section; open it to see the hollow dot.
   const opened = renderPanelHtml(makeState({ projects: PROJECTS, collapsedSections: [ON_HOLD_SECTION] }), {});
   assert.match(opened, /data-project-id="p2"[^>]*><span class="proj-dot is-onhold" style="--dot: oklch\(/);
-  assert.doesNotMatch(html, /data-project-id="inbox-id"/, 'Inbox lives in the rail, not the panel');
+  // Inbox is a place, never a row among the projects.
+  assert.match(html, /class="side-item places__item" data-action="nav-project" data-project-id="inbox-id"><svg[\s\S]*?<span class="side-item__label">Inbox<\/span><span class="side-item__count">3<\/span>/);
+  assert.equal((html.match(/data-project-id="inbox-id"/g) || []).length, 1, 'Inbox appears once, as a place');
 });
 
 test('panel hides projects that are not active or on-hold', () => {
@@ -337,7 +352,23 @@ test('statusbar shows the saved indicator, one line of workspace facts, and a wa
   assert.match(html, /class="statusbar__facts"><span>2 projects<\/span><span class="statusbar__dot" aria-hidden="true">·<\/span><span>1 open task<\/span><span class="statusbar__dot" aria-hidden="true">·<\/span><span>1 document<\/span><\/span>/);
   assert.match(html, /class="statusbar__shortcuts" data-action="open-shortcuts"[^>]*><span class="kbd">⌘\/<\/span> shortcuts</);
   assert.doesNotMatch(html, /statusbar__hints/, 'the fixed hint strip is gone');
+  // Console status line: a mode block and at most four keys that work here.
+  assert.match(html, /^<footer class="statusbar"><span class="statusbar__mode">[A-Z]+<\/span>/);
+  assert.match(html, /class="statusbar__keys" aria-hidden="true">/);
   assert.deepEqual(statusbarFacts(makeState()), ['0 projects', '0 open tasks', '0 documents']);
+});
+
+test('the status line names the mode and only offers keys that work in it', () => {
+  assert.equal(statusbarMode(makeState({ navType: 'project', tab: 'board' })), 'BOARD');
+  assert.equal(statusbarMode(makeState({ navType: 'project', tab: 'list' })), 'TASKS');
+  assert.equal(statusbarMode(makeState({ navType: 'library', libraryView: 'review' })), 'REVIEW');
+  assert.equal(statusbarMode(makeState({ navType: 'editor' })), 'EDIT');
+  assert.match(renderStatusbarHtml(makeState({ navType: 'library', libraryView: 'review' })), /class="statusbar__mode statusbar__mode--agent">REVIEW</);
+  const listKeys = statusbarHints(makeState({ navType: 'project', tab: 'list' })).map(([key]) => key);
+  assert.deepEqual(listKeys, ['↑↓', '↵', 'e', 'n']);
+  for (const state of [makeState({ navType: 'project', tab: 'board' }), makeState({ navType: 'settings' }), makeState({ navType: 'library' })]) {
+    assert.ok(statusbarHints(state).length <= 4);
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -362,16 +393,23 @@ test('desktop shell suppresses the fake window chrome (the OS provides it)', () 
   assert.match(desktopMac, /data-action="toggle-new-menu"/);
 });
 
-test('desktop shell keeps the panel mark inline with the wordmark, smaller than in the browser', () => {
-  const panel = renderPanelHtml(makeState({ desktopShell: true }), {});
-  assert.match(panel, /sidebar__brand"><svg width="20"/);
-  assert.match(panel, /sidebar__wordmark">prax</);
+test('the titlebar carries the brand: larger mark in the desktop shell, small in the browser', () => {
+  const desktop = renderTitlebarHtml(makeState({ desktopShell: true }));
+  assert.match(desktop, /class="titlebar__brand" data-tauri-drag-region><svg width="18"/);
+  const web = renderTitlebarHtml(makeState());
+  assert.match(web, /class="titlebar__brand"><svg width="15"/);
   // the rail hides its logo in the shell (an icon under the lights reads as a button)
   const rail = renderRailHtml(makeState({ desktopShell: true }));
   assert.doesNotMatch(rail, /aria-label="Navigation"><svg/);
-  // browser mode keeps the full-size logo
-  const webPanel = renderPanelHtml(makeState(), {});
-  assert.match(webPanel, /sidebar__brand"><svg width="25"/);
+});
+
+test('places mark the current place and count today (alarm) and the review queue (agent violet)', () => {
+  const review = renderPanelHtml(makeState({ navType: 'library', libraryView: 'review' }), { todayBadge: 5, reviewQueue: 4 });
+  assert.match(review, /class="side-item places__item is-active" data-action="nav-review" aria-current="true">[\s\S]*?<span class="side-item__count side-item__count--agent">4<\/span>/);
+  assert.match(review, /data-action="nav-today">[\s\S]*?<span class="side-item__count side-item__count--hi">5<\/span>/);
+  assert.doesNotMatch(review, /class="side-item places__item is-active" data-action="nav-library"/, 'the queue, not the Library, is current');
+  const settings = renderPanelHtml(makeState({ navType: 'settings' }), {});
+  assert.match(settings, /class="side-item is-active" data-action="nav-settings" aria-current="true"/);
 });
 
 test('desktop shell titlebar is the drag region with no left ornament', () => {
@@ -688,19 +726,19 @@ test('Library panel: tags by use with a fold, a tag box past the limit, active t
   assert.doesNotMatch(few, /data-library-tag-filter/, 'no tag box under the limit');
 });
 
-test('Library panel: the review queue leads the panel when agent memory waits, and marks active in the review view', () => {
+test('Library panel: the review queue is a place with its count, current in the review view', () => {
   const documents = [
     { id: 'd1', title: 'Human note', documentType: 'note' },
     { id: 'd2', title: 'Agent memory', documentType: 'note', updatedBy: 'agent', verified: false },
     { id: 'd3', title: 'Verified agent memory', documentType: 'note', updatedBy: 'agent', verified: true },
   ];
-  const html = renderPanelHtml(makeState({ navType: 'library', documents }), {});
-  assert.match(html, /class="side-item side-item--review" data-action="open-review-queue" aria-pressed="false">[\s\S]*?Review queue<\/span><span class="side-item__count">1</);
-  assert.ok(html.indexOf('open-review-queue') < html.indexOf('<span>Type</span>'), 'queue before the facets');
-  const active = renderPanelHtml(makeState({ navType: 'library', documents, libraryView: 'review' }), {});
-  assert.match(active, /class="side-item side-item--review is-active" data-action="open-review-queue" aria-pressed="true"/);
+  const html = renderPanelHtml(makeState({ navType: 'library', documents }), { reviewQueue: 1 });
+  assert.match(html, /class="side-item places__item" data-action="nav-review">[\s\S]*?Review queue<\/span><span class="side-item__count side-item__count--agent">1</);
+  assert.ok(html.indexOf('nav-review') < html.indexOf('<span>Type</span>'), 'the place before the facets');
+  assert.doesNotMatch(html, /open-review-queue/, 'the panel no longer repeats the queue');
+  const active = renderPanelHtml(makeState({ navType: 'library', documents, libraryView: 'review' }), { reviewQueue: 1 });
+  assert.match(active, /class="side-item places__item is-active" data-action="nav-review" aria-current="true"/);
   assert.match(active, /toggle-lib-type/, 'facets still apply inside the queue');
-  assert.doesNotMatch(renderPanelHtml(makeState({ navType: 'library', documents: [documents[0]] }), {}), /open-review-queue/, 'no row when nothing waits');
 });
 
 test('rail: the Library button carries an amber review badge and names the count', () => {

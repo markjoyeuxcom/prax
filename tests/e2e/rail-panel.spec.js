@@ -17,9 +17,9 @@ test('rail navigates, panel lists projects, filter narrows and reports no matche
   await createProject(request, `Panel Beta ${stamp}`);
 
   await page.goto('/');
-  // Rail: top-level nav with tooltips; Settings pinned at the bottom.
-  await expect(page.locator('.rail [data-action="nav-today"]')).toBeVisible();
-  await expect(page.locator('.rail [data-action="nav-settings"]')).toBeVisible();
+  // Console shell: the places lead the one sidebar; Settings anchors its foot.
+  await expect(page.locator('.places [data-action="nav-today"]')).toBeVisible();
+  await expect(page.locator('.panel__foot [data-action="nav-settings"]')).toBeVisible();
   // The app boots into Today (plan cockpit); the browser lives in project contexts.
   await page.locator('[data-action="nav-all"]').first().click();
 
@@ -59,7 +59,8 @@ test('pinning a project floats it into the Pinned section, survives reload, and 
 
   // The pinned project leads the list under the Pinned header.
   await expect(panel.locator('.side-section', { hasText: 'Pinned' })).toBeVisible();
-  const rowIds = await panel.locator('[data-action="nav-project"]').evaluateAll(
+  // The Inbox place leads the sidebar; the pinned row leads the project list.
+  const rowIds = await panel.locator('.panel__scroll [data-action="nav-project"]').evaluateAll(
     (els) => els.map((el) => el.dataset.projectId),
   );
   expect(rowIds[0]).toBe(target.id);
@@ -171,17 +172,17 @@ test('context panels: cockpit on Today, section nav in Settings, types in Librar
   await page.keyboard.press('Escape');
 
   // Settings: panel rows switch cards; no in-page tab strip on a wide window.
-  await page.locator('.rail [data-action="nav-settings"]').click();
+  await page.locator('.panel__foot [data-action="nav-settings"]').click();
   await expect(page.locator('body')).not.toContainText('tabs__tab');
   await panel.locator('[data-action="set-settings-tab"][data-tab="integrations"]').click();
   await expect(page.locator('.settings-card__title')).toHaveText('Integrations');
 
   // Library: type rows filter the collection with live counts.
-  await page.locator('.rail [data-action="nav-library"]').click();
+  await page.locator('.places [data-action="nav-library"]').click();
   await expect(panel.locator('[data-action="toggle-lib-type"][data-facet="note"]')).toBeVisible();
 
   // Calendar: the mini month renders with month nav and selectable days.
-  await page.locator('.rail [data-action="nav-calendar"]').click();
+  await page.locator('.places [data-action="nav-calendar"]').click();
   await expect(panel.locator('[data-panel-mini-month]')).toBeVisible();
   await panel.locator('[data-action="calendar-next"]').click();
   const dayCount = await panel.locator('[data-action="calendar-select-day"]').count();

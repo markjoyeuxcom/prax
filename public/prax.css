@@ -29,7 +29,7 @@
   --accent-ink: #FFFFFF;
   /* The vivid swatch itself, for fills that carry dark text (the status
      line's mode block, primary buttons in Graphite). */
-  --accent-vivid: var(--accent-choice);
+  --accent-vivid: color-mix(in oklab, var(--accent-choice) 80%, #fff);
   --accent-soft: color-mix(in oklab, var(--accent-choice) 16%, transparent);
   --accent-soft2: color-mix(in oklab, var(--accent-choice) 26%, transparent);
   --hi: oklch(0.62 0.17 35);
@@ -65,6 +65,15 @@
    light tokens and frozen, which rendered the dark-mode editor text dark-on-dark
    (--text-body stayed the light #1F2624 even though --ink flipped to #E6EAE8). */
 body {
+  /* The derived accent tokens re-resolve on body, where applyPreferences sets
+     --accent-choice inline: declared only on :root they would freeze against
+     the default swatch and a chosen accent would sit on a lime wash. */
+  --accent: color-mix(in oklab, var(--accent-choice) 52%, #000);
+  /* A fill that carries dark ink: the swatch lifted a fifth toward white so
+     the deeper choices (plum, rose) keep AA under #10130F too. */
+  --accent-vivid: color-mix(in oklab, var(--accent-choice) 80%, #fff);
+  --accent-soft: color-mix(in oklab, var(--accent-choice) 16%, transparent);
+  --accent-soft2: color-mix(in oklab, var(--accent-choice) 26%, transparent);
   --caret: var(--accent);
   --bg-deep: var(--bg);
   --border: var(--line2);
@@ -92,8 +101,10 @@ body[data-theme="dark"] {
   --line: rgba(236, 234, 228, .07);
   --line2: rgba(236, 234, 228, .14);
   --accent-choice: oklch(0.88 0.19 125);
-  --accent: color-mix(in oklab, var(--accent-choice) 90%, #fff);
+  --accent: color-mix(in oklab, var(--accent-choice) 68%, #fff);
   --accent-ink: #10130F;
+  --accent-soft: color-mix(in oklab, var(--accent-choice) 9%, transparent);
+  --accent-soft2: color-mix(in oklab, var(--accent-choice) 16%, transparent);
   --hi: oklch(0.76 0.15 40);
   --hi-text: color-mix(in oklab, var(--hi) 80%, #fff);
   --med: oklch(0.83 0.13 85);
@@ -3687,6 +3698,7 @@ body.is-desktop-mac .titlebar { padding-left: 84px; }
 .side-section { font-size: 10.5px; font-weight: 500; letter-spacing: .1em; color: var(--ink3); }
 .group-label { font-size: 11px; font-weight: 600; letter-spacing: .1em; }
 .side-item__count { font-size: 11px; font-weight: 400; color: var(--ink3); }
+.side-item.is-active .side-item__count { color: var(--ink2); }
 
 /* Hover and selection are neutral lifts; the accent is reserved for focus,
    primary actions and the current place's marker. */
@@ -3705,3 +3717,44 @@ body.is-desktop-mac .titlebar { padding-left: 84px; }
 /* Agent-written / unverified reads violet everywhere. */
 .chip--unverified { background: var(--agent-soft); color: var(--agent); }
 .rail__badge--review { background: var(--agent); color: var(--surface); }
+
+/* ---- Console shell: titlebar ------------------------------------------- */
+.titlebar { height: 48px; gap: 14px; background: color-mix(in oklab, var(--bg) 70%, var(--desk)); }
+.titlebar__brand { display: flex; align-items: center; gap: 8px; flex: none; }
+.titlebar__wordmark { font-family: var(--font-mono); font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }
+.titlebar__crumb-wrap { flex: 0 1 auto; justify-content: flex-start; }
+.titlebar__crumb { font-size: 12px; font-weight: 400; }
+.titlebar__crumb-sep { opacity: .45; }
+.titlebar__brand + .titlebar__crumb-wrap::before { content: "/"; color: var(--ink3); opacity: .5; font-family: var(--font-mono); font-size: 12px; margin-right: 6px; }
+.titlebar__command { flex: 1 1 320px; display: flex; justify-content: center; min-width: 0; }
+.cmdbar {
+  width: 100%; max-width: 560px; height: 32px; padding: 0 8px 0 12px; gap: 10px;
+  border-radius: 8px; font-size: 13px; color: var(--ink3); text-align: left;
+}
+.cmdbar:hover { border-color: color-mix(in oklab, var(--ink) 22%, transparent); color: var(--ink2); }
+.cmdbar__prompt { font-family: var(--font-mono); color: var(--accent); font-weight: 600; }
+.cmdbar__text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.titlebar__ask { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 11px; }
+.titlebar__ask svg { color: var(--agent); }
+
+/* ---- Console shell: the one sidebar -------------------------------------- */
+.panel { width: 232px; padding: 10px 8px 8px; }
+.places { display: flex; flex-direction: column; gap: 1px; padding-bottom: 6px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+.places__item svg { color: var(--ink3); }
+.places__item.is-active svg { color: var(--accent); }
+.side-item__count--hi { color: var(--hi-text); }
+.side-item__count--agent { color: var(--agent); }
+.panel__foot { margin-top: auto; padding-top: 6px; border-top: 1px solid var(--line); }
+.panel__scroll { flex: 1 1 auto; }
+
+/* ---- Console shell: status line ------------------------------------------ */
+.statusbar { height: 26px; padding: 0 12px 0 0; justify-content: flex-start; gap: 14px; font-size: 11px; background: color-mix(in oklab, var(--bg) 70%, var(--desk)); }
+.statusbar__mode {
+  align-self: stretch; display: inline-flex; align-items: center; padding: 0 12px;
+  background: var(--accent-vivid); color: #10130F; font-weight: 600; letter-spacing: .08em;
+}
+.statusbar__mode--agent { background: var(--agent); color: var(--surface); }
+.statusbar__keys { display: flex; gap: 12px; margin-left: auto; color: var(--ink3); white-space: nowrap; overflow: hidden; }
+.statusbar__keys b { font-weight: 500; color: var(--ink2); }
+.statusbar__saved { flex: none; }
+@media (max-width: 1100px) { .statusbar__keys { display: none; } .statusbar__saved { margin-left: auto; } }

@@ -17,8 +17,8 @@ async function seedQueue(request, count = 3) {
 }
 async function openQueue(page, prefix, count) {
   await page.goto('/');
-  await page.locator('.rail [data-action="nav-library"]').click();
-  await page.locator('.panel [data-action="open-review-queue"]').click();
+  await page.locator('.places [data-action="nav-library"]').click();
+  await page.locator('.panel [data-action="nav-review"]').click();
   await page.locator('[data-library-search]').fill(prefix);
   await expect(page.locator('.doc-table--review .doc-table__row')).toHaveCount(count);
   const ids = await page.locator('.doc-table--review .doc-table__row').evaluateAll(rows => rows.map(row => row.dataset.documentId));
@@ -75,7 +75,7 @@ test('R02: delayed verification conflict leaves the newer unsaved editor intact'
   await page.locator('[data-action="review-walk-verify"]').click();
   await received.promise;
   try {
-    await page.locator('.rail [data-action="nav-library"]').click();
+    await page.locator('.places [data-action="nav-library"]').click();
     await page.locator('.doc-card', { hasText: other.title }).click();
     await page.locator('[data-action="set-editor-mode"][data-mode="edit"]').click();
     await page.route(`**/api/library/documents/${other.id}`, route => route.request().method() === 'PATCH' ? route.abort() : route.continue());
@@ -93,7 +93,7 @@ test('R02: delayed verification conflict leaves the newer unsaved editor intact'
 test('R06/R07: after leaving the editor, focus refresh updates agent memory and verification', async ({ page, request }) => {
   const { prefix } = await seedQueue(request, 1);
   await openQueue(page, prefix, 1);
-  await page.locator('.rail [data-action="nav-today"]').click();
+  await page.locator('.places [data-action="nav-today"]').click();
   const fresh = await createDocument(request, { title: `External-${randomUUID()}`, body: 'External body', documentType: 'note', project: 'homelab' }, { origin: 'agent' });
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   const row = page.locator('[data-today-agents] .agent-row', { hasText: fresh.title });
