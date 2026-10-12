@@ -1,54 +1,59 @@
 /* ============================================================================
-   Prax design system — Two first-class themes: light "Porcelain" (default)
-   and dark "Deep Fern" via [data-theme="dark"]. Accent is user-swappable by
-   overriding --accent inline on <body>.
+   Prax design system ("Console") — two first-class themes: dark "Graphite"
+   (the default) via [data-theme="dark"] and light "Paper" on :root. Accent is
+   user-swappable by overriding --accent-choice inline on <body>.
    ========================================================================== */
 
 /* ---- Tokens ---------------------------------------------------------- */
 
+/* Console type system (2026-10 redesign): a grotesk for the UI, a mono for
+   every piece of metadata (ids, counts, dates, keys) and a serif for reading. */
 :root {
-  /* Defined so bare var(--mono) usages (e.g. the editor status bar) resolve —
-     most call sites carry their own fallback, which this matches. */
-  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
-  --desk: linear-gradient(160deg, #E9E7E1 0%, #DDDCD6 55%, #D2D3CD 100%);
-  --bg: #F1F0EC;
-  --surface: #FAF9F7;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --desk: #E4E3DD;
+  --bg: #EEEDE8;
+  --surface: #F7F6F2;
   --card: #FFFFFF;
-  --ink: #1F2624;
-  --ink2: #59625E;
+  --ink: #151816;
+  --ink2: #4D5550;
   /* Muted text still carries operational meaning. Keep it above WCAG AA for
      small text on every light surface instead of treating it as decoration. */
-  --ink3: #626C68;
-  --line: rgba(31, 38, 36, .08);
-  --line2: rgba(31, 38, 36, .16);
+  --ink3: #5B635E;
+  --line: rgba(21, 24, 22, .08);
+  --line2: rgba(21, 24, 22, .15);
   /* Accent choices stay vivid as decoration, then move toward the nearest
      theme pole before they become text/fill. A single mid-tone cannot meet AA
-     against both Porcelain and Deep Fern. */
-  --accent-choice: oklch(0.60 0.09 175);
-  --accent: color-mix(in oklab, var(--accent-choice) 68%, #000);
+     against both Paper and Graphite. Lime is the Console default. */
+  --accent-choice: oklch(0.88 0.19 125);
+  --accent: color-mix(in oklab, var(--accent-choice) 52%, #000);
   --accent-ink: #FFFFFF;
-  --accent-soft: color-mix(in oklab, var(--accent-choice) 11%, transparent);
-  --accent-soft2: color-mix(in oklab, var(--accent-choice) 20%, transparent);
-  --hi: oklch(0.60 0.16 27);
-  /* Alarm red as SMALL TEXT (due chips, group labels, badges): the decorative
-     --hi is ~3.6:1 on its wash, so text moves toward the theme pole first,
-     the same rule the accent follows. */
+  /* The vivid swatch itself, for fills that carry dark text (the status
+     line's mode block, primary buttons in Graphite). */
+  --accent-vivid: var(--accent-choice);
+  --accent-soft: color-mix(in oklab, var(--accent-choice) 16%, transparent);
+  --accent-soft2: color-mix(in oklab, var(--accent-choice) 26%, transparent);
+  --hi: oklch(0.62 0.17 35);
+  /* Alarm coral as SMALL TEXT (due chips, group labels, badges): text moves
+     toward the theme pole first, the same rule the accent follows. */
   --hi-text: color-mix(in oklab, var(--hi) 76%, #000);
-  /* Amber is also used as small status text; the previous decorative amber
-     was only ~2.3:1 on its wash. */
-  --med: oklch(0.48 0.11 78);
-  --lo: oklch(0.62 0.05 230);
-  --hi-soft: oklch(0.60 0.16 27 / .12);
-  --med-soft: oklch(0.70 0.13 78 / .16);
-  --shadow: 0 24px 70px rgba(31, 38, 36, .18), 0 2px 8px rgba(31, 38, 36, .08);
-  --pop: 0 16px 48px rgba(31, 38, 36, .16), 0 2px 8px rgba(31, 38, 36, .10);
-  --card-hover-shadow: 0 4px 14px rgba(31, 38, 36, .08);
-  --sheet-shadow: 0 2px 12px rgba(31, 38, 36, .06);
-  --scrim: rgba(15, 20, 18, .28);
+  /* Amber is also used as small status text. */
+  --med: oklch(0.50 0.11 78);
+  --lo: oklch(0.56 0.08 230);
+  --hi-soft: oklch(0.62 0.17 35 / .12);
+  --med-soft: oklch(0.72 0.13 80 / .18);
+  /* Agent-written, unverified, AI: one violet everywhere so trust reads at a
+     glance. */
+  --agent: oklch(0.50 0.15 295);
+  --agent-soft: oklch(0.60 0.15 295 / .12);
+  --shadow: 0 24px 70px rgba(21, 24, 22, .16), 0 2px 8px rgba(21, 24, 22, .08);
+  --pop: 0 16px 48px rgba(21, 24, 22, .16), 0 2px 8px rgba(21, 24, 22, .10);
+  --card-hover-shadow: 0 4px 14px rgba(21, 24, 22, .08);
+  --sheet-shadow: 0 2px 12px rgba(21, 24, 22, .06);
+  --scrim: rgba(10, 12, 11, .32);
 
-  --font-ui: "Instrument Sans", "Helvetica Neue", sans-serif;
-  --font-prose: "Source Serif 4", Georgia, serif;
-  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --font-ui: "Schibsted Grotesk", "Helvetica Neue", sans-serif;
+  --font-prose: "Newsreader", Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
   /* Editor/preview reading size; multiplied by the user font-scale (0.85–1.25). */
   --reading-scale: 1;
@@ -77,28 +82,31 @@ body[data-preview-font="sans"] { --prose-font: var(--font-ui); }
 body[data-preview-font="mono"] { --prose-font: var(--font-mono); }
 
 body[data-theme="dark"] {
-  --desk: linear-gradient(160deg, #101413 0%, #0C100F 60%, #0A0D0C 100%);
-  --bg: #171C1B;
-  --surface: #1C2220;
-  --card: #242B29;
-  --ink: #E6EAE8;
-  --ink2: #9AA5A0;
-  /* The old #68736E was only 2.9–3.5:1 on dark cards/surfaces. */
-  --ink3: #929D98;
-  --line: rgba(230, 234, 232, .07);
-  --line2: rgba(230, 234, 232, .15);
-  --accent-choice: oklch(0.70 0.10 172);
-  --accent: color-mix(in oklab, var(--accent-choice) 68%, #fff);
-  --accent-ink: #0E1F1B;
-  --hi: oklch(0.70 0.15 25);
-  --hi-text: color-mix(in oklab, var(--hi) 68%, #fff);
-  --med: oklch(0.78 0.12 80);
-  --lo: oklch(0.68 0.05 230);
-  --shadow: 0 24px 70px rgba(0, 0, 0, .5), 0 2px 8px rgba(0, 0, 0, .35);
-  --pop: 0 16px 48px rgba(0, 0, 0, .45), 0 2px 8px rgba(0, 0, 0, .35);
+  --desk: #0A0C0B;
+  --bg: #121514;
+  --surface: #0F1110;
+  --card: #171B19;
+  --ink: #ECEAE4;
+  --ink2: #A7ABA6;
+  --ink3: #8E948F;
+  --line: rgba(236, 234, 228, .07);
+  --line2: rgba(236, 234, 228, .14);
+  --accent-choice: oklch(0.88 0.19 125);
+  --accent: color-mix(in oklab, var(--accent-choice) 90%, #fff);
+  --accent-ink: #10130F;
+  --hi: oklch(0.76 0.15 40);
+  --hi-text: color-mix(in oklab, var(--hi) 80%, #fff);
+  --med: oklch(0.83 0.13 85);
+  --lo: oklch(0.78 0.09 225);
+  --hi-soft: oklch(0.76 0.15 40 / .14);
+  --med-soft: oklch(0.83 0.13 85 / .14);
+  --agent: oklch(0.78 0.12 295);
+  --agent-soft: oklch(0.78 0.12 295 / .14);
+  --shadow: 0 24px 70px rgba(0, 0, 0, .55), 0 2px 8px rgba(0, 0, 0, .4);
+  --pop: 0 16px 48px rgba(0, 0, 0, .55), 0 2px 8px rgba(0, 0, 0, .4);
   --card-hover-shadow: 0 4px 14px rgba(0, 0, 0, .35);
   --sheet-shadow: 0 2px 12px rgba(0, 0, 0, .3);
-  --scrim: rgba(5, 8, 7, .45);
+  --scrim: rgba(4, 6, 5, .55);
 }
 
 /* ---- Reset & base ----------------------------------------------------- */
@@ -3643,3 +3651,57 @@ body.is-desktop-mac .titlebar { padding-left: 84px; }
 .inbox-suggestion { padding:12px; margin-top:12px; border:1px solid var(--line); border-radius:6px; }
 .inbox-dialog footer { margin-top:18px; border-top:1px solid var(--line); padding-top:12px; }
 @media(max-width:600px) { .inbox-fields { grid-template-columns:1fr; } .inbox-dialog { padding:16px; } .inbox-item { flex-wrap:wrap; } }
+
+/* ============================================================================
+   Console layer (2026-10 redesign) — full-bleed window, mono metadata, neutral
+   hover, vivid primary actions. Later in the file so it wins on equal
+   specificity; structural changes live with their components above.
+   ========================================================================== */
+
+/* The window IS the app: no desk, no floating card, at every width. */
+.desk { padding: 0; background: var(--surface); }
+.window { max-width: none; border: none; border-radius: 0; box-shadow: none; }
+
+/* Metadata speaks mono: counts, keys, dates, section labels. */
+.kbd {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  border-bottom-width: 2px;
+  background: var(--card);
+  color: var(--ink2);
+  white-space: nowrap;
+}
+.side-item__count,
+.panel__tabcount,
+.side-section,
+.side-section__count,
+.group-label,
+.group-label__count,
+.statusbar,
+.board-col__count,
+.doc-card__updated,
+.task-row__meta,
+.titlebar__crumb {
+  font-family: var(--font-mono);
+}
+.side-section { font-size: 10.5px; font-weight: 500; letter-spacing: .1em; color: var(--ink3); }
+.group-label { font-size: 11px; font-weight: 600; letter-spacing: .1em; }
+.side-item__count { font-size: 11px; font-weight: 400; color: var(--ink3); }
+
+/* Hover and selection are neutral lifts; the accent is reserved for focus,
+   primary actions and the current place's marker. */
+.side-item:hover,
+.menu__item:hover,
+.titlebar__crumb-link:hover,
+.panel__action:hover,
+.panel__month-nav button:hover { background: color-mix(in oklab, var(--ink) 6%, transparent); }
+.side-item.is-active { background: color-mix(in oklab, var(--ink) 9%, transparent); color: var(--ink); }
+
+/* Primary actions: the vivid swatch with dark ink, in both themes. */
+.btn-primary { background: var(--accent-vivid); color: #10130F; border-radius: 6px; }
+.btn-primary:hover { filter: brightness(1.06); }
+.btn-icon, .searchpill { border-radius: 6px; border-color: var(--line2); background: var(--card); }
+
+/* Agent-written / unverified reads violet everywhere. */
+.chip--unverified { background: var(--agent-soft); color: var(--agent); }
+.rail__badge--review { background: var(--agent); color: var(--surface); }

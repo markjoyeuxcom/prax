@@ -39,6 +39,6 @@ test('a saved Plain preference opens CodeMirror and preserves editing and appear
   await page.locator('[data-action="nav-library"]').first().click();
   await page.locator('.doc-card', { hasText: synthesized.title }).click();
   await expect(editor).toBeVisible();
-  await expect(page.locator('.cm-scroller')).toHaveCSS('font-family', /Instrument Sans/);
+  await expect(page.locator('.cm-scroller')).toHaveCSS('font-family', /Schibsted Grotesk/);
   await expect(page.locator('[data-document-editor]')).toHaveValue(body);
 });

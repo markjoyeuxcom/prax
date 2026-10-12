@@ -15,8 +15,8 @@ import {
 // the old admin panel + library maintenance fold into Data & admin.
 
 const THEME_PREVIEWS = {
-  light: { bg: '#FAF9F7', bar: '#D8D6D0', bar2: '#E5E3DE' },
-  dark: { bg: '#1C2220', bar: '#39423F', bar2: '#2C3331' },
+  light: { bg: '#F7F6F2', bar: '#D6D5CF', bar2: '#E4E3DD' },
+  dark: { bg: '#121514', bar: '#2E3431', bar2: '#222725' },
 };
 
 // Reminders default to an in-app toast. Offer to upgrade to native desktop
@@ -32,7 +32,8 @@ function remindersNotifHint(preferences) {
 }
 
 const ACCENT_TITLES = {
-  fern: 'Fern (default)',
+  lime: 'Lime (default)',
+  fern: 'Fern',
   teal: 'Teal',
   sky: 'Sky',
   indigo: 'Indigo',
@@ -43,9 +44,9 @@ const ACCENT_TITLES = {
   moss: 'Moss',
 };
 
-// Fern is the token default (no --accent-choice override), so the swatch shows
+// Lime is the token default (no --accent-choice override), so the swatch shows
 // the vivid choice before the theme derives its contrast-safe working accent.
-const FERN_SWATCH_CSS = 'oklch(0.60 0.09 175)';
+const LIME_SWATCH_CSS = 'oklch(0.88 0.19 125)';
 
 function themeCard(key, label, activeTheme) {
   const pv = THEME_PREVIEWS[key];
@@ -67,7 +68,7 @@ function chromeButton(key, label, activeChrome) {
 }
 
 function accentSwatch(key, activeAccent) {
-  const css = ACCENT_CSS[key] || FERN_SWATCH_CSS;
+  const css = ACCENT_CSS[key] || LIME_SWATCH_CSS;
   const active = activeAccent === key;
   return `<button type="button" class="swatch${active ? ' is-active' : ''}" data-action="set-accent" data-accent="${key}" title="${escapeHtml(ACCENT_TITLES[key] || key)}" style="background:${css};"></button>`;
 }
@@ -99,7 +100,7 @@ function renderCaptureShortcutRow(state) {
 function renderAppearanceCard(preferences, state = {}) {
   const theme = preferences.theme === 'dark' ? 'dark' : 'light';
   const chrome = preferences.chromeOS === 'win' ? 'win' : 'mac';
-  const accent = ACCENT_OPTIONS.includes(preferences.accent) ? preferences.accent : 'fern';
+  const accent = ACCENT_OPTIONS.includes(preferences.accent) ? preferences.accent : 'lime';
   const scale = Number.isFinite(Number(preferences.readingScale)) ? Number(preferences.readingScale) : 1;
   const scaleLabel = `${Math.round(scale * 100)}%`;
 
@@ -112,8 +113,8 @@ function renderAppearanceCard(preferences, state = {}) {
       <div class="settings-row__text">
         <div class="settings-row__label">Theme</div>
         <div style="display:flex; gap:10px; margin-top:8px;">
-          ${themeCard('light', 'Light', theme)}
-          ${themeCard('dark', 'Dark', theme)}
+          ${themeCard('dark', 'Graphite', theme)}
+          ${themeCard('light', 'Paper', theme)}
         </div>
       </div>
     </div>
@@ -149,7 +150,7 @@ function renderAppearanceCard(preferences, state = {}) {
       <div class="settings-row">
         <div class="settings-row__text">
           <div class="settings-row__label">Editor font</div>
-          <div class="settings-row__desc">Proportional (Instrument&nbsp;Sans) reads like prose; monospace aligns code.</div>
+          <div class="settings-row__desc">Proportional (Schibsted&nbsp;Grotesk) reads like prose; monospace aligns code.</div>
         </div>
         <div class="seg">
           ${['proportional', 'monospace'].map((font) => {

@@ -80,13 +80,16 @@ test('theme cards carry set-theme actions and mark the active theme', () => {
   assert.match(html, /data-action="set-theme" data-theme="dark"/);
   assert.match(html, /class="theme-card is-active" data-action="set-theme" data-theme="dark"/);
   assert.doesNotMatch(html, /class="theme-card is-active" data-action="set-theme" data-theme="light"/);
-  // design preview colors
-  assert.match(html, /#FAF9F7/);
-  assert.match(html, /#D8D6D0/);
-  assert.match(html, /#E5E3DE/);
-  assert.match(html, /#1C2220/);
-  assert.match(html, /#39423F/);
-  assert.match(html, /#2C3331/);
+  // design preview colors: Paper and Graphite, Graphite first
+  assert.match(html, /#F7F6F2/);
+  assert.match(html, /#D6D5CF/);
+  assert.match(html, /#E4E3DD/);
+  assert.match(html, /#121514/);
+  assert.match(html, /#2E3431/);
+  assert.match(html, /#222725/);
+  assert.ok(html.indexOf('data-theme="dark"') < html.indexOf('data-theme="light"'));
+  assert.match(html, />Graphite</);
+  assert.match(html, />Paper</);
   assert.match(html, /theme-card__bar" style="background:var\(--accent\)/);
 });
 
@@ -108,20 +111,22 @@ test('window-controls segmented pair reflects the chrome preference via aria-pre
   assert.match(win, /data-chrome="mac" aria-pressed="false"/);
 });
 
-test('renders the nine accent swatches (incl blue + red) and marks the active one', () => {
+test('renders the ten accent swatches (incl blue + red) and marks the active one', () => {
   const html = renderSettingsHtml(baseState({ preferences: { theme: 'light', accent: 'clay', chromeOS: 'mac', readingScale: 1 } }), baseModel());
-  assert.equal((html.match(/data-action="set-accent"/g) || []).length, 9);
-  for (const a of ['fern', 'teal', 'sky', 'indigo', 'plum', 'rose', 'amber', 'clay', 'moss']) {
+  assert.equal((html.match(/data-action="set-accent"/g) || []).length, 10);
+  for (const a of ['lime', 'fern', 'teal', 'sky', 'indigo', 'plum', 'rose', 'amber', 'clay', 'moss']) {
     assert.match(html, new RegExp(`data-accent="${a}"`), `swatch ${a}`);
   }
   assert.match(html, /data-accent="sky"[^>]*background:oklch\(0\.60 0\.13 240\)/);  // blue
   assert.match(html, /data-accent="rose"[^>]*background:oklch\(0\.58 0\.16 18\)/);   // red
   assert.match(html, /class="swatch is-active" data-action="set-accent" data-accent="clay"/);
-  assert.doesNotMatch(html, /class="swatch is-active" data-action="set-accent" data-accent="fern"/);
-  // fern has no --accent-choice override; its swatch shows the vivid token
+  assert.doesNotMatch(html, /class="swatch is-active" data-action="set-accent" data-accent="lime"/);
+  // lime has no --accent-choice override; its swatch shows the vivid token
+  assert.match(html, /data-accent="lime"[^>]*background:oklch\(0\.88 0\.19 125\)/);
   assert.match(html, /data-accent="fern"[^>]*background:oklch\(0\.60 0\.09 175\)/);
   assert.match(html, /data-accent="indigo"[^>]*background:oklch\(0\.60 0\.11 265\)/);
-  assert.match(html, /title="Fern \(default\)"/);
+  assert.match(html, /title="Lime \(default\)"/);
+  assert.match(html, /title="Fern"/);
   assert.match(html, /title="Indigo"/);
   assert.match(html, /title="Clay"/);
   assert.match(html, /title="Moss"/);
