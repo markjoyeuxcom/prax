@@ -12,22 +12,7 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
-### Changed
-
-- **The Console interface.** A new layout and visual language
-  ([design note](docs/design/console-shell.md)). Wide windows have one labelled sidebar
-  (places, then the current context, Settings at the foot) instead of an icon rail beside a
-  panel; the titlebar centres a ⌘K command bar; a status line names the mode and the keys that
-  work in it. Dark "Graphite" is the default theme and light "Paper" replaces Porcelain; lime is
-  the default accent; Schibsted Grotesk, JetBrains Mono and Newsreader replace Instrument Sans
-  and Source Serif 4. Agent-written content is violet everywhere.
-- **Docked task inspector.** At 1360px and wider, in project, Today, Filter and Calendar views,
-  the task drawer docks beside the list as a non-modal pane; ↑↓ moves the selection and the
-  inspector follows. Narrower windows keep the modal drawer.
-- Task rows are flat and denser, with due dates as a right-hand mono column. A project's own
-  board no longer repeats its name on every card.
-- **Tags are normalised on every write** (lowercase, no leading `#`, spaces become hyphens,
-  duplicates collapse) by the document API, so the app, CLI, MCP and agents agree on spelling.
+## [0.41.0] - 2026-10-12
 
 ### Added
 
@@ -50,6 +35,23 @@ fresh empty `[Unreleased]` section is started.
   checklist and Ask Prax… beside the selection.
 - `[[` link completion shows each document's type and trust and ranks verified documents
   first.
+
+### Changed
+
+- **The Console interface.** A new layout and visual language
+  ([design note](docs/design/console-shell.md)). Wide windows have one labelled sidebar
+  (places, then the current context, Settings at the foot) instead of an icon rail beside a
+  panel; the titlebar centres a ⌘K command bar; a status line names the mode and the keys that
+  work in it. Dark "Graphite" is the default theme and light "Paper" replaces Porcelain; lime is
+  the default accent; Schibsted Grotesk, JetBrains Mono and Newsreader replace Instrument Sans
+  and Source Serif 4. Agent-written content is violet everywhere.
+- **Docked task inspector.** At 1360px and wider, in project, Today, Filter and Calendar views,
+  the task drawer docks beside the list as a non-modal pane; ↑↓ moves the selection and the
+  inspector follows. Narrower windows keep the modal drawer.
+- Task rows are flat and denser, with due dates as a right-hand mono column. A project's own
+  board no longer repeats its name on every card.
+- **Tags are normalised on every write** (lowercase, no leading `#`, spaces become hyphens,
+  duplicates collapse) by the document API, so the app, CLI, MCP and agents agree on spelling.
 
 ### Fixed
 
@@ -2366,7 +2368,8 @@ and onboarding features with the corrected installation guide.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/markjoyeuxcom/prax/compare/v0.40.0...HEAD
+[Unreleased]: https://github.com/markjoyeuxcom/prax/compare/v0.41.0...HEAD
+[0.41.0]: https://github.com/markjoyeuxcom/prax/compare/v0.40.0...v0.41.0
 [0.40.0]: https://github.com/markjoyeuxcom/prax/compare/v0.39.2...v0.40.0
 [0.39.2]: https://github.com/markjoyeuxcom/prax/compare/v0.39.1...v0.39.2
 [0.39.1]: https://github.com/markjoyeuxcom/prax/compare/v0.39.0...v0.39.1
