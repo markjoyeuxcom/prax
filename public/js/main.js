@@ -2214,6 +2214,7 @@ function escapeCascade() {
     return;
   }
   if (state.navType === 'run') runs.backFromRun();
+  if (state.navType === 'ask') void closeAskPage();
 }
 
 // ---------------------------------------------------------------------------
@@ -2724,9 +2725,29 @@ function rememberAskResult(query, result) {
   try { localStorage.setItem(ASK_HISTORY_KEY, JSON.stringify(history)); } catch { /* per-device convenience */ }
 }
 
+// Where Ask was opened from, so closing it goes back there (a page, not a
+// modal, but still somewhere you visit and leave).
+let askReturn = null;
+
 async function openAskPage() {
+  const from = state.navType === 'ask' ? askReturn
+    : { navType: state.navType, navId: state.navId, tab: state.tab, editorDocId: state.navType === 'editor' ? state.editorDocId : null };
   if (!(await navigateTopLevel({ navType: 'ask', paletteOpen: false, askPraxOpen: false }))) return;
+  askReturn = from;
   appRoot.querySelector('[data-ask-prax-input]')?.focus();
+}
+
+async function closeAskPage() {
+  const back = askReturn;
+  askReturn = null;
+  if (back?.navType === 'editor' && back.editorDocId && state.documents.some((doc) => doc.id === back.editorDocId)) {
+    await openDocumentInEditor(back.editorDocId);
+    return;
+  }
+  if (back?.navType === 'settings') { await settings.goSettings(); return; }
+  if (back?.navType === 'project' && back.navId) { await goProject(back.navId, back.tab || 'list'); return; }
+  const navType = back?.navType && !['ask', 'editor', 'run', 'settings', 'project'].includes(back.navType) ? back.navType : 'library';
+  await navigateTopLevel({ navType });
 }
 
 async function saveAskAsNote() {
@@ -3127,6 +3148,7 @@ async function handleAction(action, el, event) {
       break;
     }
     case 'save-ask-note': await saveAskAsNote(); break;
+    case 'close-ask-page': await closeAskPage(); break;
     case 'selbar-ask': {
       const text = String(documentEditorController?.getSelectionText?.() || '').replace(/\s+/g, ' ').trim().slice(0, 300);
       if (!text) break;

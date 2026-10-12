@@ -3964,7 +3964,7 @@ button.rq-item:hover { background: color-mix(in oklab, var(--ink) 5%, transparen
 .ask-hist__note { font-family: var(--font-mono); font-size: 10.5px; line-height: 1.6; }
 
 .ask-thread { display: flex; flex-direction: column; min-width: 0; padding: 0 32px; }
-.ask-thread__scroll { flex: 1; width: 100%; max-width: 740px; margin: 0 auto; padding: 32px 0 24px; display: flex; flex-direction: column; gap: 16px; }
+.ask-thread__scroll { flex: 1; width: 100%; max-width: 740px; margin: 0 auto; padding: 60px 0 24px; display: flex; flex-direction: column; gap: 16px; }
 .ask-q { align-self: flex-end; max-width: 80%; padding: 10px 14px; border-radius: 10px 10px 2px 10px; background: var(--card); border: 1px solid var(--line2); font-size: 14px; line-height: 1.45; }
 .ask-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-family: var(--font-mono); font-size: 11px; color: var(--ink3); }
 .ask-meta__who { display: inline-flex; align-items: center; gap: 5px; color: var(--agent); }
@@ -4036,3 +4036,8 @@ button.rq-item:hover { background: color-mix(in oklab, var(--ink) 5%, transparen
 .write-menu__item:disabled .write-menu__label { color: var(--ink3); }
 .write-menu__setup { color: var(--agent); font-weight: 600; }
 .write-menu__foot { margin: 4px 0 0; padding: 8px 8px 4px; border-top: 1px solid var(--line); font-size: 11px; line-height: 1.5; color: var(--ink3); }
+
+/* Ask page close: back to wherever Ask was opened from (also Esc). */
+.ask-thread { position: relative; }
+.ask-close { position: absolute; top: 12px; right: 12px; z-index: 2; width: 32px; height: 32px; font-size: 20px; line-height: 1; color: var(--ink3); }
+.ask-close:hover { color: var(--ink); }
