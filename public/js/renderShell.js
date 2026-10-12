@@ -616,12 +616,14 @@ export function statusbarMode(state) {
 const STATUS_HINTS = {
   list: [['↑↓', 'move'], ['↵', 'open'], ['e', 'done'], ['n', 'new']],
   library: [['/', 'search'], ['↑↓', 'move'], ['↵', 'open']],
+  desk: [['v', 'verify'], ['e', 'edit'], ['r', 'reject'], ['j', 'skip']],
   other: [['⌘K', 'command'], ['n', 'new task'], ['⌘I', 'ask']],
 };
 
 export function statusbarHints(state) {
   if (state.navType === 'today' || state.navType === 'filter'
     || (state.navType === 'project' && ['list', 'backlog', 'archive', 'inbox'].includes(state.tab || 'list'))) return STATUS_HINTS.list;
+  if (state.navType === 'library' && state.libraryView === 'review' && state.reviewLayout !== 'table') return STATUS_HINTS.desk;
   if (state.navType === 'library') return STATUS_HINTS.library;
   return STATUS_HINTS.other;
 }

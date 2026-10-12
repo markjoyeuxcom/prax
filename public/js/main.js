@@ -102,6 +102,7 @@ import { renderBoardHtml, buildBoardColumns, limitBoardColumns } from './renderB
 import { renderBacklogHtml, renderArchiveHtml } from './renderBacklog.js';
 import { renderTaskDrawerHtml, renderMissingTaskDrawerHtml, inspectorDocked } from './renderTaskDetail.js';
 import { renderTagsManagerHtml } from './renderTagsManager.js';
+import { renderReviewDeskHtml, reviewDeskQueue, reviewDeskCurrentId } from './renderReviewDesk.js';
 import { normalizeTagKey } from './tagStats.js';
 import { renderLinkPickerHtml } from './renderLinkPicker.js';
 import {
@@ -2241,6 +2242,7 @@ function renderMainHtml() {
     }
     case 'library': {
       if (state.libraryView === 'tags') return renderTagsManagerHtml(state);
+      if (state.libraryView === 'review' && state.reviewLayout !== 'table') return renderReviewDeskHtml(state);
       const collectionKey = JSON.stringify([
         state.libraryView, state.libraryQuery, state.librarySemantic, state.librarySortBy,
         state.activeLibraryTags, state.libraryTypes, state.libraryTrust, state.libraryProjects,
@@ -2648,9 +2650,125 @@ function renderApp() {
   lastLibraryRenderKey = currentLibraryKey;
 }
 
+// ---------------------------------------------------------------------------
+// Review desk (Console redesign): one memory at a time, its saved revision and
+// provenance fetched fresh whenever the current document changes.
+// ---------------------------------------------------------------------------
+
+let reviewDeskLoading = null;
+
+function reviewDeskActive() {
+  return state.navType === 'library' && state.libraryView === 'review' && state.reviewLayout !== 'table';
+}
+
+function ensureReviewDeskLoaded() {
+  if (!reviewDeskActive()) return;
+  const id = reviewDeskCurrentId(state);
+  if (!id || reviewDeskLoading === id || state.reviewDeskDoc?.id === id) return;
+  loadReviewDesk(id);
+}
+
+async function loadReviewDesk(id) {
+  reviewDeskLoading = id;
+  try {
+    const [doc, codeRefs, links, similar] = await Promise.all([
+      fetchDocument(id),
+      fetch(`/api/library/documents/${encodeURIComponent(id)}/code-refs`).then((r) => (r.ok ? r.json() : [])).catch(() => []),
+      fetchDocumentLinks(id).catch(() => []),
+      fetchSimilarDocuments(id).catch(() => ({ items: [], reason: 'unavailable' })),
+    ]);
+    if (reviewDeskLoading !== id || !reviewDeskActive()) return;
+    setState({
+      reviewDeskDoc: doc,
+      reviewDeskContext: {
+        id,
+        codeRefs: Array.isArray(codeRefs) ? codeRefs : (codeRefs?.items || []),
+        links: Array.isArray(links) ? links : (links?.items || []),
+        similar: (similar?.items || []).filter((item) => item.id !== id && item.status !== 'superseded'),
+        similarReason: similar?.reason || null,
+      },
+    });
+    renderApp();
+  } catch {
+    if (reviewDeskLoading === id) showToast('Could not load this document for review.');
+  } finally {
+    if (reviewDeskLoading === id) reviewDeskLoading = null;
+  }
+}
+
+// `before` is the queue as it stood when the decision started: archiving or
+// verifying removes the document from state.documents, so its title and its
+// place come from that snapshot.
+function reviewDeskAdvance(decidedId, outcome, before = reviewDeskQueue(state)) {
+  const queue = reviewDeskQueue(state);
+  const index = Math.max(0, before.findIndex((doc) => doc.id === decidedId));
+  const decided = before.find((doc) => doc.id === decidedId);
+  const rest = queue.filter((doc) => doc.id !== decidedId);
+  const next = outcome === 'skipped'
+    ? (queue[index + 1] || queue[0])
+    : (rest[index] || rest[rest.length - 1] || null);
+  setState({
+    reviewDeskId: next?.id || null,
+    ...(outcome === 'skipped' ? {} : {
+      reviewDeskDone: [...(state.reviewDeskDone || []), { id: decidedId, title: decided?.title || 'Untitled document', outcome }],
+    }),
+  });
+  renderApp();
+}
+
+async function reviewDeskDecide(kind, replacementId = null) {
+  const before = reviewDeskQueue(state);
+  const id = reviewDeskCurrentId(state, before);
+  if (!id) return;
+  if (kind === 'skip') { reviewDeskAdvance(id, 'skipped'); return; }
+  let committed = false;
+  if (kind === 'verify') {
+    const doc = state.reviewDeskDoc;
+    if (!doc || doc.id !== id || !doc.revision) return;
+    committed = await performDocumentLifecycleOnce(`document:${id}`, () => (
+      lifecycle.changeDocumentVerification(id, true, { reviewedRevision: doc.revision })
+    ));
+    if (!committed) { setState({ reviewDeskDoc: null }); renderApp(); return; }
+  } else if (kind === 'reject') {
+    committed = await performDocumentLifecycleOnce(`document:${id}`, () => lifecycle.archiveKnowledgeDocument(id));
+  } else if (kind === 'supersede' && replacementId) {
+    committed = await performDocumentLifecycleOnce(`document:${id}`, () => lifecycle.supersedeKnowledgeDocument(id, replacementId));
+  }
+  if (committed) reviewDeskAdvance(id, { verify: 'verified', reject: 'rejected', supersede: 'superseded' }[kind], before);
+}
+
+function reviewDeskKeydown(event) {
+  if (!reviewDeskActive() || event.metaKey || event.ctrlKey || event.altKey) return null;
+  const tag = String(event.target?.tagName || '').toUpperCase();
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || event.target?.isContentEditable) return null;
+  if (topmostModal(appRoot) || state.paletteOpen || state.captureOpen) return null;
+  const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+  const queue = reviewDeskQueue(state);
+  const id = reviewDeskCurrentId(state, queue);
+  const step = (direction) => {
+    const index = queue.findIndex((doc) => doc.id === id);
+    const next = queue[Math.min(queue.length - 1, Math.max(0, index + direction))];
+    if (next && next.id !== id) { setState({ reviewDeskId: next.id }); renderApp(); }
+  };
+  const run = {
+    v: () => reviewDeskDecide('verify'),
+    r: () => reviewDeskDecide('reject'),
+    j: () => reviewDeskDecide('skip'),
+    e: () => appRoot.querySelector('.rq-actions [data-action="review-doc"]')?.click(),
+    m: () => appRoot.querySelector('.rq-actions [data-action="review-desk-supersede-pick"]')?.click(),
+    ArrowDown: () => step(1),
+    ArrowUp: () => step(-1),
+  }[key];
+  if (!run || !id) return null;
+  event.preventDefault();
+  run();
+  return KEY_CONSUMED;
+}
+
 function afterRender() {
   // Before any focus restore: nothing beneath an open modal may take focus.
   syncModalInert(appRoot);
+  ensureReviewDeskLoaded();
   mountEditorIfNeeded();
   restoreRenderContinuity();
   renderedPlanMode = state.planMode;
@@ -2900,7 +3018,28 @@ async function handleAction(action, el, event) {
       if (await navigateTopLevel({ navType: 'all' })) openConfirm(newProjectDialog());
       break;
     case 'nav-library': await goLibrary(); break;
-    case 'nav-review': await goLibrary({ libraryView: 'review' }); break;
+    case 'nav-review': await goLibrary({ libraryView: 'review', reviewLayout: 'desk', reviewDeskId: null, reviewDeskDone: [] }); break;
+    case 'review-desk-select': setState({ reviewDeskId: el.dataset.documentId || null }); renderApp(); break;
+    case 'review-desk-verify': await reviewDeskDecide('verify'); break;
+    case 'review-desk-reject': await reviewDeskDecide('reject'); break;
+    case 'review-desk-skip': await reviewDeskDecide('skip'); break;
+    case 'review-desk-supersede': await reviewDeskDecide('supersede', el.dataset.replacementId); break;
+    case 'review-desk-table': setState({ reviewLayout: 'table' }); renderApp(); break;
+    case 'review-desk-open': setState({ reviewLayout: 'desk' }); renderApp(); break;
+    case 'review-desk-supersede-pick': {
+      const id = reviewDeskCurrentId(state);
+      const doc = (state.documents || []).find((item) => item.id === id);
+      if (!doc) break;
+      try {
+        const documents = await fetchDocuments({ archived: false });
+        setState({
+          isLinkPickerOpen: true, pickerMode: 'supersede', supersedeSourceId: id, linkPickerQuery: '',
+          linkPickerDocuments: documents.filter((item) => item.projectId === doc.projectId && item.status === 'active' && item.id !== id),
+        });
+      } catch { alertError('load documents to supersede with'); }
+      renderApp();
+      break;
+    }
     // Library ▸ Tags (Console redesign): usage, suggested merges, filters.
     case 'open-tags': await goLibrary({ libraryView: 'tags', tagsFilter: 'all', tagsQuery: '', tagsShowAll: false }); break;
     case 'set-tags-filter': setState({ tagsFilter: el.dataset.filter || 'all', tagsShowAll: false }); renderApp(); break;
@@ -3791,10 +3930,16 @@ function bindEvents() {
 
 async function handleLinkPickerPick(documentId) {
   if (state.pickerMode === 'supersede') {
-    const predecessorId = state.editorDocId;
-    await performDocumentLifecycleOnce(`document:${predecessorId}`, () => (
+    // From the review desk the picker replaces the desk's document; in the
+    // editor, the open one.
+    const fromDesk = Boolean(state.supersedeSourceId) && reviewDeskActive();
+    const predecessorId = fromDesk ? state.supersedeSourceId : state.editorDocId;
+    const before = fromDesk ? reviewDeskQueue(state) : null;
+    setState({ supersedeSourceId: null });
+    const committed = await performDocumentLifecycleOnce(`document:${predecessorId}`, () => (
       lifecycle.supersedeKnowledgeDocument(predecessorId, documentId)
     ));
+    if (committed && fromDesk) reviewDeskAdvance(predecessorId, 'superseded', before);
     return;
   }
   await drawer.toggleDocumentLink(documentId);
@@ -3982,6 +4127,7 @@ function installKeyboard() {
       { name: 'modal-tab-trap', handle: event => (trapModalTab(event, appRoot) ? KEY_HANDLED : null) },
       { name: 'template-studio', scope: 'app', handle: event => templateStudio.keydown(event) },
       { name: 'workspace-fields', scope: 'app', handle: workspaceKeydown },
+      { name: 'review-desk', global: true, handle: reviewDeskKeydown },
       { name: 'global-shortcuts', global: true, handle: globalShortcuts },
     ],
   }).install(document);

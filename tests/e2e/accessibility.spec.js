@@ -156,6 +156,10 @@ test('year-one surfaces (Today triage, Library table and review queue, palette s
   await audit(page, 'library-table');
 
   await page.locator('.panel [data-action="nav-review"]').click();
+  await expect(page.locator('.rq')).toBeVisible();
+  await expect(page.locator('[data-action="review-desk-verify"]')).toBeEnabled();
+  await audit(page, 'review-desk');
+  await page.locator('[data-action="review-desk-table"]').click();
   await expect(page.locator('.doc-table--review')).toBeVisible();
   await expect(page.locator('.review-banner')).toBeVisible();
   await audit(page, 'library-review-queue');

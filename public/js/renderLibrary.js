@@ -712,6 +712,7 @@ function renderReviewBanner(model) {
       <span class="review-banner__agents">${agents}${summary.stale ? ` · ${escapeHtml(summary.stale)} stale` : ''}</span>
       <span class="review-banner__actions">
         <button class="btn-ghost" type="button" data-action="select-visible-docs">Select shown</button>
+        <button class="btn-ghost" type="button" data-action="review-desk-open">One at a time</button>
         <button class="btn-primary" type="button" data-action="review-next">Review next</button>
       </span>
     </div>`;
