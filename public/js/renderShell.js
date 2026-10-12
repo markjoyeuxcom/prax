@@ -87,6 +87,7 @@ export function buildBreadcrumb(state) {
   switch (state.navType) {
     case 'today': return [{ label: 'Today' }];
     case 'calendar': return [{ label: 'Calendar' }];
+    case 'ask': return [{ label: 'Ask Prax' }];
     case 'all': return [{ label: 'All projects' }];
     case 'filter': {
       const view = [...(state.taskSmartViews || []), ...BUILT_IN_SMART_VIEWS]
@@ -201,7 +202,7 @@ export function renderTitlebarHtml(state) {
     + `<button type="button" class="searchpill cmdbar" data-action="open-palette" title="Command bar (⌘K)"><span class="cmdbar__prompt" aria-hidden="true">›</span><span class="cmdbar__text">Search or jump to… run a command, or ask</span><span class="kbd">⌘K</span></button>`
     + '</div>';
   const actions = state.editorFocus ? '' : '<div class="titlebar__actions">'
-    + `<button type="button" class="btn-ghost titlebar__ask" data-action="open-assistant" title="Ask Prax (⌘I)">${icon('spark', 13)}<span>Ask</span></button>`
+    + `<button type="button" class="btn-ghost titlebar__ask${state.navType === 'ask' ? ' is-active' : ''}" data-action="open-ask-page" title="Ask Prax: cited answers from your library">${icon('spark', 13)}<span>Ask</span></button>`
     + renderNewMenuHtml(state)
     + `<button type="button" class="btn-icon" data-action="toggle-theme" title="Toggle theme (⌘J)" aria-label="Toggle theme">${icon('contrast', 14)}</button>`
     + (isMac || state.desktopShell ? '' : WIN_CONTROLS)
@@ -609,6 +610,7 @@ export function statusbarMode(state) {
     case 'run': return 'RUN';
     case 'health': return 'HEALTH';
     case 'settings': return 'SETTINGS';
+    case 'ask': return 'ASK';
     default: return 'PRAX';
   }
 }
@@ -617,12 +619,14 @@ const STATUS_HINTS = {
   list: [['↑↓', 'move'], ['↵', 'open'], ['e', 'done'], ['n', 'new']],
   library: [['/', 'search'], ['↑↓', 'move'], ['↵', 'open']],
   desk: [['v', 'verify'], ['e', 'edit'], ['r', 'reject'], ['j', 'skip']],
+  ask: [['↵', 'ask'], ['⌘K', 'command'], ['⌘I', 'assistant']],
   other: [['⌘K', 'command'], ['n', 'new task'], ['⌘I', 'ask']],
 };
 
 export function statusbarHints(state) {
   if (state.navType === 'today' || state.navType === 'filter'
     || (state.navType === 'project' && ['list', 'backlog', 'archive', 'inbox'].includes(state.tab || 'list'))) return STATUS_HINTS.list;
+  if (state.navType === 'ask') return STATUS_HINTS.ask;
   if (state.navType === 'library' && state.libraryView === 'review' && state.reviewLayout !== 'table') return STATUS_HINTS.desk;
   if (state.navType === 'library') return STATUS_HINTS.library;
   return STATUS_HINTS.other;
@@ -630,7 +634,7 @@ export function statusbarHints(state) {
 
 export function renderStatusbarHtml(state) {
   const mode = statusbarMode(state);
-  const agentMode = mode === 'REVIEW';
+  const agentMode = mode === 'REVIEW' || mode === 'ASK';
   return '<footer class="statusbar">'
     + `<span class="statusbar__mode${agentMode ? ' statusbar__mode--agent' : ''}">${escapeHtml(mode)}</span>`
     + `<span class="statusbar__facts">${statusbarFacts(state).map((fact) => `<span>${escapeHtml(fact)}</span>`).join('<span class="statusbar__dot" aria-hidden="true">·</span>')}</span>`

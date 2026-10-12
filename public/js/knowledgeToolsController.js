@@ -18,6 +18,7 @@ import { buildDailyBrief } from './brief.js';
 export function createKnowledgeToolsController({
   getState, setState, renderApp, showToast, announce, copyToClipboard, getRoot, prepareEditorNavigation,
   openDocumentInEditor, loadDocuments, captureProjectChoices, inboxSlug,
+  openAskPage = null, onAskResult = null,
   askPrax = apiAskPrax, generateRunbook = apiGenerateRunbook, fetchHealth = apiFetchHealth,
   fetchLinkSuggestions = apiFetchLinkSuggestions, runAiReview = apiRunAiReview, narrateBrief = apiNarrateBrief,
   applyWikiLink = apiApplyWikiLink, generateWeeklyReview = apiGenerateWeeklyReview,
@@ -211,6 +212,9 @@ export function createKnowledgeToolsController({
   }
 
   function openAskPrax() {
+    // The Console shell asks on a page of its own (main.js); the overlay
+    // remains for embedders without one.
+    if (openAskPage) { openAskPage(); return; }
     // Keep the last query (handy to re-run) but clear any prior answer.
     askPraxToken += 1;
     setState({ askPraxOpen: true, askPraxResult: null, askPraxError: false, askPraxLoading: false, paletteOpen: false });
@@ -229,14 +233,15 @@ export function createKnowledgeToolsController({
     if (!query) return;
     const token = (askPraxToken += 1);
     const isCurrent = () => token === askPraxToken
-      && state.askPraxOpen
+      && (state.askPraxOpen || state.navType === 'ask')
       && state.askPraxQuery === query;
     setState({ askPraxQuery: query, askPraxLoading: true, askPraxError: false, askPraxResult: null });
     renderApp();
     try {
-      const result = await askPrax(query, 'all');
+      const result = await askPrax(query, state.navType === 'ask' ? (state.askScope || 'all') : 'all');
       if (!isCurrent()) return;
       setState({ askPraxLoading: false, askPraxResult: result });
+      onAskResult?.(query, result);
     } catch {
       if (!isCurrent()) return;
       setState({ askPraxLoading: false, askPraxError: true });
