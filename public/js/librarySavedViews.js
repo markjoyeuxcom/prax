@@ -15,7 +15,7 @@ function slugFromLabel(label) {
     || 'view';
 }
 
-const FILTER_KEYS = ['types', 'trust', 'projects', 'query', 'sortBy', 'groupBy'];
+const FILTER_KEYS = ['types', 'trust', 'projects', 'query', 'sortBy', 'groupBy', 'mode', 'view'];
 function cleanFilters(filters) {
   if (!filters || typeof filters !== 'object') return null;
   const out = {};
@@ -26,6 +26,10 @@ function cleanFilters(filters) {
   const query = String(filters.query || '').trim();
   if (query) out.query = query;
   for (const key of ['sortBy', 'groupBy']) if (typeof filters[key] === 'string' && filters[key]) out[key] = filters[key];
+  // The search MODE and the collection: the same words mean different things
+  // by keyword and by meaning, and a filtered archive is not the active set.
+  if (filters.mode === 'semantic') out.mode = 'semantic';
+  if (['archive', 'review'].includes(filters.view)) out.view = filters.view;
   return Object.keys(out).length ? out : null;
 }
 
@@ -62,6 +66,8 @@ export function savedLibraryViewPatch(view) {
     libraryTrust: [...(filters.trust || [])],
     libraryProjects: [...(filters.projects || [])],
     libraryQuery: filters.query || '',
+    librarySemantic: filters.mode === 'semantic',
+    libraryView: filters.view || 'active',
     ...(filters.sortBy ? { librarySortBy: filters.sortBy } : {}),
     ...(filters.groupBy ? { libraryGroupBy: filters.groupBy } : {}),
   };

@@ -53,3 +53,13 @@ test('Ask Prax: a current answer installs and is announced', async () => {
   assert.deepEqual(state.askPraxResult, { answer: 'Rotate with the runbook.', scope: 'all' });
   assert.deepEqual(announced, ['Answer ready.']);
 });
+
+test('Ask Prax: a rejected request clears loading, flags the error and returns the question to the page composer', async () => {
+  const state = { navType: 'ask', askPraxQuery: '', askDraft: 'why did it fail', askScope: 'all', askTrust: 'all' };
+  const { controller, announced } = askFor(state, async () => { throw new Error('network'); });
+  await controller.runAskPrax('why did it fail');
+  assert.equal(state.askPraxLoading, false);
+  assert.equal(state.askPraxError, true);
+  assert.equal(state.askDraft, 'why did it fail', 'one keypress retries');
+  assert.deepEqual(announced, ['Ask Prax could not answer. Try again.']);
+});

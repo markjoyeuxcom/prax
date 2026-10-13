@@ -1,6 +1,8 @@
 export const DOCUMENT_LINK_RELATIONS = ['derived-from', 'supersedes'];
 
-export function buildLinkDocuments(sourceId, targetId, relation) {
+// `actor` ({ updatedBy, updatedByAgent }) is kept on a supersedes edge
+// (migration 0043) so a later restore that re-retires the target can say who.
+export function buildLinkDocuments(sourceId, targetId, relation, actor = null) {
   if (relation === 'derived-from') {
     // Upsert refreshes the target_hash snapshot on re-link. SQLite has no
     // pg xmax trick to tell insert from update, so linkDocuments() probes
@@ -20,14 +22,14 @@ export function buildLinkDocuments(sourceId, targetId, relation) {
   }
   return {
     text: `
-      insert into document_links (source_document_id, target_document_id, relation)
-      select $1, $2, $3
+      insert into document_links (source_document_id, target_document_id, relation, created_by, created_by_agent)
+      select $1, $2, $3, $4, $5
       where exists (select 1 from markdown_documents where id = $1 and archived_at is null)
         and exists (select 1 from markdown_documents where id = $2 and archived_at is null)
       on conflict (source_document_id, target_document_id, relation) do nothing
       returning source_document_id
     `,
-    values: [sourceId, targetId, relation],
+    values: [sourceId, targetId, relation, actor?.updatedBy === 'agent' ? 'agent' : 'user', actor?.updatedBy === 'agent' && typeof actor.updatedByAgent === 'string' && actor.updatedByAgent ? actor.updatedByAgent : null],
   };
 }
 
@@ -44,14 +46,19 @@ export function buildLinkExists(sourceId, targetId, relation) {
   };
 }
 
-// Who retired a document. document_links has no actor column, so a new
-// supersedes edge stamps the retired document's own provenance fields (the
-// trigger has already changed its status in the same request). Title/body and
-// the revision token are untouched, so verification is not affected.
+// Who retired a document. A new supersedes edge keeps its actor on the edge
+// (created_by, for the restore triggers to re-apply) and stamps the retired
+// document's current retired_by columns here (the insert trigger has already
+// changed its status in the same request). Title, body,
+// the revision token and updated_by / updated_by_agent are untouched: a
+// supersession is a lifecycle event, not an edit, so neither verification nor
+// content authorship (review-queue membership) moves. Unlinking the edge, or
+// archiving the superseder, revives the document and clears both columns
+// (migration 0043).
 export function buildRecordSupersedeActor(documentId, { updatedBy = 'user', updatedByAgent = null } = {}) {
   const agent = updatedBy === 'agent';
   return {
-    text: `update markdown_documents set updated_by = $2, updated_by_agent = $3 where id = $1 and status = 'superseded'`,
+    text: `update markdown_documents set retired_by = $2, retired_by_agent = $3 where id = $1 and status = 'superseded'`,
     values: [documentId, agent ? 'agent' : 'user', agent && typeof updatedByAgent === 'string' && updatedByAgent ? updatedByAgent : null],
   };
 }
@@ -176,7 +183,7 @@ export function createDocumentLinksRepository(db) {
         if (result.rows.length === 0) return { linked: false };
         return alreadyLinked ? { linked: true, alreadyLinked: true } : { linked: true };
       }
-      const query = buildLinkDocuments(sourceId, targetId, relation);
+      const query = buildLinkDocuments(sourceId, targetId, relation, actor);
       let result;
       try {
         result = await db.query(query.text, query.values);

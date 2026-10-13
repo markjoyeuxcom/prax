@@ -28340,11 +28340,14 @@ function isTableSeparator(lineText) {
   const cells = tableCells(text);
   return cells.length > 0 && cells.every((c) => /^:?-+:?$/.test(text.slice(c.from, c.to).trim()));
 }
-function continueTableOnEnter(lineText) {
+function continueTableOnEnter(lineText, nextLineText = "") {
   const text = String(lineText ?? "");
   if (!isTableRow(text)) return { action: "none" };
   const cells = tableCells(text);
   if (isTableSeparator(text)) return { action: "none" };
+  if (isTableSeparator(nextLineText)) {
+    return { action: "continue", prefix: tableRowText(Array(cells.length).fill("")), caret: 2, afterNextLine: true };
+  }
   if (cells.every((c) => text.slice(c.from, c.to).trim() === "")) return { action: "exit" };
   return { action: "continue", prefix: tableRowText(Array(cells.length).fill("")), caret: 2 };
 }
@@ -28551,8 +28554,15 @@ function listContinuationEnter(view) {
   const line = view.state.doc.lineAt(sel.head);
   if (sel.head !== line.to) return false;
   let result = continueListOnEnter(line.text);
-  if (result.action === "none") result = continueTableOnEnter(line.text);
+  const below = line.number < view.state.doc.lines ? view.state.doc.line(line.number + 1) : null;
+  if (result.action === "none") result = continueTableOnEnter(line.text, below ? below.text : "");
   if (result.action === "none") return false;
+  if (result.action === "continue" && result.afterNextLine && below) {
+    const insert3 = `
+${result.prefix}`;
+    view.dispatch({ changes: { from: below.to, insert: insert3 }, selection: { anchor: below.to + 1 + result.caret }, scrollIntoView: true, userEvent: "input" });
+    return true;
+  }
   if (result.action === "exit") {
     view.dispatch({
       changes: { from: line.from, to: line.to, insert: "" },
@@ -28592,10 +28602,16 @@ function tableTab(direction) {
         const cells = tableCells(next.text);
         if (cells.length) return select(next, cells[0]);
       }
+      let last2 = line;
+      for (let n = line.number + 1; n <= view.state.doc.lines; n += 1) {
+        const next = view.state.doc.line(n);
+        if (!isTableRow(next.text)) break;
+        last2 = next;
+      }
       const width = tableCells(line.text).length || 1;
       const row = `| ${Array(width).fill(" ").join(" | ")} |`;
-      view.dispatch({ changes: { from: line.to, insert: `
-${row}` }, selection: { anchor: line.to + 3 }, scrollIntoView: true, userEvent: "input" });
+      view.dispatch({ changes: { from: last2.to, insert: `
+${row}` }, selection: { anchor: last2.to + 3 }, scrollIntoView: true, userEvent: "input" });
       return true;
     }
     for (let n = line.number - 1; n >= Math.max(1, line.number - 2); n -= 1) {

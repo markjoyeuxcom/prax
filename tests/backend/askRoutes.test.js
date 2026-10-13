@@ -28,8 +28,8 @@ test('collectSources de-dupes across sections in order', () => {
     { items: [{ id: 'a', title: 'A', documentType: 'note', verified: true }, { id: 'b', title: 'B', documentType: 'runbook', verified: false }] },
   ] };
   assert.deepEqual(collectSources(pack), [
-    { id: 'a', title: 'A', documentType: 'note', verified: true, verifiedAt: null, verifiedBy: null, status: 'active', updatedBy: null, kind: 'source', stale: false },
-    { id: 'b', title: 'B', documentType: 'runbook', verified: false, verifiedAt: null, verifiedBy: null, status: 'active', updatedBy: null, kind: 'source', stale: false },
+    { id: 'a', title: 'A', documentType: 'note', verified: true, verifiedAt: null, verifiedBy: null, status: 'active', updatedBy: null, kind: 'source', stale: false, revision: null },
+    { id: 'b', title: 'B', documentType: 'runbook', verified: false, verifiedAt: null, verifiedBy: null, status: 'active', updatedBy: null, kind: 'source', stale: false, revision: null },
   ]);
   assert.deepEqual(collectSources(null), []);
 });
@@ -200,5 +200,72 @@ test('without embeddings a question in plain words still finds the runbook (rank
   assert.ok(!body.sources.some((s) => s.title === 'DNS resolver notes'), 'the unrelated note is not a source');
   const none = await app.inject({ method: 'POST', url: '/api/library/ask', payload: { q: 'zebra quantum teleporter' } });
   assert.equal(none.json().sources.length, 0, 'nonsense still matches nothing');
+  await app.close();
+});
+
+test('verified-only retrieval is applied before the candidate limit, so one verified match among fifty unverified is found', async () => {
+  const { buildApp: build } = await import('../../server/index.js');
+  const { loadConfig } = await import('../../server/config.js');
+  const app = await build({ config: loadConfig({ PRAX_DB_FILE: ':memory:', EMBEDDING_BACKEND: 'none', CHAT_BACKEND: 'none' }), librarianSweep: false });
+  for (let i = 0; i < 50; i += 1) {
+    const res = await app.inject({ method: 'POST', url: '/api/library/documents', headers: { 'x-prax-origin': 'agent', 'x-prax-agent': 'codex' }, payload: { project: 'homelab', documentType: 'note', title: `Crowding note ${i}`, body: 'The crowdprobe keyword appears here, again and again: crowdprobe crowdprobe.' } });
+    assert.equal(res.statusCode, 201);
+  }
+  const verified = (await app.inject({ method: 'POST', url: '/api/library/documents', payload: { project: 'homelab', documentType: 'runbook', title: 'Crowding runbook', body: 'The crowdprobe procedure.' } })).json();
+  await app.inject({ method: 'POST', url: `/api/library/documents/${verified.id}/verify`, payload: { verified: true, as: 'Mark', revision: verified.revision } });
+  const res = await app.inject({ method: 'POST', url: '/api/library/ask', payload: { q: 'crowdprobe', trust: 'verified' } });
+  const body = res.json();
+  assert.notEqual(body.reason, 'no-sources');
+  assert.deepEqual(body.sources.map((s) => s.title), ['Crowding runbook']);
+  assert.equal(body.retrieval.trust, 'verified');
+  assert.ok(body.retrieval.hiddenUnverified >= 1);
+  assert.ok(body.sources[0].revision, 'sources carry the revision they were read at');
+  await app.close();
+});
+
+test('a truncated completion is a degraded answer, and suggests no tasks', async () => {
+  const { buildApp: build } = await import('../../server/index.js');
+  const { loadConfig } = await import('../../server/config.js');
+  const chat = { backend: 'fake', model: 'probe', supportsTools: false, async isAvailable() { return true; }, async complete() { return { text: 'Stop the primary [Truncation probe]. Then promote the', model: 'probe', truncated: true, finishReason: 'max_tokens' }; } };
+  const app = await build({ config: loadConfig({ PRAX_DB_FILE: ':memory:', EMBEDDING_BACKEND: 'none', CHAT_BACKEND: 'fake' }), chat, librarianSweep: false });
+  const doc = (await app.inject({ method: 'POST', url: '/api/library/documents', payload: { project: 'homelab', documentType: 'runbook', title: 'Truncation probe', body: 'Stop the primary, then promote the standby.' } })).json();
+  const ask = (await app.inject({ method: 'POST', url: '/api/library/ask', payload: { q: 'truncation probe' } })).json();
+  assert.equal(ask.degraded, true);
+  assert.equal(ask.reason, 'truncated');
+  assert.equal(ask.answer, null);
+  assert.equal(ask.sources[0].id, doc.id, 'the sources stay');
+  const tasks = (await app.inject({ method: 'POST', url: '/api/library/ask/tasks', payload: { q: 'truncation probe', answer: 'Stop the primary [Truncation probe].', sourceIds: [doc.id] } })).json();
+  assert.equal(tasks.degraded, true);
+  assert.equal(tasks.reason, 'truncated');
+  assert.deepEqual(tasks.tasks, []);
+  await app.close();
+});
+
+test('keyword verified-only reports an unreviewed harvested candidate as hidden by triage, not by trust', async () => {
+  const { buildApp: build } = await import('../../server/index.js');
+  const { loadConfig } = await import('../../server/config.js');
+  const app = await build({ config: loadConfig({ PRAX_DB_FILE: ':memory:', EMBEDDING_BACKEND: 'none', CHAT_BACKEND: 'none' }), librarianSweep: false });
+  const res = await app.inject({ method: 'POST', url: '/api/library/documents', headers: { 'x-prax-origin': 'agent', 'x-prax-agent': 'codex' }, payload: { project: 'homelab', documentType: 'note', title: 'Harvestcount', body: 'A harvested candidate mentioning harvestcount.', tags: ['harvested'] } });
+  assert.equal(res.statusCode, 201);
+  const body = (await app.inject({ method: 'POST', url: '/api/library/ask', payload: { q: 'harvestcount', trust: 'verified' } })).json();
+  assert.equal(body.retrieval.hiddenHarvested, 1, 'turning Verified only off would not admit it either');
+  assert.equal(body.retrieval.hiddenUnverified, 0);
+  await app.close();
+});
+
+test('the hidden-unverified count says "at least" when the bounded pass filled, even after harvested candidates are set aside', async () => {
+  const { buildApp: build } = await import('../../server/index.js');
+  const { loadConfig } = await import('../../server/config.js');
+  const app = await build({ config: loadConfig({ PRAX_DB_FILE: ':memory:', EMBEDDING_BACKEND: 'none', CHAT_BACKEND: 'none' }), librarianSweep: false });
+  for (let i = 0; i < 60; i += 1) {
+    const res = await app.inject({ method: 'POST', url: '/api/library/documents', headers: { 'x-prax-origin': 'agent', 'x-prax-agent': 'codex' }, payload: { project: 'homelab', documentType: 'note', title: `Capprobe note ${i}`, body: 'capprobe capprobe capprobe.', tags: i < 10 ? ['harvested'] : [] } });
+    assert.equal(res.statusCode, 201);
+  }
+  const verified = (await app.inject({ method: 'POST', url: '/api/library/documents', payload: { project: 'homelab', documentType: 'runbook', title: 'Capprobe runbook', body: 'The capprobe procedure.' } })).json();
+  await app.inject({ method: 'POST', url: `/api/library/documents/${verified.id}/verify`, payload: { verified: true, as: 'Mark', revision: verified.revision } });
+  const body = (await app.inject({ method: 'POST', url: '/api/library/ask', payload: { q: 'capprobe', trust: 'verified' } })).json();
+  assert.deepEqual(body.sources.map((s) => s.title), ['Capprobe runbook']);
+  assert.equal(body.retrieval.hiddenUnverifiedCapped, true, 'the 50-candidate pass filled: the count is a lower bound');
+  assert.ok(body.retrieval.hiddenUnverified >= 40 && body.retrieval.hiddenUnverified <= 50, String(body.retrieval.hiddenUnverified));
   await app.close();
 });

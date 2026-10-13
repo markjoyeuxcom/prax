@@ -46,6 +46,10 @@ test('normalizeDocumentRow maps database fields to API document fields', () => {
     tags: ['postgres', 'backup'],
     sourceFilename: 'restore.md',
     archivedAt: null,
+    archivedBy: null,
+    archivedByAgent: null,
+    retiredBy: null,
+    retiredByAgent: null,
     createdAt: '2026-05-18T10:00:00.000Z',
     updatedAt: '2026-05-18T10:00:00.000Z',
     contentHash: null,
@@ -218,14 +222,17 @@ test('archive and restore are archived-state scoped; permanent delete removes an
   assert.deepEqual(archive.values, [DOCUMENT_ID]);
   assert.deepEqual(restore.values, [DOCUMENT_ID]);
   assert.deepEqual(remove.values, [DOCUMENT_ID]);
-  assert.doesNotMatch(archive.text, /updated_by/, 'no actor, no stamp');
+  assert.doesNotMatch(archive.text, /archived_by|updated_by/, 'no actor, no stamp');
 
   // With an actor the archive and restore are attributable (QINV-11).
   const byAgent = buildArchiveDocument(DOCUMENT_ID, { updatedBy: 'agent', updatedByAgent: 'codex' });
-  assert.match(byAgent.text, /updated_by = \$2, updated_by_agent = \$3/);
+  assert.match(byAgent.text, /archived_by = \$2, archived_by_agent = \$3/);
+  assert.doesNotMatch(byAgent.text, /updated_by/, 'a lifecycle event is not an edit: content authorship stays');
   assert.deepEqual(byAgent.values, [DOCUMENT_ID, 'agent', 'codex']);
-  const byUser = buildRestoreDocument(DOCUMENT_ID, { updatedBy: 'user', updatedByAgent: 'ignored' });
+  const byUser = buildArchiveDocument(DOCUMENT_ID, { updatedBy: 'user', updatedByAgent: 'ignored' });
   assert.deepEqual(byUser.values, [DOCUMENT_ID, 'user', null], 'an agent id is recorded only for an agent');
+  // Restore clears the archive attribution and takes no actor.
+  assert.match(restore.text, /archived_by = null, archived_by_agent = null/);
 });
 
 test('listDocuments uses FTS5 full-text search with quoted prefix phrases when q is present', async () => {
@@ -333,9 +340,10 @@ test('buildCreateDocument sets verified by origin (agent=false, human=true, defa
   assert.equal(dflt.values[dflt.values.length - 2], true);
 });
 
-test('buildUpdateDocument always stamps updated_by and recomputes hash only when body changes', () => {
+test('buildUpdateDocument stamps updated_by only when the content actually changes, and recomputes hash only when body changes', () => {
   const withBody = buildUpdateDocument('id', { body: 'new body', updatedBy: 'agent' });
-  assert.match(withBody.text, /updated_by = \$/);
+  // Authorship follows content that CHANGED: a byte-identical body keeps the author.
+  assert.match(withBody.text, /updated_by = case when content_hash = \$\d+ then updated_by else \$\d+ end/);
   assert.match(withBody.text, /content_hash = \$/);
   // Agent revocation is conditional on the content ACTUALLY changing: the
   // stored hash is compared to the incoming body's hash, so a byte-identical
@@ -347,7 +355,9 @@ test('buildUpdateDocument always stamps updated_by and recomputes hash only when
   assert.ok(withBody.values.includes('agent'));
 
   const noBody = buildUpdateDocument('id', { title: 'renamed', updatedBy: 'user' });
-  assert.match(noBody.text, /updated_by = \$/);
+  assert.match(noBody.text, /updated_by = case when title = \$2 then updated_by else \$\d+ end/);
+  // No title or body at all: authorship is not even mentioned.
+  assert.doesNotMatch(buildUpdateDocument('id', { tags: ['x'], updatedBy: 'user' }).text, /updated_by/);
   assert.doesNotMatch(noBody.text, /content_hash = \$/);
   assert.doesNotMatch(noBody.text, /verified/);
 

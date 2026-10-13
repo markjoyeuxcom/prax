@@ -141,16 +141,29 @@ test('a derived id taken by a card that was moved or superseded is not returned 
   const library = fakeLibrary();
   const derived = overviewDocumentId(PROJECT.id);
   const elsewhere = doc(derived, { tags: [OVERVIEW_TAG], projectId: 'another-project', title: 'Klyx project overview' });
-  library.createDocumentIdempotent = async () => ({ document: elsewhere, created: false });
+  // The replacement's id is derived from the card occupying the slot, so a
+  // second process computing the same chain converges on the same card
+  // instead of creating a duplicate (the mutex is per process only).
+  const nextId = overviewDocumentId(`${PROJECT.id}:${derived}`);
+  const slots = new Map([[derived, elsewhere]]);
+  const idempotent = async (fields) => {
+    if (slots.has(fields.id)) return { document: slots.get(fields.id), created: false };
+    const created = doc(fields.id, { ...fields });
+    slots.set(fields.id, created);
+    return { document: created, created: true };
+  };
+  library.createDocumentIdempotent = idempotent;
   const moved = await ensureProjectOverview({ libraryRepository: library, project: PROJECT });
   assert.equal(moved.created, true);
-  assert.notEqual(moved.document.id, derived);
+  assert.equal(moved.document.id, nextId);
   assert.equal(moved.document.projectId, PROJECT.id);
+  const again = await ensureProjectOverview({ libraryRepository: library, project: PROJECT });
+  assert.equal(again.created, false);
+  assert.equal(again.document.id, nextId, 'the same chain lands on the same card');
   const retired = doc(derived, { tags: [OVERVIEW_TAG], projectId: PROJECT.id, status: 'superseded' });
   const library2 = fakeLibrary();
   library2.createDocumentIdempotent = async () => ({ document: retired, created: false });
-  const fresh = await ensureProjectOverview({ libraryRepository: library2, project: PROJECT });
-  assert.equal(fresh.created, true);
-  assert.notEqual(fresh.document.id, derived);
-  assert.equal(library.created.length + library2.created.length, 2, 'both fell back to a plain create');
+  await assert.rejects(ensureProjectOverview({ libraryRepository: library2, project: PROJECT }), /id chain exhausted/,
+    'a repository that never frees a slot fails loudly instead of creating a random-id card (the duplicate race)');
+  assert.equal(library.created.length + library2.created.length, 0, 'no plain create on the idempotent path');
 });

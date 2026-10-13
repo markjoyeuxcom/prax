@@ -88,7 +88,8 @@ test('supersede_document: the card names both documents and the status change; s
   assert.equal(done.status, 'done');
   const retired = await getDoc(app, old.id);
   assert.equal(retired.status, 'superseded');
-  assert.equal(retired.updatedBy, 'agent', 'the assistant (an agent write) is recorded as the actor');
+  assert.equal(retired.retiredBy, 'agent', 'the assistant (an agent write) is recorded as the actor');
+  assert.equal(retired.updatedBy, old.updatedBy, 'a supersession is not an edit: content authorship stays');
   await app.close();
 });
 
@@ -101,12 +102,14 @@ test('supersede via the API records a user, or the identified agent, on the reti
 
   const byUser = await app.inject({ method: 'POST', url: `/api/library/documents/${a.id}/supersede`, payload: { supersededBy: b.id } });
   assert.equal(byUser.statusCode, 200);
-  assert.equal(byUser.json().updatedBy, 'user');
+  assert.equal(byUser.json().retiredBy, 'user');
+  assert.equal(byUser.json().updatedBy, a.updatedBy, 'a supersession is not an edit: content authorship stays');
 
   const byCodex = await app.inject({ method: 'POST', url: `/api/library/documents/${c.id}/supersede`, headers: { 'x-prax-origin': 'agent', 'x-prax-agent': 'codex' }, payload: { supersededBy: b.id } });
   assert.equal(byCodex.json().status, 'superseded');
-  assert.equal(byCodex.json().updatedBy, 'agent');
-  assert.equal(byCodex.json().updatedByAgent, 'codex');
+  assert.equal(byCodex.json().retiredBy, 'agent');
+  assert.equal(byCodex.json().retiredByAgent, 'codex');
+  assert.equal(byCodex.json().updatedBy, c.updatedBy);
   assert.equal(byCodex.json().body, 'c', 'content and verification are untouched');
   assert.equal(byCodex.json().verified, true);
 
@@ -114,7 +117,7 @@ test('supersede via the API records a user, or the identified agent, on the reti
   const linked = await app.inject({ method: 'POST', url: `/api/library/documents/${b.id}/links`, headers: { 'x-prax-origin': 'agent', 'x-prax-agent': 'claude' }, payload: { targetId: agentDoc.id, relation: 'supersedes' } });
   assert.equal(linked.statusCode, 201);
   const retired = await getDoc(app, agentDoc.id);
-  assert.deepEqual([retired.status, retired.updatedBy, retired.updatedByAgent], ['superseded', 'agent', 'claude']);
+  assert.deepEqual([retired.status, retired.retiredBy, retired.retiredByAgent, retired.updatedBy, retired.updatedByAgent], ['superseded', 'agent', 'claude', agentDoc.updatedBy, agentDoc.updatedByAgent]);
   await app.close();
 });
 

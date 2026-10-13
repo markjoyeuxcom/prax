@@ -79,7 +79,7 @@ test('with a mounted editor, apply is one editor change and the toast Undo resto
   const calls = [];
   let value = 'alpha beta alpha';
   const editor = {
-    getSelectionRange: () => ({ from: 0, to: 0 }), getSelectionText: () => '',
+    getSelectionRange: () => ({ from: 0, to: 0 }), getSelectionText: () => '', getValue: () => value,
     replaceRange: (from, to, insert) => { calls.push(['replaceRange', from, to, insert]); value = value.slice(0, from) + insert + value.slice(to); },
     setValue: (text) => { calls.push(['setValue', text]); value = text; },
   };
@@ -114,4 +114,36 @@ test('a failed writing action can be retried with the same selection', async () 
   assert.equal(state.writeError, null);
   assert.equal(state.writeResult, 'uno');
   assert.equal(state.writeContext.mode, 'selection');
+});
+
+test('the toast Undo refuses when the document changed since Apply, so later typing is never thrown away', async () => {
+  let value = 'alpha beta';
+  const toasts = [];
+  const editor = { getSelectionRange: () => ({ from: 0, to: 0 }), getSelectionText: () => '', getValue: () => value, replaceRange: () => {}, setValue: (text) => { value = text; } };
+  const state = { navType: 'editor', editorDocId: 'd1', documents: [{ id: 'd1', title: 'Doc' }], documentDraftBody: value };
+  const controller = createWritingController({
+    getState: () => state, setState: patch => Object.assign(state, patch), renderApp: () => {},
+    showToast: (text, undo, duration, label) => toasts.push({ text, undo, label }), copyToClipboard: async () => true, getEditor: () => editor,
+    destroyEditorController: () => {}, handleDocumentDraftBodyChange: v => { state.documentDraftBody = v; },
+    runWritingAction: async () => ({ text: 'rewritten', model: 'm' }),
+  });
+  await controller.runWrite('rewrite');
+  controller.applyWrite();
+  assert.equal(value, 'rewritten');
+  value = 'rewritten plus what I typed next';
+  toasts.at(-1).undo();
+  assert.equal(value, 'rewritten plus what I typed next', 'nothing restored');
+  assert.match(toasts.at(-1).text, /changed since Apply/);
+  assert.match(toasts.at(-1).text, /⌘Z/);
+});
+
+test('retrying a selection summary sends the selection again, not the whole document', async () => {
+  const payloads = [];
+  let attempt = 0;
+  const state = { navType: 'editor', editorDocId: 'd1', documents: [{ id: 'd1', title: 'Doc' }], documentDraftBody: 'SELECTED TEXT\nSENSITIVE UNSELECTED TEXT', writeSelection: { from: 0, to: 13, text: 'SELECTED TEXT' } };
+  const { controller } = writingFor(state, { runWritingAction: async (payload) => { payloads.push(payload); attempt += 1; if (attempt === 1) throw new Error('down'); return { text: 'TL;DR', model: 'm' }; } });
+  await controller.runWrite('summarize');
+  assert.equal(state.writeContext.mode, 'prepend', 'summaries insert at the top');
+  await controller.retryWrite();
+  assert.deepEqual(payloads.map((p) => p.text), ['SELECTED TEXT', 'SELECTED TEXT']);
 });

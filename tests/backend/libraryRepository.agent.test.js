@@ -26,13 +26,17 @@ test('buildCreateDocument writes updated_by_agent only for an identified agent w
 });
 
 test('buildUpdateDocument sets updated_by_agent when the caller threads it (vendor for agent, null for user)', () => {
+  // Authorship follows content: the agent column is stamped only when the
+  // body (content_hash) actually changes, so a same-body write keeps the
+  // previous writer.
+  const stamped = /updated_by_agent = case when content_hash = \$\d+ then updated_by_agent else \$\d+ end/;
   const agent = buildUpdateDocument('id-1', { body: 'x', updatedBy: 'agent', updatedByAgent: 'claude' });
-  assert.match(agent.text, /updated_by_agent = \$\d+/);
+  assert.match(agent.text, stamped);
   assert.ok(agent.values.includes('claude'));
 
   const human = buildUpdateDocument('id-1', { body: 'x', updatedBy: 'user', updatedByAgent: null });
-  assert.match(human.text, /updated_by_agent = \$\d+/);
-  assert.equal(human.values[human.values.length - 2], null);
+  assert.match(human.text, stamped);
+  assert.equal(human.values[human.values.length - 1], null);
 
   const untouched = buildUpdateDocument('id-1', { body: 'x' });
   assert.doesNotMatch(untouched.text, /updated_by_agent/);

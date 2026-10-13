@@ -12,6 +12,47 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+Fixes from the code-quality review of 0.44.0 (Codex, 2026-10-13).
+
+### Fixed
+
+- **AI Undo no longer discards what you typed after Apply.** Undo on the toast or in the
+  assistant restores the pre-Apply text only while the document still holds exactly the applied
+  result; once you have typed since, it refuses and says to use ⌘Z, instead of silently
+  replacing your later edits.
+- **A failed Ask request now leaves the loading state** and restores the question to the input,
+  instead of throwing inside its own error handler.
+- **Housekeeping keeps content authorship.** Archive, restore, supersede and unlink, a tag
+  change or a save with the same title and body no longer change who last wrote a document, so
+  an unreviewed agent document stays in the review queue through all of them. Archive and
+  supersession are attributed on their own fields (who did it, and which agent).
+- **A truncated model answer is not presented as complete.** When the provider reports that
+  the answer or the task proposals were cut off, Ask degrades with "answer truncated" rather
+  than showing the partial text.
+- **"Verified only" is applied before the candidate limit**, so a matching verified document is
+  never crowded out by unverified neighbours. The "n unverified documents were left out" count
+  says "at least" when the candidate list filled, says when it was unavailable, and can no
+  longer cost an answer its sources; an unreviewed harvested candidate is reported as hidden by
+  triage, not by trust. Ask history records the revision each source was grounded in and flags
+  a source whose body changed since; an answer from before revisions were recorded says its
+  sources cannot be checked rather than passing them off as unchanged.
+- **Retrying a selection summary resends the selection**, not the whole document.
+- **Replacement overview cards are deterministic.** When a project's card was moved or retired,
+  the replacement's id is derived from the card occupying the slot, so two requests, in one
+  process or two, converge on one card instead of each creating their own.
+- **Table shortcuts:** Tab past the last cell adds the row after the table, never between the
+  header and its separator; Enter at the end of the header row adds the first body row.
+- **A restored semantic-search address runs its search;** a saved semantic view reopens as a
+  semantic search; a tag with a comma survives the URL round trip (tags moved to a repeated
+  `tag` parameter; a 0.44.0 address with comma lists keeps its meaning).
+- **The truncated-answer notice no longer points at a setting that does not exist.**
+
+### Changed
+
+- `npm run check` now includes an undefined-identifier lint (ESLint, `no-undef` only); it is
+  the class of mistake that produced one of the review's findings and that `node --check`
+  cannot see.
+
 ## [0.44.0] - 2026-10-13
 
 ### Added

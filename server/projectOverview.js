@@ -88,7 +88,32 @@ async function archivedOverview(libraryRepository, project) {
 // A system project (Inbox, Memory) has a fixed purpose and gets no card.
 // `actor` is the request origin: an agent create is attributed to the agent;
 // a person's create is still filed unverified (`verified: false`).
-export async function ensureProjectOverview({ libraryRepository, project, actor = {}, template = null }) {
+// One ensure per project at a time in this process, and deterministic ids
+// across processes: the lookup-then-create below is not atomic, so every
+// candidate id is derived (from the project, then from the card that occupies
+// the previous slot). Two callers, in one process or two, compute the same
+// chain and the idempotent create lets exactly one of them win; the other is
+// handed the winner's card.
+const ensureQueue = new Map();
+// Derived-id slots tried before giving up: each slot is occupied only by a
+// card this chain once created, so a free one is always reached unless the
+// repository never frees any. Then the ensure fails loudly rather than
+// falling back to a random id, which would reopen the duplicate race.
+const OVERVIEW_ID_HOPS = 64;
+export async function ensureProjectOverview(args) {
+  const key = args?.project?.id;
+  if (!key) return ensureProjectOverviewNow(args);
+  const previous = ensureQueue.get(key) || Promise.resolve();
+  const run = previous.catch(() => {}).then(() => ensureProjectOverviewNow(args));
+  ensureQueue.set(key, run);
+  try {
+    return await run;
+  } finally {
+    if (ensureQueue.get(key) === run) ensureQueue.delete(key);
+  }
+}
+
+async function ensureProjectOverviewNow({ libraryRepository, project, actor = {}, template = null }) {
   if (!libraryRepository || !project?.id) return { document: null, created: false };
   if (getSystemProject(project)) return { document: null, created: false, reserved: true };
   const docs = await libraryRepository.listDocuments({ projectId: project.id, status: 'active' });
@@ -109,17 +134,25 @@ export async function ensureProjectOverview({ libraryRepository, project, actor 
     verified: false,
   };
   if (typeof libraryRepository.createDocumentIdempotent === 'function') {
-    const result = await libraryRepository.createDocumentIdempotent({ id: overviewDocumentId(project.id), ...fields });
-    const doc = result.document;
-    if (result.created) return { document: doc, created: true };
-    // Not created: a concurrent request won (the same active card, returned),
-    // or the derived id belongs to a card that is no longer this project's
-    // active one (moved to another project, superseded). Only the former is
-    // this project's overview; the latter gets a fresh card under a new id.
-    if (doc && doc.projectId === project.id && !doc.archivedAt && (doc.status ?? 'active') === 'active') {
-      return { document: doc, created: false };
+    let id = overviewDocumentId(project.id);
+    for (let hop = 0; hop < OVERVIEW_ID_HOPS; hop += 1) {
+      const result = await libraryRepository.createDocumentIdempotent({ id, ...fields });
+      const doc = result.document;
+      if (result.created) return { document: doc, created: true };
+      // Not created: a concurrent request won (the same active card, returned),
+      // or the id belongs to a card that is no longer this project's active
+      // one (moved to another project, superseded). Only the former is this
+      // project's overview; the latter occupies the slot, and the next slot is
+      // derived from it, so every caller tries the same next id.
+      if (doc && doc.projectId === project.id && !doc.archivedAt && (doc.status ?? 'active') === 'active') {
+        return { document: doc, created: false };
+      }
+      if (!doc) break;
+      id = overviewDocumentId(`${project.id}:${doc.id}`);
     }
+    throw new Error(`project overview id chain exhausted for project ${project.id}`);
   }
+  // A repository without idempotent creation (test doubles): plain create.
   const document = await libraryRepository.createDocument(fields);
   return { document, created: true };
 }

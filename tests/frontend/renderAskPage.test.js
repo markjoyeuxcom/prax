@@ -120,6 +120,14 @@ test('a failed ask keeps the question and offers a retry; coverage notices are s
   const html = renderAskPageHtml({ askPraxResult: { query: 'q', answer: 'See [A].', degraded: false, sources, retrieval: { mode: 'keyword', fallback: true, reason: 'semantic-no-match', hiddenHarvested: 2, hiddenUnverified: 1, trust: 'verified' } } });
   assert.match(html, /2 unreviewed harvested candidates were left out/);
   assert.match(html, /1 unverified document was left out \(Verified only\)/);
+  const capped = renderAskPageHtml({ askPraxResult: { query: 'q', answer: 'See [A].', degraded: false, sources, retrieval: { mode: 'semantic', fallback: false, hiddenUnverified: 50, hiddenUnverifiedCapped: true, trust: 'verified' } } });
+  assert.match(capped, /At least 50 unverified documents were left out/);
+  const unavailable = renderAskPageHtml({ askPraxResult: { query: 'q', answer: 'See [A].', degraded: false, sources, retrieval: { mode: 'semantic', fallback: false, hiddenUnverified: null, trust: 'verified' } } });
+  assert.match(unavailable, /may have been left out \(Verified only\): their count was unavailable/);
+  const legacy = renderAskPageHtml({ askPraxResult: { query: 'q', answer: 'See [A].', degraded: false, at: '2026-10-01T10:00:00.000Z', sources: [{ ...sources[0], changed: 'unknown' }], retrieval: { mode: 'keyword' } } });
+  assert.match(legacy, /edits since this answer unknown/);
+  assert.match(legacy, /1 source cannot be checked for edits: this answer predates revision tracking/);
+  assert.doesNotMatch(legacy, /has changed since/);
   assert.match(html, /Semantic search found nothing relevant, so this used keyword search/);
 });
 
