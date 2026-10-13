@@ -34,7 +34,11 @@ export const state = {
   shortcutsOpen: false,         // ⌘/ keyboard shortcuts overlay
   confirm: null,                // in-app confirm dialog { message, okLabel, action, danger?, data?, input? } (null = closed)
   newMenuOpen: false,           // titlebar New ▾ split menu
-  libraryGroupBy: 'type',       // Library cards grouping: 'type' | 'none'
+  libraryGroupBy: 'type',       // Library grouping: 'type' | 'project' | 'trust' | 'none'
+  libraryFacetsOpen: false,     // narrow windows: the facet rows are unfolded (session)
+  documentsLoadState: 'idle',   // 'idle' | 'loading' | 'loaded' | 'failed' — the Library never calls a pending load "empty"
+  documentsLoadError: null,     // the last failed load's message
+  reviewDeskIds: null,          // the ids (and order) the desk walks when opened from a filtered table; null = the whole queue
   libraryMenuOpen: false,       // Library header ⋯ overflow (import/export/health/review/archive)
   libraryTagFilter: '',         // Library panel: type-to-filter text over the tag list
   libraryTagsExpanded: false,   // Library tag facet shows every tag, not just the first few
@@ -119,7 +123,9 @@ export const state = {
   libraryLayout: 'cards',       // 'cards' | 'table' (localStorage)
   librarySelectedDocIds: [],    // table-mode multi-select for the bulk bar
   reviewWalk: null,             // { ids, index, verified } while reviewing the queue one document at a time
-  askHistory: [],               // Ask Prax page: [{ query, at, result }] newest first (localStorage)
+  askHistory: [],               // Ask Prax page: [{ query, at, scope, trust, result }] newest first (localStorage)
+  askHistoryOpen: true,         // the earlier-questions column is expanded (per device)
+  askHistoryShowAll: false,     // show every stored question, not only the recent few (session)
   askScope: 'all',              // Ask Prax page: 'all' or a project id
   reviewLayout: 'desk',         // review queue: 'desk' (one memory at a time) | 'table' (bulk)
   reviewDeskId: null,           // the desk's current document (null = first in the queue)

@@ -5,15 +5,7 @@ import { chip } from './renderHelpers.js';
 import { icon } from './icons.js';
 import { DOCUMENT_TEMPLATES } from './documentTemplates.js';
 import {
-  filterDocumentsByTags,
-  filterDocumentsByTypes,
-  filterDocumentsByTrust,
-  TRUST_PREDICATES,
-  sortDocuments,
-  groupDocumentsByType,
-  tagsForDocuments,
-  docTypeKey as sharedDocTypeKey,
-  isReviewQueueDoc,
+  filterDocumentsByTags, filterDocumentsByTypes, filterDocumentsByTrust, TRUST_PREDICATES, sortDocuments, groupDocumentsByType, tagsForDocuments, docTypeKey as sharedDocTypeKey, isReviewQueueDoc, groupDocuments, libraryGroupLabel,
 } from './libraryFilters.js';
 import { DOCUMENT_TYPES, documentTypeLabel } from './documentTypes.js';
 import { normalizeLayout } from './libraryLayout.js';
@@ -162,26 +154,36 @@ export function buildLibraryModel(state, { limit = LIBRARY_RENDER_BATCH_SIZE } =
   // The review queue narrows the set first; facets, tags and the query then
   // apply inside it exactly as in the browse view.
   let filtered = filterDocumentsByTags(review ? reviewQueue(documents) : documents, activeTags);
-  // Type + trust + project facets only apply where their pills are shown (the browse
-  // view). In archive/semantic the facet row is hidden, so a leftover selection
-  // would be an invisible, unclearable filter — ignore it there.
-  const facetsShown = state.libraryView !== 'archive' && !semantic;
-  if (facetsShown) {
-    filtered = filterDocumentsByTypes(filtered, types); // OR within the axis (like trust)
-    filtered = filterDocumentsByTrust(filtered, trust);
-    if (projectIds.length) filtered = filtered.filter(doc => projectIds.includes(doc.projectId));
-  }
+  // Type + trust + project facets apply wherever their pills are shown: the
+  // browse view and semantic mode (one filter model — a chip that stays on
+  // screen is a filter that applies). The archive has no facets, so a
+  // leftover selection would be an invisible, unclearable filter there.
+  const facetsShown = state.libraryView !== 'archive';
+  const applyFacets = (docs) => {
+    let out = filterDocumentsByTypes(docs, types); // OR within the axis (like trust)
+    out = filterDocumentsByTrust(out, trust);
+    if (projectIds.length) out = out.filter((doc) => projectIds.includes(doc.projectId));
+    return out;
+  };
+  if (facetsShown) filtered = applyFacets(filtered);
   if (query && !semantic) filtered = filtered.filter((doc) => matchesQuery(doc, query));
   filtered = sortDocuments(filtered, state.librarySortBy, { recallCounts: state.recallCounts?.counts ?? null });
 
   const anyFilter = Boolean(query) || activeTags.length > 0
     || (facetsShown && (types.length > 0 || trust.length > 0 || projectIds.length > 0));
+  // Semantic results honour the same tags and facets as the keyword list.
+  const semanticRaw = Array.isArray(state.semanticResults) ? state.semanticResults : null;
+  const semanticResults = semanticRaw && (activeTags.length || types.length || trust.length || projectIds.length)
+    ? applyFacets(filterDocumentsByTags(semanticRaw, activeTags))
+    : semanticRaw;
 
-  // Group: Type (the registry order) or None (one flat run in sort order).
+  // Group: Type (the registry order), Project, Trust, or None (one flat run).
+  const projects = [...(state.managedProjects || []), ...(state.projects || [])];
   const grouped = state.libraryGroupBy === 'none'
     ? (filtered.length ? [{ type: 'all', label: 'All documents', docs: filtered }] : [])
-    : groupDocumentsByType(filtered);
+    : groupDocuments(filtered, state.libraryGroupBy, { projects });
   const collection = limitDocumentGroups(grouped, limit);
+  const loadState = state.documentsLoadState || 'idle';
 
   return {
     groups: collection.groups,
@@ -190,7 +192,8 @@ export function buildLibraryModel(state, { limit = LIBRARY_RENDER_BATCH_SIZE } =
     semanticIdle: semantic && !query,
     semanticActive: semantic && Boolean(query) && state.semanticResults !== null
       && state.semanticResults !== undefined,
-    semanticResults: state.semanticResults ?? null,
+    semanticResults: semanticResults ?? null,
+    semanticHidden: semanticRaw && semanticResults ? semanticRaw.length - semanticResults.length : 0,
     semanticPage: state.semanticPage ?? null,
     semanticIndex: state.semanticIndex ?? null,
     semanticError: Boolean(state.semanticError),
@@ -217,11 +220,17 @@ export function buildLibraryModel(state, { limit = LIBRARY_RENDER_BATCH_SIZE } =
     narrowTags: anyFilter ? narrowingTags(filtered, activeTags) : [],
     renderedCount: collection.shown,
     hasMore: collection.hasMore,
-    // A brand-new library (no documents at all, no filters/search active) gets
-    // a coaching welcome instead of the "no documents match / Clear filters"
-    // dead end, which only makes sense once something exists to filter.
-    welcome: documents.length === 0 && !semantic && !anyFilter
+    // The collection's load state: a pending or failed load is never shown
+    // as an empty library inviting new writes.
+    loading: loadState === 'loading' && documents.length === 0,
+    loadFailed: loadState === 'failed',
+    loadError: state.documentsLoadError || null,
+    // A brand-new library (no documents at all, no filters/search active,
+    // and the load actually finished) gets a coaching welcome instead of
+    // the "no documents match / Clear filters" dead end.
+    welcome: documents.length === 0 && loadState !== 'loading' && loadState !== 'failed' && !semantic && !anyFilter
       && state.libraryView !== 'archive' && !review,
+    visibleIds: filtered.map((doc) => doc.id),
   };
 }
 
@@ -257,6 +266,7 @@ function renderLibraryMenu(state, model) {
         <button class="btn-ghost btn-ghost--icon" type="button" data-action="toggle-library-menu" aria-haspopup="true" aria-expanded="${open}" aria-label="More library actions" title="More library actions">⋯</button>
         ${open ? `<div class="menu__panel menu__panel--right" role="menu">
           ${item('open-generate-runbook', `${icon('spark', 13)} New runbook from an incident`, 'Generate a runbook from an incident description')}
+          ${item('open-tags', 'Tags…', 'Every tag: usage, duplicates, merges')}
           ${item('open-health', 'Health', 'Library health — docs needing attention')}
           ${item('generate-weekly-review', 'Weekly review', 'Compile last week into a Library doc (idempotent per week)')}
           ${item('import-documents', 'Import Markdown…', 'Choose Markdown files and their destination project', ' title="Choose Markdown files and their destination project"')}
@@ -273,7 +283,11 @@ function renderPageHead(state, model) {
     ? '<span class="page-head__sub">Archive</span>'
     : (model.review
       ? '<span class="page-head__sub">Agent memory waiting for a person</span>'
-      : (count ? `<span class="page-head__sub page-head__meta">${count === 1 ? '1 document' : `${count} documents`} · ${Number(model.verifiedCount) || 0} verified</span>` : ''));
+      : (count
+        ? (model.anyFilter && !state.librarySemantic
+          ? `<span class="page-head__sub page-head__meta"><strong>${escapeHtml(model.visibleCount)} of ${count}</strong> documents · filtered</span>`
+          : `<span class="page-head__sub page-head__meta">${count === 1 ? '1 document' : `${count} documents`} · ${Number(model.verifiedCount) || 0} verified</span>`)
+        : ''));
   return `
     <header class="page-head">
       <h1 class="page-head__title">${model.review ? 'Review queue' : 'Library'}</h1>
@@ -289,7 +303,7 @@ function renderPageHead(state, model) {
 // only what is ACTIVE, as removable chips, so a filter is never invisible.
 export function renderActiveFilters(state, model) {
   if (model.welcome) return '';
-  const facetsShown = !model.archive && !state.librarySemantic;
+  const facetsShown = !model.archive;
   const chips = [];
   const chipHtml = (action, attrs, label) => (
     `<button class="filter-chip" type="button" data-action="${action}" ${attrs} aria-label="Remove filter ${escapeHtml(label)}">${escapeHtml(label)}<span class="filter-chip__x" aria-hidden="true">×</span></button>`
@@ -314,7 +328,8 @@ export function renderActiveFilters(state, model) {
     chips.push(chipHtml('toggle-lib-tag', `data-tag="${escapeHtml(tag)}"`, `#${tag}`));
   }
   if (!chips.length) return '';
-  const save = activeTags.length
+  // Any filter is worth saving: the view keeps all of it, not only the tags.
+  const save = !model.archive
     ? '<button class="tag-pill tag-pill--save" type="button" data-action="save-library-view">＋ Save view</button>'
     : '';
   return `<div class="filter-row" aria-label="Active filters">${chips.join('')}${save}<button class="btn-ghost" type="button" data-action="clear-lib-filters">Clear filters</button></div>`;
@@ -369,7 +384,7 @@ function renderToolbar(state, model, filtersHtml) {
   const isSemantic = Boolean(state.librarySemantic);
   const groupButton = model.archive || isSemantic
     ? ''
-    : `<button class="btn-ghost" type="button" data-action="cycle-lib-group">Group: ${state.libraryGroupBy === 'none' ? 'None' : 'Type'}</button>`;
+    : `<button class="btn-ghost" type="button" data-action="cycle-lib-group">Group: ${escapeHtml(libraryGroupLabel(state.libraryGroupBy))}</button>`;
   const controls = `<button class="btn-ghost" type="button" data-action="cycle-lib-sort">Sort: ${librarySortLabel(state.librarySortBy)}</button>${groupButton}${renderLayoutToggle(state, model)}`;
   return `
     <div class="lib-toolbar">
@@ -437,7 +452,7 @@ function facetPill(action, key, label, count, isActive) {
 // (not archive/semantic) once documents exist; trust facets that no document
 // carries (and aren't active) are omitted to avoid dead toggles.
 function renderFacetRow(state, model) {
-  if (model.welcome || model.archive || state.librarySemantic) return '';
+  if (model.welcome || model.archive) return '';
   const counts = model.facetCounts;
   if (!counts) return '';
   const activeTypes = new Set(state.libraryTypes || []);
@@ -467,6 +482,12 @@ function renderFacetRow(state, model) {
   return `<div class="facet-row">${groups.join('')}</div>`;
 }
 
+function docAuthorLabel(doc) {
+  if (doc.updatedByAgent) return String(doc.updatedByAgent);
+  if (doc.updatedBy === 'agent' || doc.kind === 'synthesized') return 'agent';
+  return 'you';
+}
+
 function projectOwnershipChip(doc, state) {
   const projects = [...(state.managedProjects || []), ...(state.projects || [])];
   const project = projects.find(item => item?.id === doc?.projectId);
@@ -475,19 +496,30 @@ function projectOwnershipChip(doc, state) {
 
 function renderDocCard(doc, state) {
   const tags = (doc.tags || []).map(normalizedTag).filter(Boolean);
+  const excerpt = excerptFor(doc.body);
+  const empty = !String(doc.body || '').trim();
+  const selected = (state.librarySelectedDocIds || []).includes(doc.id);
+  const author = docAuthorLabel(doc);
+  // The card says what the table says: UNVERIFIED when nobody checked it,
+  // and who wrote it — an agent's note must not pass for a verified runbook
+  // minus a chip. The select box sits beside the card (not inside the button).
   return `
+    <div class="doc-card-wrap${selected ? ' is-selected' : ''}">
+    <button type="button" class="doc-card__check${selected ? ' is-on' : ''}" data-action="toggle-doc-selection" data-document-id="${escapeHtml(doc.id)}" aria-pressed="${selected}" aria-label="${selected ? 'Deselect' : 'Select'} ${escapeHtml(doc.title || 'Untitled')}">${selected ? '✓' : ''}</button>
     <button class="doc-card" type="button" data-action="open-doc" data-document-id="${escapeHtml(doc.id)}">
       <div class="doc-card__head">
         <span class="doc-card__title">${escapeHtml(doc.title || 'Untitled')}</span>
-        <span class="doc-card__badges">${typeChip(doc)}${trustChips(doc)}</span>
+        <span class="doc-card__badges">${typeChip(doc)}${trustChips(doc, { showUnverified: true })}</span>
       </div>
-      <p class="doc-card__excerpt">${escapeHtml(excerptFor(doc.body))}</p>
+      <p class="doc-card__excerpt${empty ? ' doc-card__excerpt--empty' : ''}">${empty ? 'No content yet' : escapeHtml(excerpt)}</p>
       <div class="doc-card__foot">
         ${projectOwnershipChip(doc, state)}
         ${tags.map((tag) => chip(`#${tag}`, 'tag')).join('')}
+        <span class="doc-card__by" title="${author === 'you' ? 'Written by you' : `Written by ${escapeHtml(author)}`}">${author === 'you' ? 'you' : `◌ ${escapeHtml(author)}`}</span>
         <span class="doc-card__updated">${escapeHtml(updatedLabel(doc.updatedAt))}</span>
       </div>
-    </button>`;
+    </button>
+    </div>`;
 }
 
 function renderGroups(groups, state) {
@@ -615,9 +647,10 @@ function renderSemanticResults(results, model = {}, state = {}) {
   } else if (hasMore) {
     more = `<div class="sem-more"><button class="btn-ghost" type="button" data-action="load-more-semantic">Load more <span class="sem-more__count">(${list.length} of ${total})</span></button></div>`;
   }
+  const narrowed = model.semanticHidden ? ` ${model.semanticHidden} more matched but are outside the active filters.` : '';
   return `
     ${coverage}
-    <p class="sem-note">${count} ${total === 1 ? 'document' : 'documents'} matched by meaning.</p>
+    <p class="sem-note">${count} ${total === 1 ? 'document' : 'documents'} matched by meaning.${escapeHtml(narrowed)}</p>
     <div class="sem-list">${list.map((result, index) => renderSemCard(result, index, maxSim, state)).join('')}</div>
     ${more}`;
 }
@@ -634,6 +667,14 @@ function renderSemanticLoading() {
 function renderArchiveRows(model, state) {
   const docs = model.groups.flatMap((group) => group.docs);
   if (!docs.length) {
+    if (model.anyFilter) {
+      return `
+    <div class="empty" role="status">
+      <h2 class="empty__title">No archived documents match</h2>
+      <p class="empty__sub">The archive holds ${escapeHtml(model.documentCount)} document${model.documentCount === 1 ? '' : 's'}; none match this search.</p>
+      <button class="btn-ghost" type="button" data-action="clear-lib-filters">Clear filters</button>
+    </div>`;
+    }
     return `
     <div class="empty" role="status">
       <h2 class="empty__title">No archived documents</h2>
@@ -651,12 +692,6 @@ function renderArchiveRows(model, state) {
         <button class="btn-outline btn-outline--danger" type="button" data-action="delete-document" data-document-id="${escapeHtml(doc.id)}">Delete</button>
       </div>`).join('')}
     </div>${renderCollectionProgress(model)}`;
-}
-
-function docAuthorLabel(doc) {
-  if (doc.updatedByAgent) return String(doc.updatedByAgent);
-  if (doc.updatedBy === 'agent' || doc.kind === 'synthesized') return 'agent';
-  return 'you';
 }
 
 // Table mode: one row per document, the same open-doc action as a card, a
@@ -732,17 +767,37 @@ function renderReviewEmpty(model) {
 
 // Sticky bulk bar for selected documents. Archive is the one bulk action:
 // verify needs the content read (editor), supersede needs a replacement each.
-export function renderDocBulkBarHtml(state) {
-  const count = Array.isArray(state.librarySelectedDocIds) ? state.librarySelectedDocIds.length : 0;
+export function renderDocBulkBarHtml(state, model = null) {
+  const selected = Array.isArray(state.librarySelectedDocIds) ? state.librarySelectedDocIds : [];
+  const count = selected.length;
   if (!count) return '';
+  const visible = model?.visibleIds ? new Set(model.visibleIds) : null;
+  const hidden = visible ? selected.filter((id) => !visible.has(id)).length : 0;
   return '<div class="bulkbar" role="toolbar" aria-label="Bulk document actions">'
-    + `<span class="bulkbar__count">${count} selected</span>`
+    + `<span class="bulkbar__count">${count} selected${hidden ? ` · ${hidden} not in view` : ''}</span>`
     + '<button type="button" data-action="bulk-archive-docs">Archive</button>'
     + '<button type="button" class="bulkbar__clear" data-action="clear-doc-selection" aria-label="Clear selection">✕</button>'
     + '</div>';
 }
 
+function renderLoadFailed(model, { withDocuments = false } = {}) {
+  const reason = model.loadError ? ` (${escapeHtml(model.loadError)})` : '';
+  if (withDocuments) {
+    return `<div class="lib-load-failed" role="alert">The library could not be refreshed${reason}; showing what was loaded before. <button class="btn-ghost" type="button" data-action="retry-load-documents">Try again</button></div>`;
+  }
+  return `
+    <div class="empty" role="alert">
+      <h2 class="empty__title">The library could not be loaded</h2>
+      <p class="empty__sub">Your documents are still there; Prax could not fetch them${reason}.</p>
+      <button class="btn-primary" type="button" data-action="retry-load-documents">Try again</button>
+    </div>`;
+}
+
 function renderBody(state, model, semanticVisible) {
+  if (model.loading) {
+    return '<div class="empty lib-loading" role="status" aria-live="polite"><h2 class="empty__title">Loading your library…</h2></div>';
+  }
+  if (model.loadFailed && !model.documentCount) return renderLoadFailed(model);
   if (model.welcome) return renderWelcome(state);
   if (model.archive) return renderArchiveRows(model, state);
   if (state.librarySemantic) {
@@ -769,15 +824,36 @@ export function renderLibraryHtml(state, model, { facetsInPanel = false } = {}) 
   // Wide windows: the active-filter chips share the toolbar with the
   // controls. Narrow windows: the facet and tag rows follow the toolbar.
   const toolbarFilters = facetsInPanel ? renderActiveFilters(state, model) : '';
-  const rows = facetsInPanel ? '' : renderFacetRow(state, model) + renderTagRow(state, model);
+  // Narrow windows: the facet and tag rows fold behind one line that says how
+  // many filters are on, so the first screen is documents, not pills. Active
+  // filters stay visible (and removable) above the fold either way.
+  // Phones fold; tablets (between the panel breakpoint and 600px) keep the rows.
+  const fold = !facetsInPanel && Number(state.winW) > 0 && state.winW < 600;
+  let rows = '';
+  if (!facetsInPanel) {
+    const facetRows = renderFacetRow(state, model) + renderTagRow(state, model);
+    if (facetRows && !fold) {
+      rows = facetRows;
+    } else if (facetRows) {
+      const activeCount = (state.libraryTypes || []).length + (state.libraryTrust || []).length
+        + (state.libraryProjects || []).length + (state.activeLibraryTags || []).length;
+      const open = Boolean(state.libraryFacetsOpen);
+      rows = `<div class="lib-filters">
+      <button type="button" class="lib-filters__toggle" data-action="toggle-lib-facets" aria-expanded="${open}">${icon('filter', 13)}<span>Filters${activeCount ? ` · ${activeCount} active` : ''}</span><span class="lib-filters__chev" aria-hidden="true">${open ? '▾' : '▸'}</span></button>
+      ${open ? '' : renderActiveFilters(state, model)}
+      ${open ? facetRows : ''}
+    </div>`;
+    }
+  }
   return `
   <section class="page" aria-label="Library">
     ${renderPageHead(state, model)}
     ${renderSearchBar(state, semanticVisible)}
-    ${model.welcome ? '' : renderToolbar(state, model, toolbarFilters)}
+    ${model.welcome || model.loading ? '' : renderToolbar(state, model, toolbarFilters)}
     ${rows}
+    ${model.loadFailed && model.documentCount ? renderLoadFailed(model, { withDocuments: true }) : ''}
     ${model.review ? renderReviewBanner(model) : ''}
     ${renderBody(state, model, semanticVisible)}
-    ${renderDocBulkBarHtml(state)}
+    ${renderDocBulkBarHtml(state, model)}
   </section>`;
 }

@@ -50,3 +50,14 @@ test('renameSavedLibraryView keeps tags and rebuilds identity from the new label
     { id: 'database-recovery-backup-postgres', label: 'Database Recovery', tags: ['backup', 'postgres'] },
   );
 });
+
+test('a saved view keeps types, trust, projects, query, sort and grouping, and reopens them', async () => {
+  const { createSavedLibraryView: create, savedLibraryViewPatch } = await import('../../public/js/librarySavedViews.js');
+  const view = create('Cedar verified decisions', ['production'], { types: ['decision'], trust: ['verified'], projects: ['p1'], query: 'Release', sortBy: 'title', groupBy: 'none' });
+  assert.deepEqual(view.filters, { types: ['decision'], trust: ['verified'], projects: ['p1'], query: 'Release', sortBy: 'title', groupBy: 'none' });
+  assert.deepEqual(savedLibraryViewPatch(view), { activeLibraryTags: ['production'], libraryTypes: ['decision'], libraryTrust: ['verified'], libraryProjects: ['p1'], libraryQuery: 'Release', librarySortBy: 'title', libraryGroupBy: 'none' });
+  const tagless = create('Only runbooks', [], { types: ['runbook'] });
+  assert.equal(tagless.tags.length, 0);
+  assert.deepEqual(tagless.filters, { types: ['runbook'] });
+  assert.notEqual(create('Same', ['a'], { types: ['runbook'] }).id, create('Same', ['a'], { types: ['note'] }).id);
+});

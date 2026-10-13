@@ -1,4 +1,4 @@
-import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
+import { defaultKeymap, history, historyField, historyKeymap } from '@codemirror/commands';
 import { markdown } from '@codemirror/lang-markdown';
 import {
   bracketMatching,
@@ -29,7 +29,7 @@ import {
 import { autocompletion, startCompletion, completionStatus } from '@codemirror/autocomplete';
 import { tags } from '@lezer/highlight';
 
-import { applyMarkdownFormat, continueListOnEnter } from '../public/js/markdownEditor.js';
+import { applyMarkdownFormat, continueListOnEnter, continueTableOnEnter, isTableRow, nextTableCell, tableCells, isTableSeparator } from '../public/js/markdownEditor.js';
 
 // Colors reference CSS custom properties so the editor follows the active
 // palette (console / graphite / daylight). CodeMirror injects these as real
@@ -167,6 +167,7 @@ const SLASH_COMMANDS = [
   { key: 'italic', action: 'italic', detail: 'italic text' },
   { key: 'inline-code', action: 'code', detail: 'inline code' },
   { key: 'link', action: 'link', detail: 'link' },
+  { key: 'table', action: 'table', detail: '▦ table' },
 ];
 
 function slashCompletionSource(context) {
@@ -238,7 +239,10 @@ function listContinuationEnter(view) {
   if (!sel.empty) return false;
   const line = view.state.doc.lineAt(sel.head);
   if (sel.head !== line.to) return false;
-  const result = continueListOnEnter(line.text);
+  let result = continueListOnEnter(line.text);
+  // Inside a table, Enter at the end of a row adds a row (or leaves the table
+  // from an empty one), the way a list continues.
+  if (result.action === 'none') result = continueTableOnEnter(line.text);
   if (result.action === 'none') return false;
   if (result.action === 'exit') {
     // Empty item: clear the marker and drop out of the list.
@@ -252,15 +256,58 @@ function listContinuationEnter(view) {
   const insert = `\n${result.prefix}`;
   view.dispatch({
     changes: { from: sel.head, insert },
-    selection: { anchor: sel.head + insert.length },
+    // A list continues after its marker; a table row opens in its first cell.
+    selection: { anchor: Number.isInteger(result.caret) ? sel.head + 1 + result.caret : sel.head + insert.length },
     scrollIntoView: true,
     userEvent: 'input',
   });
   return true;
 }
 
+// Tab inside a table row selects the next cell's content (Shift+Tab the
+// previous); past the last cell it goes to the next row, adding one when the
+// table ends there. Outside a table it returns false so Tab keeps its default.
+function tableTab(direction) {
+  return (view) => {
+    if (completionStatus(view.state) === 'active') return false;
+    const sel = view.state.selection.main;
+    const line = view.state.doc.lineAt(sel.head);
+    if (!isTableRow(line.text)) return false;
+    const select = (ln, cell) => {
+      view.dispatch({ selection: { anchor: ln.from + cell.from, head: ln.from + cell.to }, scrollIntoView: true });
+      return true;
+    };
+    const target = nextTableCell(line.text, sel.head - line.from, direction);
+    if (target) return select(line, target);
+    if (direction > 0) {
+      // The next row that is not the separator under the header.
+      for (let n = line.number + 1; n <= Math.min(view.state.doc.lines, line.number + 2); n += 1) {
+        const next = view.state.doc.line(n);
+        if (!isTableRow(next.text)) break;
+        if (isTableSeparator(next.text)) continue;
+        const cells = tableCells(next.text);
+        if (cells.length) return select(next, cells[0]);
+      }
+      const width = tableCells(line.text).length || 1;
+      const row = `| ${Array(width).fill(' ').join(' | ')} |`;
+      view.dispatch({ changes: { from: line.to, insert: `\n${row}` }, selection: { anchor: line.to + 3 }, scrollIntoView: true, userEvent: 'input' });
+      return true;
+    }
+    for (let n = line.number - 1; n >= Math.max(1, line.number - 2); n -= 1) {
+      const prev = view.state.doc.line(n);
+      if (!isTableRow(prev.text)) break;
+      if (isTableSeparator(prev.text)) continue;
+      const cells = tableCells(prev.text);
+      if (cells.length) return select(prev, cells[cells.length - 1]);
+    }
+    return true;
+  };
+}
+
 export function mountCodeMirrorEditor({
   host,
+  // A history snapshot (historySnapshot()) from the editor this one replaces.
+  historyJson = null,
   value = '',
   onChange,
   onSave,
@@ -274,14 +321,7 @@ export function mountCodeMirrorEditor({
   const wikiCompletionSource = makeWikiCompletionSource(documentsProvider);
 
   const doc = String(value ?? '');
-  const view = new EditorView({
-    parent: host,
-    state: EditorState.create({
-      doc,
-      // Open with the caret at the end so typing continues the document
-      // instead of landing above the title heading.
-      selection: cursorToEnd ? { anchor: doc.length } : undefined,
-      extensions: [
+  const extensions = [
         ...(showLineNumbers ? [lineNumbers()] : []),
         history(),
         drawSelection(),
@@ -340,14 +380,34 @@ export function mountCodeMirrorEditor({
           { key: 'Mod-b', preventDefault: true, run: (view) => { runFormat(view, 'bold'); return true; } },
           { key: 'Mod-i', preventDefault: true, run: (view) => { runFormat(view, 'italic'); return true; } },
           { key: 'Mod-e', preventDefault: true, run: (view) => { runFormat(view, 'code'); return true; } },
+          { key: 'Mod-Shift-t', preventDefault: true, run: (view) => { runFormat(view, 'table'); return true; } },
+          { key: 'Tab', run: tableTab(1) },
+          { key: 'Shift-Tab', run: tableTab(-1) },
         ]),
         // Note: Mod-f (open search) is handled by Prax's own keydown listener
         // so it works from the panel inputs too, not just the focused editor.
         keymap.of([...defaultKeymap, ...historyKeymap]),
         ...(onSave ? [saveKeymap(onSave)] : []),
-      ],
-    }),
-  });
+  ];
+  // A history carried over a host re-mount: main.js rebuilds the whole app on
+  // every state change and recreates the editor, so without this every
+  // overlay, toast or menu would wipe the undo stack. The same text gets its
+  // stack back; a different text starts fresh.
+  const carried = historyJson && typeof historyJson === 'object' && historyJson.doc === doc ? historyJson : null;
+  let initialState = null;
+  if (carried) {
+    try { initialState = EditorState.fromJSON(carried, { extensions }, { history: historyField }); } catch { initialState = null; }
+  }
+  if (!initialState) {
+    initialState = EditorState.create({
+      doc,
+      // Open with the caret at the end so typing continues the document
+      // instead of landing above the title heading.
+      selection: cursorToEnd ? { anchor: doc.length } : undefined,
+      extensions,
+    });
+  }
+  const view = new EditorView({ parent: host, state: initialState });
 
   // Open the invisible panel so match highlights render whenever a query is
   // set. The panel has no focusable content, so this doesn't move focus.
@@ -356,6 +416,11 @@ export function mountCodeMirrorEditor({
   return {
     getValue() {
       return view.state.doc.toString();
+    },
+    // The document, selection and undo history, for the editor that replaces
+    // this one on the next host render (see historyJson).
+    historySnapshot() {
+      try { return view.state.toJSON({ history: historyField }); } catch { return null; }
     },
     focus() {
       view.focus();
@@ -377,6 +442,20 @@ export function mountCodeMirrorEditor({
       const len = view.state.doc.length;
       const clamp = (pos) => Math.max(0, Math.min(len, Number(pos) || 0));
       view.dispatch({ selection: { anchor: clamp(from), head: clamp(to) } });
+    },
+    // Replace a range (or, with setValue, the whole document) as ONE change in
+    // the editor's own history, so an applied AI result is an ordinary edit
+    // the person can ⌘Z — never a remount that forgets what was there.
+    replaceRange(from, to, insert) {
+      const len = view.state.doc.length;
+      const clamp = (pos) => Math.max(0, Math.min(len, Number(pos) || 0));
+      const a = clamp(from);
+      const b = Math.max(a, clamp(to));
+      const text = String(insert ?? '');
+      view.dispatch({ changes: { from: a, to: b, insert: text }, selection: { anchor: a + text.length }, userEvent: 'input', scrollIntoView: true });
+    },
+    setValue(text) {
+      this.replaceRange(0, view.state.doc.length, text);
     },
     hasFocus() {
       return view.hasFocus;

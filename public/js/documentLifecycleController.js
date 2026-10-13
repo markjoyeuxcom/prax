@@ -283,21 +283,36 @@ export function createDocumentLifecycleController({
     const state = getState();
     const ids = [...(state.librarySelectedDocIds || [])];
     if (!ids.length) return;
-    let archived = 0;
+    const archived = [];
+    const failed = [];
+    const titleOf = (id) => (state.documents || []).find((doc) => doc.id === id)?.title || 'Untitled';
     for (const id of ids) {
       const done = await performDocumentLifecycleOnce(`document:${id}`, async () => {
         const result = await reconcileDocumentLifecycle({ id, intent: { type: 'archive' }, mutate: () => archiveDocument(id) });
         if (result.committed) cacheLifecycleDocument(result.document, { remove: state.libraryView !== 'archive' });
         return result.committed;
       });
-      if (done) archived += 1;
+      if (done) archived.push(id); else failed.push(id);
     }
-    setState({ librarySelectedDocIds: [] });
+    // What could not be archived stays selected, by name, for another try.
+    setState({ librarySelectedDocIds: failed });
     try { await loadDocuments(); } catch { /* the cache already reflects the commits */ }
     renderApp();
-    showToast(archived === ids.length
-      ? `${archived === 1 ? '1 document' : `${archived} documents`} archived. Restore from the Archive.`
-      : `${archived} of ${ids.length} archived; the rest could not be confirmed. Reload to reconcile.`, null, 7000);
+    const undo = archived.length ? async () => {
+      dismissToast();
+      let restored = 0;
+      for (const id of archived) {
+        const ok = await performDocumentLifecycleOnce(`document:${id}`, () => restoreKnowledgeDocument(id));
+        if (ok) restored += 1;
+      }
+      try { await loadDocuments(); } catch { /* cache */ }
+      renderApp();
+      showToast(restored === archived.length ? `Restored ${restored === 1 ? '1 document' : `${restored} documents`}.` : `Restored ${restored} of ${archived.length}; the rest are in the Archive.`);
+    } : null;
+    const failedNames = failed.slice(0, 2).map((id) => `“${titleOf(id).slice(0, 40)}”`).join(', ');
+    showToast(failed.length
+      ? `${archived.length} of ${ids.length} archived. Could not archive ${failedNames}${failed.length > 2 ? ` and ${failed.length - 2} more` : ''} — still selected.`
+      : `${archived.length === 1 ? '1 document' : `${archived.length} documents`} archived.`, undo, 8000, 'Undo');
   }
 
   const actions = {

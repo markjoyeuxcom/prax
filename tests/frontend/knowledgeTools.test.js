@@ -49,6 +49,7 @@ test('Ask Prax: a current answer installs and is announced', async () => {
   const state = { askPraxOpen: true, askPraxQuery: '' };
   const { controller, announced } = askFor(state, async () => ({ answer: 'Rotate with the runbook.' }));
   await controller.runAskPrax('how?');
-  assert.deepEqual(state.askPraxResult, { answer: 'Rotate with the runbook.' });
+  // The scope the question was asked under travels with the answer.
+  assert.deepEqual(state.askPraxResult, { answer: 'Rotate with the runbook.', scope: 'all' });
   assert.deepEqual(announced, ['Answer ready.']);
 });

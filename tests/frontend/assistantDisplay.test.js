@@ -55,3 +55,21 @@ test('assistant partial success is an announced status, while hard failure is an
   const error = renderAssistantHtml({ ...base, assistantError: 'Provider unavailable.', assistantErrorKind: 'error' });
   assert.match(error, /class="asst__notice asst__notice--error" role="alert" data-assistant-outcome="error"/);
 });
+
+test('an answer that read no Prax data is marked as the model\'s own knowledge; one after a tool call is not', () => {
+  const items = assistantDisplayItems([
+    { role: 'user', content: 'what is a quorum?' },
+    { role: 'assistant', content: 'A quorum is a majority of nodes.' },
+    { role: 'user', content: 'what is overdue?' },
+    { role: 'assistant', toolCalls: [{ id: 'c1', name: 'search_tasks', input: {} }] },
+    { role: 'tool', results: [{ id: 'c1', name: 'search_tasks', content: '1 task' }] },
+    { role: 'assistant', content: 'One task.' },
+  ]);
+  assert.equal(items[1].ungrounded, true);
+  assert.equal(items.at(-1).ungrounded, false);
+  const html = renderAssistantHtml({ assistantOpen: true, assistantMessages: [
+    { role: 'user', content: 'what is a quorum?' }, { role: 'assistant', content: 'A quorum is a majority of nodes.' },
+  ], assistantStatus: { available: true } }, { renderMarkdown: (t) => t });
+  assert.match(html, /From the model's own knowledge: no Prax data was read for this answer/);
+  assert.match(html, /data-action="open-ask-page">Ask Prax</);
+});

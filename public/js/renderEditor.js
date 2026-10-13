@@ -31,6 +31,7 @@ const MARKDOWN_TOOLS = [
   { action: 'numbered-list', label: '1. list', title: 'Numbered list' },
   { action: 'checklist', label: '☐ task', title: 'Task item' },
   { action: 'link', label: 'link', title: 'Link' },
+  { action: 'table', label: '▦ table', title: 'Table (⌘⇧T) — Tab moves between cells, Enter at a row end adds a row' },
 ];
 
 // The shared taxonomy registry drives the doc-info Type select.
@@ -294,7 +295,7 @@ function renderWriteMenu(state, { readOnly }) {
         <div class="menu__meta">${canWrite ? escapeHtml(scope) : 'No AI model is set, so writing actions are off.'}${canWrite && state.chatStatus?.model ? `<span class="write-menu__model">${escapeHtml(state.chatStatus.model)}</span>` : ''}</div>
         ${canWrite ? '' : '<button role="menuitem" class="menu__item write-menu__setup" type="button" data-action="open-ai-settings">Set up a model in Settings ▸ Intelligence</button>'}
         ${items}
-        <p class="write-menu__foot">You see the result first. Nothing changes until you apply it, and applying leaves the document unsaved for you to review.</p>
+        <p class="write-menu__foot">You see the result first. Nothing changes until you apply it; applying saves like typing, and Undo on the toast (or ⌘Z) restores the previous text.</p>
       </div>`;
   return `<div class="menu editor-head__ai">
       <button class="btn-ghost write-btn" type="button" data-action="toggle-write-menu" aria-haspopup="true" aria-expanded="${open ? 'true' : 'false'}" title="${canWrite ? 'Draft, summarize, rewrite or turn notes into a checklist' : 'Set an AI model in Settings ▸ Intelligence'}"><span class="write-btn__spark" aria-hidden="true">✦</span>Write with AI</button>
@@ -306,7 +307,7 @@ function renderToolbar() {
   return `
     <div class="toolbar" aria-label="Markdown formatting">
       ${MARKDOWN_TOOLS.map((tool) => `<button type="button" data-action="md-format" data-md-action="${tool.action}" title="${escapeHtml(tool.title)}" aria-label="${escapeHtml(tool.title)}">${escapeHtml(tool.label)}</button>`).join('')}
-      <span class="toolbar__hint">⌘B bold · ⌘I italic · ⌘E code</span>
+      <span class="toolbar__hint">⌘B bold · ⌘I italic · ⌘E code · ⌘⇧T table</span>
     </div>`;
 }
 

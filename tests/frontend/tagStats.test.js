@@ -25,7 +25,9 @@ test('narrowing tags are the ones present in the current results, minus the acti
 test('tag stats count live documents, last use, who added it, and companions', () => {
   const stats = tagStats(docs);
   const postgres = stats.find((row) => row.tag === 'postgres');
-  assert.deepEqual(postgres, { tag: 'postgres', count: 2, lastUsed: '2026-10-07', addedBy: 'both', oftenWith: ['backup', 'cnpg'] });
+  const { docIds, ...row } = postgres;
+  assert.deepEqual(row, { tag: 'postgres', count: 2, lastUsed: '2026-10-07', addedBy: 'both', oftenWith: ['backup', 'cnpg'] });
+  assert.equal(docIds.length, 2, 'merge counts need the documents behind a tag');
   assert.equal(stats.find((row) => row.tag === 'dns').count, 1, 'archived documents do not count');
   assert.equal(stats.find((row) => row.tag === 'kubernetes').addedBy, 'agents');
   assert.equal(stats[0].count >= stats[stats.length - 1].count, true);

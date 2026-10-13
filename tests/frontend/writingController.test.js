@@ -74,3 +74,44 @@ test('leaked writing state is dropped outside the editor only', () => {
   assert.equal(elsewhere.writeSelection, null);
   assert.equal(elsewhere.writeResult, null);
 });
+
+test('with a mounted editor, apply is one editor change and the toast Undo restores the previous text', async () => {
+  const calls = [];
+  let value = 'alpha beta alpha';
+  const editor = {
+    getSelectionRange: () => ({ from: 0, to: 0 }), getSelectionText: () => '',
+    replaceRange: (from, to, insert) => { calls.push(['replaceRange', from, to, insert]); value = value.slice(0, from) + insert + value.slice(to); },
+    setValue: (text) => { calls.push(['setValue', text]); value = text; },
+  };
+  const state = { navType: 'editor', editorDocId: 'd1', documents: [{ id: 'd1', title: 'Doc', verified: true }], documentDraftBody: value, writeSelection: { from: 11, to: 16, text: 'alpha' } };
+  const toasts = [];
+  const destroyed = [];
+  const controller = createWritingController({
+    getState: () => state, setState: patch => Object.assign(state, patch), renderApp: () => {},
+    showToast: (text, undo, duration, label) => toasts.push({ text, undo, label }), copyToClipboard: async () => true, getEditor: () => editor,
+    destroyEditorController: () => destroyed.push(1), handleDocumentDraftBodyChange: v => { state.documentDraftBody = v; },
+    runWritingAction: async () => ({ text: 'gamma', model: 'm' }),
+  });
+  await controller.runWrite('rewrite');
+  assert.equal(state.writeContext.verified, true, 'the preview knows the document is verified');
+  controller.applyWrite();
+  assert.deepEqual(calls, [['replaceRange', 11, 16, 'gamma']]);
+  assert.equal(destroyed.length, 0, 'the editor is not remounted, so ⌘Z still works');
+  assert.match(toasts.at(-1).text, /saves like typing/);
+  assert.equal(toasts.at(-1).label, 'Undo');
+  toasts.at(-1).undo();
+  assert.deepEqual(calls.at(-1), ['setValue', 'alpha beta alpha']);
+  assert.match(toasts.at(-1).text, /Restored the previous text/);
+});
+
+test('a failed writing action can be retried with the same selection', async () => {
+  let attempt = 0;
+  const state = { navType: 'editor', editorDocId: 'd1', documents: [{ id: 'd1', title: 'Doc' }], documentDraftBody: 'one two', writeSelection: { from: 0, to: 3, text: 'one' } };
+  const { controller } = writingFor(state, { runWritingAction: async () => { attempt += 1; if (attempt === 1) throw new Error('down'); return { text: 'uno', model: 'm' }; } });
+  await controller.runWrite('rewrite');
+  assert.match(state.writeError, /Could not run/);
+  await controller.retryWrite();
+  assert.equal(state.writeError, null);
+  assert.equal(state.writeResult, 'uno');
+  assert.equal(state.writeContext.mode, 'selection');
+});

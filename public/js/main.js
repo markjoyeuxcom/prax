@@ -73,7 +73,9 @@ import { taskMatchesPatch } from './taskPatchOutcome.js';
 import {
   libraryExportDestinationMode, triggerLibraryDocumentDownload,
 } from './libraryExport.js';
-import { createSavedLibraryView, savedLibraryViewsFromJson } from './librarySavedViews.js';
+import { createSavedLibraryView, savedLibraryViewsFromJson, savedLibraryViewPatch } from './librarySavedViews.js';
+import { nextLibraryGroup } from './libraryFilters.js';
+import { libraryHashFromState, locationFromHash } from './libraryLocation.js';
 import { computeDueReminders, isOverdue } from './dueReminders.js';
 import { mountCodeMirrorEditor } from '../vendor/codemirror-editor.js';
 
@@ -346,9 +348,18 @@ async function loadArchivedTasks() {
 async function loadDocuments() {
   const token = (documentsLoadToken += 1);
   const archive = state.libraryView === 'archive';
-  const documents = await fetchDocuments(archive ? { archived: true } : {});
+  // Pending and failed are states the Library shows; existing rows are kept
+  // across a failed refresh instead of being replaced by an "empty" welcome.
+  if (state.documentsLoadState !== 'loaded') setState({ documentsLoadState: 'loading' });
+  let documents;
+  try {
+    documents = await fetchDocuments(archive ? { archived: true } : {});
+  } catch (error) {
+    if (token === documentsLoadToken) setState({ documentsLoadState: 'failed', documentsLoadError: error?.message || null });
+    throw error;
+  }
   if (token !== documentsLoadToken || archive !== (state.libraryView === 'archive')) return false;
-  setState({ documents });
+  setState({ documents, documentsLoadState: 'loaded', documentsLoadError: null });
   return true;
 }
 
@@ -1351,7 +1362,8 @@ function updateSelectionBar(selection) {
   const paneRect = pane.getBoundingClientRect();
   const top = selection.rect.bottom;
   bar.hidden = false;
-  const width = bar.offsetWidth || 420;
+  // Fit the pane: the bar wraps (CSS) and never starts past the right edge.
+  const width = Math.min(bar.offsetWidth || 420, Math.max(120, paneRect.width - 16));
   const left = Math.max(8, Math.min(paneRect.width - width - 8, selection.rect.left - paneRect.left));
   bar.style.left = `${left}px`;
   bar.style.top = `${top - paneRect.top + pane.scrollTop + 6}px`;
@@ -1737,6 +1749,7 @@ function mountEditorIfNeeded() {
     documentEditorController = mountCodeMirrorEditor({
       host,
       value: state.documentDraftBody,
+      historyJson: pendingEditorSelection?.docId === state.editorDocId ? (pendingEditorSelection.history || null) : null,
       lineNumbers: Boolean(state.preferences.lineNumbers),
       cursorToEnd: true,
       documentsProvider: wikiLinkDocuments,
@@ -2090,10 +2103,17 @@ async function runSemanticSearch({ append = false } = {}) {
 // Navigation
 // ---------------------------------------------------------------------------
 
+// After a facet toggle re-renders the page, keep the keyboard where it was:
+// on the control that was pressed (the panel or the in-view row).
+function refocusFacet(action, attr, value) {
+  if (!value) return;
+  appRoot.querySelector(`[data-action="${action}"][data-${attr}="${CSS.escape(String(value))}"]`)?.focus();
+}
+
 function resetLibraryFilters() {
   return {
-    libraryQuery: '', librarySemantic: false, activeLibraryTags: [], libraryProjects: [],
-    ...resetSemanticSearchPatch(), libraryView: 'active', librarySelectedDocIds: [],
+    libraryQuery: '', librarySemantic: false, activeLibraryTags: [], libraryProjects: [], libraryTypes: [], libraryTrust: [],
+    ...resetSemanticSearchPatch(), libraryView: 'active', librarySelectedDocIds: [], reviewDeskIds: null,
   };
 }
 
@@ -2679,6 +2699,8 @@ function renderApp() {
       ...documentEditorController.getSelectionRange(),
       focused: Boolean(appRoot.querySelector('[data-code-editor]')?.contains(document.activeElement)),
       scroll: documentEditorController.scrollSnapshot?.() || null,
+      // The undo stack travels too: a render must not cost the person ⌘Z.
+      history: documentEditorController.historySnapshot?.() || null,
       docId: mountedEditorDocId,
     }
     : null;
@@ -2742,18 +2764,37 @@ function loadAskHistory() {
   } catch { return []; }
 }
 
+const ASK_HISTORY_OPEN_KEY = 'prax.askHistoryOpen.v1';
+function loadAskHistoryOpen() {
+  try { return localStorage.getItem(ASK_HISTORY_OPEN_KEY) !== 'closed'; } catch { return true; }
+}
+function persistAskHistory(history) {
+  setState({ askHistory: history });
+  try { localStorage.setItem(ASK_HISTORY_KEY, JSON.stringify(history)); } catch { /* per-device convenience */ }
+}
+
 function rememberAskResult(query, result) {
   // The written answer and its sources are what a reread needs; the raw
   // context pack is kept only when there is no written answer.
+  const scope = String(result?.scope || 'all');
+  const trust = result?.retrieval?.trust === 'verified' ? 'verified' : 'all';
+  const retrieval = result?.retrieval || {};
   const kept = {
     query, answer: result?.answer ?? null, degraded: Boolean(result?.degraded), reason: result?.reason ?? null,
-    markdown: result?.answer ? null : (result?.markdown ?? null), sources: result?.sources || [],
-    retrieval: { mode: result?.retrieval?.mode || 'keyword', ...(result?.retrieval?.trust === 'verified' ? { trust: 'verified' } : {}) }, model: result?.model ?? null,
+    markdown: result?.answer ? null : (result?.markdown ?? null),
+    // Each source with the revision it was read at, so a reopen can tell
+    // whether it changed since.
+    sources: (result?.sources || []).map((source) => ({ ...source })),
+    retrieval: {
+      mode: retrieval.mode || 'keyword', ...(trust === 'verified' ? { trust: 'verified' } : {}),
+      ...(retrieval.index ? { index: retrieval.index } : {}), ...(retrieval.fallback ? { fallback: true, reason: retrieval.reason || null } : {}),
+      ...(retrieval.hiddenHarvested ? { hiddenHarvested: retrieval.hiddenHarvested } : {}), ...(retrieval.hiddenUnverified ? { hiddenUnverified: retrieval.hiddenUnverified } : {}),
+    },
+    model: result?.model ?? null, scope,
   };
-  const history = [{ query, at: new Date().toISOString(), result: kept },
-    ...(state.askHistory || []).filter((entry) => entry.query !== query)].slice(0, ASK_HISTORY_LIMIT);
-  setState({ askHistory: history });
-  try { localStorage.setItem(ASK_HISTORY_KEY, JSON.stringify(history)); } catch { /* per-device convenience */ }
+  const history = [{ query, at: new Date().toISOString(), scope, trust, result: kept },
+    ...(state.askHistory || []).filter((entry) => !(entry.query === query && String(entry.scope || 'all') === scope))].slice(0, ASK_HISTORY_LIMIT);
+  persistAskHistory(history);
 }
 
 // Suggested tasks (Console redesign): after a written answer, the model
@@ -2774,8 +2815,16 @@ async function loadAskTasks(query, result) {
   try {
     const res = await suggestAskTasks({ q: query, answer: result.answer, sourceIds: (result.sources || []).map((s) => s.id).filter(Boolean) });
     if (state.askSuggest?.key !== key) return;
-    const tasks = Array.isArray(res.tasks) ? res.tasks : [];
-    setState({ askSuggest: { key, loading: false, tasks, checked: tasks.map(() => true), created: null, error: null } });
+    // Each proposal gets its task id NOW: a create whose response is lost can
+    // be reconciled by that id instead of being reported as failed.
+    const tasks = (Array.isArray(res.tasks) ? res.tasks : []).map((task) => ({ ...task, opId: globalThis.crypto.randomUUID() }));
+    if (res.degraded && !tasks.length) {
+      // A failed or unparseable model call is not "nothing calls for a task".
+      setState({ askSuggest: { key, loading: false, tasks: [], checked: [], created: null, degraded: true, reason: res.reason || null, error: res.reason === 'no-chat-model' ? 'No AI model is set, so no tasks were suggested.' : 'The model could not suggest tasks.' } });
+    } else {
+      // Unticked: a proposal is the model's idea until the person picks it.
+      setState({ askSuggest: { key, loading: false, tasks, checked: tasks.map(() => false), done: tasks.map(() => false), created: null, error: null } });
+    }
   } catch {
     if (state.askSuggest?.key !== key) return;
     setState({ askSuggest: { key, loading: false, tasks: [], checked: [], created: null, error: 'Could not suggest tasks.' } });
@@ -2786,38 +2835,79 @@ async function loadAskTasks(query, result) {
 async function createAskTasks() {
   const suggest = state.askSuggest;
   if (!suggest || suggest.loading || suggest.creating) return;
-  const chosen = suggest.tasks.filter((_, index) => suggest.checked[index]);
-  if (!chosen.length) return;
-  const projectId = state.askScope && state.askScope !== 'all' ? state.askScope : inboxProjectId();
+  const done = Array.isArray(suggest.done) ? [...suggest.done] : suggest.tasks.map(() => false);
+  const chosenIndexes = suggest.tasks.map((_, index) => index).filter((index) => suggest.checked[index] && !done[index]);
+  if (!chosenIndexes.length) return;
+  // The scope the answer was asked under, recorded with the result — not the
+  // composer's current value, which may have moved on.
+  const scope = String(state.askPraxResult?.scope || state.askScope || 'all');
+  const projectId = scope !== 'all' ? scope : inboxProjectId();
   if (!projectId) { showToast('Create a project before adding tasks.'); return; }
+  const project = state.projects.find((item) => item.id === projectId);
+  const where = project?.name || 'Inbox';
   const question = String(state.askPraxResult?.query || state.askPraxQuery || '').trim();
   setState({ askSuggest: { ...suggest, creating: true } });
   renderApp();
-  const created = [];
-  for (const task of chosen) {
+  let created = 0;
+  let failed = 0;
+  for (const index of chosenIndexes) {
+    const task = suggest.tasks[index];
+    const id = task.opId || globalThis.crypto.randomUUID();
+    const payload = {
+      id,
+      title: task.title,
+      description: `From Ask Prax: “${question.slice(0, 200)}”\n\nSource: [[${task.sourceTitle}]]`,
+      notes: '',
+      priority: task.priority || 'medium',
+      status: 'planned',
+      project: projectId,
+      dueDate: task.dueDate || null,
+      labels: [],
+      sortOrder: state.tasks.length + created,
+    };
+    let ok = false;
     try {
-      created.push(await apiCreateTask({
-        id: globalThis.crypto.randomUUID(),
-        title: task.title,
-        description: `From Ask Prax: “${question.slice(0, 200)}”\n\nSource: [[${task.sourceTitle}]]`,
-        notes: '',
-        priority: task.priority || 'medium',
-        status: 'planned',
-        project: projectId,
-        dueDate: task.dueDate || null,
-        labels: [],
-        sortOrder: state.tasks.length + created.length,
-      }));
-    } catch { /* counted below */ }
+      await apiCreateTask(payload);
+      ok = true;
+    } catch {
+      // A lost response is not a failed write: the task's id is ours, so ask
+      // the server whether it exists before saying it does not.
+      try { ok = Boolean(await fetchTask(id)); } catch { ok = false; }
+    }
+    if (ok) { created += 1; done[index] = true; } else { failed += 1; }
   }
   await refreshTasksAfterWrites();
-  const project = state.projects.find((item) => item.id === projectId);
-  const failed = chosen.length - created.length;
-  setState({ askSuggest: { ...state.askSuggest, creating: false, created: created.length } });
+  const allDone = done.every(Boolean);
+  setState({ askSuggest: { ...state.askSuggest, creating: false, done, createdIn: where, created: allDone ? (state.askSuggest.created || 0) + created : null,
+    ...(failed ? { error: `${failed} task${failed === 1 ? '' : 's'} could not be created; the rest were. Tick and try again.` } : { error: null }) } });
   renderApp();
-  const where = project?.name || 'Inbox';
-  showToast(`${created.length ? `Created ${taskCountLabel(created.length)} in ${where}` : 'No tasks were created'}${failed ? `; ${failed} failed` : ''}.`,
-    created.length ? () => { dismissToast(); void goProject(projectId); } : undefined, 7000, created.length ? 'Open' : undefined);
+  showToast(`${created ? `Created ${taskCountLabel(created)} in ${where}` : 'No tasks were created'}${failed ? `; ${failed} could not be created` : ''}.`,
+    created ? () => { dismissToast(); void goProject(projectId); } : undefined, 7000, created ? 'Open' : undefined);
+}
+
+// Reopening an answer from history: the sources are re-read from the
+// library, so a verification revoked since (or an edit, or a deletion) is
+// shown instead of the trust the answer had on the day.
+let askHistoryToken = 0;
+async function refreshHistorySources(result) {
+  const token = (askHistoryToken += 1);
+  const sources = Array.isArray(result?.sources) ? result.sources : [];
+  if (!sources.length) return;
+  const fresh = await Promise.all(sources.map(async (source) => {
+    if (!source?.id) return source;
+    try {
+      const doc = await fetchDocument(source.id);
+      if (!doc || doc.archivedAt || (doc.status && doc.status !== 'active')) return { ...source, missing: true };
+      const trustChanged = Boolean(doc.verified) !== Boolean(source.verified);
+      const edited = source.revision && doc.revision && doc.revision !== source.revision;
+      return { ...source, verified: Boolean(doc.verified), verifiedBy: doc.verifiedBy || null, title: doc.title || source.title, changed: trustChanged ? 'trust' : (edited ? 'body' : null) };
+    } catch {
+      return { ...source, missing: true };
+    }
+  }));
+  if (token !== askHistoryToken || state.askPraxResult !== result) return;
+  setState({ askPraxResult: { ...result, sources: fresh } });
+  renderApp();
 }
 
 // Where Ask was opened from, so closing it goes back there (a page, not a
@@ -2849,7 +2939,8 @@ async function saveAskAsNote() {
   const r = state.askPraxResult;
   if (!r?.answer) return;
   const sources = (r.sources || []).map((source) => `- [[${source.title}]]`).join('\n');
-  const project = state.askScope && state.askScope !== 'all' ? state.askScope : inboxProjectId();
+  const scope = String(r.scope || state.askScope || 'all');
+  const project = scope !== 'all' ? scope : inboxProjectId();
   try {
     const doc = await createDocument({
       title: `Answer: ${String(r.query || state.askPraxQuery || '').slice(0, 110)}`,
@@ -2978,7 +3069,35 @@ function reviewDeskKeydown(event) {
   return KEY_CONSUMED;
 }
 
+// The URL carries the Library view and the open document (libraryLocation.js)
+// so a reload lands where the person was. replaceState: no history entries,
+// Back keeps meaning what it meant.
+let lastWrittenHash = null;
+// Off until boot has read the address it arrived with: the first renders
+// (the remembered project) must not overwrite a hash before it is honoured.
+let locationSyncEnabled = false;
+function syncLocationHash() {
+  if (!locationSyncEnabled || typeof history?.replaceState !== 'function') return;
+  const hash = libraryHashFromState(state);
+  if (hash === lastWrittenHash) return;
+  lastWrittenHash = hash;
+  try {
+    const current = window.location.hash || '';
+    if (hash !== current) history.replaceState(null, '', `${window.location.pathname}${window.location.search}${hash}`);
+  } catch { /* a sandboxed or file: origin */ }
+}
+
+// A hash typed or restored by the browser: go there.
+async function applyLocationHash(hash) {
+  const where = locationFromHash(hash);
+  if (!where) return false;
+  if (where.kind === 'doc') return openDocumentInEditor(where.id);
+  await goLibrary(where.patch);
+  return true;
+}
+
 function afterRender() {
+  syncLocationHash();
   // Before any focus restore: nothing beneath an open modal may take focus.
   syncModalInert(appRoot);
   ensureReviewDeskLoaded();
@@ -3043,6 +3162,14 @@ function afterRender() {
     if (dialog && !dialog.contains(document.activeElement)) {
       ((kept && dialog.querySelector(`.planmode__actions button[data-action="${kept}"]`))
         || dialog.querySelector('.planmode__actions .btn-primary'))?.focus({ preventScroll: true });
+    }
+  } else if (state.writeContext) {
+    // The writing preview is modal: focus moves into it on open (Apply when
+    // there is a result, otherwise the first button), never back to the
+    // editor it covers.
+    const dialog = appRoot.querySelector('[data-overlay="write"] [role="dialog"]');
+    if (dialog && !dialog.contains(document.activeElement)) {
+      (dialog.querySelector('[data-action="apply-write"]') || dialog.querySelector('button') || dialog).focus({ preventScroll: true });
     }
   } else if (state.navType === 'editor' && !state.drawerTaskId
     && !state.isDocumentInfoEditorOpen && !state.editorSearchOpen) {
@@ -3142,7 +3269,7 @@ async function runPaletteItem(item, { done = false } = {}) {
   if (item.action === 'go-library-view') {
     setState({ paletteOpen: false });
     const view = state.librarySavedViews[Number(item.index)];
-    if (view) await goLibrary({ activeLibraryTags: [...view.tags] });
+    if (view) await goLibrary(savedLibraryViewPatch(view));
     return;
   }
   const command = paletteCommands[item.action];
@@ -3239,7 +3366,68 @@ async function handleAction(action, el, event) {
       break;
     case 'ask-history-open': {
       const entry = (state.askHistory || [])[Number(el.dataset.index)];
-      if (entry) { setState({ askPraxQuery: entry.query, askPraxResult: { ...entry.result, query: entry.query }, askPraxError: false, askPraxLoading: false, askSuggest: null }); renderApp(); }
+      if (entry) {
+        const restored = { ...entry.result, query: entry.query, at: entry.at, scope: entry.scope || entry.result?.scope || 'all' };
+        setState({ askPraxQuery: entry.query, askPraxResult: restored, askPraxError: false, askPraxLoading: false, askSuggest: null, askScope: restored.scope, askTrust: entry.trust === 'verified' ? 'verified' : 'all' });
+        renderApp();
+        void refreshHistorySources(restored);
+      }
+      break;
+    }
+    case 'ask-to-assistant': {
+      // Ask answers; the assistant acts. The hand-off is explicit: the question
+      // and the titles it was answered from land in the composer, for the
+      // person to say what should happen.
+      const r = state.askPraxResult;
+      const question = String(r?.query || state.askPraxQuery || '').trim();
+      const titles = (r?.sources || []).map((s) => s.title).filter(Boolean).slice(0, 6);
+      const prefill = question
+        ? `About my question "${question}"${titles.length ? ` (Ask Prax answered from: ${titles.map((t) => `[[${t}]]`).join(', ')})` : ''}: `
+        : '';
+      setState({ assistantInput: prefill });
+      assistant.openAssistant();
+      const input = appRoot.querySelector('[data-assistant-input]');
+      if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+      break;
+    }
+    case 'ask-history-toggle': {
+      const open = state.askHistoryOpen === false;
+      setState({ askHistoryOpen: open });
+      try { localStorage.setItem(ASK_HISTORY_OPEN_KEY, open ? 'open' : 'closed'); } catch { /* per-device */ }
+      renderApp();
+      appRoot.querySelector('[data-action="ask-history-toggle"]')?.focus();
+      break;
+    }
+    case 'ask-history-show-all': setState({ askHistoryShowAll: true }); renderApp(); break;
+    case 'ask-history-show-recent': setState({ askHistoryShowAll: false }); renderApp(); break;
+    case 'ask-history-remove': {
+      const index = Number(el.dataset.index);
+      const entry = (state.askHistory || [])[index];
+      if (!entry) break;
+      const before = state.askHistory;
+      persistAskHistory(before.filter((_, i) => i !== index));
+      renderApp();
+      showToast(`Forgot “${entry.query.slice(0, 40)}${entry.query.length > 40 ? '…' : ''}”.`, () => { dismissToast(); persistAskHistory(before); renderApp(); }, 6000);
+      break;
+    }
+    case 'ask-history-clear': {
+      const before = state.askHistory || [];
+      if (!before.length) break;
+      persistAskHistory([]);
+      setState({ askHistoryShowAll: false });
+      renderApp();
+      showToast(`Cleared ${before.length} earlier question${before.length === 1 ? '' : 's'} from this device.`, () => { dismissToast(); persistAskHistory(before); renderApp(); }, 8000);
+      break;
+    }
+    case 'ask-retry': {
+      const question = String(state.askPraxResult?.query || state.askPraxQuery || '').trim();
+      if (question) { setState({ askDraft: question }); await knowledge.runAskPrax(question); }
+      break;
+    }
+    case 'ask-cite': {
+      // A citation leads to its source card: focus it, scroll it into view.
+      const card = appRoot.querySelector(`[data-action="open-ask-source"][data-source-n="${CSS.escape(String(el.dataset.source || ''))}"]`);
+      if (card) { card.scrollIntoView({ block: 'nearest' }); card.focus(); }
       break;
     }
     case 'ask-suggest-tasks': {
@@ -3259,7 +3447,10 @@ async function handleAction(action, el, event) {
     }
     case 'ask-create-tasks': await createAskTasks(); break;
     case 'ask-review-source':
-      // "Review it now": the desk, opened on the unverified source the answer cited.
+      // "Review it now": the desk for an agent-written source (its queue);
+      // a human-written unverified document is not in that queue, so it opens
+      // in the editor, where Verify lives — never a different document.
+      if (el.dataset.agent === 'false' && el.dataset.documentId) { await openDocumentInEditor(el.dataset.documentId); break; }
       await goLibrary({ libraryView: 'review', reviewLayout: 'desk', reviewDeskId: el.dataset.documentId || null, reviewDeskDone: [] });
       break;
     case 'toggle-ask-trust':
@@ -3282,8 +3473,15 @@ async function handleAction(action, el, event) {
     case 'review-desk-reject': await reviewDeskDecide('reject'); break;
     case 'review-desk-skip': await reviewDeskDecide('skip'); break;
     case 'review-desk-supersede': await reviewDeskDecide('supersede', el.dataset.replacementId); break;
-    case 'review-desk-table': setState({ reviewLayout: 'table' }); renderApp(); break;
-    case 'review-desk-open': setState({ reviewLayout: 'desk' }); renderApp(); break;
+    case 'review-desk-table': setState({ reviewLayout: 'table', reviewDeskIds: null }); renderApp(); break;
+    case 'review-desk-open': {
+      // "One at a time" walks exactly the rows the table shows, in its order —
+      // not the whole queue oldest-first while the facets stay lit.
+      const ids = state.libraryView === 'review' ? visibleLibraryDocuments().map((doc) => doc.id) : null;
+      setState({ reviewLayout: 'desk', reviewDeskIds: ids && ids.length ? ids : null, reviewDeskId: ids?.[0] || state.reviewDeskId });
+      renderApp();
+      break;
+    }
     case 'review-desk-supersede-pick': {
       const id = reviewDeskCurrentId(state);
       const doc = (state.documents || []).find((item) => item.id === id);
@@ -3311,7 +3509,7 @@ async function handleAction(action, el, event) {
         && (doc.tags || []).some((tag) => from.includes(normalizeTagKey(tag))));
       setState({ pendingTagMerge: { into, from } });
       openConfirm({
-        message: `Re-tag ${affected.length} document${affected.length === 1 ? '' : 's'}: ${from.map((tag) => `#${tag}`).join(', ')} becomes #${into}. Each document is saved as your edit.`,
+        message: `Re-tag ${affected.length} document${affected.length === 1 ? '' : 's'}: ${from.map((tag) => `#${tag}`).join(', ')} becomes #${into}. Only the tags change: who wrote each document and whether it still needs review stay as they are.`,
         okLabel: `Merge into #${into}`,
         action: 'confirm-merge-tags',
       });
@@ -3464,7 +3662,7 @@ async function handleAction(action, el, event) {
       break;
     case 'select-saved-view': {
       const view = state.librarySavedViews[Number(el.dataset.viewIndex)];
-      if (view) await goLibrary({ activeLibraryTags: [...view.tags] });
+      if (view) await goLibrary(savedLibraryViewPatch(view));
       break;
     }
     case 'open-palette':
@@ -3634,6 +3832,7 @@ async function handleAction(action, el, event) {
           : [...state.activeLibraryTags, tag],
       });
       renderApp();
+      refocusFacet('toggle-lib-tag', 'tag', tag);
       break;
     }
     case 'toggle-lib-type': {
@@ -3641,6 +3840,7 @@ async function handleAction(action, el, event) {
       const active = state.libraryTypes.includes(key);
       setState({ libraryTypes: active ? state.libraryTypes.filter(t => t !== key) : [...state.libraryTypes, key] });
       renderApp();
+      refocusFacet('toggle-lib-type', 'facet', key);
       break;
     }
     case 'toggle-lib-trust': {
@@ -3648,6 +3848,7 @@ async function handleAction(action, el, event) {
       const active = state.libraryTrust.includes(key);
       setState({ libraryTrust: active ? state.libraryTrust.filter(t => t !== key) : [...state.libraryTrust, key] });
       renderApp();
+      refocusFacet('toggle-lib-trust', 'facet', key);
       break;
     }
     case 'toggle-lib-project': {
@@ -3655,12 +3856,30 @@ async function handleAction(action, el, event) {
       const active = state.libraryProjects.includes(key);
       setState({ libraryProjects: active ? state.libraryProjects.filter(id => id !== key) : [...state.libraryProjects, key] });
       renderApp();
+      refocusFacet('toggle-lib-project', 'facet', key);
       break;
     }
-    case 'toggle-lib-tags': setState({ libraryTagsExpanded: !state.libraryTagsExpanded }); renderApp(); break;
+    case 'toggle-lib-tags': setState({ libraryTagsExpanded: !state.libraryTagsExpanded }); renderApp(); appRoot.querySelector('[data-action="toggle-lib-tags"]')?.focus(); break;
+    case 'toggle-lib-facets': setState({ libraryFacetsOpen: !state.libraryFacetsOpen }); renderApp(); appRoot.querySelector('[data-action="toggle-lib-facets"]')?.focus(); break;
+    case 'retry-load-documents': {
+      setState({ documentsLoadState: 'loading', documentsLoadError: null });
+      renderApp();
+      await loadDocuments().catch(() => false);
+      renderApp();
+      break;
+    }
     case 'clear-lib-filters': setState({ libraryQuery: '', activeLibraryTags: [], libraryTypes: [], libraryTrust: [], libraryProjects: [], ...resetSemanticSearchPatch() }); renderApp(); break;
     case 'toggle-new-doc-menu': setState({ newDocMenuOpen: !state.newDocMenuOpen }); renderApp(); break;
-    case 'toggle-library-menu': setState({ libraryMenuOpen: !state.libraryMenuOpen, newDocMenuOpen: false }); renderApp(); break;
+    case 'toggle-library-menu': {
+      const opening = !state.libraryMenuOpen;
+      setState({ libraryMenuOpen: opening, newDocMenuOpen: false });
+      renderApp();
+      // Opened from the keyboard: focus the first item; otherwise keep the
+      // trigger, so Tab and Escape still have somewhere to start from.
+      if (opening && event?.detail === 0) appRoot.querySelector('.menu__panel [role="menuitem"]')?.focus();
+      else appRoot.querySelector('[data-action="toggle-library-menu"]')?.focus();
+      break;
+    }
     case 'toggle-new-menu': setState({ newMenuOpen: !state.newMenuOpen, libraryMenuOpen: false, newDocMenuOpen: false }); renderApp(); break;
     case 'new-project': {
       // All projects owns project creation; land there with the name field ready.
@@ -3686,21 +3905,25 @@ async function handleAction(action, el, event) {
       renderApp();
       break;
     }
-    case 'cycle-lib-group': setState({ libraryGroupBy: state.libraryGroupBy === 'none' ? 'type' : 'none' }); renderApp(); break;
+    case 'cycle-lib-group': setState({ libraryGroupBy: nextLibraryGroup(state.libraryGroupBy) }); renderApp(); appRoot.querySelector('[data-action="cycle-lib-group"]')?.focus(); break;
     case 'new-document': setState({ newMenuOpen: false }); createNewDocument(el.dataset.templateId); break;
     case 'save-library-view': {
       if (!el.dataset.confirmed) {
+        const parts = [...state.activeLibraryTags.map((t) => `#${t}`), ...(state.libraryTypes || []), ...(state.libraryTrust || []), ...(state.libraryQuery ? [`“${state.libraryQuery.trim()}”`] : [])];
         openConfirm({
-          message: 'Name this view',
+          message: 'Name this view. It keeps every filter that is on: tags, type, trust, project, search, sort and grouping.',
           okLabel: 'Save view', action: 'save-library-view',
-          input: { value: state.activeLibraryTags.join(' + '), placeholder: 'View name' },
+          input: { value: parts.join(' + '), placeholder: 'View name' },
         });
         break;
       }
       const name = (appRoot.querySelector('[data-confirm-input]')?.value || '').trim();
       setState({ confirm: null });
       if (name) {
-        const view = createSavedLibraryView(name, state.activeLibraryTags);
+        const view = createSavedLibraryView(name, state.activeLibraryTags, {
+          types: state.libraryTypes, trust: state.libraryTrust, projects: state.libraryProjects,
+          query: state.libraryQuery, sortBy: state.librarySortBy, groupBy: state.libraryGroupBy,
+        });
         if (view) {
           setState({ librarySavedViews: [...state.librarySavedViews.filter(v => v.id !== view.id), view] });
           persistSavedViews();
@@ -3723,6 +3946,7 @@ async function handleAction(action, el, event) {
       const current = state.librarySelectedDocIds || [];
       setState({ librarySelectedDocIds: current.includes(id) ? current.filter((item) => item !== id) : [...current, id] });
       renderApp();
+      appRoot.querySelector(`[data-action="toggle-doc-selection"][data-document-id="${CSS.escape(id)}"]`)?.focus();
       break;
     }
     case 'select-visible-docs': {
@@ -4295,6 +4519,14 @@ function workspaceKeydown(event) {
     void assistant.sendAssistant(target.value);
     return KEY_HANDLED;
   }
+  if (event.key === 'Escape' && (state.libraryMenuOpen || state.newDocMenuOpen)) {
+    event.preventDefault();
+    const which = state.libraryMenuOpen ? 'toggle-library-menu' : 'toggle-new-doc-menu';
+    setState({ libraryMenuOpen: false, newDocMenuOpen: false });
+    renderApp();
+    appRoot.querySelector(`[data-action="${which}"]`)?.focus();
+    return KEY_HANDLED;
+  }
   if (target.matches?.('[data-project-rename]')) {
     if (event.key === 'Enter') { event.preventDefault(); target.blur(); return KEY_HANDLED; } // blur commits
     if (event.key === 'Escape') { event.preventDefault(); setState({ renamingProjectId: null }); renderApp(); return KEY_HANDLED; }
@@ -4436,6 +4668,9 @@ function loadSmartViews() {
 
 async function init() {
   appRoot = document.getElementById('app');
+  // The address the app was opened with (libraryLocation.js), read before any
+  // render can touch it.
+  const initialHash = window.location.hash || '';
   const preferences = loadPreferences();
   // The Tauri shell serves the app with ?shell=desktop — the OS window chrome
   // is real there, so the in-app fake chrome is suppressed.
@@ -4446,8 +4681,10 @@ async function init() {
   // macOS merges the native titlebar into the app's top bar (overlay style) —
   // inset the bar so the traffic lights sit inside it.
   document.body.classList.toggle('is-desktop-mac', desktopShell && desktopPlatform === 'macos');
-  setState({ preferences, librarySavedViews: loadSavedViews(), taskSmartViews: loadSmartViews(), pinned: loadPinned(), askHistory: loadAskHistory(), recentProjects: loadRecent(), recentDocuments: loadRecentDocuments(), libraryLayout: loadLayout(), collapsedSections: loadCollapsed(), winW: window.innerWidth, desktopShell, desktopPlatform });
+  setState({ preferences, librarySavedViews: loadSavedViews(), taskSmartViews: loadSmartViews(), pinned: loadPinned(), askHistory: loadAskHistory(), askHistoryOpen: loadAskHistoryOpen(), recentProjects: loadRecent(), recentDocuments: loadRecentDocuments(), libraryLayout: loadLayout(), collapsedSections: loadCollapsed(), winW: window.innerWidth, desktopShell, desktopPlatform });
   applyPreferences(preferences);
+  // The first Library paint is a pending load, never an "empty library".
+  setState({ documentsLoadState: 'loading' });
   appRoot.innerHTML = renderBootLoadingHtml();
   try {
     await loadProjects();
@@ -4489,8 +4726,18 @@ async function init() {
     if (!checkDueReminders()) renderApp();
     inboxController.summary().then(() => { if (state.navType !== 'editor') renderApp(); });
     if (state.navId === inboxProjectId() && ['inbox', 'reviews'].includes(state.tab)) void inboxController.load(state.tab === 'reviews' ? 'reviews' : 'pending');
-    documentsPromise.then((applied) => {
+    documentsPromise.then(async (applied) => {
+      // The address bar wins over the remembered project: a reload of a
+      // filtered Library or an open document comes back to it.
+      const where = locationFromHash(initialHash);
+      locationSyncEnabled = true;
+      if (where && applied) { await applyLocationHash(initialHash); return; }
       if (applied && (state.navType === 'library' || state.navType === 'settings')) renderApp();
+    });
+    window.addEventListener('hashchange', () => {
+      const hash = window.location.hash || '';
+      if (hash === lastWrittenHash) return;
+      void applyLocationHash(hash);
     });
     settings.loadSemanticStatus().then(() => {
       if (state.navType === 'library' || state.navType === 'settings') renderApp();

@@ -17821,6 +17821,7 @@ function history(config = {}) {
     })
   ];
 }
+var historyField = historyField_;
 function cmd(side, selection) {
   return function({ state, dispatch }) {
     if (!selection && state.readOnly)
@@ -23891,16 +23892,16 @@ var LRParser = class _LRParser extends Parser {
   Get a goto table entry @internal
   */
   getGoto(state, term, loose = false) {
-    let table = this.goto;
-    if (term >= table[0])
+    let table2 = this.goto;
+    if (term >= table2[0])
       return -1;
-    for (let pos = table[term + 1]; ; ) {
-      let groupTag = table[pos++], last2 = groupTag & 1;
-      let target = table[pos++];
+    for (let pos = table2[term + 1]; ; ) {
+      let groupTag = table2[pos++], last2 = groupTag & 1;
+      let target = table2[pos++];
       if (last2 && loose)
         return target;
       for (let end = pos + (groupTag >> 1); pos < end; pos++)
-        if (table[pos] == state)
+        if (table2[pos] == state)
           return target;
       if (last2)
         return -1;
@@ -28285,6 +28286,8 @@ function applyMarkdownFormat(value, selectionStart, selectionEnd, action) {
       return prefixSelectedLines(safeValue, start, end, "> ", "quote");
     case "link":
       return link(safeValue, start, end);
+    case "table":
+      return table(safeValue, start, end);
     default:
       return { value: safeValue, selectionStart: start, selectionEnd: end };
   }
@@ -28302,6 +28305,76 @@ function continueListOnEnter(lineText) {
   else if (marker.startsWith(">")) nextMarker = "> ";
   else nextMarker = marker;
   return { action: "continue", prefix: `${indent}${nextMarker}` };
+}
+var TABLE_ROW = /^\s*\|.*\|\s*$/;
+function tableRowText(cells) {
+  return `| ${cells.map((c) => c === "" ? " " : c).join(" | ")} |`;
+}
+function table(value, start, end) {
+  const selected = value.slice(start, end);
+  const lines = selected.split("\n").map((l) => l.trim()).filter(Boolean);
+  let rows;
+  if (lines.length) {
+    rows = lines.map((line) => line.replace(/^\|/, "").replace(/\|$/, "").split(/\t| \| |,/).map((c) => c.trim()));
+    const width2 = Math.max(...rows.map((r) => r.length));
+    rows = rows.map((r) => [...r, ...Array(width2 - r.length).fill("")]);
+  } else {
+    rows = [["Column 1", "Column 2"], ["", ""]];
+  }
+  const width = rows[0].length;
+  const text = [tableRowText(rows[0]), `| ${Array(width).fill("---").join(" | ")} |`, ...rows.slice(1).map(tableRowText)].join("\n");
+  const before = value.slice(0, start);
+  const after = value.slice(end);
+  const lead = before === "" || before.endsWith("\n\n") ? "" : before.endsWith("\n") ? "\n" : "\n\n";
+  const tail = after === "" || after.startsWith("\n") ? "" : "\n";
+  const next = before + lead + text + tail + after;
+  const cellStart = start + lead.length + 2;
+  return { value: next, selectionStart: cellStart, selectionEnd: cellStart + rows[0][0].length };
+}
+function isTableRow(lineText) {
+  return TABLE_ROW.test(String(lineText ?? ""));
+}
+function isTableSeparator(lineText) {
+  const text = String(lineText ?? "");
+  if (!isTableRow(text)) return false;
+  const cells = tableCells(text);
+  return cells.length > 0 && cells.every((c) => /^:?-+:?$/.test(text.slice(c.from, c.to).trim()));
+}
+function continueTableOnEnter(lineText) {
+  const text = String(lineText ?? "");
+  if (!isTableRow(text)) return { action: "none" };
+  const cells = tableCells(text);
+  if (isTableSeparator(text)) return { action: "none" };
+  if (cells.every((c) => text.slice(c.from, c.to).trim() === "")) return { action: "exit" };
+  return { action: "continue", prefix: tableRowText(Array(cells.length).fill("")), caret: 2 };
+}
+function tableCells(lineText) {
+  const text = String(lineText ?? "");
+  const pipes = [];
+  for (let i2 = 0; i2 < text.length; i2 += 1) {
+    if (text[i2] === "|" && text[i2 - 1] !== "\\") pipes.push(i2);
+  }
+  const cells = [];
+  for (let i2 = 0; i2 + 1 < pipes.length; i2 += 1) {
+    let from = pipes[i2] + 1;
+    let to = pipes[i2 + 1];
+    while (from < to && text[from] === " ") from += 1;
+    while (to > from && text[to - 1] === " ") to -= 1;
+    if (from >= to) {
+      from = Math.min(pipes[i2] + 2, pipes[i2 + 1]);
+      to = from;
+    }
+    cells.push({ from, to });
+  }
+  return cells;
+}
+function nextTableCell(lineText, offset, direction) {
+  const cells = tableCells(lineText);
+  if (!cells.length) return null;
+  let index = cells.findIndex((c) => offset <= c.to + 1 && offset >= c.from - 1);
+  if (index < 0) index = offset < cells[0].from ? -1 : cells.length;
+  const target = index + (direction < 0 ? -1 : 1);
+  return cells[target] || null;
 }
 
 // scripts/codemirror-editor-source.js
@@ -28420,7 +28493,8 @@ var SLASH_COMMANDS = [
   { key: "bold", action: "bold", detail: "bold text" },
   { key: "italic", action: "italic", detail: "italic text" },
   { key: "inline-code", action: "code", detail: "inline code" },
-  { key: "link", action: "link", detail: "link" }
+  { key: "link", action: "link", detail: "link" },
+  { key: "table", action: "table", detail: "\u25A6 table" }
 ];
 function slashCompletionSource(context) {
   const line = context.state.doc.lineAt(context.pos);
@@ -28476,7 +28550,8 @@ function listContinuationEnter(view) {
   if (!sel.empty) return false;
   const line = view.state.doc.lineAt(sel.head);
   if (sel.head !== line.to) return false;
-  const result = continueListOnEnter(line.text);
+  let result = continueListOnEnter(line.text);
+  if (result.action === "none") result = continueTableOnEnter(line.text);
   if (result.action === "none") return false;
   if (result.action === "exit") {
     view.dispatch({
@@ -28490,14 +28565,53 @@ function listContinuationEnter(view) {
 ${result.prefix}`;
   view.dispatch({
     changes: { from: sel.head, insert: insert2 },
-    selection: { anchor: sel.head + insert2.length },
+    // A list continues after its marker; a table row opens in its first cell.
+    selection: { anchor: Number.isInteger(result.caret) ? sel.head + 1 + result.caret : sel.head + insert2.length },
     scrollIntoView: true,
     userEvent: "input"
   });
   return true;
 }
+function tableTab(direction) {
+  return (view) => {
+    if (completionStatus(view.state) === "active") return false;
+    const sel = view.state.selection.main;
+    const line = view.state.doc.lineAt(sel.head);
+    if (!isTableRow(line.text)) return false;
+    const select = (ln, cell) => {
+      view.dispatch({ selection: { anchor: ln.from + cell.from, head: ln.from + cell.to }, scrollIntoView: true });
+      return true;
+    };
+    const target = nextTableCell(line.text, sel.head - line.from, direction);
+    if (target) return select(line, target);
+    if (direction > 0) {
+      for (let n = line.number + 1; n <= Math.min(view.state.doc.lines, line.number + 2); n += 1) {
+        const next = view.state.doc.line(n);
+        if (!isTableRow(next.text)) break;
+        if (isTableSeparator(next.text)) continue;
+        const cells = tableCells(next.text);
+        if (cells.length) return select(next, cells[0]);
+      }
+      const width = tableCells(line.text).length || 1;
+      const row = `| ${Array(width).fill(" ").join(" | ")} |`;
+      view.dispatch({ changes: { from: line.to, insert: `
+${row}` }, selection: { anchor: line.to + 3 }, scrollIntoView: true, userEvent: "input" });
+      return true;
+    }
+    for (let n = line.number - 1; n >= Math.max(1, line.number - 2); n -= 1) {
+      const prev = view.state.doc.line(n);
+      if (!isTableRow(prev.text)) break;
+      if (isTableSeparator(prev.text)) continue;
+      const cells = tableCells(prev.text);
+      if (cells.length) return select(prev, cells[cells.length - 1]);
+    }
+    return true;
+  };
+}
 function mountCodeMirrorEditor({
   host,
+  // A history snapshot (historySnapshot()) from the editor this one replaces.
+  historyJson = null,
   value = "",
   onChange,
   onSave,
@@ -28509,89 +28623,114 @@ function mountCodeMirrorEditor({
   if (!host) return null;
   const wikiCompletionSource = makeWikiCompletionSource(documentsProvider);
   const doc2 = String(value ?? "");
-  const view = new EditorView({
-    parent: host,
-    state: EditorState.create({
+  const extensions = [
+    ...showLineNumbers ? [lineNumbers()] : [],
+    history(),
+    drawSelection(),
+    indentOnInput(),
+    bracketMatching(),
+    markdown(),
+    syntaxHighlighting(operatorHighlight, { fallback: true }),
+    highlightActiveLine(),
+    highlightSelectionMatches(),
+    // Track the query + paint match highlights. The panel is invisible
+    // (hiddenSearchPanel) because our real find/replace UI is Prax-native —
+    // CM's panel exists only to keep highlighting alive (see openSearchPanel
+    // below).
+    search({ createPanel: hiddenSearchPanel }),
+    autocompletion({ override: [slashCompletionSource, wikiCompletionSource], icons: false, defaultKeymap: true, optionClass: (option) => option.trust ? `cm-opt--${option.trust}` : "" }),
+    EditorView.lineWrapping,
+    EditorView.contentAttributes.of({ "aria-label": "Markdown document body" }),
+    EditorView.updateListener.of((update) => {
+      if (onSelectionChange && (update.selectionSet || update.docChanged || update.focusChanged || update.geometryChanged)) {
+        const sel2 = update.state.selection.main;
+        update.view.requestMeasure({
+          read(view2) {
+            if (sel2.empty) return null;
+            const a = view2.coordsAtPos(sel2.from);
+            const b = view2.coordsAtPos(sel2.to, -1);
+            return a && b ? { top: Math.min(a.top, b.top), bottom: Math.max(a.bottom, b.bottom), left: a.left, right: b.right } : null;
+          },
+          write(rect, view2) {
+            onSelectionChange({ from: sel2.from, to: sel2.to, empty: sel2.empty, rect, focused: view2.hasFocus });
+          }
+        });
+      }
+      if (!update.docChanged) return;
+      onChange?.(update.state.doc.toString());
+      if (!update.transactions.some((tr) => tr.isUserEvent("input.type"))) return;
+      const sel = update.state.selection.main;
+      if (!sel.empty) return;
+      const line = update.state.doc.lineAt(sel.head);
+      const lineBefore = update.state.doc.sliceString(line.from, sel.head);
+      const lastTwo = update.state.doc.sliceString(Math.max(0, sel.head - 2), sel.head);
+      if (/^\s*\/$/.test(lineBefore) || lastTwo === "[[") {
+        Promise.resolve().then(() => startCompletion(update.view));
+      }
+    }),
+    operatorTheme,
+    // Higher precedence than the default keymap (earlier in the array), so
+    // Enter continues a list before the default newline runs, and the format
+    // shortcuts the toolbar advertises fire in CodeMirror (they overrode
+    // nothing before — a contentEditable's native Cmd-B would insert <b>).
+    keymap.of([
+      { key: "Enter", run: listContinuationEnter },
+      { key: "Mod-b", preventDefault: true, run: (view2) => {
+        runFormat(view2, "bold");
+        return true;
+      } },
+      { key: "Mod-i", preventDefault: true, run: (view2) => {
+        runFormat(view2, "italic");
+        return true;
+      } },
+      { key: "Mod-e", preventDefault: true, run: (view2) => {
+        runFormat(view2, "code");
+        return true;
+      } },
+      { key: "Mod-Shift-t", preventDefault: true, run: (view2) => {
+        runFormat(view2, "table");
+        return true;
+      } },
+      { key: "Tab", run: tableTab(1) },
+      { key: "Shift-Tab", run: tableTab(-1) }
+    ]),
+    // Note: Mod-f (open search) is handled by Prax's own keydown listener
+    // so it works from the panel inputs too, not just the focused editor.
+    keymap.of([...defaultKeymap, ...historyKeymap]),
+    ...onSave ? [saveKeymap(onSave)] : []
+  ];
+  const carried = historyJson && typeof historyJson === "object" && historyJson.doc === doc2 ? historyJson : null;
+  let initialState = null;
+  if (carried) {
+    try {
+      initialState = EditorState.fromJSON(carried, { extensions }, { history: historyField });
+    } catch {
+      initialState = null;
+    }
+  }
+  if (!initialState) {
+    initialState = EditorState.create({
       doc: doc2,
       // Open with the caret at the end so typing continues the document
       // instead of landing above the title heading.
       selection: cursorToEnd ? { anchor: doc2.length } : void 0,
-      extensions: [
-        ...showLineNumbers ? [lineNumbers()] : [],
-        history(),
-        drawSelection(),
-        indentOnInput(),
-        bracketMatching(),
-        markdown(),
-        syntaxHighlighting(operatorHighlight, { fallback: true }),
-        highlightActiveLine(),
-        highlightSelectionMatches(),
-        // Track the query + paint match highlights. The panel is invisible
-        // (hiddenSearchPanel) because our real find/replace UI is Prax-native —
-        // CM's panel exists only to keep highlighting alive (see openSearchPanel
-        // below).
-        search({ createPanel: hiddenSearchPanel }),
-        autocompletion({ override: [slashCompletionSource, wikiCompletionSource], icons: false, defaultKeymap: true, optionClass: (option) => option.trust ? `cm-opt--${option.trust}` : "" }),
-        EditorView.lineWrapping,
-        EditorView.contentAttributes.of({ "aria-label": "Markdown document body" }),
-        EditorView.updateListener.of((update) => {
-          if (onSelectionChange && (update.selectionSet || update.docChanged || update.focusChanged || update.geometryChanged)) {
-            const sel2 = update.state.selection.main;
-            update.view.requestMeasure({
-              read(view2) {
-                if (sel2.empty) return null;
-                const a = view2.coordsAtPos(sel2.from);
-                const b = view2.coordsAtPos(sel2.to, -1);
-                return a && b ? { top: Math.min(a.top, b.top), bottom: Math.max(a.bottom, b.bottom), left: a.left, right: b.right } : null;
-              },
-              write(rect, view2) {
-                onSelectionChange({ from: sel2.from, to: sel2.to, empty: sel2.empty, rect, focused: view2.hasFocus });
-              }
-            });
-          }
-          if (!update.docChanged) return;
-          onChange?.(update.state.doc.toString());
-          if (!update.transactions.some((tr) => tr.isUserEvent("input.type"))) return;
-          const sel = update.state.selection.main;
-          if (!sel.empty) return;
-          const line = update.state.doc.lineAt(sel.head);
-          const lineBefore = update.state.doc.sliceString(line.from, sel.head);
-          const lastTwo = update.state.doc.sliceString(Math.max(0, sel.head - 2), sel.head);
-          if (/^\s*\/$/.test(lineBefore) || lastTwo === "[[") {
-            Promise.resolve().then(() => startCompletion(update.view));
-          }
-        }),
-        operatorTheme,
-        // Higher precedence than the default keymap (earlier in the array), so
-        // Enter continues a list before the default newline runs, and the format
-        // shortcuts the toolbar advertises fire in CodeMirror (they overrode
-        // nothing before — a contentEditable's native Cmd-B would insert <b>).
-        keymap.of([
-          { key: "Enter", run: listContinuationEnter },
-          { key: "Mod-b", preventDefault: true, run: (view2) => {
-            runFormat(view2, "bold");
-            return true;
-          } },
-          { key: "Mod-i", preventDefault: true, run: (view2) => {
-            runFormat(view2, "italic");
-            return true;
-          } },
-          { key: "Mod-e", preventDefault: true, run: (view2) => {
-            runFormat(view2, "code");
-            return true;
-          } }
-        ]),
-        // Note: Mod-f (open search) is handled by Prax's own keydown listener
-        // so it works from the panel inputs too, not just the focused editor.
-        keymap.of([...defaultKeymap, ...historyKeymap]),
-        ...onSave ? [saveKeymap(onSave)] : []
-      ]
-    })
-  });
+      extensions
+    });
+  }
+  const view = new EditorView({ parent: host, state: initialState });
   openSearchPanel(view);
   return {
     getValue() {
       return view.state.doc.toString();
+    },
+    // The document, selection and undo history, for the editor that replaces
+    // this one on the next host render (see historyJson).
+    historySnapshot() {
+      try {
+        return view.state.toJSON({ history: historyField });
+      } catch {
+        return null;
+      }
     },
     focus() {
       view.focus();
@@ -28613,6 +28752,20 @@ function mountCodeMirrorEditor({
       const len = view.state.doc.length;
       const clamp = (pos) => Math.max(0, Math.min(len, Number(pos) || 0));
       view.dispatch({ selection: { anchor: clamp(from), head: clamp(to) } });
+    },
+    // Replace a range (or, with setValue, the whole document) as ONE change in
+    // the editor's own history, so an applied AI result is an ordinary edit
+    // the person can ⌘Z — never a remount that forgets what was there.
+    replaceRange(from, to, insert2) {
+      const len = view.state.doc.length;
+      const clamp = (pos) => Math.max(0, Math.min(len, Number(pos) || 0));
+      const a = clamp(from);
+      const b = Math.max(a, clamp(to));
+      const text = String(insert2 ?? "");
+      view.dispatch({ changes: { from: a, to: b, insert: text }, selection: { anchor: a + text.length }, userEvent: "input", scrollIntoView: true });
+    },
+    setValue(text) {
+      this.replaceRange(0, view.state.doc.length, text);
     },
     hasFocus() {
       return view.hasFocus;

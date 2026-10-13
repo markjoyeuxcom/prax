@@ -136,7 +136,7 @@ function renderBreadcrumbHtml(state) {
     const label = escapeHtml(segment.label);
     let html;
     if (last) {
-      html = `<span class="titlebar__crumb-current" aria-current="page">${label}</span>`;
+      html = `<span class="titlebar__crumb-current" aria-current="page"${state.desktopShell ? ' data-tauri-drag-region' : ''}>${label}</span>`;
     } else if (segment.action) {
       // Only a plain attribute-name suffix becomes a data-* attribute name.
       const data = Object.entries(segment.data || {})
@@ -150,7 +150,7 @@ function renderBreadcrumbHtml(state) {
     } else {
       html = `<span class="titlebar__crumb-text">${label}</span>`;
     }
-    return (index ? '<span class="titlebar__crumb-sep" aria-hidden="true">›</span>' : '') + html;
+    return (index ? `<span class="titlebar__crumb-sep" aria-hidden="true"${state.desktopShell ? ' data-tauri-drag-region' : ''}>›</span>` : '') + html;
   }).join('');
 }
 
@@ -194,14 +194,18 @@ export function renderTitlebarHtml(state) {
   // Console shell (2026-10): the brand and the path sit left, the command bar
   // is the centre of the window — the one way in to search, jump, run a
   // command or ask — and the right holds Ask, New and the theme toggle.
-  const brand = `<div class="titlebar__brand"${drag}>${logo(state.desktopShell ? 18 : 15)}<span class="titlebar__wordmark">prax</span></div>`;
+  const brand = `<div class="titlebar__brand"${drag}>${logo(state.desktopShell ? 18 : 15)}<span class="titlebar__wordmark"${drag}>prax</span></div>`;
 
   // In editor focus mode the command bar and the right-hand chrome (incl.
   // Windows controls, matching the prototype) are hidden; brand + crumb stay.
-  const command = state.editorFocus ? '' : '<div class="titlebar__command">'
+  // Tauri starts a window drag only when the element under the pointer itself
+  // carries the attribute, so every wrapper that fills the bar needs it, not
+  // just the bar: the command-bar wrapper and the actions container together
+  // cover most of the width. Buttons inside them stay clickable (no attribute).
+  const command = state.editorFocus ? '' : `<div class="titlebar__command"${drag}>`
     + `<button type="button" class="searchpill cmdbar" data-action="open-palette" title="Command bar (⌘K)"><span class="cmdbar__prompt" aria-hidden="true">›</span><span class="cmdbar__text">Search or jump to… run a command, or ask</span><span class="kbd">⌘K</span></button>`
     + '</div>';
-  const actions = state.editorFocus ? '' : '<div class="titlebar__actions">'
+  const actions = state.editorFocus ? '' : `<div class="titlebar__actions"${drag}>`
     + `<button type="button" class="btn-ghost titlebar__ask${state.navType === 'ask' ? ' is-active' : ''}" data-action="open-ask-page" title="Ask Prax: cited answers from your library">${icon('spark', 13)}<span>Ask</span></button>`
     + `<button type="button" class="btn-icon" data-action="open-assistant" title="Assistant: can change tasks and documents, with your approval (⌘I)" aria-label="Assistant">${icon('chat', 14)}</button>`
     + renderNewMenuHtml(state)

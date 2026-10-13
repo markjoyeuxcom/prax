@@ -88,7 +88,9 @@ test('Write with AI: the head button explains a missing model, then rewrites a s
     await expect(preview.locator('[data-action="apply-write"]')).toHaveText('Replace selection');
     await preview.locator('[data-action="apply-write"]').click();
     await expect(page.locator('.cm-content')).toContainText(`Write with AI ${stamp}`); // the heading is untouched
-    await expect(page.getByText('Applied — review and save')).toBeVisible();
+    // Honest about what Apply does, with a way back.
+    await expect(page.locator('.toast')).toContainText('Applied — it saves like typing');
+    await expect(page.locator('.toast button', { hasText: 'Undo' })).toBeVisible();
   } finally {
     expect((await request.put('/api/settings/ai-answers', { data: { backend: previousBackend } })).ok()).toBe(true);
   }

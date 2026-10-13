@@ -43,8 +43,9 @@ export function tagStats(documents = []) {
     const tags = docTags(doc);
     const byAgent = TRUST_PREDICATES.agent(doc);
     for (const tag of tags) {
-      const row = rows.get(tag) || { tag, count: 0, lastUsed: '', agentDocs: 0, humanDocs: 0, with: new Map() };
+      const row = rows.get(tag) || { tag, count: 0, lastUsed: '', agentDocs: 0, humanDocs: 0, with: new Map(), docIds: [] };
       row.count += 1;
+      if (doc.id) row.docIds.push(doc.id);
       if (String(doc.updatedAt || '') > row.lastUsed) row.lastUsed = String(doc.updatedAt || '');
       if (byAgent) row.agentDocs += 1; else row.humanDocs += 1;
       for (const other of tags) if (other !== tag) row.with.set(other, (row.with.get(other) || 0) + 1);
@@ -56,6 +57,7 @@ export function tagStats(documents = []) {
     count: row.count,
     lastUsed: row.lastUsed,
     addedBy: row.agentDocs && row.humanDocs ? 'both' : (row.agentDocs ? 'agents' : 'people'),
+    docIds: row.docIds,
     oftenWith: [...row.with.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 2).map(([tag]) => tag),
   })).sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
 }
@@ -94,7 +96,10 @@ export function tagMergeSuggestions(stats = []) {
       return {
         into: into.tag,
         from: from.map((row) => row.tag),
-        documents: from.reduce((sum, row) => sum + row.count, 0),
+        // Distinct documents: one carrying two of the spellings moves once.
+        documents: from.every((row) => Array.isArray(row.docIds))
+          ? new Set(from.flatMap((row) => row.docIds)).size
+          : from.reduce((sum, row) => sum + row.count, 0),
         agentOnly: from.every((row) => row.addedBy === 'agents'),
       };
     })

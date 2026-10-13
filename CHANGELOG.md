@@ -12,6 +12,103 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Desktop: the whole title bar drags the window again.** The Console title bar fills its
+  width with the command bar and the action buttons, and Tauri starts a drag only on an element
+  that itself carries the drag attribute, so only the brand area moved the window or zoomed on
+  double-click. The wrappers, the wordmark and the breadcrumb text are drag regions now; the
+  buttons stay buttons.
+
+### Added
+
+- **Tables in the editor.** A ▦ table toolbar button, ⌘⇧T and `/table` insert a table at the
+  caret (or turn selected lines into rows, split on tabs, " | " or commas, the first line the
+  header). Inside a table, Tab and Shift+Tab move between cells, Tab past the last cell adds a
+  row, Enter at the end of a row adds a row, and Enter on an empty row leaves the table.
+
+- **The Library has an address.** The filters, view, search, sort, grouping and layout are
+  written to the URL hash (`#library?types=runbook&trust=agent&q=…`), so a reload comes back
+  to the same view instead of the Inbox. `#doc/<id>` opens a document when typed or pasted;
+  the editor itself writes no address, so a reload never lands inside a draft that vetoes
+  navigation.
+
+### Fixed
+
+- **Tag housekeeping no longer evicts agent memory from review.** A patch that changes only
+  tags, project or type leaves who wrote the document untouched (authorship follows content),
+  so merging two tags on the Tags page keeps an agent's unreviewed note in the review queue and
+  keeps a person's document theirs. The merge confirmation says so; the Tags page's columns now
+  read "Last updated" and "Written by", which is what they measure, and a merge counts each
+  document once.
+- **Library on a phone.** The table's title column had no width (fixed columns ate the pane);
+  under 520px a row is the title, wrapping, with trust and Review beside it. The facet rows fold
+  behind "Filters · n active" with the active filters still removable above the fold, the
+  search input takes its own line, Tags is in the ⋯ menu, and the review desk shows the
+  document before the queue.
+- **A pending or failed library load is not "Your library is empty".** The Library says
+  "Loading…", a failure keeps the rows already loaded and offers Try again, and the welcome
+  screen appears only after a load that really returned nothing.
+- **One filter model.** Semantic search honours the active tags and facets and says how many
+  matches they left out; "One at a time" walks exactly the rows the filtered table shows, in
+  its order; Save view keeps every filter (types, trust, project, query, sort, grouping) and
+  reopens them; a Tags-page link, the sidebar's Library and Clear filters reset every axis.
+- **Cards say what the table says:** UNVERIFIED when nobody checked a document and who wrote
+  it; an empty document reads "No content yet"; a select box sits beside each card, so bulk
+  actions no longer require the table.
+- **Bulk archive has Undo**, names what could not be archived and keeps it selected; the bulk
+  bar says when a selected document is hidden by the filter.
+- **Library truthfulness and reach:** the header count says "4 of 51 · filtered"; an unmatched
+  Archive search says so instead of "No archived documents"; Group cycles Type, Project, Trust
+  and None; facet pills, selection boxes and the ⋯ menu keep keyboard focus (Escape closes the
+  menus); the STALE chip, archive rows, the semantic error line and the toast's Undo link meet
+  contrast.
+
+### Changed
+
+- **The editor page is flat.** The document surface is no longer a rounded card floating in a
+  margin; it fills the pane under a hairline, with the content as the edge.
+- **Preview tables look like tables:** a rule under the header, hairlines between rows, cells
+  that wrap instead of widening the page.
+- **Ask Prax finds documents from a question in plain words without embeddings.** The keyword
+  fallback is now the ranked, any-word search (BM25 with the relevance cutoff) instead of the
+  Library's all-words listing filter, so "how do we fail over postgres" finds the Postgres
+  failover runbook. A no-sources refusal that came from a keyword search says so and points at
+  semantic search.
+- **Ask page:** citation numbers are buttons that lead to their source card (named for
+  assistive technology, keyboard reachable); the sources rail no longer fades its trust text;
+  coverage notices (incomplete index, hidden harvested candidates, unverified left out by the
+  toggle, keyword fallback) are shown as the old overlay showed them; a failed question keeps
+  its text with a Try again; "Ask another question…" replaces the follow-up wording, since
+  each question stands alone; the no-sources state no longer prints the empty context pack or
+  a Copy button.
+- **Ask history:** each entry records the scope and trust it was asked under; reopening one
+  re-reads its sources from the library and says which were edited, unverified or removed
+  since, dates the answer, and offers Ask again. The column is now a glance back, not an
+  archive: the six most recent questions, two lines each, grouped by day, with Show all, a
+  forget button per row, Clear history (with Undo) and a collapse toggle remembered per device.
+- **Suggested tasks** arrive unticked, with a quiet Create button until something is chosen;
+  the destination is the scope the answer was asked under; each proposal carries its own task
+  id, so a lost response is reconciled instead of reported as a failure; a failed model call
+  says so with Try again instead of "nothing calls for a task"; created proposals stay
+  visible as created.
+- **Write with AI:** applying a result is one change in the editor's own history, so ⌘Z
+  restores the previous text, and the toast carries an Undo; the editor's undo stack now
+  survives the app's re-renders; the preview is a true modal (focus moves into it, the editor
+  behind it is inert, Cancel/Close always present, Try again on failure, a Settings link when
+  no model is set); the menu and preview say that Apply saves like typing, and warn when the
+  document is verified; opening the menu from the keyboard focuses its first action; the
+  selection bar fits a narrow pane.
+- **Narrow widths:** on phones the Ask page shows the answer first, then its sources, then a
+  bounded list of earlier questions (the responsive rules used to be overridden); the ⌘K badge
+  no longer collides with the Ask button.
+- "Review it now" on a human-written unverified source opens that document in the editor,
+  where Verify lives, instead of the review desk's first queue entry.
+- **Ask and the assistant are visibly two contracts.** Once Ask has answered, its assistant
+  link reads "Act on this with the assistant" and hands the question and the titles it was
+  answered from into the assistant's composer. An assistant answer that read no Prax data is
+  marked "From the model's own knowledge", with a link to Ask Prax for a cited one.
+
 ## [0.43.1] - 2026-10-13
 
 ### Fixed

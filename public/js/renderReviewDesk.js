@@ -37,8 +37,15 @@ function shortDay(iso) {
 // The queue the desk walks: the review queue, oldest first (the order agents
 // wrote it), narrowed by the Library's search box like the table.
 export function reviewDeskQueue(state) {
+  const queue = reviewQueue(state.documents || []);
+  // Opened from a filtered table: that table's rows, in its order (documents
+  // verified meanwhile drop out as the queue predicate removes them).
+  if (Array.isArray(state.reviewDeskIds) && state.reviewDeskIds.length) {
+    const byId = new Map(queue.map((doc) => [doc.id, doc]));
+    return state.reviewDeskIds.map((id) => byId.get(id)).filter(Boolean);
+  }
   const query = String(state.libraryQuery || '').trim().toLowerCase();
-  return reviewQueue(state.documents || [])
+  return queue
     .filter((doc) => !query || String(doc.title || '').toLowerCase().includes(query)
       || String(doc.body || '').toLowerCase().includes(query))
     .sort((a, b) => String(a.updatedAt || '').localeCompare(String(b.updatedAt || '')));
