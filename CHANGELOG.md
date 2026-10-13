@@ -12,6 +12,8 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.43.0] - 2026-10-13
+
 ### Added
 
 - **Every project has an overview document.** Creating a project (in the app or with the CLI)
@@ -2402,7 +2404,8 @@ and onboarding features with the corrected installation guide.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/markjoyeuxcom/prax/compare/v0.42.0...HEAD
+[Unreleased]: https://github.com/markjoyeuxcom/prax/compare/v0.43.0...HEAD
+[0.43.0]: https://github.com/markjoyeuxcom/prax/compare/v0.42.0...v0.43.0
 [0.42.0]: https://github.com/markjoyeuxcom/prax/compare/v0.41.0...v0.42.0
 [0.41.0]: https://github.com/markjoyeuxcom/prax/compare/v0.40.0...v0.41.0
 [0.40.0]: https://github.com/markjoyeuxcom/prax/compare/v0.39.2...v0.40.0
