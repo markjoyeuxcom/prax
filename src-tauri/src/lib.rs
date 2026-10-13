@@ -1611,9 +1611,13 @@ mod tests {
         let process = std::sync::Arc::new(ServerProcess::new());
         let reporter = std::sync::Arc::clone(&process);
         let child = std::thread::spawn(move || {
-            // Six reports 60 ms apart outlast the 100 ms startup budget.
+            // Six reports 100 ms apart outlast the 500 ms startup budget. The
+            // budgets are generous on purpose: on a loaded CI runner the first
+            // report once arrived after a 100 ms budget had already expired
+            // (v0.45.0's macOS build), which is scheduling, not the logic
+            // under test.
             for _ in 0..6 {
-                std::thread::sleep(Duration::from_millis(60));
+                std::thread::sleep(Duration::from_millis(100));
                 reporter.set_phase(ServerPhase::Migrating);
             }
             reporter.set_phase(ServerPhase::Starting);
@@ -1621,7 +1625,7 @@ mod tests {
             reporter.set_phase(ServerPhase::Ready(43127));
         });
         assert_eq!(
-            process.wait_for_ready(Duration::from_millis(100), Duration::from_millis(200)),
+            process.wait_for_ready(Duration::from_millis(500), Duration::from_millis(1_000)),
             Ok(43127)
         );
         child.join().unwrap();
