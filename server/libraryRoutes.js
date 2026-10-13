@@ -33,6 +33,8 @@ import {
 import { createEmbeddingService } from './embeddingService.js';
 import { buildContextPack, renderContextPackMarkdown, contentLength, isSubstantive } from './contextPack.js';
 import { ANSWER_DOC_LIMIT, answerSources, buildAskMessages, selectAnswerContext, validateAnswerCitations } from './askLibrary.js';
+import { buildAskTaskMessages, coerceAskTasks } from './askTasks.js';
+import { requestToday } from './localDay.js';
 import { buildRunSummary, buildPostMortemMessages, fallbackPostMortem, postMortemTitle } from './postMortem.js';
 import { buildRunbookMessages, parseGeneratedRunbook } from './generateRunbook.js';
 import { suggestWikiLinks, applyWikiLink } from './wikiLinkSuggest.js';
@@ -1529,6 +1531,14 @@ export async function registerLibraryRoutes(app, options = {}) {
       docs = harvested.filter(await repository.listDocuments({ projectId, status: 'active', q: query }));
     }
     if (harvested.count > 0) retrieval = { ...retrieval, hiddenHarvested: harvested.count };
+    // "Verified only" (the Ask page's trust chip): unverified memory is left
+    // out of the answer and its sources entirely, and the count is reported.
+    const trust = body.trust === 'verified' ? 'verified' : 'all';
+    if (trust === 'verified') {
+      const before = docs.length;
+      docs = docs.filter((doc) => doc.verified);
+      retrieval = { ...retrieval, trust, hiddenUnverified: before - docs.length };
+    }
 
     const pack = buildContextPack(docs, { project, query, limit, retrieval, hiddenHarvested: harvested.count });
     const markdown = renderContextPackMarkdown(pack);
@@ -1544,6 +1554,12 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (!chat) {
       return { query, answer: null, degraded: true, reason: 'no-chat-model', markdown, sources, retrieval, model: null };
     }
+    // Nothing in the library matched: there is nothing to ground an answer
+    // in, so the model is not asked (it would answer from its own knowledge,
+    // or chat back, under a page that promises answers from the library).
+    if (sources.length === 0) {
+      return { query, answer: null, degraded: true, reason: 'no-sources', markdown, sources, retrieval, model: chat.model || null };
+    }
     try {
       const { text, model } = await chat.complete(buildAskMessages(query, answerContext.context), { temperature: 0.2, maxTokens: 1024 });
       const citation = validateAnswerCitations(text, sources);
@@ -1554,6 +1570,32 @@ export async function registerLibraryRoutes(app, options = {}) {
     } catch (err) {
       request.log.error({ err }, 'library ask generation failed');
       return { query, answer: null, degraded: true, reason: 'generation-failed', markdown, sources, retrieval, model: chat.model || null };
+    }
+  });
+
+  // Suggested follow-up tasks for an Ask Prax answer. Read-only: it proposes,
+  // the person creates. Every suggestion must cite one of the answer's own
+  // sources (re-read here by id, so the client cannot widen them).
+  app.post('/api/library/ask/tasks', async (request, reply) => {
+    const body = isPlainObject(request.body) ? request.body : null;
+    const query = typeof body?.q === 'string' ? body.q.trim() : '';
+    const answer = typeof body?.answer === 'string' ? body.answer.trim() : '';
+    const ids = Array.isArray(body?.sourceIds) ? body.sourceIds.filter((id) => isValidUuid(id)).slice(0, 12) : [];
+    if (!query || !answer) { reply.code(400); return { message: 'q and answer are required' }; }
+    if (answer.length > 20000) { reply.code(400); return { message: 'answer is too long' }; }
+    const docs = (await Promise.all(ids.map((id) => repository.getDocument(id).catch(() => null))))
+      .filter((doc) => doc && (doc.status || 'active') === 'active');
+    const sources = docs.map((doc) => ({ id: doc.id, title: normalizeTitle(doc.title) || 'Untitled' }));
+    if (!sources.length) return { tasks: [], degraded: true, reason: 'no-sources', model: null };
+    const chat = await resolveChat();
+    if (!chat) return { tasks: [], degraded: true, reason: 'no-chat-model', model: null };
+    try {
+      const { text, model } = await chat.complete(buildAskTaskMessages(query, answer, sources), { temperature: 0.2, maxTokens: 500 });
+      const result = coerceAskTasks(text, sources, { today: requestToday(request) });
+      return { tasks: result.tasks, dropped: result.dropped, degraded: !result.parsed, reason: result.parsed ? null : 'unparseable', model };
+    } catch (err) {
+      request.log.error({ err }, 'ask task suggestion failed');
+      return { tasks: [], degraded: true, reason: 'generation-failed', model: chat.model || null };
     }
   });
 

@@ -59,3 +59,45 @@ test('the composer is its own draft: asking clears it while the thread keeps the
   assert.match(drafting, /rows="2"[^>]*>line one\nline two<\/textarea>/);
   assert.doesNotMatch(drafting, /data-action="run-ask-prax" disabled/);
 });
+
+test('composer chips: scope with its colour, trust toggle, and the model', () => {
+  const html = renderAskPageHtml({ askScope: 'p1', askTrust: 'verified', chatStatus: { available: true, backend: 'ollama', model: 'qwen3:14b' } },
+    { projects: [{ id: 'p1', name: 'Homelab', color: '#6CC4E8' }] });
+  assert.match(html, /ask-chip__dot" style="background:#6CC4E8"/);
+  assert.match(html, /data-action="toggle-ask-trust" aria-pressed="true"[^>]*>✓ Verified only/);
+  assert.match(html, /data-action="open-ai-settings"[^>]*>ollama · qwen3:14b/);
+  const none = renderAskPageHtml({ chatStatus: { available: false } });
+  assert.match(none, /Verified \+ unverified/);
+  assert.match(none, />No AI model</);
+});
+
+test('suggested tasks render as ticked proposals with one create action', () => {
+  const sources = [{ id: 's1', title: 'B2 app key scopes', documentType: 'known-issue', verified: false }];
+  const base = {
+    askScope: 'p1', chatStatus: { available: true },
+    askPraxResult: { query: 'q', answer: 'Recreate it [B2 app key scopes].', degraded: false, sources, retrieval: { mode: 'semantic' } },
+  };
+  const projects = [{ id: 'p1', name: 'Homelab' }];
+  const loading = renderAskPageHtml({ ...base, askSuggest: { loading: true, tasks: [], checked: [] } }, { projects });
+  assert.match(loading, /Suggesting follow-up tasks/);
+  const tasks = [
+    { title: 'Recreate the B2 key', priority: 'high', dueDate: '2026-10-13', sourceTitle: 'B2 app key scopes' },
+    { title: 'Snapshot etcd', priority: 'medium', dueDate: null, sourceTitle: 'B2 app key scopes' },
+  ];
+  const html = renderAskPageHtml({ ...base, askSuggest: { loading: false, tasks, checked: [true, false], created: null } }, { projects, today: '2026-10-13' });
+  assert.match(html, /Suggested tasks · Homelab/);
+  assert.match(html, /role="checkbox" aria-checked="true"[^>]*>.*Recreate the B2 key.*high · today/s);
+  assert.match(html, /ask-task__meta is-hot/);
+  assert.match(html, /data-action="ask-create-tasks">Create 1 task</);
+  assert.match(html, /Review it now/); // one unverified cited source → straight to it
+  const done = renderAskPageHtml({ ...base, askSuggest: { loading: false, tasks, checked: [true, true], created: 2 } }, { projects });
+  assert.match(done, /✓ Created 2 tasks in Homelab/);
+  assert.doesNotMatch(done, /ask-create-tasks/);
+  const offer = renderAskPageHtml({ ...base, askSuggest: null }, { projects });
+  assert.match(offer, /data-action="ask-suggest-tasks"/);
+});
+
+test('no matching documents says so instead of answering', () => {
+  const html = renderAskPageHtml({ askPraxResult: { query: 'hello', answer: null, degraded: true, reason: 'no-sources', markdown: '', sources: [], retrieval: { mode: 'keyword' } } });
+  assert.match(html, /Nothing in your library matches this question/);
+});

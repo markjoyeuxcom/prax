@@ -3988,7 +3988,16 @@ button.rq-item:hover { background: color-mix(in oklab, var(--ink) 5%, transparen
 .ask-composer__hint { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink3); }
 .ask-composer__row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ask-composer__gap { flex: 1; }
-.ask-chip select { height: 28px; border-radius: 6px; border: 1px solid var(--line2); background: var(--surface); color: var(--ink2); font-size: 12px; padding: 0 8px; }
+/* Composer chips (Console redesign): scope, trust, model. */
+.ask-chip { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 11px; border-radius: 7px; border: 1px solid var(--line2); background: var(--surface); color: var(--ink2); font-size: 12.5px; white-space: nowrap; }
+.ask-chip:hover { color: var(--ink); border-color: var(--line3, var(--line2)); }
+.ask-chip[aria-pressed="true"] { color: var(--accent); border-color: color-mix(in oklab, var(--accent) 45%, transparent); }
+.ask-chip--model { font-family: var(--font-mono); font-size: 11.5px; }
+.ask-chip--scope { padding: 0 4px 0 10px; position: relative; }
+.ask-chip__dot { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.ask-chip select { height: 28px; border: 0; background: transparent; color: inherit; font: inherit; padding: 0 4px; cursor: pointer; }
+.ask-chip select:focus-visible { outline: none; }
+.ask-chip--scope:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ask-composer__go { background: var(--agent); color: var(--surface); gap: 8px; }
 .ask-composer__go .kbd { background: transparent; color: inherit; border-color: color-mix(in oklab, var(--surface) 45%, transparent); }
 
@@ -4042,3 +4051,19 @@ button.rq-item:hover { background: color-mix(in oklab, var(--ink) 5%, transparen
 .ask-thread { position: relative; }
 .ask-close { position: absolute; top: 12px; right: 12px; z-index: 2; width: 32px; height: 32px; font-size: 20px; line-height: 1; color: var(--ink3); }
 .ask-close:hover { color: var(--ink); }
+
+/* Suggested tasks on an Ask answer: proposals a person ticks, then creates. */
+.ask-tasks { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px 16px; border-radius: 10px; border: 1px solid var(--line2); background: var(--card); }
+.ask-tasks .rq-label { margin: 0; }
+.ask-tasks__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.ask-task { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; column-gap: 12px; row-gap: 1px; align-items: center; width: 100%; padding: 7px 6px; border-radius: 7px; text-align: left; color: var(--ink); }
+.ask-task:hover:not([disabled]) { background: var(--surface); }
+.ask-task[disabled] { cursor: default; }
+.ask-task__box { width: 16px; height: 16px; border-radius: 4px; border: 1.5px solid var(--line3, var(--ink3)); }
+.ask-task.is-on .ask-task__box { border-color: var(--accent); box-shadow: inset 0 0 0 3px var(--card); background: var(--accent); }
+.ask-task__title { font-size: 14px; min-width: 0; }
+.ask-task__meta { font-family: var(--font-mono); font-size: 11.5px; color: var(--ink2); white-space: nowrap; }
+.ask-task__meta.is-hot { color: var(--hi-text); }
+.ask-task__src { grid-column: 2 / 4; font-size: 11.5px; color: var(--ink3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ask-tasks__status { margin: 0; font-size: 13px; color: var(--ink3); }
+.ask-tasks__done { display: inline-flex; align-items: center; font-size: 13px; color: var(--accent); padding: 0 6px; }

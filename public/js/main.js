@@ -18,6 +18,7 @@ import { createDocumentInfoController } from './documentInfoController.js';
 import { createCaptureController } from './captureController.js';
 import { createTemplateStudioController } from './templateStudioController.js';
 import { createTaskDrawerController } from './taskDrawerController.js';
+import { createTask as apiCreateTask } from './taskApi.js';
 import { renderInboxView, renderInboxDialog } from './renderInbox.js';
 import { INBOX_LINK } from './inboxModel.js';
 // Prax — application orchestrator.
@@ -41,7 +42,7 @@ import {
   fetchProjects, createProject, updateProject, deleteProjectPermanent,
 } from './projectApi.js';
 import {
-  fetchDocuments, fetchDocument, createDocument, updateDocument, fetchDocumentLinks,
+  fetchDocuments, fetchDocument, createDocument, updateDocument, fetchDocumentLinks, suggestAskTasks,
   fetchDocumentTaskBacklinks, fetchSimilarDocuments, fetchExternalRefs, semanticSearch, fetchRuns,
   fetchRecallCounts,
 } from './libraryApi.js';
@@ -428,7 +429,7 @@ const knowledge = createKnowledgeToolsController({
   getState: () => state, setState, renderApp, showToast, announce, copyToClipboard, getRoot: () => appRoot,
   prepareEditorNavigation, openDocumentInEditor, loadDocuments, captureProjectChoices, inboxSlug: INBOX_SLUG,
   openAskPage: () => { void openAskPage(); },
-  onAskResult: (query, result) => rememberAskResult(query, result),
+  onAskResult: (query, result) => { rememberAskResult(query, result); void loadAskTasks(query, result); },
 });
 const writing = createWritingController({
   getState: () => state, setState, renderApp, showToast, copyToClipboard, getEditor: () => documentEditorController,
@@ -2281,7 +2282,8 @@ function renderMainHtml() {
     case 'ask':
       return renderAskPageHtml(state, {
         resolveWikiLink,
-        projects: (state.projects || []).filter((project) => project?.slug !== INBOX_SLUG && project?.status === 'active'),
+        projects: (state.projects || []).filter((project) => project?.slug !== INBOX_SLUG && project?.status === 'active')
+          .map((project) => ({ ...project, color: projectColor(project) })),
       });
     case 'all': {
       const groups = buildProjectGroups(state.managedProjects, state.tasks);
@@ -2717,12 +2719,76 @@ function rememberAskResult(query, result) {
   const kept = {
     query, answer: result?.answer ?? null, degraded: Boolean(result?.degraded), reason: result?.reason ?? null,
     markdown: result?.answer ? null : (result?.markdown ?? null), sources: result?.sources || [],
-    retrieval: { mode: result?.retrieval?.mode || 'keyword' }, model: result?.model ?? null,
+    retrieval: { mode: result?.retrieval?.mode || 'keyword', ...(result?.retrieval?.trust === 'verified' ? { trust: 'verified' } : {}) }, model: result?.model ?? null,
   };
   const history = [{ query, at: new Date().toISOString(), result: kept },
     ...(state.askHistory || []).filter((entry) => entry.query !== query)].slice(0, ASK_HISTORY_LIMIT);
   setState({ askHistory: history });
   try { localStorage.setItem(ASK_HISTORY_KEY, JSON.stringify(history)); } catch { /* per-device convenience */ }
+}
+
+// Suggested tasks (Console redesign): after a written answer, the model
+// proposes up to three follow-ups grounded in the answer's sources. They are
+// ticked by default; nothing is created until "Create N tasks".
+function askSuggestKey(query, result) {
+  return `${query}\u0000${result?.answer || ''}`;
+}
+
+async function loadAskTasks(query, result) {
+  if (!result || result.degraded || !result.answer || !state.chatStatus?.available) {
+    setState({ askSuggest: null });
+    return;
+  }
+  const key = askSuggestKey(query, result);
+  setState({ askSuggest: { key, loading: true, tasks: [], checked: [], created: null, error: null } });
+  renderApp();
+  try {
+    const res = await suggestAskTasks({ q: query, answer: result.answer, sourceIds: (result.sources || []).map((s) => s.id).filter(Boolean) });
+    if (state.askSuggest?.key !== key) return;
+    const tasks = Array.isArray(res.tasks) ? res.tasks : [];
+    setState({ askSuggest: { key, loading: false, tasks, checked: tasks.map(() => true), created: null, error: null } });
+  } catch {
+    if (state.askSuggest?.key !== key) return;
+    setState({ askSuggest: { key, loading: false, tasks: [], checked: [], created: null, error: 'Could not suggest tasks.' } });
+  }
+  renderApp();
+}
+
+async function createAskTasks() {
+  const suggest = state.askSuggest;
+  if (!suggest || suggest.loading || suggest.creating) return;
+  const chosen = suggest.tasks.filter((_, index) => suggest.checked[index]);
+  if (!chosen.length) return;
+  const projectId = state.askScope && state.askScope !== 'all' ? state.askScope : inboxProjectId();
+  if (!projectId) { showToast('Create a project before adding tasks.'); return; }
+  const question = String(state.askPraxResult?.query || state.askPraxQuery || '').trim();
+  setState({ askSuggest: { ...suggest, creating: true } });
+  renderApp();
+  const created = [];
+  for (const task of chosen) {
+    try {
+      created.push(await apiCreateTask({
+        id: globalThis.crypto.randomUUID(),
+        title: task.title,
+        description: `From Ask Prax: “${question.slice(0, 200)}”\n\nSource: [[${task.sourceTitle}]]`,
+        notes: '',
+        priority: task.priority || 'medium',
+        status: 'planned',
+        project: projectId,
+        dueDate: task.dueDate || null,
+        labels: [],
+        sortOrder: state.tasks.length + created.length,
+      }));
+    } catch { /* counted below */ }
+  }
+  await refreshTasksAfterWrites();
+  const project = state.projects.find((item) => item.id === projectId);
+  const failed = chosen.length - created.length;
+  setState({ askSuggest: { ...state.askSuggest, creating: false, created: created.length } });
+  renderApp();
+  const where = project?.name || 'Inbox';
+  showToast(`${created.length ? `Created ${taskCountLabel(created.length)} in ${where}` : 'No tasks were created'}${failed ? `; ${failed} failed` : ''}.`,
+    created.length ? () => { dismissToast(); void goProject(projectId); } : undefined, 7000, created.length ? 'Open' : undefined);
 }
 
 // Where Ask was opened from, so closing it goes back there (a page, not a
@@ -3138,15 +3204,40 @@ async function handleAction(action, el, event) {
     case 'nav-library': await goLibrary(); break;
     case 'open-ask-page': await openAskPage(); break;
     case 'ask-new':
-      setState({ askPraxResult: null, askPraxQuery: '', askDraft: '', askPraxError: false, askPraxLoading: false });
+      setState({ askPraxResult: null, askPraxQuery: '', askDraft: '', askPraxError: false, askPraxLoading: false, askSuggest: null });
       renderApp();
       appRoot.querySelector('[data-ask-page-input]')?.focus();
       break;
     case 'ask-history-open': {
       const entry = (state.askHistory || [])[Number(el.dataset.index)];
-      if (entry) { setState({ askPraxQuery: entry.query, askPraxResult: { ...entry.result, query: entry.query }, askPraxError: false, askPraxLoading: false }); renderApp(); }
+      if (entry) { setState({ askPraxQuery: entry.query, askPraxResult: { ...entry.result, query: entry.query }, askPraxError: false, askPraxLoading: false, askSuggest: null }); renderApp(); }
       break;
     }
+    case 'ask-suggest-tasks': {
+      const r = state.askPraxResult;
+      if (r) await loadAskTasks(r.query || state.askPraxQuery, r);
+      break;
+    }
+    case 'ask-task-toggle': {
+      const suggest = state.askSuggest;
+      const index = Number(el.dataset.index);
+      if (!suggest || suggest.created != null || !Number.isInteger(index)) break;
+      const checked = suggest.checked.map((value, i) => (i === index ? !value : value));
+      setState({ askSuggest: { ...suggest, checked } });
+      renderApp();
+      appRoot.querySelector(`[data-action="ask-task-toggle"][data-index="${index}"]`)?.focus();
+      break;
+    }
+    case 'ask-create-tasks': await createAskTasks(); break;
+    case 'ask-review-source':
+      // "Review it now": the desk, opened on the unverified source the answer cited.
+      await goLibrary({ libraryView: 'review', reviewLayout: 'desk', reviewDeskId: el.dataset.documentId || null, reviewDeskDone: [] });
+      break;
+    case 'toggle-ask-trust':
+      setState({ askTrust: state.askTrust === 'verified' ? 'all' : 'verified' });
+      renderApp();
+      appRoot.querySelector('[data-action="toggle-ask-trust"]')?.focus();
+      break;
     case 'save-ask-note': await saveAskAsNote(); break;
     case 'close-ask-page': await closeAskPage(); break;
     case 'selbar-ask': {
@@ -4042,7 +4133,12 @@ function bindEvents() {
 
   appRoot.addEventListener('change', (event) => {
     const target = event.target;
-    if (target.matches?.('[data-ask-scope]')) { setState({ askScope: target.value || 'all' }); return; }
+    if (target.matches?.('[data-ask-scope]')) {
+      setState({ askScope: target.value || 'all' });
+      renderApp();
+      appRoot.querySelector('[data-ask-scope]')?.focus();
+      return;
+    }
     if (target.matches?.('[data-inbox-field]')) { inboxController.change(target.dataset.inboxField, target.value); return; }
     if (target.matches?.('[data-template-field]')) { templateStudio.updateTemplateStudio(target.dataset.templateField, target.value); return; }
     if (documentInfo.mirrorInput(target)) return;

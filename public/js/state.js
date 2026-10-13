@@ -167,6 +167,8 @@ export const state = {
   askPraxOpen: false,
   askPraxQuery: '',
   askDraft: '', // the Ask page composer (Console redesign)
+  askTrust: 'all', // 'all' | 'verified': which memory an answer may draw on
+  askSuggest: null, // { key, loading, tasks, checked, created, error, projectId }
   askPraxResult: null,          // null = not run; { answer, degraded, reason, markdown, sources, model }
   askPraxLoading: false,
   askPraxError: false,

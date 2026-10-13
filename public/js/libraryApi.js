@@ -311,15 +311,28 @@ export async function semanticSearch(query, project, { limit = 20, offset = 0 } 
 // { query, answer, degraded, reason, markdown, sources, model } — answer is null
 // (degraded) when no chat model is configured or generation failed, in which
 // case `markdown` carries the retrieved context pack instead.
-export async function askPrax(query, project = 'all') {
+export async function askPrax(query, project = 'all', trust = 'all') {
   const body = { q: query };
   if (project && project !== 'all') body.project = project;
+  if (trust === 'verified') body.trust = 'verified';
   const res = await fetch('/api/library/ask', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error('Failed to get an answer');
+  return res.json();
+}
+
+// Suggested follow-up tasks for a written Ask Prax answer. Proposes only;
+// nothing is created until the person chooses.
+export async function suggestAskTasks({ q, answer, sourceIds }) {
+  const res = await fetch('/api/library/ask/tasks', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...localDayHeaders() },
+    body: JSON.stringify({ q, answer, sourceIds }),
+  });
+  if (!res.ok) throw new Error('Failed to suggest tasks');
   return res.json();
 }
 
