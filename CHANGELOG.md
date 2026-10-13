@@ -12,13 +12,7 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
-### Fixed
-
-- **Desktop: the whole title bar drags the window again.** The Console title bar fills its
-  width with the command bar and the action buttons, and Tauri starts a drag only on an element
-  that itself carries the drag attribute, so only the brand area moved the window or zoomed on
-  double-click. The wrappers, the wordmark and the breadcrumb text are drag regions now; the
-  buttons stay buttons.
+## [0.44.0] - 2026-10-13
 
 ### Added
 
@@ -32,37 +26,6 @@ fresh empty `[Unreleased]` section is started.
   to the same view instead of the Inbox. `#doc/<id>` opens a document when typed or pasted;
   the editor itself writes no address, so a reload never lands inside a draft that vetoes
   navigation.
-
-### Fixed
-
-- **Tag housekeeping no longer evicts agent memory from review.** A patch that changes only
-  tags, project or type leaves who wrote the document untouched (authorship follows content),
-  so merging two tags on the Tags page keeps an agent's unreviewed note in the review queue and
-  keeps a person's document theirs. The merge confirmation says so; the Tags page's columns now
-  read "Last updated" and "Written by", which is what they measure, and a merge counts each
-  document once.
-- **Library on a phone.** The table's title column had no width (fixed columns ate the pane);
-  under 520px a row is the title, wrapping, with trust and Review beside it. The facet rows fold
-  behind "Filters · n active" with the active filters still removable above the fold, the
-  search input takes its own line, Tags is in the ⋯ menu, and the review desk shows the
-  document before the queue.
-- **A pending or failed library load is not "Your library is empty".** The Library says
-  "Loading…", a failure keeps the rows already loaded and offers Try again, and the welcome
-  screen appears only after a load that really returned nothing.
-- **One filter model.** Semantic search honours the active tags and facets and says how many
-  matches they left out; "One at a time" walks exactly the rows the filtered table shows, in
-  its order; Save view keeps every filter (types, trust, project, query, sort, grouping) and
-  reopens them; a Tags-page link, the sidebar's Library and Clear filters reset every axis.
-- **Cards say what the table says:** UNVERIFIED when nobody checked a document and who wrote
-  it; an empty document reads "No content yet"; a select box sits beside each card, so bulk
-  actions no longer require the table.
-- **Bulk archive has Undo**, names what could not be archived and keeps it selected; the bulk
-  bar says when a selected document is hidden by the filter.
-- **Library truthfulness and reach:** the header count says "4 of 51 · filtered"; an unmatched
-  Archive search says so instead of "No archived documents"; Group cycles Type, Project, Trust
-  and None; facet pills, selection boxes and the ⋯ menu keep keyboard focus (Escape closes the
-  menus); the STALE chip, archive rows, the semantic error line and the toast's Undo link meet
-  contrast.
 
 ### Changed
 
@@ -108,6 +71,43 @@ fresh empty `[Unreleased]` section is started.
   link reads "Act on this with the assistant" and hands the question and the titles it was
   answered from into the assistant's composer. An assistant answer that read no Prax data is
   marked "From the model's own knowledge", with a link to Ask Prax for a cited one.
+
+### Fixed
+
+- **Desktop: the whole title bar drags the window again.** The Console title bar fills its
+  width with the command bar and the action buttons, and Tauri starts a drag only on an element
+  that itself carries the drag attribute, so only the brand area moved the window or zoomed on
+  double-click. The wrappers, the wordmark and the breadcrumb text are drag regions now; the
+  buttons stay buttons.
+
+- **Tag housekeeping no longer evicts agent memory from review.** A patch that changes only
+  tags, project or type leaves who wrote the document untouched (authorship follows content),
+  so merging two tags on the Tags page keeps an agent's unreviewed note in the review queue and
+  keeps a person's document theirs. The merge confirmation says so; the Tags page's columns now
+  read "Last updated" and "Written by", which is what they measure, and a merge counts each
+  document once.
+- **Library on a phone.** The table's title column had no width (fixed columns ate the pane);
+  under 520px a row is the title, wrapping, with trust and Review beside it. The facet rows fold
+  behind "Filters · n active" with the active filters still removable above the fold, the
+  search input takes its own line, Tags is in the ⋯ menu, and the review desk shows the
+  document before the queue.
+- **A pending or failed library load is not "Your library is empty".** The Library says
+  "Loading…", a failure keeps the rows already loaded and offers Try again, and the welcome
+  screen appears only after a load that really returned nothing.
+- **One filter model.** Semantic search honours the active tags and facets and says how many
+  matches they left out; "One at a time" walks exactly the rows the filtered table shows, in
+  its order; Save view keeps every filter (types, trust, project, query, sort, grouping) and
+  reopens them; a Tags-page link, the sidebar's Library and Clear filters reset every axis.
+- **Cards say what the table says:** UNVERIFIED when nobody checked a document and who wrote
+  it; an empty document reads "No content yet"; a select box sits beside each card, so bulk
+  actions no longer require the table.
+- **Bulk archive has Undo**, names what could not be archived and keeps it selected; the bulk
+  bar says when a selected document is hidden by the filter.
+- **Library truthfulness and reach:** the header count says "4 of 51 · filtered"; an unmatched
+  Archive search says so instead of "No archived documents"; Group cycles Type, Project, Trust
+  and None; facet pills, selection boxes and the ⋯ menu keep keyboard focus (Escape closes the
+  menus); the STALE chip, archive rows, the semantic error line and the toast's Undo link meet
+  contrast.
 
 ## [0.43.1] - 2026-10-13
 
@@ -2510,7 +2510,8 @@ and onboarding features with the corrected installation guide.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/markjoyeuxcom/prax/compare/v0.43.1...HEAD
+[Unreleased]: https://github.com/markjoyeuxcom/prax/compare/v0.44.0...HEAD
+[0.44.0]: https://github.com/markjoyeuxcom/prax/compare/v0.43.1...v0.44.0
 [0.43.1]: https://github.com/markjoyeuxcom/prax/compare/v0.43.0...v0.43.1
 [0.43.0]: https://github.com/markjoyeuxcom/prax/compare/v0.42.0...v0.43.0
 [0.42.0]: https://github.com/markjoyeuxcom/prax/compare/v0.41.0...v0.42.0
