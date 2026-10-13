@@ -12,9 +12,18 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
-Fixes from the code-quality review of 0.44.0 (Codex, 2026-10-13).
+## [0.45.0] - 2026-10-13
+
+### Changed
+
+- `npm run check` now includes an undefined-identifier lint (ESLint, `no-undef` only); it is
+  the class of mistake that produced one of the review's findings and that `node --check`
+  cannot see.
 
 ### Fixed
+
+Everything in this section comes from the code-quality review of 0.44.0 (Codex, 2026-10-13,
+three passes).
 
 - **AI Undo no longer discards what you typed after Apply.** Undo on the toast or in the
   assistant restores the pre-Apply text only while the document still holds exactly the applied
@@ -46,12 +55,6 @@ Fixes from the code-quality review of 0.44.0 (Codex, 2026-10-13).
   semantic search; a tag with a comma survives the URL round trip (tags moved to a repeated
   `tag` parameter; a 0.44.0 address with comma lists keeps its meaning).
 - **The truncated-answer notice no longer points at a setting that does not exist.**
-
-### Changed
-
-- `npm run check` now includes an undefined-identifier lint (ESLint, `no-undef` only); it is
-  the class of mistake that produced one of the review's findings and that `node --check`
-  cannot see.
 
 ## [0.44.0] - 2026-10-13
 
@@ -2551,7 +2554,8 @@ and onboarding features with the corrected installation guide.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/markjoyeuxcom/prax/compare/v0.44.0...HEAD
+[Unreleased]: https://github.com/markjoyeuxcom/prax/compare/v0.45.0...HEAD
+[0.45.0]: https://github.com/markjoyeuxcom/prax/compare/v0.44.0...v0.45.0
 [0.44.0]: https://github.com/markjoyeuxcom/prax/compare/v0.43.1...v0.44.0
 [0.43.1]: https://github.com/markjoyeuxcom/prax/compare/v0.43.0...v0.43.1
 [0.43.0]: https://github.com/markjoyeuxcom/prax/compare/v0.42.0...v0.43.0

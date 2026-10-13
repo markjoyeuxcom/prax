@@ -3,5 +3,5 @@
 # Own Image"), or pulling it fails.
 services:
   app:
-    image: ghcr.io/markjoyeuxcom/prax:v0.44.0
+    image: ghcr.io/markjoyeuxcom/prax:v0.45.0
     build: !reset null
