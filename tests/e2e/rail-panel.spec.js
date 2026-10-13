@@ -124,7 +124,8 @@ test('⌘K jumps to a project and to the built-in Stale view by name', async ({ 
   // Jump to the project: type part of its name, run the Projects result.
   await page.locator('[data-action="open-palette"]').click();
   await page.locator('[data-palette-input]').fill(`target ${stamp}`);
-  await page.locator('.palette__item', { hasText: `Palette Target ${stamp}` }).click();
+  // The project, not its seeded "… project overview" document (both match the text).
+  await page.locator('.palette__item').filter({ has: page.locator('.palette__item-title', { hasText: new RegExp(`^Palette Target ${stamp}$`) }) }).click();
   await expect(page.locator('.titlebar__crumb')).toContainText(`Palette Target ${stamp}`);
 
   // Jump to the built-in Stale smart view the same way.
