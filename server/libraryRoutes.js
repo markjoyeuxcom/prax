@@ -302,6 +302,9 @@ export async function registerLibraryRoutes(app, options = {}) {
     const service = embeddingServiceFor(embedder);
     if (service) service.embedDocument(documentId); // not awaited
   }
+  // Other route modules (the projects routes seed an overview document) embed
+  // through the same path, so a card is searchable without a reindex.
+  if (!app.hasDecorator('embedOnWrite')) app.decorate('embedOnWrite', embedOnWrite);
 
   async function generatedDocumentReplay(id, operation, intentHash) {
     if (!id) return { state: 'new' };

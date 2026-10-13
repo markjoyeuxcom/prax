@@ -58,6 +58,7 @@ export function renderProjectPageHtml(state, project, { backlogCount = 0, archiv
           <span class="page-head__dot" style="--dot:${escapeHtml(dotColor)}"></span>
           ${titleHtml}
           <span class="chip ${chipClass}">${escapeHtml(system ? `System · ${system.purpose}` : status.replace('-', ' '))}</span>
+          ${hasOps ? `<button class="page-head__overview" type="button" data-action="open-project-overview" data-project-id="${escapeHtml(project.id)}" title="Open the project overview (created from the starter when missing)"${state.overviewPendingProjectId === project.id ? ' aria-busy="true" disabled' : ''}>${icon('doc', 13)}<span>${state.overviewPendingProjectId === project.id ? 'Opening…' : 'Overview'}</span></button>` : ''}
           ${hasOps ? renderOpsToggleHtml(project, { collapsed: opsCollapsed }) : ''}
         </header>
         ${system ? `<p class="view-hint">${escapeHtml(system.description)}</p>` : ''}

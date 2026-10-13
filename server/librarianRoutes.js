@@ -9,6 +9,7 @@
 // proposal. The pure clustering lives in librarian.js.
 import { createLibraryRepository, buildCreateDocument, buildSearchDocumentsSemantic, normalizeDocumentRow } from './libraryRepository.js';
 import { createProjectsRepository } from './projectsRepository.js';
+import { projectsWithoutOverview } from './projectOverview.js';
 import { createDocumentLinksRepository } from './documentLinksRepository.js';
 import { createEmbeddingService } from './embeddingService.js';
 import { contentLength } from './contextPack.js';
@@ -292,12 +293,26 @@ export async function registerLibrarianRoutes(app, options = {}) {
 
   // The read-only report `prax doctor` prints. `warn` checks fail CI (exit 2);
   // `info` checks are listed only.
+  // Active projects with no overview document (their master page). Scoped to
+  // the one project when the report is. null when the projects could not be
+  // inspected: "nothing missing" must never stand in for "could not look".
+  async function missingOverviews(projectId) {
+    if (!projectsRepository) return null;
+    try {
+      const projects = (await projectsRepository.listProjects('active')).filter((p) => !projectId || p.id === projectId);
+      return await projectsWithoutOverview({ libraryRepository: repository, projects });
+    } catch {
+      return null;
+    }
+  }
+
   async function buildReport({ projectId, log } = {}) {
-    const [health, index, pass, proposals] = await Promise.all([
+    const [health, index, pass, proposals, overviewMissing] = await Promise.all([
       healthCounts(projectId),
       indexCoverage(),
       runLibrarian({ projectId, write: false, log }),
       listProposals({ status: 'open' }),
+      missingOverviews(projectId),
     ]);
     const openProposals = projectId ? proposals.filter((p) => p.projectId === projectId) : proposals;
     let gaps = null;
@@ -319,6 +334,9 @@ export async function registerLibrarianRoutes(app, options = {}) {
       check('duplicates', 'warn', unproposed, `${unproposed} duplicate cluster(s) without a proposal (run the librarian)`),
       check('proposals', 'info', openProposals.length, `${openProposals.length} open proposal(s) awaiting review`),
       check('needs-review', 'info', health.needsReview, `${health.needsReview} unverified document(s)`),
+      overviewMissing
+        ? check('overview', 'info', overviewMissing.length, `${overviewMissing.length} active project(s) without an overview document`)
+        : { id: 'overview', level: 'info', count: 0, message: 'projects could not be inspected for overview documents' },
       telemetry && telemetry.enabled
         ? check('gaps', 'info', gaps.items.length, `${gaps.items.length} knowledge gap(s)`)
         : { id: 'gaps', level: 'info', count: 0, message: 'recall telemetry is off' },
@@ -334,6 +352,7 @@ export async function registerLibrarianRoutes(app, options = {}) {
       index,
       clusters: pass,
       proposals: { open: openProposals.length },
+      overview: overviewMissing ? { missing: overviewMissing } : { missing: null, unavailable: true },
       gaps: gaps ? { count: gaps.items.length, usedSignals: gaps.usedSignals, items: gaps.items.slice(0, 10) } : null,
       prune: prune ? { ready: prune.ready, coverageDays: prune.coverageDays, count: prune.items.length, items: prune.items.slice(0, 10) } : null,
       telemetry: telemetryStats,

@@ -29,6 +29,7 @@ export const state = {
   calendarSelectedDay: null,    // ISO day whose tasks show in the calendar detail strip (null = none)
   renamingProjectId: null,      // project whose header title is being inline-edited (null = none)
   revealedOpsFields: [],        // 'projectId:field' ops inputs shown while empty (session only)
+  overviewPendingProjectId: null, // project whose Overview card is being opened (one request at a time)
   paletteScope: 'all',          // ⌘K scope: 'all' | 'commands' | 'projects' | 'views' | 'tasks' | 'docs'
   shortcutsOpen: false,         // ⌘/ keyboard shortcuts overlay
   confirm: null,                // in-app confirm dialog { message, okLabel, action, danger?, data?, input? } (null = closed)

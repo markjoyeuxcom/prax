@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { detectProject, detectRepoUrl } from './lib/detectProject.js';
 import { matchProjectByRepoUrl, normalizeRepoUrl } from '../server/repoUrl.js';
 import { DOCUMENT_TYPE_VALUES, isDocumentType } from '../public/js/documentTypes.js';
+import { getSystemProject } from '../public/js/systemProject.js';
 import { createClient } from './lib/apiClient.js';
 import { formatSearchResults, formatDocument, trustLabel } from './lib/format.js';
 import { recall, formatRecall } from './lib/recall.js';
@@ -339,22 +340,58 @@ async function main(argv) {
     mkdirSync('.prax', { recursive: true });
     writeFileSync(join('.prax', 'project.json'), `${JSON.stringify({ project }, null, 2)}\n`);
     out(`Wrote .prax/project.json (project: ${project}).`);
-    // Register the repo URL on the project (best-effort) so other checkouts and
-    // worktrees of this repo auto-detect it without their own `prax init`.
-    if (repoUrl) {
+    // The project record, created when new (best-effort: the marker above is
+    // written whether or not the app is reachable).
+    let record = null;
+    try {
+      const slug = await client.ensureProject(project);
+      record = (await client.listProjects()).find((p) => p.slug === slug) || null;
+    } catch {
+      out('Note: Prax is not reachable — the repo URL and the project overview were not registered; run `prax init` again with the app running.');
+    }
+    // Register the repo URL on the project so other checkouts and worktrees
+    // of this repo auto-detect it without their own `prax init`.
+    if (record && repoUrl && !getSystemProject(record)) {
       try {
-        const slug = await client.ensureProject(project);
-        const record = (await client.listProjects()).find((p) => p.slug === slug);
-        if (record && !record.repoUrl) {
+        if (!record.repoUrl) {
           await client.updateProject(record.id, { repoUrl });
+          record = { ...record, repoUrl };
           out(`Registered repo ${repoUrl} on project "${record.name}".`);
-        } else if (record?.repoUrl && normalizeRepoUrl(record.repoUrl) !== normalizeRepoUrl(repoUrl)) {
+        } else if (normalizeRepoUrl(record.repoUrl) !== normalizeRepoUrl(repoUrl)) {
           // Normalized compare — a different SPELLING of the same repo is not
           // a conflict, only a genuinely different repository is.
           out(`Note: project "${record.name}" is registered to ${record.repoUrl} — left unchanged.`);
         }
       } catch {
-        out('Note: could not register the repo URL (is the app running?) — detection will use the folder name.');
+        out('Note: could not register the repo URL — detection will use the folder name.');
+      }
+    }
+    // Every project has an overview document, its master page. A project
+    // created here starts with the bundled starter; an older one gets it now,
+    // so `prax overview` has something to print and a person something to fill.
+    if (record && !getSystemProject(record)) {
+      try {
+        const result = await client.ensureProjectOverview(record.id);
+        const card = result.document;
+        if (result.created) out(`Created "${card.title}" (${card.id}) — unverified: fill its placeholders, then verify it.`);
+        else if (card) out(`Overview: "${card.title}" (${card.id}).`);
+        // A card seeded before the repo was registered still has the
+        // repository placeholder: fill it from the PROJECT's registered URL
+        // (never from a local origin the project is not bound to), and only
+        // if nobody edited the card meanwhile.
+        if (card && record.repoUrl && typeof card.body === 'string' && card.body.includes('<repository URL>')) {
+          try {
+            await client.updateMemory(card.id, { body: card.body.replace('<repository URL>', () => record.repoUrl), ifRevision: card.revision });
+            out(`Filled the repository URL into "${card.title}".`);
+          } catch (err) {
+            if (err?.status !== 409) throw err;
+            out(`Note: "${card.title}" changed meanwhile — its repository line was left as is.`);
+          }
+        }
+      } catch (err) {
+        out(err?.status === 409
+          ? `Note: ${err.message}`
+          : 'Note: could not create the project overview — run `prax init` again with the app running.');
       }
     }
     return;
@@ -455,7 +492,7 @@ async function main(argv) {
     const result = await projectOverview(client, project);
     if (flags.json) { out(result); return; }
     if (!result.found) {
-      out(`No project overview for "${result.project.slug}". Create one from Library ▸ New doc ▸ Templates & guides ▸ Project overview and tag it project-card.`);
+      out(`No project overview for "${result.project.slug}". Run \`prax init\` in its checkout to create one from the bundled starter, or use Library ▸ New doc ▸ Templates & guides ▸ Project overview and tag it project-card.`);
       return;
     }
     out(`${overviewCaveat(result)}\n\n${formatDocument(result.doc)}`);

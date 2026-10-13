@@ -7,22 +7,16 @@
 // `project-card`, then any document tagged `project-card` (newest first), then
 // one titled exactly "<Project name> project overview". Read-only.
 
-const CARD_TAG = 'project-card';
-
-function newestFirst(a, b) {
-  return String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
-}
+import { pickOverview, OVERVIEW_TAG } from '../../server/projectOverview.js';
 
 // docs: the project's active documents (listing shape). Returns
-// { doc, source: 'project-card' | 'title' } or null.
+// { doc, source: 'project-card' | 'title' } or null. The choice itself is the
+// server's (one rule for `prax overview`, the seed and the doctor check).
 export function pickProjectCard(docs, projectName) {
-  const active = (Array.isArray(docs) ? docs : []).filter((d) => d && (d.status ?? 'active') === 'active' && !d.archivedAt);
-  const cards = active.filter((d) => Array.isArray(d.tags) && d.tags.includes(CARD_TAG)).sort(newestFirst);
-  const card = cards.find((d) => d.verified) || cards[0];
-  if (card) return { doc: card, source: 'project-card' };
-  const wanted = `${String(projectName || '').trim()} project overview`.toLowerCase();
-  const titled = active.filter((d) => String(d.title || '').trim().toLowerCase() === wanted).sort(newestFirst)[0];
-  return titled ? { doc: titled, source: 'title' } : null;
+  const doc = pickOverview(docs, projectName);
+  if (!doc) return null;
+  const tagged = Array.isArray(doc.tags) && doc.tags.includes(OVERVIEW_TAG);
+  return { doc, source: tagged ? 'project-card' : 'title' };
 }
 
 // The one-line caveat printed above the card.

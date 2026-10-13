@@ -76,7 +76,10 @@ test('mirror → import → mirror round-trips the portable fields and honours t
   const target = await startApp();
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'prax-mirror-contract-')));
   try {
-    await post(source.app, '/api/projects', { name: 'demo' });
+    // The source is a hand-built fixture: no seeded overview card. The import
+    // creates the target's project without one too (the mirror carries the
+    // project's own card when it has one).
+    await post(source.app, '/api/projects', { name: 'demo', overview: false });
     const doc = (fields, headers) => post(source.app, '/api/library/documents', { project: 'demo', documentType: 'note', tags: [], ...fields }, headers);
     const decision = await doc({ title: 'Use SQLite', body: '# Why\n\nOne file, one writer.\n', documentType: 'decision', tags: ['architecture', 'convention'] });
     await post(source.app, `/api/library/documents/${decision.id}/verify`, { verified: true, as: 'Mark', revision: decision.revision });
@@ -125,7 +128,7 @@ test('mirror → import → mirror round-trips the portable fields and honours t
     const back = await cli(['mirror', '--project', 'demo', '--out', 'back'], { cwd: base, url: target.url });
     assert.equal(back.code, 0, back.stderr);
     const round = snapshot(join(base, 'back'));
-    assert.deepEqual(Object.keys(round).sort(), ['README.md', 'agent-finding.md', 'index.json', 'origin-notes.md', 'use-sqlite.md']);
+    assert.deepEqual(Object.keys(round).sort(), ['README.md', 'agent-finding.md', 'index.json', 'origin-notes.md', 'use-sqlite.md'], 'the import seeds no starter card beside the mirrored documents');
     for (const path of ['agent-finding.md', 'origin-notes.md', 'use-sqlite.md']) {
       assert.deepEqual(portable(round[path]), portable(one[path]), path);
     }

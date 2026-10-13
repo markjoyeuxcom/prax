@@ -124,6 +124,12 @@ the existing project instead of creating a folder-named duplicate) > an existing
 the folder name. Inside a git repository it also registers the remote URL on the project. The
 file is safe to commit to the repo.
 
+`init` also makes sure the project has its overview document, its master page (`<Name>
+project overview`, a reference tagged `project-card`). A project created in the app or by the
+CLI starts with one; for a project that has none, `init` creates it from the bundled starter
+with the name, slug and repo URL filled in. It is unverified until a person completes and
+verifies it. `prax overview` prints it.
+
 ### `context [query...] [--json] [--limit <n>] [--budget <tokens>] [--include-harvested]`
 
 The headline command. Pulls a bounded, trust-aware Markdown briefing assembled from the
@@ -322,7 +328,8 @@ Print the project's orientation card in one call. Active documents only, in this
 verified document tagged `project-card`; otherwise the newest `project-card`; otherwise one
 titled exactly "<Project name> project overview". A caveat line above the card always states
 whether it is verified and how it was found, so an agent treats an unverified card as a lead.
-With no card it prints how to create one (exit 0). `--json` returns
+Every project created in the app or by the CLI starts with a starter card; with no card (a
+project from before v0.41) it says to run `prax init` or use the template (exit 0). `--json` returns
 `{ project, found, source, doc }`. `prax context` still leads with the card once it is verified.
 
 ```bash
@@ -812,7 +819,8 @@ prax used c58d3108-4f93-4a50-ac42-0c1d61e61b08
 A CI-friendly summary of knowledge-base health from the read-only librarian report
 (`GET /api/library/librarian/report`): index coverage, stale derivations, empty documents,
 near-duplicate clusters without a proposal, open proposals, unverified documents, knowledge
-gaps, never-recalled memories and the telemetry counts. It never writes anything; filing
+gaps, never-recalled memories, active projects without an overview document and the
+telemetry counts. It never writes anything; filing
 proposals is the **Run librarian** action in Library health.
 
 | Exit | Meaning |

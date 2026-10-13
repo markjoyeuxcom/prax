@@ -15,6 +15,17 @@ export async function createProject(name) {
   return response.json();
 }
 
+// The project's overview document (its master page): the existing card, or
+// one created from the bundled starter. { project, document, created }.
+export async function ensureProjectOverview(id) {
+  const response = await fetch(`/api/projects/${id}/overview`, { method: 'POST' });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.message || 'Failed to open the project overview');
+  }
+  return response.json();
+}
+
 export async function updateProject(id, patch) {
   const response = await fetch(`/api/projects/${id}`, {
     method: 'PATCH',

@@ -90,7 +90,9 @@ export async function runMirror({
     const trusted = trustedVerifiers({ flag: flagValue(flags, 'trust-verifier'), env });
     // Import files documents into the project, creating it when it is new
     // (as `prax remember` does), so a fresh library can take a mirror.
-    const project = await client.ensureProject((await resolveProject({ write: true })).project);
+    // The mirror carries the project's own overview card (when it has one):
+    // no seeded starter beside it.
+    const project = await client.ensureProject((await resolveProject({ write: true })).project, { overview: false });
     const report = await importMirror(client, {
       dir, project, trusted, confirm: (claims) => confirmClaims(claims, { input, output }),
     });

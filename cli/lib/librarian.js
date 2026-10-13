@@ -84,6 +84,11 @@ export function formatDoctor(report, { base } = {}) {
     lines.push('', `Never recalled in ${report.prune.coverageDays} days (prune candidates):`);
     for (const doc of prune.slice(0, 10)) lines.push(`  - ${doc.title} — ${doc.id}`);
   }
+  const missing = report.overview?.missing || [];
+  if (missing.length) {
+    lines.push('', 'Projects without an overview document (`prax init` in the checkout creates one, or Library ▸ New doc ▸ Templates & guides ▸ Project overview):');
+    for (const project of missing.slice(0, 10)) lines.push(`  - ${project.name} (${project.slug})`);
+  }
   if (report.telemetry) {
     const t = report.telemetry;
     lines.push('', `Telemetry: ${t.enabled ? 'on' : 'off'} · ${t.queries} queries · ${t.uses} used signals · kept ${t.retentionDays} days (local only; \`prax telemetry clear\` deletes it)`);

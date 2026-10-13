@@ -633,7 +633,8 @@ test('projects: deleting a project takes its tasks and documents with it; Memory
   const doc = (await app.inject({ method: 'POST', url: '/api/library/documents', payload: { title: 'Goes with it too', body: 'x', documentType: 'note', project: 'disposable' } })).json();
   const res = await app.inject({ method: 'DELETE', url: `/api/projects/${proj.id}/permanent` });
   assert.equal(res.statusCode, 200, res.body);
-  assert.deepEqual(res.json().deleted, { tasks: 1, documents: 1 });
+  // Two documents: the note and the overview card the create seeded.
+  assert.deepEqual(res.json().deleted, { tasks: 1, documents: 2 });
   assert.equal((await app.inject({ method: 'GET', url: `/api/tasks/${task.id}` })).statusCode, 404);
   assert.equal((await app.inject({ method: 'GET', url: `/api/library/documents/${doc.id}` })).statusCode, 404);
 

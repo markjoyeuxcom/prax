@@ -149,7 +149,9 @@ test('DELETE /permanent removes an ordinary project with its tasks and documents
 
   const res = await app.inject({ method: 'DELETE', url: `/api/projects/${project.id}/permanent` });
   assert.equal(res.statusCode, 200, res.body);
-  assert.deepEqual(res.json().deleted, { tasks: 1, documents: 1 });
+  // Two documents: the note and the overview card the create seeded.
+  assert.deepEqual(res.json().deleted, { tasks: 1, documents: 2 });
+  assert.equal((await app.inject({ method: 'GET', url: `/api/library/documents/${project.overviewDocumentId}` })).statusCode, 404, 'overview card is gone');
   assert.equal((await app.inject({ method: 'GET', url: `/api/tasks/${task.id}` })).statusCode, 404, 'task is gone');
   assert.equal((await app.inject({ method: 'GET', url: `/api/library/documents/${doc.id}` })).statusCode, 404, 'document is gone');
   const remaining = (await app.inject({ method: 'GET', url: '/api/projects?status=all' })).json().map((p) => p.slug);
@@ -196,4 +198,112 @@ test('the reserved Memory project is protected from rename, status change, archi
   assert.equal((await app.inject({ method: 'PATCH', url: `/api/projects/${MEMORY_ID}`, payload: { status: 'archived' } })).statusCode, 403);
   assert.equal((await app.inject({ method: 'DELETE', url: `/api/projects/${MEMORY_ID}` })).statusCode, 403);
   assert.equal((await app.inject({ method: 'DELETE', url: `/api/projects/${MEMORY_ID}/permanent` })).statusCode, 403);
+});
+
+// ---- the project's overview document (server/projectOverview.js) ----------
+
+function fakeLibrary() {
+  const docs = [];
+  return {
+    docs,
+    async listDocuments({ projectId }) { return docs.filter((d) => d.projectId === projectId); },
+    async createDocument(document) {
+      const row = { id: `doc-${docs.length + 1}`, ...document, status: 'active', archivedAt: null, updatedAt: new Date().toISOString() };
+      docs.push(row);
+      return row;
+    },
+  };
+}
+
+async function buildWithLibrary(overrides, libraryRepository = fakeLibrary()) {
+  const app = Fastify();
+  await registerProjectsRoutes(app, { projectsRepository: fakeRepository(overrides), libraryRepository });
+  return { app, library: libraryRepository };
+}
+
+test('POST /api/projects seeds the overview document, unverified, and names it in the response', async () => {
+  const { app, library } = await buildWithLibrary();
+  const res = await app.inject({ method: 'POST', url: '/api/projects', payload: { name: 'Work' } });
+  assert.equal(res.statusCode, 201);
+  assert.equal(res.json().slug, 'work');
+  assert.equal(res.json().overviewDocumentId, 'doc-1');
+  assert.equal(library.docs.length, 1);
+  const card = library.docs[0];
+  assert.equal(card.title, 'Work project overview');
+  assert.equal(card.projectId, PROJECT_ID);
+  assert.deepEqual(card.tags, ['project-card']);
+  assert.equal(card.documentType, 'reference');
+  assert.equal(card.verified, false);
+  assert.equal(card.updatedBy, 'user');
+  assert.match(card.body, /^# Work project overview/);
+  assert.match(card.body, /- Prax project: Work \(work\)/);
+});
+
+test('POST /api/projects with overview: false, or without a library, creates the project alone', async () => {
+  const { app, library } = await buildWithLibrary();
+  const skipped = await app.inject({ method: 'POST', url: '/api/projects', payload: { name: 'Work', overview: false } });
+  assert.equal(skipped.statusCode, 201);
+  assert.equal(skipped.json().overviewDocumentId, undefined);
+  assert.equal(library.docs.length, 0);
+  const bare = await build();
+  const res = await bare.inject({ method: 'POST', url: '/api/projects', payload: { name: 'Work' } });
+  assert.equal(res.statusCode, 201);
+  assert.equal(res.json().overviewDocumentId, undefined);
+});
+
+test('a failing seed never fails the project create, and is disclosed', async () => {
+  const broken = { async listDocuments() { throw new Error('library down'); }, async createDocument() { throw new Error('nope'); } };
+  const { app } = await buildWithLibrary(undefined, broken);
+  const res = await app.inject({ method: 'POST', url: '/api/projects', payload: { name: 'Work' } });
+  assert.equal(res.statusCode, 201);
+  assert.equal(res.json().slug, 'work');
+  assert.equal(res.json().overviewDocumentId, undefined);
+  assert.match(res.json().overviewError, /POST \/api\/projects\/:id\/overview/);
+});
+
+test('POST /api/projects/:id/overview creates the card once (201), then returns it (200); an agent request is attributed', async () => {
+  const { app, library } = await buildWithLibrary();
+  const created = await app.inject({ method: 'POST', url: `/api/projects/${PROJECT_ID}/overview`, headers: { 'x-prax-origin': 'agent', 'x-prax-agent': 'claude' } });
+  assert.equal(created.statusCode, 201);
+  assert.equal(created.json().created, true);
+  assert.equal(created.json().project.slug, 'work');
+  assert.equal(created.json().document.title, 'Work project overview');
+  assert.equal(created.json().document.updatedBy, 'agent');
+  assert.equal(created.json().document.updatedByAgent, 'claude');
+  assert.equal(created.json().document.verified, false);
+  const again = await app.inject({ method: 'POST', url: `/api/projects/${PROJECT_ID}/overview` });
+  assert.equal(again.statusCode, 200);
+  assert.equal(again.json().created, false);
+  assert.equal(again.json().document.id, created.json().document.id);
+  assert.equal(library.docs.length, 1);
+  const missing = await app.inject({ method: 'POST', url: '/api/projects/22222222-2222-4222-8222-222222222222/overview' });
+  assert.equal(missing.statusCode, 404);
+  const invalid = await app.inject({ method: 'POST', url: '/api/projects/nope/overview' });
+  assert.equal(invalid.statusCode, 400);
+});
+
+test('POST /api/projects/:id/overview refuses a system project (403) and a library-less app (409)', async () => {
+  const { app, library } = await buildWithLibrary(memoryOverrides());
+  const res = await app.inject({ method: 'POST', url: `/api/projects/${MEMORY_ID}/overview` });
+  assert.equal(res.statusCode, 403);
+  assert.match(res.json().message, /Memory/);
+  assert.equal(library.docs.length, 0);
+  const bare = await build();
+  const none = await bare.inject({ method: 'POST', url: `/api/projects/${PROJECT_ID}/overview` });
+  assert.equal(none.statusCode, 409);
+});
+
+test('POST /api/projects/:id/overview answers 409 when the only card is archived, and creates nothing', async () => {
+  const archivedCard = { id: 'old', title: 'Work project overview', tags: ['project-card'], status: 'active', archivedAt: '2026-10-01T00:00:00Z', projectId: PROJECT_ID };
+  const library = {
+    created: [],
+    async listDocuments({ archived }) { return archived ? [archivedCard] : []; },
+    async createDocument(document) { library.created.push(document); return document; },
+  };
+  const { app } = await buildWithLibrary(undefined, library);
+  const res = await app.inject({ method: 'POST', url: `/api/projects/${PROJECT_ID}/overview` });
+  assert.equal(res.statusCode, 409);
+  assert.match(res.json().message, /archive/);
+  assert.equal(res.json().document.id, 'old');
+  assert.equal(library.created.length, 0);
 });

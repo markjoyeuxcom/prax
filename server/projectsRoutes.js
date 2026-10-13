@@ -1,5 +1,7 @@
 import { createProjectsRepository } from './projectsRepository.js';
 import { getSystemProject } from '../public/js/systemProject.js';
+import { ensureProjectOverview } from './projectOverview.js';
+import { originFrom, agentFrom } from './tasksRoutes.js';
 
 const STATUSES = new Set(['active', 'on-hold', 'completed', 'archived']);
 
@@ -14,6 +16,32 @@ function isPlainObject(value) {
 
 export async function registerProjectsRoutes(app, options = {}) {
   const repository = options.projectsRepository || app.projectsRepository || createProjectsRepository(app.db);
+  // The library holds each project's overview document; an app built without
+  // one (a bare projects-only app) creates projects without a card. The demo's
+  // in-memory library counts as one.
+  const libraryRepository = options.libraryRepository || app.libraryRepository || null;
+
+  const actorOf = (request) => ({ updatedBy: originFrom(request), updatedByAgent: agentFrom(request) });
+  // The library routes' fire-and-forget embed, passed explicitly or taken from
+  // the app they decorated (absent on a bare app: the card is then embedded by
+  // the next reindex).
+  const embedOnWrite = options.embedOnWrite || app.embedOnWrite || null;
+  const embedLater = (documentId) => { Promise.resolve(embedOnWrite?.(documentId)).catch(() => {}); };
+
+  // Best-effort seed of the new project's overview: the project create must
+  // not fail because its starter could not be filed, but the caller is told.
+  // Returns { document } or { error }.
+  async function seedOverview(project, request) {
+    if (!libraryRepository) return { document: null };
+    try {
+      const result = await ensureProjectOverview({ libraryRepository, project, actor: actorOf(request) });
+      if (result.created && result.document) embedLater(result.document.id);
+      return { document: result.document || null };
+    } catch (err) {
+      app.log?.warn?.({ err, project: project.slug }, 'project overview was not seeded');
+      return { error: 'The overview document could not be created; POST /api/projects/:id/overview creates it.' };
+    }
+  }
 
   // Refuse mutations to the reserved system projects. Returns a response body
   // when blocked (caller returns it), or null when the id is a normal project.
@@ -42,8 +70,44 @@ export async function registerProjectsRoutes(app, options = {}) {
       reply.code(400);
       return { message: 'status is invalid' };
     }
+    const project = await repository.createProject({ name: body.name.trim(), status: body.status });
     reply.code(201);
-    return repository.createProject({ name: body.name.trim(), status: body.status });
+    // Every project starts with its overview document (its master page),
+    // unless the caller opts out (`overview: false`, for imports).
+    if (body.overview === false) return project;
+    const seeded = await seedOverview(project, request);
+    if (seeded.document) return { ...project, overviewDocumentId: seeded.document.id };
+    return seeded.error ? { ...project, overviewError: seeded.error } : project;
+  });
+
+  // The project's overview document, created from the bundled starter when
+  // the project has none: 201 with the new card, 200 with the existing one
+  // (a verified project-card first, then the newest, then the exact title).
+  // The seed is unverified whoever asks; an agent request is attributed.
+  app.post('/api/projects/:id/overview', async (request, reply) => {
+    if (!isValidUuid(request.params.id)) {
+      reply.code(400);
+      return { message: 'project id is invalid' };
+    }
+    const blocked = await refuseSystemProject(request.params.id, reply, 'given an overview');
+    if (blocked) return blocked;
+    const project = await repository.resolveProject(request.params.id);
+    if (!project) {
+      reply.code(404);
+      return { message: 'project not found' };
+    }
+    if (!libraryRepository) {
+      reply.code(409);
+      return { message: 'the library is unavailable, so no overview can be filed' };
+    }
+    const result = await ensureProjectOverview({ libraryRepository, project, actor: actorOf(request) });
+    if (result.archived) {
+      reply.code(409);
+      return { message: `The overview of "${project.name}" is in the Library archive: restore it (or delete it) before a new one is created.`, document: result.document };
+    }
+    if (result.created && result.document) embedLater(result.document.id);
+    reply.code(result.created ? 201 : 200);
+    return { project: { id: project.id, slug: project.slug, name: project.name }, document: result.document, created: result.created };
   });
 
   app.patch('/api/projects/:id', async (request, reply) => {

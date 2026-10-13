@@ -12,6 +12,16 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Added
+
+- **Every project has an overview document.** Creating a project (in the app or with the CLI)
+  files `<Name> project overview` in it: the bundled starter with the name and slug filled in
+  (`prax init` adds the repository URL), tagged `project-card`, unverified until a person
+  completes and verifies it.
+  `POST /api/projects/:id/overview` and `prax init` add the card to a project that has none,
+  and `prax doctor` lists active projects still without one. `prax overview` prints the card,
+  and the project page has an **Overview** button that opens it (creating it when missing).
+
 ## [0.42.0] - 2026-10-13
 
 ### Added

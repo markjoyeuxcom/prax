@@ -659,6 +659,13 @@ body[data-density="compact"] .group-label { margin-top: 12px; }
   transition: background .12s, color .12s;
 }
 .page-head__ops-toggle:hover, .page-head__ops-toggle.is-open { background: var(--accent-soft); color: var(--accent); }
+.page-head__overview {
+  display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px;
+  border-radius: 8px; border: 1px solid var(--line); background: transparent;
+  color: var(--ink2); font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap;
+}
+.page-head__overview:hover { background: var(--accent-soft); color: var(--accent); }
+.page-head__overview:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .page-head__ops-count { font-size: 10.5px; font-weight: 600; padding: 0 5px; border-radius: 99px; background: var(--accent-soft2); }
 .page-head__ops-chevron { font-size: 10px; }
 .proj-ops__label { font-size: 10.5px; color: var(--ink3); text-transform: uppercase; letter-spacing: .05em; }

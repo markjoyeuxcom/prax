@@ -21,8 +21,9 @@ node cli/prax.js brief <task-id>      # one task: checklist, handoff, linked doc
 `overview` prefers a verified document tagged `project-card`, then any `project-card`, then one
 titled "Prax project overview", and always says which it found and whether it is verified.
 Context packs contain bounded excerpts and label unverified entries; read full documents before
-relying on their details. A fresh installation can create an overview from Library → New doc →
-Templates & guides; an agent-written overview remains unverified until a person reviews it.
+relying on their details. Every project created in the app or by the CLI starts with the overview starter, and
+`node cli/prax.js init` adds it to a project that has none; an agent-written overview remains
+unverified until a person reviews it.
 
 Use one task per concrete outcome. Include acceptance checks and link supporting Library
 documents. Task notes carry implementation state, branch/commit, validation performed and
