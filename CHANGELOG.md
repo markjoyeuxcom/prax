@@ -12,7 +12,21 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Added
+
+- **Suggested tasks on Ask answers.** After a written answer, Prax proposes up to three
+  follow-up tasks, each tied to one of the answer's sources (`POST /api/library/ask/tasks`;
+  suggestions that cite nothing are dropped). They arrive ticked; untick any, then Create N
+  tasks files them in the scoped project or the Inbox. Nothing is created until you choose.
+- **Ask composer chips:** the project scope with its colour, a Verified only / Verified +
+  unverified toggle (`trust: "verified"` on `/api/library/ask` leaves unverified memory out of
+  the answer and its sources), and the answering model, which links to Settings.
+- When one unverified source is cited, "Review it now" opens the review desk on it.
+
 ### Fixed
+
+- Ask no longer calls the model when nothing in the library matches: it says so (reason
+  `no-sources`) instead of answering from the model's own knowledge, or chatting back.
 
 - The Ask page composer empties once a question is asked (the thread keeps the question) and
   takes new lines with Shift+Enter; typing a follow-up no longer cancels the answer in

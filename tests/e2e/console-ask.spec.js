@@ -96,3 +96,55 @@ test('closing Ask returns to where it was opened, by button or Esc', async ({ pa
   await expect(page.locator('.ask-page')).toHaveCount(0);
   await expect(page.locator('.statusbar__mode')).not.toHaveText('ASK');
 });
+
+test('suggested tasks: ticked proposals, scoped to the project, created only on request', async ({ page, request }) => {
+  const stamp = Date.now();
+  const projectId = await resolveProjectId(request, 'homelab');
+  const source = await createDocument(request, {
+    title: `B2 key scopes ${stamp}`, body: '# B2 key scopes\n\nRestore needs listAllBucketNames.', documentType: 'known-issue', project: projectId,
+  });
+  const previousBackend = (await (await request.get('/api/settings/ai-answers')).json()).backend;
+  expect((await request.put('/api/settings/ai-answers', { data: { backend: 'fake' } })).ok()).toBe(true);
+  const askBodies = [];
+  await page.route('**/api/library/ask', async (route) => {
+    const payload = route.request().postDataJSON();
+    askBodies.push(payload);
+    await route.fulfill({ json: {
+      query: payload.q, answer: `Recreate the key with listAllBucketNames [${source.title}].`, degraded: false, markdown: '',
+      sources: [{ id: source.id, title: source.title, documentType: 'known-issue', verified: false, kind: 'source', stale: false }],
+      retrieval: { mode: 'semantic' }, model: 'fake-chat',
+    } });
+  });
+  await page.route('**/api/library/ask/tasks', async (route) => route.fulfill({ json: { degraded: false, model: 'fake-chat', tasks: [
+    { title: `Recreate B2 key ${stamp}`, priority: 'high', dueDate: null, sourceId: source.id, sourceTitle: source.title },
+    { title: `Not this one ${stamp}`, priority: 'low', dueDate: null, sourceId: source.id, sourceTitle: source.title },
+  ] } }));
+  try {
+    await page.goto('/');
+    await page.locator('.titlebar [data-action="open-ask-page"]').click();
+    await page.locator('[data-ask-scope]').selectOption(projectId);
+    await page.locator('[data-action="toggle-ask-trust"]').click();
+    await expect(page.locator('[data-action="toggle-ask-trust"]')).toHaveText('✓ Verified only');
+    const input = page.locator('[data-ask-page-input]');
+    await input.fill(`why does the restore fail ${stamp}`);
+    await input.press('Enter');
+    await expect.poll(() => askBodies.at(-1)).toMatchObject({ project: projectId, trust: 'verified' });
+
+    const card = page.getByRole('region', { name: 'Suggested tasks' });
+    await expect(card).toContainText('Suggested tasks · Homelab');
+    await expect(card.getByRole('checkbox')).toHaveCount(2);
+    await card.getByRole('checkbox', { name: new RegExp(`Not this one ${stamp}`) }).click();
+    await expect(card.getByRole('checkbox', { name: new RegExp(`Not this one ${stamp}`) })).toHaveAttribute('aria-checked', 'false');
+    await card.getByRole('button', { name: 'Create 1 task' }).click();
+    await expect(card).toContainText('✓ Created 1 task in Homelab');
+
+    const created = await (await request.get(`/api/tasks?q=${encodeURIComponent(`Recreate B2 key ${stamp}`)}`)).json();
+    const list = Array.isArray(created) ? created : (created.tasks || created.items || []);
+    expect(list.filter((task) => task.title === `Recreate B2 key ${stamp}`)).toHaveLength(1);
+    expect(list[0].projectId).toBe(projectId);
+    const skipped = await (await request.get(`/api/tasks?q=${encodeURIComponent(`Not this one ${stamp}`)}`)).json();
+    expect((Array.isArray(skipped) ? skipped : (skipped.tasks || skipped.items || [])).length).toBe(0);
+  } finally {
+    expect((await request.put('/api/settings/ai-answers', { data: { backend: previousBackend } })).ok()).toBe(true);
+  }
+});

@@ -237,10 +237,11 @@ export function createKnowledgeToolsController({
       && state.askPraxQuery === query;
     // On the Ask page the composer is a draft of the next question: asking
     // empties it, and the thread above shows the question being answered.
-    setState({ askPraxQuery: query, askPraxLoading: true, askPraxError: false, askPraxResult: null, ...(state.navType === 'ask' ? { askDraft: '' } : {}) });
+    setState({ askPraxQuery: query, askPraxLoading: true, askPraxError: false, askPraxResult: null, ...(state.navType === 'ask' ? { askDraft: '', askSuggest: null } : {}) });
     renderApp();
     try {
-      const result = await askPrax(query, state.navType === 'ask' ? (state.askScope || 'all') : 'all');
+      const onPage = state.navType === 'ask';
+      const result = await askPrax(query, onPage ? (state.askScope || 'all') : 'all', onPage ? (state.askTrust || 'all') : 'all');
       if (!isCurrent()) return;
       setState({ askPraxLoading: false, askPraxResult: result });
       onAskResult?.(query, result);

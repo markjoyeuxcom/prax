@@ -94,8 +94,17 @@ visual language, keeping every `data-action`, every view and every behaviour con
   untrusted markdown pass so chips cannot be injected. Cited unverified sources raise a warning
   that links to the review queue.
 - **Save answer as note** creates a note tagged `ask-prax` in the scoped project or the Inbox.
-- **Not done:** the mockup's suggested tasks. Nothing in the ask contract proposes tasks, and
-  inventing them client-side would bypass the grounding rules.
+- **Suggested tasks** (`server/askTasks.js`, `POST /api/library/ask/tasks`): a second call
+  after a written answer, so the answer is never held up. The server re-reads the answer's
+  sources by id and keeps only suggestions that name one of them; at most three, titles
+  cleaned, due limited to today or tomorrow. The page shows them ticked; Create N tasks posts
+  each through the ordinary task API into the scoped project or the Inbox, with the question
+  and source in its description. Read-only until the person creates.
+- **Trust and model chips.** Verified only filters retrieval before the answer context is
+  built (`retrieval.trust`, `hiddenUnverified`). The model chip shows the configured backend
+  and model and opens Settings ▸ Intelligence.
+- **No sources, no answer.** With zero matching documents the route returns `no-sources`
+  without calling the model.
 
 ### Editor
 
