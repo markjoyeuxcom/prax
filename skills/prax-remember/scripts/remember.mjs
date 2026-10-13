@@ -478,14 +478,16 @@ function createClient({
     updateProject(id, patch) {
       return request("PATCH", `/api/projects/${encodeURIComponent(id)}`, { body: patch });
     },
-    async ensureProject(target) {
+    // `overview: false` creates the project without its seeded overview card:
+    // for a caller that brings its own (the mirror import).
+    async ensureProject(target, { overview } = {}) {
       const projects = await this.listProjects();
       const match = (Array.isArray(projects) ? projects : []).find(
         (p) => p.slug === target || p.name && p.name.toLowerCase() === String(target).toLowerCase()
       );
       if (match) return match.slug;
       try {
-        const created = await request("POST", "/api/projects", { body: { name: target }, agent: true });
+        const created = await request("POST", "/api/projects", { body: { name: target, ...overview === false ? { overview: false } : {} }, agent: true });
         return created.slug;
       } catch (error) {
         try {
@@ -623,6 +625,11 @@ function createClient({
     },
     clearTelemetry() {
       return request("DELETE", "/api/library/telemetry", { retryUnavailable: "connect-only" });
+    },
+    // POST /api/projects/:id/overview — the project's overview document (its
+    // master page), created from the bundled starter when missing. Agent-attributed.
+    ensureProjectOverview(projectId) {
+      return request("POST", `/api/projects/${encodeURIComponent(projectId)}/overview`, { agent: true });
     },
     librarianReport(project) {
       const qs = project ? `?${new URLSearchParams({ project }).toString()}` : "";

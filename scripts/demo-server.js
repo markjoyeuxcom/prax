@@ -156,7 +156,8 @@ function createTask(seed) {
 function createDocument(seed) {
   const body = seed.body || '';
   return {
-    id: randomUUID(),
+    // A caller-supplied id is honoured (the idempotent create needs it).
+    id: seed.id || randomUUID(),
     title: seed.title,
     body,
     documentType: seed.documentType || 'note',
@@ -445,12 +446,23 @@ function createMemoryLibraryRepository(documents, linksRef = null) {
         return { ...doc, stale };
       });
     },
+    // Same contract as the SQLite repository: an id that already exists is
+    // returned, not inserted twice (the overview seed relies on it).
+    async createDocumentIdempotent(document) {
+      if (!document?.id) throw new Error('Idempotent document creation requires an id');
+      const existing = documents.find((d) => d.id === document.id);
+      if (existing) return { document: existing, created: false };
+      return { document: await this.createDocument(document), created: true };
+    },
     async createDocument(document) {
       const created = createDocument(document);
       created.contentHash = hashBody(document.body);
       created.updatedBy = document.updatedBy || 'user';
       created.kind = document.kind || 'source';
-      created.verified = (document.updatedBy || 'user') === 'agent' ? false : true;
+      // Same rule as server/libraryRepository.js buildCreateDocument: an agent
+      // write is never verified, and an explicit `verified: false` (a seeded
+      // template, for instance) lowers a human create too.
+      created.verified = (document.updatedBy || 'user') !== 'agent' && document.verified !== false;
       created.verifiedAt = null;
       created.verifiedBy = null;
       created.status = 'active';

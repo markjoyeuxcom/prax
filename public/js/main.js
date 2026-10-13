@@ -39,7 +39,7 @@ import {
   fetchTaskBoardExtras,
 } from './taskApi.js';
 import {
-  fetchProjects, createProject, updateProject, deleteProjectPermanent,
+  fetchProjects, createProject, updateProject, deleteProjectPermanent, ensureProjectOverview,
 } from './projectApi.js';
 import {
   fetchDocuments, fetchDocument, createDocument, updateDocument, fetchDocumentLinks, suggestAskTasks,
@@ -1820,6 +1820,35 @@ function toggleMarkdownCheck(line) {
   renderApp();
 }
 
+// The project page's Overview button: open the project's card, creating it
+// from the bundled starter when the project has none (the server decides,
+// so an older project gets its card the first time someone asks for it).
+// One request at a time, and a late answer never overrides where the person
+// went meanwhile: the result is applied only while that project page is
+// still the current view.
+let overviewRequestToken = 0;
+async function openProjectOverview(projectId) {
+  if (state.overviewPendingProjectId === projectId) return;
+  const token = (overviewRequestToken += 1);
+  const isCurrent = () => token === overviewRequestToken && state.navType === 'project' && state.navId === projectId;
+  setState({ overviewPendingProjectId: projectId });
+  renderApp();
+  let result;
+  try {
+    result = await ensureProjectOverview(projectId);
+  } catch (err) {
+    if (state.overviewPendingProjectId === projectId) setState({ overviewPendingProjectId: null });
+    if (!isCurrent()) return;
+    alertError(`open the project overview (${err.message})`);
+    return;
+  }
+  if (state.overviewPendingProjectId === projectId) setState({ overviewPendingProjectId: null });
+  if (!isCurrent()) return;
+  if (!result?.document?.id) { alertError('open the project overview'); renderApp(); return; }
+  if (result.created) showToast('Created the project overview from the starter — fill in its placeholders, then verify it.');
+  await openDocumentInEditor(result.document.id, { isCurrent });
+}
+
 async function openDocumentInEditor(documentId, { isCurrent = () => true } = {}) {
   if (!isCurrent()) return false;
   if (state.navType === 'editor' && state.editorDocId === documentId) return true;
@@ -3403,6 +3432,7 @@ async function handleAction(action, el, event) {
     }
     case 'nav-project': await goProject(el.dataset.projectId); break;
     case 'rename-project': startRenameProject(el.dataset.projectId); break;
+    case 'open-project-overview': await openProjectOverview(el.dataset.projectId); break;
     case 'breadcrumb': await handleAction(el.dataset.target, el, event); break;
     case 'reveal-ops-field': {
       // Show the input for an unset ops field and put the caret in it. The

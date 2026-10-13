@@ -45,6 +45,27 @@ This includes project metadata changes. Tasks and documents inside them retain
 their normal edit, move, archive and deletion behaviour. Inbox owns unassigned
 captures and new workspace weekly-review documents; Memory owns shared guidance.
 
+### Project overview
+
+Every project has one overview document, its master page: `<Name> project overview`, a
+`reference` tagged `project-card`. `POST /api/projects` seeds it from the bundled starter
+(`public/starter-content/project-overview.md`) with the name and slug filled in (the repo
+URL too once it is known: `prax init` fills it after registering the remote) and returns
+`overviewDocumentId` beside the project. `overview: false` in the body skips the seed (the
+mirror import, which carries the project's own card). A seed that fails never fails the
+create: the response then carries `overviewError` instead of `overviewDocumentId`.
+`POST /api/projects/:id/overview` creates the card when the project has none (`201`,
+`{ project, document, created: true }`) or returns the existing one (`200`,
+`created: false`): a verified `project-card` first, then the newest, then the exact title.
+The seeded card's id is derived from the project id and the create is idempotent, so
+concurrent requests resolve to one document. A card that sits in the archive is a decision:
+the route answers `409` with it instead of seeding a second one. The seed is always
+unverified, whoever created the project; it is attributed to the agent when the request
+carries `x-prax-origin: agent`. System projects return `403`; an app built without a library
+repository `409` (the demo has one and seeds like the app). The librarian report lists active
+projects without a card under `overview.missing` and in the `overview` check (`info`); when
+the projects could not be inspected the check says so and `overview.unavailable` is true.
+
 ### Inbox processing
 
 Migration `0033_inbox_action_receipts.sql` adds durable decision receipts. Inbox IDs are

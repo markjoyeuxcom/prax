@@ -338,3 +338,76 @@ test('the report reuses clustering for an unchanged library and recomputes after
   assert.deepEqual(members(after), [[b.id, dns.id].sort()]);
   await app.close();
 });
+
+// ---- every project has an overview document -------------------------------
+
+test('the report lists active projects without an overview; a seeded or added card clears them', async () => {
+  const { app } = await makeApp();
+  const before = (await app.inject({ method: 'GET', url: '/api/library/librarian/report' })).json();
+  const overview = before.checks.find((c) => c.id === 'overview');
+  assert.equal(overview.level, 'info', 'a missing card is reported, never a CI failure');
+  assert.ok(before.overview.missing.some((p) => p.slug === 'homelab'), 'the migration-seeded project has no card');
+  assert.ok(!before.overview.missing.some((p) => p.slug === 'inbox' || p.slug === 'memory'), 'system projects are exempt');
+
+  // A project created through the API starts with its card, filed unverified in it.
+  const created = (await app.inject({ method: 'POST', url: '/api/projects', headers: AGENT, payload: { name: 'Klyx' } })).json();
+  assert.ok(created.overviewDocumentId);
+  const card = await getDoc(app, created.overviewDocumentId);
+  assert.equal(card.title, 'Klyx project overview');
+  assert.equal(card.projectId, created.id);
+  assert.deepEqual(card.tags, ['project-card']);
+  assert.equal(card.verified, false);
+  assert.equal(card.updatedBy, 'agent');
+  assert.equal(card.updatedByAgent, 'claude');
+  assert.match(card.body, /- Prax project: Klyx \(klyx\)/);
+
+  // An older project gets its card from the overview route, once.
+  const homelab = (await app.inject({ method: 'GET', url: '/api/projects' })).json().find((p) => p.slug === 'homelab');
+  const added = await app.inject({ method: 'POST', url: `/api/projects/${homelab.id}/overview` });
+  assert.equal(added.statusCode, 201);
+  assert.equal(added.json().document.title, 'Homelab project overview');
+  const again = await app.inject({ method: 'POST', url: `/api/projects/${homelab.id}/overview` });
+  assert.equal(again.statusCode, 200);
+  assert.equal(again.json().document.id, added.json().document.id);
+
+  const after = (await app.inject({ method: 'GET', url: '/api/library/librarian/report' })).json();
+  assert.ok(!after.overview.missing.some((p) => p.slug === 'homelab' || p.slug === 'klyx'));
+  const scoped = (await app.inject({ method: 'GET', url: `/api/library/librarian/report?project=${homelab.id}` })).json();
+  assert.equal(scoped.checks.find((c) => c.id === 'overview').count, 0);
+  await app.close();
+});
+
+test('concurrent overview requests resolve to one card; a doctor that cannot inspect projects says so', async () => {
+  const { app } = await makeApp();
+  const bare = (await app.inject({ method: 'POST', url: '/api/projects', payload: { name: 'Racy', overview: false } })).json();
+  const responses = await Promise.all(Array.from({ length: 8 }, () => app.inject({ method: 'POST', url: `/api/projects/${bare.id}/overview` })));
+  const ids = new Set(responses.map((r) => r.json().document.id));
+  assert.equal(ids.size, 1, 'eight simultaneous requests share one card');
+  assert.equal(responses.filter((r) => r.statusCode === 201).length, 1, 'exactly one of them created it');
+  assert.ok(responses.every((r) => [200, 201].includes(r.statusCode)));
+  const cards = (await app.inject({ method: 'GET', url: `/api/library/documents?project=${bare.slug}` })).json().filter((d) => d.tags.includes('project-card'));
+  assert.equal(cards.length, 1);
+  await app.close();
+
+  // An archived card is a decision the route respects.
+  const { app: app2 } = await makeApp();
+  const project = (await app2.inject({ method: 'POST', url: '/api/projects', payload: { name: 'Archived card' } })).json();
+  assert.equal((await app2.inject({ method: 'DELETE', url: `/api/library/documents/${project.overviewDocumentId}` })).statusCode, 200);
+  const refused = await app2.inject({ method: 'POST', url: `/api/projects/${project.id}/overview` });
+  assert.equal(refused.statusCode, 409);
+  assert.equal(refused.json().document.id, project.overviewDocumentId);
+  await app2.close();
+
+  // The projects repository fails: the overview check must not read as "none missing".
+  const db = createDb(':memory:');
+  await runMigrations(db, { logger: SILENT });
+  const { createProjectsRepository } = await import('../../server/projectsRepository.js');
+  const real = createProjectsRepository(db);
+  const broken = { ...real, async listProjects() { throw new Error('projects down'); } };
+  const app3 = await buildApp({ db, librarianSweep: false, projectsRepository: broken });
+  const report = (await app3.inject({ method: 'GET', url: '/api/library/librarian/report' })).json();
+  assert.equal(report.overview.unavailable, true);
+  assert.equal(report.overview.missing, null);
+  assert.match(report.checks.find((c) => c.id === 'overview').message, /could not be inspected/);
+  await app3.close();
+});

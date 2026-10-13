@@ -7,8 +7,12 @@ required. This chooser is available even when the Library is empty.
 - **Repository setup guide:** the procedure for new repositories, existing ones and
   additional checkouts. Normally file a reusable copy in Memory.
 - **Project overview:** an editable reference tagged `project-card`, filed in its owning
-  project. Fill placeholders with checked facts. New copies are unverified; a person can
-  verify the completed overview to give it a dedicated context-pack section.
+  project. Every new project gets this starter automatically with its name and slug filled
+  in (`POST /api/projects`; `prax init` adds it to an older project and fills in the
+  repository URL). The project
+page's **Overview** button opens the card, creating it first when the project has none. Fill the
+  remaining placeholders with checked facts. New copies are unverified; a person can verify
+  the completed overview to give it a dedicated context-pack section.
 - **Repository onboarding task:** a planned task with notes and nine native unchecked
   acceptance items. No date is imposed. It uses the existing atomic task import contract
   to create the task and checklist together.

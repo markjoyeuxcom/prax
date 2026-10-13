@@ -61,3 +61,20 @@ test('placeholders keep their markup and the boot error escapes its message', ()
   assert.match(renderBootErrorHtml('<img src=x onerror=alert(1)>'), /&lt;img src=x onerror=alert\(1\)&gt;/);
   assert.match(renderBootErrorHtml(), /Unknown error/);
 });
+
+test('a project header has an Overview button that opens its card; system projects have none', () => {
+  const html = renderProjectPageHtml(baseState, { id: 'p"1', slug: 'ops', name: 'Ops', status: 'active' });
+  assert.match(html, /<button class="page-head__overview" type="button" data-action="open-project-overview" data-project-id="p&quot;1"[^>]*>.*<span>Overview<\/span><\/button>/);
+  assert.doesNotMatch(renderProjectPageHtml(baseState, { id: 'i1', slug: 'inbox', name: 'Inbox', status: 'active' }), /open-project-overview/);
+  assert.doesNotMatch(renderProjectPageHtml(baseState, { id: 'm1', slug: 'memory', name: 'memory', status: 'active' }), /open-project-overview/);
+  assert.doesNotMatch(renderProjectPageHtml(baseState, undefined), /open-project-overview/, 'nothing to open while the project loads');
+});
+
+test('while the overview request is pending the button is disabled and says so', () => {
+  const project = { id: 'p1', slug: 'ops', name: 'Ops', status: 'active' };
+  const pending = renderProjectPageHtml({ ...baseState, overviewPendingProjectId: 'p1' }, project);
+  assert.match(pending, /data-action="open-project-overview" data-project-id="p1"[^>]* aria-busy="true" disabled>.*<span>Opening…<\/span>/);
+  const other = renderProjectPageHtml({ ...baseState, overviewPendingProjectId: 'p2' }, project);
+  assert.doesNotMatch(other, /aria-busy/);
+  assert.match(other, /<span>Overview<\/span>/);
+});
