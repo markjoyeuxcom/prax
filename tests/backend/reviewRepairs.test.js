@@ -79,7 +79,9 @@ test('R01: receipt guards metadata-only updates, concurrent replay, changed inte
   assert.deepEqual(replay.tags, ['newer-metadata']);
   const otherClient = await ok(app, 'POST', path, { ...payload, ifRevision: '0'.repeat(64) }, { 'x-prax-origin': 'agent', 'x-prax-agent': 'claude' });
   assert.deepEqual(otherClient.tags, ['newer-metadata']);
-  assert.equal(otherClient.updatedBy, 'user', 'reconciliation never restamps the newer writer');
+  // Authorship follows content: neither the human retag nor the agent replay
+  // of a tags-only update changes who wrote the document.
+  assert.equal(otherClient.updatedBy, 'agent', 'a metadata-only update never restamps the author');
   const conflict = await app.inject({ method: 'POST', url: path, payload: { ...payload, tags: ['different intent'] }, headers: agent });
   assert.equal(conflict.statusCode, 409);
   assert.equal(conflict.json().reason, 'update-intent-mismatch');

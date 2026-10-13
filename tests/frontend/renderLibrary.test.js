@@ -781,10 +781,99 @@ test('trust facet narrows to matching docs (AND across type + trust axes)', () =
   assert.deepEqual(build({ documents: docs, libraryTrust: ['verified'], libraryTypes: ['runbook'] }).groups.flatMap(g => g.docs).map(d => d.id), ['vr']);
 });
 
-test('facet row is hidden in archive and semantic modes', () => {
+test('facet row is hidden in the archive; semantic mode keeps it, since its filters apply there too', () => {
   assert.doesNotMatch(render({ libraryView: 'archive' }), /facet-row/);
-  assert.doesNotMatch(render({ librarySemantic: true, semanticStatus: { available: true, enabled: true } }), /facet-row/);
+  assert.match(render({ librarySemantic: true, semanticStatus: { available: true, enabled: true } }), /facet-row/);
 });
+
+test('semantic results honour the active facets and say how many matches they left out', () => {
+  const results = [
+    { id: 'a', title: 'A', documentType: 'runbook', verified: true, projectId: 'p1', tags: ['dns'], snippet: 'x' },
+    { id: 'b', title: 'B', documentType: 'note', verified: false, projectId: 'p1', tags: ['dns'], snippet: 'y' },
+  ];
+  const state = makeState({ librarySemantic: true, libraryQuery: 'q', semanticStatus: { available: true, enabled: true }, semanticResults: results, libraryTypes: ['runbook'] });
+  const model = buildLibraryModel(state);
+  assert.deepEqual(model.semanticResults.map((r) => r.id), ['a']);
+  assert.equal(model.semanticHidden, 1);
+  assert.match(renderLibraryHtml(state, model), /1 more matched but are outside the active filters/);
+});
+
+test('a pending load is never an empty library; a failed load offers Retry and keeps loaded rows', () => {
+  const loading = render({ documents: [], documentsLoadState: 'loading' });
+  assert.match(loading, /Loading your library/);
+  assert.doesNotMatch(loading, /Your library is empty/);
+  const failed = render({ documents: [], documentsLoadState: 'failed', documentsLoadError: 'HTTP 503' });
+  assert.match(failed, /could not be loaded/);
+  assert.match(failed, /HTTP 503/);
+  assert.match(failed, /data-action="retry-load-documents"/);
+  assert.doesNotMatch(failed, /Your library is empty/);
+  const stale = render({ documentsLoadState: 'failed' });
+  assert.match(stale, /could not be refreshed/);
+  assert.match(stale, /data-action="open-doc"/, 'the rows loaded before stay');
+  assert.match(render({ documents: [], documentsLoadState: 'loaded' }), /Your library is empty/);
+});
+
+test('the header count says what the filter left', () => {
+  assert.match(render({ libraryTypes: ['runbook'] }), /<strong>\d+ of \d+<\/strong> documents · filtered/);
+  assert.doesNotMatch(render({}), /filtered/);
+});
+
+test('cards carry UNVERIFIED and the author, mark empty documents, and offer a select box beside the card', () => {
+  const html = render({ documents: [
+    { ...DOCS[0], id: 'd-agent', verified: false, updatedBy: 'agent', updatedByAgent: 'codex', body: '' },
+    { ...DOCS[1], id: 'd-you', verified: true, updatedBy: 'user' },
+  ] });
+  const agent = html.slice(html.indexOf('d-agent'), html.indexOf('d-you'));
+  assert.match(agent, /chip--unverified[^>]*>UNVERIFIED</);
+  assert.match(agent, /doc-card__by[^>]*>◌ codex</);
+  assert.match(agent, /doc-card__excerpt--empty">No content yet</);
+  assert.match(html, /class="doc-card__check" data-action="toggle-doc-selection" data-document-id="d-agent"/);
+  const you = html.slice(html.indexOf('d-you'));
+  assert.match(you, /doc-card__by[^>]*>you</);
+  assert.doesNotMatch(you, /UNVERIFIED/);
+  const selected = render({ documents: [DOCS[0]], librarySelectedDocIds: [DOCS[0].id] });
+  assert.match(selected, /doc-card-wrap is-selected/);
+  assert.match(selected, /bulkbar__count">1 selected</);
+});
+
+test('the bulk bar says when a selected document is not in view', () => {
+  const html = render({ libraryTypes: ['runbook'], librarySelectedDocIds: [DOCS[1].id] });
+  assert.match(html, /1 selected · 1 not in view/);
+});
+
+test('grouping cycles through Type, Project, Trust and None', () => {
+  const projects = [{ id: 'p1', name: 'Homelab' }, { id: 'p2', name: 'Klyx' }];
+  const docs = [{ ...DOCS[0], projectId: 'p1', verified: true }, { ...DOCS[1], projectId: 'p2', updatedBy: 'agent', verified: false }];
+  const byProject = buildLibraryModel(makeState({ documents: docs, projects, libraryGroupBy: 'project' }));
+  assert.deepEqual(byProject.groups.map((g) => g.label), ['Homelab', 'Klyx']);
+  const byTrust = buildLibraryModel(makeState({ documents: docs, libraryGroupBy: 'trust' }));
+  assert.deepEqual(byTrust.groups.map((g) => g.label), ['Verified', 'Unverified · agent-written']);
+  assert.match(render({ libraryGroupBy: 'project' }), /Group: Project/);
+});
+
+test('an unmatched archive search says so and offers Clear filters', () => {
+  const html = render({ libraryView: 'archive', libraryQuery: 'zzzz' });
+  assert.match(html, /No archived documents match/);
+  assert.match(html, /data-action="clear-lib-filters"/);
+  assert.doesNotMatch(html, /Documents you archive land here/);
+});
+
+test('on a phone the facet rows fold behind one line that counts the active filters', () => {
+  const folded = render({ winW: 390, libraryTypes: ['runbook'] });
+  assert.match(folded, /data-action="toggle-lib-facets" aria-expanded="false"/);
+  assert.match(folded, /Filters · 1 active/);
+  assert.doesNotMatch(folded, /facet-row/);
+  assert.match(folded, /data-action="toggle-lib-type" data-facet="runbook"/, 'the active filter stays removable above the fold');
+  const open = render({ winW: 390, libraryFacetsOpen: true });
+  assert.match(open, /aria-expanded="true"/);
+  assert.match(open, /facet-row/);
+  assert.match(render({ winW: 800 }), /facet-row/, 'tablets keep the rows');
+});
+
+test('the ⋯ overflow reaches the Tags page', () => {
+  assert.match(render({ libraryMenuOpen: true }), /data-action="open-tags"/);
+});
+
 
 test('semantic results disclose incomplete indexing even when matches exist', () => {
   const html = render({librarySemantic:true,libraryQuery:'recovery',semanticStatus:{available:true,enabled:true},semanticResults:[{id:'one',title:'One',snippet:'Current match'}],semanticIndex:{total:10,embedded:2,pending:8}});

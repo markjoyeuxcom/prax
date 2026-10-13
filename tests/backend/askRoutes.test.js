@@ -184,3 +184,21 @@ test('validateAnswerCitations accepts known titles regardless of casing', () => 
   const unknown = validateAnswerCitations('See [Some Other Doc].', sources);
   assert.equal(unknown.valid, false, 'genuinely unknown citations still reject');
 });
+
+test('without embeddings a question in plain words still finds the runbook (ranked keyword fallback)', async () => {
+  const { buildApp: build } = await import('../../server/index.js');
+  const { loadConfig } = await import('../../server/config.js');
+  const app = await build({ config: loadConfig({ PRAX_DB_FILE: ':memory:', EMBEDDING_BACKEND: 'none', CHAT_BACKEND: 'none' }), librarianSweep: false });
+  const create = (payload) => app.inject({ method: 'POST', url: '/api/library/documents', payload: { project: 'homelab', documentType: 'runbook', ...payload } });
+  assert.equal((await create({ title: 'Postgres failover runbook', body: 'Promote the standby with pg_ctl promote, then repoint the app.' })).statusCode, 201);
+  assert.equal((await create({ title: 'DNS resolver notes', body: 'Unbound forwards to Quad9.' })).statusCode, 201);
+  const res = await app.inject({ method: 'POST', url: '/api/library/ask', payload: { q: 'how do we fail over postgres' } });
+  assert.equal(res.statusCode, 200, res.body);
+  const body = res.json();
+  assert.notEqual(body.reason, 'no-sources', 'an all-terms filter would find nothing for a natural question');
+  assert.equal(body.sources[0]?.title, 'Postgres failover runbook');
+  assert.ok(!body.sources.some((s) => s.title === 'DNS resolver notes'), 'the unrelated note is not a source');
+  const none = await app.inject({ method: 'POST', url: '/api/library/ask', payload: { q: 'zebra quantum teleporter' } });
+  assert.equal(none.json().sources.length, 0, 'nonsense still matches nothing');
+  await app.close();
+});

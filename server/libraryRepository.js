@@ -206,15 +206,23 @@ export function buildUpdateDocument(id, fields, { revision, expectRevision } = {
   const values = [id, ...entries.map(([key, value]) => (key === 'tags' ? serializeTags(value) : value))];
   const assignments = entries.map(([key], index) => `${UPDATE_COLUMN_MAP[key]} = $${index + 2}`);
 
-  values.push(fields.updatedBy || 'user');
-  assignments.push(`updated_by = $${values.length}`);
+  // Authorship follows CONTENT. A patch that touches neither title nor body
+  // (a retag, a project move, a type change) leaves updated_by and
+  // updated_by_agent alone: housekeeping must not turn an agent's unreviewed
+  // note into "yours" and drop it out of the review queue, nor make a person's
+  // document read as agent-written.
+  const contentChange = entries.some(([key]) => key === 'title' || key === 'body');
+  if (contentChange) {
+    values.push(fields.updatedBy || 'user');
+    assignments.push(`updated_by = $${values.length}`);
 
-  // Threaded by the routes on every write: the vendor id for an identified
-  // agent edit, NULL otherwise — so a human edit after an agent edit never
-  // leaves a stale agent id describing a revision it did not write.
-  if (fields.updatedByAgent !== undefined) {
-    values.push(fields.updatedBy === 'agent' ? (fields.updatedByAgent || null) : null);
-    assignments.push(`updated_by_agent = $${values.length}`);
+    // Threaded by the routes on every write: the vendor id for an identified
+    // agent edit, NULL otherwise — so a human edit after an agent edit never
+    // leaves a stale agent id describing a revision it did not write.
+    if (fields.updatedByAgent !== undefined) {
+      values.push(fields.updatedBy === 'agent' ? (fields.updatedByAgent || null) : null);
+      assignments.push(`updated_by_agent = $${values.length}`);
+    }
   }
 
   if (revision !== undefined) {
@@ -1157,6 +1165,22 @@ export function createLibraryRepository(db) {
 
     rankSemanticCandidates,
     keywordRelevanceCutoff,
+
+    // Keyword-only ranked retrieval (BM25 with the relevance cutoff): the Ask
+    // fallback when semantic search is off. A question in plain words ("how
+    // do we fail over postgres") still finds the document that answers it,
+    // because the FTS match is OR-ed. `listDocuments({ q })` is the Library's
+    // all-terms filter, which a natural question never satisfies.
+    async searchDocumentsKeyword(queryText, opts = {}) {
+      await ready();
+      const keywordQuery = buildSearchDocumentsKeyword(queryText, {
+        projectId: opts.projectId, includeRetired: opts.includeRetired, limit: opts.limit,
+      });
+      if (!keywordQuery) return [];
+      const kw = await db.query(keywordQuery.text, keywordQuery.values);
+      const cutoff = (rows) => keywordRelevanceCutoff(rows, { dropFraction: opts.keywordDropFraction });
+      return cutoffExcludingHarvested(kw.rows, opts, cutoff).map(normalizeDocumentRow);
+    },
 
     // Hybrid retrieval: fuse the cosine ranking with the BM25 ranking, then
     // weight by trust. This is what the memory path uses, because the two

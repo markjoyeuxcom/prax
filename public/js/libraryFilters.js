@@ -144,3 +144,44 @@ export function visibleTagsForFilter(
     hiddenCount: Math.max(0, tags.length - visibleTags.length),
   };
 }
+
+// The Group cycler: Type → Project → Trust → None. Project answers "what does
+// Klyx hold", Trust answers "what is still unverified" — the two overviews a
+// reviewer wants that the facets (which filter) cannot give.
+export const LIBRARY_GROUPINGS = Object.freeze(['type', 'project', 'trust', 'none']);
+export function nextLibraryGroup(by) {
+  const index = LIBRARY_GROUPINGS.indexOf(by);
+  return LIBRARY_GROUPINGS[(index < 0 ? 0 : index + 1) % LIBRARY_GROUPINGS.length];
+}
+export function libraryGroupLabel(by) {
+  return by === 'project' ? 'Project' : (by === 'trust' ? 'Trust' : (by === 'none' ? 'None' : 'Type'));
+}
+
+function trustGroupKey(doc) {
+  if (doc?.status === 'superseded') return 'superseded';
+  if (doc?.verified === true) return 'verified';
+  return TRUST_PREDICATES.agent(doc) ? 'agent' : 'unverified';
+}
+const TRUST_GROUPS = [['verified', 'Verified'], ['agent', 'Unverified · agent-written'], ['unverified', 'Unverified · written by people'], ['superseded', 'Superseded']];
+
+// Documents grouped for the Library: { type, label, docs }[] in a fixed order,
+// empty groups dropped. `projects` names the project groups.
+export function groupDocuments(documents = [], by = 'type', { projects = [] } = {}) {
+  if (by === 'project') {
+    const names = new Map((projects || []).filter((p) => p?.id).map((p) => [p.id, p.name]));
+    const groups = new Map();
+    for (const doc of documents) {
+      const key = doc?.projectId || 'none';
+      if (!groups.has(key)) groups.set(key, { type: `project:${key}`, label: names.get(key) || 'Project unavailable', docs: [] });
+      groups.get(key).docs.push(doc);
+    }
+    return [...groups.values()].sort((a, b) => a.label.localeCompare(b.label));
+  }
+  if (by === 'trust') {
+    const groups = TRUST_GROUPS.map(([key, label]) => ({ type: `trust:${key}`, label, docs: [] }));
+    const byKey = new Map(groups.map((g) => [g.type.slice(6), g]));
+    for (const doc of documents) byKey.get(trustGroupKey(doc)).docs.push(doc);
+    return groups.filter((g) => g.docs.length);
+  }
+  return groupDocumentsByType(documents);
+}

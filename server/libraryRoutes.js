@@ -1531,7 +1531,11 @@ export async function registerLibraryRoutes(app, options = {}) {
       }
     }
     if (docs.length === 0) {
-      docs = harvested.filter(await repository.listDocuments({ projectId, status: 'active', q: query }));
+      // Ranked (OR-ed, BM25) keyword retrieval, not the Library's all-terms
+      // listing filter: a question in plain words must still find its runbook.
+      docs = typeof repository.searchDocumentsKeyword === 'function'
+        ? harvested.filter(await repository.searchDocumentsKeyword(query, { projectId, limit: 50 }))
+        : harvested.filter(await repository.listDocuments({ projectId, status: 'active', q: query }));
     }
     if (harvested.count > 0) retrieval = { ...retrieval, hiddenHarvested: harvested.count };
     // "Verified only" (the Ask page's trust chip): unverified memory is left

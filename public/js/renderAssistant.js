@@ -29,12 +29,18 @@ function compactArgs(input) {
 export function assistantDisplayItems(messages) {
   const items = [];
   const list = Array.isArray(messages) ? messages : [];
+  // Whether any tool ran since the person's last turn: an answer that read no
+  // Prax data is the model's own knowledge, and the bubble says so. (Ask Prax
+  // is the grounded, cited contract; the assistant is the acting one.)
+  let toolsSinceUser = false;
   for (let i = 0; i < list.length; i++) {
     const m = list[i];
     if (!m) continue;
     if (m.role === 'user' && typeof m.content === 'string') {
       items.push({ kind: 'user', text: m.content });
+      toolsSinceUser = false;
     } else if (m.role === 'assistant' && Array.isArray(m.toolCalls) && m.toolCalls.length) {
+      toolsSinceUser = true;
       if (typeof m.content === 'string' && m.content.trim()) items.push({ kind: 'ai', text: m.content });
       const next = list[i + 1];
       const results = next && next.role === 'tool' && Array.isArray(next.results) ? next.results : [];
@@ -44,7 +50,7 @@ export function assistantDisplayItems(messages) {
         calls: m.toolCalls.map((c) => ({ name: c.name, args: compactArgs(c.input), result: byId.get(c.id) || null })),
       });
     } else if (m.role === 'assistant' && typeof m.content === 'string' && m.content.trim()) {
-      items.push({ kind: 'ai', text: m.content });
+      items.push({ kind: 'ai', text: m.content, ungrounded: !toolsSinceUser });
     }
     // Standalone tool-result turns are consumed by the preceding tool-call turn.
   }
@@ -78,7 +84,10 @@ function renderItem(item, renderMarkdown) {
     return `<div class="asst__turn asst__turn--user"><div class="asst__bubble">${escapeHtml(item.text)}</div></div>`;
   }
   if (item.kind === 'ai') {
-    return `<div class="asst__turn asst__turn--ai"><div class="asst__bubble prose">${renderMarkdown(item.text)}</div></div>`;
+    const grounding = item.ungrounded
+      ? '<div class="asst__grounding" role="note">From the model\'s own knowledge: no Prax data was read for this answer. <button type="button" class="ask-warn__link" data-action="open-ask-page">Ask Prax</button> for a cited one.</div>'
+      : '';
+    return `<div class="asst__turn asst__turn--ai"><div class="asst__bubble prose">${renderMarkdown(item.text)}</div>${grounding}</div>`;
   }
   return renderTools(item.calls);
 }

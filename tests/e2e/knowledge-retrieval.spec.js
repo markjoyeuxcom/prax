@@ -149,7 +149,7 @@ test('a stale Ask Prax answer cannot overwrite the newer answer and its source o
   await expect(page.getByText(/First stale answer/)).toHaveCount(0);
 
   const sourceButton = page.getByRole('button', {
-    name: `Open ${source.title}, runbook, verified`,
+    name: new RegExp(`^Open Source \\d+, ${source.title}, runbook, verified`),
   });
   await sourceButton.focus();
   await page.keyboard.press('Enter');

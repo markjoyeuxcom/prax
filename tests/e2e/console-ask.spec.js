@@ -97,7 +97,7 @@ test('closing Ask returns to where it was opened, by button or Esc', async ({ pa
   await expect(page.locator('.statusbar__mode')).not.toHaveText('ASK');
 });
 
-test('suggested tasks: ticked proposals, scoped to the project, created only on request', async ({ page, request }) => {
+test('suggested tasks: unticked proposals, scoped to the project, created only on request', async ({ page, request }) => {
   const stamp = Date.now();
   const projectId = await resolveProjectId(request, 'homelab');
   const source = await createDocument(request, {
@@ -133,10 +133,15 @@ test('suggested tasks: ticked proposals, scoped to the project, created only on 
     const card = page.getByRole('region', { name: 'Suggested tasks' });
     await expect(card).toContainText('Suggested tasks · Homelab');
     await expect(card.getByRole('checkbox')).toHaveCount(2);
-    await card.getByRole('checkbox', { name: new RegExp(`Not this one ${stamp}`) }).click();
+    // Proposals arrive unticked: nothing is chosen until the person ticks it.
     await expect(card.getByRole('checkbox', { name: new RegExp(`Not this one ${stamp}`) })).toHaveAttribute('aria-checked', 'false');
+    await expect(card.getByRole('button', { name: 'Create tasks' })).toBeDisabled();
+    await card.getByRole('checkbox', { name: new RegExp(`Recreate B2 key ${stamp}`) }).click();
     await card.getByRole('button', { name: 'Create 1 task' }).click();
-    await expect(card).toContainText('✓ Created 1 task in Homelab');
+    // The created proposal says so in place; the other stays available to tick later.
+    await expect(card.getByRole('checkbox', { name: new RegExp(`Recreate B2 key ${stamp}`) })).toContainText('✓ created in Homelab');
+    await expect(card.getByRole('checkbox', { name: new RegExp(`Recreate B2 key ${stamp}`) })).toBeDisabled();
+    await expect(card.getByRole('button', { name: 'Create tasks' })).toBeDisabled();
 
     const created = await (await request.get(`/api/tasks?q=${encodeURIComponent(`Recreate B2 key ${stamp}`)}`)).json();
     const list = Array.isArray(created) ? created : (created.tasks || created.items || []);

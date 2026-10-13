@@ -60,3 +60,14 @@ test('decided documents stay listed as done; an empty queue says so', () => {
   const empty = renderReviewDeskHtml({ documents: [], reviewDeskDone: [{ id: 'z', title: 'Old', outcome: 'rejected' }] });
   assert.match(empty, /Queue cleared\./);
 });
+
+test('the desk walks the ids the table handed over, in that order, dropping what left the queue', async () => {
+  const { reviewDeskQueue } = await import('../../public/js/renderReviewDesk.js');
+  const docs = [
+    { id: 'a', title: 'A', updatedBy: 'agent', verified: false, updatedAt: '2026-10-01' },
+    { id: 'b', title: 'B', updatedBy: 'agent', verified: false, updatedAt: '2026-10-02' },
+    { id: 'c', title: 'C', updatedBy: 'agent', verified: true, updatedAt: '2026-10-03' },
+  ];
+  assert.deepEqual(reviewDeskQueue({ documents: docs, reviewDeskIds: ['b', 'c', 'a'] }).map((d) => d.id), ['b', 'a']);
+  assert.deepEqual(reviewDeskQueue({ documents: docs, reviewDeskIds: null }).map((d) => d.id), ['a', 'b']);
+});

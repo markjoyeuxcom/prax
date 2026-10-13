@@ -87,7 +87,7 @@ export function renderTagsManagerHtml(state) {
     : '';
   const table = model.rows.length
     ? '<div class="tag-table-wrap"><table class="tag-table">'
-      + '<thead><tr><th scope="col">Tag</th><th scope="col">Documents</th><th scope="col">Last used</th><th scope="col">Added by</th><th scope="col">Often with</th></tr></thead>'
+      + '<thead><tr><th scope="col">Tag</th><th scope="col">Documents</th><th scope="col">Last updated</th><th scope="col">Written by</th><th scope="col">Often with</th></tr></thead>'
       + `<tbody>${model.rows.map((row) => renderRow(row, model.max)).join('')}</tbody></table>`
       + (model.hiddenRows ? `<button type="button" class="tag-table__more" data-action="tags-show-all">Show ${escapeHtml(model.hiddenRows)} more</button>` : '')
       + '</div>'

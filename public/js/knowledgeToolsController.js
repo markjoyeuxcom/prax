@@ -241,13 +241,18 @@ export function createKnowledgeToolsController({
     renderApp();
     try {
       const onPage = state.navType === 'ask';
-      const result = await askPrax(query, onPage ? (state.askScope || 'all') : 'all', onPage ? (state.askTrust || 'all') : 'all');
+      const scope = onPage ? (state.askScope || 'all') : 'all';
+      const result = await askPrax(query, scope, onPage ? (state.askTrust || 'all') : 'all');
       if (!isCurrent()) return;
-      setState({ askPraxLoading: false, askPraxResult: result });
-      onAskResult?.(query, result);
+      // The scope travels with the answer: suggestions, notes and history read
+      // it from here, not from the composer's later value.
+      const scoped = { ...result, scope };
+      setState({ askPraxLoading: false, askPraxResult: scoped });
+      onAskResult?.(query, scoped);
     } catch {
       if (!isCurrent()) return;
-      setState({ askPraxLoading: false, askPraxError: true });
+      // The question comes back into the composer so a retry is one keypress.
+      setState({ askPraxLoading: false, askPraxError: true, ...(onPage ? { askDraft: query } : {}) });
     }
     renderApp();
     // The result region is rebuilt with its content, so it is not announced.

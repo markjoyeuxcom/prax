@@ -800,3 +800,14 @@ test('Settings panel: section rows with active state; status renders only from l
   assert.match(withStatus, /Calendar synced<\/span><span class="side-item__count">5m ago/);
   assert.match(withStatus, /Capture<\/span><span class="side-item__count">Alt\+Space/);
 });
+
+test('in the desktop shell every wrapper that fills the titlebar is a drag region, buttons are not', () => {
+  const html = renderTitlebarHtml(makeState({ desktopShell: true, navType: 'ask' }));
+  assert.match(html, /<div class="titlebar__command" data-tauri-drag-region>/);
+  assert.match(html, /<div class="titlebar__actions" data-tauri-drag-region>/);
+  assert.match(html, /class="titlebar__wordmark" data-tauri-drag-region>prax</);
+  assert.match(html, /class="titlebar__crumb-current" aria-current="page" data-tauri-drag-region>/);
+  assert.doesNotMatch(html, /<button[^>]*data-tauri-drag-region/);
+  const web = renderTitlebarHtml(makeState());
+  assert.doesNotMatch(web, /data-tauri-drag-region/);
+});

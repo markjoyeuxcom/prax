@@ -86,3 +86,39 @@ test('continueListOnEnter ignores non-list lines and plain text', () => {
   assert.deepEqual(continueListOnEnter(''), { action: 'none' });
   assert.deepEqual(continueListOnEnter('-no space is not a list'), { action: 'none' });
 });
+
+import { continueTableOnEnter, tableCells, nextTableCell, isTableRow, isTableSeparator } from '../../public/js/markdownEditor.js';
+
+test('applyMarkdownFormat inserts a 2×2 table on its own lines and selects the first header cell', () => {
+  const out = applyMarkdownFormat('intro', 5, 5, 'table');
+  assert.equal(out.value, 'intro\n\n| Column 1 | Column 2 |\n| --- | --- |\n|   |   |');
+  assert.equal(out.value.slice(out.selectionStart, out.selectionEnd), 'Column 1');
+  const mid = applyMarkdownFormat('a\n\nb', 3, 3, 'table');
+  assert.match(mid.value, /^a\n\n\| Column 1 \| Column 2 \|\n\| --- \| --- \|\n\|   \|   \|\nb$/);
+});
+
+test('applyMarkdownFormat turns selected lines into table rows, the first line the header', () => {
+  const text = 'Name\tRole\nAda\tengineer\nLin, ops';
+  const out = applyMarkdownFormat(text, 0, text.length, 'table');
+  assert.equal(out.value, '| Name | Role |\n| --- | --- |\n| Ada | engineer |\n| Lin | ops |');
+});
+
+test('Enter at the end of a table row adds an empty row; an empty row leaves the table; a separator never continues', () => {
+  assert.deepEqual(continueTableOnEnter('| a | b |'), { action: 'continue', prefix: '|   |   |', caret: 2 });
+  assert.deepEqual(continueTableOnEnter('|   |   |'), { action: 'exit' });
+  assert.deepEqual(continueTableOnEnter('| --- | --- |'), { action: 'none' });
+  assert.deepEqual(continueTableOnEnter('plain'), { action: 'none' });
+  assert.equal(isTableRow('| x |'), true);
+});
+
+test('tableCells and nextTableCell step through a row and off its ends', () => {
+  const row = '| Name | Role |';
+  assert.deepEqual(tableCells(row), [{ from: 2, to: 6 }, { from: 9, to: 13 }]);
+  assert.deepEqual(nextTableCell(row, 3, 1), { from: 9, to: 13 });
+  assert.deepEqual(nextTableCell(row, 10, -1), { from: 2, to: 6 });
+  assert.equal(nextTableCell(row, 10, 1), null, 'past the last cell');
+  assert.equal(nextTableCell(row, 3, -1), null, 'before the first cell');
+  assert.deepEqual(tableCells('|   |   |'), [{ from: 2, to: 2 }, { from: 6, to: 6 }], 'an empty cell puts the caret one space in');
+  assert.equal(isTableSeparator('| --- | :-: |'), true);
+  assert.equal(isTableSeparator('| a | b |'), false);
+});

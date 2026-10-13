@@ -62,7 +62,7 @@ export function createWritingController({
     const token = (writeToken += 1);
     setState({
       writeMenuOpen: false, writeSelection: null,
-      writeContext: { action, label: WRITE_LABELS[action], verb, mode, docId: state.editorDocId, selText: mode === 'selection' ? selText : '', selStart, selEnd, model: null },
+      writeContext: { action, label: WRITE_LABELS[action], verb, mode, docId: state.editorDocId, selText: mode === 'selection' ? selText : '', selStart, selEnd, model: null, verified: Boolean(doc?.verified) },
       writeResult: null, writeLoading: true, writeError: null,
     });
     renderApp();
@@ -85,6 +85,29 @@ export function createWritingController({
     writeToken += 1; // invalidate any in-flight request
     setState({ writeContext: null, writeResult: null, writeLoading: false, writeError: null, writeSelection: null });
     renderApp();
+    // Back to the control that opened the dialog (the editor keeps focus
+    // otherwise, through the host's after-render rule).
+    globalThis.document?.querySelector?.('[data-action="toggle-write-menu"]')?.focus?.();
+  }
+
+  // Run the same action again after a failure, with the selection it had.
+  async function retryWrite() {
+    const ctx = getState().writeContext;
+    if (!ctx) return;
+    setState({ writeSelection: ctx.mode === 'selection' && ctx.selText ? { from: ctx.selStart, to: ctx.selEnd, text: ctx.selText } : null });
+    await runWrite(ctx.action);
+  }
+
+  // The toast's Undo: put the previous text back through the same path, so it
+  // is saved like any edit (autosave has probably already stored the applied
+  // text by the time the person decides).
+  function restoreBefore(before, docId) {
+    const state = getState();
+    if (docId && docId !== state.editorDocId) { showToast('You left the document — nothing was restored.'); return; }
+    const editor = getEditor();
+    if (editor && typeof editor.setValue === 'function') editor.setValue(before);
+    else { destroyEditorController(); handleDocumentDraftBodyChange(before); renderApp(); }
+    showToast('Restored the previous text.');
   }
 
   // Apply the generated text to the editor buffer (dirty, not saved) per the mode.
@@ -115,10 +138,23 @@ export function createWritingController({
     }
     writeToken += 1;
     setState({ writeContext: null, writeResult: null, writeLoading: false, writeError: null });
-    destroyEditorController();
-    handleDocumentDraftBodyChange(next);
-    renderApp();
-    showToast('Applied — review and save');
+    const editor = getEditor();
+    if (editor && typeof editor.replaceRange === 'function' && typeof editor.setValue === 'function') {
+      // One change in the editor's history (⌘Z works); its onChange updates
+      // the draft and schedules the autosave like typing does.
+      if (ctx.mode === 'selection' && Number.isInteger(ctx.selStart) && Number.isInteger(ctx.selEnd) && body.slice(ctx.selStart, ctx.selEnd) === ctx.selText) {
+        editor.replaceRange(ctx.selStart, ctx.selEnd, text);
+      } else {
+        editor.setValue(next);
+      }
+      renderApp();
+    } else {
+      destroyEditorController();
+      handleDocumentDraftBodyChange(next);
+      renderApp();
+    }
+    // Honest about what just happened: applying saves like typing does.
+    showToast('Applied — it saves like typing; Undo (or ⌘Z) restores the previous text.', () => restoreBefore(body, ctx.docId), 8000, 'Undo');
   }
 
   async function copyWrite() {
@@ -145,7 +181,7 @@ export function createWritingController({
   }
 
   const actions = {
-    'toggle-write-menu': () => {
+    'toggle-write-menu': (el, event) => {
       const state = getState();
       // Capture the selection NOW — renderApp() below re-mounts the editor and
       // clears it, so runWrite (fired later from the menu) can't read it live.
@@ -154,6 +190,14 @@ export function createWritingController({
       const selText = opening && range ? String(getEditor()?.getSelectionText?.() || '') : '';
       setState({ writeMenuOpen: opening, writeSelection: opening && range && selText.trim() ? { from: range.from, to: range.to, text: selText } : null });
       renderApp();
+      // Opened from the keyboard (Enter/Space on the trigger): focus lands on
+      // the first action, not back in the editor behind the menu.
+      if (opening && event && event.detail === 0) {
+        globalThis.document?.querySelector?.('.write-menu [role="menuitem"]:not([disabled])')?.focus?.();
+      }
+    },
+    'retry-write': async () => {
+      await retryWrite();
     },
     'write-action': async (el) => {
       await runWrite(el.dataset.write);
@@ -169,5 +213,5 @@ export function createWritingController({
     },
   };
 
-  return { actions, runWrite, closeWrite, applyWrite, copyWrite, invalidate, dropOutsideEditor };
+  return { actions, runWrite, closeWrite, applyWrite, copyWrite, retryWrite, invalidate, dropOutsideEditor };
 }
