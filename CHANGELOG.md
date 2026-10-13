@@ -12,6 +12,13 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Fixed
+
+- v0.43.0 was tagged but never published: its release run failed the browser suite on two
+  specs that the seeded overview card had made ambiguous (a palette lookup matched both the
+  project and its card; a toast assertion was too broad). The specs are fixed here; the app
+  is unchanged from the 0.43.0 tag.
+
 ## [0.43.0] - 2026-10-13
 
 ### Added

@@ -24,7 +24,7 @@ test('a new project opens its seeded card; an older project gets one on first us
   await expect(page.locator('[data-doc-title]')).toHaveValue(`Seeded ${tag} project overview`);
   await expect(page.locator('[data-document-editor]')).toHaveValue(/^# Seeded .* project overview/);
   await expect(page.locator('.editor-head__tags .chip--verified')).toHaveCount(0, 'the starter is never verified');
-  await expect(page.locator('.toast')).toHaveCount(0, 'an existing card opens without a creation toast');
+  await expect(page.locator('.toast', { hasText: 'Created the project overview' })).toHaveCount(0, 'an existing card opens without a creation toast');
 
   await openProject(page, bare);
   await page.locator('[data-action="open-project-overview"]').click();
