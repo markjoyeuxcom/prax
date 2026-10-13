@@ -12,6 +12,8 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.43.1] - 2026-10-13
+
 ### Fixed
 
 - v0.43.0 was tagged but never published: its release run failed the browser suite on two
@@ -2411,7 +2413,8 @@ and onboarding features with the corrected installation guide.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/markjoyeuxcom/prax/compare/v0.43.0...HEAD
+[Unreleased]: https://github.com/markjoyeuxcom/prax/compare/v0.43.1...HEAD
+[0.43.1]: https://github.com/markjoyeuxcom/prax/compare/v0.43.0...v0.43.1
 [0.43.0]: https://github.com/markjoyeuxcom/prax/compare/v0.42.0...v0.43.0
 [0.42.0]: https://github.com/markjoyeuxcom/prax/compare/v0.41.0...v0.42.0
 [0.41.0]: https://github.com/markjoyeuxcom/prax/compare/v0.40.0...v0.41.0
