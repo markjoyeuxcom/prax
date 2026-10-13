@@ -239,9 +239,11 @@ export function createKnowledgeToolsController({
     // empties it, and the thread above shows the question being answered.
     setState({ askPraxQuery: query, askPraxLoading: true, askPraxError: false, askPraxResult: null, ...(state.navType === 'ask' ? { askDraft: '', askSuggest: null } : {}) });
     renderApp();
+    // Read before the try: the catch needs them too (a ReferenceError there
+    // once left the page loading forever after a failed request).
+    const onPage = state.navType === 'ask';
+    const scope = onPage ? (state.askScope || 'all') : 'all';
     try {
-      const onPage = state.navType === 'ask';
-      const scope = onPage ? (state.askScope || 'all') : 'all';
       const result = await askPrax(query, scope, onPage ? (state.askTrust || 'all') : 'all');
       if (!isCurrent()) return;
       // The scope travels with the answer: suggestions, notes and history read

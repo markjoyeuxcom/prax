@@ -242,8 +242,15 @@ function listContinuationEnter(view) {
   let result = continueListOnEnter(line.text);
   // Inside a table, Enter at the end of a row adds a row (or leaves the table
   // from an empty one), the way a list continues.
-  if (result.action === 'none') result = continueTableOnEnter(line.text);
+  const below = line.number < view.state.doc.lines ? view.state.doc.line(line.number + 1) : null;
+  if (result.action === 'none') result = continueTableOnEnter(line.text, below ? below.text : '');
   if (result.action === 'none') return false;
+  if (result.action === 'continue' && result.afterNextLine && below) {
+    // Header row with its separator below: the new row goes under the separator.
+    const insert = `\n${result.prefix}`;
+    view.dispatch({ changes: { from: below.to, insert }, selection: { anchor: below.to + 1 + result.caret }, scrollIntoView: true, userEvent: 'input' });
+    return true;
+  }
   if (result.action === 'exit') {
     // Empty item: clear the marker and drop out of the list.
     view.dispatch({
@@ -288,9 +295,17 @@ function tableTab(direction) {
         const cells = tableCells(next.text);
         if (cells.length) return select(next, cells[0]);
       }
+      // Past the last row: append after the END of the table (the separator
+      // under a header-only table included), never between header and separator.
+      let last = line;
+      for (let n = line.number + 1; n <= view.state.doc.lines; n += 1) {
+        const next = view.state.doc.line(n);
+        if (!isTableRow(next.text)) break;
+        last = next;
+      }
       const width = tableCells(line.text).length || 1;
       const row = `| ${Array(width).fill(' ').join(' | ')} |`;
-      view.dispatch({ changes: { from: line.to, insert: `\n${row}` }, selection: { anchor: line.to + 3 }, scrollIntoView: true, userEvent: 'input' });
+      view.dispatch({ changes: { from: last.to, insert: `\n${row}` }, selection: { anchor: last.to + 3 }, scrollIntoView: true, userEvent: 'input' });
       return true;
     }
     for (let n = line.number - 1; n >= Math.max(1, line.number - 2); n -= 1) {

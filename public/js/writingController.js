@@ -60,9 +60,13 @@ export function createWritingController({
       if (useSel && range) { selStart = range.from; selEnd = range.to; }
     }
     const token = (writeToken += 1);
+    // The INPUT the action ran on (the captured selection, or the document),
+    // kept apart from the insertion mode: Summarize reads a selection but
+    // inserts at the top, and a retry must send exactly what was sent.
+    const input = selText && action !== 'draft' ? { from: range?.from ?? null, to: range?.to ?? null, text: selText } : null;
     setState({
       writeMenuOpen: false, writeSelection: null,
-      writeContext: { action, label: WRITE_LABELS[action], verb, mode, docId: state.editorDocId, selText: mode === 'selection' ? selText : '', selStart, selEnd, model: null, verified: Boolean(doc?.verified) },
+      writeContext: { action, label: WRITE_LABELS[action], verb, mode, docId: state.editorDocId, selText: mode === 'selection' ? selText : '', selStart, selEnd, input, model: null, verified: Boolean(doc?.verified) },
       writeResult: null, writeLoading: true, writeError: null,
     });
     renderApp();
@@ -94,17 +98,21 @@ export function createWritingController({
   async function retryWrite() {
     const ctx = getState().writeContext;
     if (!ctx) return;
-    setState({ writeSelection: ctx.mode === 'selection' && ctx.selText ? { from: ctx.selStart, to: ctx.selEnd, text: ctx.selText } : null });
+    setState({ writeSelection: ctx.input ? { from: ctx.input.from, to: ctx.input.to, text: ctx.input.text } : null });
     await runWrite(ctx.action);
   }
 
   // The toast's Undo: put the previous text back through the same path, so it
   // is saved like any edit (autosave has probably already stored the applied
-  // text by the time the person decides).
-  function restoreBefore(before, docId) {
+  // text by the time the person decides). Only while the document still reads
+  // exactly as Apply left it: typing done since is never thrown away — then
+  // the person is pointed at ⌘Z, which steps back one change at a time.
+  function restoreBefore(before, applied, docId) {
     const state = getState();
     if (docId && docId !== state.editorDocId) { showToast('You left the document — nothing was restored.'); return; }
     const editor = getEditor();
+    const current = editor && typeof editor.getValue === 'function' ? editor.getValue() : (state.documentDraftBody || '');
+    if (current !== applied) { showToast('The document changed since Apply, so nothing was restored — use ⌘Z to step back.'); return; }
     if (editor && typeof editor.setValue === 'function') editor.setValue(before);
     else { destroyEditorController(); handleDocumentDraftBodyChange(before); renderApp(); }
     showToast('Restored the previous text.');
@@ -154,7 +162,7 @@ export function createWritingController({
       renderApp();
     }
     // Honest about what just happened: applying saves like typing does.
-    showToast('Applied — it saves like typing; Undo (or ⌘Z) restores the previous text.', () => restoreBefore(body, ctx.docId), 8000, 'Undo');
+    showToast('Applied — it saves like typing; Undo (or ⌘Z) restores the previous text.', () => restoreBefore(body, next, ctx.docId), 8000, 'Undo');
   }
 
   async function copyWrite() {

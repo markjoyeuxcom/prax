@@ -296,7 +296,6 @@ function fireNativeReminder(task) {
   try {
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return false;
     const title = isOverdue(task.dueDate) ? 'Task overdue' : 'Task due today';
-    // eslint-disable-next-line no-new
     new Notification(title, { body: task.title, tag: `prax-due-${task.id}` });
     return true;
   } catch { return false; }
@@ -2788,7 +2787,11 @@ function rememberAskResult(query, result) {
     retrieval: {
       mode: retrieval.mode || 'keyword', ...(trust === 'verified' ? { trust: 'verified' } : {}),
       ...(retrieval.index ? { index: retrieval.index } : {}), ...(retrieval.fallback ? { fallback: true, reason: retrieval.reason || null } : {}),
-      ...(retrieval.hiddenHarvested ? { hiddenHarvested: retrieval.hiddenHarvested } : {}), ...(retrieval.hiddenUnverified ? { hiddenUnverified: retrieval.hiddenUnverified } : {}),
+      ...(retrieval.hiddenHarvested ? { hiddenHarvested: retrieval.hiddenHarvested } : {}),
+      // A count that was unavailable (null) and a count that was capped are
+      // part of what the search could not say; a reopen must say it too.
+      ...(retrieval.hiddenUnverified || retrieval.hiddenUnverified === null ? { hiddenUnverified: retrieval.hiddenUnverified } : {}),
+      ...(retrieval.hiddenUnverifiedCapped ? { hiddenUnverifiedCapped: true } : {}),
     },
     model: result?.model ?? null, scope,
   };
@@ -2900,7 +2903,13 @@ async function refreshHistorySources(result) {
       if (!doc || doc.archivedAt || (doc.status && doc.status !== 'active')) return { ...source, missing: true };
       const trustChanged = Boolean(doc.verified) !== Boolean(source.verified);
       const edited = source.revision && doc.revision && doc.revision !== source.revision;
-      return { ...source, verified: Boolean(doc.verified), verifiedBy: doc.verifiedBy || null, title: doc.title || source.title, changed: trustChanged ? 'trust' : (edited ? 'body' : null) };
+      // The title stays as cited (the answer's citations match on it); a
+      // rename shows as "edited since", like a body change.
+      const renamed = doc.title && source.title && doc.title !== source.title;
+      // An answer recorded before sources carried a revision cannot be
+      // checked for edits: say so rather than pass it off as unchanged.
+      const unknown = !source.revision;
+      return { ...source, verified: Boolean(doc.verified), verifiedBy: doc.verifiedBy || null, changed: trustChanged ? 'trust' : (edited || renamed ? 'body' : (unknown ? 'unknown' : null)) };
     } catch {
       return { ...source, missing: true };
     }
@@ -3087,12 +3096,24 @@ function syncLocationHash() {
   } catch { /* a sandboxed or file: origin */ }
 }
 
+// Go to the Library with a patch, and when it restores a semantic query, run
+// that query once the provider status is known: an address or a saved view
+// that says "semantic" must show results, not an idle prompt.
+async function goLibraryAndSearch(patch) {
+  if (!(await goLibrary(patch))) return false;
+  if (patch.librarySemantic && String(patch.libraryQuery || '').trim()) {
+    if (!state.semanticStatus?.available) await settings.loadSemanticStatus().catch(() => {});
+    if (state.navType === 'library' && state.librarySemantic && state.semanticStatus?.available && state.semanticStatus?.enabled) void runSemanticSearch();
+  }
+  return true;
+}
+
 // A hash typed or restored by the browser: go there.
 async function applyLocationHash(hash) {
   const where = locationFromHash(hash);
   if (!where) return false;
   if (where.kind === 'doc') return openDocumentInEditor(where.id);
-  await goLibrary(where.patch);
+  await goLibraryAndSearch(where.patch);
   return true;
 }
 
@@ -3269,7 +3290,7 @@ async function runPaletteItem(item, { done = false } = {}) {
   if (item.action === 'go-library-view') {
     setState({ paletteOpen: false });
     const view = state.librarySavedViews[Number(item.index)];
-    if (view) await goLibrary(savedLibraryViewPatch(view));
+    if (view) await goLibraryAndSearch(savedLibraryViewPatch(view));
     return;
   }
   const command = paletteCommands[item.action];
@@ -3662,7 +3683,7 @@ async function handleAction(action, el, event) {
       break;
     case 'select-saved-view': {
       const view = state.librarySavedViews[Number(el.dataset.viewIndex)];
-      if (view) await goLibrary(savedLibraryViewPatch(view));
+      if (view) await goLibraryAndSearch(savedLibraryViewPatch(view));
       break;
     }
     case 'open-palette':
@@ -3923,6 +3944,7 @@ async function handleAction(action, el, event) {
         const view = createSavedLibraryView(name, state.activeLibraryTags, {
           types: state.libraryTypes, trust: state.libraryTrust, projects: state.libraryProjects,
           query: state.libraryQuery, sortBy: state.librarySortBy, groupBy: state.libraryGroupBy,
+          mode: state.librarySemantic ? 'semantic' : 'keyword', view: state.libraryView,
         });
         if (view) {
           setState({ librarySavedViews: [...state.librarySavedViews.filter(v => v.id !== view.id), view] });

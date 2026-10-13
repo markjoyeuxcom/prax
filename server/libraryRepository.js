@@ -82,7 +82,7 @@ function serializeTags(tags) {
 // listing 2,000 documents with d.* carried 60 MB of vectors nobody used.
 // tests/backend/libraryRepository.test.js keeps this in step with the schema.
 export const DOCUMENT_LISTING_COLUMNS = Object.freeze([
-  'id', 'title', 'body', 'document_type', 'project_id', 'tags', 'source_filename', 'archived_at',
+  'id', 'title', 'body', 'document_type', 'project_id', 'tags', 'source_filename', 'archived_at', 'archived_by', 'archived_by_agent', 'retired_by', 'retired_by_agent',
   'content_hash', 'updated_by', 'updated_by_agent', 'kind', 'verified', 'verified_at', 'verified_by',
   'status', 'embedding_backend', 'embedding_model', 'embedding_dim', 'embedded_hash', 'embedded_at',
   'created_at', 'updated_at', 'creation_operation', 'creation_intent_hash', 'revision',
@@ -102,6 +102,11 @@ export function normalizeDocumentRow(row) {
     tags: parseJsonArray(row.tags),
     sourceFilename: row.source_filename,
     archivedAt: toIso(row.archived_at),
+    archivedBy: row.archived_by ?? null,
+    archivedByAgent: row.archived_by_agent ?? null,
+    // Who superseded it (migration 0043); cleared when it is revived.
+    retiredBy: row.retired_by ?? null,
+    retiredByAgent: row.retired_by_agent ?? null,
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
     contentHash: row.content_hash ?? null,
@@ -206,25 +211,6 @@ export function buildUpdateDocument(id, fields, { revision, expectRevision } = {
   const values = [id, ...entries.map(([key, value]) => (key === 'tags' ? serializeTags(value) : value))];
   const assignments = entries.map(([key], index) => `${UPDATE_COLUMN_MAP[key]} = $${index + 2}`);
 
-  // Authorship follows CONTENT. A patch that touches neither title nor body
-  // (a retag, a project move, a type change) leaves updated_by and
-  // updated_by_agent alone: housekeeping must not turn an agent's unreviewed
-  // note into "yours" and drop it out of the review queue, nor make a person's
-  // document read as agent-written.
-  const contentChange = entries.some(([key]) => key === 'title' || key === 'body');
-  if (contentChange) {
-    values.push(fields.updatedBy || 'user');
-    assignments.push(`updated_by = $${values.length}`);
-
-    // Threaded by the routes on every write: the vendor id for an identified
-    // agent edit, NULL otherwise — so a human edit after an agent edit never
-    // leaves a stale agent id describing a revision it did not write.
-    if (fields.updatedByAgent !== undefined) {
-      values.push(fields.updatedBy === 'agent' ? (fields.updatedByAgent || null) : null);
-      assignments.push(`updated_by_agent = $${values.length}`);
-    }
-  }
-
   if (revision !== undefined) {
     values.push(revision);
     assignments.push(`revision = $${values.length}`);
@@ -243,26 +229,42 @@ export function buildUpdateDocument(id, fields, { revision, expectRevision } = {
     assignments.push(`content_hash = $${hashIndex}`);
   }
 
-  // An agent-origin mutation revokes a prior human verification ONLY when it
-  // actually changes what the human blessed: the body (compared via
-  // content_hash) or the TITLE — retitling a verified runbook changes its
-  // identity for retrieval, citations, and wiki-links just as surely as a
-  // body edit. Pure metadata (retag, project move) or byte-identical values
-  // keep the badge. SET expressions evaluate against the pre-update row, so
-  // content_hash/title below are the STORED values compared to the incoming
-  // ones. A legacy NULL stored hash compares unequal and revokes — the safe
-  // default.
+  // What the human blessed, compared against the STORED row (SET expressions
+  // evaluate before the update): the body via content_hash, and the title —
+  // retitling a verified runbook changes its identity for retrieval,
+  // citations and wiki-links as surely as a body edit. A legacy NULL stored
+  // hash compares unequal — the safe default.
   const titleEntryIndex = entries.findIndex(([key]) => key === 'title');
-  const agentContentGuards = [];
-  if (bodyProvided) agentContentGuards.push(`content_hash = $${hashIndex}`);
-  if (titleEntryIndex !== -1) agentContentGuards.push(`title = $${titleEntryIndex + 2}`);
-  if (fields.updatedBy === 'agent' && agentContentGuards.length) {
-    const unchanged = agentContentGuards.join(' and ');
-    assignments.push(
-      `verified = case when ${unchanged} then verified else 0 end`,
-      `verified_at = case when ${unchanged} then verified_at else null end`,
-      `verified_by = case when ${unchanged} then verified_by else null end`,
-    );
+  const contentGuards = [];
+  if (bodyProvided) contentGuards.push(`content_hash = $${hashIndex}`);
+  if (titleEntryIndex !== -1) contentGuards.push(`title = $${titleEntryIndex + 2}`);
+  const unchanged = contentGuards.join(' and ');
+
+  // Authorship follows CONTENT, and only content that actually changed. A
+  // patch that carries no title or body, or carries them byte-identical
+  // (the editor's full form with a new tag), leaves updated_by and
+  // updated_by_agent alone: housekeeping must not turn an agent's unreviewed
+  // note into "yours" and drop it out of the review queue, nor make a
+  // person's document read as agent-written.
+  if (contentGuards.length) {
+    values.push(fields.updatedBy || 'user');
+    assignments.push(`updated_by = case when ${unchanged} then updated_by else $${values.length} end`);
+    // The vendor id for an identified agent edit, NULL otherwise — so a human
+    // edit after an agent edit never leaves a stale agent id describing a
+    // revision it did not write.
+    if (fields.updatedByAgent !== undefined) {
+      values.push(fields.updatedBy === 'agent' ? (fields.updatedByAgent || null) : null);
+      assignments.push(`updated_by_agent = case when ${unchanged} then updated_by_agent else $${values.length} end`);
+    }
+    // An agent-origin mutation revokes a prior human verification ONLY when
+    // it changes what the human blessed; byte-identical values keep the badge.
+    if (fields.updatedBy === 'agent') {
+      assignments.push(
+        `verified = case when ${unchanged} then verified else 0 end`,
+        `verified_at = case when ${unchanged} then verified_at else null end`,
+        `verified_by = case when ${unchanged} then verified_by else null end`,
+      );
+    }
   }
 
   return {
@@ -277,14 +279,15 @@ export function buildUpdateDocument(id, fields, { revision, expectRevision } = {
 }
 
 // Archive and restore are attributable (QINV-11): when the caller names the
-// actor, `updated_by` / `updated_by_agent` record who did it, as every other
-// document write does, so the delta and the Library say who archived what.
-// Without an actor the lifecycle columns alone change.
+// actor, `archived_by` / `archived_by_agent` record who archived it (restore
+// clears them). They never touch `updated_by`: a lifecycle event is not an
+// edit, so archiving and restoring an agent's unreviewed note keeps it the
+// agent's — and in the review queue — exactly as before.
 function actorClause(actor, from) {
   if (!actor || !actor.updatedBy) return { set: '', values: [] };
   const agent = actor.updatedBy === 'agent' && typeof actor.updatedByAgent === 'string' && actor.updatedByAgent
     ? actor.updatedByAgent : null;
-  return { set: `, updated_by = $${from}, updated_by_agent = $${from + 1}`, values: [actor.updatedBy, agent] };
+  return { set: `, archived_by = $${from}, archived_by_agent = $${from + 1}`, values: [actor.updatedBy, agent] };
 }
 
 export function buildArchiveDocument(id, actor = null) {
@@ -300,16 +303,15 @@ export function buildArchiveDocument(id, actor = null) {
   };
 }
 
-export function buildRestoreDocument(id, actor = null) {
-  const stamp = actorClause(actor, 2);
+export function buildRestoreDocument(id) {
   return {
     text: `
       update markdown_documents
-      set archived_at = null, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')${stamp.set}
+      set archived_at = null, archived_by = null, archived_by_agent = null, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
       where id = $1 and archived_at is not null
       returning *
     `,
-    values: [id, ...stamp.values],
+    values: [id],
   };
 }
 
@@ -460,12 +462,15 @@ export function ftsMatchExpression(q) {
 // that one orders by project/type/updated_at, which is a browsing order, not a
 // relevance order, and Reciprocal Rank Fusion is only meaningful over ranks
 // that mean "how well does this match".
-export function buildSearchDocumentsKeyword(q, { projectId, includeRetired = false, limit = 50, preparedMatch = false } = {}) {
+export function buildSearchDocumentsKeyword(q, { projectId, includeRetired = false, limit = 50, preparedMatch = false, verifiedOnly = false } = {}) {
   const match = preparedMatch ? (q || null) : ftsMatchExpression(q);
   if (!match) return null;
   const values = [match];
   let where = `where d.archived_at is null and markdown_documents_fts match $1`;
   if (!includeRetired) where += ` and d.status = 'active'`;
+  // Trust eligibility before the candidate limit: "verified only" must not
+  // lose a verified match to fifty unverified ones ranked ahead of it.
+  if (verifiedOnly) where += ` and d.verified = 1`;
   if (projectId) {
     values.push(projectId);
     where += ` and d.project_id = $${values.length}`;
@@ -545,7 +550,7 @@ export function buildHasCurrentEmbedding(id, backend, model) {
 // Candidate query for semantic search: same filters and columns the old pg
 // query used, minus the pgvector distance — ranking happens in JS (SQLite has
 // no vector operator), so the embedding column rides along to be scored.
-export function buildSearchDocumentsSemantic(backend, { projectId, includeRetired = false, model } = {}) {
+export function buildSearchDocumentsSemantic(backend, { projectId, includeRetired = false, model, verifiedOnly = false } = {}) {
   const values = [backend];
   const hasModel = typeof model === 'string';
   if (hasModel) values.push(model);
@@ -553,6 +558,7 @@ export function buildSearchDocumentsSemantic(backend, { projectId, includeRetire
   if (!includeRetired) {
     where += ` and d.status = 'active'`;
   }
+  if (verifiedOnly) where += ` and d.verified = 1`;
   if (projectId) {
     values.push(projectId);
     where += ` and d.project_id = $${values.length}`;
@@ -1055,7 +1061,7 @@ export function createLibraryRepository(db) {
 
     async restoreDocument(id, actor = null) {
       await ready();
-      const query = buildRestoreDocument(id, actor);
+      const query = buildRestoreDocument(id);
       const result = await db.query(query.text, query.values);
       if (!result.rows[0]) return null;
       // RETURNING reflects only this statement's write — the 0018 restore
@@ -1145,7 +1151,7 @@ export function createLibraryRepository(db) {
     // ranked (C10).
     async searchDocumentsSemantic(queryVector, backend, opts = {}) {
       await ready();
-      const q = buildSearchDocumentsSemantic(backend, { projectId: opts.projectId, includeRetired: opts.includeRetired, model: opts.model });
+      const q = buildSearchDocumentsSemantic(backend, { projectId: opts.projectId, includeRetired: opts.includeRetired, model: opts.model, verifiedOnly: opts.verifiedOnly });
       const result = await db.query(q.text, q.values);
       const limit = Number.isFinite(Number(opts.limit)) && Number(opts.limit) > 0 ? Number(opts.limit) : 20;
       const offset = Number.isInteger(Number(opts.offset)) && Number(opts.offset) >= 0 ? Number(opts.offset) : 0;
@@ -1174,7 +1180,7 @@ export function createLibraryRepository(db) {
     async searchDocumentsKeyword(queryText, opts = {}) {
       await ready();
       const keywordQuery = buildSearchDocumentsKeyword(queryText, {
-        projectId: opts.projectId, includeRetired: opts.includeRetired, limit: opts.limit,
+        projectId: opts.projectId, includeRetired: opts.includeRetired, limit: opts.limit, verifiedOnly: opts.verifiedOnly,
       });
       if (!keywordQuery) return [];
       const kw = await db.query(keywordQuery.text, keywordQuery.values);

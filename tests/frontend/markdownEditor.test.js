@@ -122,3 +122,8 @@ test('tableCells and nextTableCell step through a row and off its ends', () => {
   assert.equal(isTableSeparator('| --- | :-: |'), true);
   assert.equal(isTableSeparator('| a | b |'), false);
 });
+
+test('Enter at the end of a header row whose separator follows adds the row under the separator', () => {
+  assert.deepEqual(continueTableOnEnter('| a | b |', '| --- | --- |'), { action: 'continue', prefix: '|   |   |', caret: 2, afterNextLine: true });
+  assert.deepEqual(continueTableOnEnter('| a | b |', '| x | y |'), { action: 'continue', prefix: '|   |   |', caret: 2 });
+});

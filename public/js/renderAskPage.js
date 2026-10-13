@@ -113,9 +113,9 @@ function renderSourcesRail(sources, cited) {
     const number = index + 1;
     const trust = source.missing ? 'no longer in the library' : (source.verified ? '✓ verified' : `◌ unverified${isAgentSource(source) ? ' · agent' : ''}`);
     // A source re-read after the answer was given (history): say what moved.
-    const changed = source.changed ? (source.changed === 'trust' ? ' · trust changed since this answer' : ' · edited since this answer') : '';
-    const label = [`Source ${number}`, source.title || 'Untitled', source.documentType || 'note', ...(source.stale ? ['stale'] : []), source.missing ? 'no longer in the library' : (source.verified ? 'verified' : 'unverified'), ...(source.changed ? ['changed since this answer'] : [])].join(', ');
-    return `<li><button type="button" class="ask-src${source.verified ? '' : ' ask-src--agent'}${cited.has(number) ? ' is-cited' : ''}${source.changed || source.missing ? ' ask-src--changed' : ''}" data-action="open-ask-source" data-document-id="${escapeHtml(source.id || '')}" data-source-n="${escapeHtml(number)}" aria-label="Open ${escapeHtml(label)}"${source.missing ? ' disabled' : ''}>`
+    const changed = source.changed ? CHANGED_NOTE[source.changed] || '' : '';
+    const label = [`Source ${number}`, source.title || 'Untitled', source.documentType || 'note', ...(source.stale ? ['stale'] : []), source.missing ? 'no longer in the library' : (source.verified ? 'verified' : 'unverified'), ...(source.changed ? [source.changed === 'unknown' ? 'edits since this answer unknown' : 'changed since this answer'] : [])].join(', ');
+    return `<li><button type="button" class="ask-src${source.verified ? '' : ' ask-src--agent'}${cited.has(number) ? ' is-cited' : ''}${(source.changed && source.changed !== 'unknown') || source.missing ? ' ask-src--changed' : ''}" data-action="open-ask-source" data-document-id="${escapeHtml(source.id || '')}" data-source-n="${escapeHtml(number)}" aria-label="Open ${escapeHtml(label)}"${source.missing ? ' disabled' : ''}>`
       + `<span class="ask-src__head"><span class="ask-src__n">${escapeHtml(number)}</span><span class="ask-src__title">${escapeHtml(source.title || 'Untitled')}</span></span>`
       + `<span class="ask-src__trust">${escapeHtml(trust)} · ${escapeHtml(source.documentType || 'note')}${source.stale ? ' · stale' : ''}${escapeHtml(changed)}</span>`
       + '</button></li>';
@@ -128,11 +128,21 @@ function renderSourcesRail(sources, cited) {
     + '</aside>';
 }
 
+// What a re-read source says about itself since the answer (history).
+// 'unknown': the answer predates revision tracking, so an edit cannot be
+// detected; the honest word is not "unchanged".
+const CHANGED_NOTE = {
+  trust: ' · trust changed since this answer',
+  body: ' · edited since this answer',
+  unknown: ' · edits since this answer unknown',
+};
+
 const DEGRADED = {
   'generation-failed': 'The AI model failed to answer, so here are the relevant sources instead. Check the model and API key in Settings ▸ Intelligence.',
   'citation-validation-failed': 'The generated answer did not cite its sources correctly, so Prax withheld it and is showing the sources instead.',
   'no-chat-model': 'No AI model is set, so here are the most relevant sources. Configure one in Settings ▸ Intelligence for a written answer.',
   'no-sources': 'Nothing in your library matches this question, so there is nothing to answer from. Try other words, widen the scope, or write the document it needs.',
+  truncated: 'The model ran out of room before the answer was complete, so Prax withheld the partial text and is showing the sources instead. Ask something narrower, or ask for one part at a time.',
 };
 const KEYWORD_ONLY = ' This was a keyword search: it finds documents that share words with the question. Semantic search (Settings ▸ Intelligence) understands questions in your own words.';
 
@@ -146,8 +156,14 @@ function renderCoverage(r) {
   if (index) notes.push(index);
   const hidden = Number(retrieval.hiddenHarvested) || 0;
   if (hidden > 0) notes.push(`${hidden} unreviewed harvested candidate${hidden === 1 ? ' was' : 's were'} left out until triaged in the Inbox.`);
-  const excluded = Number(retrieval.hiddenUnverified) || 0;
-  if (excluded > 0) notes.push(`${excluded} unverified document${excluded === 1 ? ' was' : 's were'} left out (Verified only).`);
+  if (retrieval.trust === 'verified' && retrieval.hiddenUnverified === null) {
+    // The disclosure pass failed; the answer itself is unaffected.
+    notes.push('Unverified documents may have been left out (Verified only): their count was unavailable.');
+  } else {
+    const excluded = Number(retrieval.hiddenUnverified) || 0;
+    // The count comes from a bounded candidate list: when it filled, the real number may be higher.
+    if (excluded > 0) notes.push(`${retrieval.hiddenUnverifiedCapped ? 'At least ' : ''}${excluded} unverified document${excluded === 1 && !retrieval.hiddenUnverifiedCapped ? ' was' : 's were'} left out (Verified only).`);
+  }
   if (retrieval.fallback) {
     notes.push(retrieval.reason === 'semantic-unavailable'
       ? 'Semantic search was unavailable, so this used keyword search.'
@@ -249,9 +265,10 @@ export function renderAskPageHtml(state, { resolveWikiLink, projects = [], today
     const warning = unverifiedCited.length
       ? `<div class="ask-warn" role="note"><span aria-hidden="true">◌</span><span>${unverifiedCited.length === 1 ? `“${escapeHtml(unverifiedCited[0].title)}” is` : `${escapeHtml(unverifiedCited.length)} cited sources are`} unverified memory nobody has checked yet. Check before you act. ${unverifiedCited.length === 1 ? `<button type="button" class="ask-warn__link" data-action="ask-review-source" data-document-id="${escapeHtml(reviewTarget.id || '')}" data-agent="${isAgentSource(reviewTarget) ? 'true' : 'false'}">Review it now</button>` : '<button type="button" class="ask-warn__link" data-action="nav-review">Open the review queue</button>'}</span></div>`
       : '';
-    const changedSources = sources.filter((source) => source.changed || source.missing);
+    const changedSources = sources.filter((source) => (source.changed && source.changed !== 'unknown') || source.missing);
+    const unknownSources = sources.filter((source) => source.changed === 'unknown' && !source.missing);
     const snapshot = r.at
-      ? `<div class="ask-snapshot" role="note">Answered ${escapeHtml(shortWhen(r.at))} from the library as it was then.${changedSources.length ? ` ${escapeHtml(changedSources.length)} source${changedSources.length === 1 ? ' has' : 's have'} changed since.` : ''} <button type="button" class="ask-warn__link" data-action="ask-retry">Ask again</button></div>`
+      ? `<div class="ask-snapshot" role="note">Answered ${escapeHtml(shortWhen(r.at))} from the library as it was then.${changedSources.length ? ` ${escapeHtml(changedSources.length)} source${changedSources.length === 1 ? ' has' : 's have'} changed since.` : ''}${unknownSources.length ? ` ${escapeHtml(unknownSources.length)} source${unknownSources.length === 1 ? ' cannot' : 's cannot'} be checked for edits: this answer predates revision tracking.` : ''} <button type="button" class="ask-warn__link" data-action="ask-retry">Ask again</button></div>`
       : '';
     const keywordOnly = r.degraded && r.reason === 'no-sources' && r.retrieval?.mode !== 'semantic' ? KEYWORD_ONLY : '';
     const notice = r.degraded ? `<div class="ask-notice">${escapeHtml((DEGRADED[r.reason] || DEGRADED['no-chat-model']) + keywordOnly)}</div>` : '';

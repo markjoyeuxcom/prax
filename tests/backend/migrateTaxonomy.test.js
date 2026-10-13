@@ -77,6 +77,8 @@ test('0010 rebuild preserves data, links, and FTS; retypes tagged post-mortems; 
     '0039_add_citation_anchors.sql',
     '0040_recall_telemetry_and_librarian.sql',
     '0041_add_agent_recall_markers.sql',
+    '0042_archive_attribution.sql',
+    '0043_supersede_attribution.sql',
   ]);
 
   // Every row survived, fields intact.

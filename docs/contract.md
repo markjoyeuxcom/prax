@@ -755,6 +755,13 @@ request header; the MCP client sends `"agent"` automatically. `updatedByAgent` i
 is an API field (migration 0026, column `updated_by_agent`) and appears in Markdown v3 as
 `updated_by_agent`.
 
+Authorship follows content: `updatedBy` and `updatedByAgent` change only when a write changes
+the title or the body. A tag change, a retype, a save that resends the same text, an archive or
+a restore keeps the previous writer, so an unreviewed agent document stays in the review queue
+through housekeeping. Archive has its own attribution: `archivedBy` (`"user"` | `"agent"` |
+`null`) and `archivedByAgent` (migration 0042), cleared again by restore; a supersession has
+`retiredBy` and `retiredByAgent` (migration 0043), cleared when the document is revived.
+
 `POST /api/library/documents/upsert-by-title` is the atomic "remember": body `{ project, title,
 body, tags?, documentType?, kind?, id? }`. Inside one transaction it updates the **active**
 document with that exact title in the project (replacing the body, replacing tags only when
@@ -1237,12 +1244,18 @@ offered for approval. Each `pending` entry carries `summary`, `targets` (role, i
 `format: 'body'` for Markdown bodies) and `notes`. `decisions` maps each call id to `approve` or
 `deny`; with several pending writes the browser sends nothing until every call has a decision,
 and a safe retry resends the recorded decisions. A new supersedes edge (the supersede route or a
-`supersedes` link) records the actor on the retired document's `updatedBy`/`updatedByAgent`.
+`supersedes` link) records the actor on the retired document's `retiredBy`/`retiredByAgent`
+(migration `0043`), never on `updatedBy`: a supersession is not an edit. The edge itself keeps
+its actor (`created_by`, `created_by_agent`), so a restore that re-retires the target attributes
+the retirement to whoever made the edge. Reviving the document (the edge removed, or the
+superseder archived) clears both.
 
 Chat adapters return `finishReason` and `truncated`. Output cut off at the token limit is never
 presented as complete: the assistant does not propose tool calls from it (`status:'error'`,
 `reason:'truncated'`) and marks a truncated answer as incomplete; writing actions return
-`{text:null, degraded:true, reason:'truncated'}`; runbook generation returns 502 with
+`{text:null, degraded:true, reason:'truncated'}`; Ask returns its sources with
+`{answer:null, degraded:true, reason:'truncated'}` and Ask tasks `{tasks:[], degraded:true,
+reason:'truncated'}`; runbook generation returns 502 with
 `reason:'truncated'` and saves nothing; post-mortems fall back to the chronicle template with
 `degraded:true, reason:'truncated'`. HTTP adapters apply a request timeout (180 s; 300 s for
 Ollama). OpenAI Responses requests ask for `reasoning.encrypted_content` so stateless tool

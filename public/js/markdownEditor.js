@@ -200,11 +200,16 @@ export function isTableSeparator(lineText) {
 // Enter at the end of a table row: a fresh empty row with the same number of
 // cells ({ action: 'continue', prefix }), or, on a row that is already empty,
 // leave the table ({ action: 'exit' }). A separator row never continues.
-export function continueTableOnEnter(lineText) {
+// `nextLineText`: the line below, so Enter at the end of a header row whose
+// separator follows puts the new row under the separator, not between them.
+export function continueTableOnEnter(lineText, nextLineText = '') {
   const text = String(lineText ?? '');
   if (!isTableRow(text)) return { action: 'none' };
   const cells = tableCells(text);
   if (isTableSeparator(text)) return { action: 'none' };
+  if (isTableSeparator(nextLineText)) {
+    return { action: 'continue', prefix: tableRowText(Array(cells.length).fill('')), caret: 2, afterNextLine: true };
+  }
   if (cells.every((c) => text.slice(c.from, c.to).trim() === '')) return { action: 'exit' };
   // caret: where the caret lands inside the new row (the first cell).
   return { action: 'continue', prefix: tableRowText(Array(cells.length).fill('')), caret: 2 };

@@ -119,3 +119,28 @@ test('POST /api/library/ask with trust=verified leaves unverified memory out of 
   assert.doesNotMatch(seen[1].content, /Talos upgrade notes/);
   await app.close();
 });
+
+test('a failing hidden-unverified count does not cost a verified-only answer its sources', async () => {
+  const chat = { backend: 'fake', model: 'fake-chat', async complete() { return { text: 'Recreate the key [B2 app key scopes].', model: 'fake-chat' }; } };
+  let calls = 0;
+  const app = await buildApp({
+    skipDb: true,
+    libraryRepository: {
+      listDocuments: async () => DOCS,
+      searchDocumentsSemantic: async (_v, _b, opts) => { calls += 1; if (!opts.verifiedOnly) throw new Error('vector index busy'); return DOCS.filter((doc) => doc.verified); },
+      getDocument: async (id) => DOCS.find((doc) => doc.id === id) || null,
+    },
+    projectsRepository: { resolveProject: async () => ({ id: PROJECT_ID, slug: 'homelab', name: 'Homelab' }) },
+    documentLinksRepository: { listOutboundLinksForDocuments: async () => new Map() },
+    appSettingsRepository: { async getSetting(_k, fb) { return fb; }, async putSetting() {} },
+    embedder: { backend: 'fake', async isAvailable() { return true; }, async embed() { return { vector: [0.1], model: 'fake', dim: 1 }; } },
+    chat,
+  });
+  const body = (await app.inject({ method: 'POST', url: '/api/library/ask', payload: { q: 'restore', trust: 'verified' } })).json();
+  assert.equal(calls, 2, 'the disclosure pass ran and failed');
+  assert.equal(body.degraded, false);
+  assert.equal(body.retrieval.mode, 'semantic');
+  assert.deepEqual(body.sources.map((s) => s.title), ['B2 app key scopes']);
+  assert.equal(body.retrieval.hiddenUnverified, null, 'the count is unknown, the answer is not');
+  await app.close();
+});

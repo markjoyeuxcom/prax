@@ -1461,9 +1461,8 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (semanticReady) {
       try {
         const { vector } = await embedder.embed(query, { query: true });
-        docs = await repository.searchDocumentsSemantic(vector, embedder.backend, {
-          projectId, limit: 50, model: embedder.model, ...relevanceCutoff(embedder), ...harvested.opts,
-        });
+        const semanticOpts = { projectId, limit: 50, model: embedder.model, ...relevanceCutoff(embedder), ...harvested.opts };
+        docs = await repository.searchDocumentsSemantic(vector, embedder.backend, semanticOpts);
         if (docs.length > 0) retrieval = { mode: 'semantic', fallback: false, reason: null };
         else retrieval = { mode: 'keyword', fallback: true, reason: 'semantic-no-match' };
         const index = await indexCoverage(embedder);
@@ -1513,13 +1512,39 @@ export async function registerLibraryRoutes(app, options = {}) {
     // stay out of its sources unless the caller opts in.
     const harvested = harvestedScope(body.includeHarvested);
     let retrieval = { mode: 'keyword', fallback: false, reason: null };
+    const verifiedOnly = body.trust === 'verified';
+    // What "Verified only" hid: counted on a second, unfiltered pass over the
+    // same ranking (bounded by the candidate limit, so `capped` says when
+    // the real number may be higher). The count is a disclosure, never a
+    // condition of the answer: when the pass fails the count is null and the
+    // retrieval keeps its sources.
+    const CANDIDATE_LIMIT = 50;
+    let hiddenUnverified = 0;
+    let hiddenUnverifiedCapped = false;
+    const countHidden = async (run, eligible = (rows) => rows) => {
+      try {
+        const rows = await run();
+        // Capped is a fact about the bounded pass, measured before any
+        // eligibility filter shortens it.
+        hiddenUnverifiedCapped = rows.length >= CANDIDATE_LIMIT;
+        return eligible(rows).filter((doc) => !doc.verified).length;
+      } catch (err) {
+        request.log.warn({ err }, 'library ask hidden-unverified count failed');
+        return null;
+      }
+    };
     const embedder = await resolveEmbedder();
     if (embedder && await semanticEnabled()) {
       try {
         const { vector } = await embedder.embed(query, { query: true });
-        docs = await repository.searchDocumentsSemantic(vector, embedder.backend, {
-          projectId, limit: 50, model: embedder.model, ...relevanceCutoff(embedder), ...harvested.opts,
-        });
+        const semanticOpts = { projectId, limit: 50, model: embedder.model, ...relevanceCutoff(embedder), ...harvested.opts };
+        // The trust clause is applied in SQL, before the candidate limit, so a
+        // verified match is never crowded out by unverified neighbours.
+        docs = await repository.searchDocumentsSemantic(vector, embedder.backend, { ...semanticOpts, verifiedOnly });
+        if (verifiedOnly) {
+          docs = docs.filter((doc) => doc.verified); // a repository that ignores the option
+          hiddenUnverified = await countHidden(() => repository.searchDocumentsSemantic(vector, embedder.backend, semanticOpts));
+        }
         if (docs.length > 0) retrieval = { mode: 'semantic', fallback: false, reason: null };
         else retrieval = { mode: 'keyword', fallback: true, reason: 'semantic-no-match' };
         const index = await indexCoverage(embedder);
@@ -1533,18 +1558,25 @@ export async function registerLibraryRoutes(app, options = {}) {
     if (docs.length === 0) {
       // Ranked (OR-ed, BM25) keyword retrieval, not the Library's all-terms
       // listing filter: a question in plain words must still find its runbook.
-      docs = typeof repository.searchDocumentsKeyword === 'function'
-        ? harvested.filter(await repository.searchDocumentsKeyword(query, { projectId, limit: 50 }))
-        : harvested.filter(await repository.listDocuments({ projectId, status: 'active', q: query }));
+      if (typeof repository.searchDocumentsKeyword === 'function') {
+        docs = harvested.filter(await repository.searchDocumentsKeyword(query, { projectId, limit: CANDIDATE_LIMIT, verifiedOnly }));
+        // The same harvest eligibility on the disclosure pass, so an unreviewed
+        // harvested candidate is reported as hidden by triage, not by trust
+        // (the semantic pass excludes it in SQL on both queries).
+        if (verifiedOnly) hiddenUnverified = await countHidden(() => repository.searchDocumentsKeyword(query, { projectId, limit: CANDIDATE_LIMIT }), (rows) => harvested.filter(rows));
+      } else {
+        docs = harvested.filter(await repository.listDocuments({ projectId, status: 'active', q: query }));
+        if (verifiedOnly) { const before = docs.length; docs = docs.filter((doc) => doc.verified); hiddenUnverified = before - docs.length; }
+      }
     }
     if (harvested.count > 0) retrieval = { ...retrieval, hiddenHarvested: harvested.count };
     // "Verified only" (the Ask page's trust chip): unverified memory is left
-    // out of the answer and its sources entirely, and the count is reported.
-    const trust = body.trust === 'verified' ? 'verified' : 'all';
-    if (trust === 'verified') {
-      const before = docs.length;
-      docs = docs.filter((doc) => doc.verified);
-      retrieval = { ...retrieval, trust, hiddenUnverified: before - docs.length };
+    // out of the answer and its sources entirely (applied BEFORE the
+    // candidate limit, so a verified match is never crowded out), and the
+    // count the chip hides is reported.
+    if (verifiedOnly) {
+      docs = docs.filter((doc) => doc.verified); // the listing fallback, and belt-and-braces
+      retrieval = { ...retrieval, trust: 'verified', hiddenUnverified, ...(hiddenUnverifiedCapped ? { hiddenUnverifiedCapped: true } : {}) };
     }
 
     const pack = buildContextPack(docs, { project, query, limit, retrieval, hiddenHarvested: harvested.count });
@@ -1568,7 +1600,12 @@ export async function registerLibraryRoutes(app, options = {}) {
       return { query, answer: null, degraded: true, reason: 'no-sources', markdown, sources, retrieval, model: chat.model || null };
     }
     try {
-      const { text, model } = await chat.complete(buildAskMessages(query, answerContext.context), { temperature: 0.2, maxTokens: 1024 });
+      const { text, model, truncated } = await chat.complete(buildAskMessages(query, answerContext.context), { temperature: 0.2, maxTokens: 1024 });
+      // A cut-off answer is not an answer: a valid citation proves which
+      // source it read, not that the procedure got to its last step.
+      if (truncated) {
+        return { query, answer: null, degraded: true, reason: 'truncated', markdown, sources, retrieval, model };
+      }
       const citation = validateAnswerCitations(text, sources);
       if (!citation.valid) {
         return { query, answer: null, degraded: true, reason: 'citation-validation-failed', markdown, sources, retrieval, model };
@@ -1597,7 +1634,8 @@ export async function registerLibraryRoutes(app, options = {}) {
     const chat = await resolveChat();
     if (!chat) return { tasks: [], degraded: true, reason: 'no-chat-model', model: null };
     try {
-      const { text, model } = await chat.complete(buildAskTaskMessages(query, answer, sources), { temperature: 0.2, maxTokens: 500 });
+      const { text, model, truncated } = await chat.complete(buildAskTaskMessages(query, answer, sources), { temperature: 0.2, maxTokens: 500 });
+      if (truncated) return { tasks: [], degraded: true, reason: 'truncated', model };
       const result = coerceAskTasks(text, sources, { today: requestToday(request) });
       return { tasks: result.tasks, dropped: result.dropped, degraded: !result.parsed, reason: result.parsed ? null : 'unparseable', model };
     } catch (err) {

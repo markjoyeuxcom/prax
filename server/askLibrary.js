@@ -87,6 +87,9 @@ function toSource(item) {
     updatedBy: item.updatedBy || null,
     kind: item.kind || 'source',
     stale: Boolean(item.stale),
+    // The revision the answer was grounded in, so a reopened history entry
+    // can tell that the source was edited since.
+    revision: item.revision || null,
   };
 }
 

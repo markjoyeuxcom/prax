@@ -200,7 +200,7 @@ rule.
 |---|---|
 | `npm test` | Unit, route, repository, SQLite integration, CLI, MCP, frontend, and contract gates. |
 | `npm run test:e2e` | Production-server browser journeys against real SQLite repositories. |
-| `npm run check` | Entry-point syntax gate. |
+| `npm run check` | Entry-point syntax gate plus `npm run lint`, an undefined-identifier check (ESLint `no-undef` only). |
 | `npm run verify:portable` | Deterministic mature-workspace task/checklist export/import proof against a fresh instance. |
 | `npm run verify:restore` | Live-WAL `large` backup, validated destruction/restore, production boot, and historical migration proof. |
 | `npm run eval` and `tests/backend/retrievalEval.test.js` | Deterministic retrieval recall and junk-exclusion evidence. |
