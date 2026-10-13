@@ -12,6 +12,15 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.45.1] - 2026-10-13
+
+### Fixed
+
+- **v0.45.0 was tagged but never published:** its macOS desktop build failed on a
+  timing-sensitive readiness test in the desktop shell (the runner's first progress report
+  arrived after the test's 100 ms budget), with no change to the code under test. This release
+  carries everything listed under 0.45.0 plus that test's wider scheduling margin.
+
 ## [0.45.0] - 2026-10-13
 
 ### Changed
@@ -2554,7 +2563,8 @@ and onboarding features with the corrected installation guide.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/markjoyeuxcom/prax/compare/v0.45.0...HEAD
+[Unreleased]: https://github.com/markjoyeuxcom/prax/compare/v0.45.1...HEAD
+[0.45.1]: https://github.com/markjoyeuxcom/prax/compare/v0.45.0...v0.45.1
 [0.45.0]: https://github.com/markjoyeuxcom/prax/compare/v0.44.0...v0.45.0
 [0.44.0]: https://github.com/markjoyeuxcom/prax/compare/v0.43.1...v0.44.0
 [0.43.1]: https://github.com/markjoyeuxcom/prax/compare/v0.43.0...v0.43.1
