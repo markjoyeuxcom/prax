@@ -89,7 +89,7 @@ Each overlay pins the image tag. Exposure is intentionally not part of the rende
 | staging | `prax-staging` |
 | prod | `prax-prod` |
 
-Overlays are currently pinned to `v0.45.1`. That tag follows this checkout's version
+Overlays are currently pinned to `v0.46.0`. That tag follows this checkout's version
 (`npm run release:prepare` bumps it every release), but the pipeline builds and publishes no
 container image — the last one it pushed was `v0.30.0`. Build and push the image yourself (see
 [Build and Publish Image](#build-and-publish-image)) and point each overlay's `images:` entry at it.
