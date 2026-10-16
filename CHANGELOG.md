@@ -12,6 +12,21 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Changed
+
+- **Ledger polish of the Console shell:** a CSS-only pass with no change to markup, actions
+  or keys. The accent now marks only the current place (a 2 px bar in the sidebar margin),
+  each page's one primary button and focus; the status-line mode is accent text instead of
+  a filled block, and the titlebar New button is quiet so the page's own action stays the
+  primary. The titlebar, sidebar, status line and docked inspector share the page surface
+  with hairlines between them. Search and filter fields sit a step darker than the page.
+  Trust reads as a provenance seal: a dashed violet ring for unverified, a solid accent ring
+  with a tick for verified, struck for superseded, amber for synth, identical on Library
+  cards and rows, the editor head, Today's night shift and the review desk. Library cards
+  put the seals on their own line under the title instead of squeezing it. Buttons press
+  back under the pointer and transitions use a fast ease-out; reduced motion still removes
+  all movement. The decisions are recorded in `.interface-design/system.md`.
+
 ## [0.45.1] - 2026-10-13
 
 ### Fixed

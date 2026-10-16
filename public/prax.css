@@ -4166,3 +4166,114 @@ button.rq-item:hover { background: color-mix(in oklab, var(--ink) 5%, transparen
 .ask-task__src { grid-column: 2 / 4; font-size: 11.5px; color: var(--ink3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ask-tasks__status { margin: 0; font-size: 13px; color: var(--ink3); }
 .ask-tasks__done { display: inline-flex; align-items: center; font-size: 13px; color: var(--accent); padding: 0 6px; }
+
+/* ============================================================================
+   Ledger layer (2026-10-16 polish) — the window reads as one bound ledger on
+   a dark desk. Colour has a budget: the accent marks the current place, the
+   page's one primary action and focus; violet marks agent authorship and
+   nothing else. Trust is a seal on a provenance line, not a filled pill.
+   CSS only: no markup, actions or keys change. Later in the file so it wins
+   on equal specificity.
+   ========================================================================== */
+
+:root {
+  /* An inset field: a well that receives ink, a step below the page. */
+  --well: color-mix(in oklab, var(--surface) 72%, var(--desk));
+  /* Hairlines do the structure; the accent bar is the only hard edge. */
+  --rule: var(--line);
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-move: cubic-bezier(0.77, 0, 0.175, 1);
+}
+body[data-theme="dark"] { --well: color-mix(in oklab, var(--surface) 55%, var(--desk)); }
+
+/* ---- One surface for the frame: sidebar, titlebar and status line share the
+   page and are separated by hairlines, so the eye reads one sheet with a
+   margin, not three panels of different paper. */
+.titlebar { background: var(--surface); border-bottom-color: var(--rule); }
+.sidebar, .panel { background: var(--surface); border-right-color: var(--rule); }
+.statusbar { background: var(--surface); border-top-color: var(--rule); }
+.drawer--docked { background: var(--surface); border-left-color: var(--rule); }
+
+/* ---- The current place: a 2px accent bar in the margin, ink label, quiet
+   lift. Icons and text stay ink so the bar is the only accent in the rail. */
+.side-item { position: relative; }
+.side-item.is-active { background: color-mix(in oklab, var(--ink) 6%, transparent); color: var(--ink); }
+.side-item.is-active--nav { color: var(--ink); }
+.places__item.is-active svg { color: var(--ink2); }
+.places__item.is-active::before {
+  content: ""; position: absolute; left: -8px; top: 7px; bottom: 7px; width: 2px;
+  border-radius: 1px; background: var(--accent);
+}
+.side-item.is-active .side-item__count { color: var(--ink3); }
+
+/* ---- Status line: the mode is a word in the accent, not a block of it. */
+.statusbar__mode {
+  background: transparent; color: var(--accent); font-weight: 600;
+  border-right: 1px solid var(--rule); padding: 0 12px 0 14px;
+}
+.statusbar__mode--agent { background: transparent; color: var(--agent); }
+
+/* ---- The titlebar's New is a door, not the page's action: the page keeps
+   the one vivid button (Process Inbox, Review one by one, New doc). */
+.titlebar__new > .btn-primary {
+  background: var(--card); color: var(--ink); border: 1px solid var(--line2);
+  box-shadow: none;
+}
+.titlebar__new > .btn-primary:hover { filter: none; border-color: color-mix(in oklab, var(--ink) 28%, transparent); }
+.titlebar__new > .btn-primary svg { color: var(--accent); }
+.titlebar__new > .btn-primary .btn-primary__chevron { color: var(--ink3); opacity: 1; }
+
+/* ---- Fields are wells: a step darker than the page so "type here" reads
+   without a heavy border. Focus is the accent ring, as everywhere. */
+.cmdbar, .lib-search, .panel__filter, .searchpill,
+.inbox-fields input, .inbox-fields select,
+.capture__input, .drawer input[type="text"], .drawer textarea, .drawer select {
+  background: var(--well);
+}
+.cmdbar { border-color: var(--rule); }
+.cmdbar:hover { background: color-mix(in oklab, var(--well) 70%, var(--surface)); }
+.lib-search { border-color: var(--rule); }
+.lib-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); background: var(--surface); }
+
+/* ---- Provenance seals. Trust is one mono word with a ring: dashed violet
+   for agent-written and unverified, solid accent with a tick for verified,
+   struck for superseded. The same seal appears on Library cards and rows,
+   the editor head, Today's night shift and the review desk. */
+.chip--unverified, .chip--verified, .chip--superseded, .chip--synth, .rq-chip--agent {
+  background: transparent; font-family: var(--font-mono); font-weight: 500;
+  font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase;
+  padding: 1px 7px; border-radius: 4px; line-height: 1.5;
+}
+.chip--unverified { color: var(--agent); border: 1px dashed color-mix(in oklab, var(--agent) 60%, transparent); }
+.chip--verified { color: var(--accent); border: 1px solid color-mix(in oklab, var(--accent) 55%, transparent); }
+.chip--verified::before { content: "✓"; margin-right: 4px; }
+.chip--superseded { color: var(--ink3); border: 1px solid var(--line2); text-decoration: line-through; text-decoration-color: color-mix(in oklab, var(--ink3) 70%, transparent); }
+.chip--synth { color: var(--med); border: 1px solid color-mix(in oklab, var(--med) 45%, transparent); }
+.chip--stale { border-radius: 4px; font-family: var(--font-mono); font-weight: 500; font-size: 10.5px; padding: 1px 7px; }
+
+/* The card's seals sit on their own line under the title, left to right,
+   instead of a stack that squeezes the title to half the card. */
+.doc-card__head { flex-wrap: wrap; gap: 6px 8px; }
+.doc-card__title { flex: 1 1 100%; }
+.doc-card__badges { display: flex; flex-wrap: wrap; gap: 4px; flex: 1 1 auto; }
+.doc-card-wrap:hover .doc-card__badges,
+.doc-card-wrap:focus-within .doc-card__badges,
+.doc-card-wrap.is-selected .doc-card__badges { padding-right: 0; }
+.doc-card__check { top: 10px; right: 10px; }
+.doc-card__by { color: var(--ink2); }
+
+/* ---- Tables and cards sit on the page with hairlines, not a lighter sheet. */
+.doc-table { background: transparent; border-color: var(--rule); border-radius: 8px; }
+.doc-table__head { background: transparent; }
+.doc-table__row:hover { background: color-mix(in oklab, var(--ink) 4%, transparent); }
+
+/* ---- Motion: things arrive with a fast ease-out and press back under the
+   finger. Only transform and opacity animate; reduced motion keeps colour
+   transitions and drops movement (see the earlier media rule). */
+.main__scroll { animation: mmFade .22s var(--ease-out); }
+.btn-primary, .btn-ghost, .btn-outline, .btn-icon, .seg__btn, .side-item, .task-check, .doc-card__check {
+  transition-timing-function: var(--ease-out);
+}
+.btn-primary:active, .btn-ghost:active, .btn-outline:active, .btn-icon:active, .seg__btn:active, .titlebar__ask:active {
+  transform: scale(.97);
+}
