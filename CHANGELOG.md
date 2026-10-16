@@ -12,6 +12,8 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.46.0] - 2026-10-16
+
 ### Changed
 
 - **Ledger polish of the Console shell:** a CSS-only pass with no change to markup, actions
@@ -2578,7 +2580,8 @@ and onboarding features with the corrected installation guide.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/markjoyeuxcom/prax/compare/v0.45.1...HEAD
+[Unreleased]: https://github.com/markjoyeuxcom/prax/compare/v0.46.0...HEAD
+[0.46.0]: https://github.com/markjoyeuxcom/prax/compare/v0.45.1...v0.46.0
 [0.45.1]: https://github.com/markjoyeuxcom/prax/compare/v0.45.0...v0.45.1
 [0.45.0]: https://github.com/markjoyeuxcom/prax/compare/v0.44.0...v0.45.0
 [0.44.0]: https://github.com/markjoyeuxcom/prax/compare/v0.43.1...v0.44.0
