@@ -163,7 +163,7 @@ with the image override. The override and the Kubernetes manifests name this che
 version, which the release script bumps:
 
 ```bash
-docker build -f deploy/Dockerfile -t ghcr.io/markjoyeuxcom/prax:v0.46.0 .
+docker build -f deploy/Dockerfile -t ghcr.io/markjoyeuxcom/prax:v0.47.0 .
 docker compose -f compose.yaml -f compose.image.yaml up
 ```
 

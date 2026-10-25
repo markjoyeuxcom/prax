@@ -12,6 +12,8 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.47.0] - 2026-10-25
+
 ### Added
 
 - **Git backup and restore.** Settings ▸ Data & admin ▸ Git backup pushes the validated
@@ -2599,7 +2601,8 @@ and onboarding features with the corrected installation guide.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/markjoyeuxcom/prax/compare/v0.46.0...HEAD
+[Unreleased]: https://github.com/markjoyeuxcom/prax/compare/v0.47.0...HEAD
+[0.47.0]: https://github.com/markjoyeuxcom/prax/compare/v0.46.0...v0.47.0
 [0.46.0]: https://github.com/markjoyeuxcom/prax/compare/v0.45.1...v0.46.0
 [0.45.1]: https://github.com/markjoyeuxcom/prax/compare/v0.45.0...v0.45.1
 [0.45.0]: https://github.com/markjoyeuxcom/prax/compare/v0.44.0...v0.45.0
