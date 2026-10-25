@@ -26,6 +26,11 @@ fresh empty `[Unreleased]` section is started.
   and says why). `prax backup`, `prax backup status | list | restore <commit> --yes` do the
   same from a terminal. The Docker image now installs `git` and an SSH client.
 
+### Security
+
+- Dependency updates for two high advisories in transitive packages (`body-parser`, `zod`)
+  and two moderate ones (`fast-uri`, `ip-address`); lockfile only.
+
 ## [0.46.0] - 2026-10-16
 
 ### Changed
