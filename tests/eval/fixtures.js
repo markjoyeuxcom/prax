@@ -54,7 +54,7 @@ export const CASES = [
 ];
 
 // ---- Budgeted context and the since-last-session delta -------------------
-// (docs/design/budgeted-context-and-brief.md)
+// (the Prax Library document "Prax design: budgeted context and brief")
 // Keyword mode, no embedder: the fixture memory is retrieved through the FTS
 // path, filled by `prax context --budget`'s own code (cli/lib/context.js) and
 // the delta runs through the real changes repository. `cite` pins lines of a

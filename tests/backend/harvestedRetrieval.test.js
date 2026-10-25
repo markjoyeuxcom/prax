@@ -1,5 +1,5 @@
 // Unreviewed harvested candidates stay out of default agent-facing retrieval
-// (docs/design/session-harvesting.md): semantic
+// (the Prax Library document "Prax design: session harvesting"): semantic
 // and hybrid search, keyword recall, both context packs, Ask, similar and
 // task-related documents, and the memory-changes delta. `includeHarvested=true`
 // opts in, every route that hid something says how many (QINV-08), and a

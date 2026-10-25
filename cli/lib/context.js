@@ -5,7 +5,7 @@
 // (unverified quarantined last); which entries print, and in which form, is
 // decided in fill order. Without --budget the server's Markdown is printed
 // unchanged and this module is not used.
-// See docs/design/budgeted-context-and-brief.md.
+// See the Prax Library document "Prax design: budgeted context and brief".
 import { compactLine, fillOrder, oneLine, trustChip } from './budget.js';
 import { hiddenHarvestedNote } from '../../server/harvestedCandidates.js';
 import {

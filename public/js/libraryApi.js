@@ -530,7 +530,7 @@ export async function supersedeDocument(id, supersededBy) {
   return response.json();
 }
 
-// ---- Librarian (docs/design/librarian.md) --------
+// ---- Librarian (the Prax Library document "Prax design: librarian") --------
 
 async function librarianJson(res, fallback) {
   if (!res.ok) {

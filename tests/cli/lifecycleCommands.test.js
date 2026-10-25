@@ -1,5 +1,5 @@
 // `prax archive`, `prax restore` and `prax delete` through the real CLI and a
-// real app (docs/design/agent-archive-delete.md): archive is reversible and
+// real app (the Prax Library document "Prax design: agents archive, restore and delete"): archive is reversible and
 // drops the record out of recall, restore brings it back, and delete is
 // permanent only for an archived, unverified record with an explicit --yes.
 import test from 'node:test';

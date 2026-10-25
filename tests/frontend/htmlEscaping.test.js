@@ -5,7 +5,7 @@ import { findUnescapedInterpolations } from './htmlInterpolationScanner.js';
 
 // Every `${…}` in a template literal that builds HTML must be escaped or
 // provably safe. The rules are in htmlInterpolationScanner.js and in
-// docs/working-on-prax.md ("HTML escaping"). Every module is scanned,
+// the Prax Library document "Working on Prax (contributor guide)" ("HTML escaping"). Every module is scanned,
 // main.js included: it builds no HTML itself since its controllers and page
 // chrome moved into their own modules.
 

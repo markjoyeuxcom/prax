@@ -28,7 +28,7 @@ export const CODE_REF_PATHS_PER_REQUEST = 50;
 
 // Retrieval sources the server's recall telemetry accepts. A read that names
 // one is recorded (locally, in that workspace) with the agent id; one that
-// names none is not. See docs/design/librarian.md.
+// names none is not. See the Prax Library document "Prax design: librarian".
 export const QUERY_SOURCES = Object.freeze(['recall', 'search', 'context']);
 
 function querySourceHeaders(source) {

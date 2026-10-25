@@ -101,7 +101,7 @@ const COMMANDS = {
     max: 0,
     usage: 'prax harvest [--transcript <file>] [--session <id>] [--dry-run] [--budget-ms <n>] [--json]   (or --hook claude|codex|copilot, reading hook JSON on stdin)',
   },
-  // Librarian (docs/design/librarian.md).
+  // Librarian (the Prax Library document "Prax design: librarian").
   archive: { flags: [], max: 1, usage: 'prax archive <id> [--json]    (a document or a task; reversible with restore)' },
   restore: { flags: [], max: 1, usage: 'prax restore <id> [--json]' },
   delete: { flags: ['yes'], max: 1, usage: 'prax delete <id> --yes [--json]    (permanent; the record must be archived, and a verified document is never deleted)' },

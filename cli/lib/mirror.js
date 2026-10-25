@@ -6,7 +6,7 @@
 // (GET /api/library/export?format=json&layout=mirror), so there is one format
 // and one set of filename/link rules. This module decides which files to
 // write, move and delete, and writes them atomically, skipping identical
-// bytes. See docs/design/library-git-mirror.md.
+// bytes. See the Prax Library document "Prax design: Library git mirror".
 import {
   existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync,
 } from 'node:fs';

@@ -8,7 +8,7 @@ import { measureQualityPerformance } from './measure-quality-performance.js';
 import { evaluatePerformanceBudget, validatePerformanceBudget } from './verify-performance-budget.mjs';
 
 export const DEFAULT_PERFORMANCE_BUDGET = resolve(
-  'docs/quality-evidence/performance/2026-07-14-linux-arm64-budget.json',
+  'scripts/performance/2026-07-14-linux-arm64-budget.json',
 );
 
 export async function runPerformanceGate({ budget, measure = measureQualityPerformance, output } = {}) {

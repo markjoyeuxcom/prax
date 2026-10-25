@@ -1,4 +1,4 @@
-// The since-last-session memory delta (docs/design/budgeted-context-and-brief.md):
+// The since-last-session memory delta (the Prax Library document "Prax design: budgeted context and brief"):
 //
 //   GET /api/library/changes?since=<iso>|sinceLastSession=true[&project=][&limit=]
 //   GET /api/library/recall-marker[?project=]

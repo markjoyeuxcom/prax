@@ -10,7 +10,7 @@ import {
   markUsed, doctorExitCode, formatDoctor, formatTelemetryStatus, DOCTOR_EXIT, repoUrlCheck,
 } from '../../cli/lib/librarian.js';
 
-// The repo-URL drift check (docs/design/session-start-recall.md, C).
+// The repo-URL drift check (the Prax Library document "Prax design: session-start recall", C).
 test('repoUrlCheck warns when the detected project is registered to another repository', async () => {
   const projects = [
     { id: 'p', slug: 'parley', repoUrl: 'https://gitlab.com/markjoyeuxcom/apps/parley' },

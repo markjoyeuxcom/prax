@@ -63,8 +63,8 @@
 #   Copilot CLI  sessionStart + agentStop in $PRAX_COPILOT_HOOKS_DIR/prax-harvest.json
 #                (default ${COPILOT_HOME:-~/.copilot}/hooks), a file the installer owns
 # Only Prax's own handlers are added, replaced or removed; every other setting
-# and hook is kept. See docs/design/session-start-recall.md and
-# docs/design/session-harvesting.md.
+# and hook is kept. See the Prax Library documents "Prax design: session-start recall" and
+# "Prax design: session harvesting".
 # --uninstall removes the skills, their links, the instruction blocks (both
 # kinds), the shim and the harvest hooks, and leaves everything else alone.
 set -eu

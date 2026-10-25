@@ -70,16 +70,19 @@ is never replaced; if something is wrong, reinstall the previous package and res
 the data directory above if you also want the database gone. `sh …/skills/install.sh --uninstall`
 removes the CLI shim, the skills, the instruction blocks and the hooks.
 
-Building from source, the lifecycle guarantees and the release process are in
-[docs/desktop/BUILD.md](docs/desktop/BUILD.md).
-
 **Menu bar and quick capture.** The desktop app lives in the menu bar: closing the main window
 hides it and keeps Prax running; reopen it from the Dock or the menu-bar icon and quit from
 there or with ⌘Q. **Capture task** (⌘⇧Space) opens a small bar from any app; Enter saves the
-text to the Inbox project, with `#project`, `@label`, `!high` and a date word to route it. See
-[the desktop guide](docs/desktop/BUILD.md#menu-bar-quick-capture-and-closing-the-window).
+text to the Inbox project, with `#project`, `@label`, `!high` and a date word to route it.
 
-**Web server.** Run it with plain Node or Docker Compose; see [Run from source](#run-from-source).
+**Web server.** Prax also runs as a plain Node or Docker service (`docker compose up --build`
+serves it on loopback port 3100). The pipeline publishes desktop packages only, so
+no container image is published; build one from `deploy/Dockerfile` and follow
+[deploy/README.md](deploy/README.md) and [docs/deployment.md](docs/deployment.md) for Kubernetes:
+
+```bash
+docker build -f deploy/Dockerfile -t ghcr.io/markjoyeuxcom/prax:v0.47.0 .
+```
 
 ## What it does
 
@@ -131,54 +134,13 @@ text to the Inbox project, with `#project`, `@label`, `!high` and a date word to
 
 ![Settings in the light Paper theme](docs/images/prax-settings.png)
 
-Regenerate these from a seeded demo server with `node scripts/capture-readme-screenshots.mjs`.
-
-## Run from source
-
-Requirements: Node.js 24 or newer (Prax uses the built-in `node:sqlite` and its online-backup
-API) and npm. The stack is Fastify, embedded SQLite, a static plain-JavaScript frontend with
-CodeMirror, and a Tauri 2 shell for the desktop.
-
-```bash
-git clone git@github.com:markjoyeuxcom/prax.git
-cd prax
-npm ci
-npm run demo        # in-memory seed data at http://127.0.0.1:3100/; resets on restart
-```
-
-**Persistent server.** Everything lives in one SQLite file (default `./prax.db`). Migrations
-run on startup; `npm run migrate` applies them by hand.
-
-```bash
-export PRAX_DB_FILE="$HOME/.local/share/prax/prax.db"
-HOST=127.0.0.1 PORT=3100 npm start
-```
-
-**Docker Compose.** `docker compose up --build` serves Prax on host-loopback port 3100 with
-`prax.db` in the `prax-data` volume; `docker compose down -v` resets it.
-
-**Your own image.** The pipeline builds desktop packages only: no container image is published
-(the last one pushed was `v0.30.0`). Build and tag one from `deploy/Dockerfile` and start it
-with the image override. The override and the Kubernetes manifests name this checkout's
-version, which the release script bumps:
-
-```bash
-docker build -f deploy/Dockerfile -t ghcr.io/markjoyeuxcom/prax:v0.47.0 .
-docker compose -f compose.yaml -f compose.image.yaml up
-```
-
-**Kubernetes.** `deploy/` holds sanitized Kustomize examples (base plus dev, staging and prod
-overlays) that keep the database on a PersistentVolumeClaim with a single replica;
-`kubectl kustomize deploy/overlays/dev` renders one locally. Any network exposure needs an
-authentication boundary in front of Prax: see [docs/deployment.md](docs/deployment.md).
-
 ## Configuration
 
 **Network bind.** Prax has no built-in authentication. A non-loopback `HOST` fails closed
 unless the operator also sets `PRAX_ALLOW_UNAUTHENTICATED_NETWORK=true`, which acknowledges the
 exposure without adding protection; use it only on a trusted network or behind an authenticated
 TLS proxy. A loopback bind also refuses requests whose `Host` header is not a loopback name
-(the DNS-rebinding defence in `SECURITY.md`), so a same-machine reverse proxy that forwards a
+(the DNS-rebinding defence), so a same-machine reverse proxy that forwards a
 public host name needs the same acknowledgement or that name in `PRAX_ALLOWED_HOSTS`.
 
 **Semantic search** is off by default. The Settings screen can choose a provider, model, URL and
@@ -200,17 +162,6 @@ are stored in SQLite and ranked in process; keyword search (FTS5) always remains
 **Health checks.** `GET /healthz` confirms the process is alive; `GET /readyz` confirms the
 database answers queries.
 
-## Scripts
-
-| Command | Does |
-|---|---|
-| `npm run demo`, `npm start` | in-memory demo server; SQLite-backed server |
-| `npm test`, `npm run check`, `npm run test:e2e` | unit and contract suite; syntax and bundle check; Playwright journeys |
-| `npm run migrate` | apply pending database migrations |
-| `npm run backup -- --output <file>` | validated online SQLite backup; refuses to overwrite |
-| `npm run fixture:quality`, `npm run verify:portable`, `npm run verify:restore` | deterministic workspace fixture and the portability and restore drills ([docs/quality-fixture.md](docs/quality-fixture.md)) |
-| `npm run build:codemirror` | rebuild the bundled editor asset |
-
 ## Agent memory
 
 The `prax` CLI lets any shell-capable AI tool or person pull a bounded, trust-aware briefing from
@@ -230,32 +181,12 @@ Agent-written documents are unverified until a person clears them with `prax tri
 shell. The same loop ships as the portable `prax-recall` and `prax-remember` skills, one
 dependency-free script each, installed from the desktop bundle, from GitHub or as a Claude Code
 plugin: see [skills/README.md](skills/README.md). The optional MCP server in `mcp/` exposes the
-API to Claude Code as tools: see [mcp/README.md](mcp/README.md). For work on Prax itself, start
-with [Working on Prax](docs/working-on-prax.md).
+API to Claude Code as tools: see [mcp/README.md](mcp/README.md).
 
 ## Documentation
 
 [docs/README.md](docs/README.md) indexes every guide: CLI, agent memory, data formats, backup and
-restore, desktop build, deployment, Google Calendar, templates, quality evidence, and the design
-notes for the current subsystems.
-
-## Project direction
-
-Product work follows the [product quality standard](docs/design/quality-standard.md): a
-regression and invariant ratchet on every change, per-surface excellence gates, ranked critical
-journeys, and evidence requirements for people and machine consumers
-([docs/quality.md](docs/quality.md) records where that evidence stands). Substantial work starts
-as a design note under `docs/design/` and a task in the Prax project. Still open, at a glance:
-
-- an optional "Ask Project" retrieval-plus-generation layer, kept separate from the
-  retrieval-only default;
-- a `main`/SHA-tagged container image on merge so a dev environment can track a live build;
-- app-level authentication, only if a multi-tenant or token model is ever wanted (none by design).
-
-## Security
-
-See [SECURITY.md](SECURITY.md) for the security model (no built-in auth; trusted-network by
-design) and how to report a vulnerability.
+restore, deployment, Google Calendar and templates.
 
 ## Changelog and license
 

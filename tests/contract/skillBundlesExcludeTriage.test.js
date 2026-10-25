@@ -1,6 +1,6 @@
 // The single-file skill bundles are agent-facing; `prax triage` and the
 // verification guard are for people and must never ship inside them
-// (docs/design/triage-tui.md). Checked two ways:
+// (the Prax Library document "Prax design: triage TUI"). Checked two ways:
 // what esbuild would bundle from every skill entry today, and what the
 // committed bundles actually contain.
 import test from 'node:test';

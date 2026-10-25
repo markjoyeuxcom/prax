@@ -28,7 +28,7 @@ Transient state (a half-finished edit, tests just run, the next action) belongs 
 task's notes/checklist or linked handoff (`prax task update <id> --append-notes "…"`,
 `prax task check <id> <n>`; see [the CLI guide](cli.md#task-addlistshowupdatedonecheckuncheck)). Update it before handing over, close the task when
 acceptance checks pass, and retire temporary handoffs. Never persist secrets. For this
-repository's concrete workflow, see [Working on Prax](working-on-prax.md).
+repository's concrete workflow, see "Working on Prax (contributor guide)" in the Prax Library.
 
 ## The loop
 
@@ -68,7 +68,7 @@ retrieve  →  work  →  persist  →  supersede  →  report use
    not have been written at all is a different case: `prax archive <id>` takes it out of recall
    reversibly, `prax restore <id>` brings it back, and `prax delete <id> --yes` removes an
    archived, unverified record for good. An agent that is not sure stops at archive
-   ([design](design/agent-archive-delete.md)).
+   (design note "Prax design: agents archive, restore and delete" in the Prax Library).
 5. **Report use** — when a recalled memory actually informed the work, run `prax used <id>`.
    That is the signal the librarian uses to tell an answered question from one that only
    returned hits (see [The librarian](#the-librarian)).
@@ -76,7 +76,7 @@ retrieve  →  work  →  persist  →  supersede  →  report use
 ## The librarian
 
 The librarian keeps the Library consolidated without ever acting on its own
-([design](design/librarian.md)).
+(design note "Prax design: librarian" in the Prax Library).
 
 - **Recall telemetry.** Recall, search and context requests from agent clients (the CLI, the
   skills, the MCP server; they send `x-prax-query-source`) are recorded after the response:
@@ -142,7 +142,7 @@ in memory since that agent's last session (`recall --since-last-session`, advanc
 and the two commands that close the loop (`prax used <id>`, `prax remember`). It fails open on
 everything, so a session never waits on memory, and it writes nothing but the delta marker. The
 agent still recalls for the specific task; the briefing is the project's standing memory, not
-an answer to the question at hand. Design: [session-start recall](design/session-start-recall.md).
+an answer to the question at hand. Design: "Prax design: session-start recall" in the Prax Library.
 
 ## Session harvesting: proposals into the Inbox
 
@@ -161,7 +161,7 @@ it, refile it with its owner, or archive it during Inbox triage.
   (`agentStop`) passes the transcript path. Antigravity has no hooks; run
   `prax harvest --transcript <file>` on an exported conversation instead. The spec records what
   was verified live and what is taken from vendor documentation:
-  [session harvesting](design/session-harvesting.md).
+  "Prax design: session harvesting" in the Prax Library.
 - **Deterministic.** Only the agent's own messages are read. User messages, tool calls and tool
   results never are, so a page an agent fetched cannot plant a candidate. No model summarises
   the session. Fenced examples, credential-shaped text and oversized bodies are skipped.
@@ -232,7 +232,7 @@ are part of their loop and never raise trust.
 
 Under the no-auth model this is a guard against self-verification by reflex, not access
 control. Anything that can reach the API can still call it directly (see
-[SECURITY.md](../SECURITY.md)).
+the Prax Library document "Prax security policy and model").
 
 ## Why skills + CLI (and where the MCP server fits)
 
@@ -299,7 +299,7 @@ one marker; pass `--since` when they must not.
 
 Recall needs a running Prax. Two outputs carry a project's knowledge into the repository for
 teammates and agents without it; both are one-way projections, and SQLite stays the single
-source of truth ([spec](design/library-git-mirror.md)).
+source of truth (spec "Prax design: Library git mirror" in the Prax Library).
 
 - **`prax mirror`** writes the project's Library as Markdown v3 into `.prax/library/` with stable
   names and byte-identical output when nothing changed, so knowledge changes are reviewed like

@@ -1,4 +1,4 @@
--- Librarian (docs/design/librarian.md).
+-- Librarian (the Prax Library document "Prax design: librarian").
 --
 -- Recall telemetry: a local-only record of the retrieval queries agent
 -- clients make (they opt in with x-prax-query-source), the documents each

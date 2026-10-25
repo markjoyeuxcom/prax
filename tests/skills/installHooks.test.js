@@ -1,5 +1,5 @@
 // skills/install.sh --hooks: the session-harvesting hook in each agent CLI's
-// own settings (docs/design/session-harvesting.md).
+// own settings (the Prax Library document "Prax design: session harvesting").
 // Every run gets a throwaway HOME, so the real ~/.claude, ~/.codex and
 // ~/.copilot are never touched. The installer runs from this checkout, which
 // is an app payload (cli/ next to skills/), as --hooks requires.

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-// The GitHub Actions workflows are the distribution gate (docs/desktop/BUILD.md).
+// The GitHub Actions workflows are the distribution gate (the Prax Library document "Building the Prax desktop app").
 // These pins keep a release from being created without its quality gate and
 // both supported desktop packages with their runtime smoke, keep every job on
 // a GitHub-hosted runner with a pinned image (no self-hosted machine, no

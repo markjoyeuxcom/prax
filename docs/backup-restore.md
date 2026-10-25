@@ -201,7 +201,7 @@ not an authoritative or round-trip recovery format.
 
 Use the deterministic `ci` or `large` mature-workspace fixture when rehearsing restore and upgrade
 procedures. Its versioned manifest verifies semantic sentinels, related rows, FTS content, and
-foreign keys in addition to raw counts. See [quality-fixture.md](quality-fixture.md) for generation,
+foreign keys in addition to raw counts. See "Prax mature workspace quality fixture" in the Prax Library for generation,
 historical-schema upgrade, and post-restore verification commands.
 
 Run the complete disposable rehearsal with:

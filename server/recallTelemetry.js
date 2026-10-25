@@ -1,4 +1,4 @@
-// Recall telemetry (librarian spec, docs/design/librarian.md):
+// Recall telemetry (librarian spec, the Prax Library document "Prax design: librarian"):
 // a local-only record of the retrieval queries agent clients make, the
 // documents each returned, and the documents an agent reports it used. It
 // feeds the knowledge-gaps queue, the recall-frequency review order and the

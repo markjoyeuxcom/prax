@@ -1,5 +1,5 @@
 // cli/lib/sessionStart.js — `prax session-start --hook <vendor>`: the agent-CLI
-// SessionStart hook (docs/design/session-start-recall.md).
+// SessionStart hook (the Prax Library document "Prax design: session-start recall").
 //
 // Reads the vendor's hook JSON on stdin (bounded), finds the project from the
 // hook's cwd, and prints ONE block of additional context in the envelope the

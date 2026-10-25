@@ -1,4 +1,4 @@
-// `prax triage` interrupts (docs/design/triage-tui.md,
+// `prax triage` interrupts (the Prax Library document "Prax design: triage TUI",
 // "Errors and interrupts"): the editor draft is cleaned up on abandonment,
 // kept (and named) when a hangup or termination may have cut off typing, the
 // signal handlers are gone once the editor returns, and the terminal leaves

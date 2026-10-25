@@ -507,7 +507,7 @@ or task.
 
 ### `archive <id>`, `restore <id>`, `delete <id> --yes`
 
-The lifecycle of one document or one task ([design](design/agent-archive-delete.md)); the id is
+The lifecycle of one document or one task (design note "Prax design: agents archive, restore and delete" in the Prax Library); the id is
 tried as a document first, then as a task. `archive` is reversible: the document leaves recall,
 context packs and the mirror (the task leaves every open list) until `restore` brings it back.
 `delete` is permanent and guarded three ways: the record must already be archived (two deliberate
@@ -576,7 +576,7 @@ prax task done 2234a575-…
 A one-way git mirror of the resolved project's Library, and a compiled block of its verified
 decisions for the workspace instruction file. Prax stays the single source of truth: the mirror
 never writes to it, and an import never writes over an existing document. Design:
-[the mirror spec](design/library-git-mirror.md).
+the spec "Prax design: Library git mirror" in the Prax Library.
 
 ```bash
 prax mirror                          # writes .prax/library/ at the repository root
@@ -726,7 +726,7 @@ final step `continue-on-error: true` and read the status from the uploaded repor
 Harvests the memories an agent **proposed** in a session and files each one once, as an
 unverified candidate in the **Inbox**, for a person to review. The design, and what each vendor's
 hook contract is known to provide, are in
-[the session-harvesting spec](design/session-harvesting.md).
+the spec "Prax design: session harvesting" in the Prax Library.
 
 An agent proposes a memory in its own reply, with either:
 
@@ -785,7 +785,7 @@ runs the worker inline, for debugging. Set `PRAX_HARVEST_LOG` to get one line pe
 ### `session-start --hook claude|codex|copilot [--budget <tokens>]`
 
 The SessionStart hook that `skills/install.sh --hooks` installs
-([design](design/session-start-recall.md)). It reads the vendor's hook JSON on stdin (bounded
+(design note "Prax design: session-start recall" in the Prax Library). It reads the vendor's hook JSON on stdin (bounded
 in size and time), finds the project from the hook's `cwd` (marker file, then the registered
 repo URL, then the folder name), and prints one block of additional context in the envelope the
 vendor consumes: `prax context --budget <tokens>` for that project (default 1200), the agent's
@@ -919,7 +919,7 @@ or `unverify`. It is useful for distinguishing agent-written memory that has bee
 human from memory that hasn't — not for preventing unauthorized writes. The agent-environment
 guard on `verify` and `triage` stops an agent from verifying its own memory by reflex. It does
 not stop a caller that goes around the CLI. See
-[SECURITY.md](../SECURITY.md) for the security model.
+the Prax Library document "Prax security policy and model" for the security model.
 
 ## `context` output shape
 
@@ -959,7 +959,7 @@ prepended when the project has any verified document tagged `project-card`.
 
 `recall --budget`, `context --budget`, the delta and `brief`'s memory section share one fill
 order and one compaction (`cli/lib/budget.js`). The design is in
-[the spec](design/budgeted-context-and-brief.md).
+the spec "Prax design: budgeted context and brief" in the Prax Library.
 
 **Estimate.** `tokens ≈ ceil(characters / 4)` over the exact text printed. It is a heuristic,
 not a tokenizer: prose runs close to it, code and non-Latin text run above it. The budget line

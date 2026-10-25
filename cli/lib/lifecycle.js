@@ -1,6 +1,6 @@
 // `prax archive <id>`, `prax restore <id>` and `prax delete <id> --yes`: the
 // lifecycle of one document or one task from the command line, for an agent
-// that filed something wrong (docs/design/agent-archive-delete.md).
+// that filed something wrong (the Prax Library document "Prax design: agents archive, restore and delete").
 //
 // Rules: the id is tried as a document first, then as a task; archive is the
 // reversible step and the only one an agent takes in one move; restore undoes

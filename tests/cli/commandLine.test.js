@@ -158,7 +158,7 @@ test('task list shows open tasks by default; --all and --status include complete
   });
 });
 
-// People only (docs/design/triage-tui.md): verify
+// People only (the Prax Library document "Prax design: triage TUI"): verify
 // and triage refuse in an agent CLI's shell, with --agent, and without a
 // terminal, before any request. spawnSync gives the child no TTY.
 const NO_AGENT = {

@@ -1,4 +1,4 @@
-// `prax triage` (docs/design/triage-tui.md): the
+// `prax triage` (the Prax Library document "Prax design: triage TUI"): the
 // guard, the review-walk ordering, and the keyboard flow over a fake client
 // and fake TTY streams, plus one end-to-end pass against a real app.
 import test from 'node:test';

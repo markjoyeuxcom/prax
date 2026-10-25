@@ -23,7 +23,7 @@
     "chromiumMajor": 149
   },
   "harness": {
-    "command": "npm run measure:performance -- --profile large --samples 11 --warmups 3 --output docs/quality-evidence/performance/2026-07-14-linux-arm64-candidate.json"
+    "command": "npm run measure:performance -- --profile large --samples 11 --warmups 3 --output scripts/performance/2026-07-14-linux-arm64-candidate.json"
   },
   "thresholds": {
     "http": {

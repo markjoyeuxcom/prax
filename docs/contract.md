@@ -842,7 +842,7 @@ Raw HTTP callers doing retrieval should pass `status=active`.
 
 **Trust under no-auth:** `verified` is a workflow signal, not access control. Under the
 trusted-network model anyone on the network can call the verify endpoint. See
-[SECURITY.md](../SECURITY.md).
+the Prax Library document "Prax security policy and model".
 
 ### Trust endpoints
 
@@ -925,7 +925,7 @@ the recall skill and the MCP tools (`includeHarvested`) send the opt-in only whe
 ### Memory changes and recall markers
 
 The since-last-session delta (`prax recall --since-last-session | --since <iso>`). Design:
-[the spec](design/budgeted-context-and-brief.md).
+the spec "Prax design: budgeted context and brief" in the Prax Library.
 
 `GET /api/library/changes?since=<iso>|sinceLastSession=true[&project=<slug|id>][&limit=<n>]`
 
@@ -1001,7 +1001,7 @@ global 0.45. Cosine distributions belong to the model, not to search: on `all-Mi
 0.45 default discards most true positives, so that backend declares 0.35. `EMBEDDING_BACKEND` and its companion
 variables are the deployment defaults; the single-user Settings ▸ Intelligence screen can also
 choose the provider, model, URL, and key at runtime, and those values are persisted in the
-local SQLite database (the operator-settings model described in `README.md` and `SECURITY.md`).
+local SQLite database (the operator-settings model described in `README.md` and the Prax Library document "Prax security policy and model").
 The default `EMBEDDING_BACKEND=none` with nothing chosen in Settings leaves the feature absent.
 On top of that, a server-side runtime toggle (stored in the `app_settings` table, key
 `semantic_search_enabled`) turns it on and off live, consistently across the UI and MCP. An
@@ -1097,7 +1097,7 @@ Event shape (one `VEVENT` per task instance; serialization in `server/icsFeed.js
 
 ## Recall telemetry and the librarian
 
-Design: [2026-09-23 librarian](design/librarian.md). Migration
+Design: "Prax design: librarian" in the Prax Library. Migration
 `0040_recall_telemetry_and_librarian.sql` adds `recall_queries`, `recall_query_hits`,
 `recall_uses` and `librarian_proposals`.
 

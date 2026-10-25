@@ -82,8 +82,8 @@ runners and are attached with \`SHA256SUMS\`; the release is created only once e
 package is present. **All installers are unsigned and not notarized**: verify each download
 against its checksum before installing, and expect macOS to ask for approval under System
 Settings ▸ Privacy & Security the first time the app opens. Back up \`prax.db\`, quit Prax, then
-install the new package over the application; the OS app-data directory is preserved. See
-\`docs/desktop/BUILD.md\` for the backup, update and rollback steps.
+install the new package over the application; the OS app-data directory is preserved. If
+something is wrong, reinstall the previous package and restore the backup (\`docs/backup-restore.md\`).
 
 ${packages}## Changes in ${version}
 

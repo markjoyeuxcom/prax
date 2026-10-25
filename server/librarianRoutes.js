@@ -1,4 +1,4 @@
-// Librarian routes (spec: docs/design/librarian.md):
+// Librarian routes (spec: the Prax Library document "Prax design: librarian"):
 // recall telemetry (used signals, status, clear), the knowledge-gaps queue,
 // recall counts, prune candidates, the consolidation pass that drafts
 // proposals, the human decisions on them, the read-only report behind

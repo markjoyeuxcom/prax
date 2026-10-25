@@ -1,5 +1,5 @@
 // cli/lib/budget.js — the one fill order and compaction for budgeted memory
-// (docs/design/budgeted-context-and-brief.md).
+// (the Prax Library document "Prax design: budgeted context and brief").
 // Shared by `prax recall --budget`, `prax context --budget`, the since-last-
 // session delta and `prax brief`, so there is one ranking, not several.
 //

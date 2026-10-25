@@ -12,6 +12,18 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Changed
+
+- **Only user-facing guides stay in the tree until v0.99.0.** The contributor guide, the design
+  note for each subsystem, the desktop build guide, the security policy and model, the product
+  quality standard, the evidence scorecards, the quality fixture guide, the manual drill templates
+  and the interface design notes moved into the Prax Library as documents of the Prax project
+  (recall them by subject); the README lost its Run from source, Scripts, Project direction and
+  Security sections, `docs/README.md` indexes the remaining guides, and `AGENTS.md` is a short
+  pointer into Prax. Code comments and the surviving guides name the Library document instead of
+  the file. The performance budget the gate script reads moved to `scripts/performance/`. Git
+  history before 2026-10-25 keeps every file.
+
 ## [0.47.0] - 2026-10-25
 
 ### Added

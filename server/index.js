@@ -86,7 +86,7 @@ export async function buildApp(options = {}) {
   if (hostCheckEnabled(config)) {
     app.addHook('onRequest', async (request, reply) => {
       if (request.hostname && !isAllowedHostHeader(request.hostname, config)) {
-        reply.code(403).send({ message: 'Host header must name this machine (loopback) or a name in PRAX_ALLOWED_HOSTS; see SECURITY.md on DNS rebinding' });
+        reply.code(403).send({ message: 'Host header must name this machine (loopback) or a name in PRAX_ALLOWED_HOSTS (DNS-rebinding defence)' });
       }
     });
   }
@@ -96,7 +96,7 @@ export async function buildApp(options = {}) {
   // PRAX_ALLOWED_HOSTS=* — it guards the user's browser, not the network.
   app.addHook('onRequest', async (request, reply) => {
     if (!reply.sent && isCrossSiteRequest(request, config)) {
-      return reply.code(403).send({ message: 'Cross-site requests cannot change Prax data; see SECURITY.md on cross-site requests' });
+      return reply.code(403).send({ message: 'Cross-site requests cannot change Prax data (cross-site request defence)' });
     }
   });
 

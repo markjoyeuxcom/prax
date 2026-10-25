@@ -1,5 +1,5 @@
 // Memory changes and per-agent recall markers — the data layer behind the
-// since-last-session delta (docs/design/budgeted-context-and-brief.md). Pure build* query builders returning { text, values },
+// since-last-session delta (the Prax Library document "Prax design: budgeted context and brief"). Pure build* query builders returning { text, values },
 // a boundary normaliser, and a createMemoryChangesRepository(db) factory.
 //
 // A change is any of four stamps later than `since`: created_at, updated_at

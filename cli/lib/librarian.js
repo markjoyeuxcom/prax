@@ -1,7 +1,7 @@
 import { matchProjectByRepoUrl, normalizeRepoUrl } from '../../server/repoUrl.js';
 
 // cli/lib/librarian.js — `prax used`, `prax doctor` and `prax telemetry`
-// (spec: docs/design/librarian.md). Pure of I/O:
+// (spec: the Prax Library document "Prax design: librarian"). Pure of I/O:
 // takes an injected client, returns structured results and text.
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -20,7 +20,7 @@ export async function markUsed(client, id) {
   return client.markUsed(id);
 }
 
-// The repo-URL drift check (docs/design/session-start-recall.md, C): a project
+// The repo-URL drift check (the Prax Library document "Prax design: session-start recall", C): a project
 // whose registered repo URL no longer matches this checkout's origin silently
 // loses remote-based detection and makes every --cite claim "cited in another
 // repository". Computed here because only the CLI sees the checkout. Returns a

@@ -1,5 +1,5 @@
 // Librarian — pure parts of the consolidation pass (spec:
-// docs/design/librarian.md). Near-duplicate
+// the Prax Library document "Prax design: librarian"). Near-duplicate
 // detection (embedding cosine, with a title/body shingle fallback), clustering,
 // and the proposal document's shape. No IO here: the routes read documents
 // and vectors, and write proposals. Nothing in this module can retire a

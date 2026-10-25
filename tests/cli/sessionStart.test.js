@@ -1,4 +1,4 @@
-// `prax session-start --hook <vendor>` (docs/design/session-start-recall.md):
+// `prax session-start --hook <vendor>` (the Prax Library document "Prax design: session-start recall"):
 // the SessionStart hook prints one briefing in the vendor's envelope, advances
 // the agent's delta marker exactly as `recall --since-last-session` does, and
 // fails open on everything. The end-to-end tests run the real CLI against a

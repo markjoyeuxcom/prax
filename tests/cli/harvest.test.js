@@ -1,4 +1,4 @@
-// Session harvesting (docs/design/session-harvesting.md):
+// Session harvesting (the Prax Library document "Prax design: session harvesting"):
 // deterministic extraction from the agent's own text, exactly-once proposals
 // into the Inbox, and a hook that never blocks or fails the agent. The end-to-
 // end tests run the real CLI against a real app on an in-memory database.

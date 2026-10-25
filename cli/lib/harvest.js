@@ -2,7 +2,7 @@
 // markers ("Remember: …" lines and ```prax-remember blocks) into unverified
 // candidate documents in the Inbox, exactly once per session and candidate.
 // The design and each vendor's hook contract are in
-// docs/design/session-harvesting.md.
+// the Prax Library document "Prax design: session harvesting".
 //
 // Only text the AGENT wrote is scanned: assistant messages in a transcript and
 // the hook's last_assistant_message. User messages, tool calls and tool

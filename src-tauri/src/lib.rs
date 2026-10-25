@@ -1,4 +1,4 @@
-// Prax desktop shell (see docs/desktop/BUILD.md).
+// Prax desktop shell (see the Prax Library document "Building the Prax desktop app").
 //
 // Lifecycle: let the bundled Node/Fastify sidecar bind an OS-assigned
 // localhost port → consume its structured readiness line → probe /readyz →

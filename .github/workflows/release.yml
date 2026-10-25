@@ -181,7 +181,7 @@ jobs:
           test -s release-notes.md
 
       # The body comes from CHANGELOG.md via scripts/release-notes.mjs and
-      # states that the installers are unsigned (docs/desktop/BUILD.md).
+      # states that the installers are unsigned (the Prax Library document "Building the Prax desktop app").
       - name: Create the GitHub release with every package
         uses: softprops/action-gh-release@v3
         with:

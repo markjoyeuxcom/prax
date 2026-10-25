@@ -38,7 +38,7 @@ function reviewSortToggle(state) {
   return `<button class="btn-ghost health-card__action" type="button" data-action="toggle-health-review-sort" aria-pressed="${on ? 'true' : 'false'}">${on ? 'Most recalled first' : 'Sort by recall'}</button>`;
 }
 
-// ---- Librarian (docs/design/librarian.md) --------
+// ---- Librarian (the Prax Library document "Prax design: librarian") --------
 // Consolidation proposals (drafted, never applied without a person), the
 // questions memory could not answer, and never-recalled agent memories.
 

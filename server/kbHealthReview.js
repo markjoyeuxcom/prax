@@ -3,7 +3,7 @@
 // document pairs, and coverage-gap detection from a trust-aware digest. All IO
 // (chat, embeddings, DB) lives in the route; everything here is pure + total
 // (bad model output degrades to "no finding", never throws). Design:
-// docs/design/kb-health-ai.md.
+// the Prax Library document "Prax design: knowledge-base health AI".
 
 // ---- cost caps (worst case = MAX_PAIRS + 1 = 13 model calls per scan) -------
 export const MAX_SEED_DOCS = 40;          // findSimilarDocuments cosine passes

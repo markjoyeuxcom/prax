@@ -91,7 +91,6 @@ test('every place that names the version-tracking image tag says no image is pub
     'docs/deployment.md': /the pipeline builds and publishes no\s+container image/,
     'compose.image.yaml': /The pipeline publishes no container image/,
     'deploy/base/deployment.yaml': /the pipeline publishes no\s+#?\s*image/,
-    'docs/desktop/BUILD.md': /builds and publishes \*\*no container image\*\*/,
   };
   for (const [file, claim] of Object.entries(sites)) {
     assert.match(await read(file), claim, `${file} says the tag is self-built`);

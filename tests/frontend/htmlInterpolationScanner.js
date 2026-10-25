@@ -1,6 +1,6 @@
 // Finds `${…}` interpolations in HTML-building template literals whose value
 // is not provably escaped. Used by htmlEscaping.test.js; the rules are listed
-// under "HTML escaping" in docs/working-on-prax.md.
+// under "HTML escaping" in the Prax Library document "Working on Prax (contributor guide)".
 //
 // This is a small lexer plus a few conservative rules, not a JavaScript
 // parser. It reads strings, comments, regex literals and nested template
