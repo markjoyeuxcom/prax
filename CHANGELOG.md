@@ -12,14 +12,13 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
-### Fixed
-
-- **Visible labels are part of the accessible name.** The quick-capture destination button, the
-  editor toolbar's Heading and Numbered list buttons and the shortcuts overlay's Esc button now
-  announce the text they show (WCAG 2.5.3 Label in Name, flagged by axe-core 4.14's
-  `label-content-name-mismatch` rule).
+## [0.47.1] - 2026-10-25
 
 ### Changed
+
+- **Dependencies.** Desktop shell: tauri and its plugins (minor/patch group). Runtime: `@fastify/static`
+  10.1.7, `@codemirror/view` 6.43.15. Tooling: eslint 10, globals 17, Playwright 1.64.1, axe-core
+  4.14, Tauri CLI 2.12.4.
 
 - **Only user-facing guides stay in the tree until v0.99.0.** The contributor guide, the design
   note for each subsystem, the desktop build guide, the security policy and model, the product
@@ -30,6 +29,13 @@ fresh empty `[Unreleased]` section is started.
   pointer into Prax. Code comments and the surviving guides name the Library document instead of
   the file. The performance budget the gate script reads moved to `scripts/performance/`. Git
   history before 2026-10-25 keeps every file.
+
+### Fixed
+
+- **Visible labels are part of the accessible name.** The quick-capture destination button, the
+  editor toolbar's Heading and Numbered list buttons and the shortcuts overlay's Esc button now
+  announce the text they show (WCAG 2.5.3 Label in Name, flagged by axe-core 4.14's
+  `label-content-name-mismatch` rule).
 
 ## [0.47.0] - 2026-10-25
 
@@ -2620,7 +2626,8 @@ and onboarding features with the corrected installation guide.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/markjoyeuxcom/prax/compare/v0.47.0...HEAD
+[Unreleased]: https://github.com/markjoyeuxcom/prax/compare/v0.47.1...HEAD
+[0.47.1]: https://github.com/markjoyeuxcom/prax/compare/v0.47.0...v0.47.1
 [0.47.0]: https://github.com/markjoyeuxcom/prax/compare/v0.46.0...v0.47.0
 [0.46.0]: https://github.com/markjoyeuxcom/prax/compare/v0.45.1...v0.46.0
 [0.45.1]: https://github.com/markjoyeuxcom/prax/compare/v0.45.0...v0.45.1
