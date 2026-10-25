@@ -23,12 +23,12 @@ const EDITOR_MODES = [
 const MARKDOWN_TOOLS = [
   { action: 'bold', label: 'B', title: 'Bold (⌘B)' },
   { action: 'italic', label: 'I', title: 'Italic (⌘I)' },
-  { action: 'heading', label: 'H2', title: 'Heading' },
+  { action: 'heading', label: 'H2', title: 'Heading', name: 'Heading, H2' },
   { action: 'quote', label: '“ ”', title: 'Quote' },
   { action: 'code', label: '‹ ›', title: 'Code (⌘E)' },
   { action: 'code-block', label: '```', title: 'Code block' },
   { action: 'bullet-list', label: '• list', title: 'Bullet list' },
-  { action: 'numbered-list', label: '1. list', title: 'Numbered list' },
+  { action: 'numbered-list', label: '1. list', title: 'Numbered list', name: 'Numbered list, 1. list' },
   { action: 'checklist', label: '☐ task', title: 'Task item' },
   { action: 'link', label: 'link', title: 'Link' },
   { action: 'table', label: '▦ table', title: 'Table (⌘⇧T) — Tab moves between cells, Enter at a row end adds a row' },
@@ -306,7 +306,7 @@ function renderWriteMenu(state, { readOnly }) {
 function renderToolbar() {
   return `
     <div class="toolbar" aria-label="Markdown formatting">
-      ${MARKDOWN_TOOLS.map((tool) => `<button type="button" data-action="md-format" data-md-action="${tool.action}" title="${escapeHtml(tool.title)}" aria-label="${escapeHtml(tool.title)}">${escapeHtml(tool.label)}</button>`).join('')}
+      ${MARKDOWN_TOOLS.map((tool) => `<button type="button" data-action="md-format" data-md-action="${tool.action}" title="${escapeHtml(tool.title)}" aria-label="${escapeHtml(tool.name ?? tool.title)}">${escapeHtml(tool.label)}</button>`).join('')}
       <span class="toolbar__hint">⌘B bold · ⌘I italic · ⌘E code · ⌘⇧T table</span>
     </div>`;
 }

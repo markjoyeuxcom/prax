@@ -241,7 +241,7 @@ test('failed capture survives reload and retries with the same creation identity
   await expect(page.getByRole('dialog', { name: 'Quick capture' }).getByRole('status'))
     .toContainText('Recovered unfinished task');
   await expect(page.getByLabel('Task title')).toHaveValue(`${title} @waiting !high`);
-  await expect(page.getByRole('button', { name: /Choose destination project, current Work/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Adding to Work\. Choose destination project/ })).toBeVisible();
   await page.getByRole('button', { name: 'Add task', exact: true }).click();
 
   await expect(page.getByRole('dialog', { name: 'Quick capture' })).toHaveCount(0);

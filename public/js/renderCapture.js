@@ -95,7 +95,7 @@ export function renderCaptureHtml(state, project, projects = []) {
         ${error}
         ${captureNotice}
         <div class="capture__foot">
-          <button type="button" class="capture__proj" data-action="toggle-capture-menu" aria-label="Choose destination project, current ${escapeHtml(project?.name ?? 'No project')}" aria-haspopup="listbox" aria-expanded="${state?.captureMenuOpen ? 'true' : 'false'}"${disabled}>
+          <button type="button" class="capture__proj" data-action="toggle-capture-menu" aria-label="Adding to ${escapeHtml(project?.name ?? 'Inbox')}. Choose destination project" aria-haspopup="listbox" aria-expanded="${state?.captureMenuOpen ? 'true' : 'false'}"${disabled}>
             <span class="capture__proj-label">Adding to</span>
             <span class="proj-dot" style="--dot:${color}" aria-hidden="true"></span>${escapeHtml(project?.name ?? 'Inbox')}
             <span class="capture__caret" aria-hidden="true">▾</span>

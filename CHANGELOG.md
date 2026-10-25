@@ -12,6 +12,13 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Visible labels are part of the accessible name.** The quick-capture destination button, the
+  editor toolbar's Heading and Numbered list buttons and the shortcuts overlay's Esc button now
+  announce the text they show (WCAG 2.5.3 Label in Name, flagged by axe-core 4.14's
+  `label-content-name-mismatch` rule).
+
 ### Changed
 
 - **Only user-facing guides stay in the tree until v0.99.0.** The contributor guide, the design

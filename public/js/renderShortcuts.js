@@ -67,7 +67,7 @@ export function renderShortcutsHtml(state = {}) {
       <div class="shortcuts" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
         <div class="shortcuts__head">
           <h2 class="shortcuts__heading">Keyboard shortcuts</h2>
-          <button type="button" class="btn-ghost" data-action="close-shortcuts" aria-label="Close">Esc</button>
+          <button type="button" class="btn-ghost" data-action="close-shortcuts" aria-label="Close, Esc">Esc</button>
         </div>
         <div class="shortcuts__grid">${groups}</div>
       </div>

@@ -7,7 +7,7 @@ test('the overlay is a modal dialog with a close action on the scrim and a close
   const html = renderShortcutsHtml({});
   assert.match(html, /class="overlay-center" data-overlay="shortcuts" data-action="close-shortcuts"/);
   assert.match(html, /role="dialog" aria-modal="true" aria-label="Keyboard shortcuts"/);
-  assert.match(html, /class="btn-ghost" data-action="close-shortcuts" aria-label="Close"/);
+  assert.match(html, /class="btn-ghost" data-action="close-shortcuts" aria-label="Close, Esc"/);
 });
 
 test('every group and row of the keymap renders, with each key as a kbd', () => {
