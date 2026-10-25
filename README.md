@@ -105,7 +105,8 @@ text to the Inbox project, with `#project`, `@label`, `!high` and a date word to
   actions, runbook and post-mortem generation, knowledge-base health scans and natural-language
   capture, over OpenAI, Claude, Gemini, Ollama or llama.cpp.
 - **Import, export and backup**: portable JSON task exports, one-way Markdown library export, a
-  validated full-workspace backup ZIP and an online SQLite backup command
+  validated full-workspace backup ZIP, an online SQLite backup command, and git backup and
+  restore to a private GitHub or GitLab repository
   ([docs/backup-restore.md](docs/backup-restore.md)).
 - **Templates and starter guides** for repository setup, project overviews and onboarding tasks
   ([docs/templates-and-starter-guides.md](docs/templates-and-starter-guides.md)).

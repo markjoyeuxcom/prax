@@ -572,6 +572,124 @@ function maintenanceDocRow(doc, { withSources } = {}) {
         </div>`;
 }
 
+
+// ---- Git backup -------------------------------------------------------------
+// One place to configure the repository, run a backup, read the history and
+// stage a restore. The render reads the draft back so typing survives the
+// status refreshes; a staged restore is a notice with the one next action.
+function whenLabel(iso) {
+  if (!iso) return 'never';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return String(iso);
+  return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function sizeLabel(bytes) {
+  if (!Number.isFinite(bytes)) return '';
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${Math.round(bytes / 1024)} KB`;
+}
+
+function shortCommit(commit) {
+  return escapeHtml(String(commit || '').slice(0, 10));
+}
+
+export function renderGitBackupSection(state) {
+  const gb = state.gitBackup && typeof state.gitBackup === 'object' ? state.gitBackup : {};
+  const status = gb.status && typeof gb.status === 'object' ? gb.status : null;
+  const draft = gb.draft && typeof gb.draft === 'object' ? gb.draft : {};
+  const value = (key, fallback = '') => (draft[key] !== undefined ? draft[key] : (status?.[key] ?? fallback));
+  const auth = value('auth', 'ssh') === 'token' ? 'token' : 'ssh';
+  const busy = Boolean(gb.busy) || Boolean(status?.busy);
+  const disabled = busy ? ' disabled' : '';
+  const pending = status?.pendingRestore;
+  const desktop = typeof globalThis.window !== 'undefined' && Boolean(globalThis.window.__TAURI__?.core?.invoke);
+
+  let statusLine;
+  if (gb.loading && !status) statusLine = '<div class="settings-row__desc" role="status">Loading git backup status…</div>';
+  else if (gb.error && !status) statusLine = `<div class="settings-row__desc" role="alert" style="color:var(--danger);">${escapeHtml(gb.error)}</div>`;
+  else if (status && !status.gitAvailable) statusLine = '<div class="settings-row__desc" role="alert" style="color:var(--danger);">git was not found on the path Prax runs with. Install git (on macOS: Xcode command line tools), then reopen Settings.</div>';
+  else if (status?.lastBackup?.error) statusLine = `<div class="settings-row__desc" role="alert" style="color:var(--danger);">Last backup failed ${escapeHtml(whenLabel(status.lastBackup.at))}: ${escapeHtml(status.lastBackup.error.message || 'unknown error')}</div>`;
+  else if (status?.lastBackup) statusLine = `<div class="settings-row__desc" role="status">Last backup ${escapeHtml(whenLabel(status.lastBackup.at))} · ${status.lastBackup.changed ? `commit <span class="git-backup__commit">${shortCommit(status.lastBackup.commit)}</span>` : 'nothing had changed'} · ${escapeHtml(sizeLabel(status.lastBackup.bytes))}${status.lastBackup.large ? ' · <strong>near the hosting size limit</strong>' : ''}</div>`;
+  else if (status?.configured) statusLine = '<div class="settings-row__desc" role="status">No backup yet.</div>';
+  else statusLine = '<div class="settings-row__desc">Push a validated snapshot of this workspace to a private GitHub or GitLab repository, and restore it from any backup in that history. The repository also carries a readable Markdown copy of the Library.</div>';
+
+  const notice = gb.notice ? `<div class="settings-row__desc" role="status" style="margin-top:6px;${gb.noticeIsError ? ' color:var(--danger);' : ''}">${escapeHtml(gb.notice)}</div>` : '';
+
+  const pendingBlock = pending ? `
+    <div class="settings-row">
+      <div class="settings-row__text">
+        <div class="settings-row__label">Restore staged</div>
+        <div class="settings-row__desc" role="status">The backup from ${escapeHtml(whenLabel(pending.backupCreatedAt))} (commit <span class="git-backup__commit">${shortCommit(pending.commit)}</span>, ${escapeHtml(sizeLabel(pending.bytes))}) replaces this workspace the next time Prax starts. The current database is kept beside it as a rollback.</div>
+      </div>
+      ${desktop ? `<button class="btn-primary" type="button" data-action="git-backup-restart"${disabled}>Restart Prax now</button>` : ''}
+      <button class="btn-outline" type="button" data-action="git-backup-cancel-restore"${disabled}>Cancel restore</button>
+    </div>` : '';
+
+  const lastRestore = status?.lastRestore && !pending ? `
+    <div class="settings-row__desc" role="status" style="margin-top:6px;${status.lastRestore.ok ? '' : ' color:var(--danger);'}">${status.lastRestore.ok
+      ? `Restored from commit <span class="git-backup__commit">${shortCommit(status.lastRestore.commit)}</span> on ${escapeHtml(whenLabel(status.lastRestore.appliedAt))}. The previous database is in ${escapeHtml(status.lastRestore.rollbackDir || 'a rollback folder')}.`
+      : `The restore of ${escapeHtml(whenLabel(status.lastRestore.appliedAt))} failed: ${escapeHtml(status.lastRestore.error || 'unknown error')}. The previous database stayed in use.`}</div>` : '';
+
+  const history = gb.history ? (gb.history.backups?.length ? `
+        <div class="git-backup__history" style="margin-top:8px;">
+          ${gb.history.backups.map((entry) => `
+          <div class="doc-row">
+            <span class="doc-row__title"><span class="git-backup__commit">${shortCommit(entry.commit)}</span> · ${escapeHtml(whenLabel(entry.at))}${entry.bytes ? ` · ${escapeHtml(sizeLabel(entry.bytes))}` : ''}${entry.praxVersion ? ` · v${escapeHtml(entry.praxVersion)}` : ''}</span>
+            <button class="btn-outline btn-outline--danger" type="button" data-action="git-backup-restore" data-commit="${escapeHtml(entry.commit)}" data-backup-at="${escapeHtml(entry.at || '')}"${disabled}>Restore…</button>
+          </div>`).join('')}
+        </div>` : '<p class="settings-row__desc" style="margin-top:8px;">No backups on this branch yet.</p>')
+    : gb.historyError ? `<div class="settings-row__desc" role="alert" style="margin-top:8px; color:var(--danger);">${escapeHtml(gb.historyError)}</div>` : '';
+
+  return `
+    <div class="group-label" style="margin-top:18px;">GIT BACKUP</div>
+    <div class="settings-row" style="border-top:none;">
+      <div class="settings-row__text">
+        <div class="settings-row__label">Repository</div>
+        ${statusLine}
+        <label class="settings-row__desc" style="display:block; margin-top:8px;">Address
+          <input class="text-input" type="text" data-git-backup-field="remote" value="${escapeHtml(value('remote'))}" placeholder="git@gitlab.com:you/prax-backup.git or https://github.com/you/prax-backup.git" autocomplete="off" spellcheck="false" style="display:block; margin-top:4px; width:100%;"${disabled}>
+        </label>
+        <div style="display:flex; flex-wrap:wrap; gap:8px 14px; margin-top:8px;">
+          <label class="settings-row__desc">Branch
+            <input class="text-input" type="text" data-git-backup-field="branch" value="${escapeHtml(value('branch', 'main'))}" autocomplete="off" spellcheck="false" style="display:block; margin-top:4px; width:120px;"${disabled}>
+          </label>
+          <label class="settings-row__desc">Sign in with
+            <select class="text-input" data-git-backup-field="auth" style="display:block; margin-top:4px;"${disabled}>
+              <option value="ssh"${auth === 'ssh' ? ' selected' : ''}>SSH key</option>
+              <option value="token"${auth === 'token' ? ' selected' : ''}>Access token (HTTPS)</option>
+            </select>
+          </label>
+          ${auth === 'token' ? `
+          <label class="settings-row__desc">Username
+            <input class="text-input" type="text" data-git-backup-field="username" value="${escapeHtml(value('username'))}" placeholder="x-access-token / oauth2" autocomplete="off" spellcheck="false" style="display:block; margin-top:4px; width:150px;"${disabled}>
+          </label>
+          <label class="settings-row__desc">Token${status?.hasToken && draft.token === undefined ? ' (saved)' : ''}
+            <input class="text-input" type="password" data-git-backup-field="token" value="${escapeHtml(draft.token ?? '')}" placeholder="${status?.hasToken ? 'leave blank to keep' : 'personal or project access token'}" autocomplete="new-password" style="display:block; margin-top:4px; width:220px;"${disabled}>
+          </label>` : ''}
+        </div>
+        <div class="settings-row__desc" style="margin-top:6px;">${auth === 'token'
+          ? 'The token needs write access to the repository (GitHub: Contents read and write; GitLab: write_repository). It is kept beside the database, never inside the backup.'
+          : 'Uses the SSH keys of the account running Prax, the same way git does in a terminal. Test with <span class="git-backup__commit">ssh -T</span> against the host first.'}</div>
+        <label class="settings-row__desc" style="display:inline-flex; align-items:center; gap:6px; margin-top:8px;">
+          <input type="checkbox" data-git-backup-field="scheduleEnabled"${value('scheduleEnabled', false) ? ' checked' : ''}${disabled}> Back up daily while Prax is running
+        </label>
+        ${notice}${lastRestore}
+      </div>
+      <button class="btn-outline" type="button" data-action="git-backup-save"${disabled}>Save</button>
+      <button class="btn-outline" type="button" data-action="git-backup-run"${disabled || !status?.configured ? ' disabled' : ''}${gb.busy === 'backup' ? ' aria-busy="true"' : ''}>${gb.busy === 'backup' ? 'Backing up…' : 'Back up now'}</button>
+    </div>
+    ${pendingBlock}
+    <div class="settings-row">
+      <div class="settings-row__text">
+        <div class="settings-row__label">Restore from a backup</div>
+        <div class="settings-row__desc">Every backup in the repository, newest first. Restoring replaces the whole workspace with that backup at the next start; the current database is kept as a rollback.</div>
+        ${history}
+      </div>
+      <button class="btn-outline" type="button" data-action="git-backup-load-history"${disabled || !status?.configured ? ' disabled' : ''}${gb.busy === 'history' ? ' aria-busy="true"' : ''}>${gb.busy === 'history' ? 'Loading…' : gb.history ? 'Refresh' : 'Show backups'}</button>
+    </div>`;
+}
+
 function renderDataCard(state, model) {
   const projectName = escapeHtml(model.activeProjectName || 'all projects');
   const documentCount = Number(model.activeDocumentCount) || 0;
@@ -674,6 +792,8 @@ function renderDataCard(state, model) {
       <button class="btn-outline" type="button" data-action="export-library-project">Export project…</button>
       <button class="btn-outline" type="button" data-action="export-library-all">Export entire library…</button>
     </div>
+
+    ${renderGitBackupSection(state)}
 
     <div class="group-label" style="margin-top:18px;">MAINTENANCE</div>
     <div class="settings-row" style="border-top:none;">

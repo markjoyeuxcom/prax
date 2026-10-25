@@ -7,6 +7,7 @@ import { createDb } from './db.js';
 import { runMigrations } from './migrate.js';
 import { registerInboxRoutes } from './inboxRoutes.js';
 import { registerWorkspaceBackupRoutes } from './workspaceBackup.js';
+import { applyPendingRestore, registerGitBackupRoutes } from './gitBackup.js';
 import { registerTasksRoutes } from './tasksRoutes.js';
 import { registerLibraryRoutes } from './libraryRoutes.js';
 import { registerMemoryChangesRoutes } from './memoryChangesRoutes.js';
@@ -52,6 +53,12 @@ export async function buildApp(options = {}) {
     logger: options.logger || false,
     logController: options.quietRequestLogging ? new QuietRequestLogController() : undefined,
   });
+  // A restore staged from the git backup (server/gitBackup.js) is applied
+  // here, before the database opens: the server never swaps the file it has
+  // open. A failed apply keeps the previous database and records why.
+  if (!options.db && !options.skipDb && options.applyPendingRestore !== false) {
+    applyPendingRestore(config.databaseFile, { log: app.log });
+  }
   const db = options.db || (options.skipDb ? null : createDb(config.databaseFile));
 
   // The desktop webview exposes a deliberately tiny native IPC surface, so
@@ -170,6 +177,7 @@ export async function buildApp(options = {}) {
   await registerProjectsRoutes(app, options);
   registerInboxRoutes(app, options);
   registerWorkspaceBackupRoutes(app);
+  registerGitBackupRoutes(app, { config, appSettingsRepository, db, gitRunner: options.gitRunner, sweep: options.gitBackupSweep, sweepIntervalMs: options.gitBackupSweepIntervalMs });
   await registerChecklistRoutes(app, options);
   await registerSettingsRoutes(app, { config, appSettingsRepository, embedder: options.embedder, embedderProvider, chat: options.chat, chatProvider, libraryRepository });
   await registerGoogleCalendarRoutes(app, { ...options, appSettingsRepository });

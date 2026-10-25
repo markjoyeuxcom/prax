@@ -389,6 +389,21 @@ or without a manifest. Restore with the same or a newer Prax version. See
 [Schema versions and downgrades](#schema-versions-and-downgrades) and
 [the bundled restore guide](../public/starter-content/workspace-restore.md).
 
+### Git backup repository
+
+The [git backup](backup-restore.md#3-git-backup-to-github-or-gitlab) commits the same snapshot
+and manifest to a branch of a private repository: `prax.db`, `manifest.json` (the workspace
+backup manifest above with `source: "git-backup"`), `RESTORE.md`, `.gitattributes`, `tasks.json`
+(the `moomora.tasks` export of every project) and `library/<project-slug>/…md` (the Markdown v3
+export in the mirror layout, retired documents under `retired/`). Commit subjects read
+`Prax backup <createdAt> (v<praxVersion>)` and the body carries `sha256 <digest>` and
+`bytes <n>`. The routes are `GET`/`PUT /api/workspace/git-backup` (settings and status; the
+token is write-only and never returned), `POST /api/workspace/git-backup/run`,
+`GET /api/workspace/git-backup/history` and `POST`/`DELETE /api/workspace/git-backup/restore`
+(stage or cancel; `202` with the staged commit). A staged restore is applied by the next server
+start, never by a route. `409` reports an unconfigured repository, a run already in progress or a
+backup this build cannot restore; `503` the absence of the persistent database or of `git`.
+
 ### `links:` block
 
 The `links:` block is always present, even when a document has no outbound edges — matching

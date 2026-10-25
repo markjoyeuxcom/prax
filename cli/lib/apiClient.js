@@ -371,6 +371,21 @@ export function createClient({
       const qs = project ? `?${new URLSearchParams({ project }).toString()}` : '';
       return request('GET', `/api/library/librarian/report${qs}`);
     },
+    // Git backup (server/gitBackup.js): status, a run, the remote history and
+    // a staged restore. Operator actions, not agent writes.
+    gitBackupStatus() {
+      return request('GET', '/api/workspace/git-backup');
+    },
+    gitBackupRun() {
+      return request('POST', '/api/workspace/git-backup/run', { body: {} });
+    },
+    gitBackupHistory({ limit } = {}) {
+      const qs = limit ? `?${new URLSearchParams({ limit: String(limit) })}` : '';
+      return request('GET', `/api/workspace/git-backup/history${qs}`);
+    },
+    gitBackupRestore(commit) {
+      return request('POST', '/api/workspace/git-backup/restore', { body: { commit } });
+    },
     listDocuments(project, { status } = {}) {
       const params = new URLSearchParams();
       if (project && project !== 'all') params.set('project', project);

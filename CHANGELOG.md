@@ -12,6 +12,20 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Added
+
+- **Git backup and restore.** Settings ▸ Data & admin ▸ Git backup pushes the validated
+  workspace snapshot (the same `prax.db` and manifest as the Full workspace backup, plus
+  `RESTORE.md`, `tasks.json` and a readable Markdown copy of the Library) as one commit per
+  backup to a private GitHub or GitLab repository, over SSH or with an HTTPS access token; a
+  run whose database is unchanged makes no commit, and a daily schedule is optional. The
+  token lives in an owner-only file beside the database, never inside the backup. Show
+  backups lists the branch history and Restore… stages a commit: Prax checks it with the
+  restore guards and applies it at the next start, keeping the current database in a rollback
+  folder (the desktop app offers Restart Prax now; a failed apply keeps the previous database
+  and says why). `prax backup`, `prax backup status | list | restore <commit> --yes` do the
+  same from a terminal. The Docker image now installs `git` and an SSH client.
+
 ## [0.46.0] - 2026-10-16
 
 ### Changed

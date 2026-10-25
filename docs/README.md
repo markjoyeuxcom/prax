@@ -33,6 +33,7 @@ code before relying on a detail.
 | [Year-one shell](design/year-one-shell.md) | The shell redesign for a year of heavy use: header, navigation, palette scopes, Library table mode, Today |
 | [Console shell](design/console-shell.md) | The Console layout and visual language: one sidebar, command bar, status line, docked inspector, tags at scale |
 | [Budgeted context and brief](design/budgeted-context-and-brief.md) | Token budgets for `context`, `recall` and `brief`, and the since-last-session memory delta |
+| [Git backup](design/git-backup.md) | Workspace backups as commits in a private GitHub or GitLab repository, and the staged restore applied at the next start |
 | [Librarian](design/librarian.md) | Recall telemetry, near-duplicate and stale detection, and the librarian review surface |
 | [Session harvesting](design/session-harvesting.md) | Turning an agent's `Remember:` proposals into unverified Inbox candidates through vendor hooks |
 | [Agents archive, restore and delete](design/agent-archive-delete.md) | The `prax archive` / `restore` / `delete` commands and the guards that keep deletion attributable and reversible-first |

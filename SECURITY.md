@@ -46,7 +46,9 @@ Understand the trust boundary before exposing Prax to a network:
 - **Secrets come from the environment or the local settings database.** The SQLite path
   (`PRAX_DB_FILE`) and environment-provided provider keys are never committed. Provider keys
   configured in the local UI are stored in the single-user SQLite database, so protect backups
-  and the database file as secrets.
+  and the database file as secrets. A git backup repository holds that database, so it must be
+  private; the repository token itself is kept in an owner-only file beside the database and is
+  never written into a backup.
 - **Dependency scanning runs in CI.** Every pull request, push to `main` and release tag runs
   `npm audit --audit-level=high` on the project's self-hosted runners; a high-severity advisory
   fails the workflow and blocks a release. Dependabot opens weekly grouped update pull requests

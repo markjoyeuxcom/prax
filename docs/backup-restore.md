@@ -46,7 +46,8 @@ files are excluded. Follow the included `RESTORE.md` or the
 [bundled restore guide](../public/starter-content/workspace-restore.md) with Prax stopped. The
 shipped `npm run restore` command checks the manifest checksum, refuses a backup made by a newer
 Prax (see [Version and schema guards](#version-and-schema-guards)) and refuses to overwrite
-existing data. This is the authoritative recovery option accessible from the UI.
+existing data. This is the authoritative recovery option accessible from the UI; [Git backup](#3-git-backup-to-github-or-gitlab)
+keeps the same snapshot in a private repository with a restorable history.
 
 The automated task portability drill is `npm run verify:portable`. It proves the documented task
 fields and checklist state against a fresh target instance; it does not change the exclusions
@@ -103,6 +104,57 @@ also valid when its consistency guarantees cover SQLite/WAL; rehearse the exact 
    up-to-date backup. A backup taken by a newer Prax is refused here (see below).
 6. Start Prax, require `/healthz` and `/readyz` to succeed, and inspect representative recent work.
    If validation fails, stop Prax and put the saved pre-restore files back.
+
+## 3. Git backup to GitHub or GitLab
+
+Settings ▸ Data & admin ▸ **Git backup** keeps the same validated workspace backup in a private
+git repository and restores the workspace from any commit in that history. It works with GitHub
+and GitLab (hosted or self-managed) private repositories over SSH or HTTPS, and with any other
+git remote. Prax shells out to the system `git`, so it behaves exactly like git in a terminal.
+
+**Set up.**
+
+1. Create an empty private repository for the backups (one repository per workspace; do not reuse
+   a project's repository, the backup replaces its whole branch history with snapshots).
+2. In Settings, enter the address and branch (default `main`), choose how to sign in, and Save:
+   - **SSH key**: `git@gitlab.com:you/prax-backup.git` or `git@github.com:you/prax-backup.git`.
+     Prax uses the keys of the account running it, in batch mode (it never answers a prompt). Test
+     with `ssh -T git@gitlab.com` or `ssh -T git@github.com` in a terminal first.
+   - **Access token (HTTPS)**: `https://gitlab.com/you/prax-backup.git` plus a token that may write
+     to the repository (GitHub fine-grained token with *Contents: read and write*; GitLab project or
+     personal token with `write_repository`). The username defaults to `x-access-token` for GitHub
+     and `oauth2` for GitLab. The token is stored in a file beside the database
+     (`git-backup/token`, owner-only), never inside the database, so a backup never contains the
+     credential that unlocks its own repository.
+3. **Back up now** makes the first commit. **Back up daily while Prax is running** adds a scheduled
+   run once a day. `prax backup` does the same from a terminal or cron.
+
+**What a backup commit holds.** `prax.db` (the validated SQLite snapshot the ZIP backup also
+produces), `manifest.json` (the same manifest, with `source: "git-backup"`), `RESTORE.md`,
+`tasks.json` and `library/<project>/…md` (every active document as Markdown v3, retired ones under
+`retired/`). The Markdown and JSON copies are for reading the repository on GitHub or GitLab;
+restore uses `prax.db` only. A run whose database is unchanged makes no commit. Each commit is
+the whole snapshot; git stores the unchanged pages as deltas, but the history still grows with
+every backup, and GitHub and GitLab refuse a single file above 100 MB, so Prax flags a snapshot
+above 90 MB. The repository contains saved provider credentials, like every workspace backup:
+keep it private.
+
+**Restore.** **Show backups** lists the commits on the branch, newest first. **Restore…** on one
+stages that backup: Prax fetches it, checks the manifest and the database (checksum, integrity,
+foreign keys, and the [version and schema guards](#version-and-schema-guards)) and writes it to
+`restore-pending/` beside the live database. Nothing changes until Prax starts again, because the
+server never replaces the file it has open. At the next start the live database moves to
+`restore-rollback-<time>/` beside it, the staged copy is restored through the same routine as
+`npm run restore`, and Settings reports the outcome. The desktop app offers **Restart Prax now**;
+a server deployment restarts the process. A staged restore can be cancelled until then. If the
+apply fails, the previous database stays in use, the staged files move to `restore-failed-<time>/`
+and Settings shows the reason. Delete the rollback folder once the restored workspace is accepted.
+
+Not backed up this way: the git token itself, unsaved drafts and browser-only preferences. A
+restore on another machine needs the token or key entered again. Environment: `PRAX_GIT` names
+the git executable when it is not on the PATH Prax runs with; the Docker image installs `git` and
+an SSH client. Keys for SSH remotes must be readable by the account running Prax (mount them into
+a container, or use a token).
 
 ## Version and schema guards
 

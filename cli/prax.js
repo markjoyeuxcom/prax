@@ -31,6 +31,7 @@ import {
 import {
   MIRROR_BOOLEAN_FLAGS, MIRROR_COMMAND, MIRROR_HELP, MIRROR_VALUE_FLAGS, runMirror,
 } from './lib/mirrorCommand.js';
+import { BACKUP_COMMAND, runBackup } from './lib/backupCommand.js';
 import { runHarvest } from './lib/harvestCommand.js';
 import { runSessionStart } from './lib/sessionStart.js';
 import { archiveRecord, restoreRecord, deleteRecord, formatLifecycle } from './lib/lifecycle.js';
@@ -111,6 +112,8 @@ const COMMANDS = {
   used: { flags: [], max: 1, usage: 'prax used <id> [--json]' },
   doctor: { flags: [], max: 0, usage: 'prax doctor [--project <slug>] [--json]' },
   telemetry: { flags: [], max: 1, usage: 'prax telemetry <status|clear> [--json]' },
+  // Git backup (docs/backup-restore.md); configured in Settings.
+  backup: BACKUP_COMMAND,
 };
 const TASK_COMMANDS = {
   add: { flags: [...TASK_FIELD_FLAGS, 'check'], usage: 'prax task add <title> [--priority p] [--status s] [--due d] [--planned d] [--label a,b] [--description t] [--notes t] [--check <item>]...' },
@@ -282,6 +285,7 @@ ${MIRROR_HELP}
   prax used <id>                      (after acting on a recalled memory)
   prax doctor [--project <slug>] [--json]   (exit 0 ok, 2 warnings, 1 could not run)
   prax telemetry <status|clear> [--json]
+  prax backup [status | list [--limit <n>] | restore <commit> --yes] [--json]    (git backup: push now, history, stage a restore)
 
 Global flags: --project <slug>  --url <baseUrl>  --agent <id>  --json
 Retrieval (context, search, recall, brief) leaves out unreviewed harvested candidates (unverified, tagged harvested) and says how many; --include-harvested shows them.
@@ -774,6 +778,11 @@ async function main(argv) {
     if (drift) report = { ...report, checks: [...(report.checks || []), drift], status: drift.level === 'warn' ? 'warn' : report.status };
     out(flags.json ? report : formatDoctor(report, { base: client.base }));
     process.exitCode = doctorExitCode(report);
+    return;
+  }
+
+  if (command === 'backup') {
+    await runBackup({ positionals, flags, client, out });
     return;
   }
 

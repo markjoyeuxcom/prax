@@ -147,6 +147,7 @@ export const state = {
   libraryExportPending: false,
   libraryExportError: '',
   deploymentStatus: { loading: false, error: '' },
+  gitBackup: null,              // Settings › Git backup: { status, loading, error, draft, history, historyError, busy, notice }
   semanticStatus: { available: false },
   chatStatus: { available: false },
   intelligenceSettingsPending: false,

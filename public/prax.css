@@ -2676,6 +2676,8 @@ body[data-density="compact"] .group-label { margin-top: 12px; }
 .settings-row__text { flex: 1; min-width: 0; }
 .settings-row__label { font-size: 13px; font-weight: 550; }
 .settings-row__desc { font-size: 11.5px; color: var(--ink3); margin-top: 1px; }
+.git-backup__commit { font-family: var(--font-mono); font-size: 11px; color: var(--ink2); }
+.git-backup__history .doc-row + .doc-row { margin-top: 4px; }
 
 .theme-card {
   flex: 1;

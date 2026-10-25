@@ -585,3 +585,45 @@ export async function saveLibrarianSettings(patch) {
     method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch || {}),
   }), 'Failed to save librarian settings');
 }
+
+// ---- Git backup (server/gitBackup.js) ---------------------------------------
+async function gitBackupJson(response, fallback) {
+  let body = null;
+  try { body = await response.json(); } catch { /* no body */ }
+  if (!response.ok) {
+    const error = new Error(body?.message || fallback);
+    error.code = body?.code; error.detail = body?.detail; error.status = response.status;
+    throw error;
+  }
+  return body;
+}
+
+export async function fetchGitBackupStatus() {
+  return gitBackupJson(await fetch('/api/workspace/git-backup'), 'Failed to load git backup status');
+}
+
+export async function saveGitBackupSettings(patch) {
+  return gitBackupJson(await fetch('/api/workspace/git-backup', {
+    method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch || {}),
+  }), 'Failed to save git backup settings');
+}
+
+export async function runGitBackup() {
+  return gitBackupJson(await fetch('/api/workspace/git-backup/run', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+  }), 'The git backup failed');
+}
+
+export async function fetchGitBackupHistory() {
+  return gitBackupJson(await fetch('/api/workspace/git-backup/history'), 'Failed to load the backup history');
+}
+
+export async function stageGitBackupRestore(commit) {
+  return gitBackupJson(await fetch('/api/workspace/git-backup/restore', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ commit }),
+  }), 'Failed to stage the restore');
+}
+
+export async function cancelGitBackupRestore() {
+  return gitBackupJson(await fetch('/api/workspace/git-backup/restore', { method: 'DELETE' }), 'Failed to cancel the restore');
+}

@@ -9,6 +9,8 @@ import {
   fetchChatStatus, putChatSettings, fetchGoogleCalendarStatus, putGoogleCalendarSettings,
   connectGoogleCalendar, syncGoogleCalendar, disconnectGoogleCalendar, fetchStaleDocuments,
   fetchCaptureShortcut, saveCaptureShortcut,
+  fetchGitBackupStatus, saveGitBackupSettings, runGitBackup, fetchGitBackupHistory,
+  stageGitBackupRestore, cancelGitBackupRestore,
 } from './libraryApi.js';
 import {
   applyPreferences, savePreferences, resetPreferences,
@@ -188,6 +190,49 @@ export function createSettingsController({
     renderApp();
   }
 
+  // ---- Git backup -----------------------------------------------------------
+  function gitBackupState() {
+    const state = getState();
+    return state.gitBackup && typeof state.gitBackup === 'object' ? state.gitBackup : {};
+  }
+  function patchGitBackup(patch) {
+    setState({ gitBackup: { ...gitBackupState(), ...patch } });
+  }
+  async function loadGitBackup() {
+    patchGitBackup({ loading: true, error: '' });
+    try {
+      const status = await fetchGitBackupStatus();
+      patchGitBackup({ status, loading: false, error: '' });
+    } catch (err) {
+      patchGitBackup({ loading: false, error: err?.status === 503 ? 'Git backup needs the persistent Prax server.' : 'Prax could not load the git backup status.' });
+    }
+  }
+  function gitBackupPatchFromDraft() {
+    const { draft } = gitBackupState();
+    if (!draft) return {};
+    const patch = {};
+    for (const key of ['remote', 'branch', 'auth', 'username', 'scheduleEnabled']) {
+      if (draft[key] !== undefined) patch[key] = draft[key];
+    }
+    if (typeof draft.token === 'string' && draft.token.trim()) patch.token = draft.token.trim();
+    return patch;
+  }
+  async function runGitBackupAction(kind, work, { success } = {}) {
+    if (gitBackupState().busy) return;
+    patchGitBackup({ busy: kind, notice: '', noticeIsError: false });
+    renderApp();
+    try {
+      const result = await work();
+      patchGitBackup({ busy: null, notice: typeof success === 'function' ? success(result) : (success || ''), noticeIsError: false });
+    } catch (err) {
+      // A failed backup is reported by the status line (lastBackup.error);
+      // the other actions have no status of their own, so they get the notice.
+      patchGitBackup({ busy: null, notice: kind === 'backup' ? '' : (err?.message || `The git ${kind} failed.`), noticeIsError: kind !== 'backup' });
+    }
+    await loadGitBackup();
+    renderApp();
+  }
+
   async function loadMaintenance() {
     const state = getState();
     const project = state.maintenanceProjectFilter === 'all' ? '' : state.maintenanceProjectFilter;
@@ -210,6 +255,7 @@ export function createSettingsController({
     loadChatStatus().then(renderApp);
     loadGoogleCalendarStatus().then(renderApp);
     loadMaintenance().then(renderApp);
+    loadGitBackup().then(renderApp);
     renderApp();
     return true;
   }
@@ -250,6 +296,13 @@ export function createSettingsController({
       setState({ googleCalendarDraft: { ...state.googleCalendarDraft, clientSecret: target.value } });
       return true;
     }
+    // Git backup text fields: mirror to the draft without a re-render so the
+    // status refresh never wipes what is being typed.
+    if (target.matches?.('input[data-git-backup-field]') && target.type !== 'checkbox') {
+      const { draft } = gitBackupState();
+      patchGitBackup({ draft: { ...draft, [target.dataset.gitBackupField]: target.value } });
+      return true;
+    }
     return false;
   }
 
@@ -266,6 +319,15 @@ export function createSettingsController({
     if (target.matches?.('[data-maintenance-project-filter]')) {
       setState({ maintenanceProjectFilter: target.value });
       loadMaintenance().then(renderApp);
+      return true;
+    }
+    if (target.matches?.('[data-git-backup-field]')) {
+      const { draft } = gitBackupState();
+      const key = target.dataset.gitBackupField;
+      const value = target.type === 'checkbox' ? target.checked : target.value;
+      patchGitBackup({ draft: { ...draft, [key]: value } });
+      // The auth choice shows or hides the token fields; text fields keep focus.
+      if (target.tagName === 'SELECT' || target.type === 'checkbox') renderApp();
       return true;
     }
     return false;
@@ -709,10 +771,70 @@ export function createSettingsController({
     'refresh-maintenance': async () => {
       await loadMaintenance(); renderApp();
     },
+    // ---- git backup ----
+    'git-backup-save': async () => {
+      const patch = gitBackupPatchFromDraft();
+      if (!Object.keys(patch).length) { patchGitBackup({ notice: 'Nothing to save.', noticeIsError: false }); renderApp(); return; }
+      if (gitBackupState().busy) return;
+      patchGitBackup({ busy: 'save', notice: '', noticeIsError: false });
+      renderApp();
+      try {
+        const status = await saveGitBackupSettings(patch);
+        patchGitBackup({ status, busy: null, draft: null, notice: status.configured ? 'Saved. Back up now to make the first commit.' : 'Saved.', noticeIsError: false });
+      } catch (err) {
+        patchGitBackup({ busy: null, notice: err?.message || 'Prax could not save the git backup settings.', noticeIsError: true });
+      }
+      renderApp();
+    },
+    'git-backup-run': async () => {
+      await runGitBackupAction('backup', runGitBackup, {
+        success: (report) => (report.changed
+          ? `Backed up ${Math.round((report.bytes || 0) / 1024)} KB as commit ${String(report.commit).slice(0, 10)}.`
+          : 'Nothing changed since the last backup; no commit made.'),
+      });
+      if (gitBackupState().history) await actions['git-backup-load-history']();
+    },
+    'git-backup-load-history': async () => {
+      if (gitBackupState().busy) return;
+      patchGitBackup({ busy: 'history', historyError: '' });
+      renderApp();
+      try {
+        patchGitBackup({ history: await fetchGitBackupHistory(), busy: null, historyError: '' });
+      } catch (err) {
+        patchGitBackup({ busy: null, history: null, historyError: err?.message || 'Prax could not load the backup history.' });
+      }
+      renderApp();
+    },
+    'git-backup-restore': async (el) => {
+      const commit = el.dataset.commit;
+      if (!commit) return;
+      if (!el.dataset.confirmed) {
+        const at = el.dataset.backupAt ? new Date(el.dataset.backupAt).toLocaleString() : 'that time';
+        openConfirm({
+          message: `Replace the whole workspace with the backup from ${at}? It is applied the next time Prax starts; everything written since then is kept only in a rollback folder beside the database.`,
+          okLabel: 'Stage restore', danger: true,
+          action: 'git-backup-restore', data: { commit, 'backup-at': el.dataset.backupAt || '' },
+        });
+        return;
+      }
+      setState({ confirm: null });
+      await runGitBackupAction('restore', () => stageGitBackupRestore(commit), { success: 'Restore staged. Restart Prax to apply it.' });
+    },
+    'git-backup-cancel-restore': async () => {
+      await runGitBackupAction('cancel', cancelGitBackupRestore, { success: 'Restore cancelled; nothing changes at the next start.' });
+    },
+    'git-backup-restart': async () => {
+      try {
+        await win.__TAURI__.core.invoke('restart_prax');
+      } catch (err) {
+        patchGitBackup({ notice: `Prax could not restart itself (${String(err)}). Quit and open it again to apply the restore.`, noticeIsError: true });
+        renderApp();
+      }
+    },
   };
 
   return {
     actions, input, change, goSettings, toggleTheme, loadCaptureShortcut, loadDeploymentStatus,
-    loadSemanticStatus, loadChatStatus, loadGoogleCalendarStatus, loadMaintenance,
+    loadSemanticStatus, loadChatStatus, loadGoogleCalendarStatus, loadMaintenance, loadGitBackup,
   };
 }

@@ -845,6 +845,25 @@ has no registered URL and the origin matches no project, and absent outside a re
 are stored, and the bounds. `clear` deletes every recorded query, hit and used signal in the
 workspace (`DELETE /api/library/telemetry`).
 
+### `backup [status | list [--limit <n>] | restore <commit> --yes] [--json]`
+
+The [git backup](backup-restore.md#3-git-backup-to-github-or-gitlab) from a terminal. The
+repository, branch and credentials are configured in Settings ▸ Data & admin ▸ Git backup; this
+command runs what Settings configured, for scripts and cron. `prax backup` pushes a backup now and
+reports the commit, or says nothing changed. `status` prints the repository, the last run, the
+daily schedule and any staged restore. `list` prints the commits on the backup branch, newest
+first. `restore <commit> --yes` stages that backup to replace the whole workspace the next time
+Prax starts (the current database is kept in a rollback folder beside it); without `--yes` it
+explains and exits 1. An operator action: no agent origin is recorded.
+
+```bash
+prax backup
+# Backed up 21.3 MB as commit 4f2a9c1e0b77 on main at git@gitlab.com:you/prax-backup.git.
+prax backup list --limit 5
+prax backup restore 4f2a9c1e0b77 --yes
+# Restore staged from commit 4f2a9c1e0b77 (backup of 2026-10-25 01:00 UTC, 21.3 MB). Quit and start Prax again to apply it; …
+```
+
 ## Unreviewed harvested candidates
 
 A [harvested](#harvest---transcript-file---session-id---dry-run---budget-ms-n---json) proposal

@@ -745,3 +745,54 @@ test('row density is a segmented pair in Appearance, comfortable by default, ref
   const compact = renderSettingsHtml(baseState({ preferences: { theme: 'light', accent: 'fern', chromeOS: 'mac', readingScale: 1, listDensity: 'compact' } }), baseModel());
   assert.match(compact, /data-density="compact" aria-pressed="true"/);
 });
+
+test('the Data & admin card carries the git backup section with its states', () => {
+  const unconfigured = renderSettingsHtml(baseState({ settingsTab: 'data', gitBackup: { status: { configured: false, gitAvailable: true, branch: 'main', auth: 'ssh' } } }), baseModel());
+  assert.match(unconfigured, /GIT BACKUP/);
+  assert.match(unconfigured, /data-git-backup-field="remote"/);
+  assert.match(unconfigured, /data-action="git-backup-save"/);
+  // Nothing to back up or list until a repository is saved.
+  assert.match(unconfigured, /data-action="git-backup-run" disabled/);
+  assert.match(unconfigured, /data-action="git-backup-load-history" disabled/);
+  assert.doesNotMatch(unconfigured, /data-git-backup-field="token"/);
+
+  const token = renderSettingsHtml(baseState({ settingsTab: 'data', gitBackup: { status: { configured: true, gitAvailable: true, remote: 'https://github.com/me/b.git', branch: 'main', auth: 'token', hasToken: true, lastBackup: { at: '2026-10-25T10:00:00Z', changed: true, commit: 'abcdef1234567890', bytes: 2048 } } } }), baseModel());
+  assert.match(token, /data-git-backup-field="token"[^>]*placeholder="leave blank to keep"/);
+  assert.match(token, /Token \(saved\)/);
+  assert.match(token, /commit <span class="git-backup__commit">abcdef1234<\/span>/);
+  assert.match(token, /data-action="git-backup-run"(?! disabled)/);
+  // A typed draft wins over the saved value and survives re-renders.
+  const drafted = renderSettingsHtml(baseState({ settingsTab: 'data', gitBackup: { status: { configured: true, gitAvailable: true, remote: 'git@gitlab.com:g/b.git', auth: 'ssh' }, draft: { remote: 'git@gitlab.com:g/other.git', auth: 'token' } } }), baseModel());
+  assert.match(drafted, /value="git@gitlab\.com:g\/other\.git"/);
+  assert.match(drafted, /data-git-backup-field="token"/);
+
+  const failed = renderSettingsHtml(baseState({ settingsTab: 'data', gitBackup: { status: { configured: true, gitAvailable: true, remote: 'x', auth: 'ssh', lastBackup: { at: '2026-10-25T10:00:00Z', error: { message: 'The repository refused the credentials.' } } } } }), baseModel());
+  assert.match(failed, /role="alert"[^>]*>Last backup failed .*refused the credentials/);
+  const noGit = renderSettingsHtml(baseState({ settingsTab: 'data', gitBackup: { status: { configured: false, gitAvailable: false } } }), baseModel());
+  assert.match(noGit, /git was not found/);
+});
+
+test('the git backup history lists commits with a restore action and a staged restore shows its next step', () => {
+  const history = { branch: 'main', backups: [
+    { commit: '1111111111aaaaaaaaaa', at: '2026-10-25T10:00:00Z', bytes: 4096, praxVersion: '0.47.0' },
+    { commit: '2222222222bbbbbbbbbb', at: '2026-10-24T10:00:00Z', bytes: 4096, praxVersion: '0.46.0' },
+  ] };
+  const html = renderSettingsHtml(baseState({ settingsTab: 'data', gitBackup: { status: { configured: true, gitAvailable: true, remote: 'x', auth: 'ssh' }, history } }), baseModel());
+  assert.equal((html.match(/data-action="git-backup-restore"/g) || []).length, 2);
+  assert.match(html, /data-action="git-backup-restore" data-commit="1111111111aaaaaaaaaa" data-backup-at="2026-10-25T10:00:00Z"/);
+  assert.match(html, /v0\.47\.0/);
+  assert.match(html, /data-action="git-backup-load-history"[^>]*>Refresh</);
+
+  const empty = renderSettingsHtml(baseState({ settingsTab: 'data', gitBackup: { status: { configured: true, gitAvailable: true, remote: 'x', auth: 'ssh' }, history: { branch: 'main', backups: [] } } }), baseModel());
+  assert.match(empty, /No backups on this branch yet/);
+
+  const staged = renderSettingsHtml(baseState({ settingsTab: 'data', gitBackup: { status: { configured: true, gitAvailable: true, remote: 'x', auth: 'ssh', pendingRestore: { commit: '2222222222bbbbbbbbbb', backupCreatedAt: '2026-10-24T10:00:00Z', bytes: 4096 } } } }), baseModel());
+  assert.match(staged, /settings-row__label">Restore staged</);
+  assert.match(staged, /data-action="git-backup-cancel-restore"/);
+  // The in-app restart only renders inside the desktop shell.
+  assert.doesNotMatch(staged, /data-action="git-backup-restart"/);
+  // While a run is in flight every git control is disabled.
+  const busy = renderSettingsHtml(baseState({ settingsTab: 'data', gitBackup: { status: { configured: true, gitAvailable: true, remote: 'x', auth: 'ssh' }, busy: 'backup' } }), baseModel());
+  assert.match(busy, /data-action="git-backup-run" disabled aria-busy="true">Backing up…</);
+  assert.match(busy, /data-action="git-backup-save" disabled/);
+});

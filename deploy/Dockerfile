@@ -6,6 +6,10 @@ RUN npm ci --omit=dev
 
 FROM node:24-alpine AS runtime
 
+# Git backup (docs/backup-restore.md) shells out to git; SSH remotes need a
+# client. Mount the key or set a token in Settings.
+RUN apk add --no-cache git openssh-client
+
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
