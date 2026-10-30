@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createChat } from '../../server/chat/index.js';
 import { createFakeChat } from '../../server/chat/fake.js';
 import { createOpenAiChat } from '../../server/chat/openai.js';
-import { createAnthropicChat } from '../../server/chat/anthropic.js';
+import { acceptsTemperature, createAnthropicChat } from '../../server/chat/anthropic.js';
 import { createOllamaChat } from '../../server/chat/ollama.js';
 import { createGeminiChat } from '../../server/chat/gemini.js';
 import { toMessages, splitSystem } from '../../server/chat/messages.js';
@@ -121,6 +121,28 @@ test('anthropic chat lifts system out of turns, pins version, joins text blocks'
   assert.equal(body.system, 'be terse');
   assert.equal(body.max_tokens, 500);
   assert.deepEqual(body.messages, [{ role: 'user', content: 'q' }]); // system not a turn
+});
+
+test('anthropic chat sends temperature only to models that accept it', async () => {
+  for (const model of ['claude-haiku-4-5-20251001', 'claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-opus-4-6', 'claude-sonnet-4-20250514', 'claude-opus-4-1-20250805', 'claude-3-5-haiku-20241022']) {
+    assert.equal(acceptsTemperature(model), true, model);
+  }
+  for (const model of ['claude-sonnet-5-5', 'claude-sonnet-5', 'claude-opus-5-5', 'claude-opus-4-7', 'claude-opus-4-8', 'claude-haiku-5-5', 'claude-fable-5-1', 'claude-x', '']) {
+    assert.equal(acceptsTemperature(model), false, model);
+  }
+  const bodyFor = async (model) => {
+    let seen;
+    const fetch = fakeFetch((url, init) => { seen = init; return { ok: true, async json() { return { content: [{ type: 'text', text: 'ok' }] }; } }; });
+    await createAnthropicChat({ apiKey: 'k', model, fetch }).complete('q', { temperature: 0.2 });
+    return JSON.parse(seen.body);
+  };
+  assert.equal((await bodyFor('claude-haiku-4-5-20251001')).temperature, 0.2);
+  assert.equal('temperature' in (await bodyFor('claude-sonnet-5-5')), false);
+});
+
+test('anthropic chat failure carries the API error message', async () => {
+  const fetch = fakeFetch(() => ({ ok: false, status: 400, async text() { return JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'temperature is not supported' } }); } }));
+  await assert.rejects(createAnthropicChat({ apiKey: 'k', fetch }).complete('x'), /anthropic chat failed: 400 \(temperature is not supported\)/);
 });
 
 test('anthropic chat throws on non-ok and empty content; isAvailable probes GET /v1/models', async () => {
