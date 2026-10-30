@@ -12,6 +12,17 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.47.3] - 2026-10-30
+
+### Fixed
+
+- **Ask Prax and other AI answers with newer Claude models.** Claude Sonnet 5.5 and the other 5.x
+  models think before answering, and that thinking used up the answer's token budget: Ask Prax
+  showed "The model ran out of room…" and returned only sources, and short tasks such as quick
+  capture could fail the same way. Prax now gives these models room to think on top of each
+  answer's budget and sets a modest thinking effort for short tasks, with Ask Prax at high effort
+  for better-organised answers. Older Claude models are unchanged.
+
 ## [0.47.2] - 2026-10-30
 
 ### Fixed
@@ -2637,7 +2648,8 @@ and onboarding features with the corrected installation guide.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/markjoyeuxcom/prax/compare/v0.47.2...HEAD
+[Unreleased]: https://github.com/markjoyeuxcom/prax/compare/v0.47.3...HEAD
+[0.47.3]: https://github.com/markjoyeuxcom/prax/compare/v0.47.2...v0.47.3
 [0.47.2]: https://github.com/markjoyeuxcom/prax/compare/v0.47.1...v0.47.2
 [0.47.1]: https://github.com/markjoyeuxcom/prax/compare/v0.47.0...v0.47.1
 [0.47.0]: https://github.com/markjoyeuxcom/prax/compare/v0.46.0...v0.47.0

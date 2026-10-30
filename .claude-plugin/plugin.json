@@ -1,7 +1,7 @@
 {
   "name": "prax",
   "description": "Prax agent memory: recall and remember durable knowledge across sessions and agent CLIs",
-  "version": "0.47.2",
+  "version": "0.47.3",
   "author": {
     "name": "Mark Joyeux"
   },
