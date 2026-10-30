@@ -1600,7 +1600,8 @@ export async function registerLibraryRoutes(app, options = {}) {
       return { query, answer: null, degraded: true, reason: 'no-sources', markdown, sources, retrieval, model: chat.model || null };
     }
     try {
-      const { text, model, truncated } = await chat.complete(buildAskMessages(query, answerContext.context), { temperature: 0.2, maxTokens: 1024 });
+      // effort is a hint for models that think (Claude 5.x); others ignore it.
+      const { text, model, truncated } = await chat.complete(buildAskMessages(query, answerContext.context), { temperature: 0.2, maxTokens: 1024, effort: 'high' });
       // A cut-off answer is not an answer: a valid citation proves which
       // source it read, not that the procedure got to its last step.
       if (truncated) {

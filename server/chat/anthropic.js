@@ -17,6 +17,23 @@ export function acceptsTemperature(model) {
   return SAMPLING_MODEL.test(String(model || ''));
 }
 
+// Those same newer models think by default, and thinking tokens count against
+// max_tokens: at Ask's 1024 Claude Sonnet 5.5 spent the whole budget thinking
+// and returned no text. Callers' maxTokens is the room for the answer, so the
+// request adds thinking headroom on top, and sets a modest effort: Prax's calls
+// are short, grounded tasks (measured on Sonnet 5.5, low effort used ~2k tokens
+// in 16 s where the default used ~5k in 36 s). Tool turns get medium. A caller
+// may ask for more: Ask Prax passes high (grounded in its sources it measured
+// 10 s and ~1.4k tokens, and organised the answer better than low).
+export const THINKING_HEADROOM_TOKENS = 16_000;
+const EFFORTS = new Set(['low', 'medium', 'high']);
+
+export function thinkingRequestFields(model, { maxTokens, tools, effort }) {
+  if (acceptsTemperature(model)) return { max_tokens: maxTokens };
+  const level = EFFORTS.has(effort) ? effort : (tools ? 'medium' : 'low');
+  return { max_tokens: maxTokens + THINKING_HEADROOM_TOKENS, output_config: { effort: level } };
+}
+
 // The API's own error message ("temperature is not supported…") is what makes a
 // 400 explainable; keep it, bounded, alongside the status.
 async function providerError(res) {
@@ -58,7 +75,7 @@ export function createAnthropicChat({ baseUrl, apiKey, model, fetch = globalThis
       const { system, turns } = tools ? splitSystemRich(messages) : splitSystem(messages);
       const body = {
         model: chatModel,
-        max_tokens: opts.maxTokens ?? 1024,
+        ...thinkingRequestFields(chatModel, { maxTokens: opts.maxTokens ?? 1024, tools, effort: opts.effort }),
         messages: tools
           ? anthropicMessages(turns)
           : turns.map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),

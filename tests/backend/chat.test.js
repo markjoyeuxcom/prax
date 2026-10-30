@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createChat } from '../../server/chat/index.js';
 import { createFakeChat } from '../../server/chat/fake.js';
 import { createOpenAiChat } from '../../server/chat/openai.js';
-import { acceptsTemperature, createAnthropicChat } from '../../server/chat/anthropic.js';
+import { acceptsTemperature, createAnthropicChat, THINKING_HEADROOM_TOKENS } from '../../server/chat/anthropic.js';
 import { createOllamaChat } from '../../server/chat/ollama.js';
 import { createGeminiChat } from '../../server/chat/gemini.js';
 import { toMessages, splitSystem } from '../../server/chat/messages.js';
@@ -111,7 +111,7 @@ test('llamacpp rides the openai chat client: keyless, modelless, own error name'
 test('anthropic chat lifts system out of turns, pins version, joins text blocks', async () => {
   let seen;
   const fetch = fakeFetch((url, init) => { seen = { url, init }; return { ok: true, async json() { return { content: [{ type: 'text', text: 'part1 ' }, { type: 'thinking', text: 'x' }, { type: 'text', text: 'part2' }] }; } }; });
-  const c = createAnthropicChat({ baseUrl: 'http://a', apiKey: 'ak-1', model: 'claude-x', fetch });
+  const c = createAnthropicChat({ baseUrl: 'http://a', apiKey: 'ak-1', model: 'claude-haiku-4-5', fetch });
   const out = await c.complete([{ role: 'system', content: 'be terse' }, { role: 'user', content: 'q' }], { maxTokens: 500 });
   assert.equal(out.text, 'part1 part2');   // only text blocks, concatenated
   assert.equal(seen.url, 'http://a/v1/messages');
@@ -138,6 +138,23 @@ test('anthropic chat sends temperature only to models that accept it', async () 
   };
   assert.equal((await bodyFor('claude-haiku-4-5-20251001')).temperature, 0.2);
   assert.equal('temperature' in (await bodyFor('claude-sonnet-5-5')), false);
+});
+
+test('anthropic chat gives thinking-by-default models headroom and a modest effort', async () => {
+  const bodyFor = async (model, opts) => {
+    let seen;
+    const fetch = fakeFetch((url, init) => { seen = init; return { ok: true, async json() { return { content: [{ type: 'text', text: 'ok' }] }; } }; });
+    await createAnthropicChat({ apiKey: 'k', model, fetch }).complete('q', opts);
+    return JSON.parse(seen.body);
+  };
+  const newer = await bodyFor('claude-sonnet-5-5', { maxTokens: 1024 });
+  assert.equal(newer.max_tokens, 1024 + THINKING_HEADROOM_TOKENS); // the answer keeps its own room
+  assert.deepEqual(newer.output_config, { effort: 'low' });
+  assert.deepEqual((await bodyFor('claude-sonnet-5-5', { maxTokens: 1024, effort: 'high' })).output_config, { effort: 'high' });
+  assert.deepEqual((await bodyFor('claude-sonnet-5-5', { maxTokens: 1024, effort: 'bogus' })).output_config, { effort: 'low' });
+  const older = await bodyFor('claude-haiku-4-5-20251001', { maxTokens: 1024, effort: 'high' });
+  assert.equal(older.max_tokens, 1024);
+  assert.equal('output_config' in older, false); // Haiku 4.5 rejects effort
 });
 
 test('anthropic chat failure carries the API error message', async () => {
