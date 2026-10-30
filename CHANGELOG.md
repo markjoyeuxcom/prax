@@ -12,6 +12,17 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.47.2] - 2026-10-30
+
+### Fixed
+
+- **AI answers with newer Claude models.** With Anthropic selected and a model such as
+  `claude-sonnet-5-5`, Save and connect succeeded but every message failed with
+  `anthropic chat failed: 400`, because Prax sent a temperature those models reject (Claude Opus
+  4.7 and later, and every 5.x model). Prax now sends a temperature only to the older Claude
+  models that accept one, and an Anthropic error now includes the API's own message instead of
+  the status code alone.
+
 ## [0.47.1] - 2026-10-25
 
 ### Changed
@@ -2626,7 +2637,8 @@ and onboarding features with the corrected installation guide.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/markjoyeuxcom/prax/compare/v0.47.1...HEAD
+[Unreleased]: https://github.com/markjoyeuxcom/prax/compare/v0.47.2...HEAD
+[0.47.2]: https://github.com/markjoyeuxcom/prax/compare/v0.47.1...v0.47.2
 [0.47.1]: https://github.com/markjoyeuxcom/prax/compare/v0.47.0...v0.47.1
 [0.47.0]: https://github.com/markjoyeuxcom/prax/compare/v0.46.0...v0.47.0
 [0.46.0]: https://github.com/markjoyeuxcom/prax/compare/v0.45.1...v0.46.0

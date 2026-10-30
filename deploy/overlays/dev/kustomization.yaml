@@ -4,4 +4,4 @@ resources:
   - ../../base
 images:
   - name: ghcr.io/markjoyeuxcom/prax
-    newTag: v0.47.1
+    newTag: v0.47.2
