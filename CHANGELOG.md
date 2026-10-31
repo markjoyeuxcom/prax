@@ -12,6 +12,13 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Tables on the Ask page.** On a wide window an answer's table was squeezed into the 740px
+  reading column, breaking words one letter per line, while the space either side stayed empty.
+  Tables (and code blocks) in an answer now use the full width beside the column and keep words
+  whole; text, the question and the composer keep the comfortable reading width.
+
 ## [0.48.0] - 2026-10-31
 
 ### Added
