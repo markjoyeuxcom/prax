@@ -12,6 +12,8 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+## [0.48.2] - 2026-10-31
+
 ### Fixed
 
 - **Ask citations name the right document.** A citation such as `[Failover (staging · retired)]`
@@ -2696,7 +2698,8 @@ and onboarding features with the corrected installation guide.
   views; an inline document info editor; a Docker Compose local install; and CI for tests and
   dependency security scanning.
 
-[Unreleased]: https://github.com/markjoyeuxcom/prax/compare/v0.48.1...HEAD
+[Unreleased]: https://github.com/markjoyeuxcom/prax/compare/v0.48.2...HEAD
+[0.48.2]: https://github.com/markjoyeuxcom/prax/compare/v0.48.1...v0.48.2
 [0.48.1]: https://github.com/markjoyeuxcom/prax/compare/v0.48.0...v0.48.1
 [0.48.0]: https://github.com/markjoyeuxcom/prax/compare/v0.47.3...v0.48.0
 [0.47.3]: https://github.com/markjoyeuxcom/prax/compare/v0.47.2...v0.47.3

@@ -81,7 +81,7 @@ no container image is published; build one from `deploy/Dockerfile` and follow
 [deploy/README.md](deploy/README.md) and [docs/deployment.md](docs/deployment.md) for Kubernetes:
 
 ```bash
-docker build -f deploy/Dockerfile -t ghcr.io/markjoyeuxcom/prax:v0.48.1 .
+docker build -f deploy/Dockerfile -t ghcr.io/markjoyeuxcom/prax:v0.48.2 .
 ```
 
 ## What it does
