@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildApp } from '../../server/index.js';
-import { buildAskMessages, buildAnswerContext, collectSources, validateAnswerCitations } from '../../server/askLibrary.js';
+import { buildAskMessages, buildAnswerContext, collectSources, normalizeAnswerCitations, selectAnswerContext, validateAnswerCitations } from '../../server/askLibrary.js';
 
 const PROJECT_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -15,6 +15,13 @@ test('buildAskMessages grounds the prompt in the pack and asks the question', ()
   assert.equal(msgs[1].role, 'user');
   assert.match(msgs[1].content, /# Pack/);
   assert.match(msgs[1].content, /QUESTION: how do we fail over\?$/);
+});
+
+test('buildAskMessages lists the citable titles before the context', () => {
+  const msgs = buildAskMessages('q', '## Release runbook (runbook · verified)\n\n## Packaged rehearsal\nsteps', ['Release runbook', 'Release history']);
+  assert.match(msgs[0].content, /Never cite a heading inside a document/);
+  assert.match(msgs[1].content, /^SOURCES \(the only citable titles\):\n- \[Release runbook\]\n- \[Release history\]\n\nCONTEXT:/);
+  assert.doesNotMatch(buildAskMessages('q', 'ctx')[1].content, /SOURCES/); // no titles, no list
 });
 
 test('buildAskMessages tolerates an empty pack', () => {
@@ -68,6 +75,37 @@ test('buildAnswerContext respects the total + per-doc budget', () => {
   const ctx = buildAnswerContext(docs, { totalChars: 5000, docChars: 1000, limit: 6 });
   assert.ok(ctx.length <= 6000);                                // bounded near the total budget
   assert.match(ctx, /…\(truncated\)/);                          // per-doc cap applied
+});
+
+test('selectAnswerContext budgets by relevance and shows verified first', () => {
+  // Retrieval order is relevance: the unverified runbook is the best match, the
+  // verified note the weakest. With room for two, the runbook is placed whole
+  // and the weak verified note is the one left out.
+  const runbook = { id: 'r', title: 'Release runbook', documentType: 'runbook', verified: false, status: 'active', body: `Steps. ${'detail '.repeat(150)} WITHHELD_RELEASE_SECTION` };
+  const history = { id: 'h', title: 'Release history', documentType: 'reference', verified: true, status: 'active', body: 'v0.45.0 never published.' };
+  const unrelated = { id: 'u', title: 'CLI install note', documentType: 'note', verified: true, status: 'active', body: 'Install the shim.' };
+  const { context, documents } = selectAnswerContext([runbook, history, unrelated], { limit: 2 });
+  assert.deepEqual(documents.map((d) => d.title), ['Release history', 'Release runbook']); // verified shown first
+  assert.match(context, /WITHHELD_RELEASE_SECTION/);
+  assert.doesNotMatch(context, /CLI install note/);
+});
+
+test('a runbook longer than the old 3000-char cap reaches the model whole', () => {
+  const body = `${'Release step. '.repeat(260)}v0.37.0 was withheld when a symlinked restore did nothing.`; // ~3700 chars
+  const { context } = selectAnswerContext([{ id: 'p', title: 'Prax release process', documentType: 'runbook', verified: false, status: 'active', body }]);
+  assert.match(context, /v0\.37\.0 was withheld/);
+  assert.doesNotMatch(context, /…\(truncated\)/);
+});
+
+test('normalizeAnswerCitations strips a copied context-header suffix from known titles only', () => {
+  const sources = [{ title: 'Using Prax from inside a Docker container' }, { title: 'Postgres failover' }];
+  assert.equal(
+    normalizeAnswerCitations('Build it [Using Prax from inside a Docker container (runbook · UNVERIFIED — pending human review)].', sources),
+    'Build it [Using Prax from inside a Docker container].',
+  );
+  assert.equal(normalizeAnswerCitations('[postgres failover (runbook · verified)]', sources), '[postgres failover]');
+  assert.equal(normalizeAnswerCitations('[Invented doc (note · verified)]', sources), '[Invented doc (note · verified)]'); // still rejected
+  assert.equal(normalizeAnswerCitations('[Postgres failover] and array[0]', sources), '[Postgres failover] and array[0]');
 });
 
 // ---- route ----
@@ -148,6 +186,26 @@ test('POST /api/library/ask makes semantic failure and keyword fallback explicit
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.json().retrieval, { mode: 'keyword', fallback: true, reason: 'semantic-unavailable' });
   assert.ok(res.json().sources.length > 0);
+  await app.close();
+});
+
+test('POST /api/library/ask accepts a citation that copied the context header, and returns it as the bare title', async () => {
+  const chat = { backend: 'fake', model: 'fake-chat', async complete() { return { text: 'Promote the standby [Postgres failover (runbook · verified)].', model: 'fake-chat' }; } };
+  const app = await makeApp({ chat, docs: DOCS });
+  const body = (await app.inject({ method: 'POST', url: '/api/library/ask', payload: { q: 'failover?' } })).json();
+  assert.equal(body.degraded, false);
+  assert.equal(body.answer, 'Promote the standby [Postgres failover].');
+  assert.deepEqual(body.citation.citations, ['Postgres failover']);
+  await app.close();
+});
+
+test('POST /api/library/ask asks the model for high effort', async () => {
+  let seenOpts;
+  const chat = { backend: 'fake', model: 'fake-chat', async complete(_messages, opts) { seenOpts = opts; return { text: 'Promote the standby [Postgres failover].', model: 'fake-chat' }; } };
+  const app = await makeApp({ chat, docs: DOCS });
+  await app.inject({ method: 'POST', url: '/api/library/ask', payload: { q: 'failover?' } });
+  assert.equal(seenOpts.effort, 'high');
+  assert.equal(seenOpts.maxTokens, 1024);
   await app.close();
 });
 

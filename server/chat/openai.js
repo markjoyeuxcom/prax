@@ -9,6 +9,21 @@ import { fetchWithTimeout, finish, resolveTimeout } from './request.js';
 // Real OpenAI uses the Responses API so current reasoning models can call tools.
 // llama.cpp and other callers selecting the explicit llamacpp backend retain
 // Chat Completions compatibility, including its optional model field.
+
+// Reasoning models (the o-series, GPT-5 and later) count reasoning tokens
+// against max_output_tokens: at Ask's 1024 gpt-6-luna spent 684 of them
+// reasoning and was cut off. Callers' maxTokens is the room for the answer, so
+// these models get headroom on top, and a caller's effort hint becomes
+// reasoning.effort. Older models (gpt-4o-mini caps output at 16384) and unknown
+// ids get the budget exactly as given.
+export const REASONING_HEADROOM_TOKENS = 16_000;
+const REASONING_MODEL = /^(o\d|gpt-([5-9]|\d{2,})([.-]|$))/;
+const EFFORTS = new Set(['low', 'medium', 'high']);
+
+export function isReasoningModel(model) {
+  return REASONING_MODEL.test(String(model || ''));
+}
+
 export function createOpenAiChat({ baseUrl, apiKey, model, backend = 'openai', defaultModel = 'gpt-4o-mini', fetch = globalThis.fetch, timeoutMs } = {}) {
   const base = String(baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '');
   const chatModel = model || defaultModel;
@@ -80,7 +95,9 @@ export function createOpenAiChat({ baseUrl, apiKey, model, backend = 'openai', d
       store: false,
     };
     if (system) body.instructions = system;
-    if (opts.maxTokens != null) body.max_output_tokens = opts.maxTokens;
+    const reasoning = isReasoningModel(chatModel);
+    if (opts.maxTokens != null) body.max_output_tokens = opts.maxTokens + (reasoning ? REASONING_HEADROOM_TOKENS : 0);
+    if (reasoning && EFFORTS.has(opts.effort)) body.reasoning = { effort: opts.effort };
     if (tools) body.tools = openaiResponseTools(tools);
     // Current reasoning models can reject non-default sampling controls. Prax's
     // temperature hints are optional, so omit them on the Responses API.

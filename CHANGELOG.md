@@ -12,6 +12,19 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Ask Prax reads whole documents.** Each source could contribute only 3,000 characters, so the
+  end of a longer runbook never reached the model, and verified documents were chosen before
+  more relevant unverified ones. Sources now get up to 8,000 characters each (24,000 in all),
+  chosen by relevance and still shown verified first, and the prompt lists the exact titles that
+  can be cited so models no longer cite a section heading or a linked document.
+- **Ask Prax with OpenAI reasoning models.** GPT-5 and later (and the o-series) spent the
+  answer's token budget on reasoning and were cut off; they now get room to reason on top of it,
+  and Ask asks them for high reasoning effort. A citation that copies the source's type and
+  trust label, such as `[Runbook title (runbook · verified)]`, is now accepted and shown as the
+  plain title.
+
 ## [0.47.3] - 2026-10-30
 
 ### Fixed

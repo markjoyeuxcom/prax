@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createChat } from '../../server/chat/index.js';
 import { createFakeChat } from '../../server/chat/fake.js';
-import { createOpenAiChat } from '../../server/chat/openai.js';
+import { createOpenAiChat, isReasoningModel, REASONING_HEADROOM_TOKENS } from '../../server/chat/openai.js';
 import { acceptsTemperature, createAnthropicChat, THINKING_HEADROOM_TOKENS } from '../../server/chat/anthropic.js';
 import { createOllamaChat } from '../../server/chat/ollama.js';
 import { createGeminiChat } from '../../server/chat/gemini.js';
@@ -82,6 +82,24 @@ test('openai chat uses the Responses API and returns output text', async () => {
   assert.equal(body.max_output_tokens, 256);
   assert.equal(body.store, false);
   assert.deepEqual(body.input, [{ role: 'user', content: 'hi' }]);
+});
+
+test('openai reasoning models get output headroom and the caller effort; older models do not', async () => {
+  for (const model of ['gpt-6.1-sol', 'gpt-6-luna', 'gpt-6-astra', 'gpt-6.1-terra', 'gpt-5.6-sol', 'gpt-5', 'o3', 'o4-mini']) assert.equal(isReasoningModel(model), true, model);
+  for (const model of ['gpt-4o-mini', 'gpt-4.1', 'gpt-4o', 'llama-3', '']) assert.equal(isReasoningModel(model), false, model);
+  const bodyFor = async (model, opts) => {
+    let seen;
+    const fetch = fakeFetch((url, init) => { seen = init; return { ok: true, async json() { return { output: [{ type: 'message', content: [{ type: 'output_text', text: 'ok' }] }] }; } }; });
+    await createOpenAiChat({ apiKey: 'k', model, fetch }).complete('q', opts);
+    return JSON.parse(seen.body);
+  };
+  const sol = await bodyFor('gpt-6.1-sol', { maxTokens: 1024, effort: 'high' });
+  assert.equal(sol.max_output_tokens, 1024 + REASONING_HEADROOM_TOKENS);
+  assert.deepEqual(sol.reasoning, { effort: 'high' });
+  assert.equal('reasoning' in (await bodyFor('gpt-6.1-sol', { maxTokens: 1024 })), false); // no hint: provider default
+  const mini = await bodyFor('gpt-4o-mini', { maxTokens: 1024, effort: 'high' });
+  assert.equal(mini.max_output_tokens, 1024);
+  assert.equal('reasoning' in mini, false);
 });
 
 test('openai chat omits Authorization when keyless and surfaces safe provider errors', async () => {

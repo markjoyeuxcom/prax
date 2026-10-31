@@ -32,7 +32,7 @@ import {
 } from './libraryExport.js';
 import { createEmbeddingService } from './embeddingService.js';
 import { buildContextPack, renderContextPackMarkdown, contentLength, isSubstantive } from './contextPack.js';
-import { ANSWER_DOC_LIMIT, answerSources, buildAskMessages, selectAnswerContext, validateAnswerCitations } from './askLibrary.js';
+import { ANSWER_DOC_LIMIT, answerSources, buildAskMessages, normalizeAnswerCitations, selectAnswerContext, validateAnswerCitations } from './askLibrary.js';
 import { buildAskTaskMessages, coerceAskTasks } from './askTasks.js';
 import { requestToday } from './localDay.js';
 import { buildRunSummary, buildPostMortemMessages, fallbackPostMortem, postMortemTitle } from './postMortem.js';
@@ -1600,8 +1600,10 @@ export async function registerLibraryRoutes(app, options = {}) {
       return { query, answer: null, degraded: true, reason: 'no-sources', markdown, sources, retrieval, model: chat.model || null };
     }
     try {
-      // effort is a hint for models that think (Claude 5.x); others ignore it.
-      const { text, model, truncated } = await chat.complete(buildAskMessages(query, answerContext.context), { temperature: 0.2, maxTokens: 1024, effort: 'high' });
+      // effort is a hint for models that think (Claude 5.x, OpenAI reasoning
+      // models); others ignore it.
+      const { text: generated, model, truncated } = await chat.complete(buildAskMessages(query, answerContext.context, sources.map((source) => source.title)), { temperature: 0.2, maxTokens: 1024, effort: 'high' });
+      const text = normalizeAnswerCitations(generated, sources);
       // A cut-off answer is not an answer: a valid citation proves which
       // source it read, not that the procedure got to its last step.
       if (truncated) {
