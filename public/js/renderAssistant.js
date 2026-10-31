@@ -1,5 +1,6 @@
 import { escapeHtml } from './html.js';
 import { icon } from './icons.js';
+import { ASSISTANT_MIN_WIDTH, clampAssistantWidth, maxAssistantWidth } from './assistantWidth.js';
 
 // The built-in AI assistant panel — an agentic, multi-turn chat over the whole
 // Prax tool tree. Reads run automatically; writes surface a confirmation card
@@ -261,9 +262,13 @@ export function renderAssistantHtml(state, { renderMarkdown = (s) => escapeHtml(
       : `${escapeHtml(status.model || 'model')} · read-only · answers from a live snapshot`)
     : '';
 
+  const width = clampAssistantWidth(state.assistantWidth, state.winW);
+  const widthStyle = width == null ? '' : ` style="--asst-width: ${escapeHtml(width)}px"`;
+
   return `
     <div class="overlay-scrim asst-scrim" data-overlay="assistant" data-action="close-assistant">
-      <aside class="asst" role="dialog" aria-label="Prax assistant">
+      <aside class="asst" role="dialog" aria-label="Prax assistant"${widthStyle}>
+        <div class="asst__resize" data-assistant-resize role="separator" aria-orientation="vertical" aria-label="Resize the assistant panel" aria-valuemin="${ASSISTANT_MIN_WIDTH}" aria-valuemax="${escapeHtml(maxAssistantWidth(state.winW))}"${width == null ? '' : ` aria-valuenow="${escapeHtml(width)}"`} tabindex="0" title="Drag to resize · double-click to reset"></div>
         <header class="asst__head">
           <div class="asst__title">${icon('spark', 14)}<span>Ask Prax</span>${modelNote ? `<span class="asst__model">${modelNote}</span>` : ''}</div>
           <div class="asst__head-actions">

@@ -215,6 +215,7 @@ export const state = {
   assistantError: null,         // null | error message string
   assistantErrorKind: null,     // null | 'error' | 'partial' (truthful committed-write outcome)
   assistantInput: '',           // composer text mirrored on input so a re-render keeps it
+  assistantWidth: null,         // px the panel was dragged to (localStorage); null = stylesheet default
   assistantApprovalAttempted: false, // an approval was sent; its outcome must be recovered before a new chat
 
   // ---- NL capture & NL→filter (Tier-3 #8) ----

@@ -12,8 +12,17 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Added
+
+- **Resize the assistant.** Drag the assistant panel's left edge to make it wider or narrower;
+  the width is remembered on this device. Double-click the edge (or press Home on it) to go back
+  to the default, and with the edge focused the arrow keys resize it. A strip of the page always
+  stays visible to click the panel closed.
+
 ### Fixed
 
+- **Tables in assistant answers.** A wide table squeezed its columns until words broke one
+  character per line; tables in the assistant now keep words whole and scroll sideways.
 - **Ask Prax reads whole documents.** Each source could contribute only 3,000 characters, so the
   end of a longer runbook never reached the model, and verified documents were chosen before
   more relevant unverified ones. Sources now get up to 8,000 characters each (24,000 in all),

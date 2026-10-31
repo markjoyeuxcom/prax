@@ -101,6 +101,7 @@ import { loadPinned, savePinned, togglePinned } from './pinned.js';
 import { isCollapsed, loadCollapsed, saveCollapsed, toggleCollapsed } from './collapsed.js';
 import { loadRecent, saveRecent, pushRecent, loadRecentDocuments, saveRecentDocuments, pushRecentDocument } from './recentProjects.js';
 import { loadLayout, saveLayout } from './libraryLayout.js';
+import { installAssistantResize, loadAssistantWidth } from './assistantWidth.js';
 import { renderBoardHtml, buildBoardColumns, limitBoardColumns } from './renderBoard.js';
 import { renderBacklogHtml, renderArchiveHtml } from './renderBacklog.js';
 import { renderTaskDrawerHtml, renderMissingTaskDrawerHtml, inspectorDocked } from './renderTaskDetail.js';
@@ -4184,6 +4185,7 @@ async function handleAction(action, el, event) {
 // ---------------------------------------------------------------------------
 
 function bindEvents() {
+  installAssistantResize({ root: appRoot, setState });
   appRoot.addEventListener('click', (event) => {
     if (event.target.closest?.(`a[href="${INBOX_LINK}"]`)) {
       event.preventDefault(); void goProject(inboxProjectId(), 'inbox'); return;
@@ -4703,7 +4705,7 @@ async function init() {
   // macOS merges the native titlebar into the app's top bar (overlay style) —
   // inset the bar so the traffic lights sit inside it.
   document.body.classList.toggle('is-desktop-mac', desktopShell && desktopPlatform === 'macos');
-  setState({ preferences, librarySavedViews: loadSavedViews(), taskSmartViews: loadSmartViews(), pinned: loadPinned(), askHistory: loadAskHistory(), askHistoryOpen: loadAskHistoryOpen(), recentProjects: loadRecent(), recentDocuments: loadRecentDocuments(), libraryLayout: loadLayout(), collapsedSections: loadCollapsed(), winW: window.innerWidth, desktopShell, desktopPlatform });
+  setState({ preferences, librarySavedViews: loadSavedViews(), taskSmartViews: loadSmartViews(), pinned: loadPinned(), askHistory: loadAskHistory(), askHistoryOpen: loadAskHistoryOpen(), recentProjects: loadRecent(), recentDocuments: loadRecentDocuments(), libraryLayout: loadLayout(), assistantWidth: loadAssistantWidth(), collapsedSections: loadCollapsed(), winW: window.innerWidth, desktopShell, desktopPlatform });
   applyPreferences(preferences);
   // The first Library paint is a pending load, never an "empty library".
   setState({ documentsLoadState: 'loading' });

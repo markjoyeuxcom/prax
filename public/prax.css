@@ -3310,7 +3310,9 @@ body.is-desktop-mac .titlebar { padding-left: 84px; }
   justify-content: flex-end;
 }
 .asst {
-  width: clamp(360px, 34vw, 470px);
+  position: relative;
+  /* --asst-width is set when the panel has been dragged wider or narrower. */
+  width: var(--asst-width, clamp(360px, 34vw, 470px));
   max-width: 100vw;
   height: 100%;
   display: flex;
@@ -3321,6 +3323,34 @@ body.is-desktop-mac .titlebar { padding-left: 84px; }
   animation: mmSlideRight .2s cubic-bezier(.2, .8, .25, 1);
 }
 @keyframes mmSlideRight { from { transform: translateX(16px); opacity: 0; } to { transform: none; opacity: 1; } }
+/* The left edge drags to resize (assistantWidth.js); a wide hit area, a thin line. */
+.asst__resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  width: 9px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 1;
+}
+.asst__resize::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  background: transparent;
+  transition: background .15s;
+}
+.asst__resize:hover::after,
+.asst__resize:focus-visible::after,
+html.is-resizing-x .asst__resize::after { background: var(--accent); }
+.asst__resize:focus-visible { outline: none; }
+html.is-resizing-x,
+html.is-resizing-x * { cursor: col-resize !important; user-select: none !important; }
+@media (max-width: 640px) { .asst__resize { display: none; } }
 .asst__head {
   display: flex;
   align-items: center;
@@ -3365,6 +3395,10 @@ body.is-desktop-mac .titlebar { padding-left: 84px; }
   max-width: 100%;
 }
 .asst__turn--ai .asst__bubble.prose { padding: 4px 13px; }
+/* In the panel a wide table scrolls sideways instead of squeezing a column to
+   one character per line: cells break between words, never inside them. */
+.asst__bubble.prose table { display: block; max-width: 100%; overflow-x: auto; }
+.asst__bubble.prose th, .asst__bubble.prose td { overflow-wrap: normal; word-break: normal; min-width: 8ch; }
 .asst__turn--ai .asst__bubble.prose > :first-child { margin-top: 4px; }
 .asst__turn--ai .asst__bubble.prose > :last-child { margin-bottom: 4px; }
 
