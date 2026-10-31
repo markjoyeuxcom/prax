@@ -4077,10 +4077,14 @@ button.rq-item:hover { background: color-mix(in oklab, var(--ink) 5%, transparen
    beside it; everything else keeps the 740px reading measure, centred. */
 .ask-thread__scroll > :not(.ask-answer):not(.ask-q) { width: 100%; max-width: 740px; margin-left: auto; margin-right: auto; }
 .ask-answer.prose > * { max-width: 740px; margin-left: auto; margin-right: auto; }
-.ask-answer.prose > pre { max-width: 100%; }
-/* A table takes the width its content needs, up to the whole column, and
-   scrolls sideways past that; cells break between words, never inside them. */
-.ask-answer.prose > table { display: block; width: fit-content; max-width: 100%; overflow-x: auto; }
+/* Tables and code (a fenced block renders as .code-block around its <pre>)
+   take the width their content needs: at least the reading measure, so a
+   small one lines up with the text, up to the whole column, then scroll.
+   Table cells break between words, never inside them. */
+.ask-answer.prose > table,
+.ask-answer.prose > pre,
+.ask-answer.prose > .code-block { width: fit-content; min-width: min(100%, 740px); max-width: 100%; }
+.ask-answer.prose > table { display: block; overflow-x: auto; }
 .ask-answer.prose th, .ask-answer.prose td { overflow-wrap: normal; word-break: normal; min-width: 8ch; }
 .ask-q { align-self: flex-end; max-width: min(80%, 592px); margin-right: max(0px, (100% - 740px) / 2); padding: 10px 14px; border-radius: 10px 10px 2px 10px; background: var(--card); border: 1px solid var(--line2); font-size: 14px; line-height: 1.45;  white-space: pre-wrap; }
 .ask-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-family: var(--font-mono); font-size: 11px; color: var(--ink3); }

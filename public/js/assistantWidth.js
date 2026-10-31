@@ -44,7 +44,8 @@ export function saveAssistantWidth(width, storage = globalThis.localStorage) {
 // storage when the pointer is released. Double-click or Home restores the
 // default width.
 export function installAssistantResize({ root, setState, storage = () => globalThis.localStorage, win = globalThis.window }) {
-  let suppressClicksUntil = 0;
+  // Set when a drag ends; consumed by the one click that release produces.
+  let swallowReleaseClickUntil = 0;
 
   const panel = () => root.querySelector('.asst');
   const apply = (width) => {
@@ -60,9 +61,17 @@ export function installAssistantResize({ root, setState, storage = () => globalT
   };
 
   // A drag that ends over the backdrop can be delivered as a click on it
-  // (WebKit does), which would close the panel the person was resizing.
+  // (WebKit does), which would close the panel the person was resizing. Only
+  // that one release click is swallowed: any new press or key clears the
+  // guard, so a click made after the drag (Close, Send, a citation) always runs.
+  const clearGuard = () => { swallowReleaseClickUntil = 0; };
+  win.addEventListener('pointerdown', clearGuard, true);
+  win.addEventListener('keydown', clearGuard, true);
   win.addEventListener('click', (event) => {
-    if (Date.now() < suppressClicksUntil) { event.stopPropagation(); event.preventDefault(); }
+    if (Date.now() >= swallowReleaseClickUntil) return;
+    clearGuard();
+    event.stopPropagation();
+    event.preventDefault();
   }, true);
 
   root.addEventListener('pointerdown', (event) => {
@@ -87,7 +96,7 @@ export function installAssistantResize({ root, setState, storage = () => globalT
       win.removeEventListener('pointercancel', end);
       win.document.documentElement.classList.remove('is-resizing-x');
       if (!moved) return;
-      suppressClicksUntil = Date.now() + 400;
+      swallowReleaseClickUntil = Date.now() + 400;
       commit(width);
     };
     win.addEventListener('pointermove', move);

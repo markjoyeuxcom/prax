@@ -13,6 +13,14 @@ test('Ask page: a wide answer table breaks out of the reading column', async ({ 
     '|---|---|---|---|',
     '| v0.37.0 (candidate) | Withheld | A symlinked backup/restore command silently performed no restore | Rehearse backup/restore with the packaged Node executable, including via a symlinked path, and require a JSON success report |',
     '| v0.39.1 | Tag died in CI | The `npm audit` gate failed | Run `npm audit --audit-level=high` locally before tagging |',
+    '',
+    '```sh',
+    'gh workflow run release.yml -f version=v0.47.0 && gh run watch "$(gh run list --workflow release.yml --limit 1 --json databaseId --jq \'.[0].databaseId\')" --exit-status --interval 60',
+    '```',
+    '',
+    '```sh',
+    'npm test',
+    '```',
   ].join('\n');
   await page.route('**/api/library/ask', (route) => route.fulfill({ json: {
     query: 'Which releases failed?', answer, degraded: false, markdown: '', sources,
@@ -45,4 +53,14 @@ test('Ask page: a wide answer table breaks out of the reading column', async ({ 
     return new Set([...range.getClientRects()].map((rect) => Math.round(rect.top))).size;
   });
   expect(lines).toBe(1);
+
+  // Review finding 2026-10-31: a fenced block renders as .code-block around its
+  // <pre>; a long command uses the column too, and a short one lines up with the text.
+  const blocks = page.locator('.ask-answer > .code-block');
+  await expect(blocks).toHaveCount(2);
+  const longBlock = await blocks.nth(0).boundingBox();
+  const shortBlock = await blocks.nth(1).boundingBox();
+  expect(longBlock.width).toBeGreaterThan(text.width + 200);
+  expect(Math.round(shortBlock.width)).toBe(740);
+  expect(Math.round(shortBlock.x)).toBe(Math.round(text.x));
 });

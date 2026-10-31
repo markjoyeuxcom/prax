@@ -71,8 +71,7 @@ export function selectAnswerContext(docs, { limit = ANSWER_DOC_LIMIT, totalChars
     if (!bodyText) continue; // skip empty docs — nothing to answer from
     // One line, so a title cannot open a heading of its own under a trust label.
     const title = normalizeTitle(doc.title) || 'Untitled';
-    const trust = doc.verified ? 'verified' : 'UNVERIFIED — pending human review';
-    const header = `## ${title} (${doc.documentType || 'note'} · ${trust})`;
+    const header = `## ${title} ${headerLabel(doc)}`;
     const cap = Math.min(docChars, remaining - header.length - 8);
     const text = bodyText.length > cap ? `${bodyText.slice(0, Math.max(0, cap))}\n…(truncated)` : bodyText;
     const block = `${header}\n\n${text}`;
@@ -129,20 +128,26 @@ export function answerSources(documents) {
 // Each context document is headed "## Title (type · trust)", and some models
 // copy the whole header into a citation:
 // [Using Prax from inside a Docker container (runbook · UNVERIFIED — pending human review)].
-// Rewrite those to the bare title so the answer validates and the Ask page
-// renders them as source chips. A suffix on an unknown title is left alone, so
-// it is still rejected.
-const HEADER_SUFFIX = /\s+\([^()\n]*·[^()\n]*\)$/;
+// Rewrite exactly that, the source's own label, to the bare title so the answer
+// validates and the Ask page renders a source chip. Any other qualifier stays:
+// [Failover (staging · retired)] may name a different document that a source
+// only links to, and must still be rejected rather than credited to [Failover].
+function headerLabel(doc) {
+  const trust = doc.verified ? 'verified' : 'UNVERIFIED — pending human review';
+  return `(${doc.documentType || 'note'} · ${trust})`;
+}
+
+const foldCitation = (text) => String(text || '').trim().replace(/\s+/g, ' ').toLowerCase();
 
 export function normalizeAnswerCitations(answer, sources) {
-  const known = new Set((Array.isArray(sources) ? sources : [])
-    .map((source) => String(source?.title || '').trim().toLowerCase())
-    .filter(Boolean));
+  const labelled = new Map();
+  for (const source of Array.isArray(sources) ? sources : []) {
+    const title = String(source?.title || '').trim();
+    if (title) labelled.set(foldCitation(`${title} ${headerLabel(source)}`), title);
+  }
   return String(answer || '').replace(/\[([^\]\n]{1,200})\](?!\()/g, (match, inner) => {
-    const title = inner.trim();
-    if (known.has(title.toLowerCase())) return match;
-    const bare = title.replace(HEADER_SUFFIX, '');
-    return bare !== title && known.has(bare.toLowerCase()) ? `[${bare}]` : match;
+    const title = labelled.get(foldCitation(inner));
+    return title ? `[${title}]` : match;
   });
 }
 

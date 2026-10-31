@@ -12,6 +12,21 @@ fresh empty `[Unreleased]` section is started.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Ask citations name the right document.** A citation such as `[Failover (staging · retired)]`
+  could be credited to the source `[Failover]` and shown with its trust chip. Only the exact
+  "(type · trust)" label Prax gives a source is now treated as that source.
+- **Claude through a gateway.** A cloud-style model id (`claude-haiku-4-5@20251001`,
+  `anthropic.claude-sonnet-4-5-…-v1:0`) or a deployment alias was sent the newer models' effort
+  setting, which Claude Haiku 4.5 and Sonnet 4.5 reject. Effort and thinking room now go only to
+  models known to take them, and cloud ids are recognised for what they are.
+- **Clicks right after resizing the assistant.** For 0.4 seconds after a resize every click was
+  ignored, so Close, Send or a citation did nothing. Only the click that ends the drag is ignored
+  now.
+- **Code blocks on the Ask page.** A long command in an answer now uses the width beside the
+  reading column like a table does, and a short one lines up with the text.
+
 ## [0.48.1] - 2026-10-31
 
 ### Fixed

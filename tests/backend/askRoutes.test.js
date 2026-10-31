@@ -97,15 +97,30 @@ test('a runbook longer than the old 3000-char cap reaches the model whole', () =
   assert.doesNotMatch(context, /…\(truncated\)/);
 });
 
-test('normalizeAnswerCitations strips a copied context-header suffix from known titles only', () => {
-  const sources = [{ title: 'Using Prax from inside a Docker container' }, { title: 'Postgres failover' }];
+test('normalizeAnswerCitations strips only the label Prax gave that source', () => {
+  const sources = [
+    { title: 'Using Prax from inside a Docker container', documentType: 'runbook', verified: false },
+    { title: 'Postgres failover', documentType: 'runbook', verified: true },
+  ];
   assert.equal(
     normalizeAnswerCitations('Build it [Using Prax from inside a Docker container (runbook · UNVERIFIED — pending human review)].', sources),
     'Build it [Using Prax from inside a Docker container].',
   );
-  assert.equal(normalizeAnswerCitations('[postgres failover (runbook · verified)]', sources), '[postgres failover]');
-  assert.equal(normalizeAnswerCitations('[Invented doc (note · verified)]', sources), '[Invented doc (note · verified)]'); // still rejected
+  assert.equal(normalizeAnswerCitations('[postgres  failover (runbook · verified)]', sources), '[Postgres failover]'); // case and spacing fold
+  assert.equal(normalizeAnswerCitations('[Postgres failover (runbook · UNVERIFIED — pending human review)]', sources),
+    '[Postgres failover (runbook · UNVERIFIED — pending human review)]'); // not this source's label
+  assert.equal(normalizeAnswerCitations('[Invented doc (note · verified)]', sources), '[Invented doc (note · verified)]');
   assert.equal(normalizeAnswerCitations('[Postgres failover] and array[0]', sources), '[Postgres failover] and array[0]');
+});
+
+test('a qualified title that names a different, linked document is not credited to a source', () => {
+  // Review finding 2026-10-31: [Failover (staging · retired)] is another
+  // document's title, not the label Prax gives [Failover].
+  const sources = [{ title: 'Failover', documentType: 'runbook', verified: true }];
+  const answer = 'Use the staging-only sequence [Failover (staging · retired)].';
+  const normalized = normalizeAnswerCitations(answer, sources);
+  assert.equal(normalized, answer);
+  assert.equal(validateAnswerCitations(normalized, sources).valid, false);
 });
 
 // ---- route ----

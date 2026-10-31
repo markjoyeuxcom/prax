@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createChat } from '../../server/chat/index.js';
 import { createFakeChat } from '../../server/chat/fake.js';
 import { createOpenAiChat, isReasoningModel, REASONING_HEADROOM_TOKENS } from '../../server/chat/openai.js';
-import { acceptsTemperature, createAnthropicChat, THINKING_HEADROOM_TOKENS } from '../../server/chat/anthropic.js';
+import { acceptsEffort, acceptsTemperature, canonicalModelId, createAnthropicChat, THINKING_HEADROOM_TOKENS } from '../../server/chat/anthropic.js';
 import { createOllamaChat } from '../../server/chat/ollama.js';
 import { createGeminiChat } from '../../server/chat/gemini.js';
 import { toMessages, splitSystem } from '../../server/chat/messages.js';
@@ -173,6 +173,35 @@ test('anthropic chat gives thinking-by-default models headroom and a modest effo
   const older = await bodyFor('claude-haiku-4-5-20251001', { maxTokens: 1024, effort: 'high' });
   assert.equal(older.max_tokens, 1024);
   assert.equal('output_config' in older, false); // Haiku 4.5 rejects effort
+});
+
+test('anthropic cloud and alias ids: temperature and effort follow what the model is known to accept', async () => {
+  assert.equal(canonicalModelId('us.anthropic.claude-sonnet-4-5-20250929-v1:0'), 'claude-sonnet-4-5-20250929');
+  assert.equal(canonicalModelId('claude-haiku-4-5@20251001'), 'claude-haiku-4-5-20251001');
+  assert.equal(canonicalModelId('anthropic.claude-opus-5-5'), 'claude-opus-5-5');
+  for (const model of ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-5-5', 'claude-opus-4-7', 'claude-opus-4-8', 'claude-fable-5-1', 'anthropic.claude-sonnet-5-5']) assert.equal(acceptsEffort(model), true, model);
+  for (const model of ['claude-haiku-4-5', 'claude-sonnet-4-5-20250929', 'claude-opus-4-6', 'claude-3-5-haiku-20241022', 'my-haiku-deployment', 'claude-x', '']) assert.equal(acceptsEffort(model), false, model);
+  const bodyFor = async (model) => {
+    let seen;
+    const fetch = fakeFetch((url, init) => { seen = init; return { ok: true, async json() { return { content: [{ type: 'text', text: 'ok' }] }; } }; });
+    await createAnthropicChat({ apiKey: 'k', model, fetch }).complete('q', { temperature: 0.2, maxTokens: 1024, effort: 'high' });
+    return JSON.parse(seen.body);
+  };
+  // Review finding 2026-10-31: these reached a gateway with effort, which Haiku/Sonnet 4.5 reject.
+  for (const model of ['claude-haiku-4-5@20251001', 'anthropic.claude-sonnet-4-5-20250929-v1:0']) {
+    const body = await bodyFor(model);
+    assert.equal(body.model, model);                 // the gateway's own id is sent unchanged
+    assert.equal(body.max_tokens, 1024);
+    assert.equal(body.temperature, 0.2);             // a 4.5 model still takes it
+    assert.equal('output_config' in body, false);
+  }
+  const alias = await bodyFor('my-haiku-deployment');
+  assert.equal(alias.max_tokens, 1024);
+  assert.equal('output_config' in alias, false);
+  assert.equal('temperature' in alias, false);       // unknown: the optional hint is left out
+  const bedrockNew = await bodyFor('anthropic.claude-opus-5-5');
+  assert.deepEqual(bedrockNew.output_config, { effort: 'high' });
+  assert.equal(bedrockNew.max_tokens, 1024 + THINKING_HEADROOM_TOKENS);
 });
 
 test('anthropic chat failure carries the API error message', async () => {

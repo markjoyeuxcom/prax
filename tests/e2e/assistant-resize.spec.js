@@ -44,3 +44,26 @@ test('assistant panel: drag the left edge to resize', async ({ page }) => {
   await page.keyboard.press('ArrowLeft');
   await expect.poll(async () => Math.round((await page.locator('aside.asst').boundingBox()).width)).toBe(Math.round(before) + 32);
 });
+
+// Review finding 2026-10-31: only the click that ends a drag is swallowed. A
+// click made straight after resizing (here Close) must still work.
+test('assistant panel: a click right after resizing still runs', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.request.put('/api/settings/ai-answers', { data: { backend: 'fake' } });
+  await page.goto('/');
+  await page.evaluate(() => localStorage.removeItem('prax.assistantWidth.v1'));
+  await page.reload();
+  await page.locator('[data-action="open-assistant"]').click();
+  await expect(page.locator('[data-assistant-input]')).toBeEnabled();
+  const handle = page.locator('[data-assistant-resize]');
+  await handle.hover();
+  const box = await handle.boundingBox();
+  const y = box.y + box.height / 2;
+  await page.mouse.move(box.x + box.width / 2, y);
+  await page.mouse.down();
+  await page.mouse.move(box.x - 200, y, { steps: 8 });
+  await page.mouse.up();
+  await expect(page.locator('aside.asst')).toBeVisible();          // the release click was swallowed
+  await page.locator('.asst__head [data-action="close-assistant"]').click(); // well inside 400ms
+  await expect(page.locator('aside.asst')).toHaveCount(0);
+});

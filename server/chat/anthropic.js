@@ -7,29 +7,49 @@ import { fetchWithTimeout, finish, resolveTimeout } from './request.js';
 // and max_tokens is required. Response text is the concatenation of the `text`
 // content blocks. stop_reason 'max_tokens' marks the result truncated.
 
+// A gateway may pass a cloud form of the id through: Bedrock's
+// [us.]anthropic.claude-sonnet-4-5-20250929-v1:0 or Vertex's
+// claude-haiku-4-5@20251001. Both reduce to the first-party id.
+export function canonicalModelId(model) {
+  return String(model || '').trim().toLowerCase()
+    .replace(/^(?:[a-z]{2,6}\.)?anthropic\./, '')
+    .replace(/-v\d+(?::\d+)?$/, '')
+    .replace(/@(\d{8})$/, '-$1');
+}
+
 // Claude Opus 4.7 and every later model (Sonnet 5.x, Haiku 5.x, Opus 5.x,
 // Fable, Mythos) answer a non-default temperature with a 400, so the hint is
 // sent only to the older models known to accept it: Claude 3.x and Claude 4
-// through 4.6, with or without a date suffix. Unknown ids get no temperature.
+// through 4.6, with or without a date suffix. Omitting an optional hint is
+// safe, so unknown ids (a deployment alias) get no temperature.
 const SAMPLING_MODEL = /^claude-(3[-.]|(opus|sonnet|haiku)-(3|4(-[0-6])?)(-\d{8})?$)/;
 
 export function acceptsTemperature(model) {
-  return SAMPLING_MODEL.test(String(model || ''));
+  return SAMPLING_MODEL.test(canonicalModelId(model));
 }
 
-// Those same newer models think by default, and thinking tokens count against
-// max_tokens: at Ask's 1024 Claude Sonnet 5.5 spent the whole budget thinking
-// and returned no text. Callers' maxTokens is the room for the answer, so the
-// request adds thinking headroom on top, and sets a modest effort: Prax's calls
-// are short, grounded tasks (measured on Sonnet 5.5, low effort used ~2k tokens
-// in 16 s where the default used ~5k in 36 s). Tool turns get medium. A caller
-// may ask for more: Ask Prax passes high (grounded in its sources it measured
-// 10 s and ~1.4k tokens, and organised the answer better than low).
+// Adding a field is not safe the same way: Haiku 4.5 and Sonnet 4.5 reject
+// output_config.effort. Only models known to take it get it: Claude Opus 4.7
+// and later, the 5.x family, Fable and Mythos. Those that think by default count
+// thinking tokens against max_tokens: at Ask's 1024 Claude Sonnet 5.5 spent the
+// whole budget thinking and returned no text. Callers' maxTokens is the room for
+// the answer, so the request adds thinking headroom on top, and sets a modest
+// effort: Prax's calls are short, grounded tasks (measured on Sonnet 5.5, low
+// effort used ~2k tokens in 16 s where the default used ~5k in 36 s). Tool turns
+// get medium. A caller may ask for more: Ask Prax passes high (grounded in its
+// sources it measured 10 s and ~1.4k tokens, and organised the answer better
+// than low). An unknown id gets the budget exactly as given.
+const EFFORT_MODEL = /^claude-((opus|sonnet|haiku)-([5-9]|4-[7-9])|fable|mythos)\b/;
+
+export function acceptsEffort(model) {
+  return EFFORT_MODEL.test(canonicalModelId(model));
+}
+
 export const THINKING_HEADROOM_TOKENS = 16_000;
 const EFFORTS = new Set(['low', 'medium', 'high']);
 
 export function thinkingRequestFields(model, { maxTokens, tools, effort }) {
-  if (acceptsTemperature(model)) return { max_tokens: maxTokens };
+  if (!acceptsEffort(model)) return { max_tokens: maxTokens };
   const level = EFFORTS.has(effort) ? effort : (tools ? 'medium' : 'low');
   return { max_tokens: maxTokens + THINKING_HEADROOM_TOKENS, output_config: { effort: level } };
 }
